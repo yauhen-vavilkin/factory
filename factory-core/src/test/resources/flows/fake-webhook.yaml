@@ -1,0 +1,15 @@
+id: fake-webhook
+name: Fake Webhook Flow
+version: 1.0.0
+triggers:
+  - event_type: jira.issue.transitioned
+    filters:
+      "/issue/fields/status/name": "Ready for QA"
+input_schema:
+  required: [issueKey]
+agent_chain:
+  - step_id: work
+    type: AGENT
+    worker_id: echo-worker
+    inputs: ["$trigger"]
+    outputs: [result.md]
