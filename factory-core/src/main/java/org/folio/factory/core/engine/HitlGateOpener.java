@@ -68,6 +68,7 @@ public class HitlGateOpener {
                                            String error, int attempts) {
         Map<String, Object> reviewPackage = new LinkedHashMap<>();
         reviewPackage.put("gateId", ESCALATION_GATE_ID);
+        reviewPackage.put("stepId", step.stepId());
         reviewPackage.put("title", "Escalation: step '" + step.stepId() + "' failed " + attempts + " time(s)");
         reviewPackage.put("instructions",
                 "The step exhausted its automated retry budget. Investigate the error, then reject the "

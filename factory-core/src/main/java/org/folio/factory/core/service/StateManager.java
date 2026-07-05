@@ -103,6 +103,15 @@ public class StateManager {
         return next;
     }
 
+    @Transactional
+    public void resetRetry(UUID executionId, String stepId) {
+        PipelineExecution execution = load(executionId);
+        Map<String, Integer> counts = readRetryCounts(execution);
+        counts.remove(stepId);
+        execution.setRetryCounts(jsonMapper.writeValueAsString(counts));
+        executions.save(execution);
+    }
+
     @Transactional(readOnly = true)
     public int retryCount(UUID executionId, String stepId) {
         return readRetryCounts(load(executionId)).getOrDefault(stepId, 0);

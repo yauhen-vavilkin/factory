@@ -1,0 +1,23 @@
+id: fake-gated
+name: Fake Gated Flow
+version: 1.0.0
+triggers:
+  - event_type: manual
+agent_chain:
+  - step_id: draft
+    type: AGENT
+    worker_id: echo-worker
+    inputs: ["$trigger"]
+    outputs: [draft.md]
+  - step_id: review
+    type: HITL_GATE
+    gate:
+      gate_id: gate-1
+      title: "Review the draft"
+      review_instructions: "Approve, amend or reject."
+      reviewed_artifacts: [draft.md]
+  - step_id: publish
+    type: AGENT
+    worker_id: echo-worker
+    inputs: [draft.md]
+    outputs: [final.md]
