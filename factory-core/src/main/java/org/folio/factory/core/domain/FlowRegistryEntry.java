@@ -33,7 +33,7 @@ public class FlowRegistryEntry {
     @Column(name = "yaml_sha256", nullable = false, length = 64)
     private String yamlSha256;
 
-    @Column(name = "raw_yaml", nullable = false)
+    @Column(name = "raw_yaml", nullable = false, columnDefinition = "text")
     private String rawYaml;
 
     @Column(name = "registered_at", nullable = false)

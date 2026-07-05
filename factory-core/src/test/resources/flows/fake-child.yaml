@@ -1,0 +1,9 @@
+id: fake-child
+name: Fake Child Flow
+version: 1.0.0
+agent_chain:
+  - step_id: transform
+    type: AGENT
+    worker_id: echo-worker
+    inputs: [child_input.md]
+    outputs: [child_output.md]

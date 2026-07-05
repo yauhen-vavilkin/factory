@@ -60,7 +60,7 @@ public class ArtifactStore {
         return repository.findByExecutionIdOrderByNameAscVersionAsc(executionId);
     }
 
-    static String sha256(String content) {
+    public static String sha256(String content) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return HexFormat.of().formatHex(digest.digest(content.getBytes(StandardCharsets.UTF_8)));

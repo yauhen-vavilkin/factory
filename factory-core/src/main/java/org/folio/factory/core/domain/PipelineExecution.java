@@ -48,7 +48,7 @@ public class PipelineExecution {
     @Column(name = "retry_counts", nullable = false)
     private String retryCounts = "{}";
 
-    @Column(name = "error_message")
+    @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
     @Column(name = "next_run_at", nullable = false)

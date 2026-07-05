@@ -41,6 +41,7 @@ public class HitlReview {
 
     private String reviewer;
 
+    @Column(columnDefinition = "text")
     private String comments;
 
     @JdbcTypeCode(SqlTypes.JSON)

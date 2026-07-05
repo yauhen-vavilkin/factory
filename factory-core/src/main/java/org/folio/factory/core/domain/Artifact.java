@@ -31,7 +31,7 @@ public class Artifact {
     @Column(name = "content_type", nullable = false, updatable = false)
     private String contentType;
 
-    @Column(nullable = false, updatable = false)
+    @Column(nullable = false, updatable = false, columnDefinition = "text")
     private String content;
 
     @Column(nullable = false, updatable = false, length = 64)

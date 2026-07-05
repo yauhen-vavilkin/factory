@@ -1,0 +1,19 @@
+id: fake-parent
+name: Fake Parent Flow
+version: 1.0.0
+triggers:
+  - event_type: manual
+agent_chain:
+  - step_id: produce
+    type: AGENT
+    worker_id: echo-worker
+    inputs: ["$trigger"]
+    outputs: [parent_doc.md]
+  - step_id: delegate
+    type: SUB_FLOW
+    sub_flow:
+      flow_id: fake-child
+      input_mapping:
+        parent_doc.md: child_input.md
+      output_mapping:
+        child_output.md: collected.md
