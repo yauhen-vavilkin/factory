@@ -1,0 +1,51 @@
+spring:
+  application:
+    name: ai-factory
+  datasource:
+    url: ${FACTORY_DB_URL:jdbc:postgresql://localhost:5432/factory}
+    username: ${FACTORY_DB_USER:factory}
+    password: ${FACTORY_DB_PASSWORD:factory}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+  ai:
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      chat:
+        options:
+          model: ${FACTORY_LLM_MODEL:claude-sonnet-4-5}
+          max-tokens: 8192
+
+factory:
+  engine:
+    poll-interval-ms: 2000
+    batch-size: 5
+    worker-threads: 4
+    lease-timeout-seconds: 600
+  connectors:
+    jira:
+      base-url: ${FACTORY_CONNECTORS_JIRA_BASE_URL:}
+      email: ${FACTORY_CONNECTORS_JIRA_EMAIL:}
+      api-token: ${FACTORY_CONNECTORS_JIRA_API_TOKEN:}
+    github:
+      base-url: ${FACTORY_CONNECTORS_GITHUB_BASE_URL:}
+      token: ${FACTORY_CONNECTORS_GITHUB_TOKEN:}
+    testrail:
+      base-url: ${FACTORY_CONNECTORS_TESTRAIL_BASE_URL:}
+      username: ${FACTORY_CONNECTORS_TESTRAIL_USERNAME:}
+      api-key: ${FACTORY_CONNECTORS_TESTRAIL_API_KEY:}
+      project-id: ${FACTORY_CONNECTORS_TESTRAIL_PROJECT_ID:0}
+  flowa:
+    execution:
+      base-url: ${FACTORY_FLOWA_EXECUTION_BASE_URL:}
+      karate-jar: ${FACTORY_FLOWA_EXECUTION_KARATE_JAR:}
+    target-repo: ${FACTORY_FLOWA_TARGET_REPO:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
