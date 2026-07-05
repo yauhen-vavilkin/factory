@@ -1,0 +1,16 @@
+id: fake-simple
+name: Fake Simple Flow
+version: 1.0.0
+triggers:
+  - event_type: manual
+agent_chain:
+  - step_id: first
+    type: AGENT
+    worker_id: echo-worker
+    inputs: ["$trigger"]
+    outputs: [first.md]
+  - step_id: second
+    type: AGENT
+    worker_id: echo-worker
+    inputs: [first.md]
+    outputs: [second.md]

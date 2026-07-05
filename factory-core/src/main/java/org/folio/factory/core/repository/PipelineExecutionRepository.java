@@ -29,5 +29,7 @@ public interface PipelineExecutionRepository extends JpaRepository<PipelineExecu
 
     List<PipelineExecution> findByParentExecutionId(UUID parentExecutionId);
 
+    List<PipelineExecution> findByStatusInAndParentExecutionIdIsNotNull(List<ExecutionStatus> statuses);
+
     List<PipelineExecution> findAllByOrderByCreatedAtDesc();
 }

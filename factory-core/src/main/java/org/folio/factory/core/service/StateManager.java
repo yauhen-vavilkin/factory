@@ -11,6 +11,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -46,9 +47,28 @@ public class StateManager {
         return saved;
     }
 
+    @Transactional
+    public PipelineExecution createChildExecution(String flowId, String flowVersion, String triggerPayloadJson,
+                                                  UUID parentExecutionId, int parentStepIndex) {
+        PipelineExecution execution = new PipelineExecution(flowId, flowVersion, triggerPayloadJson);
+        execution.setParentExecutionId(parentExecutionId);
+        execution.setParentStepIndex(parentStepIndex);
+        PipelineExecution saved = executions.save(execution);
+        auditLog.record(saved.getId(), AuditEventType.EXECUTION_STARTED, null,
+                Map.of("flowId", flowId, "flowVersion", flowVersion,
+                        "parentExecutionId", parentExecutionId.toString()));
+        return saved;
+    }
+
     @Transactional(readOnly = true)
     public PipelineExecution get(UUID executionId) {
         return load(executionId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PipelineExecution> findTerminatedChildren() {
+        return executions.findByStatusInAndParentExecutionIdIsNotNull(
+                List.of(ExecutionStatus.REJECTED, ExecutionStatus.FAILED_ESCALATED, ExecutionStatus.CANCELLED));
     }
 
     @Transactional
