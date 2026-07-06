@@ -1,0 +1,16 @@
+{
+  "flowId": "test-factory",
+  "payload": {
+    "issueKey": "ERM-1001",
+    "issue": {
+      "key": "ERM-1001",
+      "fields": {
+        "summary": "Validate agreement names on creation",
+        "description": "As a librarian I want agreement names to be validated when creating a subscription agreement so that invalid records cannot be saved.\n\nAcceptance criteria:\nAC1: POST /erm/sas with a valid name (1-255 chars) creates the agreement and returns 201.\nAC2: POST /erm/sas with a missing or empty name returns 422 with a field error.\nAC3: Names longer than 255 characters are rejected with 422.",
+        "status": { "name": "Ready for QA" },
+        "issuetype": { "name": "Story" },
+        "labels": ["ai-factory"]
+      }
+    }
+  }
+}

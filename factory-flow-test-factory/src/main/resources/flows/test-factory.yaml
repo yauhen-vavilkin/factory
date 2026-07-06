@@ -1,0 +1,69 @@
+id: test-factory
+name: Test Factory
+version: 1.0.0
+triggers:
+  - event_type: manual
+  - event_type: jira.issue.transitioned
+    filters:
+      "/issue/fields/status/name": "Ready for QA"
+input_schema:
+  required: [issueKey]
+output_schema:
+  artifacts: [test_plan.md, test_scripts.md, test_results.md, sync_report.md]
+retry_policy:
+  max_attempts: 3
+  backoff_seconds: [30, 120, 300]
+agent_chain:
+  - step_id: triage
+    type: AGENT
+    worker_id: triage-agent
+    inputs: ["$trigger"]
+    outputs: [scope_manifest.md]
+
+  - step_id: test-spec
+    type: AGENT
+    worker_id: test-spec-agent
+    inputs: [scope_manifest.md]
+    outputs: [test_plan.md]
+
+  - step_id: qa-plan-review
+    type: HITL_GATE
+    gate:
+      gate_id: gate-1-test-plan
+      title: "QA review: manual test cases"
+      review_instructions: >
+        Review the generated manual test cases for coverage and correctness.
+        Check positive, edge and negative paths against the story's acceptance
+        criteria. Edit the test plan inline (AMEND) if cases need changes.
+      reviewed_artifacts: [test_plan.md, scope_manifest.md]
+
+  - step_id: test-automation
+    type: AGENT
+    worker_id: test-automation-agent
+    inputs: [test_plan.md, scope_manifest.md]
+    outputs: [test_scripts.md]
+    config:
+      framework: karate
+
+  - step_id: test-execution
+    type: AGENT
+    worker_id: test-execution-agent
+    inputs: [test_scripts.md, test_plan.md]
+    outputs: [test_results.md]
+
+  - step_id: qa-signoff
+    type: HITL_GATE
+    gate:
+      gate_id: gate-2-signoff
+      title: "QA sign-off: generated tests and results"
+      review_instructions: >
+        Confirm the generated scripts faithfully implement the approved test plan
+        and review the execution results (or the advisory notice if no reference
+        environment is configured).
+      reviewed_artifacts: [test_results.md, test_scripts.md]
+
+  - step_id: finalize
+    type: AGENT
+    worker_id: test-factory-finalizer
+    inputs: [test_plan.md, test_scripts.md, test_results.md, "$trigger"]
+    outputs: [sync_report.md]
