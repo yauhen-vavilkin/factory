@@ -4,6 +4,8 @@ import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.type.TypeReference;
@@ -24,6 +26,8 @@ import java.util.UUID;
  */
 @Service
 public class StateManager {
+
+    private static final Logger log = LoggerFactory.getLogger(StateManager.class);
 
     private static final TypeReference<Map<String, Integer>> RETRY_COUNTS_TYPE = new TypeReference<>() {
     };
@@ -65,11 +69,28 @@ public class StateManager {
         return load(executionId);
     }
 
+    /**
+     * Children that ended without completing while their parent still waits.
+     * FAILED_ESCALATED is deliberately NOT terminal here: such a child has a
+     * pending escalation review and can still be resumed, so the parent keeps
+     * waiting — per the design, a parent waits through its sub-flow's reviews.
+     */
     @Transactional(readOnly = true)
     public List<PipelineExecution> findTerminatedChildren() {
-        return executions.findTerminatedChildrenWithWaitingParent(
-                List.of(ExecutionStatus.REJECTED, ExecutionStatus.FAILED_ESCALATED, ExecutionStatus.CANCELLED),
+        return executions.findChildrenWithWaitingParent(
+                List.of(ExecutionStatus.REJECTED, ExecutionStatus.CANCELLED),
                 ExecutionStatus.AWAITING_SUBFLOW);
+    }
+
+    /**
+     * Children that completed but whose parent is still waiting — happens when the
+     * process died between the child's COMPLETED transition and the parent
+     * hand-off.
+     */
+    @Transactional(readOnly = true)
+    public List<PipelineExecution> findCompletedChildrenWithWaitingParent() {
+        return executions.findChildrenWithWaitingParent(
+                List.of(ExecutionStatus.COMPLETED), ExecutionStatus.AWAITING_SUBFLOW);
     }
 
     @Transactional
@@ -127,10 +148,36 @@ public class StateManager {
         executions.save(execution);
     }
 
+    /**
+     * Advances the step cursor only when the execution is still where the caller
+     * believes it is. Protects against duplicate drivers (a lease-reaped run
+     * finishing late, a stale HITL decision) silently skipping steps.
+     *
+     * @return false when the execution has moved on and the caller must stop
+     */
     @Transactional
-    public void advanceStep(UUID executionId) {
+    public boolean advanceStep(UUID executionId, int expectedStepIndex, ExecutionStatus expectedStatus) {
         PipelineExecution execution = load(executionId);
-        execution.setCurrentStepIndex(execution.getCurrentStepIndex() + 1);
+        if (execution.getStatus() != expectedStatus
+                || execution.getCurrentStepIndex() != expectedStepIndex) {
+            log.warn("Refusing stale step advance for execution {}: expected step {} in {}, found step {} in {}",
+                    executionId, expectedStepIndex, expectedStatus,
+                    execution.getCurrentStepIndex(), execution.getStatus());
+            return false;
+        }
+        execution.setCurrentStepIndex(expectedStepIndex + 1);
+        executions.save(execution);
+        return true;
+    }
+
+    /**
+     * Marks the execution as alive so the lease reaper does not re-queue it while
+     * a long-running step (LLM call, test execution) is still in flight.
+     */
+    @Transactional
+    public void heartbeat(UUID executionId) {
+        PipelineExecution execution = load(executionId);
+        execution.touchUpdatedAt();
         executions.save(execution);
     }
 

@@ -3,6 +3,7 @@ package org.folio.factory.core.engine;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
+import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
@@ -48,6 +49,9 @@ class SubFlowIntegrationTest {
 
     @Autowired
     SubFlowInvoker subFlowInvoker;
+
+    @Autowired
+    HitlReviewRepository reviews;
 
     private void drive() {
         for (int rounds = 0; rounds < 20; rounds++) {
@@ -95,7 +99,7 @@ class SubFlowIntegrationTest {
     }
 
     @Test
-    void terminatedChildEscalatesWaitingParent() {
+    void terminatedChildEscalatesWaitingParentWithReviewInInbox() {
         PipelineExecution parent = stateManager.createExecution("fake-parent", "1.0.0", null);
 
         // Advance parent only up to the sub-flow invocation.
@@ -109,5 +113,45 @@ class SubFlowIntegrationTest {
         subFlowInvoker.escalateParentsOfTerminatedChildren();
 
         assertThat(stateManager.get(parent.getId()).getStatus()).isEqualTo(ExecutionStatus.FAILED_ESCALATED);
+        var parentReviews = reviews.findByExecutionIdOrderByCreatedAtAsc(parent.getId());
+        assertThat(parentReviews).hasSize(1);
+        assertThat(parentReviews.getFirst().getGateId()).isEqualTo(HitlGateOpener.ESCALATION_GATE_ID);
+        assertThat(parentReviews.getFirst().getReviewPackage()).contains("terminated with status REJECTED");
+    }
+
+    @Test
+    void escalatedChildKeepsParentWaiting() {
+        PipelineExecution parent = stateManager.createExecution("fake-parent", "1.0.0", null);
+        List<UUID> claimed = claimService.claim(10);
+        claimed.stream().filter(id -> id.equals(parent.getId())).forEach(engine::advance);
+
+        PipelineExecution child = executions.findByParentExecutionId(parent.getId()).getFirst();
+        // A child awaiting its own escalation review is resumable — not terminal.
+        stateManager.transition(child.getId(), ExecutionStatus.FAILED_ESCALATED, null);
+
+        subFlowInvoker.escalateParentsOfTerminatedChildren();
+
+        assertThat(stateManager.get(parent.getId()).getStatus()).isEqualTo(ExecutionStatus.AWAITING_SUBFLOW);
+    }
+
+    @Test
+    void reconcileRecoversLostChildCompletion() {
+        PipelineExecution parent = stateManager.createExecution("fake-parent", "1.0.0", null);
+        List<UUID> claimed = claimService.claim(10);
+        claimed.stream().filter(id -> id.equals(parent.getId())).forEach(engine::advance);
+
+        // Simulate a crash after the child completed but before the parent
+        // hand-off: mark the child COMPLETED directly, bypassing the engine.
+        PipelineExecution child = executions.findByParentExecutionId(parent.getId()).getFirst();
+        artifactStore.putMarkdown(child.getId(), "child_output.md", "recovered content", "transform");
+        stateManager.transition(child.getId(), ExecutionStatus.COMPLETED, null);
+        assertThat(stateManager.get(parent.getId()).getStatus()).isEqualTo(ExecutionStatus.AWAITING_SUBFLOW);
+
+        subFlowInvoker.reconcileCompletedChildren();
+        drive();
+
+        assertThat(stateManager.get(parent.getId()).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
+        assertThat(artifactStore.getLatest(parent.getId(), "collected.md").orElseThrow().getContent())
+                .isEqualTo("recovered content");
     }
 }

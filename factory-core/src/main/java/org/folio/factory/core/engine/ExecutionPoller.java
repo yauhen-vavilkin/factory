@@ -35,7 +35,13 @@ public class ExecutionPoller {
     @Scheduled(fixedDelayString = "${factory.engine.poll-interval-ms:2000}")
     public void poll() {
         for (UUID executionId : claimService.claim(properties.batchSize())) {
-            executor.execute(() -> engine.advance(executionId));
+            try {
+                executor.execute(() -> engine.advance(executionId));
+            } catch (RuntimeException e) {
+                // Submission failed (e.g. executor shutting down): give the claim
+                // back immediately instead of leaving it RUNNING for the reaper.
+                claimService.release(executionId);
+            }
         }
     }
 
@@ -43,5 +49,6 @@ public class ExecutionPoller {
     public void maintain() {
         claimService.reapStale(properties.leaseTimeoutSeconds());
         subFlowInvoker.escalateParentsOfTerminatedChildren();
+        subFlowInvoker.reconcileCompletedChildren();
     }
 }

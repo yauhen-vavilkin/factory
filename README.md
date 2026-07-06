@@ -88,7 +88,9 @@ execution runs in **advisory mode** and every external sync is recorded as
 | `FACTORY_FLOWA_EXECUTION_BASE_URL` + `_KARATE_JAR` | Enable real Karate execution (otherwise advisory mode) |
 
 Webhooks: `POST /api/webhooks/jira` and `/api/webhooks/github`
-(optional shared secret: `factory.webhooks.shared-secret` + `?token=`).
+(shared secret: `FACTORY_WEBHOOKS_SHARED_SECRET` checked against `?token=`).
+**Webhooks are unauthenticated while the secret is unset** — the app logs a
+warning at startup; always set it in non-local deployments.
 
 ## Adding a new flow (the plugin pattern)
 

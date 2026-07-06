@@ -79,7 +79,8 @@ CREATE TABLE hitl_review (
     comments           text,
     amended_artifacts  jsonb,
     created_at         timestamptz  NOT NULL DEFAULT now(),
-    decided_at         timestamptz
+    decided_at         timestamptz,
+    version            bigint       NOT NULL DEFAULT 0
 );
 
 CREATE INDEX idx_hitl_status ON hitl_review (status, created_at);

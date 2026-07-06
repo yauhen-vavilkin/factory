@@ -87,27 +87,17 @@ public class UiController {
                          RedirectAttributes redirect) {
         // The whole form processing sits inside one try so validation failures
         // redirect back to the review page instead of falling through to the
-        // REST API's JSON exception handler.
+        // REST API's JSON exception handler. Unchanged-artifact filtering happens
+        // in HitlDecisionService so REST callers get the same behavior.
         try {
             HitlDecision hitlDecision = HitlDecision.valueOf(decision);
             Map<String, String> amendments = new LinkedHashMap<>();
             if (hitlDecision == HitlDecision.AMEND) {
-                HitlReview review = reviews.findById(id)
-                        .orElseThrow(() -> new NoSuchElementException("No HITL review " + id));
                 for (Map.Entry<String, String> param : allParams.entrySet()) {
-                    if (!param.getKey().startsWith(ARTIFACT_FIELD_PREFIX)) {
-                        continue;
+                    if (param.getKey().startsWith(ARTIFACT_FIELD_PREFIX)) {
+                        amendments.put(param.getKey().substring(ARTIFACT_FIELD_PREFIX.length()),
+                                param.getValue());
                     }
-                    String artifactName = param.getKey().substring(ARTIFACT_FIELD_PREFIX.length());
-                    // Only artifacts the reviewer actually changed become new versions.
-                    String currentContent = artifactStore.getLatest(review.getExecutionId(), artifactName)
-                            .map(a -> a.getContent()).orElse("");
-                    if (!normalise(currentContent).equals(normalise(param.getValue()))) {
-                        amendments.put(artifactName, param.getValue());
-                    }
-                }
-                if (amendments.isEmpty()) {
-                    return redirectWithError(id, "AMEND selected but no artifact was changed");
                 }
             }
             decisionService.decide(id, hitlDecision, reviewer, comments, amendments);
@@ -148,9 +138,5 @@ public class UiController {
     private String redirectWithError(UUID reviewId, String message) {
         return "redirect:/reviews/" + reviewId + "?error="
                 + URLEncoder.encode(message == null ? "Request failed" : message, StandardCharsets.UTF_8);
-    }
-
-    private String normalise(String content) {
-        return content == null ? "" : content.replace("\r\n", "\n").strip();
     }
 }

@@ -6,6 +6,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -53,6 +54,13 @@ public class HitlReview {
 
     @Column(name = "decided_at")
     private Instant decidedAt;
+
+    // Optimistic lock: two concurrent decisions on the same review cannot both
+    // commit; the loser gets an optimistic-locking failure instead of silently
+    // double-driving the execution.
+    @Version
+    @Column(nullable = false)
+    private long version;
 
     protected HitlReview() {
     }

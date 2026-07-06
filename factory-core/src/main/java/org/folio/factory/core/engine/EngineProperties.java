@@ -15,6 +15,8 @@ public record EngineProperties(
         pollIntervalMs = pollIntervalMs == null ? 2000L : pollIntervalMs;
         batchSize = batchSize == null ? 5 : batchSize;
         workerThreads = workerThreads == null ? 4 : workerThreads;
-        leaseTimeoutSeconds = leaseTimeoutSeconds == null ? 600L : leaseTimeoutSeconds;
+        // Must exceed the longest legitimate single step (Karate runs are capped
+        // at 15 minutes) or the reaper re-queues live executions.
+        leaseTimeoutSeconds = leaseTimeoutSeconds == null ? 1800L : leaseTimeoutSeconds;
     }
 }

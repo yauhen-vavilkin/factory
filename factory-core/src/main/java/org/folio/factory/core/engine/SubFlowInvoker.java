@@ -34,17 +34,19 @@ public class SubFlowInvoker {
     private final StateManager stateManager;
     private final ArtifactStore artifactStore;
     private final AuditLog auditLog;
+    private final HitlGateOpener hitlGateOpener;
 
     public SubFlowInvoker(FlowRegistry flowRegistry, StateManager stateManager,
-                          ArtifactStore artifactStore, AuditLog auditLog) {
+                          ArtifactStore artifactStore, AuditLog auditLog, HitlGateOpener hitlGateOpener) {
         this.flowRegistry = flowRegistry;
         this.stateManager = stateManager;
         this.artifactStore = artifactStore;
         this.auditLog = auditLog;
+        this.hitlGateOpener = hitlGateOpener;
     }
 
     @Transactional
-    public UUID invoke(PipelineExecution parent, FlowDescriptor parentFlow, StepDescriptor step) {
+    public UUID invoke(PipelineExecution parent, StepDescriptor step) {
         var spec = step.subFlow();
         FlowDescriptor childFlow = flowRegistry.require(spec.flowId());
         PipelineExecution child = stateManager.createChildExecution(
@@ -97,8 +99,26 @@ public class SubFlowInvoker {
         }
         auditLog.record(parent.getId(), AuditEventType.SUBFLOW_RETURNED, step.stepId(),
                 Map.of("childExecutionId", child.getId().toString()));
-        stateManager.advanceStep(parent.getId());
+        if (!stateManager.advanceStep(parent.getId(), child.getParentStepIndex(),
+                ExecutionStatus.AWAITING_SUBFLOW)) {
+            return;
+        }
         stateManager.scheduleRetry(parent.getId(), 0, null);
+    }
+
+    /**
+     * Recovers parents whose child completed but whose hand-off was lost (process
+     * death between the child's COMPLETED transition and the parent resume).
+     * Invoked periodically by the poller; onChildCompleted is safe to repeat —
+     * the guarded advance refuses duplicates.
+     */
+    @Transactional
+    public void reconcileCompletedChildren() {
+        for (PipelineExecution child : stateManager.findCompletedChildrenWithWaitingParent()) {
+            log.info("Recovering lost sub-flow completion: child {} of parent {}",
+                    child.getId(), child.getParentExecutionId());
+            onChildCompleted(child.getId());
+        }
     }
 
     /**
@@ -121,6 +141,13 @@ public class SubFlowInvoker {
                     Map.of("reason", "sub-flow terminated without completing",
                             "childExecutionId", child.getId().toString(),
                             "childStatus", child.getStatus().name()));
+            // Surface the dead-end in the review inbox: approving the escalation
+            // resets the SUB_FLOW step and re-invokes the sub-flow.
+            StepDescriptor subFlowStep = flowRegistry.require(parent.getFlowId())
+                    .step(child.getParentStepIndex());
+            hitlGateOpener.openEscalationReview(stateManager.get(parent.getId()), subFlowStep,
+                    "Sub-flow '" + child.getFlowId() + "' (execution " + child.getId()
+                            + ") terminated with status " + child.getStatus(), 1);
         }
     }
 }

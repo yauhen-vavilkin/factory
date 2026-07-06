@@ -158,6 +158,28 @@ class FlowAEndToEndTest {
     }
 
     @Test
+    void rawJiraWebhookBodyTriggersTheFlow() {
+        // Real Jira webhook bodies have issue.key, not a top-level issueKey — the
+        // adapter must normalise them so the declared trigger actually fires.
+        ResponseEntity<JsonNode> response = rest.post()
+                .uri("/api/webhooks/jira")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of(
+                        "webhookEvent", "jira:issue_updated",
+                        "issue", Map.of(
+                                "key", "ERM-1001",
+                                "fields", Map.of("status", Map.of("name", "Ready for QA")))))
+                .retrieve()
+                .toEntity(JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(response.getBody().path("executionIds").size()).isEqualTo(1);
+        UUID executionId = UUID.fromString(response.getBody().path("executionIds").get(0).asString());
+        assertThat(stateManager.get(executionId).getFlowId()).isEqualTo("test-factory");
+        assertThat(stateManager.get(executionId).getTriggerPayload()).contains("\"issueKey\"");
+    }
+
+    @Test
     void fullPipelineWithAmendmentAndConnectorSync() {
         // 1. Trigger manually with only the issue key — triage must fetch from Jira.
         ResponseEntity<JsonNode> triggerResponse = rest.post()

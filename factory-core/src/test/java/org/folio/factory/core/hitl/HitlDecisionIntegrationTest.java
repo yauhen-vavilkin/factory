@@ -146,6 +146,38 @@ class HitlDecisionIntegrationTest {
     }
 
     @Test
+    void staleReviewForMovedOnExecutionIsRejected() {
+        PipelineExecution execution = stateManager.createExecution("fake-gated", "1.0.0", null);
+        drive();
+        HitlReview review = pendingReview(execution.getId());
+
+        // A duplicate pending review at the same gate (e.g. from a recovered
+        // duplicate run): once the first decision advances the execution, the
+        // second must be refused instead of force-advancing again.
+        HitlReview duplicate = reviews.save(new HitlReview(
+                execution.getId(), review.getGateId(), review.getStepIndex(), review.getReviewPackage()));
+        decisionService.decide(review.getId(), HitlDecision.APPROVE, "qa-lead", null, null);
+
+        assertThatThrownBy(() -> decisionService.decide(duplicate.getId(), HitlDecision.APPROVE, "qa-2", null, null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no longer waiting");
+    }
+
+    @Test
+    void amendWithUnchangedContentIsRejectedWithoutNewVersions() {
+        PipelineExecution execution = stateManager.createExecution("fake-gated", "1.0.0", null);
+        drive();
+        HitlReview review = pendingReview(execution.getId());
+        String currentContent = artifactStore.getLatest(execution.getId(), "draft.md").orElseThrow().getContent();
+
+        assertThatThrownBy(() -> decisionService.decide(review.getId(), HitlDecision.AMEND, "qa-lead",
+                null, Map.of("draft.md", currentContent + "\r\n")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("changed content");
+        assertThat(artifactStore.getLatest(execution.getId(), "draft.md").orElseThrow().getVersion()).isEqualTo(1);
+    }
+
+    @Test
     void amendRequiresContentAndValidReviewer() {
         PipelineExecution execution = stateManager.createExecution("fake-gated", "1.0.0", null);
         drive();

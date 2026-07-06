@@ -137,6 +137,27 @@ class FlowDescriptorParserTest {
     }
 
     @Test
+    void rejectsReservedEscalationGateId() {
+        String yaml = """
+                id: f
+                name: F
+                version: 1.0.0
+                agent_chain:
+                  - step_id: a
+                    type: AGENT
+                    worker_id: w
+                  - step_id: g
+                    type: HITL_GATE
+                    gate:
+                      gate_id: escalation
+                      title: "Sneaky"
+                """;
+        assertThatThrownBy(() -> parser.parse(yaml, "f.yaml"))
+                .isInstanceOf(FlowValidationException.class)
+                .hasMessageContaining("reserved");
+    }
+
+    @Test
     void rejectsHitlGateWithoutGateId() {
         String yaml = """
                 id: f

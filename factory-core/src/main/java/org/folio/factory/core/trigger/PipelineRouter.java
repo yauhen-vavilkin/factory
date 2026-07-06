@@ -78,8 +78,15 @@ public class PipelineRouter {
     private boolean filtersMatch(TriggerContract contract, JsonNode payload) {
         for (Map.Entry<String, String> filter : contract.filters().entrySet()) {
             JsonNode value = payload == null ? null : payload.at(filter.getKey());
-            // asString(default) tolerates non-string nodes (objects/arrays in
-            // arbitrary webhook payloads), where asString() would throw.
+            if (value != null && !value.isMissingNode() && !value.isValueNode()) {
+                // A filter pointing at an object/array is almost certainly a
+                // descriptor typo; silent no-match would be undiagnosable.
+                log.warn("Trigger filter '{}' resolved to a non-scalar node ({}); it will never match",
+                        filter.getKey(), value.getNodeType());
+                return false;
+            }
+            // asString(default) tolerates non-string scalars, where asString()
+            // would throw.
             if (value == null || value.isMissingNode() || !filter.getValue().equals(value.asString(""))) {
                 return false;
             }

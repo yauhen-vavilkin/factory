@@ -1,5 +1,6 @@
 package org.folio.factory.core.registry;
 
+import org.folio.factory.core.engine.HitlGateOpener;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.StepDescriptor;
 import org.folio.factory.core.registry.model.StepType;
@@ -67,6 +68,11 @@ public class FlowDescriptorParser {
                     if (step.gate() == null || isBlank(step.gate().gateId())) {
                         throw new FlowValidationException(
                                 sourceName + ": HITL_GATE step '" + step.stepId() + "' must declare gate.gate_id");
+                    }
+                    if (HitlGateOpener.ESCALATION_GATE_ID.equals(step.gate().gateId())) {
+                        throw new FlowValidationException(sourceName + ": gate id '"
+                                + HitlGateOpener.ESCALATION_GATE_ID
+                                + "' is reserved for retry-budget escalations");
                     }
                 }
                 case SUB_FLOW -> {

@@ -10,6 +10,7 @@ import org.folio.factory.flowa.artifact.ScriptBundleCodec;
 import org.folio.factory.flowa.model.ScriptBundle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.util.FileSystemUtils;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -17,7 +18,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -104,16 +104,21 @@ public class TestExecutionWorker implements AgentWorker {
                     "-o", workDir.resolve("reports").toString()));
             bundle.files().forEach(f -> command.add(f.path()));
 
+            // Output goes to a file rather than a pipe: reading a pipe would block
+            // until the child exits, which would make the timeout below dead code
+            // for a hung run.
+            Path consoleLog = workDir.resolve("karate-console.log");
             Process process = new ProcessBuilder(command)
                     .directory(workDir.toFile())
                     .redirectErrorStream(true)
+                    .redirectOutput(consoleLog.toFile())
                     .start();
-            String output = new String(process.getInputStream().readAllBytes());
             if (!process.waitFor(EXECUTION_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
                 process.destroyForcibly();
                 throw new AgentExecutionException("Karate execution timed out after "
                         + EXECUTION_TIMEOUT_MINUTES + " minutes");
             }
+            String output = Files.exists(consoleLog) ? Files.readString(consoleLog) : "";
             log.info("Karate run finished with exit code {}", process.exitValue());
             return executedResults(bundle, workDir, process.exitValue(), output);
         } catch (IOException | InterruptedException e) {
@@ -129,14 +134,8 @@ public class TestExecutionWorker implements AgentWorker {
     }
 
     private void deleteRecursively(Path directory) {
-        try (var paths = Files.walk(directory)) {
-            paths.sorted(Comparator.reverseOrder()).forEach(path -> {
-                try {
-                    Files.deleteIfExists(path);
-                } catch (IOException e) {
-                    log.warn("Could not delete temporary file {}: {}", path, e.getMessage());
-                }
-            });
+        try {
+            FileSystemUtils.deleteRecursively(directory);
         } catch (IOException e) {
             log.warn("Could not clean up temporary directory {}: {}", directory, e.getMessage());
         }

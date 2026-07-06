@@ -96,7 +96,7 @@ public class ExecutionEngine {
                         yield false;
                     }
                     case SUB_FLOW -> {
-                        subFlowInvoker.invoke(execution, flow, step);
+                        subFlowInvoker.invoke(execution, step);
                         yield false;
                     }
                 };
@@ -114,6 +114,7 @@ public class ExecutionEngine {
 
     private boolean runAgentStep(PipelineExecution execution, FlowDescriptor flow, StepDescriptor step) {
         UUID executionId = execution.getId();
+        stateManager.heartbeat(executionId);
         auditLog.record(executionId, AuditEventType.STEP_STARTED, step.stepId(),
                 Map.of("workerId", step.workerId(), "attempt", stateManager.retryCount(executionId, step.stepId()) + 1));
         try {
@@ -128,8 +129,9 @@ public class ExecutionEngine {
                 artifactStore.putMarkdown(executionId, output.getKey(), output.getValue(), step.stepId());
             }
             auditLog.record(executionId, AuditEventType.STEP_COMPLETED, step.stepId(), result.metrics());
-            stateManager.advanceStep(executionId);
-            return true;
+            // Guarded advance: if a duplicate driver (lease-reaped run) moved the
+            // execution meanwhile, stop instead of double-advancing past a step.
+            return stateManager.advanceStep(executionId, execution.getCurrentStepIndex(), ExecutionStatus.RUNNING);
         } catch (Exception e) {
             handleStepFailure(execution, flow, step, e);
             return false;

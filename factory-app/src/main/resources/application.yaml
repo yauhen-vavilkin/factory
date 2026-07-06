@@ -24,7 +24,7 @@ factory:
     poll-interval-ms: 2000
     batch-size: 5
     worker-threads: 4
-    lease-timeout-seconds: 600
+    lease-timeout-seconds: 1800
   connectors:
     jira:
       base-url: ${FACTORY_CONNECTORS_JIRA_BASE_URL:}
@@ -43,6 +43,11 @@ factory:
       base-url: ${FACTORY_FLOWA_EXECUTION_BASE_URL:}
       karate-jar: ${FACTORY_FLOWA_EXECUTION_KARATE_JAR:}
     target-repo: ${FACTORY_FLOWA_TARGET_REPO:}
+    base-branch: ${FACTORY_FLOWA_BASE_BRANCH:main}
+    jira-transition: ${FACTORY_FLOWA_JIRA_TRANSITION:}
+    # Explicit placeholders: relaxed binding would NOT map the underscored env
+    # vars onto these kebab-case properties by itself.
+    testrail-section-id: ${FACTORY_FLOWA_TESTRAIL_SECTION_ID:}
 
 management:
   endpoints:

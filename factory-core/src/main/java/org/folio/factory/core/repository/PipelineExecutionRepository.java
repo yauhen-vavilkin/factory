@@ -30,9 +30,9 @@ public interface PipelineExecutionRepository extends JpaRepository<PipelineExecu
     List<PipelineExecution> findByParentExecutionId(UUID parentExecutionId);
 
     /**
-     * Terminated child executions whose parent is still waiting on them. Scoped to
-     * waiting parents so the periodic check stays cheap as terminated executions
-     * accumulate over time.
+     * Child executions in one of the given states whose parent is still waiting on
+     * them. Scoped to waiting parents so periodic reconciliation stays cheap as
+     * finished executions accumulate over time.
      */
     @Query("""
             SELECT c FROM PipelineExecution c
@@ -41,7 +41,7 @@ public interface PipelineExecutionRepository extends JpaRepository<PipelineExecu
               AND EXISTS (SELECT p.id FROM PipelineExecution p
                           WHERE p.id = c.parentExecutionId AND p.status = :parentStatus)
             """)
-    List<PipelineExecution> findTerminatedChildrenWithWaitingParent(
+    List<PipelineExecution> findChildrenWithWaitingParent(
             @Param("statuses") List<ExecutionStatus> statuses,
             @Param("parentStatus") ExecutionStatus parentStatus);
 

@@ -42,6 +42,19 @@ public class ExecutionClaimService {
     }
 
     /**
+     * Returns a claim that could not be dispatched to the worker pool.
+     */
+    @Transactional
+    public void release(UUID executionId) {
+        executions.findById(executionId).ifPresent(execution -> {
+            if (execution.getStatus() == ExecutionStatus.RUNNING) {
+                execution.setStatus(ExecutionStatus.PENDING);
+                execution.setNextRunAt(Instant.now());
+            }
+        });
+    }
+
+    /**
      * Returns executions stuck in RUNNING past the lease timeout (crashed worker,
      * killed process) to PENDING so a poller can pick them up again.
      */

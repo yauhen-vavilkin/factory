@@ -117,6 +117,20 @@ class ExecutionEngineIntegrationTest {
     }
 
     @Test
+    void guardedAdvanceRefusesStaleDrivers() {
+        PipelineExecution execution = stateManager.createExecution("fake-simple", "1.0.0", null);
+        claimService.claim(10);
+
+        // Wrong index (stale duplicate driver) → refused; correct index → advances.
+        assertThat(stateManager.advanceStep(execution.getId(), 5, ExecutionStatus.RUNNING)).isFalse();
+        assertThat(stateManager.get(execution.getId()).getCurrentStepIndex()).isZero();
+        assertThat(stateManager.advanceStep(execution.getId(), 0, ExecutionStatus.RUNNING)).isTrue();
+        assertThat(stateManager.get(execution.getId()).getCurrentStepIndex()).isEqualTo(1);
+        // Wrong expected status → refused.
+        assertThat(stateManager.advanceStep(execution.getId(), 1, ExecutionStatus.AWAITING_HITL)).isFalse();
+    }
+
+    @Test
     void reaperReturnsStaleRunningExecutionsToPending() {
         PipelineExecution execution = stateManager.createExecution("fake-simple", "1.0.0", null);
         List<UUID> claimed = claimService.claim(10);
