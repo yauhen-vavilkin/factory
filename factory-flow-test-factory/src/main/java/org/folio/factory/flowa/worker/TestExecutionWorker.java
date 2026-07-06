@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,8 +88,9 @@ public class TestExecutionWorker implements AgentWorker {
     }
 
     private String executeWithKarate(ScriptBundle bundle) {
+        Path workDir = null;
         try {
-            Path workDir = Files.createTempDirectory("factory-flowa-run");
+            workDir = Files.createTempDirectory("factory-flowa-run");
             for (ScriptBundle.ScriptFile file : bundle.files()) {
                 Path target = workDir.resolve(file.path()).normalize();
                 if (!target.startsWith(workDir)) {
@@ -119,6 +121,24 @@ public class TestExecutionWorker implements AgentWorker {
                 Thread.currentThread().interrupt();
             }
             throw new AgentExecutionException("Karate execution failed: " + e.getMessage(), e);
+        } finally {
+            if (workDir != null) {
+                deleteRecursively(workDir);
+            }
+        }
+    }
+
+    private void deleteRecursively(Path directory) {
+        try (var paths = Files.walk(directory)) {
+            paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException e) {
+                    log.warn("Could not delete temporary file {}: {}", path, e.getMessage());
+                }
+            });
+        } catch (IOException e) {
+            log.warn("Could not clean up temporary directory {}: {}", directory, e.getMessage());
         }
     }
 
@@ -131,7 +151,7 @@ public class TestExecutionWorker implements AgentWorker {
             JsonNode summary = jsonMapper.readTree(Files.readString(summaryFile));
             for (JsonNode feature : summary.path("featureSummary")) {
                 boolean failed = feature.path("failed").asBoolean(false);
-                filePassed.put(feature.path("relativePath").asString(), !failed);
+                filePassed.put(feature.path("relativePath").asString(""), !failed);
                 if (failed) {
                     failedFeatures++;
                 } else {

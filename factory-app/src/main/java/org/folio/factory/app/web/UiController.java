@@ -18,6 +18,8 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -83,34 +85,37 @@ public class UiController {
                          @RequestParam(name = "comments", required = false) String comments,
                          @RequestParam Map<String, String> allParams,
                          RedirectAttributes redirect) {
-        HitlDecision hitlDecision = HitlDecision.valueOf(decision);
-        Map<String, String> amendments = new LinkedHashMap<>();
-        if (hitlDecision == HitlDecision.AMEND) {
-            HitlReview review = reviews.findById(id)
-                    .orElseThrow(() -> new NoSuchElementException("No HITL review " + id));
-            for (Map.Entry<String, String> param : allParams.entrySet()) {
-                if (!param.getKey().startsWith(ARTIFACT_FIELD_PREFIX)) {
-                    continue;
-                }
-                String artifactName = param.getKey().substring(ARTIFACT_FIELD_PREFIX.length());
-                // Only artifacts the reviewer actually changed become new versions.
-                String currentContent = artifactStore.getLatest(review.getExecutionId(), artifactName)
-                        .map(a -> a.getContent()).orElse("");
-                if (!normalise(currentContent).equals(normalise(param.getValue()))) {
-                    amendments.put(artifactName, param.getValue());
-                }
-            }
-            if (amendments.isEmpty()) {
-                return "redirect:/reviews/" + id + "?error=AMEND+selected+but+no+artifact+was+changed";
-            }
-        }
+        // The whole form processing sits inside one try so validation failures
+        // redirect back to the review page instead of falling through to the
+        // REST API's JSON exception handler.
         try {
+            HitlDecision hitlDecision = HitlDecision.valueOf(decision);
+            Map<String, String> amendments = new LinkedHashMap<>();
+            if (hitlDecision == HitlDecision.AMEND) {
+                HitlReview review = reviews.findById(id)
+                        .orElseThrow(() -> new NoSuchElementException("No HITL review " + id));
+                for (Map.Entry<String, String> param : allParams.entrySet()) {
+                    if (!param.getKey().startsWith(ARTIFACT_FIELD_PREFIX)) {
+                        continue;
+                    }
+                    String artifactName = param.getKey().substring(ARTIFACT_FIELD_PREFIX.length());
+                    // Only artifacts the reviewer actually changed become new versions.
+                    String currentContent = artifactStore.getLatest(review.getExecutionId(), artifactName)
+                            .map(a -> a.getContent()).orElse("");
+                    if (!normalise(currentContent).equals(normalise(param.getValue()))) {
+                        amendments.put(artifactName, param.getValue());
+                    }
+                }
+                if (amendments.isEmpty()) {
+                    return redirectWithError(id, "AMEND selected but no artifact was changed");
+                }
+            }
             decisionService.decide(id, hitlDecision, reviewer, comments, amendments);
-        } catch (IllegalArgumentException | IllegalStateException e) {
-            return "redirect:/reviews/" + id + "?error=" + e.getMessage();
+            redirect.addFlashAttribute("message", "Decision " + hitlDecision + " recorded for review " + id);
+            return "redirect:/reviews";
+        } catch (IllegalArgumentException | IllegalStateException | NoSuchElementException e) {
+            return redirectWithError(id, e.getMessage());
         }
-        redirect.addFlashAttribute("message", "Decision " + hitlDecision + " recorded for review " + id);
-        return "redirect:/reviews";
     }
 
     @GetMapping("/executions")
@@ -138,6 +143,11 @@ public class UiController {
         row.put("gateId", review.getGateId());
         row.put("createdAt", review.getCreatedAt());
         return row;
+    }
+
+    private String redirectWithError(UUID reviewId, String message) {
+        return "redirect:/reviews/" + reviewId + "?error="
+                + URLEncoder.encode(message == null ? "Request failed" : message, StandardCharsets.UTF_8);
     }
 
     private String normalise(String content) {

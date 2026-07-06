@@ -98,8 +98,8 @@ public class HitlDecisionService {
         if (escalation) {
             // Approving an escalation means "try the failed step again": reset the
             // step's retry budget and requeue at the same step index.
-            String stepId = jsonMapper.readTree(review.getReviewPackage()).path("stepId").asString();
-            if (stepId == null || stepId.isBlank()) {
+            String stepId = jsonMapper.readTree(review.getReviewPackage()).path("stepId").asString("");
+            if (stepId.isBlank()) {
                 throw new IllegalStateException(
                         "Cannot determine failed step for escalation review " + review.getId());
             }

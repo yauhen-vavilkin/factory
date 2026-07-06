@@ -78,7 +78,9 @@ public class PipelineRouter {
     private boolean filtersMatch(TriggerContract contract, JsonNode payload) {
         for (Map.Entry<String, String> filter : contract.filters().entrySet()) {
             JsonNode value = payload == null ? null : payload.at(filter.getKey());
-            if (value == null || value.isMissingNode() || !filter.getValue().equals(value.asString())) {
+            // asString(default) tolerates non-string nodes (objects/arrays in
+            // arbitrary webhook payloads), where asString() would throw.
+            if (value == null || value.isMissingNode() || !filter.getValue().equals(value.asString(""))) {
                 return false;
             }
         }
@@ -101,7 +103,7 @@ public class PipelineRouter {
             return;
         }
         for (JsonNode field : required) {
-            String name = field.asString();
+            String name = field.asString("");
             if (payload == null || payload.get(name) == null || payload.get(name).isNull()) {
                 throw new IllegalArgumentException(
                         "Flow '" + flow.id() + "' requires input field '" + name + "'");

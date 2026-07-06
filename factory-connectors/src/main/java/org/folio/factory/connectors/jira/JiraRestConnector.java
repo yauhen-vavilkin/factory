@@ -35,14 +35,14 @@ public class JiraRestConnector implements JiraConnector, ConnectorHealth {
                 .body(JsonNode.class);
         JsonNode fields = body.path("fields");
         List<String> labels = new ArrayList<>();
-        fields.path("labels").forEach(label -> labels.add(label.asString()));
+        fields.path("labels").forEach(label -> labels.add(label.asString("")));
         return new JiraIssue(
-                body.path("key").asString(),
-                fields.path("summary").asString(),
+                body.path("key").asString(""),
+                fields.path("summary").asString(""),
                 fields.path("description").isTextual() ? fields.path("description").asString()
                         : fields.path("description").toString(),
-                fields.path("status").path("name").asString(),
-                fields.path("issuetype").path("name").asString(),
+                fields.path("status").path("name").asString(""),
+                fields.path("issuetype").path("name").asString(""),
                 labels,
                 body);
     }
@@ -65,8 +65,8 @@ public class JiraRestConnector implements JiraConnector, ConnectorHealth {
                 .body(JsonNode.class);
         String transitionId = null;
         for (JsonNode transition : transitions.path("transitions")) {
-            if (transitionName.equalsIgnoreCase(transition.path("name").asString())) {
-                transitionId = transition.path("id").asString();
+            if (transitionName.equalsIgnoreCase(transition.path("name").asString(""))) {
+                transitionId = transition.path("id").asString("");
                 break;
             }
         }

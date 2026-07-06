@@ -67,8 +67,9 @@ public class StateManager {
 
     @Transactional(readOnly = true)
     public List<PipelineExecution> findTerminatedChildren() {
-        return executions.findByStatusInAndParentExecutionIdIsNotNull(
-                List.of(ExecutionStatus.REJECTED, ExecutionStatus.FAILED_ESCALATED, ExecutionStatus.CANCELLED));
+        return executions.findTerminatedChildrenWithWaitingParent(
+                List.of(ExecutionStatus.REJECTED, ExecutionStatus.FAILED_ESCALATED, ExecutionStatus.CANCELLED),
+                ExecutionStatus.AWAITING_SUBFLOW);
     }
 
     @Transactional

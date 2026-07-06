@@ -43,7 +43,7 @@ public class TriageAgentWorker extends AbstractLlmAgentWorker {
         if (payload == null) {
             throw new AgentExecutionException("Triage requires a trigger payload with an issueKey");
         }
-        String issueKey = payload.path("issueKey").asString();
+        String issueKey = payload.path("issueKey").asString("");
         JsonNode issue = payload.get("issue");
         String issueJson = issue != null && !issue.isNull()
                 ? issue.toString()

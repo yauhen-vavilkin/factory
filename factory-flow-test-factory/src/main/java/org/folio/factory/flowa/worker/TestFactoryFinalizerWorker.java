@@ -66,9 +66,9 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
         Frontmatter plan = frontmatterCodec.parse(context.requireInput("test_plan.md").content());
         Frontmatter results = frontmatterCodec.parse(context.requireInput("test_results.md").content());
         ScriptBundle bundle = bundleCodec.parse(context.requireInput("test_scripts.md").content());
-        String issueKey = plan.metadata().path("issue_key").asString();
-        if ((issueKey == null || issueKey.isBlank()) && context.triggerPayload() != null) {
-            issueKey = context.triggerPayload().path("issueKey").asString();
+        String issueKey = plan.metadata().path("issue_key").asString("");
+        if (issueKey.isBlank() && context.triggerPayload() != null) {
+            issueKey = context.triggerPayload().path("issueKey").asString("");
         }
 
         List<Map<String, String>> actions = new ArrayList<>();
@@ -123,20 +123,20 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
             Map<String, Long> testRailCaseIds = new LinkedHashMap<>();
             for (JsonNode testCase : plan.metadata().path("cases")) {
                 long caseId = testRail.addCase(properties.testrailSectionId(),
-                        "[" + issueKey + "] " + testCase.path("title").asString(),
+                        "[" + issueKey + "] " + testCase.path("title").asString(""),
                         String.join("\n", toStrings(testCase.path("steps"))),
-                        testCase.path("expected").asString());
-                testRailCaseIds.put(testCase.path("id").asString(), caseId);
+                        testCase.path("expected").asString(""));
+                testRailCaseIds.put(testCase.path("id").asString(""), caseId);
             }
             long runId = testRail.addRun(issueKey + " — AI Test Factory",
                     new ArrayList<>(testRailCaseIds.values()));
-            boolean executed = "EXECUTED".equals(results.metadata().path("mode").asString());
+            boolean executed = "EXECUTED".equals(results.metadata().path("mode").asString(""));
             if (executed) {
                 Map<Long, Boolean> outcome = new LinkedHashMap<>();
                 for (JsonNode caseResult : results.metadata().path("case_results")) {
-                    Long testRailId = testRailCaseIds.get(caseResult.path("case_id").asString());
+                    Long testRailId = testRailCaseIds.get(caseResult.path("case_id").asString(""));
                     if (testRailId != null) {
-                        outcome.put(testRailId, "PASSED".equals(caseResult.path("status").asString()));
+                        outcome.put(testRailId, "PASSED".equals(caseResult.path("status").asString("")));
                     }
                 }
                 testRail.addResults(runId, outcome, "Automated by AI Test Factory");
@@ -150,7 +150,7 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
 
     private void syncJira(AgentContext context, List<Map<String, String>> actions,
                           Frontmatter results, String issueKey, String prUrl) {
-        String mode = results.metadata().path("mode").asString();
+        String mode = results.metadata().path("mode").asString("");
         try {
             jira.addComment(issueKey, "AI Test Factory completed for " + issueKey
                     + ".\nResults mode: " + mode
@@ -173,7 +173,7 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
 
     private List<String> toStrings(JsonNode array) {
         List<String> values = new ArrayList<>();
-        array.forEach(node -> values.add(node.asString()));
+        array.forEach(node -> values.add(node.asString("")));
         return values;
     }
 

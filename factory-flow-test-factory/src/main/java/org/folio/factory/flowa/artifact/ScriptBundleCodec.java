@@ -51,13 +51,13 @@ public class ScriptBundleCodec {
 
     public ScriptBundle parse(String content) {
         Frontmatter frontmatter = frontmatterCodec.parse(content);
-        String framework = frontmatter.metadata().path("framework").asString();
+        String framework = frontmatter.metadata().path("framework").asString("");
 
         Map<String, List<String>> caseIdsByPath = new LinkedHashMap<>();
         frontmatter.metadata().path("files").forEach(fileNode -> {
             List<String> caseIds = new ArrayList<>();
-            fileNode.path("case_ids").forEach(caseId -> caseIds.add(caseId.asString()));
-            caseIdsByPath.put(fileNode.path("path").asString(), caseIds);
+            fileNode.path("case_ids").forEach(caseId -> caseIds.add(caseId.asString("")));
+            caseIdsByPath.put(fileNode.path("path").asString(""), caseIds);
         });
 
         List<ScriptBundle.ScriptFile> files = new ArrayList<>();

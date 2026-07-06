@@ -42,8 +42,8 @@ public class WebhookController {
             @RequestParam(name = "token", required = false) String token,
             @RequestBody JsonNode body) {
         checkSecret(token);
-        String webhookEvent = body.path("webhookEvent").asString();
-        String type = switch (webhookEvent == null ? "" : webhookEvent) {
+        String webhookEvent = body.path("webhookEvent").asString("");
+        String type = switch (webhookEvent) {
             case "jira:issue_updated" -> "jira.issue.transitioned";
             case "jira:issue_created" -> "jira.issue.created";
             default -> "jira.event";

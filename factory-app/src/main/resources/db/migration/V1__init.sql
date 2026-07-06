@@ -83,3 +83,4 @@ CREATE TABLE hitl_review (
 );
 
 CREATE INDEX idx_hitl_status ON hitl_review (status, created_at);
+CREATE INDEX idx_hitl_execution ON hitl_review (execution_id);

@@ -35,7 +35,7 @@ public class GitHubRestConnector implements GitHubConnector, ConnectorHealth {
                 .uri("/repos/" + repo + "/git/ref/heads/" + baseBranch)
                 .retrieve()
                 .body(JsonNode.class);
-        String sha = ref.path("object").path("sha").asString();
+        String sha = ref.path("object").path("sha").asString("");
         restClient.post()
                 .uri("/repos/" + repo + "/git/refs")
                 .body(Map.of("ref", "refs/heads/" + newBranch, "sha", sha))
@@ -67,7 +67,7 @@ public class GitHubRestConnector implements GitHubConnector, ConnectorHealth {
                 .body(Map.of("title", title, "head", headBranch, "base", baseBranch, "body", body))
                 .retrieve()
                 .body(JsonNode.class);
-        return response.path("html_url").asString();
+        return response.path("html_url").asString("");
     }
 
     private java.util.Optional<String> existingFileSha(String repo, String branch, String path) {
@@ -76,7 +76,7 @@ public class GitHubRestConnector implements GitHubConnector, ConnectorHealth {
                     .uri("/repos/" + repo + "/contents/" + path + "?ref=" + branch)
                     .retrieve()
                     .body(JsonNode.class);
-            String sha = existing.path("sha").asString();
+            String sha = existing.path("sha").asString("");
             return sha == null || sha.isBlank() ? java.util.Optional.empty() : java.util.Optional.of(sha);
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode() == HttpStatusCode.valueOf(404)) {
