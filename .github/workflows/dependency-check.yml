@@ -17,10 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
@@ -29,7 +29,7 @@ jobs:
       # Persist the NVD H2 database between runs so scans don't re-download it.
       # Keyed per-run; restore-keys fall back to the most recent prior cache.
       - name: Cache OWASP NVD data
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .dependency-check-data
           key: owasp-nvd-${{ github.run_id }}
@@ -50,7 +50,7 @@ jobs:
 
       - name: Upload dependency-check report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dependency-check-report
           path: target/dependency-check-report.*
