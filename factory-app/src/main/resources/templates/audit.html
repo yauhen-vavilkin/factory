@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Audit', activeNav='audit', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="page-header">
+        <h1>Audit</h1>
+        <p class="page-description">Append-only record of every step, artifact write, and decision.</p>
+    </div>
+
+    <form class="filter-bar" method="get" th:action="@{/audit}">
+        <div class="filter-field">
+            <label class="label" for="filter-event-type">Event type</label>
+            <select class="select" id="filter-event-type" name="eventType">
+                <option value="" th:selected="${selectedEventType == ''}">All</option>
+                <option th:each="t : ${eventTypes}" th:value="${t}" th:text="${t}"
+                        th:selected="${t.name() == selectedEventType}"></option>
+            </select>
+        </div>
+        <button class="btn btn-outline" type="submit">Apply</button>
+    </form>
+
+    <div th:if="${#lists.isEmpty(events)}" class="empty-state">No audit events match this filter.</div>
+    <div th:unless="${#lists.isEmpty(events)}">
+        <div th:replace="~{fragments/components :: auditTable(${events}, true)}"></div>
+        <nav th:replace="~{fragments/components :: pagination(${page}, ${baseUrl})}"></nav>
+    </div>
+</section>
+</body>
+</html>

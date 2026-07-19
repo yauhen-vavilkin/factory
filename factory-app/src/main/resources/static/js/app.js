@@ -34,9 +34,26 @@
     });
   }
 
+  function initVersionTabs() {
+    document.querySelectorAll('[data-version-tabs]').forEach(function (group) {
+      var tabs = group.querySelectorAll('[data-version-target]');
+      tabs.forEach(function (tab) {
+        tab.addEventListener('click', function () {
+          tabs.forEach(function (other) {
+            var selected = other === tab;
+            other.setAttribute('aria-selected', String(selected));
+            var panel = document.getElementById(other.getAttribute('data-version-target'));
+            if (panel) panel.hidden = !selected;
+          });
+        });
+      });
+    });
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     initDialogs();
     dismissAlerts();
     initSampleSelect();
+    initVersionTabs();
   });
 })();

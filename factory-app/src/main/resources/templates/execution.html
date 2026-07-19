@@ -3,7 +3,9 @@
       xmlns:th="http://www.thymeleaf.org" lang="en">
 <body>
 <section class="page-body">
-    <div class="page-header">
+    <div class="page-header"
+         th:attr="data-poll-url=${pollUrl},
+                  data-poll-fields=${pollUrl != null} ? 'execution.status,execution.currentStepIndex' : null">
         <h1 th:text="'Execution ' + ${#strings.abbreviate(execution.id.toString(), 13)}">Execution</h1>
         <div class="page-header-meta">
             <span th:text="${execution.flowId + ' v' + execution.flowVersion}">flow</span>
@@ -14,6 +16,27 @@
                 <a th:href="@{'/executions/' + ${execution.parentExecutionId}}"
                    th:text="${#strings.abbreviate(execution.parentExecutionId.toString(), 13)}"></a>
             </span>
+            <a class="btn btn-primary btn-sm" th:if="${pendingReview}"
+               th:href="@{'/reviews/' + ${pendingReview.id}}">Open review</a>
+        </div>
+
+        <div class="actions-bar" th:if="${canCancel or canRerun}">
+            <form th:if="${canCancel}" class="action-form" method="post"
+                  th:action="@{'/executions/' + ${execution.id} + '/cancel'}"
+                  data-confirm="Cancel this execution? Running work will be discarded.">
+                <input class="input input-inline" type="text" name="actor" required
+                       placeholder="your name" aria-label="Actor">
+                <input class="input input-inline" type="text" name="reason"
+                       placeholder="reason (optional)" aria-label="Cancellation reason">
+                <button class="btn btn-destructive" type="submit">Cancel run</button>
+            </form>
+            <form th:if="${canRerun}" class="action-form" method="post"
+                  th:action="@{'/executions/' + ${execution.id} + '/rerun'}"
+                  data-confirm="Re-run this execution with the same payload?">
+                <input class="input input-inline" type="text" name="actor" required
+                       placeholder="your name" aria-label="Actor">
+                <button class="btn btn-primary" type="submit">Re-run</button>
+            </form>
         </div>
     </div>
 
@@ -22,22 +45,57 @@
     </div>
 
     <div class="stack">
+        <section th:unless="${#lists.isEmpty(steps)}">
+            <div class="page-header">
+                <h2 class="card-title">Progress</h2>
+            </div>
+            <ol th:replace="~{fragments/components :: stepper(${steps})}"></ol>
+        </section>
+
+        <section th:unless="${#lists.isEmpty(children)}">
+            <div class="page-header">
+                <h2 class="card-title">Child executions</h2>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr><th>Execution</th><th>Flow</th><th>Status</th><th>Invoked by</th></tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="c : ${children}">
+                        <td><a th:href="@{'/executions/' + ${c['id']}}" th:text="${c['idShort']}"></a></td>
+                        <td th:text="${c['flowId']}"></td>
+                        <td><span th:replace="~{fragments/components :: statusBadge(${c['status']})}"></span></td>
+                        <td class="muted" th:text="${c['stepLabel']}">—</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
         <section>
             <div class="page-header">
                 <h2 class="card-title">Artifacts</h2>
             </div>
-            <div class="empty-state" th:if="${#lists.isEmpty(artifacts)}">No artifacts produced.</div>
-            <div class="card" th:each="a : ${artifacts}">
+            <div class="empty-state" th:if="${#lists.isEmpty(artifactGroups)}">No artifacts produced.</div>
+            <div class="card" th:each="group : ${artifactGroups}">
                 <div class="card-header">
-                    <h3 class="card-title" th:text="${a.name + ' (v' + a.version + ')'}"></h3>
-                    <p class="card-description"
-                       th:text="'by ' + ${a.createdBy} + ' · ' + ${a.createdAt}"></p>
+                    <h3 class="card-title" th:text="${group['name']}"></h3>
                 </div>
                 <div class="card-content">
-                    <details class="details-inline">
-                        <summary>View content</summary>
-                        <pre class="code-block" th:text="${a.content}"></pre>
-                    </details>
+                    <div class="tabs" role="tablist" data-version-tabs
+                         th:attr="aria-label='Versions of ' + ${group['name']}">
+                        <button th:each="v : ${group['versions']}" type="button" role="tab"
+                                th:attr="data-version-target=${v['panelId']},
+                                         aria-controls=${v['panelId']},
+                                         aria-selected=${v['latest']} ? 'true' : 'false'"
+                                th:text="'v' + ${v['version']}"></button>
+                    </div>
+                    <div th:each="v : ${group['versions']}" th:id="${v['panelId']}" role="tabpanel"
+                         th:attr="hidden=${v['latest']} ? null : 'hidden'">
+                        <p class="card-description" th:text="${v['label']}"></p>
+                        <pre class="code-block" th:text="${v['content']}"></pre>
+                    </div>
                 </div>
             </div>
         </section>
@@ -46,7 +104,7 @@
             <div class="page-header">
                 <h2 class="card-title">Audit timeline</h2>
             </div>
-            <div th:replace="~{fragments/components :: auditTable(${events})}"></div>
+            <div th:replace="~{fragments/components :: auditTable(${events}, false)}"></div>
         </section>
     </div>
 </section>

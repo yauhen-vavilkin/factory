@@ -83,6 +83,16 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void statusPageRenders() {
+        assertRendered("/status", "Execution engine");
+    }
+
+    @Test
+    void auditPageRenders() {
+        assertRendered("/audit", "Append-only record");
+    }
+
+    @Test
     void executionDetailRenders() {
         PipelineExecution execution = executions.save(new PipelineExecution("test-factory", "1", "{}"));
         artifactStore.putMarkdown(execution.getId(), "test_plan.md", "# Plan\n", "test-spec");

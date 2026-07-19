@@ -20,14 +20,23 @@
        th:attrappend="aria-disabled=${page.last} ? 'true'">Next</a>
 </nav>
 
-<div th:fragment="auditTable(events)" class="table-wrap">
+<div th:fragment="auditTable(events, showExecution)" class="table-wrap">
     <table>
         <thead>
-        <tr><th>When</th><th>Event</th><th>Step</th><th>Actor</th><th>Detail</th></tr>
+        <tr>
+            <th>When</th>
+            <th th:if="${showExecution}">Execution</th>
+            <th>Event</th><th>Step</th><th>Actor</th><th>Detail</th>
+        </tr>
         </thead>
         <tbody>
         <tr th:each="ev : ${events}">
             <td th:text="${ev['occurredAt']}"></td>
+            <td th:if="${showExecution}">
+                <a th:if="${ev['executionId']}" th:href="@{'/executions/' + ${ev['executionId']}}"
+                   th:text="${ev['executionShort']}"></a>
+                <span th:unless="${ev['executionId']}" class="muted">—</span>
+            </td>
             <td><span class="badge badge-outline" th:text="${ev['eventType']}"></span></td>
             <td th:text="${ev['stepId']}">—</td>
             <td th:text="${ev['actor']}">—</td>
@@ -39,7 +48,9 @@
             </td>
         </tr>
         <tr th:if="${#lists.isEmpty(events)}">
-            <td colspan="5"><div class="empty-state">No audit events yet.</div></td>
+            <td th:attr="colspan=${showExecution} ? 6 : 5">
+                <div class="empty-state">No audit events yet.</div>
+            </td>
         </tr>
         </tbody>
     </table>
