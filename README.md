@@ -10,6 +10,18 @@ Factory**: Jira story → scope manifest → manual test plan → QA review →
 generated Karate scripts → (advisory or real) execution → QA sign-off →
 TestRail / GitHub / Jira sync.
 
+## Documentation
+
+| If you want to… | Read |
+|---|---|
+| Run the platform and Flow A locally | [Quickstart](#quickstart) below |
+| **Build your own flows, agent workers, prompts, or connectors** | [doc/extending-the-factory.md](doc/extending-the-factory.md) — the developer guide, with a full worked example |
+| Look up any flow YAML field and its validation rules | [doc/flow-descriptor-reference.md](doc/flow-descriptor-reference.md) |
+| Understand the architecture and its principles | [doc/design-overview.md](doc/design-overview.md) |
+| Operate it in production (stuck runs, alerts, cost, retention) | [doc/runbook.md](doc/runbook.md) |
+| Back up / restore the database | [doc/backup-dr.md](doc/backup-dr.md) |
+| Tune pool sizing / plan a load test | [doc/performance.md](doc/performance.md) |
+
 ## Architecture
 
 ```
@@ -155,6 +167,15 @@ warning at startup; always set it in non-local deployments.
 The registry discovers the descriptor at startup, validates worker ids and
 sub-flow references, mirrors the YAML to the database, and the router begins
 routing matching triggers. No engine, router or gateway changes.
+
+**[doc/extending-the-factory.md](doc/extending-the-factory.md) is the full
+guide**: a step-by-step tutorial building a complete flow (LLM worker,
+prompts, HITL gate, connector-backed worker), plus in-depth chapters on
+triggers and webhooks, worker failure/retry semantics, prompt and artifact
+conventions, sub-flow composition, quality post-processors, adding
+connectors, per-flow configuration, testing patterns, and adopting the
+platform on a non-FOLIO project. The YAML schema itself is specified in
+[doc/flow-descriptor-reference.md](doc/flow-descriptor-reference.md).
 
 ## Verification
 
