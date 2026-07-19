@@ -271,6 +271,18 @@ class ExecutionUiControllerTest {
                 .andExpect(model().attribute("pollUrl", (Object) null));
     }
 
+    @Test
+    void execution_detail_escalatedRunAllowsBothCancelAndRerun() throws Exception {
+        PipelineExecution execution = execution(ExecutionStatus.FAILED_ESCALATED, 1, "{}");
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(reviews.findByExecutionIdOrderByCreatedAtAsc(EXECUTION_ID)).thenReturn(List.of());
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("canCancel", true))
+                .andExpect(model().attribute("canRerun", true));
+    }
+
     // ----- actions -----
 
     @Test

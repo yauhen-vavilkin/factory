@@ -125,7 +125,7 @@ public class ExecutionUiController {
         model.addAttribute("children", childRows(execution, id));
         model.addAttribute("pendingReview", pendingReview(execution, id));
         model.addAttribute("events", auditLog.forExecution(id).stream().map(this::auditRow).toList());
-        model.addAttribute("canCancel", !terminal);
+        model.addAttribute("canCancel", !execution.getStatus().isFinal());
         model.addAttribute("canRerun", terminal);
         model.addAttribute("pollUrl", terminal ? null : "/api/executions/" + id);
         return "execution";
