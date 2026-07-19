@@ -62,4 +62,8 @@ public class AgentWorkerRegistry {
         }
         return worker;
     }
+
+    public Map<String, AgentWorker> all() {
+        return Map.copyOf(workers);
+    }
 }

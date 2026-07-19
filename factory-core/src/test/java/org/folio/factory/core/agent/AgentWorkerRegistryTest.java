@@ -51,6 +51,14 @@ class AgentWorkerRegistryTest {
     }
 
     @Test
+    void allReturnsImmutableViewOfEveryWorker() {
+        AgentWorkerRegistry registry = new AgentWorkerRegistry(List.of(worker("a"), worker("b")), mock(FlowRegistry.class));
+        Map<String, AgentWorker> all = registry.all();
+        assertThat(all).containsOnlyKeys("a", "b");
+        assertThatThrownBy(() -> all.put("c", worker("c"))).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
     void rejectsDuplicateWorkerIds() {
         assertThatThrownBy(() -> new AgentWorkerRegistry(List.of(worker("a"), worker("a")), mock(FlowRegistry.class)))
                 .isInstanceOf(IllegalStateException.class)

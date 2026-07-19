@@ -137,8 +137,22 @@ public class StateManager {
 
     @Transactional
     public PipelineExecution transition(UUID executionId, ExecutionStatus newStatus, Map<String, ?> auditDetail) {
+        return transition(executionId, newStatus, null, auditDetail);
+    }
+
+    @Transactional
+    public PipelineExecution transition(UUID executionId, ExecutionStatus newStatus, String actor,
+                                        Map<String, ?> auditDetail) {
         PipelineExecution execution = load(executionId);
         ExecutionStatus previous = execution.getStatus();
+        if (previous.isFinal()) {
+            // A resolved execution (COMPLETED/REJECTED/CANCELLED) must never be
+            // resurrected by a late writer — e.g. an in-flight worker finishing
+            // after the run was cancelled. FAILED_ESCALATED is deliberately not
+            // final, so escalation resume still transitions freely.
+            log.warn("Refusing transition of final execution {} ({} -> {})", executionId, previous, newStatus);
+            return execution;
+        }
         execution.setStatus(newStatus);
         PipelineExecution saved = executions.save(execution);
         Map<String, Object> detail = new HashMap<>();
@@ -147,7 +161,8 @@ public class StateManager {
         if (auditDetail != null) {
             detail.putAll(auditDetail);
         }
-        auditLog.record(saved.getId(), AuditEventType.STATE_TRANSITION, null, detail);
+        auditLog.record(saved.getId(), AuditEventType.STATE_TRANSITION, null,
+                actor != null ? actor : AuditLog.SYSTEM_ACTOR, detail);
         if (newStatus == ExecutionStatus.COMPLETED) {
             auditLog.record(saved.getId(), AuditEventType.EXECUTION_COMPLETED, null, null);
         }
@@ -190,6 +205,10 @@ public class StateManager {
     @Transactional
     public void scheduleRetry(UUID executionId, long backoffSeconds, String errorMessage) {
         PipelineExecution execution = load(executionId);
+        if (execution.getStatus().isFinal()) {
+            log.warn("Refusing scheduleRetry of final execution {} (status {})", executionId, execution.getStatus());
+            return;
+        }
         execution.setStatus(ExecutionStatus.PENDING);
         execution.setNextRunAt(Instant.now().plusSeconds(backoffSeconds));
         execution.setErrorMessage(errorMessage);

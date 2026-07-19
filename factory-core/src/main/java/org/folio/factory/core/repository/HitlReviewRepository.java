@@ -2,6 +2,8 @@ package org.folio.factory.core.repository;
 
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -13,5 +15,9 @@ public interface HitlReviewRepository extends JpaRepository<HitlReview, UUID> {
 
     List<HitlReview> findByExecutionIdOrderByCreatedAtAsc(UUID executionId);
 
+    List<HitlReview> findByExecutionIdAndStatus(UUID executionId, HitlReviewStatus status);
+
     List<HitlReview> findAllByOrderByCreatedAtDesc();
+
+    Page<HitlReview> findByStatus(HitlReviewStatus status, Pageable pageable);
 }

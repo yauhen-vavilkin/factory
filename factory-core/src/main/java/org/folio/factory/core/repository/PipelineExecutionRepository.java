@@ -2,6 +2,8 @@ package org.folio.factory.core.repository;
 
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -49,6 +51,12 @@ public interface PipelineExecutionRepository extends JpaRepository<PipelineExecu
             @Param("parentStatus") ExecutionStatus parentStatus);
 
     List<PipelineExecution> findAllByOrderByCreatedAtDesc();
+
+    Page<PipelineExecution> findByStatus(ExecutionStatus status, Pageable pageable);
+
+    Page<PipelineExecution> findByFlowId(String flowId, Pageable pageable);
+
+    Page<PipelineExecution> findByStatusAndFlowId(ExecutionStatus status, String flowId, Pageable pageable);
 
     long countByStatus(ExecutionStatus status);
 
