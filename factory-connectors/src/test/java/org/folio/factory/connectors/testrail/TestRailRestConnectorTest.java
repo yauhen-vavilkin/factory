@@ -60,4 +60,17 @@ class TestRailRestConnectorTest {
         connector.addResults(300, Map.of(991L, true), "automated");
         server.verify();
     }
+
+    @Test
+    void addResultsMapsFailureAndNullCommentToEmptyString() {
+        server.expect(requestTo("https://testrail.example.org/index.php?/api/v2/add_results_for_cases/300"))
+                .andExpect(method(POST))
+                .andExpect(jsonPath("$.results[0].case_id").value(991))
+                .andExpect(jsonPath("$.results[0].status_id").value(5))
+                .andExpect(jsonPath("$.results[0].comment").value(""))
+                .andRespond(withSuccess());
+
+        connector.addResults(300, Map.of(991L, false), null);
+        server.verify();
+    }
 }
