@@ -522,6 +522,20 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 }
 .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
 .compare-grid > * { min-width: 0; }
+.compare-grid .field + .field { margin-top: 0; }
+/* Side-by-side panes must match: same fixed height and no soft-wrap on the
+   editor, so the original and the edit scroll/read identically. */
+.compare-grid .code-block,
+.compare-grid .textarea-code {
+  height: 28rem;
+  max-height: none;
+  min-height: 0;
+}
+.compare-grid .textarea-code {
+  white-space: pre;
+  overflow: auto;
+  resize: vertical;
+}
 @media (max-width: 900px) { .compare-grid { grid-template-columns: 1fr; } }
 
 /* ---------- filter bar ---------- */

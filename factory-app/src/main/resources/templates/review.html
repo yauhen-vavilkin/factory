@@ -44,7 +44,7 @@
                     </div>
                     <div class="field">
                         <label class="label" th:for="'edit-' + ${artifact.path('name').asString()}">Your edit (AMEND)</label>
-                        <textarea class="textarea textarea-code"
+                        <textarea class="textarea textarea-code" wrap="off"
                                   th:id="'edit-' + ${artifact.path('name').asString()}"
                                   th:name="'artifact:' + ${artifact.path('name').asString()}"
                                   th:text="${artifact.path('content').asString()}"></textarea>
