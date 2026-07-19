@@ -27,7 +27,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 1001 spring \
- && useradd --system --uid 1001 --gid spring --home-dir /application --shell /usr/sbin/nologin spring
+ && useradd --system --uid 1001 --gid spring --create-home --home-dir /application --shell /usr/sbin/nologin spring
 
 WORKDIR /application
 
