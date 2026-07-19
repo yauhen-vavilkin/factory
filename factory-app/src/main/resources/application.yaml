@@ -38,11 +38,23 @@ spring:
       connect-timeout: ${FACTORY_HTTP_CONNECT_TIMEOUT:5s}
       read-timeout: ${FACTORY_HTTP_READ_TIMEOUT:30s}
   ai:
+    model:
+      chat: ${FACTORY_LLM_PROVIDER:anthropic}
     anthropic:
       api-key: ${ANTHROPIC_API_KEY:}
       chat:
         options:
           model: ${FACTORY_LLM_MODEL:claude-sonnet-4-5}
+          max-tokens: 8192
+    # Any OpenAI-compatible endpoint (Groq, Gemini, OpenRouter, local Ollama).
+    # Active only when FACTORY_LLM_PROVIDER=openai.
+    openai:
+      api-key: ${FACTORY_LLM_API_KEY:unused}
+      base-url: ${FACTORY_LLM_BASE_URL:https://api.groq.com/openai/v1}
+      chat:
+        completions-path: ${FACTORY_LLM_COMPLETIONS_PATH:/chat/completions}
+        options:
+          model: ${FACTORY_LLM_MODEL:llama-3.3-70b-versatile}
           max-tokens: 8192
 
 server:

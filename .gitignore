@@ -12,3 +12,6 @@ target/
 .mvn/wrapper/maven-wrapper.jar
 # OWASP dependency-check local NVD H2 cache (owasp profile)
 .dependency-check-data/
+
+# local credentials
+.env
