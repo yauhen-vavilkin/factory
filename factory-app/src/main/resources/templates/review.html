@@ -1,52 +1,81 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org" lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>AI Factory — Review</title>
-    <style>
-        body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 70rem; color: #1a1a1a; }
-        nav a { margin-right: 1rem; }
-        textarea { width: 100%; font-family: ui-monospace, monospace; font-size: .85rem; }
-        .error { background: #fdecea; padding: .5rem .75rem; border-radius: 4px; color: #b3261e; }
-        .instructions { background: #f4f6f8; padding: .75rem 1rem; border-radius: 4px; }
-        .buttons button { padding: .5rem 1.25rem; margin-right: .75rem; font-size: 1rem; }
-        label { display: block; margin-top: 1rem; font-weight: 600; }
-        input[type=text] { width: 24rem; padding: .35rem; }
-        h3 { margin-bottom: .25rem; }
-    </style>
-</head>
+<html th:replace="~{fragments/layout :: page(title='Review', activeNav='reviews', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
 <body>
-<nav><a href="/reviews">Reviews</a> <a href="/executions">Executions</a></nav>
-<h1 th:text="${pkg.path('title').asString()}">Review</h1>
-<p>Gate <code th:text="${review.gateId}"></code>
-    · flow <code th:text="${pkg.path('flowId').asString()}"></code>
-    · execution <a th:href="@{'/executions/' + ${review.executionId}}" th:text="${review.executionId}"></a>
-    · status <strong th:text="${review.status}"></strong></p>
-<p class="error" th:if="${error}" th:text="${error}"></p>
-<p class="instructions" th:text="${pkg.path('instructions').asString()}"></p>
-<p th:if="${!pkg.path('error').isMissingNode()}" class="error">
-    Error: <span th:text="${pkg.path('error').asString()}"></span></p>
-
-<form th:action="@{'/reviews/' + ${review.id} + '/decision'}" method="post"
-      th:if="${review.status.name() == 'PENDING'}">
-    <div th:each="artifact : ${pkg.path('artifacts')}">
-        <h3 th:text="${artifact.path('name').asString() + ' (v' + artifact.path('version').asInt() + ')'}"></h3>
-        <textarea th:name="'artifact:' + ${artifact.path('name').asString()}" rows="22"
-                  th:text="${artifact.path('content').asString()}"></textarea>
+<section class="page-body">
+    <div class="page-header">
+        <h1 th:text="${pkg.path('title').asString()}">Review</h1>
+        <div class="page-header-meta">
+            <span class="badge badge-outline" th:text="'Gate ' + ${review.gateId}">Gate</span>
+            <span th:text="${pkg.path('flowId').asString()}">flow</span>
+            <span>·</span>
+            <a th:href="@{'/executions/' + ${review.executionId}}"
+               th:text="${#strings.abbreviate(review.executionId.toString(), 13)}">execution</a>
+            <span th:replace="~{fragments/components :: statusBadge(${review.status})}"></span>
+        </div>
     </div>
-    <label for="reviewer">Reviewer</label>
-    <input type="text" id="reviewer" name="reviewer" required placeholder="your name">
-    <label for="comments">Comments</label>
-    <textarea id="comments" name="comments" rows="3"></textarea>
-    <p class="buttons">
-        <button type="submit" name="decision" value="APPROVE">Approve</button>
-        <button type="submit" name="decision" value="AMEND">Amend (save edits)</button>
-        <button type="submit" name="decision" value="REJECT">Reject</button>
-    </p>
-</form>
-<p th:if="${review.status.name() != 'PENDING'}">
-    Decided by <strong th:text="${review.reviewer}"></strong>: <span th:text="${review.decision}"></span>
-    <span th:if="${review.comments}" th:text="' — ' + ${review.comments}"></span>
-</p>
+
+    <div class="alert alert-error" role="alert" th:if="${!pkg.path('error').isMissingNode()}">
+        <span th:text="'Error: ' + ${pkg.path('error').asString()}"></span>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Instructions</h2>
+        </div>
+        <div class="card-content">
+            <p th:text="${pkg.path('instructions').asString()}"></p>
+        </div>
+    </div>
+
+    <form th:if="${review.status.name() == 'PENDING'}" method="post"
+          th:action="@{'/reviews/' + ${review.id} + '/decision'}">
+        <div class="card" th:each="artifact : ${pkg.path('artifacts')}">
+            <div class="card-header">
+                <h2 class="card-title"
+                    th:text="${artifact.path('name').asString() + ' (v' + artifact.path('version').asInt() + ')'}"></h2>
+            </div>
+            <div class="card-content">
+                <div class="field">
+                    <textarea class="textarea textarea-code"
+                              th:name="'artifact:' + ${artifact.path('name').asString()}"
+                              th:text="${artifact.path('content').asString()}"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-content">
+                <div class="field">
+                    <label class="label" for="reviewer">Reviewer</label>
+                    <input class="input" type="text" id="reviewer" name="reviewer" required
+                           placeholder="your name">
+                </div>
+                <div class="field">
+                    <label class="label" for="comments">Comments</label>
+                    <textarea class="textarea" id="comments" name="comments" rows="3"></textarea>
+                </div>
+            </div>
+            <div class="card-footer">
+                <button class="btn btn-primary" type="submit" name="decision" value="APPROVE">Approve</button>
+                <button class="btn btn-outline" type="submit" name="decision" value="AMEND">Amend (save edits)</button>
+                <button class="btn btn-destructive" type="submit" name="decision" value="REJECT">Reject</button>
+            </div>
+        </div>
+    </form>
+
+    <div class="card" th:if="${review.status.name() != 'PENDING'}">
+        <div class="card-header">
+            <h2 class="card-title">Decision</h2>
+        </div>
+        <div class="card-content">
+            <p>
+                Decided by <strong th:text="${review.reviewer}"></strong>:
+                <span th:text="${review.decision}"></span>
+                <span th:if="${review.comments}" th:text="' — ' + ${review.comments}"></span>
+            </p>
+        </div>
+    </div>
+</section>
 </body>
 </html>

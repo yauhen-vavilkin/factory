@@ -1,31 +1,35 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org" lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>AI Factory — Executions</title>
-    <style>
-        body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 70rem; color: #1a1a1a; }
-        nav a { margin-right: 1rem; }
-        table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-        th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid #ddd; }
-        .status-COMPLETED { color: #1e7e34; font-weight: 600; }
-        .status-FAILED_ESCALATED, .status-REJECTED, .status-CANCELLED { color: #b3261e; font-weight: 600; }
-        .status-AWAITING_HITL { color: #b26a00; font-weight: 600; }
-    </style>
-</head>
+<html th:replace="~{fragments/layout :: page(title='Executions', activeNav='executions', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
 <body>
-<nav><a href="/reviews">Reviews</a> <a href="/executions"><strong>Executions</strong></a> <a href="/api/status">Status</a></nav>
-<h1>Pipeline executions</h1>
-<table>
-    <tr><th>Execution</th><th>Flow</th><th>Status</th><th>Step</th><th>Created</th><th>Updated</th></tr>
-    <tr th:each="e : ${executions}">
-        <td><a th:href="@{'/executions/' + ${e.id}}" th:text="${#strings.abbreviate(e.id.toString(), 13)}"></a></td>
-        <td th:text="${e.flowId}"></td>
-        <td th:class="'status-' + ${e.status}" th:text="${e.status}"></td>
-        <td th:text="${e.currentStepIndex}"></td>
-        <td th:text="${e.createdAt}"></td>
-        <td th:text="${e.updatedAt}"></td>
-    </tr>
-</table>
+<section class="page-body">
+    <div class="page-header">
+        <h1>Executions</h1>
+        <p class="page-description">Pipeline runs across all flows, most recent first.</p>
+    </div>
+
+    <div class="table-wrap" th:unless="${#lists.isEmpty(executions)}">
+        <table>
+            <thead>
+            <tr><th>Execution</th><th>Flow</th><th>Status</th><th>Step</th><th>Created</th><th>Updated</th></tr>
+            </thead>
+            <tbody>
+            <tr th:each="e : ${executions}">
+                <td>
+                    <a th:href="@{'/executions/' + ${e.id}}"
+                       th:text="${#strings.abbreviate(e.id.toString(), 13)}"></a>
+                </td>
+                <td th:text="${e.flowId}"></td>
+                <td><span th:replace="~{fragments/components :: statusBadge(${e.status})}"></span></td>
+                <td th:text="${e.currentStepIndex}"></td>
+                <td class="muted" th:text="${e.createdAt}"></td>
+                <td class="muted" th:text="${e.updatedAt}"></td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="empty-state" th:if="${#lists.isEmpty(executions)}">No executions yet.</div>
+</section>
 </body>
 </html>

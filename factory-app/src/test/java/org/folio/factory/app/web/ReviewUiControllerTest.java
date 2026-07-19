@@ -4,9 +4,6 @@ import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.hitl.HitlDecision;
 import org.folio.factory.core.hitl.HitlDecisionService;
 import org.folio.factory.core.repository.HitlReviewRepository;
-import org.folio.factory.core.repository.PipelineExecutionRepository;
-import org.folio.factory.core.service.ArtifactStore;
-import org.folio.factory.core.service.AuditLog;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,7 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
 @ExtendWith(MockitoExtension.class)
-class UiControllerTest {
+class ReviewUiControllerTest {
 
     private static final UUID EXECUTION_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID REVIEW_ID = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
@@ -50,15 +47,6 @@ class UiControllerTest {
     @Mock
     private HitlDecisionService decisionService;
 
-    @Mock
-    private PipelineExecutionRepository executions;
-
-    @Mock
-    private ArtifactStore artifactStore;
-
-    @Mock
-    private AuditLog auditLog;
-
     @Captor
     private ArgumentCaptor<Map<String, String>> amendmentsCaptor;
 
@@ -67,7 +55,7 @@ class UiControllerTest {
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders
-                .standaloneSetup(new UiController(reviews, decisionService, executions, artifactStore, auditLog, json))
+                .standaloneSetup(new ReviewUiController(reviews, decisionService, json))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }

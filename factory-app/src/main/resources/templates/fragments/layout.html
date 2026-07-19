@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html th:fragment="page(title, activeNav, content, scripts)"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="${title} + ' — AI Factory'">AI Factory</title>
+    <script>
+        (function () {
+            var t = localStorage.getItem('theme');
+            if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches))
+                document.documentElement.dataset.theme = 'dark';
+        })();
+    </script>
+    <link rel="stylesheet" th:href="@{/css/tokens.css}">
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="app-shell">
+    <aside class="sidebar" aria-label="Main navigation">
+        <div class="sidebar-brand">
+            <strong>AI Factory</strong>
+            <span>FOLIO SDLC</span>
+        </div>
+        <nav class="nav-group" aria-label="Overview">
+            <span class="nav-group-label">Overview</span>
+            <a class="nav-item" th:href="@{/}"
+               th:attrappend="aria-current=${activeNav == 'dashboard'} ? 'page'">Dashboard</a>
+            <a class="nav-item" th:href="@{/status}"
+               th:attrappend="aria-current=${activeNav == 'status'} ? 'page'">Status</a>
+            <a class="nav-item" th:href="@{/audit}"
+               th:attrappend="aria-current=${activeNav == 'audit'} ? 'page'">Audit</a>
+        </nav>
+        <nav class="nav-group" aria-label="Pipelines">
+            <span class="nav-group-label">Pipelines</span>
+            <a class="nav-item" th:href="@{/flows}"
+               th:attrappend="aria-current=${activeNav == 'flows'} ? 'page'">Flows</a>
+            <a class="nav-item" th:href="@{/executions}"
+               th:attrappend="aria-current=${activeNav == 'executions'} ? 'page'">Executions</a>
+            <a class="nav-item" th:href="@{/reviews}"
+               th:attrappend="aria-current=${activeNav == 'reviews'} ? 'page'">Reviews</a>
+        </nav>
+        <nav class="nav-group" aria-label="Agents">
+            <span class="nav-group-label">Agents</span>
+            <a class="nav-item" th:href="@{/workers}"
+               th:attrappend="aria-current=${activeNav == 'workers'} ? 'page'">Workers</a>
+            <a class="nav-item" th:href="@{/prompts}"
+               th:attrappend="aria-current=${activeNav == 'prompts'} ? 'page'">Prompts</a>
+        </nav>
+        <div class="sidebar-footer">
+            <button type="button" id="theme-toggle" class="btn btn-ghost btn-sm" aria-pressed="false">
+                <span aria-hidden="true">☾</span>
+                <span data-theme-label>Dark</span>
+            </button>
+        </div>
+    </aside>
+    <main id="main" class="main">
+        <div class="alert alert-success" role="status" data-autodismiss
+             th:if="${message}" th:text="${message}"></div>
+        <div class="alert alert-error" role="alert"
+             th:if="${error}" th:text="${error}"></div>
+        <th:block th:replace="${content}"/>
+    </main>
+</div>
+<script th:src="@{/js/app.js}"></script>
+<script th:src="@{/js/theme.js}"></script>
+<th:block th:replace="${scripts} ?: ~{}"/>
+</body>
+</html>

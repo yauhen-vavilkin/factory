@@ -1,31 +1,33 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org" lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>AI Factory — Review Inbox</title>
-    <style>
-        body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 70rem; color: #1a1a1a; }
-        nav a { margin-right: 1rem; }
-        table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-        th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid #ddd; }
-        .message { background: #e6f4ea; padding: .5rem .75rem; border-radius: 4px; }
-        .empty { color: #666; margin-top: 1.5rem; }
-    </style>
-</head>
+<html th:replace="~{fragments/layout :: page(title='Reviews', activeNav='reviews', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
 <body>
-<nav><a href="/reviews"><strong>Reviews</strong></a> <a href="/executions">Executions</a> <a href="/api/status">Status</a></nav>
-<h1>Pending human reviews</h1>
-<p class="message" th:if="${message}" th:text="${message}"></p>
-<table th:unless="${#lists.isEmpty(reviews)}">
-    <tr><th>Title</th><th>Flow</th><th>Gate</th><th>Created</th><th></th></tr>
-    <tr th:each="r : ${reviews}">
-        <td th:text="${r.title}"></td>
-        <td th:text="${r.flowId}"></td>
-        <td th:text="${r.gateId}"></td>
-        <td th:text="${r.createdAt}"></td>
-        <td><a th:href="@{'/reviews/' + ${r.id}}">Review</a></td>
-    </tr>
-</table>
-<p class="empty" th:if="${#lists.isEmpty(reviews)}">Nothing waiting for review.</p>
+<section class="page-body">
+    <div class="page-header">
+        <h1>Reviews</h1>
+        <p class="page-description">Human-in-the-loop gates waiting for a decision.</p>
+    </div>
+
+    <div class="table-wrap" th:unless="${#lists.isEmpty(reviews)}">
+        <table>
+            <thead>
+            <tr><th>Title</th><th>Flow</th><th>Gate</th><th>Created</th><th></th></tr>
+            </thead>
+            <tbody>
+            <tr th:each="r : ${reviews}">
+                <td th:text="${r.title}"></td>
+                <td th:text="${r.flowId}"></td>
+                <td th:text="${r.gateId}"></td>
+                <td class="muted" th:text="${r.createdAt}"></td>
+                <td>
+                    <a class="btn btn-outline btn-sm" th:href="@{'/reviews/' + ${r.id}}">Review</a>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="empty-state" th:if="${#lists.isEmpty(reviews)}">Nothing waiting for review.</div>
+</section>
 </body>
 </html>

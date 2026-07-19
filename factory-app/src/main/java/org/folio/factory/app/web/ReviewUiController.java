@@ -5,9 +5,6 @@ import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.hitl.HitlDecision;
 import org.folio.factory.core.hitl.HitlDecisionService;
 import org.folio.factory.core.repository.HitlReviewRepository;
-import org.folio.factory.core.repository.PipelineExecutionRepository;
-import org.folio.factory.core.service.ArtifactStore;
-import org.folio.factory.core.service.AuditLog;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,30 +23,24 @@ import java.util.NoSuchElementException;
 import java.util.UUID;
 
 /**
- * Minimal server-rendered HITL console: a review inbox, a review detail page
- * with inline artifact editing, and an execution timeline. No JavaScript build —
- * plain HTML forms against the same decision service the REST API uses.
+ * Server-rendered HITL console: a review inbox and a review detail page with
+ * inline artifact editing. Plain HTML forms post against the same decision
+ * service the REST API uses. Also owns the home redirect until a dashboard
+ * page claims {@code /}.
  */
 @Controller
-public class UiController {
+public class ReviewUiController {
 
     private static final String ARTIFACT_FIELD_PREFIX = "artifact:";
 
     private final HitlReviewRepository reviews;
     private final HitlDecisionService decisionService;
-    private final PipelineExecutionRepository executions;
-    private final ArtifactStore artifactStore;
-    private final AuditLog auditLog;
     private final JsonMapper jsonMapper;
 
-    public UiController(HitlReviewRepository reviews, HitlDecisionService decisionService,
-                        PipelineExecutionRepository executions, ArtifactStore artifactStore,
-                        AuditLog auditLog, JsonMapper jsonMapper) {
+    public ReviewUiController(HitlReviewRepository reviews, HitlDecisionService decisionService,
+                              JsonMapper jsonMapper) {
         this.reviews = reviews;
         this.decisionService = decisionService;
-        this.executions = executions;
-        this.artifactStore = artifactStore;
-        this.auditLog = auditLog;
         this.jsonMapper = jsonMapper;
     }
 
@@ -106,22 +97,6 @@ public class UiController {
         } catch (IllegalArgumentException | IllegalStateException | NoSuchElementException e) {
             return redirectWithError(id, e.getMessage());
         }
-    }
-
-    @GetMapping("/executions")
-    public String executions(Model model) {
-        model.addAttribute("executions", executions.findAllByOrderByCreatedAtDesc());
-        return "executions";
-    }
-
-    @GetMapping("/executions/{id}")
-    public String execution(@PathVariable("id") UUID id, Model model) {
-        var execution = executions.findById(id)
-                .orElseThrow(() -> new NoSuchElementException("No execution " + id));
-        model.addAttribute("execution", execution);
-        model.addAttribute("artifacts", artifactStore.allForExecution(id));
-        model.addAttribute("events", auditLog.forExecution(id));
-        return "execution";
     }
 
     private Map<String, Object> reviewRow(HitlReview review) {

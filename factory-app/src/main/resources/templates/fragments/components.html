@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+
+<span th:fragment="statusBadge(status)" class="badge"
+      th:classappend="'badge-status-' + ${status}" th:text="${status}">STATUS</span>
+
+<nav th:fragment="pagination(page, baseUrl)" class="pagination" aria-label="Pagination"
+     th:if="${page != null}">
+    <a class="btn btn-outline btn-sm"
+       th:classappend="${page.first} ? 'disabled'"
+       th:href="${page.first} ? '#' : ${baseUrl} + '&page=' + ${page.number - 1}"
+       th:attrappend="aria-disabled=${page.first} ? 'true'">Previous</a>
+    <span class="pagination-info"
+          th:text="'Page ' + ${page.number + 1} + ' of ' + ${page.totalPages} + ' · ' + ${page.totalElements} + ' total'">
+        Page 1 of 1 · 0 total</span>
+    <a class="btn btn-outline btn-sm"
+       th:classappend="${page.last} ? 'disabled'"
+       th:href="${page.last} ? '#' : ${baseUrl} + '&page=' + ${page.number + 1}"
+       th:attrappend="aria-disabled=${page.last} ? 'true'">Next</a>
+</nav>
+
+<div th:fragment="auditTable(events)" class="table-wrap">
+    <table>
+        <thead>
+        <tr><th>When</th><th>Event</th><th>Step</th><th>Actor</th><th>Detail</th></tr>
+        </thead>
+        <tbody>
+        <tr th:each="ev : ${events}">
+            <td th:text="${ev['occurredAt']}"></td>
+            <td><span class="badge badge-outline" th:text="${ev['eventType']}"></span></td>
+            <td th:text="${ev['stepId']}">—</td>
+            <td th:text="${ev['actor']}">—</td>
+            <td>
+                <details class="details-inline" th:if="${ev['detail']}">
+                    <summary>View</summary>
+                    <pre class="code-block" th:text="${ev['detail']}"></pre>
+                </details>
+            </td>
+        </tr>
+        <tr th:if="${#lists.isEmpty(events)}">
+            <td colspan="5"><div class="empty-state">No audit events yet.</div></td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+
+<ol th:fragment="stepper(steps)" class="stepper">
+    <li th:each="s : ${steps}" class="step"
+        th:attr="data-state=${s['state']}, data-type=${s['type']}">
+        <span class="step-marker" aria-hidden="true"></span>
+        <div class="step-body">
+            <span class="step-label" th:text="${s['label']}"></span>
+            <span class="sr-only" th:text="${s['state']}"></span>
+            <span class="step-sublabel" th:if="${s['sublabel']}" th:text="${s['sublabel']}"></span>
+            <span class="badge badge-destructive badge-sm"
+                  th:if="${s['attempts'] != null and s['attempts'] > 0}"
+                  th:text="'retry ×' + ${s['attempts']}"></span>
+            <details class="details-inline" th:if="${s['detailsHtmlId']}" th:id="${s['detailsHtmlId']}">
+                <summary>Details</summary>
+            </details>
+        </div>
+    </li>
+</ol>
+
+</body>
+</html>
