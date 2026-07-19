@@ -153,3 +153,29 @@ No engine, router, or gateway changes — if a change seems to require touching
   `FlowAZeroCredentialsTest`): scripted LLM, WireMock'd Jira/GitHub/TestRail,
   including a QA amendment at gate 1 and the zero-credentials path. When
   changing flow behavior, extend these rather than mocking the engine.
+
+## Communication
+- Short, direct, content-dense — no padding, praise, or narrative summaries.
+- Yes/no questions: lead with `Yes` / `No` / `Mostly`, then only the essential rationale.
+- Routine answers: 1–3 short paragraphs or a few bullets; don't restate obvious context.
+- Code review: lead with concrete findings + file refs; if clean, say so and stop (flag any real residual risk).
+- Expand only when asked, the task is high-risk, or correctness needs it.
+- Disagree when I'm wrong. Don't soften technical criticism and
+  don't validate a flawed approach because I proposed it.
+- No filler, no recaps of my request, no flattery, no offers to
+  elaborate.
+
+## How to work (lean code, surgical changes)
+- Think before coding: state assumptions; if ambiguous, present the options instead of
+  guessing; confirm what "done" looks like before starting.
+- The best code is the code you never wrote. Before writing, climb the ladder: does this
+  need to exist? Is there a stdlib / platform / existing-dependency answer? Can it be one
+  line? Then write the minimum that works — nothing speculative.
+- Surgical changes: touch only what the task needs; clean up only your own mess. Don't
+  refactor unrelated code.
+- Never cut corners on: input validation at trust boundaries, error handling, security,
+  and accessibility — "minimal" is never an excuse to drop these.
+
+## Don't
+- Don't assume cross-repo context — a session only knows what it has read this session.
+- Do not add comments unless the code's intent is genuinely non-obvious (e.g., a non-standard workaround); never add comments that restate what the code does.

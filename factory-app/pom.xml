@@ -44,6 +44,13 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
+    <!-- Prometheus registry: its presence makes Boot auto-configure the registry and
+         /actuator/prometheus. Runtime scope — factory-app compiles against no Micrometer type. -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+      <scope>runtime</scope>
+    </dependency>
     <dependency>
       <groupId>org.springframework.ai</groupId>
       <artifactId>spring-ai-starter-model-anthropic</artifactId>
@@ -103,6 +110,14 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+      <!-- CycloneDX SBOM (DEP-1). Version + execution (makeAggregateBom @
+           generate-resources, output META-INF/sbom/application.cdx.json) are
+           supplied by spring-boot-starter-parent; emitted on every build and
+           embedded into the repackaged jar. -->
+      <plugin>
+        <groupId>org.cyclonedx</groupId>
+        <artifactId>cyclonedx-maven-plugin</artifactId>
       </plugin>
     </plugins>
   </build>

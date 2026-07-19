@@ -1,0 +1,12 @@
+-- Retention purge support.
+--
+-- RetentionService scans for top-level executions in a terminal purgeable state
+-- whose completed_at is older than the TTL. The existing idx_execution_claimable
+-- (status, next_run_at) does not serve that predicate; this composite index lets
+-- the candidate scan seek by status and range-scan completed_at.
+--
+-- Descendant collection walks parent_execution_id (already covered by
+-- idx_execution_parent). Per-execution artifact/hitl deletes use uq_artifact_version's
+-- leading execution_id column and idx_hitl_execution respectively, so no further
+-- indexes are needed.
+CREATE INDEX idx_execution_retention ON pipeline_execution (status, completed_at);

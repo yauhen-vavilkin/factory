@@ -4,6 +4,7 @@ import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.connectors.github.GitHubConnector;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.testrail.TestRailConnector;
+import org.folio.factory.core.metrics.EngineMetrics;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.flowa.artifact.ScriptBundleCodec;
 import org.folio.factory.flowa.worker.TestAutomationAgentWorker;
@@ -61,8 +62,9 @@ public class FlowAConfiguration {
                                                                  FrontmatterCodec frontmatterCodec,
                                                                  ScriptBundleCodec bundleCodec,
                                                                  FlowAProperties properties,
-                                                                 AuditLog auditLog) {
+                                                                 AuditLog auditLog,
+                                                                 EngineMetrics engineMetrics) {
         return new TestFactoryFinalizerWorker(jiraConnector, gitHubConnector, testRailConnector,
-                frontmatterCodec, bundleCodec, properties, auditLog);
+                frontmatterCodec, bundleCodec, properties, auditLog, engineMetrics);
     }
 }

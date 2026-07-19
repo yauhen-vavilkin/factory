@@ -9,6 +9,7 @@ import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.ArtifactContent;
+import org.folio.factory.core.metrics.EngineMetrics;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.flowa.FlowAProperties;
 import org.folio.factory.flowa.artifact.ScriptBundleCodec;
@@ -18,6 +19,14 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.LoggerFactory;
+
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.util.List;
 import java.util.Map;
@@ -111,7 +120,7 @@ class TestFactoryFinalizerWorkerTest {
         FlowAProperties properties = new FlowAProperties(
                 new FlowAProperties.Execution(null, null), "o/r", "main", null, 55L);
         return new TestFactoryFinalizerWorker(jira, gitHub, testRail, codec, bundleCodec,
-                properties, mock(AuditLog.class));
+                properties, mock(AuditLog.class), new EngineMetrics(new SimpleMeterRegistry()));
     }
 
     @Test
@@ -132,6 +141,27 @@ class TestFactoryFinalizerWorkerTest {
         assertThat(report).contains("testrail").contains("failed").contains("TestRail returned 500");
         // Later connectors still run after an earlier failure.
         assertThat(jira.lastComment).startsWith("ERM-9:");
+    }
+
+    @Test
+    void logsWarningWhenConnectorSyncFails() {
+        Logger workerLogger = (Logger) LoggerFactory.getLogger(TestFactoryFinalizerWorker.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        workerLogger.addAppender(appender);
+        try {
+            worker(new RecordingGitHub(), new FailingRunTestRail(), new RecordingJira())
+                    .execute(contextWith(planArtifact(Map.of("issue_key", "ERM-9", "cases", List.of()))));
+        } finally {
+            workerLogger.detachAppender(appender);
+        }
+        // A failed sync must be visible in the log, not only in audit/metrics/sync_report —
+        // otherwise a connector outage is undiagnosable from application logs.
+        assertThat(appender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage())
+                    .contains("testrail").contains("TestRail returned 500");
+        });
     }
 
     @Test

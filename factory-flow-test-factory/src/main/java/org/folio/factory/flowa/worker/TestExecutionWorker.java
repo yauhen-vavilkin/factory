@@ -35,6 +35,7 @@ public class TestExecutionWorker implements AgentWorker {
 
     private static final Logger log = LoggerFactory.getLogger(TestExecutionWorker.class);
     private static final long EXECUTION_TIMEOUT_MINUTES = 15;
+    static final int MAX_CONSOLE_LOG_CHARS = 20_000;
 
     private final ScriptBundleCodec bundleCodec;
     private final FrontmatterCodec frontmatterCodec;
@@ -185,7 +186,23 @@ public class TestExecutionWorker implements AgentWorker {
         metadata.put("case_results", caseResults);
         String body = "# Test Results\n\nKarate exit code: " + exitCode
                 + "\n\n<details><summary>Console output</summary>\n\n````\n"
-                + consoleOutput.strip() + "\n````\n</details>\n";
+                + truncateConsole(consoleOutput.strip()) + "\n````\n</details>\n";
         return frontmatterCodec.render(metadata, body);
+    }
+
+    /**
+     * Bounds the console log embedded into the artifact, keeping the tail (where
+     * Karate's summary and last failures are). Authoritative pass/fail data lives in
+     * the frontmatter, parsed from the summary JSON, so truncation only trims the
+     * human-readable diagnostic. Defence-in-depth in front of the max-artifact-bytes cap.
+     */
+    static String truncateConsole(String console) {
+        if (console.length() <= MAX_CONSOLE_LOG_CHARS) {
+            return console;
+        }
+        int omitted = console.length() - MAX_CONSOLE_LOG_CHARS;
+        return "[console output truncated: " + omitted + " of " + console.length()
+                + " characters omitted; showing last " + MAX_CONSOLE_LOG_CHARS + "]\n\n"
+                + console.substring(console.length() - MAX_CONSOLE_LOG_CHARS);
     }
 }

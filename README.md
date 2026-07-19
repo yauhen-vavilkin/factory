@@ -68,9 +68,53 @@ Then open <http://localhost:8080/reviews> and work the two QA gates
 progress on <http://localhost:8080/executions> (full audit timeline per
 execution) and check connector status on <http://localhost:8080/api/status>.
 
+Manual triggers are never deduplicated by default — re-running the curl starts a
+new execution. To opt a manual trigger into dedup, add an idempotency key to the
+request body: `{"flowId": "...", "payload": {...}, "dedupKey": "my-key"}`
+(trimmed; max 255 characters, else 422; blank treated as absent). Webhook
+triggers dedup automatically via `factory.limits.dedup.*`.
+
 Without any connector credentials the flow still completes end-to-end: test
 execution runs in **advisory mode** and every external sync is recorded as
 `CONNECTOR_SKIPPED` in the audit log and the `sync_report.md` artifact.
+
+## Container image
+
+A multi-stage `Dockerfile` at the repo root builds `factory-app`'s Spring Boot
+jar on a Temurin 21 + Maven 3.9 stage and runs the extracted layered jar on a
+minimal `eclipse-temurin:21-jre` runtime as a non-root user, with a `HEALTHCHECK`
+against `/actuator/health`.
+
+```bash
+docker build -t folio-factory-app:local .
+
+# needs a reachable PostgreSQL — start one with `docker compose up -d`
+docker run --rm -p 8080:8080 \
+  -e FACTORY_DB_URL=jdbc:postgresql://host.docker.internal:5432/factory \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  folio-factory-app:local
+```
+
+CI (`.github/workflows/ci.yml`) builds on JDK 21, runs `mvn verify`
+(Testcontainers on GitHub-hosted runners), uploads test reports + the CycloneDX
+SBOM, and builds the Docker image. A weekly `dependency-check.yml` runs an
+opt-in OWASP scan (`mvn -Powasp verify`); Dependabot keeps Maven and Actions
+dependencies current.
+
+## Operations
+
+Production procedures live under `doc/`:
+
+- [`doc/runbook.md`](doc/runbook.md) — execution lifecycle, recovering stuck
+  runs, draining for deploy, metrics & suggested alerts, cost controls, retention.
+- [`doc/backup-dr.md`](doc/backup-dr.md) — PostgreSQL backup/PITR, the
+  restore drill, and audit-log durability. Helper: [`scripts/pg-backup.sh`](scripts/pg-backup.sh).
+- [`doc/performance.md`](doc/performance.md) — DB pool sizing rationale and a
+  load-test plan.
+
+Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
+`/actuator/health/liveness` and `/readiness`. Set `FACTORY_LOG_FORMAT=ecs` (or
+`logstash`) for structured JSON logs with `executionId`/`stepId` correlation.
 
 ## Configuration
 
@@ -79,6 +123,8 @@ execution runs in **advisory mode** and every external sync is recorded as
 | `ANTHROPIC_API_KEY` | LLM provider key (Spring AI Anthropic starter) |
 | `FACTORY_LLM_MODEL` | Chat model id (default `claude-sonnet-4-5`) |
 | `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (default `jdbc:postgresql://localhost:5432/factory`) |
+| `FACTORY_DB_POOL_MAX` / `_MIN_IDLE` | HikariCP pool sizing (defaults `16` / `4`; see `doc/performance.md`) |
+| `FACTORY_HTTP_CONNECT_TIMEOUT` / `_READ_TIMEOUT` | Connector HTTP timeouts (Duration; defaults `5s` / `30s`) |
 | `FACTORY_CONNECTORS_JIRA_BASE_URL` / `_EMAIL` / `_API_TOKEN` | Jira REST v2 |
 | `FACTORY_CONNECTORS_GITHUB_TOKEN` (+ `_BASE_URL` for GHE) | GitHub REST |
 | `FACTORY_CONNECTORS_TESTRAIL_BASE_URL` / `_USERNAME` / `_API_KEY` / `_PROJECT_ID` | TestRail API v2 |
@@ -86,6 +132,12 @@ execution runs in **advisory mode** and every external sync is recorded as
 | `FACTORY_FLOWA_TESTRAIL_SECTION_ID` | TestRail section for generated cases |
 | `FACTORY_FLOWA_JIRA_TRANSITION` | Optional Jira transition on completion |
 | `FACTORY_FLOWA_EXECUTION_BASE_URL` + `_KARATE_JAR` | Enable real Karate execution (otherwise advisory mode) |
+| `FACTORY_LIMITS_MAX_CONCURRENT_EXECUTIONS` / `_MAX_EXECUTIONS_PER_DAY` | Concurrency cap / daily budget (`0` disables; defaults `8` / `200`, 429 on budget) |
+| `FACTORY_LIMITS_DEDUP_ENABLED` / `_DEDUP_WINDOW` / `_DEDUP_ID_POINTERS` | Trigger dedup (default on, `10m`, `/issueKey`) |
+| `FACTORY_LIMITS_MAX_ARTIFACT_BYTES` / `_MAX_TRIGGER_PAYLOAD_BYTES` | Write-time size caps (defaults `5000000` / `262144`) |
+| `FACTORY_RETENTION_ENABLED` / `_TTL_DAYS` / `_RUN_CRON` | Purge of old terminal runs (**off** by default; audit is never purged) |
+| `FACTORY_LOG_FORMAT` | Structured logging: `ecs`/`logstash`/`gelf` (empty = human-readable) |
+| `FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS` / `_SHUTDOWN_AWAIT_SECONDS` | Crash-recovery lease / graceful-drain budget (defaults `1800` / `30`) |
 
 Webhooks: `POST /api/webhooks/jira` and `/api/webhooks/github`
 (shared secret: `FACTORY_WEBHOOKS_SHARED_SECRET` checked against `?token=`).

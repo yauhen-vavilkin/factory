@@ -177,6 +177,13 @@ class FlowAEndToEndTest {
         UUID executionId = UUID.fromString(response.getBody().path("executionIds").get(0).asString());
         assertThat(stateManager.get(executionId).getFlowId()).isEqualTo("test-factory");
         assertThat(stateManager.get(executionId).getTriggerPayload()).contains("\"issueKey\"");
+
+        // Park the execution before finishing: the engine keeps advancing it in the
+        // background, and the next test's @BeforeEach resets the shared WireMock stubs.
+        // An execution still mid-step would race that reset and make connector calls
+        // fail nondeterministically. AWAITING_HITL is quiescent — no further HTTP.
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
+                assertThat(stateManager.get(executionId).getStatus()).isEqualTo(ExecutionStatus.AWAITING_HITL));
     }
 
     @Test
@@ -229,8 +236,13 @@ class FlowAEndToEndTest {
         assertThat(artifactStore.getLatest(executionId, "test_scripts.md").orElseThrow().getContent())
                 .contains("Feature: Agreement name validation");
         String syncReport = artifactStore.getLatest(executionId, "sync_report.md").orElseThrow().getContent();
-        assertThat(syncReport).contains("github").contains("done")
-                .contains("https://github.com/folio-org/mod-agreements/pull/7");
+        // Assert every connector's outcome in the report, not just GitHub's: a silently
+        // "failed" sync would otherwise only surface at the WireMock verifies below,
+        // where the report's failure detail is no longer visible.
+        assertThat(syncReport).contains("https://github.com/folio-org/mod-agreements/pull/7");
+        assertThat(syncReport).contains("**github** branch + commit + PR: done");
+        assertThat(syncReport).contains("**testrail** cases + run: done");
+        assertThat(syncReport).contains("**jira** comment: done");
 
         // 6. Audit trail covers the whole lifecycle.
         var eventTypes = auditLog.forExecution(executionId).stream().map(e -> e.getEventType()).toList();

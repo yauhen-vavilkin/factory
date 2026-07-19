@@ -9,6 +9,7 @@ import org.folio.factory.core.agent.ArtifactContent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
+import org.folio.factory.core.metrics.EngineMetrics;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.StepDescriptor;
@@ -17,10 +18,12 @@ import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +54,7 @@ public class ExecutionEngine {
     private final SubFlowInvoker subFlowInvoker;
     private final List<StepPostProcessor> postProcessors;
     private final JsonMapper jsonMapper;
+    private final EngineMetrics engineMetrics;
 
     public ExecutionEngine(FlowRegistry flowRegistry,
                            AgentWorkerRegistry workerRegistry,
@@ -60,7 +64,8 @@ public class ExecutionEngine {
                            HitlGateOpener hitlGateOpener,
                            SubFlowInvoker subFlowInvoker,
                            List<StepPostProcessor> postProcessors,
-                           JsonMapper jsonMapper) {
+                           JsonMapper jsonMapper,
+                           EngineMetrics engineMetrics) {
         this.flowRegistry = flowRegistry;
         this.workerRegistry = workerRegistry;
         this.stateManager = stateManager;
@@ -70,6 +75,7 @@ public class ExecutionEngine {
         this.subFlowInvoker = subFlowInvoker;
         this.postProcessors = postProcessors;
         this.jsonMapper = jsonMapper;
+        this.engineMetrics = engineMetrics;
     }
 
     /**
@@ -77,6 +83,10 @@ public class ExecutionEngine {
      * fails, or completes. The execution must already be in RUNNING status.
      */
     public void advance(UUID executionId) {
+        // Every log line emitted while this execution advances carries executionId.
+        // Removed in finally: engine threads come from a pooled AsyncTaskExecutor and
+        // are reused across executions, so the key must not leak to the next task.
+        MDC.put("executionId", executionId.toString());
         try {
             while (true) {
                 PipelineExecution execution = stateManager.get(executionId);
@@ -109,32 +119,48 @@ public class ExecutionEngine {
             // execution stuck in RUNNING.
             log.error("Engine failure while advancing execution {}", executionId, e);
             failTerminally(executionId, e);
+        } finally {
+            MDC.remove("executionId");
         }
     }
 
     private boolean runAgentStep(PipelineExecution execution, FlowDescriptor flow, StepDescriptor step) {
         UUID executionId = execution.getId();
-        stateManager.heartbeat(executionId);
-        auditLog.record(executionId, AuditEventType.STEP_STARTED, step.stepId(),
-                Map.of("workerId", step.workerId(), "attempt", stateManager.retryCount(executionId, step.stepId()) + 1));
+        MDC.put("stepId", step.stepId());
         try {
-            AgentWorker worker = workerRegistry.require(step.workerId());
-            AgentContext context = buildContext(execution, step);
-            AgentResult result = worker.execute(context);
-            requireDeclaredOutputs(step, result);
-            for (StepPostProcessor postProcessor : postProcessors) {
-                postProcessor.process(flow, step, result.outputs());
+            stateManager.heartbeat(executionId);
+            auditLog.record(executionId, AuditEventType.STEP_STARTED, step.stepId(),
+                    Map.of("workerId", step.workerId(), "attempt", stateManager.retryCount(executionId, step.stepId()) + 1));
+            long startNanos = System.nanoTime();
+            // Recorded exactly once in finally, classified by whether the step reached
+            // success — so a fault in advanceStep is not counted as both success and failure.
+            boolean success = false;
+            try {
+                AgentWorker worker = workerRegistry.require(step.workerId());
+                AgentContext context = buildContext(execution, step);
+                AgentResult result = worker.execute(context);
+                requireDeclaredOutputs(step, result);
+                for (StepPostProcessor postProcessor : postProcessors) {
+                    postProcessor.process(flow, step, result.outputs());
+                }
+                for (Map.Entry<String, String> output : result.outputs().entrySet()) {
+                    artifactStore.putMarkdown(executionId, output.getKey(), output.getValue(), step.stepId());
+                }
+                auditLog.record(executionId, AuditEventType.STEP_COMPLETED, step.stepId(), result.metrics());
+                // Guarded advance: if a duplicate driver (lease-reaped run) moved the
+                // execution meanwhile, stop instead of double-advancing past a step.
+                boolean advanced = stateManager.advanceStep(executionId, execution.getCurrentStepIndex(),
+                        ExecutionStatus.RUNNING);
+                success = true;
+                return advanced;
+            } catch (Exception e) {
+                handleStepFailure(execution, flow, step, e);
+                return false;
+            } finally {
+                engineMetrics.recordAgentStep(step.workerId(), success, Duration.ofNanos(System.nanoTime() - startNanos));
             }
-            for (Map.Entry<String, String> output : result.outputs().entrySet()) {
-                artifactStore.putMarkdown(executionId, output.getKey(), output.getValue(), step.stepId());
-            }
-            auditLog.record(executionId, AuditEventType.STEP_COMPLETED, step.stepId(), result.metrics());
-            // Guarded advance: if a duplicate driver (lease-reaped run) moved the
-            // execution meanwhile, stop instead of double-advancing past a step.
-            return stateManager.advanceStep(executionId, execution.getCurrentStepIndex(), ExecutionStatus.RUNNING);
-        } catch (Exception e) {
-            handleStepFailure(execution, flow, step, e);
-            return false;
+        } finally {
+            MDC.remove("stepId");
         }
     }
 
@@ -177,12 +203,14 @@ public class ExecutionEngine {
             stateManager.scheduleRetry(executionId, backoff, error);
             auditLog.record(executionId, AuditEventType.RETRY_SCHEDULED, step.stepId(),
                     Map.of("attempt", attempts, "backoffSeconds", backoff));
+            engineMetrics.stepRetryScheduled();
             log.warn("Step '{}' of execution {} failed (attempt {}); retrying in {}s: {}",
                     step.stepId(), executionId, attempts, backoff, error);
         } else {
             stateManager.transition(executionId, ExecutionStatus.FAILED_ESCALATED, Map.of("stepId", step.stepId()));
             auditLog.record(executionId, AuditEventType.ESCALATED, step.stepId(),
                     Map.of("attempts", attempts, "error", error));
+            engineMetrics.stepEscalated();
             hitlGateOpener.openEscalationReview(stateManager.get(executionId), step, error, attempts);
             log.error("Step '{}' of execution {} exhausted its retry budget after {} attempts; escalated to human review",
                     step.stepId(), executionId, attempts);

@@ -76,4 +76,45 @@
       </dependency>
     </dependencies>
   </dependencyManagement>
+
+  <profiles>
+    <!-- Opt-in software-composition-analysis (DEP-1). Excluded from default builds
+         (slow, network-bound). Run with:  mvn -Powasp verify
+         Add  -Dnvd.api.key=<key>  to avoid NVD rate limiting. Runs once at the
+         reactor root via the aggregate goal + <inherited>false</inherited>. -->
+    <profile>
+      <id>owasp</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.owasp</groupId>
+            <artifactId>dependency-check-maven</artifactId>
+            <version>12.2.2</version>
+            <inherited>false</inherited>
+            <configuration>
+              <failBuildOnCVSS>7</failBuildOnCVSS>
+              <formats>
+                <format>HTML</format>
+                <format>JSON</format>
+                <format>SARIF</format>
+              </formats>
+              <skipProvidedScope>true</skipProvidedScope>
+              <dataDirectory>${session.executionRootDirectory}/.dependency-check-data</dataDirectory>
+              <suppressionFiles>
+                <suppressionFile>${session.executionRootDirectory}/owasp-suppressions.xml</suppressionFile>
+              </suppressionFiles>
+            </configuration>
+            <executions>
+              <execution>
+                <phase>verify</phase>
+                <goals>
+                  <goal>aggregate</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

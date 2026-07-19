@@ -16,10 +16,11 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.List;
+import java.time.Duration;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(properties = "spring.jpa.hibernate.ddl-auto=create-drop")
 @Testcontainers
@@ -48,28 +49,35 @@ class ExecutionEngineIntegrationTest {
     HitlReviewRepository reviews;
 
     /**
-     * Simulates the poller synchronously: claim and advance until nothing is
-     * runnable.
+     * Simulates the poller synchronously: claim and advance until the execution
+     * reaches the expected quiescent state. Condition-based like
+     * SubFlowIntegrationTest#driveUntilTerminal: a freshly (re)scheduled row can be
+     * momentarily unclaimable while its JVM-clock next_run_at is ahead of the
+     * database clock under load, so a fixed number of sleepless rounds races that
+     * skew instead of absorbing it.
      */
-    private void drive() {
-        for (int rounds = 0; rounds < 20; rounds++) {
-            List<UUID> claimed = claimService.claim(10);
-            if (claimed.isEmpty()) {
-                return;
-            }
-            claimed.forEach(engine::advance);
-        }
-        throw new IllegalStateException("Executions still runnable after 20 rounds");
+    private void driveUntil(UUID executionId, ExecutionStatus expected) {
+        await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(50)).untilAsserted(() -> {
+            claimService.claim(10).forEach(engine::advance);
+            assertThat(stateManager.get(executionId).getStatus()).isEqualTo(expected);
+        });
+    }
+
+    /** Claims (without advancing) until the execution is RUNNING, absorbing the same skew. */
+    private void claimUntilRunning(UUID executionId) {
+        await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(50)).untilAsserted(() -> {
+            claimService.claim(10);
+            assertThat(stateManager.get(executionId).getStatus()).isEqualTo(ExecutionStatus.RUNNING);
+        });
     }
 
     @Test
     void runsTwoStepFlowToCompletionThroughArtifacts() {
         PipelineExecution execution = stateManager.createExecution(
                 "fake-simple", "1.0.0", "{\"issueKey\":\"ERM-1\"}");
-        drive();
+        driveUntil(execution.getId(), ExecutionStatus.COMPLETED);
 
         PipelineExecution finished = stateManager.get(execution.getId());
-        assertThat(finished.getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
         assertThat(finished.getCompletedAt()).isNotNull();
 
         var first = artifactStore.getLatest(execution.getId(), "first.md").orElseThrow();
@@ -94,10 +102,8 @@ class ExecutionEngineIntegrationTest {
     @Test
     void exhaustedRetryBudgetEscalatesToHumanReview() {
         PipelineExecution execution = stateManager.createExecution("fake-failing", "1.0.0", null);
-        drive();
+        driveUntil(execution.getId(), ExecutionStatus.FAILED_ESCALATED);
 
-        PipelineExecution failed = stateManager.get(execution.getId());
-        assertThat(failed.getStatus()).isEqualTo(ExecutionStatus.FAILED_ESCALATED);
         assertThat(stateManager.retryCount(execution.getId(), "doomed")).isEqualTo(2);
 
         var eventTypes = auditLog.forExecution(execution.getId()).stream()
@@ -119,7 +125,7 @@ class ExecutionEngineIntegrationTest {
     @Test
     void guardedAdvanceRefusesStaleDrivers() {
         PipelineExecution execution = stateManager.createExecution("fake-simple", "1.0.0", null);
-        claimService.claim(10);
+        claimUntilRunning(execution.getId());
 
         // Wrong index (stale duplicate driver) → refused; correct index → advances.
         assertThat(stateManager.advanceStep(execution.getId(), 5, ExecutionStatus.RUNNING)).isFalse();
@@ -133,9 +139,7 @@ class ExecutionEngineIntegrationTest {
     @Test
     void reaperReturnsStaleRunningExecutionsToPending() {
         PipelineExecution execution = stateManager.createExecution("fake-simple", "1.0.0", null);
-        List<UUID> claimed = claimService.claim(10);
-        assertThat(claimed).contains(execution.getId());
-        assertThat(stateManager.get(execution.getId()).getStatus()).isEqualTo(ExecutionStatus.RUNNING);
+        claimUntilRunning(execution.getId());
 
         int reaped = claimService.reapStale(0);
 

@@ -1,3 +1,9 @@
 factory:
   engine:
     enabled: false
+  # Preserve the exact pre-dedup router semantics for engine-semantics tests: no
+  # trigger in these suites is deliberately re-fired, and dedup-on-by-default would
+  # otherwise collapse any that were. Production enables dedup in application.yaml.
+  limits:
+    dedup:
+      enabled: false

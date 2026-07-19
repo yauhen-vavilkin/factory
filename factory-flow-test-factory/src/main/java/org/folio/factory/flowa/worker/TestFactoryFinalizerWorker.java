@@ -11,6 +11,7 @@ import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.metrics.EngineMetrics;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.flowa.FlowAProperties;
 import org.folio.factory.flowa.artifact.ScriptBundleCodec;
@@ -45,11 +46,12 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
     private final ScriptBundleCodec bundleCodec;
     private final FlowAProperties properties;
     private final AuditLog auditLog;
+    private final EngineMetrics engineMetrics;
 
     public TestFactoryFinalizerWorker(JiraConnector jira, GitHubConnector gitHub,
                                       TestRailConnector testRail, FrontmatterCodec frontmatterCodec,
                                       ScriptBundleCodec bundleCodec, FlowAProperties properties,
-                                      AuditLog auditLog) {
+                                      AuditLog auditLog, EngineMetrics engineMetrics) {
         this.jira = jira;
         this.gitHub = gitHub;
         this.testRail = testRail;
@@ -57,6 +59,7 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
         this.bundleCodec = bundleCodec;
         this.properties = properties;
         this.auditLog = auditLog;
+        this.engineMetrics = engineMetrics;
     }
 
     @Override
@@ -229,8 +232,12 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
                 ? AuditEventType.CONNECTOR_SKIPPED : AuditEventType.CONNECTOR_ACTION;
         auditLog.record(context.executionId(), eventType, context.stepId(),
                 Map.of("connector", connector, "action", action, "detail", detail == null ? "" : detail));
+        engineMetrics.connectorOutcome(connector, status);
         if ("skipped".equals(status)) {
             log.info("Connector {} skipped for execution {}: {}", connector, context.executionId(), detail);
+        } else if ("failed".equals(status)) {
+            log.warn("Connector {} sync FAILED for execution {} ({}): {}",
+                    connector, context.executionId(), action, detail);
         }
     }
 }

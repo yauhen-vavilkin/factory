@@ -2,6 +2,7 @@ package org.folio.factory.core.service;
 
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.limits.LimitsProperties;
 import org.folio.factory.core.repository.ArtifactRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,14 +25,21 @@ public class ArtifactStore {
 
     private final ArtifactRepository repository;
     private final AuditLog auditLog;
+    private final LimitsProperties limits;
 
-    public ArtifactStore(ArtifactRepository repository, AuditLog auditLog) {
+    public ArtifactStore(ArtifactRepository repository, AuditLog auditLog, LimitsProperties limits) {
         this.repository = repository;
         this.auditLog = auditLog;
+        this.limits = limits;
     }
 
     @Transactional
     public Artifact put(UUID executionId, String name, String content, String contentType, String createdBy) {
+        int size = content == null ? 0 : content.getBytes(StandardCharsets.UTF_8).length;
+        if (size > limits.maxArtifactBytes()) {
+            throw new IllegalArgumentException("Artifact '" + name + "' is " + size
+                    + " bytes, exceeding the " + limits.maxArtifactBytes() + "-byte limit");
+        }
         int nextVersion = repository.findTopByExecutionIdAndNameOrderByVersionDesc(executionId, name)
                 .map(a -> a.getVersion() + 1)
                 .orElse(1);

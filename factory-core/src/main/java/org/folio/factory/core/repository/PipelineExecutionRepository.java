@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -27,6 +28,8 @@ public interface PipelineExecutionRepository extends JpaRepository<PipelineExecu
 
     List<PipelineExecution> findByStatusAndUpdatedAtBefore(ExecutionStatus status, Instant threshold);
 
+    List<PipelineExecution> findByStatus(ExecutionStatus status);
+
     List<PipelineExecution> findByParentExecutionId(UUID parentExecutionId);
 
     /**
@@ -46,4 +49,28 @@ public interface PipelineExecutionRepository extends JpaRepository<PipelineExecu
             @Param("parentStatus") ExecutionStatus parentStatus);
 
     List<PipelineExecution> findAllByOrderByCreatedAtDesc();
+
+    long countByStatus(ExecutionStatus status);
+
+    boolean existsByFlowIdAndDedupKeyAndIdNotAndStatusNotIn(
+            String flowId, String dedupKey, UUID id, Collection<ExecutionStatus> statuses);
+
+    long countByCreatedAtGreaterThanEqual(Instant threshold);
+
+    /**
+     * Existing executions for (flowId, dedupKey) that are still within the dedup
+     * window OR still active (non-terminal). Most recent first.
+     */
+    @Query("""
+            SELECT e FROM PipelineExecution e
+            WHERE e.flowId = :flowId
+              AND e.dedupKey = :dedupKey
+              AND (e.createdAt >= :since OR e.status NOT IN :terminal)
+            ORDER BY e.createdAt DESC
+            """)
+    List<PipelineExecution> findDuplicates(
+            @Param("flowId") String flowId,
+            @Param("dedupKey") String dedupKey,
+            @Param("since") Instant since,
+            @Param("terminal") List<ExecutionStatus> terminal);
 }

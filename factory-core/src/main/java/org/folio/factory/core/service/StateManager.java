@@ -3,6 +3,7 @@ package org.folio.factory.core.service;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
+import org.folio.factory.core.metrics.EngineMetrics;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,11 +12,14 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -35,19 +39,32 @@ public class StateManager {
     private final PipelineExecutionRepository executions;
     private final AuditLog auditLog;
     private final JsonMapper jsonMapper;
+    private final EngineMetrics metrics;
 
-    public StateManager(PipelineExecutionRepository executions, AuditLog auditLog, JsonMapper jsonMapper) {
+    public StateManager(PipelineExecutionRepository executions, AuditLog auditLog, JsonMapper jsonMapper,
+                        EngineMetrics metrics) {
         this.executions = executions;
         this.auditLog = auditLog;
         this.jsonMapper = jsonMapper;
+        this.metrics = metrics;
     }
 
     @Transactional
     public PipelineExecution createExecution(String flowId, String flowVersion, String triggerPayloadJson) {
+        return createExecution(flowId, flowVersion, triggerPayloadJson, null);
+    }
+
+    @Transactional
+    public PipelineExecution createExecution(String flowId, String flowVersion, String triggerPayloadJson,
+                                             String dedupKey) {
         PipelineExecution execution = new PipelineExecution(flowId, flowVersion, triggerPayloadJson);
-        PipelineExecution saved = executions.save(execution);
+        execution.setDedupKey(dedupKey);
+        // Flush now so a unique-dedup collision surfaces as a catchable
+        // DataIntegrityViolationException here rather than at a later commit.
+        PipelineExecution saved = executions.saveAndFlush(execution);
         auditLog.record(saved.getId(), AuditEventType.EXECUTION_STARTED, null,
                 Map.of("flowId", flowId, "flowVersion", flowVersion));
+        metrics.executionStarted();
         return saved;
     }
 
@@ -61,12 +78,37 @@ public class StateManager {
         auditLog.record(saved.getId(), AuditEventType.EXECUTION_STARTED, null,
                 Map.of("flowId", flowId, "flowVersion", flowVersion,
                         "parentExecutionId", parentExecutionId.toString()));
+        metrics.executionStarted();
         return saved;
     }
 
     @Transactional(readOnly = true)
     public PipelineExecution get(UUID executionId) {
         return load(executionId);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<PipelineExecution> findRecentDuplicate(String flowId, String dedupKey, Duration window) {
+        Instant since = Instant.now().minus(window);
+        return executions.findDuplicates(flowId, dedupKey, since, ExecutionStatus.terminalStatuses())
+                .stream().findFirst();
+    }
+
+    @Transactional(readOnly = true)
+    public long countCreatedSince(Instant since) {
+        return executions.countByCreatedAtGreaterThanEqual(since);
+    }
+
+    /**
+     * True when another non-terminal execution holds the same (flowId, dedupKey) —
+     * i.e. requeueing this one would collide with the partial unique dedup index.
+     */
+    @Transactional(readOnly = true)
+    public boolean hasActiveDuplicate(PipelineExecution execution) {
+        return execution.getDedupKey() != null
+                && executions.existsByFlowIdAndDedupKeyAndIdNotAndStatusNotIn(
+                        execution.getFlowId(), execution.getDedupKey(), execution.getId(),
+                        ExecutionStatus.terminalStatuses());
     }
 
     /**
@@ -108,6 +150,12 @@ public class StateManager {
         auditLog.record(saved.getId(), AuditEventType.STATE_TRANSITION, null, detail);
         if (newStatus == ExecutionStatus.COMPLETED) {
             auditLog.record(saved.getId(), AuditEventType.EXECUTION_COMPLETED, null, null);
+        }
+        if (newStatus.isFinal()) {
+            // isFinal (not isTerminal) excludes FAILED_ESCALATED, which is resumable
+            // via its escalation review — counting it would double-count a run that
+            // later resolves to COMPLETED/REJECTED/CANCELLED.
+            metrics.executionFinished(newStatus.name().toLowerCase(Locale.ROOT));
         }
         return saved;
     }

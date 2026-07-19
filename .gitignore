@@ -4,5 +4,11 @@ target/
 .idea/
 *.iml
 .vscode/
+# Eclipse / language-server project metadata (unanchored: matches root and every module)
+.project
+.classpath
+.settings/
 .DS_Store
 .mvn/wrapper/maven-wrapper.jar
+# OWASP dependency-check local NVD H2 cache (owasp profile)
+.dependency-check-data/

@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.core.limits.DailyBudgetExceededException;
 import org.folio.factory.core.registry.FlowValidationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -30,6 +31,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(FlowValidationException.class)
     public ResponseEntity<Map<String, String>> flowError(FlowValidationException e) {
         return error(HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage());
+    }
+
+    @ExceptionHandler(DailyBudgetExceededException.class)
+    public ResponseEntity<Map<String, String>> budgetExceeded(DailyBudgetExceededException e) {
+        return error(HttpStatus.TOO_MANY_REQUESTS, e.getMessage());
     }
 
     private ResponseEntity<Map<String, String>> error(HttpStatus status, String message) {

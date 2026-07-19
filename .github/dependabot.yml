@@ -1,0 +1,46 @@
+# Dependabot version updates — supply-chain governance (DEP-1).
+# Maven: scans the whole multi-module reactor from the root pom (dependencyManagement,
+# module poms, and build/plugin coordinates). github-actions: keeps CI workflow actions
+# current. Dependabot PRs are validated by ci.yml (pull_request trigger).
+version: 2
+updates:
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    # Group tightly-coupled upgrades into single PRs to cut review noise.
+    groups:
+      spring:
+        patterns:
+          - "org.springframework*"
+          - "io.spring*"
+        # Without this, org.springframework* would swallow spring-ai coordinates and
+        # the dedicated spring-ai group below would never receive them.
+        exclude-patterns:
+          - "org.springframework.ai*"
+      spring-ai:
+        patterns:
+          - "org.springframework.ai*"
+      test-tooling:
+        patterns:
+          - "org.testcontainers*"
+          - "org.wiremock*"
+          - "org.awaitility*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
