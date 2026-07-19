@@ -98,12 +98,12 @@ class UiRenderSmokeTest {
 
     @Test
     void reviewsListRenders() {
-        assertRendered("/reviews", "Reviews");
+        assertRendered("/reviews", "Human-in-the-loop gates and their decisions.");
     }
 
     @Test
     void executionsListRenders() {
-        assertRendered("/executions", "Executions");
+        assertRendered("/executions", "Pipeline runs across all flows, most recent first.");
     }
 
     @Test
@@ -117,7 +117,7 @@ class UiRenderSmokeTest {
         // The ALL tab is not the PENDING path: it must render the decided review and
         // the decision columns (only shown when showDecision is true), catching a
         // regression that fell back to the pending-only view.
-        String body = assertRendered("/reviews?status=ALL", "Reviews");
+        String body = assertRendered("/reviews?status=ALL", "Human-in-the-loop gates and their decisions.");
         assertThat(body).contains("Signed-off plan").contains("Decided");
     }
 
