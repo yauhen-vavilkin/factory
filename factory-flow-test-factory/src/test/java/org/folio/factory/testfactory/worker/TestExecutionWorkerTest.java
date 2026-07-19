@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -21,6 +22,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.folio.factory.testfactory.worker.TestExecutionWorker.MAX_CONSOLE_LOG_CHARS;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class TestExecutionWorkerTest {
 
@@ -75,8 +77,19 @@ class TestExecutionWorkerTest {
                 .hasMessageContaining("../evil.feature");
     }
 
+    private static boolean javaOnPath() {
+        try {
+            new ProcessBuilder("java", "-version").start().destroy();
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     @Test
     void failedRunnerWithoutSummaryFallsBackToExitCodeAndMarksCasesFailed() {
+        assumeTrue(javaOnPath(), "java executable not on PATH");
+
         ScriptBundle bundle = new ScriptBundle("karate", List.of(
                 new ScriptBundle.ScriptFile("features/a.feature", List.of("TC-01", "TC-02"),
                         "Feature: A\n  Scenario: TC-01 works")));
