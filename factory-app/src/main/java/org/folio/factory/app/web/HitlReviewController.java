@@ -5,6 +5,9 @@ import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.hitl.HitlDecision;
 import org.folio.factory.core.hitl.HitlDecisionService;
 import org.folio.factory.core.repository.HitlReviewRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,7 +19,6 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -50,11 +52,18 @@ public class HitlReviewController {
     }
 
     @GetMapping
-    public List<ReviewSummary> list(@RequestParam(name = "status", defaultValue = "PENDING") String status) {
-        List<HitlReview> result = "ALL".equalsIgnoreCase(status)
-                ? reviews.findAllByOrderByCreatedAtDesc()
-                : reviews.findByStatusOrderByCreatedAtAsc(HitlReviewStatus.valueOf(status.toUpperCase()));
-        return result.stream().map(this::toSummary).toList();
+    public PageResponse<ReviewSummary> list(
+            @RequestParam(name = "status", defaultValue = "PENDING") String status,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "50") int size) {
+        Page<HitlReview> result;
+        if ("ALL".equalsIgnoreCase(status)) {
+            result = reviews.findAll(PageValidation.pageable(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
+        } else {
+            result = reviews.findByStatus(parseStatus(status),
+                    PageValidation.pageable(page, size, Sort.by(Sort.Direction.ASC, "createdAt")));
+        }
+        return PageResponse.of(result, this::toSummary);
     }
 
     @GetMapping("/{id}")
@@ -74,6 +83,14 @@ public class HitlReviewController {
         decisionService.decide(id, request.decision(), request.reviewer(), request.comments(),
                 request.amendedArtifacts());
         return get(id);
+    }
+
+    private HitlReviewStatus parseStatus(String status) {
+        try {
+            return HitlReviewStatus.valueOf(status.strip().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Unknown review status '" + status + "'");
+        }
     }
 
     private ReviewSummary toSummary(HitlReview review) {

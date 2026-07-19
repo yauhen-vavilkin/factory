@@ -3,15 +3,22 @@ package org.folio.factory.app.web;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
+import org.folio.factory.core.service.ExecutionActionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -20,8 +27,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -37,13 +49,104 @@ class ExecutionControllerTest {
     @Mock
     private AuditLog auditLog;
 
+    @Mock
+    private ExecutionActionService actionService;
+
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
-        mvc = MockMvcBuilders.standaloneSetup(new ExecutionController(executions, artifactStore, auditLog))
+        mvc = MockMvcBuilders
+                .standaloneSetup(new ExecutionController(executions, artifactStore, auditLog, actionService))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .build();
+    }
+
+    private PipelineExecution execution() {
+        return new PipelineExecution("test-factory", "1.0.0", "{}");
+    }
+
+    private Page<PipelineExecution> pageOf(PipelineExecution execution) {
+        return new PageImpl<>(List.of(execution), PageRequest.of(0, 50), 1);
+    }
+
+    @Test
+    void list_noFilters_usesFindAllAndWrapsInEnvelope() throws Exception {
+        PipelineExecution execution = execution();
+        when(executions.findAll(any(Pageable.class))).thenReturn(pageOf(execution));
+
+        mvc.perform(get("/api/executions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(execution.getId().toString()))
+                .andExpect(jsonPath("$.items[0].flowId").value("test-factory"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(50))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1));
+
+        verify(executions).findAll(any(Pageable.class));
+    }
+
+    @Test
+    void list_statusOnly_usesFindByStatus() throws Exception {
+        when(executions.findByStatus(eq(ExecutionStatus.RUNNING), any(Pageable.class)))
+                .thenReturn(pageOf(execution()));
+
+        mvc.perform(get("/api/executions").param("status", "RUNNING"))
+                .andExpect(status().isOk());
+
+        verify(executions).findByStatus(eq(ExecutionStatus.RUNNING), any(Pageable.class));
+    }
+
+    @Test
+    void list_flowIdOnly_usesFindByFlowId() throws Exception {
+        when(executions.findByFlowId(eq("test-factory"), any(Pageable.class))).thenReturn(pageOf(execution()));
+
+        mvc.perform(get("/api/executions").param("flowId", "test-factory"))
+                .andExpect(status().isOk());
+
+        verify(executions).findByFlowId(eq("test-factory"), any(Pageable.class));
+    }
+
+    @Test
+    void list_statusAndFlowId_usesCombinedFinder() throws Exception {
+        when(executions.findByStatusAndFlowId(eq(ExecutionStatus.COMPLETED), eq("test-factory"), any(Pageable.class)))
+                .thenReturn(pageOf(execution()));
+
+        mvc.perform(get("/api/executions").param("status", "COMPLETED").param("flowId", "test-factory"))
+                .andExpect(status().isOk());
+
+        verify(executions).findByStatusAndFlowId(eq(ExecutionStatus.COMPLETED), eq("test-factory"), any(Pageable.class));
+    }
+
+    @Test
+    void list_invalidStatus_unprocessableWithoutRepositoryAccess() throws Exception {
+        mvc.perform(get("/api/executions").param("status", "BOGUS"))
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.error").value(containsString("BOGUS")));
+
+        verifyNoInteractions(executions);
+    }
+
+    @Test
+    void list_sizeTooLarge_unprocessable() throws Exception {
+        mvc.perform(get("/api/executions").param("size", "201"))
+                .andExpect(status().is(422));
+        verifyNoInteractions(executions);
+    }
+
+    @Test
+    void list_sizeTooSmall_unprocessable() throws Exception {
+        mvc.perform(get("/api/executions").param("size", "0"))
+                .andExpect(status().is(422));
+        verifyNoInteractions(executions);
+    }
+
+    @Test
+    void list_negativePage_unprocessable() throws Exception {
+        mvc.perform(get("/api/executions").param("page", "-1"))
+                .andExpect(status().is(422));
+        verifyNoInteractions(executions);
     }
 
     @Test
@@ -79,5 +182,63 @@ class ExecutionControllerTest {
                 .andExpect(jsonPath("$.artifacts[0].createdBy").value("reviewer:qa"))
                 .andExpect(jsonPath("$.auditTrail[0].eventType").value("ARTIFACT_WRITTEN"))
                 .andExpect(jsonPath("$.auditTrail[0].stepId").value("test-spec"));
+    }
+
+    @Test
+    void cancel_delegatesAndReturnsRefreshedSummary() throws Exception {
+        PipelineExecution cancelled = execution();
+        cancelled.setStatus(ExecutionStatus.CANCELLED);
+        UUID id = cancelled.getId();
+        when(actionService.cancel(id, "qa", "no longer needed")).thenReturn(cancelled);
+
+        mvc.perform(post("/api/executions/{id}/cancel", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"actor\":\"qa\",\"reason\":\"no longer needed\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id.toString()))
+                .andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        verify(actionService).cancel(id, "qa", "no longer needed");
+    }
+
+    @Test
+    void cancel_alreadyTerminal_conflict() throws Exception {
+        UUID id = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
+        when(actionService.cancel(id, "qa", null))
+                .thenThrow(new IllegalStateException("Execution " + id + " is already COMPLETED"));
+
+        mvc.perform(post("/api/executions/{id}/cancel", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"actor\":\"qa\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value(containsString("already COMPLETED")));
+    }
+
+    @Test
+    void cancel_blankActor_unprocessable() throws Exception {
+        UUID id = UUID.fromString("00000000-0000-0000-0000-0000000000bb");
+        when(actionService.cancel(id, "", null))
+                .thenThrow(new IllegalArgumentException("actor is required"));
+
+        mvc.perform(post("/api/executions/{id}/cancel", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"actor\":\"\"}"))
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.error").value(containsString("actor is required")));
+    }
+
+    @Test
+    void rerun_delegatesAndReturnsAcceptedWithNewId() throws Exception {
+        UUID id = UUID.fromString("00000000-0000-0000-0000-0000000000cc");
+        UUID newId = UUID.fromString("00000000-0000-0000-0000-0000000000dd");
+        when(actionService.rerun(id, "qa")).thenReturn(newId);
+
+        mvc.perform(post("/api/executions/{id}/rerun", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"actor\":\"qa\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.executionId").value(newId.toString()));
+
+        verify(actionService).rerun(id, "qa");
     }
 }

@@ -2,6 +2,7 @@ package org.folio.factory.app.web;
 
 import org.folio.factory.core.limits.DailyBudgetExceededException;
 import org.folio.factory.core.registry.FlowValidationException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -25,6 +26,11 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<Map<String, String>> conflict(IllegalStateException e) {
+        return error(HttpStatus.CONFLICT, e.getMessage());
+    }
+
+    @ExceptionHandler(OptimisticLockingFailureException.class)
+    public ResponseEntity<Map<String, String>> optimisticLock(OptimisticLockingFailureException e) {
         return error(HttpStatus.CONFLICT, e.getMessage());
     }
 
