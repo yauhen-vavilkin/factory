@@ -1,16 +1,16 @@
-package org.folio.factory.flowa;
+package org.folio.factory.testfactory;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-@ConfigurationProperties(prefix = "factory.flowa")
-public record FlowAProperties(
+@ConfigurationProperties(prefix = "factory.test-factory")
+public record TestFactoryProperties(
         Execution execution,
         String targetRepo,
         String baseBranch,
         String jiraTransition,
         Long testrailSectionId) {
 
-    public FlowAProperties {
+    public TestFactoryProperties {
         execution = execution == null ? new Execution(null, null) : execution;
         baseBranch = baseBranch == null || baseBranch.isBlank() ? "main" : baseBranch;
     }

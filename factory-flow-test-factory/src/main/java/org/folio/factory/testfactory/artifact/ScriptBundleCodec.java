@@ -1,9 +1,9 @@
-package org.folio.factory.flowa.artifact;
+package org.folio.factory.testfactory.artifact;
 
 import org.folio.factory.agents.artifact.ArtifactFormatException;
 import org.folio.factory.agents.artifact.Frontmatter;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
-import org.folio.factory.flowa.model.ScriptBundle;
+import org.folio.factory.testfactory.model.ScriptBundle;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;

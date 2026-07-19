@@ -125,7 +125,7 @@ seq 50 | xargs -P 50 -I{} curl -s -o /dev/null -X POST localhost:8080/api/trigge
 The LLM call still needs `ANTHROPIC_API_KEY` and its latency will dominate wall
 time. To load-test the **engine + DB** in isolation (no tokens, no network
 variance), drive the same volume through the test harness's scripted
-`StubChatModel` (as `FlowAEndToEndTest` does) so step latency is near-zero and the
+`StubChatModel` (as `TestFactoryEndToEndTest` does) so step latency is near-zero and the
 pool/poller are the only contended resources.
 
 ### What to measure

@@ -102,16 +102,16 @@ factory:
       username: ${FACTORY_CONNECTORS_TESTRAIL_USERNAME:}
       api-key: ${FACTORY_CONNECTORS_TESTRAIL_API_KEY:}
       project-id: ${FACTORY_CONNECTORS_TESTRAIL_PROJECT_ID:0}
-  flowa:
+  test-factory:
     execution:
-      base-url: ${FACTORY_FLOWA_EXECUTION_BASE_URL:}
-      karate-jar: ${FACTORY_FLOWA_EXECUTION_KARATE_JAR:}
-    target-repo: ${FACTORY_FLOWA_TARGET_REPO:}
-    base-branch: ${FACTORY_FLOWA_BASE_BRANCH:main}
-    jira-transition: ${FACTORY_FLOWA_JIRA_TRANSITION:}
+      base-url: ${FACTORY_TEST_FACTORY_EXECUTION_BASE_URL:}
+      karate-jar: ${FACTORY_TEST_FACTORY_EXECUTION_KARATE_JAR:}
+    target-repo: ${FACTORY_TEST_FACTORY_TARGET_REPO:}
+    base-branch: ${FACTORY_TEST_FACTORY_BASE_BRANCH:main}
+    jira-transition: ${FACTORY_TEST_FACTORY_JIRA_TRANSITION:}
     # Explicit placeholders: relaxed binding would NOT map the underscored env
     # vars onto these kebab-case properties by itself.
-    testrail-section-id: ${FACTORY_FLOWA_TESTRAIL_SECTION_ID:}
+    testrail-section-id: ${FACTORY_TEST_FACTORY_TESTRAIL_SECTION_ID:}
 
 logging:
   # OBS-1: JSON logging is opt-in via env so local `mvn spring-boot:run` stays

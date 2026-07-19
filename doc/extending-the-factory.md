@@ -119,7 +119,7 @@ factory-connectors/          shared REST clients for external systems (Jira, Git
                              a connector any flow can use.
 factory-agents/              LLM worker base class, prompt loading, frontmatter codec,
                              framework-wide output post-processors.
-factory-flow-test-factory/   Flow A plugin — the reference implementation to copy from.
+factory-flow-test-factory/   Test Factory plugin — the reference implementation to copy from.
 factory-app/                 composition root: REST API, webhook adapters, HITL web UI,
                              Flyway migrations, application.yaml. Aggregates all modules.
 ```
@@ -150,9 +150,9 @@ records a skip when GitHub is not configured). Two workers — one LLM-backed,
 one deterministic — plus one gate: it exercises every mechanism you will use
 in real flows.
 
-All names below follow the conventions of the existing Flow A module
+All names below follow the conventions of the existing Test Factory module
 ([factory-flow-test-factory](../factory-flow-test-factory)); when in doubt,
-open the corresponding Flow A file next to this tutorial.
+open the corresponding Test Factory file next to this tutorial.
 
 ### 3.1 Scaffold the module
 
@@ -202,8 +202,8 @@ Then register the module in three places:
    dependency. This is what makes the plugin part of the deployed application.
 3. Nothing else. No engine, router, or gateway changes.
 
-Java packages live under `org.folio.factory.<flow>` (Flow A uses
-`org.folio.factory.flowa`; we'll use `org.folio.factory.relnotes`). The
+Java packages live under `org.folio.factory.<flow>` (Test Factory uses
+`org.folio.factory.testfactory`; we'll use `org.folio.factory.relnotes`). The
 application scans all of `org.folio.factory`, so your `@Configuration` is
 picked up automatically once the jar is on the classpath.
 
@@ -532,7 +532,7 @@ The response is `202 {"executionId": "..."}`. Watch the execution advance at
 — and the publisher runs with your amended version. With no GitHub credentials
 configured you get a completed execution whose `publish_report.md` says
 `skipped`, and a `CONNECTOR_SKIPPED` audit event: the zero-credentials path
-works for your flow exactly as it does for Flow A.
+works for your flow exactly as it does for the Test Factory flow.
 
 Startup log lines to look for:
 
@@ -655,7 +655,7 @@ Consequences:
 - **Validate aggressively, throw early.** A thrown exception is a controlled
   retry; a silently wrong artifact poisons every downstream step.
 - **Make side effects idempotent or record-and-continue.** A retried step
-  re-runs *everything* in it. Flow A's finalizer is the reference: re-runnable
+  re-runs *everything* in it. Test Factory's finalizer is the reference: re-runnable
   GitHub calls (branch-exists and PR-exists are treated as success), and
   failures of individual best-effort syncs are recorded in the report artifact
   instead of thrown, precisely because wholesale retry of non-idempotent side
@@ -684,7 +684,7 @@ Extend
 
 Implement `AgentWorker` directly (§3.5). Use them for connector syncs,
 format conversions, running external processes — anything where an LLM adds
-nothing but nondeterminism. Flow A's `test-execution-agent` and finalizer are
+nothing but nondeterminism. Test Factory's `test-execution-agent` and finalizer are
 both deterministic.
 
 ### Reuse across flows
@@ -721,7 +721,7 @@ Rendering rules
   match the worker id exactly.
 - No loops or conditionals. If you need to iterate, serialise the collection
   (JSON) into one placeholder and let the model consume it — see
-  `{{commits_json}}` above and Flow A's `{{issue_json}}`.
+  `{{commits_json}}` above and Test Factory's `{{issue_json}}`.
 
 Conventions that hold across the existing prompts (follow them):
 
@@ -732,7 +732,7 @@ Conventions that hold across the existing prompts (follow them):
 - User prompt: short task statement + labelled input data. Data goes in the
   user prompt, rules go in the system prompt.
 - **Synthetic data only**: instruct generation workers to use synthetic
-  names/ids and never production-looking credentials or emails (see the Flow A
+  names/ids and never production-looking credentials or emails (see the Test Factory
   system prompts for wording). The framework's secret scanner (§10) backstops
   this, but the prompt is the first line of defence.
 - Prompt changes are code changes: same PR review, and ideally a version note
@@ -780,7 +780,7 @@ cases: [...]
 
 For multi-file outputs, wrap them in a single bundle artifact with a manifest
 in the frontmatter — see
-[`ScriptBundleCodec`](../factory-flow-test-factory/src/main/java/org/folio/factory/flowa/artifact/ScriptBundleCodec.java)
+[`ScriptBundleCodec`](../factory-flow-test-factory/src/main/java/org/folio/factory/testfactory/artifact/ScriptBundleCodec.java)
 (frontmatter lists `{path, case_ids}` per file; the body carries each file in
 a fenced block under a `## file:` heading). This keeps "agents communicate
 only through artifacts" true even for generated file trees.
@@ -848,8 +848,8 @@ public interface ArtifactAmendmentValidator {
 ```
 
 Every validator bean sees every amendment across all flows, so **self-scope
-by artifact name** and return immediately for names you don't own (Flow A's
-[`FlowAArtifactAmendmentValidator`](../factory-flow-test-factory/src/main/java/org/folio/factory/flowa/quality/FlowAArtifactAmendmentValidator.java)
+by artifact name** and return immediately for names you don't own (Test Factory's
+[`TestFactoryArtifactAmendmentValidator`](../factory-flow-test-factory/src/main/java/org/folio/factory/testfactory/quality/TestFactoryArtifactAmendmentValidator.java)
 is the pattern: it checks frontmatter structure for `test_plan.md` and
 `test_scripts.md` only).
 
@@ -931,8 +931,8 @@ Two things to know:
   [`SecretScanPostProcessor`](../factory-agents/src/main/java/org/folio/factory/agents/quality/SecretScanPostProcessor.java),
   which rejects credential-shaped strings (AWS/GitHub/Slack/Anthropic/OpenAI
   key patterns, private-key blocks) in *any* output of *any* flow.
-- **Flow-specific checks must self-scope.** Flow A's
-  [`KarateSanityPostProcessor`](../factory-flow-test-factory/src/main/java/org/folio/factory/flowa/quality/KarateSanityPostProcessor.java)
+- **Flow-specific checks must self-scope.** Test Factory's
+  [`KarateSanityPostProcessor`](../factory-flow-test-factory/src/main/java/org/folio/factory/testfactory/quality/KarateSanityPostProcessor.java)
   is the pattern: it returns immediately unless the outputs contain
   `test_scripts.md` with `framework: karate`, then validates structure
   (`.feature` extension, `Feature:`/`Scenario` present). Scope by artifact
@@ -966,13 +966,13 @@ missing integration degrades*:
 - **Data-critical** (the flow cannot proceed without it): don't catch the
   exception. The step fails, retries, escalates — a human sees "Jira connector
   not configured: set FACTORY_CONNECTORS_JIRA_…" in the review inbox.
-  Example: Flow A's triage when the trigger has no inline issue.
+  Example: Test Factory's triage when the trigger has no inline issue.
 - **Best-effort** (a sync the flow can live without): catch
   `ConnectorNotConfiguredException`, record a `CONNECTOR_SKIPPED` audit event
   and a "skipped" line in the step's report artifact, continue. Also catch
   `RestClientException` separately for *configured-but-failing* systems and
   record "failed" — see the [failure semantics](#failure-semantics--design-for-them)
-  note on non-idempotent side effects. Example: every sync in Flow A's
+  note on non-idempotent side effects. Example: every sync in Test Factory's
   finalizer, §3.5's publisher.
 
 ### Adding a new connector
@@ -1004,7 +1004,7 @@ system):
    `factory-app/src/main/resources/application.yaml`, and document them in the
    README table.
 7. **Tests** — WireMock the REST API (see the connector stubs in
-   [`FlowAEndToEndTest`](../factory-app/src/test/java/org/folio/factory/app/FlowAEndToEndTest.java))
+   [`TestFactoryEndToEndTest`](../factory-app/src/test/java/org/folio/factory/app/TestFactoryEndToEndTest.java))
    and assert the fallback's error message names every required variable.
 
 Never call an external system from a worker with a hand-rolled HTTP client:
@@ -1043,7 +1043,7 @@ Two house rules, both load-bearing:
   placeholder is what makes the env var work. Every existing property follows
   this; so must yours.
 - **Empty default = feature off, not startup failure.** Follow the
-  `isConfigured()` pattern (see `FlowAProperties.Execution`) and degrade the
+  `isConfigured()` pattern (see `TestFactoryProperties.Execution`) and degrade the
   behaviour (advisory mode, skipped sync) when unset. Document every new
   variable in the README configuration table.
 
@@ -1069,10 +1069,10 @@ keys are ever needed in tests. The division of labour:
   upstream artifact, unconfigured connector). For LLM workers, script the
   model (below) or fake the DTO-producing call.
 - **Your flow gets one end-to-end test** in `factory-app`, modelled on
-  [`FlowAEndToEndTest`](../factory-app/src/test/java/org/folio/factory/app/FlowAEndToEndTest.java)
-  / [`FlowAZeroCredentialsTest`](../factory-app/src/test/java/org/folio/factory/app/FlowAZeroCredentialsTest.java).
+  [`TestFactoryEndToEndTest`](../factory-app/src/test/java/org/folio/factory/app/TestFactoryEndToEndTest.java)
+  / [`TestFactoryZeroCredentialsTest`](../factory-app/src/test/java/org/folio/factory/app/TestFactoryZeroCredentialsTest.java).
 
-The e2e recipe (all pieces visible in `FlowAEndToEndTest`):
+The e2e recipe (all pieces visible in `TestFactoryEndToEndTest`):
 
 1. `@SpringBootTest(webEnvironment = RANDOM_PORT, properties =
    {"spring.ai.model.chat=none", "factory.engine.poll-interval-ms=250"})` —
@@ -1102,7 +1102,7 @@ app re-validates all descriptors), so a YAML typo fails fast across the suite.
 
 ```bash
 mvn verify                                              # everything
-mvn -pl factory-app test -Dtest=FlowAEndToEndTest       # one e2e class
+mvn -pl factory-app test -Dtest=TestFactoryEndToEndTest       # one e2e class
 mvn -pl factory-core test -Dtest=SubFlowIntegrationTest#method  # one method
 ```
 
@@ -1154,9 +1154,9 @@ organisation/project:
 1. **Keep** `factory-core`, `factory-agents`, `factory-connectors`,
    `factory-app` — they contain no flow-specific logic.
 2. **Choose flows**: drop the `factory-flow-test-factory` dependency from
-   `factory-app/pom.xml` (and the module from the root pom) if Flow A is not
-   relevant, and add your own flow modules per §3. Flow A's env vars
-   (`FACTORY_FLOWA_*`) simply become unused.
+   `factory-app/pom.xml` (and the module from the root pom) if the Test Factory flow is not
+   relevant, and add your own flow modules per §3. Test Factory's env vars
+   (`FACTORY_TEST_FACTORY_*`) simply become unused.
 3. **Swap the LLM provider if needed.** Workers only see Spring AI's
    `ChatClient`. Replace `spring-ai-starter-model-anthropic` in
    `factory-app/pom.xml` with another Spring AI model starter and the

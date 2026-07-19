@@ -1,4 +1,4 @@
-package org.folio.factory.flowa.worker;
+package org.folio.factory.testfactory.worker;
 
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.agents.llm.AbstractLlmAgentWorker;
@@ -6,7 +6,7 @@ import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
-import org.folio.factory.flowa.model.ScopeManifest;
+import org.folio.factory.testfactory.model.ScopeManifest;
 import org.springframework.ai.chat.client.ChatClient;
 import tools.jackson.databind.JsonNode;
 

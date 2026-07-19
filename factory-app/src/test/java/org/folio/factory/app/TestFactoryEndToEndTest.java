@@ -47,7 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 /**
- * Full Flow A pipeline through the real poller, REST API, WireMock'd Jira /
+ * Full Test Factory pipeline through the real poller, REST API, WireMock'd Jira /
  * GitHub / TestRail and a scripted LLM: trigger → triage (Jira fetch) → test
  * plan → QA amend at gate 1 → script generation → advisory execution → QA
  * approve at gate 2 → finalizer syncs all three connectors.
@@ -59,7 +59,7 @@ import static org.awaitility.Awaitility.await;
 @Import(StubLlmConfiguration.class)
 @Testcontainers
 @DirtiesContext
-class FlowAEndToEndTest {
+class TestFactoryEndToEndTest {
 
     @Container
     @ServiceConnection
@@ -83,9 +83,9 @@ class FlowAEndToEndTest {
         registry.add("factory.connectors.testrail.username", () -> "bot");
         registry.add("factory.connectors.testrail.api-key", () -> "key");
         registry.add("factory.connectors.testrail.project-id", () -> "12");
-        registry.add("factory.flowa.target-repo", () -> "folio-org/mod-agreements");
-        registry.add("factory.flowa.jira-transition", () -> "QA Complete");
-        registry.add("factory.flowa.testrail-section-id", () -> "55");
+        registry.add("factory.test-factory.target-repo", () -> "folio-org/mod-agreements");
+        registry.add("factory.test-factory.jira-transition", () -> "QA Complete");
+        registry.add("factory.test-factory.testrail-section-id", () -> "55");
     }
 
     @AfterAll

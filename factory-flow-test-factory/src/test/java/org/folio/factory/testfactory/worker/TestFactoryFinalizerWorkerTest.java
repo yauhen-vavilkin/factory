@@ -1,4 +1,4 @@
-package org.folio.factory.flowa.worker;
+package org.folio.factory.testfactory.worker;
 
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.connectors.github.GitHubConnector;
@@ -11,9 +11,9 @@ import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.ArtifactContent;
 import org.folio.factory.core.metrics.EngineMetrics;
 import org.folio.factory.core.service.AuditLog;
-import org.folio.factory.flowa.FlowAProperties;
-import org.folio.factory.flowa.artifact.ScriptBundleCodec;
-import org.folio.factory.flowa.model.ScriptBundle;
+import org.folio.factory.testfactory.TestFactoryProperties;
+import org.folio.factory.testfactory.artifact.ScriptBundleCodec;
+import org.folio.factory.testfactory.model.ScriptBundle;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -117,8 +117,8 @@ class TestFactoryFinalizerWorkerTest {
 
     private TestFactoryFinalizerWorker worker(GitHubConnector gitHub, TestRailConnector testRail,
                                               JiraConnector jira) {
-        FlowAProperties properties = new FlowAProperties(
-                new FlowAProperties.Execution(null, null), "o/r", "main", null, 55L);
+        TestFactoryProperties properties = new TestFactoryProperties(
+                new TestFactoryProperties.Execution(null, null), "o/r", "main", null, 55L);
         return new TestFactoryFinalizerWorker(jira, gitHub, testRail, codec, bundleCodec,
                 properties, mock(AuditLog.class), new EngineMetrics(new SimpleMeterRegistry()));
     }

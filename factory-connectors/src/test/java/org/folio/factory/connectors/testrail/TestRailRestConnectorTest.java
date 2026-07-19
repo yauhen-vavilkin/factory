@@ -46,7 +46,7 @@ class TestRailRestConnectorTest {
                 .andExpect(jsonPath("$.include_all").value(false))
                 .andRespond(withSuccess("{\"id\": 300}", MediaType.APPLICATION_JSON));
 
-        assertThat(connector.addRun("Flow A run", List.of(991L))).isEqualTo(300);
+        assertThat(connector.addRun("Test Factory run", List.of(991L))).isEqualTo(300);
     }
 
     @Test

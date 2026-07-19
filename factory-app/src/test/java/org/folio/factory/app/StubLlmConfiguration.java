@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Bean;
 import java.util.List;
 
 /**
- * Scripted LLM for end-to-end tests: recognises which Flow A worker is calling
+ * Scripted LLM for end-to-end tests: recognises which Test Factory worker is calling
  * by its system prompt and returns canned structured output. No API key needed.
  */
 @TestConfiguration

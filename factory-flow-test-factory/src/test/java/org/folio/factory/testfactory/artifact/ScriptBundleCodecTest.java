@@ -1,8 +1,8 @@
-package org.folio.factory.flowa.artifact;
+package org.folio.factory.testfactory.artifact;
 
 import org.folio.factory.agents.artifact.ArtifactFormatException;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
-import org.folio.factory.flowa.model.ScriptBundle;
+import org.folio.factory.testfactory.model.ScriptBundle;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

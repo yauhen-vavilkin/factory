@@ -1,12 +1,12 @@
-package org.folio.factory.flowa.worker;
+package org.folio.factory.testfactory.worker;
 
 import org.folio.factory.agents.llm.AbstractLlmAgentWorker;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
-import org.folio.factory.flowa.FlowAProperties;
-import org.folio.factory.flowa.artifact.ScriptBundleCodec;
-import org.folio.factory.flowa.model.ScriptBundle;
+import org.folio.factory.testfactory.TestFactoryProperties;
+import org.folio.factory.testfactory.artifact.ScriptBundleCodec;
+import org.folio.factory.testfactory.model.ScriptBundle;
 import org.springframework.ai.chat.client.ChatClient;
 
 import java.util.Map;
@@ -21,10 +21,10 @@ public class TestAutomationAgentWorker extends AbstractLlmAgentWorker {
     public static final String ID = "test-automation-agent";
 
     private final ScriptBundleCodec bundleCodec;
-    private final FlowAProperties properties;
+    private final TestFactoryProperties properties;
 
     public TestAutomationAgentWorker(ChatClient chatClient, ScriptBundleCodec bundleCodec,
-                                     FlowAProperties properties) {
+                                     TestFactoryProperties properties) {
         super(chatClient);
         this.bundleCodec = bundleCodec;
         this.properties = properties;

@@ -28,7 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 /**
- * The zero-credentials path: with no Jira/GitHub/TestRail configuration, Flow A
+ * The zero-credentials path: with no Jira/GitHub/TestRail configuration, the Test Factory flow
  * still runs end-to-end (inline issue payload, advisory execution) and records
  * every skipped side effect instead of failing.
  */
@@ -39,7 +39,7 @@ import static org.awaitility.Awaitility.await;
 @Import(StubLlmConfiguration.class)
 @Testcontainers
 @DirtiesContext
-class FlowAZeroCredentialsTest {
+class TestFactoryZeroCredentialsTest {
 
     @Container
     @ServiceConnection
@@ -84,7 +84,7 @@ class FlowAZeroCredentialsTest {
         String syncReport = artifactStore.getLatest(executionId, "sync_report.md").orElseThrow().getContent();
         assertThat(syncReport)
                 .contains("skipped")
-                .contains("FACTORY_FLOWA_TARGET_REPO")
+                .contains("FACTORY_TEST_FACTORY_TARGET_REPO")
                 .contains("FACTORY_CONNECTORS_JIRA_BASE_URL");
 
         long skippedEvents = auditLog.forExecution(executionId).stream()
