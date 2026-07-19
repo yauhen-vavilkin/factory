@@ -21,6 +21,9 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +39,8 @@ import java.util.UUID;
 public class ReviewUiController {
 
     private static final String ARTIFACT_FIELD_PREFIX = "artifact:";
+    private static final DateTimeFormatter TIMESTAMP =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC);
 
     private final HitlReviewRepository reviews;
     private final HitlDecisionService decisionService;
@@ -134,12 +139,16 @@ public class ReviewUiController {
         row.put("title", reviewPackage.path("title").asString());
         row.put("flowId", reviewPackage.path("flowId").asString());
         row.put("gateId", review.getGateId());
-        row.put("createdAt", review.getCreatedAt());
+        row.put("createdAt", format(review.getCreatedAt()));
         row.put("status", review.getStatus());
         row.put("decision", review.getDecision());
         row.put("reviewer", review.getReviewer());
-        row.put("decidedAt", review.getDecidedAt());
+        row.put("decidedAt", format(review.getDecidedAt()));
         return row;
+    }
+
+    private static String format(Instant instant) {
+        return instant == null ? null : TIMESTAMP.format(instant);
     }
 
     private String redirectWithError(UUID reviewId, String message) {

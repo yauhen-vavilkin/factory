@@ -175,7 +175,13 @@
       grid: { color: T.border },
       border: { display: false }
     };
-    if (extra) Object.keys(extra).forEach(function (k) { base[k] = extra[k]; });
+    if (extra) Object.keys(extra).forEach(function (k) {
+      if (k === 'ticks') {
+        Object.keys(extra.ticks).forEach(function (tk) { base.ticks[tk] = extra.ticks[tk]; });
+      } else {
+        base[k] = extra[k];
+      }
+    });
     return base;
   }
 
@@ -224,7 +230,7 @@
       maintainAspectRatio: false,
       scales: {
         x: axisScale({ stacked: true }),
-        y: axisScale({ stacked: true, beginAtZero: true })
+        y: axisScale({ stacked: true, beginAtZero: true, ticks: { precision: 0 } })
       },
       plugins: { legend: legend(true), tooltip: {} }
     });
@@ -266,7 +272,7 @@
       responsive: true,
       maintainAspectRatio: false,
       scales: {
-        x: axisScale({ beginAtZero: true }),
+        x: axisScale({ beginAtZero: true, ticks: { precision: 0 } }),
         y: axisScale()
       },
       plugins: { legend: legend(false), tooltip: {} }
@@ -295,7 +301,7 @@
       responsive: true,
       maintainAspectRatio: false,
       scales: {
-        x: axisScale({ beginAtZero: true }),
+        x: axisScale({ beginAtZero: true, ticks: { precision: 0 } }),
         y: axisScale()
       },
       plugins: { legend: legend(true), tooltip: {} }
@@ -324,7 +330,7 @@
       maintainAspectRatio: false,
       scales: {
         x: axisScale({ stacked: true }),
-        y: axisScale({ stacked: true, beginAtZero: true })
+        y: axisScale({ stacked: true, beginAtZero: true, ticks: { precision: 0 } })
       },
       plugins: { legend: legend(true), tooltip: {} }
     });

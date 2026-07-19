@@ -145,6 +145,7 @@ a:hover { text-decoration: underline; }
   padding: 1.25rem 1.5rem;
 }
 .card-header + .card-content { padding-top: 0; }
+.card-header .badge { align-self: flex-start; }
 .card-title { font-size: 1rem; font-weight: 600; }
 .card-description { font-size: 0.875rem; color: hsl(var(--muted-foreground)); }
 .card-content { padding: 1.25rem 1.5rem; }
@@ -320,6 +321,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   tab-size: 2;
   line-height: 1.55;
 }
+.textarea-prompt { min-height: 28rem; }
 
 /* ---------- tabs ---------- */
 .tabs {
@@ -374,6 +376,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 
 /* ---------- dialog ---------- */
 .dialog {
+  margin: auto;
   width: calc(100vw - 2rem);
   max-width: 32rem;
   padding: 1.5rem;
@@ -466,6 +469,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 1rem;
 }
+.kpi-grid > * { min-width: 0; }
 .kpi {
   display: flex;
   flex-direction: column;
@@ -487,8 +491,10 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   gap: 1rem;
   margin-top: 1.5rem;
 }
+.charts-grid > * { min-width: 0; }
 .chart-card .card-content { padding-top: 0.5rem; }
 .chart-card .chart-region { height: 18rem; position: relative; }
+.chart-card .chart-region > canvas { display: block; width: 100% !important; max-width: 100%; }
 .chart-card .empty-state {
   display: flex;
   align-items: center;

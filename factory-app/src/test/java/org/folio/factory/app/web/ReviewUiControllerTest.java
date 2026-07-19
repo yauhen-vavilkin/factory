@@ -175,6 +175,37 @@ class ReviewUiControllerTest {
     }
 
     @Test
+    void reviews_pendingRow_formatsCreatedAtAndLeavesDecidedAtNull() throws Exception {
+        HitlReview review = new HitlReview(EXECUTION_ID, "qa-gate-1", 2, "{\"title\":\"t\",\"flowId\":\"f\"}");
+        when(reviews.findByStatusOrderByCreatedAtAsc(HitlReviewStatus.PENDING)).thenReturn(List.of(review));
+
+        var result = mvc.perform(get("/reviews")).andExpect(status().isOk()).andReturn();
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows =
+                (List<Map<String, Object>>) result.getModelAndView().getModel().get("reviews");
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).get("createdAt").toString()).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}");
+        assertThat(rows.get(0).get("decidedAt")).isNull();
+    }
+
+    @Test
+    void reviews_decidedRow_formatsDecidedAtAsUtcPattern() throws Exception {
+        HitlReview review = new HitlReview(EXECUTION_ID, "qa-gate-1", 2, "{\"title\":\"t\",\"flowId\":\"f\"}");
+        review.decide(HitlReviewStatus.APPROVED, "APPROVE", "qa", "ok", null);
+        when(reviews.findByStatus(eq(HitlReviewStatus.APPROVED), any()))
+                .thenReturn(new PageImpl<>(List.of(review), PageRequest.of(0, 50), 1));
+
+        var result = mvc.perform(get("/reviews").param("status", "APPROVED"))
+                .andExpect(status().isOk()).andReturn();
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows =
+                (List<Map<String, Object>>) result.getModelAndView().getModel().get("reviews");
+        assertThat(rows.get(0).get("decidedAt").toString()).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}");
+    }
+
+    @Test
     void review_get_rendersReviewViewWithModel() throws Exception {
         HitlReview review = new HitlReview(EXECUTION_ID, "qa-gate-1", 2, "{\"title\":\"Review test plan\"}");
         when(reviews.findById(review.getId())).thenReturn(Optional.of(review));

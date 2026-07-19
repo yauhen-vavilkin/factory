@@ -7,17 +7,15 @@
 
 <nav th:fragment="pagination(page, baseUrl)" class="pagination" aria-label="Pagination"
      th:if="${page != null}">
-    <a class="btn btn-outline btn-sm"
-       th:classappend="${page.first} ? 'disabled'"
-       th:href="${page.first} ? '#' : ${baseUrl} + '&page=' + ${page.number - 1}"
-       th:attrappend="aria-disabled=${page.first} ? 'true'">Previous</a>
+    <span th:if="${page.first}" class="btn btn-outline btn-sm disabled" aria-disabled="true">Previous</span>
+    <a th:unless="${page.first}" class="btn btn-outline btn-sm"
+       th:href="${baseUrl} + '&page=' + ${page.number - 1}">Previous</a>
     <span class="pagination-info"
           th:text="'Page ' + ${page.number + 1} + ' of ' + ${page.totalPages} + ' · ' + ${page.totalElements} + ' total'">
         Page 1 of 1 · 0 total</span>
-    <a class="btn btn-outline btn-sm"
-       th:classappend="${page.last} ? 'disabled'"
-       th:href="${page.last} ? '#' : ${baseUrl} + '&page=' + ${page.number + 1}"
-       th:attrappend="aria-disabled=${page.last} ? 'true'">Next</a>
+    <span th:if="${page.last}" class="btn btn-outline btn-sm disabled" aria-disabled="true">Next</span>
+    <a th:unless="${page.last}" class="btn btn-outline btn-sm"
+       th:href="${baseUrl} + '&page=' + ${page.number + 1}">Next</a>
 </nav>
 
 <div th:fragment="auditTable(events, showExecution)" class="table-wrap">

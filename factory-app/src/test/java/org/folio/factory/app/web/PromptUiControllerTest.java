@@ -82,6 +82,8 @@ class PromptUiControllerTest {
                 .containsEntry("overridden", true)
                 .containsEntry("activeVersion", 3)
                 .containsEntry("updatedBy", "qa-lead");
+        assertThat(prompts.get(0).get("updatedAt").toString())
+                .matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}");
         assertThat(prompts.get(1)).containsEntry("name", "user").containsEntry("overridden", false);
         assertThat(workers.get(1)).containsEntry("workerId", "test-spec-agent");
     }
@@ -138,6 +140,26 @@ class PromptUiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("referenceLabel", "Version 1"))
                 .andExpect(model().attribute("referenceContent", "OLD"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void detail_history_formatsCreatedAtAsUtcPattern() throws Exception {
+        when(catalog.promptsFor("triage-agent")).thenReturn(List.of("system"));
+        when(promptService.latest("triage-agent", "system")).thenReturn(Optional.empty());
+        when(promptService.defaultContent("triage-agent", "system")).thenReturn("DEFAULT");
+        when(promptService.resolve("triage-agent", "system")).thenReturn("DEFAULT");
+        when(promptService.history("triage-agent", "system"))
+                .thenReturn(List.of(override("triage-agent", "system", 1, false, "X")));
+
+        var result = mvc.perform(get("/prompts/{w}", "triage-agent").param("file", "system"))
+                .andExpect(status().isOk()).andReturn();
+
+        List<Map<String, Object>> history =
+                (List<Map<String, Object>>) result.getModelAndView().getModel().get("history");
+        assertThat(history).hasSize(1);
+        assertThat(history.get(0).get("createdAt").toString())
+                .matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}");
     }
 
     @Test

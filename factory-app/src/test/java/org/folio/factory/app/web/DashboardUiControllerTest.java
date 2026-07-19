@@ -72,12 +72,14 @@ class DashboardUiControllerTest {
 
     @BeforeEach
     void setUp() {
+        mvc = mvcWithConnectors(List.of(new FakeConnector("jira", true), new FakeConnector("github", false)));
+    }
+
+    private MockMvc mvcWithConnectors(List<ConnectorHealth> connectors) {
         EngineProperties engine = new EngineProperties(true, 2000L, 5, 4, 1800L, 30, true);
-        List<ConnectorHealth> connectors =
-                List.of(new FakeConnector("jira", true), new FakeConnector("github", false));
         DashboardUiController controller = new DashboardUiController(
                 connectors, flowRegistry, engine, flowRegistryEntries, executions, reviews, audit, json);
-        mvc = MockMvcBuilders.standaloneSetup(controller)
+        return MockMvcBuilders.standaloneSetup(controller)
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
@@ -157,8 +159,8 @@ class DashboardUiControllerTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> connectors =
                 (List<Map<String, Object>>) result.getModelAndView().getModel().get("connectors");
-        assertThat(connectors).extracting(c -> c.get("name")).containsExactly("jira", "github");
-        assertThat(connectors).extracting(c -> c.get("configured")).containsExactly(true, false);
+        assertThat(connectors).extracting(c -> c.get("name")).containsExactly("github", "jira");
+        assertThat(connectors).extracting(c -> c.get("configured")).containsExactly(false, true);
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> flows =
@@ -167,6 +169,39 @@ class DashboardUiControllerTest {
         assertThat(flows.get(0).get("id")).isEqualTo("test-factory");
         assertThat(flows.get(0).get("name")).isEqualTo("Test Factory");
         assertThat(flows.get(0).get("version")).isEqualTo("1.0.0");
+    }
+
+    @Test
+    void dashboard_dedupesConnectorsConfiguredWins() throws Exception {
+        stubKpiCounts();
+        MockMvc deduped = mvcWithConnectors(List.of(
+                new FakeConnector("jira", false), new FakeConnector("jira", true),
+                new FakeConnector("github", false), new FakeConnector("github", false),
+                new FakeConnector("testrail", true), new FakeConnector("testrail", false)));
+
+        deduped.perform(get("/"))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("connectorsConfigured", 2))
+                .andExpect(model().attribute("connectorsTotal", 3));
+    }
+
+    @Test
+    void status_dedupesConnectorsConfiguredWinsSortedByName() throws Exception {
+        when(flowRegistry.all()).thenReturn(List.of());
+        MockMvc deduped = mvcWithConnectors(List.of(
+                new FakeConnector("jira", false), new FakeConnector("jira", true),
+                new FakeConnector("github", false), new FakeConnector("github", false),
+                new FakeConnector("testrail", true)));
+
+        var result = deduped.perform(get("/status"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> connectors =
+                (List<Map<String, Object>>) result.getModelAndView().getModel().get("connectors");
+        assertThat(connectors).extracting(c -> c.get("name")).containsExactly("github", "jira", "testrail");
+        assertThat(connectors).extracting(c -> c.get("configured")).containsExactly(false, true, true);
     }
 
     @Test

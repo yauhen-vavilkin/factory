@@ -14,6 +14,9 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -32,6 +35,8 @@ import java.util.Optional;
 public class PromptUiController {
 
     private static final String DEFAULT_PROMPT = "system";
+    private static final DateTimeFormatter TIMESTAMP =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC);
 
     private final PromptCatalog catalog;
     private final PromptService promptService;
@@ -129,7 +134,7 @@ public class PromptUiController {
         row.put("overridden", overridden);
         row.put("activeVersion", overridden ? latest.get().getVersion() : null);
         row.put("updatedBy", overridden ? latest.get().getCreatedBy() : null);
-        row.put("updatedAt", overridden ? latest.get().getCreatedAt() : null);
+        row.put("updatedAt", overridden ? format(latest.get().getCreatedAt()) : null);
         return row;
     }
 
@@ -171,7 +176,7 @@ public class PromptUiController {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("version", override.getVersion());
             row.put("author", override.getCreatedBy());
-            row.put("createdAt", override.getCreatedAt());
+            row.put("createdAt", format(override.getCreatedAt()));
             row.put("useDefault", override.isUseDefault());
             row.put("compareHref", "/prompts/" + workerId + "?file=" + urlEncode(file)
                     + "&compare=" + override.getVersion());
@@ -181,6 +186,10 @@ public class PromptUiController {
             rows.add(row);
         }
         return rows;
+    }
+
+    private static String format(Instant instant) {
+        return instant == null ? null : TIMESTAMP.format(instant);
     }
 
     private static Integer parseVersion(String compare) {

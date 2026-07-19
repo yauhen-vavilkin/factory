@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 
 /**
  * Server-rendered operational views: the Dashboard home ({@code /}) with KPI
@@ -94,9 +95,10 @@ public class DashboardUiController {
                 .findByStatus(HitlReviewStatus.PENDING, PageRequest.of(0, 1)).getTotalElements());
 
         model.addAttribute("engineEnabled", engineProperties.enabled());
-        int configured = (int) connectors.stream().filter(ConnectorHealth::isConfigured).count();
+        Map<String, Boolean> connectorConfig = connectorConfiguration();
+        int configured = (int) connectorConfig.values().stream().filter(Boolean::booleanValue).count();
         model.addAttribute("connectorsConfigured", configured);
-        model.addAttribute("connectorsTotal", connectors.size());
+        model.addAttribute("connectorsTotal", connectorConfig.size());
         return "dashboard";
     }
 
@@ -111,12 +113,12 @@ public class DashboardUiController {
         model.addAttribute("engine", engine);
 
         List<Map<String, Object>> connectorRows = new ArrayList<>();
-        for (ConnectorHealth connector : connectors) {
+        connectorConfiguration().forEach((name, configured) -> {
             Map<String, Object> row = new LinkedHashMap<>();
-            row.put("name", connector.connectorName());
-            row.put("configured", connector.isConfigured());
+            row.put("name", name);
+            row.put("configured", configured);
             connectorRows.add(row);
-        }
+        });
         model.addAttribute("connectors", connectorRows);
 
         model.addAttribute("flows", flowRegistry.all().stream().map(this::flowRow).toList());
@@ -142,6 +144,14 @@ public class DashboardUiController {
         model.addAttribute("baseUrl", "/audit?eventType="
                 + (type == null ? "" : type.name()) + "&size=" + clampSize(size));
         return "audit";
+    }
+
+    private Map<String, Boolean> connectorConfiguration() {
+        Map<String, Boolean> byName = new TreeMap<>();
+        for (ConnectorHealth connector : connectors) {
+            byName.merge(connector.connectorName(), connector.isConfigured(), (a, b) -> a || b);
+        }
+        return byName;
     }
 
     private Map<String, Object> flowRow(FlowDescriptor flow) {
