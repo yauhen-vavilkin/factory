@@ -6,7 +6,6 @@ import org.folio.factory.core.agent.AgentWorker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Map;
 
@@ -32,7 +31,6 @@ public abstract class AbstractLlmAgentWorker implements AgentWorker {
         this.chatClient = chatClient;
     }
 
-    @Autowired(required = false)
     public void setPromptResolver(PromptResolver promptResolver) {
         this.promptResolver = promptResolver;
     }
