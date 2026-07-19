@@ -48,6 +48,9 @@ public class PipelineExecution {
     @Column(name = "retry_counts", nullable = false)
     private String retryCounts = "{}";
 
+    @Column(name = "dedup_key")
+    private String dedupKey;
+
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
@@ -144,6 +147,14 @@ public class PipelineExecution {
 
     public void setRetryCounts(String retryCounts) {
         this.retryCounts = retryCounts;
+    }
+
+    public String getDedupKey() {
+        return dedupKey;
+    }
+
+    public void setDedupKey(String dedupKey) {
+        this.dedupKey = dedupKey;
     }
 
     public String getErrorMessage() {

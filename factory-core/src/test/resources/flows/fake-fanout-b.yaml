@@ -1,0 +1,15 @@
+# Paired with fake-fanout-a: both match the same test.fanout event so router tests
+# can exercise one trigger fanning out to multiple flows (budget all-or-nothing).
+id: fake-fanout-b
+name: Fake Fanout B
+version: 1.0.0
+triggers:
+  - event_type: test.fanout
+input_schema:
+  required: [issueKey]
+agent_chain:
+  - step_id: work
+    type: AGENT
+    worker_id: echo-worker
+    inputs: ["$trigger"]
+    outputs: [result.md]

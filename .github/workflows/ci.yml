@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Least-privilege token; cancel superseded runs on the same ref.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Test (JDK 21)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # ubuntu-latest ships Docker, so the Testcontainers-backed tests run here.
+      # CI pins JDK 21 regardless of the developer's local default JDK.
+      - name: Build and verify
+        run: mvn -B -ntp verify
+
+      - name: Upload test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            **/target/surefire-reports/**
+            **/target/failsafe-reports/**
+          if-no-files-found: warn
+          retention-days: 7
+
+      # The factory-app CycloneDX plugin emits the SBOM during the normal verify build (DEP-1).
+      - name: Upload CycloneDX SBOM
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-application-cdx
+          path: factory-app/target/classes/META-INF/sbom/application.cdx.json
+          if-no-files-found: warn
+
+  docker:
+    name: Build Docker image
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_BUILDKIT: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Build-only (no push): validates the Dockerfile end to end. The build stage runs
+      # `mvn package -DskipTests` inside the container, so no DB or services are needed.
+      - name: Build image
+        run: docker build -t folio-factory-app:${{ github.sha }} .

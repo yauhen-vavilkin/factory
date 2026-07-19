@@ -16,10 +16,12 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(properties = "spring.jpa.hibernate.ddl-auto=create-drop")
 @Testcontainers
@@ -53,24 +55,42 @@ class SubFlowIntegrationTest {
     @Autowired
     HitlReviewRepository reviews;
 
-    private void drive() {
-        for (int rounds = 0; rounds < 20; rounds++) {
-            List<UUID> claimed = claimService.claim(10);
-            if (claimed.isEmpty()) {
-                return;
-            }
-            claimed.forEach(engine::advance);
-        }
-        throw new IllegalStateException("Executions still runnable after 20 rounds");
+    /**
+     * Pumps the engine (claim + advance) until {@code executionId} reaches a terminal
+     * state, polling with a real time budget. Condition-based rather than a fixed number
+     * of sleepless rounds: a just-(re)scheduled row can be momentarily unclaimable when
+     * its next_run_at — set from this JVM's clock — is briefly ahead of the database
+     * clock under load (claimRunnable gates on next_run_at <= DB now()). Waiting for the
+     * target state, as the continuous production poller would, absorbs that skew instead
+     * of racing it.
+     */
+    private void driveUntilTerminal(UUID executionId) {
+        await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(50)).untilAsserted(() -> {
+            claimService.claim(10).forEach(engine::advance);
+            assertThat(stateManager.get(executionId).getStatus().isTerminal()).isTrue();
+        });
+    }
+
+    /**
+     * Advances ONLY the parent until it parks at the sub-flow invocation, leaving the
+     * created child unadvanced for the test to manipulate. Same clock-skew rationale
+     * as {@link #driveUntilTerminal}: a one-shot claim can miss the freshly created
+     * parent row.
+     */
+    private void driveParentToAwaitSubflow(UUID parentId) {
+        await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(50)).untilAsserted(() -> {
+            claimService.claim(10).stream().filter(id -> id.equals(parentId)).forEach(engine::advance);
+            assertThat(stateManager.get(parentId).getStatus()).isEqualTo(ExecutionStatus.AWAITING_SUBFLOW);
+        });
     }
 
     @Test
     void parentInvokesChildWaitsAndCollectsMappedOutputs() {
         PipelineExecution parent = stateManager.createExecution("fake-parent", "1.0.0", "{\"seed\":\"x\"}");
 
-        // First round: parent runs its first step, then reaches SUB_FLOW and waits;
-        // the child is created PENDING and picked up by subsequent claims.
-        drive();
+        // Parent runs its first step, reaches SUB_FLOW and waits; the child is created
+        // PENDING, picked up, driven to completion, and the parent then resumes.
+        driveUntilTerminal(parent.getId());
 
         PipelineExecution finishedParent = stateManager.get(parent.getId());
         assertThat(finishedParent.getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
@@ -101,11 +121,7 @@ class SubFlowIntegrationTest {
     @Test
     void terminatedChildEscalatesWaitingParentWithReviewInInbox() {
         PipelineExecution parent = stateManager.createExecution("fake-parent", "1.0.0", null);
-
-        // Advance parent only up to the sub-flow invocation.
-        List<UUID> claimed = claimService.claim(10);
-        claimed.stream().filter(id -> id.equals(parent.getId())).forEach(engine::advance);
-        assertThat(stateManager.get(parent.getId()).getStatus()).isEqualTo(ExecutionStatus.AWAITING_SUBFLOW);
+        driveParentToAwaitSubflow(parent.getId());
 
         PipelineExecution child = executions.findByParentExecutionId(parent.getId()).getFirst();
         stateManager.transition(child.getId(), ExecutionStatus.REJECTED, null);
@@ -122,8 +138,7 @@ class SubFlowIntegrationTest {
     @Test
     void escalatedChildKeepsParentWaiting() {
         PipelineExecution parent = stateManager.createExecution("fake-parent", "1.0.0", null);
-        List<UUID> claimed = claimService.claim(10);
-        claimed.stream().filter(id -> id.equals(parent.getId())).forEach(engine::advance);
+        driveParentToAwaitSubflow(parent.getId());
 
         PipelineExecution child = executions.findByParentExecutionId(parent.getId()).getFirst();
         // A child awaiting its own escalation review is resumable — not terminal.
@@ -137,8 +152,7 @@ class SubFlowIntegrationTest {
     @Test
     void reconcileRecoversLostChildCompletion() {
         PipelineExecution parent = stateManager.createExecution("fake-parent", "1.0.0", null);
-        List<UUID> claimed = claimService.claim(10);
-        claimed.stream().filter(id -> id.equals(parent.getId())).forEach(engine::advance);
+        driveParentToAwaitSubflow(parent.getId());
 
         // Simulate a crash after the child completed but before the parent
         // hand-off: mark the child COMPLETED directly, bypassing the engine.
@@ -148,7 +162,7 @@ class SubFlowIntegrationTest {
         assertThat(stateManager.get(parent.getId()).getStatus()).isEqualTo(ExecutionStatus.AWAITING_SUBFLOW);
 
         subFlowInvoker.reconcileCompletedChildren();
-        drive();
+        driveUntilTerminal(parent.getId());
 
         assertThat(stateManager.get(parent.getId()).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
         assertThat(artifactStore.getLatest(parent.getId(), "collected.md").orElseThrow().getContent())

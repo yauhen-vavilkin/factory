@@ -1,16 +1,42 @@
 spring:
   application:
     name: ai-factory
+  lifecycle:
+    # OPS-2: grace-period budget for each SmartLifecycle shutdown phase — chiefly the
+    # web server draining in-flight HTTP (HITL console, REST, webhooks) before exit.
+    # Bounded well under the 1800s engine lease so a rollout never hangs.
+    timeout-per-shutdown-phase: ${FACTORY_SHUTDOWN_PHASE_TIMEOUT:60s}
   datasource:
     url: ${FACTORY_DB_URL:jdbc:postgresql://localhost:5432/factory}
     username: ${FACTORY_DB_USER:factory}
     password: ${FACTORY_DB_PASSWORD:factory}
+    hikari:
+      # PERF-1: sized to concurrency, not request volume — the LLM/Karate work runs
+      # outside any transaction, so connections are borrowed only for sub-second
+      # bursts. maximum-pool-size = worker-threads(4) + scheduler(2) + web headroom(8)
+      # + flyway/misc(2) = 16. Raise FACTORY_DB_POOL_MAX in lockstep with worker-threads.
+      # See doc/performance.md for the full rationale and load-test plan.
+      maximum-pool-size: ${FACTORY_DB_POOL_MAX:16}
+      minimum-idle: ${FACTORY_DB_POOL_MIN_IDLE:4}
+      connection-timeout: ${FACTORY_DB_POOL_CONNECTION_TIMEOUT_MS:30000}
+      max-lifetime: ${FACTORY_DB_POOL_MAX_LIFETIME_MS:1800000}
+      idle-timeout: ${FACTORY_DB_POOL_IDLE_TIMEOUT_MS:600000}
+      # No legitimate borrow lasts near a minute; a hit means a genuinely leaked connection.
+      leak-detection-threshold: ${FACTORY_DB_POOL_LEAK_DETECTION_MS:60000}
   jpa:
     hibernate:
       ddl-auto: validate
     open-in-view: false
   flyway:
     enabled: true
+  # REL-1: outbound HTTP client timeouts for the auto-configured RestClient.Builder
+  # the Jira/GitHub/TestRail connectors clone (Spring Boot 4 plural `clients`
+  # namespace). The Anthropic LLM client uses its own transport and is unaffected.
+  # Values are Durations; env overrides must also be Durations (e.g. 10s, 500ms).
+  http:
+    clients:
+      connect-timeout: ${FACTORY_HTTP_CONNECT_TIMEOUT:5s}
+      read-timeout: ${FACTORY_HTTP_READ_TIMEOUT:30s}
   ai:
     anthropic:
       api-key: ${ANTHROPIC_API_KEY:}
@@ -19,12 +45,50 @@ spring:
           model: ${FACTORY_LLM_MODEL:claude-sonnet-4-5}
           max-tokens: 8192
 
+server:
+  # OPS-2: finish in-flight HTTP requests before exit instead of dropping them on
+  # SIGTERM. Runs in the SmartLifecycle stop phase, bounded by timeout-per-shutdown-phase.
+  shutdown: graceful
+
 factory:
   engine:
-    poll-interval-ms: 2000
-    batch-size: 5
-    worker-threads: 4
-    lease-timeout-seconds: 1800
+    poll-interval-ms: ${FACTORY_ENGINE_POLL_INTERVAL_MS:2000}
+    batch-size: ${FACTORY_ENGINE_BATCH_SIZE:5}
+    worker-threads: ${FACTORY_ENGINE_WORKER_THREADS:4}
+    # Must exceed the longest legitimate single step (Karate runs are capped at 15
+    # min) or the reaper re-queues live executions. Raise if your steps run longer.
+    lease-timeout-seconds: ${FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS:1800}
+    # OPS-2: max seconds shutdown blocks draining in-flight engine steps before the
+    # JVM exits; a longer step is abandoned and re-queued by the reaper after
+    # lease-timeout-seconds. Keep <= the container termination grace period.
+    shutdown-await-seconds: ${FACTORY_ENGINE_SHUTDOWN_AWAIT_SECONDS:30}
+    # Requeue RUNNING rows orphaned by a prior crash on startup, so a restart does not
+    # strand work (or tie up concurrency-cap slots) until the lease reaper clears them.
+    # SINGLE-INSTANCE ONLY: set false for multi-instance so a restart never requeues a
+    # peer instance's live work.
+    reclaim-running-on-startup: ${FACTORY_ENGINE_RECLAIM_RUNNING_ON_STARTUP:true}
+  limits:
+    # COST-1: 0 disables the guard.
+    max-concurrent-executions: ${FACTORY_LIMITS_MAX_CONCURRENT_EXECUTIONS:8}
+    max-executions-per-day: ${FACTORY_LIMITS_MAX_EXECUTIONS_PER_DAY:200}
+    # DATA-1: write-time size caps (bytes). Non-destructive; generous defaults.
+    max-artifact-bytes: ${FACTORY_LIMITS_MAX_ARTIFACT_BYTES:5000000}
+    max-trigger-payload-bytes: ${FACTORY_LIMITS_MAX_TRIGGER_PAYLOAD_BYTES:262144}
+    dedup:
+      enabled: ${FACTORY_LIMITS_DEDUP_ENABLED:true}
+      # Re-fires of the same payload within this window collapse onto the first run.
+      window: ${FACTORY_LIMITS_DEDUP_WINDOW:10m}
+      # JSON pointers tried in order for a stable id; falls back to a sha256 of the
+      # payload. Comma-separated. Explicit placeholder so the underscored env var binds.
+      id-pointers: ${FACTORY_LIMITS_DEDUP_ID_POINTERS:/issueKey}
+  retention:
+    # DATA-1: destructive, so opt-in. Purges terminal execution trees older than the
+    # TTL (COMPLETED/REJECTED/CANCELLED and descendants); audit_event is never purged.
+    enabled: ${FACTORY_RETENTION_ENABLED:false}
+    ttl-days: ${FACTORY_RETENTION_TTL_DAYS:90}
+    batch-size: ${FACTORY_RETENTION_BATCH_SIZE:100}
+    # Six-field Spring cron; set to "-" to disable the trigger even when enabled.
+    run-cron: "${FACTORY_RETENTION_RUN_CRON:0 30 3 * * *}"
   connectors:
     jira:
       base-url: ${FACTORY_CONNECTORS_JIRA_BASE_URL:}
@@ -49,8 +113,35 @@ factory:
     # vars onto these kebab-case properties by itself.
     testrail-section-id: ${FACTORY_FLOWA_TESTRAIL_SECTION_ID:}
 
+logging:
+  # OBS-1: JSON logging is opt-in via env so local `mvn spring-boot:run` stays
+  # human-readable. Set FACTORY_LOG_FORMAT=ecs (or logstash / gelf) in containers.
+  # An empty value keeps the standard pattern; under ecs/logstash every MDC entry
+  # (executionId, stepId) is auto-included in the JSON.
+  structured:
+    format:
+      console: ${FACTORY_LOG_FORMAT:}
+    ecs:
+      service:
+        name: ${spring.application.name}
+
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # OBS-1: prometheus scrape at /actuator/prometheus, metrics browse at /actuator/metrics.
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      # OBS-1: registers /actuator/health/liveness and /actuator/health/readiness probes.
+      probes:
+        enabled: true
+      # Security-adjacent: exposes db + connector details to unauthenticated callers.
+      # Acceptable for Milestone 1; tighten to when-authorized once the endpoint is
+      # secured (out of scope here).
+      show-details: always
+      group:
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,db

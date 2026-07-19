@@ -154,6 +154,16 @@ public class HitlDecisionService {
     private void resume(HitlReview review, PipelineExecution execution, boolean escalation) {
         UUID executionId = review.getExecutionId();
         if (escalation) {
+            // An escalated run has left the partial unique dedup index, so a re-fired
+            // trigger may have started a second run with the same key. Requeueing this
+            // one would collide with that index entry at commit — refuse with a clear
+            // conflict instead of surfacing a constraint violation as a 500.
+            if (stateManager.hasActiveDuplicate(execution)) {
+                throw new IllegalStateException("Cannot resume execution " + executionId
+                        + ": another active execution for the same trigger (dedup key '"
+                        + execution.getDedupKey() + "') is already in progress; wait for it to"
+                        + " finish or reject this escalation");
+            }
             // Approving an escalation means "try the failed step again": reset the
             // step's retry budget and requeue at the same step index. The step id
             // is resolved from durable state (the review's recorded position in
