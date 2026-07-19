@@ -72,7 +72,7 @@ class PromptUiControllerTest {
                 .andExpect(view().name("prompt"))
                 .andExpect(model().attribute("workerId", "triage-agent"))
                 .andExpect(model().attribute("activeFile", "user"))
-                .andExpect(model().attributeExists("content"));
+                .andExpect(model().attributeExists("promptContent"));
     }
 
     @Test

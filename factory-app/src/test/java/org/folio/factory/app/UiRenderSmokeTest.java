@@ -162,8 +162,15 @@ class UiRenderSmokeTest {
     }
 
     @Test
-    void promptViewerRenders() {
-        assertRendered("/prompts/triage-agent?file=system", "Bundled default");
+    void promptViewerRendersActualPromptContent() {
+        // Regression: a model attribute named `content` is shadowed by the layout
+        // fragment's `content` parameter, which made this page render its own
+        // template source instead of the prompt. Only a full render catches that,
+        // so assert on the real bundled prompt text.
+        String body = assertRendered("/prompts/test-spec-agent?file=user", "Bundled default");
+        assertThat(body)
+                .contains("Generate the manual test plan")
+                .doesNotContain("th:text");
     }
 
     @Test

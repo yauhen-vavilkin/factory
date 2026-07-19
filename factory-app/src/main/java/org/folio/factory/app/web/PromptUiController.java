@@ -63,7 +63,9 @@ public class PromptUiController {
         model.addAttribute("workerId", workerId);
         model.addAttribute("promptNames", promptNames);
         model.addAttribute("activeFile", activeFile);
-        model.addAttribute("content", PromptLoader.load(workerId, activeFile));
+        // Not "content": the layout fragment's `content` parameter stays in scope
+        // inside the inserted page body and would shadow the model attribute.
+        model.addAttribute("promptContent", PromptLoader.load(workerId, activeFile));
         return "prompt";
     }
 
