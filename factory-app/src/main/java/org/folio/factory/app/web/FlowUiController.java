@@ -112,7 +112,7 @@ public class FlowUiController {
             return redirectWithError(id, "Invalid JSON payload: " + parseFailure.getMessage());
         }
         try {
-            UUID executionId = router.routeManual(id, payloadNode, blankToNull(dedupKey));
+            UUID executionId = router.routeManual(id, payloadNode, TriggerController.normalisedDedupKey(dedupKey));
             redirect.addFlashAttribute("message", "Execution started");
             return "redirect:/executions/" + executionId;
         } catch (FlowValidationException | IllegalArgumentException | DailyBudgetExceededException e) {
@@ -277,10 +277,6 @@ public class FlowUiController {
         row.put("prompts", promptCatalog.promptsFor(worker.id()));
         row.put("usedBy", usedBy);
         return row;
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.strip();
     }
 
     private static String redirectWithError(String flowId, String message) {
