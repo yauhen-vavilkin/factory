@@ -75,10 +75,15 @@ curl -s -X POST localhost:8080/api/triggers/manual \
   -d @factory-app/src/main/resources/samples/sample-story-inline.json
 ```
 
-Then open <http://localhost:8080/reviews> and work the two QA gates
-(approve/amend/reject — edits are saved as new artifact versions). Watch
-progress on <http://localhost:8080/executions> (full audit timeline per
-execution) and check connector status on <http://localhost:8080/api/status>.
+Then open the management UI at <http://localhost:8080/> — a dashboard with KPI
+cards and charts. Work the two QA gates at <http://localhost:8080/reviews>
+(approve/amend/reject — edits are saved as new artifact versions) and watch
+progress at <http://localhost:8080/executions> (full audit timeline per
+execution, plus cancel and re-run controls). The rest of the console: `/flows`
+and `/workers` (registered flow plugins and the agent worker library), `/prompts`
+(edit a worker's prompt — overrides are DB-versioned and revert to the bundled
+default), `/audit` (the append-only event log) and `/status` (engine and
+connector health).
 
 Manual triggers are never deduplicated by default — re-running the curl starts a
 new execution. To opt a manual trigger into dedup, add an idempotency key to the

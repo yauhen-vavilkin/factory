@@ -1,7 +1,9 @@
 package org.folio.factory.app;
 
+import org.folio.factory.agents.prompt.PromptService;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.HitlReview;
+import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
@@ -63,6 +65,9 @@ class UiRenderSmokeTest {
     private AuditLog auditLog;
 
     @Autowired
+    private PromptService promptService;
+
+    @Autowired
     private ITemplateEngine templateEngine;
 
     private RestClient rest;
@@ -99,6 +104,30 @@ class UiRenderSmokeTest {
     @Test
     void executionsListRenders() {
         assertRendered("/executions", "Executions");
+    }
+
+    @Test
+    void reviewsAllFilterRenders() {
+        PipelineExecution execution = executions.save(new PipelineExecution("test-factory", "1", "{}"));
+        HitlReview review = reviews.save(new HitlReview(execution.getId(), "gate-2-signoff", 5,
+                "{\"title\":\"Signed-off plan\",\"flowId\":\"test-factory\"}"));
+        review.decide(HitlReviewStatus.AMENDED, "AMEND", "qa-lead", "tightened", null);
+        reviews.save(review);
+
+        // The ALL tab is not the PENDING path: it must render the decided review and
+        // the decision columns (only shown when showDecision is true), catching a
+        // regression that fell back to the pending-only view.
+        String body = assertRendered("/reviews?status=ALL", "Reviews");
+        assertThat(body).contains("Signed-off plan").contains("Decided");
+    }
+
+    @Test
+    void promptsListShowsOverride() {
+        String content = promptService.defaultContent("triage-agent", "system") + "\nsmoke tweak";
+        promptService.saveOverride("triage-agent", "system", content, "qa-lead");
+
+        String body = assertRendered("/prompts", "Bundled prompt templates");
+        assertThat(body).contains("Overridden v1");
     }
 
     @Test
