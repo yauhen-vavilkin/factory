@@ -8,7 +8,6 @@ import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
-import org.folio.factory.core.service.ExecutionActionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,7 +17,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -33,7 +31,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -49,15 +46,12 @@ class ExecutionControllerTest {
     @Mock
     private AuditLog auditLog;
 
-    @Mock
-    private ExecutionActionService actionService;
-
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders
-                .standaloneSetup(new ExecutionController(executions, artifactStore, auditLog, actionService))
+                .standaloneSetup(new ExecutionController(executions, artifactStore, auditLog))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .build();
     }
@@ -182,63 +176,5 @@ class ExecutionControllerTest {
                 .andExpect(jsonPath("$.artifacts[0].createdBy").value("reviewer:qa"))
                 .andExpect(jsonPath("$.auditTrail[0].eventType").value("ARTIFACT_WRITTEN"))
                 .andExpect(jsonPath("$.auditTrail[0].stepId").value("test-spec"));
-    }
-
-    @Test
-    void cancel_delegatesAndReturnsRefreshedSummary() throws Exception {
-        PipelineExecution cancelled = execution();
-        cancelled.setStatus(ExecutionStatus.CANCELLED);
-        UUID id = cancelled.getId();
-        when(actionService.cancel(id, "qa", "no longer needed")).thenReturn(cancelled);
-
-        mvc.perform(post("/api/executions/{id}/cancel", id)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"actor\":\"qa\",\"reason\":\"no longer needed\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(id.toString()))
-                .andExpect(jsonPath("$.status").value("CANCELLED"));
-
-        verify(actionService).cancel(id, "qa", "no longer needed");
-    }
-
-    @Test
-    void cancel_alreadyTerminal_conflict() throws Exception {
-        UUID id = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
-        when(actionService.cancel(id, "qa", null))
-                .thenThrow(new IllegalStateException("Execution " + id + " is already COMPLETED"));
-
-        mvc.perform(post("/api/executions/{id}/cancel", id)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"actor\":\"qa\"}"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error").value(containsString("already COMPLETED")));
-    }
-
-    @Test
-    void cancel_blankActor_unprocessable() throws Exception {
-        UUID id = UUID.fromString("00000000-0000-0000-0000-0000000000bb");
-        when(actionService.cancel(id, "", null))
-                .thenThrow(new IllegalArgumentException("actor is required"));
-
-        mvc.perform(post("/api/executions/{id}/cancel", id)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"actor\":\"\"}"))
-                .andExpect(status().is(422))
-                .andExpect(jsonPath("$.error").value(containsString("actor is required")));
-    }
-
-    @Test
-    void rerun_delegatesAndReturnsAcceptedWithNewId() throws Exception {
-        UUID id = UUID.fromString("00000000-0000-0000-0000-0000000000cc");
-        UUID newId = UUID.fromString("00000000-0000-0000-0000-0000000000dd");
-        when(actionService.rerun(id, "qa")).thenReturn(newId);
-
-        mvc.perform(post("/api/executions/{id}/rerun", id)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"actor\":\"qa\"}"))
-                .andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.executionId").value(newId.toString()));
-
-        verify(actionService).rerun(id, "qa");
     }
 }

@@ -7,8 +7,8 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication(scanBasePackages = "org.folio.factory")
-@EntityScan(basePackages = {"org.folio.factory.core.domain", "org.folio.factory.agents.prompt"})
-@EnableJpaRepositories(basePackages = {"org.folio.factory.core", "org.folio.factory.agents.prompt"})
+@EntityScan(basePackages = "org.folio.factory.core.domain")
+@EnableJpaRepositories(basePackages = "org.folio.factory.core")
 @EnableScheduling
 public class FactoryApplication {
 

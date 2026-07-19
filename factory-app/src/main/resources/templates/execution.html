@@ -19,25 +19,6 @@
             <a class="btn btn-primary btn-sm" th:if="${pendingReview}"
                th:href="@{'/reviews/' + ${pendingReview.id}}">Open review</a>
         </div>
-
-        <div class="actions-bar" th:if="${canCancel or canRerun}">
-            <form th:if="${canCancel}" class="action-form" method="post"
-                  th:action="@{'/executions/' + ${execution.id} + '/cancel'}"
-                  data-confirm="Cancel this execution? Running work will be discarded.">
-                <input class="input input-inline" type="text" name="actor" required
-                       placeholder="your name" aria-label="Actor">
-                <input class="input input-inline" type="text" name="reason"
-                       placeholder="reason (optional)" aria-label="Cancellation reason">
-                <button class="btn btn-destructive" type="submit">Cancel run</button>
-            </form>
-            <form th:if="${canRerun}" class="action-form" method="post"
-                  th:action="@{'/executions/' + ${execution.id} + '/rerun'}"
-                  data-confirm="Re-run this execution with the same payload?">
-                <input class="input input-inline" type="text" name="actor" required
-                       placeholder="your name" aria-label="Actor">
-                <button class="btn btn-primary" type="submit">Re-run</button>
-            </form>
-        </div>
     </div>
 
     <div class="alert alert-error" role="alert" th:if="${execution.errorMessage}">

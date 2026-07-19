@@ -1,6 +1,5 @@
 package org.folio.factory.agents.llm;
 
-import org.folio.factory.agents.prompt.PromptResolver;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentWorker;
 import org.slf4j.Logger;
@@ -25,22 +24,16 @@ public abstract class AbstractLlmAgentWorker implements AgentWorker {
 
     protected final ChatClient chatClient;
 
-    private PromptResolver promptResolver = PromptLoader::load;
-
     protected AbstractLlmAgentWorker(ChatClient chatClient) {
         this.chatClient = chatClient;
     }
 
-    public void setPromptResolver(PromptResolver promptResolver) {
-        this.promptResolver = promptResolver;
-    }
-
     protected String systemPrompt(Map<String, Object> variables) {
-        return PromptLoader.render(promptResolver.resolve(id(), "system"), variables);
+        return PromptLoader.render(PromptLoader.load(id(), "system"), variables);
     }
 
     protected String userPrompt(Map<String, Object> variables) {
-        return PromptLoader.render(promptResolver.resolve(id(), "user"), variables);
+        return PromptLoader.render(PromptLoader.load(id(), "user"), variables);
     }
 
     /**

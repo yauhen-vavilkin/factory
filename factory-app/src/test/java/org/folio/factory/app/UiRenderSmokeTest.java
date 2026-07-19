@@ -1,6 +1,5 @@
 package org.folio.factory.app;
 
-import org.folio.factory.agents.prompt.PromptService;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
@@ -65,9 +64,6 @@ class UiRenderSmokeTest {
     private AuditLog auditLog;
 
     @Autowired
-    private PromptService promptService;
-
-    @Autowired
     private ITemplateEngine templateEngine;
 
     private RestClient rest;
@@ -122,12 +118,9 @@ class UiRenderSmokeTest {
     }
 
     @Test
-    void promptsListShowsOverride() {
-        String content = promptService.defaultContent("triage-agent", "system") + "\nsmoke tweak";
-        promptService.saveOverride("triage-agent", "system", content, "qa-lead");
-
+    void promptsListShowsReadOnlyView() {
         String body = assertRendered("/prompts", "Bundled prompt templates");
-        assertThat(body).contains("Overridden v1");
+        assertThat(body).contains(">View<").doesNotContain("Overridden");
     }
 
     @Test
@@ -167,8 +160,8 @@ class UiRenderSmokeTest {
     }
 
     @Test
-    void promptEditorRenders() {
-        assertRendered("/prompts/triage-agent?file=system", "Version history");
+    void promptViewerRenders() {
+        assertRendered("/prompts/triage-agent?file=system", "Bundled default");
     }
 
     @Test

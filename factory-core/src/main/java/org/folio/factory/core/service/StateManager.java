@@ -137,12 +137,6 @@ public class StateManager {
 
     @Transactional
     public PipelineExecution transition(UUID executionId, ExecutionStatus newStatus, Map<String, ?> auditDetail) {
-        return transition(executionId, newStatus, null, auditDetail);
-    }
-
-    @Transactional
-    public PipelineExecution transition(UUID executionId, ExecutionStatus newStatus, String actor,
-                                        Map<String, ?> auditDetail) {
         PipelineExecution execution = load(executionId);
         ExecutionStatus previous = execution.getStatus();
         if (previous.isFinal()) {
@@ -161,8 +155,7 @@ public class StateManager {
         if (auditDetail != null) {
             detail.putAll(auditDetail);
         }
-        auditLog.record(saved.getId(), AuditEventType.STATE_TRANSITION, null,
-                actor != null ? actor : AuditLog.SYSTEM_ACTOR, detail);
+        auditLog.record(saved.getId(), AuditEventType.STATE_TRANSITION, null, AuditLog.SYSTEM_ACTOR, detail);
         if (newStatus == ExecutionStatus.COMPLETED) {
             auditLog.record(saved.getId(), AuditEventType.EXECUTION_COMPLETED, null, null);
         }

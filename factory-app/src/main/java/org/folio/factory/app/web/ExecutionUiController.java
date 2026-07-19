@@ -6,16 +6,13 @@ import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.domain.PipelineExecution;
-import org.folio.factory.core.limits.DailyBudgetExceededException;
 import org.folio.factory.core.registry.FlowRegistry;
-import org.folio.factory.core.registry.FlowValidationException;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.StepDescriptor;
 import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
-import org.folio.factory.core.service.ExecutionActionService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -24,9 +21,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -45,9 +40,7 @@ import java.util.UUID;
 /**
  * Server-rendered execution views: a filterable, paged run list and a
  * per-execution detail page (step progress, artifact versions, child runs, audit
- * timeline) with operator actions. Cancel/re-run post against the same
- * {@link ExecutionActionService} the REST API uses; all view state is computed
- * here so the templates stay dumb.
+ * timeline). All view state is computed here so the templates stay dumb.
  */
 @Controller
 public class ExecutionUiController {
@@ -62,18 +55,16 @@ public class ExecutionUiController {
     private final AuditLog auditLog;
     private final FlowRegistry flowRegistry;
     private final HitlReviewRepository reviews;
-    private final ExecutionActionService actionService;
     private final JsonMapper jsonMapper;
 
     public ExecutionUiController(PipelineExecutionRepository executions, ArtifactStore artifactStore,
                                  AuditLog auditLog, FlowRegistry flowRegistry, HitlReviewRepository reviews,
-                                 ExecutionActionService actionService, JsonMapper jsonMapper) {
+                                 JsonMapper jsonMapper) {
         this.executions = executions;
         this.artifactStore = artifactStore;
         this.auditLog = auditLog;
         this.flowRegistry = flowRegistry;
         this.reviews = reviews;
-        this.actionService = actionService;
         this.jsonMapper = jsonMapper;
     }
 
@@ -125,38 +116,8 @@ public class ExecutionUiController {
         model.addAttribute("children", childRows(execution, id));
         model.addAttribute("pendingReview", pendingReview(execution, id));
         model.addAttribute("events", auditLog.forExecution(id).stream().map(this::auditRow).toList());
-        model.addAttribute("canCancel", !execution.getStatus().isFinal());
-        model.addAttribute("canRerun", terminal);
         model.addAttribute("pollUrl", terminal ? null : "/api/executions/" + id);
         return "execution";
-    }
-
-    @PostMapping("/executions/{id}/cancel")
-    public String cancel(@PathVariable("id") UUID id,
-                         @RequestParam("actor") String actor,
-                         @RequestParam(name = "reason", required = false) String reason,
-                         RedirectAttributes redirect) {
-        try {
-            actionService.cancel(id, actor, reason == null || reason.isBlank() ? null : reason);
-            redirect.addFlashAttribute("message", "Execution cancelled");
-            return "redirect:/executions/" + id;
-        } catch (IllegalArgumentException | IllegalStateException | NoSuchElementException e) {
-            return redirectWithError(id, e.getMessage());
-        }
-    }
-
-    @PostMapping("/executions/{id}/rerun")
-    public String rerun(@PathVariable("id") UUID id,
-                        @RequestParam("actor") String actor,
-                        RedirectAttributes redirect) {
-        try {
-            UUID newId = actionService.rerun(id, actor);
-            redirect.addFlashAttribute("message", "Execution re-started");
-            return "redirect:/executions/" + newId;
-        } catch (FlowValidationException | DailyBudgetExceededException | IllegalArgumentException
-                 | IllegalStateException | NoSuchElementException e) {
-            return redirectWithError(id, e.getMessage());
-        }
     }
 
     private Map<String, Object> executionRow(PipelineExecution execution) {
@@ -294,11 +255,6 @@ public class ExecutionUiController {
         } catch (IllegalArgumentException e) {
             return null;
         }
-    }
-
-    private String redirectWithError(UUID id, String message) {
-        return "redirect:/executions/" + id + "?error="
-                + URLEncoder.encode(message == null ? "Request failed" : message, StandardCharsets.UTF_8);
     }
 
     private int clampSize(int size) {

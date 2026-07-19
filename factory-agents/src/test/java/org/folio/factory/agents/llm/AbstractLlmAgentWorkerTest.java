@@ -88,16 +88,7 @@ class AbstractLlmAgentWorkerTest {
     }
 
     @Test
-    void usesInjectedPromptResolverForSystemAndUserPrompts() {
-        TestWorker worker = new TestWorker(ChatClient.create(new StubChatModel()));
-        worker.setPromptResolver((workerId, promptName) -> "OVERRIDE " + workerId + "/" + promptName);
-
-        assertThat(worker.systemPrompt(Map.of())).isEqualTo("OVERRIDE test-worker/system");
-        assertThat(worker.userPrompt(Map.of())).isEqualTo("OVERRIDE test-worker/user");
-    }
-
-    @Test
-    void defaultsToClasspathPromptsWithoutAResolver() {
+    void loadsClasspathPromptsForSystemAndUser() {
         TestWorker worker = new TestWorker(ChatClient.create(new StubChatModel()));
 
         assertThat(worker.systemPrompt(Map.of("context_name", "unit-test")))

@@ -4,9 +4,7 @@ import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.domain.Artifact;
-import org.folio.factory.core.limits.DailyBudgetExceededException;
 import org.folio.factory.core.registry.FlowRegistry;
-import org.folio.factory.core.registry.FlowValidationException;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.HitlGateSpec;
 import org.folio.factory.core.registry.model.StepDescriptor;
@@ -15,7 +13,6 @@ import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
-import org.folio.factory.core.service.ExecutionActionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -43,10 +40,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.flash;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
 
@@ -72,9 +66,6 @@ class ExecutionUiControllerTest {
     @Mock
     private HitlReviewRepository reviews;
 
-    @Mock
-    private ExecutionActionService actionService;
-
     @Captor
     private ArgumentCaptor<Pageable> pageableCaptor;
 
@@ -84,7 +75,7 @@ class ExecutionUiControllerTest {
     void setUp() {
         mvc = MockMvcBuilders
                 .standaloneSetup(new ExecutionUiController(executions, artifactStore, auditLog,
-                        flowRegistry, reviews, actionService, json))
+                        flowRegistry, reviews, json))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
@@ -242,10 +233,10 @@ class ExecutionUiControllerTest {
         assertThat(planVersions.get(0).get("panelId")).isNotEqualTo(planVersions.get(1).get("panelId"));
     }
 
-    // ----- detail: pending review / actions flags -----
+    // ----- detail: pending review / poll url -----
 
     @Test
-    void execution_detail_exposesPendingReviewAndActionFlags() throws Exception {
+    void execution_detail_awaitingHitlSurfacesPendingReviewAndPolls() throws Exception {
         PipelineExecution execution = execution(ExecutionStatus.AWAITING_HITL, 1, "{}");
         HitlReview pending = new HitlReview(EXECUTION_ID, "qa-1", 1, "{}");
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
@@ -254,107 +245,17 @@ class ExecutionUiControllerTest {
         mvc.perform(get("/executions/{id}", EXECUTION_ID))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("pendingReview", pending))
-                .andExpect(model().attribute("canCancel", true))
-                .andExpect(model().attribute("canRerun", false))
                 .andExpect(model().attribute("pollUrl", "/api/executions/" + EXECUTION_ID));
     }
 
     @Test
-    void execution_detail_terminalRunAllowsRerunNotCancelAndDoesNotPoll() throws Exception {
+    void execution_detail_terminalRunDoesNotPoll() throws Exception {
         PipelineExecution execution = execution(ExecutionStatus.COMPLETED, 3, "{}");
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
 
         mvc.perform(get("/executions/{id}", EXECUTION_ID))
                 .andExpect(status().isOk())
-                .andExpect(model().attribute("canCancel", false))
-                .andExpect(model().attribute("canRerun", true))
                 .andExpect(model().attribute("pollUrl", (Object) null));
-    }
-
-    @Test
-    void execution_detail_escalatedRunAllowsBothCancelAndRerun() throws Exception {
-        PipelineExecution execution = execution(ExecutionStatus.FAILED_ESCALATED, 1, "{}");
-        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
-        when(reviews.findByExecutionIdOrderByCreatedAtAsc(EXECUTION_ID)).thenReturn(List.of());
-
-        mvc.perform(get("/executions/{id}", EXECUTION_ID))
-                .andExpect(status().isOk())
-                .andExpect(model().attribute("canCancel", true))
-                .andExpect(model().attribute("canRerun", true));
-    }
-
-    // ----- actions -----
-
-    @Test
-    void cancel_delegatesToServiceAndFlashRedirectsToSamePage() throws Exception {
-        when(actionService.cancel(EXECUTION_ID, "qa", "stuck"))
-                .thenReturn(execution(ExecutionStatus.CANCELLED, 1, "{}"));
-
-        mvc.perform(post("/executions/{id}/cancel", EXECUTION_ID)
-                        .param("actor", "qa").param("reason", "stuck"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/executions/" + EXECUTION_ID))
-                .andExpect(flash().attribute("message", "Execution cancelled"));
-
-        verify(actionService).cancel(EXECUTION_ID, "qa", "stuck");
-    }
-
-    @Test
-    void cancel_illegalState_redirectsWithEncodedError() throws Exception {
-        when(actionService.cancel(EXECUTION_ID, "qa", null))
-                .thenThrow(new IllegalStateException("already CANCELLED"));
-
-        mvc.perform(post("/executions/{id}/cancel", EXECUTION_ID).param("actor", "qa"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(result -> assertThat(result.getResponse().getRedirectedUrl())
-                        .startsWith("/executions/" + EXECUTION_ID + "?error=")
-                        .contains("already"));
-    }
-
-    @Test
-    void cancel_blankActor_serviceRejects_redirectsWithError() throws Exception {
-        when(actionService.cancel(EXECUTION_ID, "", null))
-                .thenThrow(new IllegalArgumentException("actor is required"));
-
-        mvc.perform(post("/executions/{id}/cancel", EXECUTION_ID).param("actor", ""))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(result -> assertThat(result.getResponse().getRedirectedUrl())
-                        .startsWith("/executions/" + EXECUTION_ID + "?error="));
-    }
-
-    @Test
-    void rerun_delegatesAndRedirectsToNewExecution() throws Exception {
-        UUID newId = UUID.fromString("00000000-0000-0000-0000-0000000000ff");
-        when(actionService.rerun(EXECUTION_ID, "qa")).thenReturn(newId);
-
-        mvc.perform(post("/executions/{id}/rerun", EXECUTION_ID).param("actor", "qa"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/executions/" + newId))
-                .andExpect(flash().attribute("message", "Execution re-started"));
-
-        verify(actionService).rerun(EXECUTION_ID, "qa");
-    }
-
-    @Test
-    void rerun_flowValidation_redirectsWithEncodedError() throws Exception {
-        when(actionService.rerun(EXECUTION_ID, "qa"))
-                .thenThrow(new FlowValidationException("flow 'gone' is not registered"));
-
-        mvc.perform(post("/executions/{id}/rerun", EXECUTION_ID).param("actor", "qa"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(result -> assertThat(result.getResponse().getRedirectedUrl())
-                        .startsWith("/executions/" + EXECUTION_ID + "?error="));
-    }
-
-    @Test
-    void rerun_budgetExceeded_redirectsWithEncodedError() throws Exception {
-        when(actionService.rerun(EXECUTION_ID, "qa"))
-                .thenThrow(new DailyBudgetExceededException("daily execution budget reached"));
-
-        mvc.perform(post("/executions/{id}/rerun", EXECUTION_ID).param("actor", "qa"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(result -> assertThat(result.getResponse().getRedirectedUrl())
-                        .startsWith("/executions/" + EXECUTION_ID + "?error="));
     }
 
     @Test
