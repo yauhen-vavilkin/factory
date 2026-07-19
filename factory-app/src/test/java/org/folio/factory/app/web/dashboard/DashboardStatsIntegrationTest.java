@@ -17,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -24,8 +25,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
 
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -67,6 +68,9 @@ class DashboardStatsIntegrationTest {
     @Autowired
     DashboardStatsService dashboardStatsService;
 
+    @Autowired
+    JdbcClient jdbc;
+
     private RestClient rest;
 
     @BeforeEach
@@ -79,11 +83,21 @@ class DashboardStatsIntegrationTest {
     // methods, so a second @Test that re-seeds would double the counts.
     @Test
     void aggregatesSeededDataAndSerializesDayAsIsoDateOverHttp() {
-        seed();
+        UUID backdatedId = seed();
+
+        // Derive "today" from the seeded rows' own created_at, not wall-clock now:
+        // a run seeded just before midnight UTC must not fail because the assertion
+        // computes LocalDate.now() just after midnight.
+        LocalDate seededDay = jdbc.sql("""
+                        SELECT (date_trunc('day', created_at AT TIME ZONE 'UTC'))::date AS day
+                        FROM pipeline_execution WHERE id <> :backdated ORDER BY created_at DESC LIMIT 1
+                        """)
+                .param("backdated", backdatedId)
+                .query(LocalDate.class).single();
 
         DashboardStats stats = dashboardStatsService.compute(7);
 
-        assertThat(stats.totals().executions()).isEqualTo(4);
+        assertThat(stats.totals().executions()).isEqualTo(5);
         assertThat(stats.totals().pendingReviews()).isEqualTo(1);
         assertThat(stats.totals().executionsToday()).isEqualTo(4);
         assertThat(stats.totals().artifacts()).isGreaterThanOrEqualTo(2);
@@ -98,10 +112,15 @@ class DashboardStatsIntegrationTest {
                     assertThat(s.status()).isEqualTo(ExecutionStatus.PENDING.name());
                 });
 
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
         assertThat(stats.executionsPerDay())
-                .as("today's bucket must be present")
-                .anySatisfy(d -> assertThat(d.day()).isEqualTo(today));
+                .as("the seeded bucket must be present in the 7-day window")
+                .anySatisfy(d -> assertThat(d.day()).isEqualTo(seededDay));
+        assertThat(stats.executionsPerDay())
+                .as("the 10-day-old execution must be excluded from the 7-day window")
+                .noneSatisfy(d -> assertThat(d.day()).isEqualTo(seededDay.minusDays(10)));
+        assertThat(stats.stepFailures())
+                .as("the 10-day-old step failure must be excluded from the 7-day window")
+                .noneSatisfy(f -> assertThat(f.stepId()).isEqualTo("legacy-step"));
 
         assertThat(stats.durationByFlow())
                 .singleElement()
@@ -133,6 +152,17 @@ class DashboardStatsIntegrationTest {
         assertThat(stats.artifactsByFlow())
                 .anySatisfy(a -> assertThat(a.flowId()).isEqualTo(FLOW_A));
 
+        // Widening the window to 30 days pulls the 10-day-old rows in, while the
+        // all-time totals are unchanged by the window.
+        DashboardStats stats30 = dashboardStatsService.compute(30);
+        assertThat(stats30.totals().executions()).isEqualTo(5);
+        assertThat(stats30.executionsPerDay())
+                .as("the 10-day-old execution is included in the 30-day window")
+                .anySatisfy(d -> assertThat(d.day()).isEqualTo(seededDay.minusDays(10)));
+        assertThat(stats30.stepFailures())
+                .as("the 10-day-old step failure is included in the 30-day window")
+                .anySatisfy(f -> assertThat(f.stepId()).isEqualTo("legacy-step"));
+
         // Same data over HTTP: charts.js string-joins on this exact shape
         // (r.day + '|' + r.status), so the day must serialize as a plain
         // "yyyy-MM-dd" string, not a [y,m,d] array.
@@ -145,7 +175,7 @@ class DashboardStatsIntegrationTest {
         }
     }
 
-    private void seed() {
+    private UUID seed() {
         // Created first, completed last: the elapsed seeding work guarantees a
         // strictly positive completed_at - created_at duration for FLOW_A.
         PipelineExecution completed = stateManager.createExecution(FLOW_A, "1", "{}");
@@ -176,5 +206,18 @@ class DashboardStatsIntegrationTest {
         reviews.save(decided);
 
         stateManager.transition(completed.getId(), ExecutionStatus.COMPLETED, Map.of());
+
+        // A 10-day-old execution and audit row: excluded from a 7-day window but
+        // counted all-time. The audit_event table is append-only (UPDATE/DELETE are
+        // blocked by a trigger), so the row is inserted already-backdated.
+        PipelineExecution old = stateManager.createExecution(FLOW_B, "1", "{}");
+        jdbc.sql("UPDATE pipeline_execution SET created_at = now() - interval '10 days' WHERE id = :id")
+                .param("id", old.getId()).update();
+        jdbc.sql("""
+                        INSERT INTO audit_event (execution_id, event_type, step_id, actor, detail, occurred_at)
+                        VALUES (:id, 'STEP_FAILED', 'legacy-step', 'system', '{}'::jsonb, now() - interval '10 days')
+                        """)
+                .param("id", old.getId()).update();
+        return old.getId();
     }
 }

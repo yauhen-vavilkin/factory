@@ -1,0 +1,13 @@
+id: fake-cancel-escalate
+name: Fake Cancel-then-Escalate Flow
+version: 1.0.0
+triggers:
+  - event_type: manual
+retry_policy:
+  max_attempts: 1
+  backoff_seconds: [0]
+agent_chain:
+  - step_id: doomed
+    type: AGENT
+    worker_id: cancelling-worker
+    outputs: [never.md]

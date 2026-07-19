@@ -1,5 +1,7 @@
 package org.folio.factory.app;
 
+import org.folio.factory.agents.prompt.PromptOverride;
+import org.folio.factory.agents.prompt.PromptOverrideRepository;
 import org.folio.factory.agents.prompt.PromptService;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.service.StateManager;
@@ -15,6 +17,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.annotation.DirtiesContext;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -27,6 +30,7 @@ import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 /**
@@ -66,6 +70,9 @@ class PromptOverrideEndToEndTest {
     PromptService promptService;
 
     @Autowired
+    PromptOverrideRepository promptOverrides;
+
+    @Autowired
     RecordingChatModel chatModel;
 
     private final JsonMapper json = JsonMapper.builder().build();
@@ -99,6 +106,17 @@ class PromptOverrideEndToEndTest {
         assertThat(chatModel.recorded())
                 .as("no prompt sent after the revert may still carry the override marker")
                 .noneMatch(sent -> sent.contains(OVERRIDE_MARKER));
+    }
+
+    @Test
+    void duplicateOverrideVersionViolatesUniqueConstraint() {
+        // uq_prompt_override guarantees a single row per (worker, prompt, version);
+        // the insert-only store relies on it to keep version numbering unambiguous.
+        promptOverrides.save(new PromptOverride("constraint-probe", "system", 1, false, "first", "qa"));
+
+        assertThatThrownBy(() ->
+                promptOverrides.save(new PromptOverride("constraint-probe", "system", 1, false, "second", "qa")))
+                .isInstanceOf(DataIntegrityViolationException.class);
     }
 
     private UUID trigger() {

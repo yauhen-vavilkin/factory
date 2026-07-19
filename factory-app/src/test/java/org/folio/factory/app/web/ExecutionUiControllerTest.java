@@ -4,7 +4,9 @@ import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.domain.Artifact;
+import org.folio.factory.core.limits.DailyBudgetExceededException;
 import org.folio.factory.core.registry.FlowRegistry;
+import org.folio.factory.core.registry.FlowValidationException;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.HitlGateSpec;
 import org.folio.factory.core.registry.model.StepDescriptor;
@@ -189,6 +191,18 @@ class ExecutionUiControllerTest {
     }
 
     @Test
+    void execution_detail_escalatedSurfacesPendingReview() throws Exception {
+        PipelineExecution execution = execution(ExecutionStatus.FAILED_ESCALATED, 1, "{}");
+        HitlReview pending = new HitlReview(EXECUTION_ID, "escalation", 1, "{}");
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(reviews.findByExecutionIdOrderByCreatedAtAsc(EXECUTION_ID)).thenReturn(List.of(pending));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("pendingReview", pending));
+    }
+
+    @Test
     void execution_detail_noStepperWhenFlowUnregistered() throws Exception {
         PipelineExecution execution = execution(ExecutionStatus.RUNNING, 0, "{}");
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
@@ -307,6 +321,40 @@ class ExecutionUiControllerTest {
                 .andExpect(flash().attribute("message", "Execution re-started"));
 
         verify(actionService).rerun(EXECUTION_ID, "qa");
+    }
+
+    @Test
+    void rerun_flowValidation_redirectsWithEncodedError() throws Exception {
+        when(actionService.rerun(EXECUTION_ID, "qa"))
+                .thenThrow(new FlowValidationException("flow 'gone' is not registered"));
+
+        mvc.perform(post("/executions/{id}/rerun", EXECUTION_ID).param("actor", "qa"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(result -> assertThat(result.getResponse().getRedirectedUrl())
+                        .startsWith("/executions/" + EXECUTION_ID + "?error="));
+    }
+
+    @Test
+    void rerun_budgetExceeded_redirectsWithEncodedError() throws Exception {
+        when(actionService.rerun(EXECUTION_ID, "qa"))
+                .thenThrow(new DailyBudgetExceededException("daily execution budget reached"));
+
+        mvc.perform(post("/executions/{id}/rerun", EXECUTION_ID).param("actor", "qa"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(result -> assertThat(result.getResponse().getRedirectedUrl())
+                        .startsWith("/executions/" + EXECUTION_ID + "?error="));
+    }
+
+    @Test
+    void executions_baseUrl_urlEncodesFilterValues() throws Exception {
+        when(executions.findByFlowId(eq("a b&c"), any())).thenReturn(emptyPage());
+
+        var result = mvc.perform(get("/executions").param("flow", "a b&c"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        String baseUrl = (String) result.getModelAndView().getModel().get("baseUrl");
+        assertThat(baseUrl).contains("flow=a+b%26c").doesNotContain("a b&c");
     }
 
     // ----- helpers -----

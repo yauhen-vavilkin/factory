@@ -6,7 +6,9 @@ import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.domain.PipelineExecution;
+import org.folio.factory.core.limits.DailyBudgetExceededException;
 import org.folio.factory.core.registry.FlowRegistry;
+import org.folio.factory.core.registry.FlowValidationException;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.StepDescriptor;
 import org.folio.factory.core.repository.HitlReviewRepository;
@@ -106,8 +108,8 @@ public class ExecutionUiController {
         model.addAttribute("selectedStatus", hasStatus ? parsedStatus.name() : "");
         model.addAttribute("selectedFlow", hasFlow ? flow : "");
         model.addAttribute("filtersActive", hasStatus || hasFlow);
-        model.addAttribute("baseUrl", "/executions?status=" + (hasStatus ? parsedStatus.name() : "")
-                + "&flow=" + (hasFlow ? flow : "") + "&size=" + clampedSize);
+        model.addAttribute("baseUrl", "/executions?status=" + encode(hasStatus ? parsedStatus.name() : "")
+                + "&flow=" + encode(hasFlow ? flow : "") + "&size=" + clampedSize);
         return "executions";
     }
 
@@ -151,7 +153,8 @@ public class ExecutionUiController {
             UUID newId = actionService.rerun(id, actor);
             redirect.addFlashAttribute("message", "Execution re-started");
             return "redirect:/executions/" + newId;
-        } catch (IllegalArgumentException | IllegalStateException | NoSuchElementException e) {
+        } catch (FlowValidationException | DailyBudgetExceededException | IllegalArgumentException
+                 | IllegalStateException | NoSuchElementException e) {
             return redirectWithError(id, e.getMessage());
         }
     }
@@ -260,7 +263,10 @@ public class ExecutionUiController {
     }
 
     private HitlReview pendingReview(PipelineExecution execution, UUID id) {
-        if (execution.getStatus() != ExecutionStatus.AWAITING_HITL) {
+        // Both an awaiting-gate run and an escalated run carry a decidable pending
+        // review; surface it on the detail page in either state.
+        if (execution.getStatus() != ExecutionStatus.AWAITING_HITL
+                && execution.getStatus() != ExecutionStatus.FAILED_ESCALATED) {
             return null;
         }
         return reviews.findByExecutionIdOrderByCreatedAtAsc(id).stream()
@@ -300,6 +306,10 @@ public class ExecutionUiController {
             return DEFAULT_SIZE;
         }
         return Math.min(size, MAX_SIZE);
+    }
+
+    private static String encode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     private static String abbreviate(String value) {

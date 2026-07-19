@@ -202,17 +202,23 @@ public class StateManager {
         return readRetryCounts(load(executionId)).getOrDefault(stepId, 0);
     }
 
+    /**
+     * @return true when the retry was scheduled, false when refused because the
+     *         execution has already resolved — callers must skip the audit/metrics
+     *         they would otherwise record for a scheduled retry.
+     */
     @Transactional
-    public void scheduleRetry(UUID executionId, long backoffSeconds, String errorMessage) {
+    public boolean scheduleRetry(UUID executionId, long backoffSeconds, String errorMessage) {
         PipelineExecution execution = load(executionId);
         if (execution.getStatus().isFinal()) {
             log.warn("Refusing scheduleRetry of final execution {} (status {})", executionId, execution.getStatus());
-            return;
+            return false;
         }
         execution.setStatus(ExecutionStatus.PENDING);
         execution.setNextRunAt(Instant.now().plusSeconds(backoffSeconds));
         execution.setErrorMessage(errorMessage);
         executions.save(execution);
+        return true;
     }
 
     /**

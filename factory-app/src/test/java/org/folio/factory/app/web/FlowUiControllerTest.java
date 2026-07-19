@@ -182,6 +182,26 @@ class FlowUiControllerTest {
     }
 
     @Test
+    void trigger_emptyDedupKey_passesNull() throws Exception {
+        when(router.routeManual(eq("test-factory"), any(JsonNode.class), isNull()))
+                .thenReturn(UUID.randomUUID());
+
+        mvc.perform(post("/flows/{id}/trigger", "test-factory")
+                        .param("payload", "{}").param("dedupKey", ""))
+                .andExpect(status().is3xxRedirection());
+
+        verify(router).routeManual(eq("test-factory"), any(JsonNode.class), isNull());
+    }
+
+    @Test
+    void escapeScriptClosers_neutralisesScriptClosersForJsonScriptBlock() {
+        // A sample carrying "</script>" must render as the JSON-legal "<\/script>"
+        // so it cannot break out of the <script type="application/json"> block.
+        String escaped = FlowUiController.escapeScriptClosers("{\"html\":\"</script></p>\"}");
+        assertThat(escaped).isEqualTo("{\"html\":\"<\\/script><\\/p>\"}").doesNotContain("</");
+    }
+
+    @Test
     void trigger_invalidJson_redirectsWithErrorAndDoesNotRoute() throws Exception {
         mvc.perform(post("/flows/{id}/trigger", "test-factory")
                         .param("payload", "{ not json"))

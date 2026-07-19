@@ -56,7 +56,10 @@ public class ExecutionActionService {
             throw new IllegalArgumentException("actor is required");
         }
         PipelineExecution execution = load(executionId);
-        if (execution.getStatus().isTerminal()) {
+        // isFinal (not isTerminal) so a FAILED_ESCALATED run — resumable, with a
+        // pending escalation review — can still be cancelled, mirroring the reject
+        // path in HitlDecisionService.
+        if (execution.getStatus().isFinal()) {
             throw new IllegalStateException("Execution " + executionId + " is already " + execution.getStatus());
         }
 
@@ -68,10 +71,13 @@ public class ExecutionActionService {
             review.decide(HitlReviewStatus.REJECTED, "CANCELLED", actor,
                     reason != null ? reason : "execution cancelled", null);
             reviews.save(review);
+            auditLog.record(executionId, AuditEventType.HITL_DECIDED, null, actor,
+                    Map.of("reviewId", review.getId().toString(), "gateId", review.getGateId(),
+                            "decision", "CANCELLED"));
         }
 
         for (PipelineExecution child : executions.findByParentExecutionId(executionId)) {
-            if (!child.getStatus().isTerminal()) {
+            if (!child.getStatus().isFinal()) {
                 cancel(child.getId(), actor, reason);
             }
         }

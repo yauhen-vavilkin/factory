@@ -518,6 +518,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   white-space: pre;
 }
 .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.compare-grid > * { min-width: 0; }
 @media (max-width: 900px) { .compare-grid { grid-template-columns: 1fr; } }
 
 /* ---------- filter bar ---------- */

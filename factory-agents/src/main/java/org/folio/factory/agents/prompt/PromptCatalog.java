@@ -39,8 +39,11 @@ public class PromptCatalog {
                     found.add(ref);
                 }
             }
-            found.sort(Comparator.comparing(PromptRef::workerId).thenComparing(PromptRef::promptName));
-            this.refs = List.copyOf(found);
+            // Dedupe: the same template can resolve from both target/classes and a
+            // packaged jar on the classpath, yielding identical PromptRefs.
+            this.refs = found.stream().distinct()
+                    .sorted(Comparator.comparing(PromptRef::workerId).thenComparing(PromptRef::promptName))
+                    .toList();
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot scan prompt templates at " + LOCATION_PATTERN, e);
         }

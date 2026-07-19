@@ -47,6 +47,15 @@ public class HitlGateOpener {
     @Transactional
     public HitlReview openGate(PipelineExecution execution, StepDescriptor step) {
         var gate = step.gate();
+        // Transition first, in this transaction: only park at the gate and insert the
+        // review when the state change took effect. A concurrent cancel then either
+        // commits first (transition refused → no orphan review) or after (its review
+        // sweep rejects this one) — never leaves an undecidable PENDING review.
+        PipelineExecution current = stateManager.transition(execution.getId(),
+                ExecutionStatus.AWAITING_HITL, Map.of("gateId", gate.gateId()));
+        if (current.getStatus() != ExecutionStatus.AWAITING_HITL) {
+            return null;
+        }
         Map<String, Object> reviewPackage = new LinkedHashMap<>();
         reviewPackage.put("gateId", gate.gateId());
         reviewPackage.put("title", gate.title());
@@ -57,7 +66,6 @@ public class HitlGateOpener {
         HitlReview review = new HitlReview(execution.getId(), gate.gateId(),
                 execution.getCurrentStepIndex(), jsonMapper.writeValueAsString(reviewPackage));
         reviews.save(review);
-        stateManager.transition(execution.getId(), ExecutionStatus.AWAITING_HITL, Map.of("gateId", gate.gateId()));
         auditLog.record(execution.getId(), AuditEventType.HITL_REQUESTED, step.stepId(),
                 Map.of("gateId", gate.gateId(), "reviewId", review.getId().toString()));
         return review;
@@ -66,6 +74,15 @@ public class HitlGateOpener {
     @Transactional
     public HitlReview openEscalationReview(PipelineExecution execution, StepDescriptor step,
                                            String error, int attempts) {
+        // Same ordering as openGate: escalate the state and insert the review in one
+        // transaction, and skip the review when the transition is refused (the run
+        // resolved first). A null return tells the caller not to attribute an
+        // escalation that never happened.
+        PipelineExecution current = stateManager.transition(execution.getId(),
+                ExecutionStatus.FAILED_ESCALATED, Map.of("stepId", step.stepId()));
+        if (current.getStatus() != ExecutionStatus.FAILED_ESCALATED) {
+            return null;
+        }
         Map<String, Object> reviewPackage = new LinkedHashMap<>();
         reviewPackage.put("gateId", ESCALATION_GATE_ID);
         reviewPackage.put("stepId", step.stepId());

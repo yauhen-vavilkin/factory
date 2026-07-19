@@ -63,9 +63,9 @@
         <th:block th:replace="${content}"/>
     </main>
 </div>
-<dialog id="confirm-dialog" class="dialog">
+<dialog id="confirm-dialog" class="dialog" aria-labelledby="confirm-dialog-title">
     <div class="dialog-header">
-        <h2 class="dialog-title">Are you sure?</h2>
+        <h2 class="dialog-title" id="confirm-dialog-title">Are you sure?</h2>
     </div>
     <p data-confirm-message></p>
     <div class="dialog-footer">

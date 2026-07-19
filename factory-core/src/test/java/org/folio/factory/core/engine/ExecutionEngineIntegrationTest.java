@@ -108,12 +108,15 @@ class ExecutionEngineIntegrationTest {
 
         var eventTypes = auditLog.forExecution(execution.getId()).stream()
                 .map(e -> e.getEventType()).toList();
+        // The escalation review is inserted atomically with the FAILED_ESCALATED
+        // transition (HITL_REQUESTED), then the engine attributes the escalation
+        // (ESCALATED) only once that review exists.
         assertThat(eventTypes).containsSubsequence(
                 AuditEventType.STEP_FAILED,
                 AuditEventType.RETRY_SCHEDULED,
                 AuditEventType.STEP_FAILED,
-                AuditEventType.ESCALATED,
-                AuditEventType.HITL_REQUESTED);
+                AuditEventType.HITL_REQUESTED,
+                AuditEventType.ESCALATED);
 
         var escalations = reviews.findByExecutionIdOrderByCreatedAtAsc(execution.getId());
         assertThat(escalations).hasSize(1);

@@ -38,8 +38,20 @@
           }
           e.preventDefault();
           confirmThen(message, function () {
-            if (typeof form.requestSubmit === 'function') form.requestSubmit(btn);
-            else form.submit();
+            if (typeof form.requestSubmit === 'function') {
+              form.requestSubmit(btn);
+            } else {
+              // Fallback (e.g. Safari 15.4-15.6: showModal but no requestSubmit):
+              // form.submit() drops the submitter, so carry its name/value manually.
+              if (btn.name) {
+                var hidden = document.createElement('input');
+                hidden.type = 'hidden';
+                hidden.name = btn.name;
+                hidden.value = btn.value;
+                form.appendChild(hidden);
+              }
+              form.submit();
+            }
           });
         });
       });

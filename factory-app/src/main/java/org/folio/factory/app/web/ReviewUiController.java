@@ -64,13 +64,14 @@ public class ReviewUiController {
         Page<HitlReview> paged = null;
         List<HitlReview> rows;
         if ("PENDING".equals(selected)) {
+            // The inbox stays unpaged by design: it is bounded and worked top-down.
             rows = reviews.findByStatusOrderByCreatedAtAsc(HitlReviewStatus.PENDING);
-        } else if ("ALL".equals(selected)) {
-            rows = reviews.findAllByOrderByCreatedAtDesc();
         } else {
             Pageable pageable = PageRequest.of(Math.max(page, 0), PAGE_SIZE,
                     Sort.by(Sort.Direction.DESC, "createdAt"));
-            paged = reviews.findByStatus(HitlReviewStatus.valueOf(selected), pageable);
+            paged = "ALL".equals(selected)
+                    ? reviews.findAll(pageable)
+                    : reviews.findByStatus(HitlReviewStatus.valueOf(selected), pageable);
             rows = paged.getContent();
         }
         model.addAttribute("reviews", rows.stream().map(this::reviewRow).toList());

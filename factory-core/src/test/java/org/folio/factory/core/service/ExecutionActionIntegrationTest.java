@@ -8,8 +8,11 @@ import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.engine.ExecutionClaimService;
 import org.folio.factory.core.engine.ExecutionEngine;
+import org.folio.factory.core.engine.HitlGateOpener;
 import org.folio.factory.core.hitl.HitlDecision;
 import org.folio.factory.core.hitl.HitlDecisionService;
+import org.folio.factory.core.registry.FlowRegistry;
+import org.folio.factory.core.registry.model.StepDescriptor;
 import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.junit.jupiter.api.Test;
@@ -56,6 +59,12 @@ class ExecutionActionIntegrationTest {
     HitlDecisionService decisionService;
 
     @Autowired
+    HitlGateOpener hitlGateOpener;
+
+    @Autowired
+    FlowRegistry flowRegistry;
+
+    @Autowired
     PipelineExecutionRepository executions;
 
     @Autowired
@@ -89,6 +98,10 @@ class ExecutionActionIntegrationTest {
         return auditLog.forExecution(executionId).stream()
                 .filter(e -> e.getEventType() == type)
                 .findFirst().orElseThrow();
+    }
+
+    private void assertNoEventOfType(UUID executionId, AuditEventType type) {
+        assertThat(auditLog.forExecution(executionId)).noneMatch(e -> e.getEventType() == type);
     }
 
     @Test
@@ -141,6 +154,68 @@ class ExecutionActionIntegrationTest {
 
         stateManager.transition(execution.getId(), ExecutionStatus.FAILED_ESCALATED, Map.of());
         assertThat(stateManager.get(execution.getId()).getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
+    }
+
+    @Test
+    void lateEscalationOnCancelledExecutionOpensNoReviewNorAudit() {
+        PipelineExecution execution = stateManager.createExecution("fake-cancel-escalate", "1.0.0", null);
+        // The worker cancels its own run, then fails: the engine's escalation path
+        // runs against an execution that has already resolved to CANCELLED.
+        driveUntil(execution.getId(), ExecutionStatus.CANCELLED);
+
+        assertThat(stateManager.get(execution.getId()).getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
+        assertThat(reviews.findByExecutionIdAndStatus(execution.getId(), HitlReviewStatus.PENDING)).isEmpty();
+        assertNoEventOfType(execution.getId(), AuditEventType.ESCALATED);
+    }
+
+    @Test
+    void lateRetryOnCancelledExecutionSchedulesNoRetryNorAudit() {
+        PipelineExecution execution = stateManager.createExecution("fake-cancel-retry", "1.0.0", null);
+        driveUntil(execution.getId(), ExecutionStatus.CANCELLED);
+
+        assertThat(stateManager.get(execution.getId()).getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
+        assertThat(reviews.findByExecutionIdAndStatus(execution.getId(), HitlReviewStatus.PENDING)).isEmpty();
+        assertNoEventOfType(execution.getId(), AuditEventType.RETRY_SCHEDULED);
+    }
+
+    @Test
+    void openGateOnCancelledExecutionInsertsNoReview() {
+        PipelineExecution execution = stateManager.createExecution("fake-gated", "1.0.0", null);
+        claimUntilRunning(execution.getId());
+        actionService.cancel(execution.getId(), "ops-1", null);
+
+        StepDescriptor gateStep = flowRegistry.require("fake-gated").step(1);
+        HitlReview review = hitlGateOpener.openGate(stateManager.get(execution.getId()), gateStep);
+
+        assertThat(review).isNull();
+        assertThat(stateManager.get(execution.getId()).getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
+        assertThat(reviews.findByExecutionIdAndStatus(execution.getId(), HitlReviewStatus.PENDING)).isEmpty();
+    }
+
+    @Test
+    void cancelFromFailedEscalatedClosesEscalationReview() {
+        PipelineExecution execution = stateManager.createExecution("fake-failing", "1.0.0", null);
+        driveUntil(execution.getId(), ExecutionStatus.FAILED_ESCALATED);
+        HitlReview escalation = reviews
+                .findByExecutionIdAndStatus(execution.getId(), HitlReviewStatus.PENDING).getFirst();
+
+        actionService.cancel(execution.getId(), "ops-1", "give up");
+
+        assertThat(stateManager.get(execution.getId()).getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
+        assertThat(onlyEvent(execution.getId(), AuditEventType.EXECUTION_CANCELLED).getActor()).isEqualTo("ops-1");
+        assertThat(reviews.findById(escalation.getId()).orElseThrow().getStatus())
+                .isEqualTo(HitlReviewStatus.REJECTED);
+    }
+
+    @Test
+    void rerunOfKeyedTerminalSourceStartsUncollapsedRunWithNullDedupKey() {
+        PipelineExecution source = stateManager.createExecution("fake-simple", "1.0.0", "{\"seed\":\"x\"}", "dedup-abc");
+        driveUntil(source.getId(), ExecutionStatus.COMPLETED);
+
+        UUID newId = actionService.rerun(source.getId(), "ops-1");
+
+        assertThat(newId).isNotEqualTo(source.getId());
+        assertThat(stateManager.get(newId).getDedupKey()).isNull();
     }
 
     @Test

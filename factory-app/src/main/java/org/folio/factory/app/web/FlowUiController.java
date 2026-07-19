@@ -243,11 +243,22 @@ public class FlowUiController {
             JsonNode content = payload.isMissingNode() ? jsonMapper.createObjectNode() : payload;
             Map<String, Object> sample = new LinkedHashMap<>();
             sample.put("name", sampleName(resource.getFilename()));
-            sample.put("prettyJson", jsonMapper.writerWithDefaultPrettyPrinter().writeValueAsString(content));
+            sample.put("prettyJson", escapeScriptClosers(
+                    jsonMapper.writerWithDefaultPrettyPrinter().writeValueAsString(content)));
             samples.add(sample);
         }
         samples.sort(Comparator.comparing(sample -> String.valueOf(sample.get("name"))));
         return samples;
+    }
+
+    /**
+     * The prettyJson is rendered unescaped into a {@code <script type="application/json">}
+     * block, so a {@code </script>} inside a sample would close the element early.
+     * Escaping {@code </} as the JSON-legal {@code <\/} closes the hole and is
+     * harmless in the textarea copy path (it parses back to the same value).
+     */
+    static String escapeScriptClosers(String prettyJson) {
+        return prettyJson.replace("</", "<\\/");
     }
 
     private static String sampleName(String filename) {
