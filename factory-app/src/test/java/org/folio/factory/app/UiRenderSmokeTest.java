@@ -73,6 +73,25 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void dashboardRenders() {
+        String body = assertRendered("/", "Dashboard");
+        assertThat(body)
+                .contains("chart.umd.js")
+                .contains("/js/charts.js")
+                .contains("class=\"charts-grid\"");
+    }
+
+    @Test
+    void chartJsWebjarServes() {
+        ResponseEntity<String> response = rest.get()
+                .uri("/webjars/chart.js/dist/chart.umd.js")
+                .retrieve()
+                .toEntity(String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("Chart");
+    }
+
+    @Test
     void reviewsListRenders() {
         assertRendered("/reviews", "Reviews");
     }

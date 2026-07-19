@@ -30,8 +30,7 @@ import java.util.UUID;
 /**
  * Server-rendered HITL console: a review inbox and a review detail page with
  * inline artifact editing. Plain HTML forms post against the same decision
- * service the REST API uses. Also owns the home redirect until a dashboard
- * page claims {@code /}.
+ * service the REST API uses.
  */
 @Controller
 public class ReviewUiController {
@@ -47,11 +46,6 @@ public class ReviewUiController {
         this.reviews = reviews;
         this.decisionService = decisionService;
         this.jsonMapper = jsonMapper;
-    }
-
-    @GetMapping("/")
-    public String home() {
-        return "redirect:/reviews";
     }
 
     private static final int PAGE_SIZE = 50;

@@ -3,12 +3,16 @@ package org.folio.factory.app.web;
 import org.folio.factory.connectors.ConnectorHealth;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.FlowRegistryEntry;
+import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.engine.EngineProperties;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.repository.AuditEventRepository;
 import org.folio.factory.core.repository.FlowRegistryEntryRepository;
+import org.folio.factory.core.repository.HitlReviewRepository;
+import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -23,20 +27,24 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * Server-rendered operational views: the platform Status page (engine,
- * connectors, flow registry) and the Audit page (paged, filterable event feed).
- * Both draw on the same beans as their REST counterparts; the dashboard {@code /}
- * route arrives in a later task.
+ * Server-rendered operational views: the Dashboard home ({@code /}) with KPI
+ * cards and interactive charts, the platform Status page (engine, connectors,
+ * flow registry) and the Audit page (paged, filterable event feed). All draw on
+ * the same beans as their REST counterparts.
  */
 @Controller
 public class DashboardUiController {
 
     private static final int MAX_SIZE = 200;
+    private static final int DEFAULT_DAYS = 14;
+    private static final Set<Integer> ALLOWED_DAYS = Set.of(1, 7, 14, 30, 90);
     private static final DateTimeFormatter TIMESTAMP =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC);
 
@@ -44,19 +52,52 @@ public class DashboardUiController {
     private final FlowRegistry flowRegistry;
     private final EngineProperties engineProperties;
     private final FlowRegistryEntryRepository flowRegistryEntries;
+    private final PipelineExecutionRepository executions;
+    private final HitlReviewRepository reviews;
     private final AuditEventRepository audit;
     private final JsonMapper jsonMapper;
 
     public DashboardUiController(List<ConnectorHealth> connectors, FlowRegistry flowRegistry,
                                  EngineProperties engineProperties,
                                  FlowRegistryEntryRepository flowRegistryEntries,
+                                 PipelineExecutionRepository executions, HitlReviewRepository reviews,
                                  AuditEventRepository audit, JsonMapper jsonMapper) {
         this.connectors = connectors;
         this.flowRegistry = flowRegistry;
         this.engineProperties = engineProperties;
         this.flowRegistryEntries = flowRegistryEntries;
+        this.executions = executions;
+        this.reviews = reviews;
         this.audit = audit;
         this.jsonMapper = jsonMapper;
+    }
+
+    @GetMapping("/")
+    public String dashboard(@RequestParam(name = "days", defaultValue = "14") int days, Model model) {
+        model.addAttribute("days", ALLOWED_DAYS.contains(days) ? days : DEFAULT_DAYS);
+
+        Map<ExecutionStatus, Long> byStatus = new EnumMap<>(ExecutionStatus.class);
+        long total = 0;
+        for (ExecutionStatus status : ExecutionStatus.values()) {
+            long count = executions.countByStatus(status);
+            byStatus.put(status, count);
+            total += count;
+        }
+        model.addAttribute("totalExecutions", total);
+        model.addAttribute("completedCount", byStatus.get(ExecutionStatus.COMPLETED));
+        model.addAttribute("awaitingHitlCount", byStatus.get(ExecutionStatus.AWAITING_HITL));
+        model.addAttribute("failedCount", byStatus.get(ExecutionStatus.FAILED_ESCALATED));
+        model.addAttribute("cancelledCount", byStatus.get(ExecutionStatus.CANCELLED));
+        model.addAttribute("rejectedCount", byStatus.get(ExecutionStatus.REJECTED));
+
+        model.addAttribute("pendingReviews", reviews
+                .findByStatus(HitlReviewStatus.PENDING, PageRequest.of(0, 1)).getTotalElements());
+
+        model.addAttribute("engineEnabled", engineProperties.enabled());
+        int configured = (int) connectors.stream().filter(ConnectorHealth::isConfigured).count();
+        model.addAttribute("connectorsConfigured", configured);
+        model.addAttribute("connectorsTotal", connectors.size());
+        return "dashboard";
     }
 
     @GetMapping("/status")

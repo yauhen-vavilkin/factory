@@ -3,11 +3,15 @@ package org.folio.factory.app.web;
 import org.folio.factory.connectors.ConnectorHealth;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.domain.ExecutionStatus;
+import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.engine.EngineProperties;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.repository.AuditEventRepository;
 import org.folio.factory.core.repository.FlowRegistryEntryRepository;
+import org.folio.factory.core.repository.HitlReviewRepository;
+import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -50,6 +54,12 @@ class DashboardUiControllerTest {
     private FlowRegistryEntryRepository flowRegistryEntries;
 
     @Mock
+    private PipelineExecutionRepository executions;
+
+    @Mock
+    private HitlReviewRepository reviews;
+
+    @Mock
     private AuditEventRepository audit;
 
     @Captor
@@ -66,10 +76,62 @@ class DashboardUiControllerTest {
         List<ConnectorHealth> connectors =
                 List.of(new FakeConnector("jira", true), new FakeConnector("github", false));
         DashboardUiController controller = new DashboardUiController(
-                connectors, flowRegistry, engine, flowRegistryEntries, audit, json);
+                connectors, flowRegistry, engine, flowRegistryEntries, executions, reviews, audit, json);
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
+    }
+
+    private void stubKpiCounts() {
+        when(executions.countByStatus(ExecutionStatus.PENDING)).thenReturn(2L);
+        when(executions.countByStatus(ExecutionStatus.RUNNING)).thenReturn(1L);
+        when(executions.countByStatus(ExecutionStatus.AWAITING_HITL)).thenReturn(3L);
+        when(executions.countByStatus(ExecutionStatus.AWAITING_SUBFLOW)).thenReturn(0L);
+        when(executions.countByStatus(ExecutionStatus.COMPLETED)).thenReturn(10L);
+        when(executions.countByStatus(ExecutionStatus.FAILED_ESCALATED)).thenReturn(4L);
+        when(executions.countByStatus(ExecutionStatus.REJECTED)).thenReturn(1L);
+        when(executions.countByStatus(ExecutionStatus.CANCELLED)).thenReturn(2L);
+        when(reviews.findByStatus(eq(HitlReviewStatus.PENDING), any()))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 1), 5));
+    }
+
+    @Test
+    void dashboard_rendersKpiCountsFromCheapRepoQueries() throws Exception {
+        stubKpiCounts();
+
+        mvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("dashboard"))
+                .andExpect(model().attribute("days", 14))
+                .andExpect(model().attribute("totalExecutions", 23L))
+                .andExpect(model().attribute("completedCount", 10L))
+                .andExpect(model().attribute("awaitingHitlCount", 3L))
+                .andExpect(model().attribute("pendingReviews", 5L))
+                .andExpect(model().attribute("failedCount", 4L))
+                .andExpect(model().attribute("cancelledCount", 2L))
+                .andExpect(model().attribute("rejectedCount", 1L))
+                .andExpect(model().attribute("engineEnabled", true))
+                .andExpect(model().attribute("connectorsConfigured", 1))
+                .andExpect(model().attribute("connectorsTotal", 2));
+    }
+
+    @Test
+    void dashboard_clampsUnknownDaysToDefault() throws Exception {
+        stubKpiCounts();
+
+        mvc.perform(get("/").param("days", "999"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("dashboard"))
+                .andExpect(model().attribute("days", 14));
+    }
+
+    @Test
+    void dashboard_acceptsAllowedDays() throws Exception {
+        stubKpiCounts();
+
+        mvc.perform(get("/").param("days", "30"))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("days", 30));
     }
 
     @Test

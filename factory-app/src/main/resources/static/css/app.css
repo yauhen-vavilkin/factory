@@ -481,8 +481,22 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .kpi-trend { font-size: 0.8125rem; color: hsl(var(--muted-foreground)); }
 
 /* ---------- misc surfaces ---------- */
-.chart-card { }
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+.chart-card .card-content { padding-top: 0.5rem; }
 .chart-card .chart-region { height: 18rem; position: relative; }
+.chart-card .empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 18rem;
+  padding: 1.5rem;
+}
+.chart-card [hidden] { display: none !important; }
 .timeline { display: flex; flex-direction: column; }
 .code-block {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
