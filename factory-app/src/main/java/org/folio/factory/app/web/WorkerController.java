@@ -46,16 +46,21 @@ public class WorkerController {
     }
 
     private WorkerInfo toInfo(AgentWorker worker) {
-        String id = worker.id();
+        return new WorkerInfo(worker.id(), worker.getClass().getName(),
+                worker instanceof AbstractLlmAgentWorker,
+                catalog.promptsFor(worker.id()), usedBy(worker.id(), flowRegistry));
+    }
+
+    /** Shared with the workers UI page so the usage scan cannot drift between the two. */
+    static List<WorkerStepRef> usedBy(String workerId, FlowRegistry flowRegistry) {
         List<WorkerStepRef> usedBy = new ArrayList<>();
         for (FlowDescriptor flow : flowRegistry.all()) {
             for (StepDescriptor step : flow.agentChain()) {
-                if (step.type() == StepType.AGENT && id.equals(step.workerId())) {
+                if (step.type() == StepType.AGENT && workerId.equals(step.workerId())) {
                     usedBy.add(new WorkerStepRef(flow.id(), step.stepId()));
                 }
             }
         }
-        return new WorkerInfo(id, worker.getClass().getName(), worker instanceof AbstractLlmAgentWorker,
-                catalog.promptsFor(id), usedBy);
+        return usedBy;
     }
 }

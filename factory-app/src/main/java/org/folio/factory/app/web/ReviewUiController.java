@@ -5,6 +5,7 @@ import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.hitl.HitlDecision;
 import org.folio.factory.core.hitl.HitlDecisionService;
 import org.folio.factory.core.repository.HitlReviewRepository;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -123,6 +124,10 @@ public class ReviewUiController {
             return "redirect:/reviews";
         } catch (IllegalArgumentException | IllegalStateException | NoSuchElementException e) {
             return UiFormat.errorRedirect("/reviews/" + id, e.getMessage());
+        } catch (OptimisticLockingFailureException e) {
+            // HitlReview is @Version-ed: a concurrent reviewer's decision committed first.
+            return UiFormat.errorRedirect("/reviews/" + id,
+                    "This review was decided concurrently; reload to see the outcome");
         }
     }
 

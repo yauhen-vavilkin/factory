@@ -3,5 +3,6 @@
 <body>
 <div th:replace="~{fragments/components :: stepper(${steps})}"></div>
 <div th:replace="~{fragments/components :: pagination(${page}, ${baseUrl})}"></div>
+<div th:replace="~{fragments/components :: slicePagination(${slice}, ${baseUrl})}"></div>
 </body>
 </html>

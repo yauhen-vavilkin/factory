@@ -11,6 +11,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -149,6 +150,19 @@ class HitlReviewControllerTest {
                         .content("{\"decision\":\"APPROVE\",\"reviewer\":\"qa\"}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value(containsString("already been decided")));
+    }
+
+    @Test
+    void decide_concurrentDecision_conflict() throws Exception {
+        UUID id = UUID.fromString("00000000-0000-0000-0000-0000000000bb");
+        when(decisionService.decide(id, HitlDecision.APPROVE, "qa", null, null))
+                .thenThrow(new OptimisticLockingFailureException("row was updated by another transaction"));
+
+        mvc.perform(post("/api/hitl/reviews/{id}/decision", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"decision\":\"APPROVE\",\"reviewer\":\"qa\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value(containsString("another transaction")));
     }
 
     @Test

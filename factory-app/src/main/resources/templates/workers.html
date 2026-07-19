@@ -13,7 +13,8 @@
     <div class="table-wrap" th:unless="${#lists.isEmpty(workers)}">
         <table>
             <thead>
-            <tr><th>Worker</th><th>Class</th><th>Kind</th><th>Used by</th><th></th></tr>
+            <tr><th>Worker</th><th>Class</th><th>Kind</th><th>Used by</th>
+                <th><span class="sr-only">Actions</span></th></tr>
             </thead>
             <tbody>
             <tr th:each="w : ${workers}">

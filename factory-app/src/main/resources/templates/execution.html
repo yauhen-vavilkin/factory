@@ -5,7 +5,8 @@
 <section class="page-body">
     <div class="page-header"
          th:attr="data-poll-url=${pollUrl},
-                  data-poll-fields=${pollUrl != null} ? 'execution.status,execution.currentStepIndex' : null">
+                  data-poll-fields=${pollUrl != null} ? 'execution.status,execution.currentStepIndex' : null,
+                  data-poll-baseline=${pollUrl != null} ? (${execution.status} + ',' + ${execution.currentStepIndex}) : null">
         <h1 th:text="'Execution ' + ${#strings.abbreviate(execution.id.toString(), 13)}">Execution</h1>
         <div class="page-header-meta">
             <span th:text="${execution.flowId + ' v' + execution.flowVersion}">flow</span>
@@ -67,13 +68,15 @@
                     <div class="tabs" role="tablist" data-version-tabs
                          th:attr="aria-label='Versions of ' + ${group['name']}">
                         <button th:each="v : ${group['versions']}" type="button" role="tab"
-                                th:attr="data-version-target=${v['panelId']},
+                                th:attr="id=${v['panelId']} + '-tab',
+                                         data-version-target=${v['panelId']},
                                          aria-controls=${v['panelId']},
                                          aria-selected=${v['latest']} ? 'true' : 'false'"
                                 th:text="'v' + ${v['version']}"></button>
                     </div>
                     <div th:each="v : ${group['versions']}" th:id="${v['panelId']}" role="tabpanel"
-                         th:attr="hidden=${v['latest']} ? null : 'hidden'">
+                         th:attr="hidden=${v['latest']} ? null : 'hidden',
+                                  aria-labelledby=${v['panelId']} + '-tab'">
                         <p class="card-description" th:text="${v['label']}"></p>
                         <pre class="code-block" th:text="${v['content']}"></pre>
                     </div>

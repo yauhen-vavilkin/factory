@@ -5,7 +5,6 @@ import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.HitlGateSpec;
 import org.folio.factory.core.registry.model.StepDescriptor;
-import org.folio.factory.core.registry.model.StepType;
 import org.folio.factory.core.registry.model.SubFlowSpec;
 import org.folio.factory.core.repository.FlowRegistryEntryRepository;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -84,10 +83,8 @@ public class FlowController {
     }
 
     private FlowSummary toSummary(FlowDescriptor descriptor) {
-        int gateCount = (int) descriptor.agentChain().stream()
-                .filter(step -> step.type() == StepType.HITL_GATE).count();
         return new FlowSummary(descriptor.id(), descriptor.name(), descriptor.version(),
-                descriptor.agentChain().size(), gateCount, triggers(descriptor));
+                descriptor.agentChain().size(), descriptor.gateCount(), triggers(descriptor));
     }
 
     private List<TriggerInfo> triggers(FlowDescriptor descriptor) {

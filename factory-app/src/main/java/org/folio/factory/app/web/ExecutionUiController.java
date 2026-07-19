@@ -1,7 +1,6 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.core.domain.Artifact;
-import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
@@ -98,7 +97,8 @@ public class ExecutionUiController {
         model.addAttribute("artifactGroups", artifactGroups(id));
         model.addAttribute("children", childRows(execution, id));
         model.addAttribute("pendingReview", pendingReview(execution, id));
-        model.addAttribute("events", auditLog.forExecution(id).stream().map(this::auditRow).toList());
+        model.addAttribute("events", auditLog.forExecution(id).stream()
+                .map(event -> UiFormat.auditRow(event, jsonMapper)).toList());
         model.addAttribute("pollUrl", terminal ? null : "/api/executions/" + id);
         return "execution";
     }
@@ -209,15 +209,5 @@ public class ExecutionUiController {
                 .filter(review -> review.getStatus() == HitlReviewStatus.PENDING)
                 .findFirst()
                 .orElse(null);
-    }
-
-    private Map<String, Object> auditRow(AuditEvent event) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("occurredAt", UiFormat.format(event.getOccurredAt()));
-        row.put("eventType", event.getEventType());
-        row.put("stepId", event.getStepId());
-        row.put("actor", event.getActor());
-        row.put("detail", event.getDetail());
-        return row;
     }
 }

@@ -23,7 +23,7 @@
     <div th:if="${#lists.isEmpty(events)}" class="empty-state">No audit events match this filter.</div>
     <div th:unless="${#lists.isEmpty(events)}">
         <div th:replace="~{fragments/components :: auditTable(${events}, true)}"></div>
-        <nav th:replace="~{fragments/components :: pagination(${page}, ${baseUrl})}"></nav>
+        <nav th:replace="~{fragments/components :: slicePagination(${page}, ${baseUrl})}"></nav>
     </div>
 </section>
 </body>

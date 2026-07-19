@@ -2,7 +2,6 @@ package org.folio.factory.app.web.dashboard;
 
 import org.folio.factory.app.web.ApiExceptionHandler;
 import org.folio.factory.app.web.dashboard.DashboardStats.HitlStats;
-import org.folio.factory.app.web.dashboard.DashboardStats.Totals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,8 +37,8 @@ class DashboardControllerTest {
 
     private DashboardStats stats(int days) {
         return new DashboardStats(Instant.parse("2026-07-19T00:00:00Z"), days,
-                new Totals(5, 3, 2, 1), List.of(), List.of(), List.of(), List.of(), List.of(),
-                new HitlStats(2, 100.0, 4, 50.0), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(),
+                new HitlStats(2, 100.0, 4, 50.0), List.of());
     }
 
     @Test
@@ -49,9 +48,8 @@ class DashboardControllerTest {
         mvc.perform(get("/api/dashboard/stats"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.days").value(14))
-                .andExpect(jsonPath("$.totals.executions").value(5))
-                .andExpect(jsonPath("$.totals.pendingReviews").value(2))
-                .andExpect(jsonPath("$.hitl.pending").value(2));
+                .andExpect(jsonPath("$.hitl.pending").value(2))
+                .andExpect(jsonPath("$.hitl.decidedInWindow").value(4));
 
         verify(service).compute(14);
     }

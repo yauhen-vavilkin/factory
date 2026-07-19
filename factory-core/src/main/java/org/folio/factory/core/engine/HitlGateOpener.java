@@ -48,9 +48,11 @@ public class HitlGateOpener {
     public HitlReview openGate(PipelineExecution execution, StepDescriptor step) {
         var gate = step.gate();
         // Transition first, in this transaction: only park at the gate and insert the
-        // review when the state change took effect. A concurrent cancel then either
-        // commits first (transition refused → no orphan review) or after (its review
-        // sweep rejects this one) — never leaves an undecidable PENDING review.
+        // review when the state change took effect, so a concurrent resolution that
+        // commits first refuses the transition and no orphan review is created. The
+        // reverse ordering (a resolution landing after this commit) is unreachable
+        // today — cancel requires FAILED_ESCALATED, which this execution is not in;
+        // if such a path is ever added it must also reject this gate's PENDING review.
         PipelineExecution current = stateManager.transition(execution.getId(),
                 ExecutionStatus.AWAITING_HITL, Map.of("gateId", gate.gateId()));
         if (current.getStatus() != ExecutionStatus.AWAITING_HITL) {

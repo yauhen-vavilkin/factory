@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Not found', activeNav='', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="page-header">
+        <h1>Not found</h1>
+        <p class="page-description" th:text="${message} ?: 'The requested resource does not exist.'">
+            The requested resource does not exist.</p>
+    </div>
+    <a class="btn btn-outline" th:href="@{/}">Back to dashboard</a>
+</section>
+</body>
+</html>

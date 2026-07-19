@@ -27,9 +27,12 @@
       .map(function (f) { return f.trim(); }).filter(Boolean);
     if (!fields.length) return;
 
-    var baseline = null;
+    // Baseline comes from the server-rendered page, not the first poll response:
+    // a change landing between render and the first poll must still reload.
+    var baselineAttr = el.getAttribute('data-poll-baseline');
+    var baseline = baselineAttr === null ? null : baselineAttr.split(',');
     startPolling(url, 5000, function (data) {
-      var current = fields.map(function (f) { return resolve(data, f); });
+      var current = fields.map(function (f) { return String(resolve(data, f)); });
       if (baseline === null) { baseline = current; return; }
       for (var i = 0; i < current.length; i++) {
         if (current[i] !== baseline[i]) { location.reload(); return; }

@@ -13,14 +13,13 @@ import org.folio.factory.core.repository.AuditEventRepository;
 import org.folio.factory.core.repository.FlowRegistryEntryRepository;
 import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.ArrayList;
@@ -41,6 +40,7 @@ import java.util.TreeMap;
 public class DashboardUiController {
 
     private static final int DEFAULT_DAYS = 14;
+    private static final int DEFAULT_AUDIT_SIZE = 50;
     private static final Set<Integer> ALLOWED_DAYS = Set.of(1, 7, 14, 30, 90);
 
     private final List<ConnectorHealth> connectors;
@@ -121,15 +121,18 @@ public class DashboardUiController {
                         @RequestParam(name = "page", defaultValue = "0") int page,
                         @RequestParam(name = "size", defaultValue = "50") int size,
                         Model model) {
-        int clampedSize = PageValidation.clampSize(size, 1);
+        int clampedSize = PageValidation.clampSize(size, DEFAULT_AUDIT_SIZE);
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampedSize);
         AuditEventType type = UiFormat.enumOrNull(AuditEventType.class, eventType);
 
-        Page<AuditEvent> result = type == null
+        // Slice, not Page: the audit table is append-only and unbounded, so a total
+        // count(*) per page view would degrade without limit.
+        Slice<AuditEvent> result = type == null
                 ? audit.findAllByOrderByIdDesc(pageable)
                 : audit.findByEventTypeOrderByIdDesc(type, pageable);
 
-        model.addAttribute("events", result.getContent().stream().map(this::auditRow).toList());
+        model.addAttribute("events", result.getContent().stream()
+                .map(event -> UiFormat.auditRow(event, jsonMapper)).toList());
         model.addAttribute("page", result);
         model.addAttribute("eventTypes", AuditEventType.values());
         model.addAttribute("selectedEventType", type == null ? "" : type.name());
@@ -158,24 +161,4 @@ public class DashboardUiController {
         return row;
     }
 
-    private Map<String, Object> auditRow(AuditEvent event) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("occurredAt", UiFormat.format(event.getOccurredAt()));
-        row.put("eventType", event.getEventType().name());
-        row.put("stepId", event.getStepId());
-        row.put("actor", event.getActor());
-        row.put("executionId", event.getExecutionId());
-        row.put("executionShort", event.getExecutionId() == null ? null
-                : UiFormat.abbreviate(event.getExecutionId().toString()));
-        row.put("detail", prettyDetail(event.getDetail()));
-        return row;
-    }
-
-    private String prettyDetail(String detail) {
-        if (detail == null || detail.isBlank()) {
-            return null;
-        }
-        JsonNode node = jsonMapper.readTree(detail);
-        return jsonMapper.writerWithDefaultPrettyPrinter().writeValueAsString(node);
-    }
 }

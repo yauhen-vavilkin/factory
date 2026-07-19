@@ -3,8 +3,8 @@ package org.folio.factory.app.web;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.repository.AuditEventRepository;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -32,15 +32,15 @@ public class AuditController {
     }
 
     @GetMapping
-    public PageResponse<AuditFeedEntry> list(
+    public SliceResponse<AuditFeedEntry> list(
             @RequestParam(name = "eventType", required = false) String eventType,
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "50") int size) {
         Pageable pageable = PageValidation.pageable(page, size);
-        Page<AuditEvent> result = (eventType == null || eventType.isBlank())
+        Slice<AuditEvent> result = (eventType == null || eventType.isBlank())
                 ? audit.findAllByOrderByIdDesc(pageable)
                 : audit.findByEventTypeOrderByIdDesc(parseType(eventType), pageable);
-        return PageResponse.of(result, this::toEntry);
+        return SliceResponse.of(result, this::toEntry);
     }
 
     private AuditEventType parseType(String eventType) {

@@ -2,13 +2,10 @@ package org.folio.factory.app.web.dashboard;
 
 import org.folio.factory.app.web.dashboard.DashboardStats.ConnectorOutcome;
 import org.folio.factory.app.web.dashboard.DashboardStats.DailyCount;
-import org.folio.factory.app.web.dashboard.DashboardStats.FlowArtifactCount;
-import org.folio.factory.app.web.dashboard.DashboardStats.FlowDuration;
 import org.folio.factory.app.web.dashboard.DashboardStats.FlowStatusCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.HitlStats;
 import org.folio.factory.app.web.dashboard.DashboardStats.StatusCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepFailureCount;
-import org.folio.factory.app.web.dashboard.DashboardStats.Totals;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 
@@ -36,23 +33,15 @@ public class DashboardStatsService {
 
     public DashboardStats compute(int days) {
         OffsetDateTime since = Instant.now().minus(days, ChronoUnit.DAYS).atOffset(ZoneOffset.UTC);
-        OffsetDateTime startOfDay = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toOffsetDateTime();
 
         PendingRow pending = pending();
         DecidedRow decided = decided(since);
         HitlStats hitl = new HitlStats(pending.count(), pending.oldestSeconds(),
                 decided.count(), decided.avgSeconds());
 
-        Totals totals = new Totals(
-                jdbc.sql("SELECT count(*) FROM pipeline_execution").query(Long.class).single(),
-                jdbc.sql("SELECT count(*) FROM artifact").query(Long.class).single(),
-                pending.count(),
-                jdbc.sql("SELECT count(*) FROM pipeline_execution WHERE created_at >= :start")
-                        .param("start", startOfDay).query(Long.class).single());
-
-        return new DashboardStats(Instant.now(), days, totals,
+        return new DashboardStats(Instant.now(), days,
                 executionsByStatus(), executionsByFlowAndStatus(), executionsPerDay(since),
-                durationByFlow(), stepFailures(since), hitl, connectorOutcomes(since), artifactsByFlow());
+                stepFailures(since), hitl, connectorOutcomes(since));
     }
 
     private List<StatusCount> executionsByStatus() {
@@ -78,20 +67,6 @@ public class DashboardStatsService {
                 .param("since", since)
                 .query((rs, n) -> new DailyCount(rs.getObject("day", LocalDate.class),
                         rs.getString("status"), rs.getLong("c")))
-                .list();
-    }
-
-    private List<FlowDuration> durationByFlow() {
-        return jdbc.sql("""
-                        SELECT flow_id, count(*) AS c,
-                               avg(extract(epoch FROM completed_at - created_at))::double precision AS avg_s,
-                               max(extract(epoch FROM completed_at - created_at))::double precision AS max_s
-                        FROM pipeline_execution
-                        WHERE status = 'COMPLETED' AND completed_at IS NOT NULL
-                        GROUP BY flow_id
-                        """)
-                .query((rs, n) -> new FlowDuration(rs.getString("flow_id"), rs.getLong("c"),
-                        (Double) rs.getObject("avg_s"), (Double) rs.getObject("max_s")))
                 .list();
     }
 
@@ -121,16 +96,6 @@ public class DashboardStatsService {
                 .param("since", since)
                 .query((rs, n) -> new ConnectorOutcome(rs.getString("connector"),
                         rs.getString("event_type"), rs.getLong("c")))
-                .list();
-    }
-
-    private List<FlowArtifactCount> artifactsByFlow() {
-        return jdbc.sql("""
-                        SELECT e.flow_id AS flow_id, count(*) AS c
-                        FROM artifact a JOIN pipeline_execution e ON e.id = a.execution_id
-                        GROUP BY e.flow_id
-                        """)
-                .query((rs, n) -> new FlowArtifactCount(rs.getString("flow_id"), rs.getLong("c")))
                 .list();
     }
 

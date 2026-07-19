@@ -232,6 +232,17 @@ class DashboardUiControllerTest {
     }
 
     @Test
+    void audit_nonPositiveSize_fallsBackToDefaultPageSize() throws Exception {
+        when(audit.findAllByOrderByIdDesc(any())).thenReturn(emptyPage(0, 50));
+
+        mvc.perform(get("/audit").param("size", "0"))
+                .andExpect(status().isOk());
+
+        verify(audit).findAllByOrderByIdDesc(pageableCaptor.capture());
+        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(50);
+    }
+
+    @Test
     void audit_invalidEventType_treatedAsAll() throws Exception {
         when(audit.findAllByOrderByIdDesc(any())).thenReturn(emptyPage(0, 50));
 

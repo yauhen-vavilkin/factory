@@ -32,4 +32,8 @@ public record FlowDescriptor(
     public boolean hasStep(int index) {
         return index >= 0 && index < agentChain.size();
     }
+
+    public int gateCount() {
+        return (int) agentChain.stream().filter(step -> step.type() == StepType.HITL_GATE).count();
+    }
 }

@@ -11,7 +11,6 @@ import org.folio.factory.core.registry.FlowValidationException;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.HitlGateSpec;
 import org.folio.factory.core.registry.model.StepDescriptor;
-import org.folio.factory.core.registry.model.StepType;
 import org.folio.factory.core.registry.model.SubFlowSpec;
 import org.folio.factory.core.registry.model.TriggerContract;
 import org.folio.factory.core.repository.FlowRegistryEntryRepository;
@@ -131,8 +130,6 @@ public class FlowUiController {
     }
 
     private Map<String, Object> flowSummaryRow(FlowDescriptor descriptor) {
-        int gateCount = (int) descriptor.agentChain().stream()
-                .filter(step -> step.type() == StepType.HITL_GATE).count();
         List<String> eventTypes = descriptor.triggers().stream()
                 .map(TriggerContract::eventType).distinct().toList();
         Map<String, Object> row = new LinkedHashMap<>();
@@ -140,7 +137,7 @@ public class FlowUiController {
         row.put("name", descriptor.name());
         row.put("version", descriptor.version());
         row.put("stepCount", descriptor.agentChain().size());
-        row.put("gateCount", gateCount);
+        row.put("gateCount", descriptor.gateCount());
         row.put("eventTypes", eventTypes);
         return row;
     }
@@ -268,22 +265,13 @@ public class FlowUiController {
     }
 
     private Map<String, Object> workerRow(AgentWorker worker) {
-        boolean llm = worker instanceof AbstractLlmAgentWorker;
-        List<Map<String, Object>> usedBy = new ArrayList<>();
-        for (FlowDescriptor flow : flowRegistry.all()) {
-            for (StepDescriptor step : flow.agentChain()) {
-                if (step.type() == StepType.AGENT && worker.id().equals(step.workerId())) {
-                    Map<String, Object> ref = new LinkedHashMap<>();
-                    ref.put("flowId", flow.id());
-                    ref.put("stepId", step.stepId());
-                    usedBy.add(ref);
-                }
-            }
-        }
+        List<Map<String, Object>> usedBy = WorkerController.usedBy(worker.id(), flowRegistry).stream()
+                .map(ref -> Map.<String, Object>of("flowId", ref.flowId(), "stepId", ref.stepId()))
+                .toList();
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", worker.id());
         row.put("className", worker.getClass().getSimpleName());
-        row.put("llm", llm);
+        row.put("llm", worker instanceof AbstractLlmAgentWorker);
         row.put("prompts", promptCatalog.promptsFor(worker.id()));
         row.put("usedBy", usedBy);
         return row;

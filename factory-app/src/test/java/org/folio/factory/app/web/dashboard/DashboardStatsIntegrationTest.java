@@ -7,7 +7,6 @@ import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.repository.HitlReviewRepository;
-import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,9 +56,6 @@ class DashboardStatsIntegrationTest {
     StateManager stateManager;
 
     @Autowired
-    ArtifactStore artifactStore;
-
-    @Autowired
     AuditLog auditLog;
 
     @Autowired
@@ -97,11 +93,6 @@ class DashboardStatsIntegrationTest {
 
         DashboardStats stats = dashboardStatsService.compute(7);
 
-        assertThat(stats.totals().executions()).isEqualTo(5);
-        assertThat(stats.totals().pendingReviews()).isEqualTo(1);
-        assertThat(stats.totals().executionsToday()).isEqualTo(4);
-        assertThat(stats.totals().artifacts()).isGreaterThanOrEqualTo(2);
-
         assertThat(stats.executionsByStatus())
                 .anySatisfy(s -> assertThat(s.status()).isEqualTo(ExecutionStatus.COMPLETED.name()))
                 .anySatisfy(s -> assertThat(s.status()).isEqualTo(ExecutionStatus.RUNNING.name()));
@@ -122,14 +113,6 @@ class DashboardStatsIntegrationTest {
                 .as("the 10-day-old step failure must be excluded from the 7-day window")
                 .noneSatisfy(f -> assertThat(f.stepId()).isEqualTo("legacy-step"));
 
-        assertThat(stats.durationByFlow())
-                .singleElement()
-                .satisfies(d -> {
-                    assertThat(d.flowId()).isEqualTo(FLOW_A);
-                    assertThat(d.completedCount()).isEqualTo(1);
-                    assertThat(d.avgSeconds()).isNotNull().isGreaterThan(0.0);
-                });
-
         assertThat(stats.stepFailures())
                 .anySatisfy(f -> {
                     assertThat(f.stepId()).isEqualTo("triage");
@@ -149,13 +132,9 @@ class DashboardStatsIntegrationTest {
 
         assertThat(stats.hitl().pending()).isEqualTo(1);
         assertThat(stats.hitl().decidedInWindow()).isEqualTo(1);
-        assertThat(stats.artifactsByFlow())
-                .anySatisfy(a -> assertThat(a.flowId()).isEqualTo(FLOW_A));
 
-        // Widening the window to 30 days pulls the 10-day-old rows in, while the
-        // all-time totals are unchanged by the window.
+        // Widening the window to 30 days pulls the 10-day-old rows in.
         DashboardStats stats30 = dashboardStatsService.compute(30);
-        assertThat(stats30.totals().executions()).isEqualTo(5);
         assertThat(stats30.executionsPerDay())
                 .as("the 10-day-old execution is included in the 30-day window")
                 .anySatisfy(d -> assertThat(d.day()).isEqualTo(seededDay.minusDays(10)));
@@ -176,8 +155,6 @@ class DashboardStatsIntegrationTest {
     }
 
     private UUID seed() {
-        // Created first, completed last: the elapsed seeding work guarantees a
-        // strictly positive completed_at - created_at duration for FLOW_A.
         PipelineExecution completed = stateManager.createExecution(FLOW_A, "1", "{}");
 
         PipelineExecution running = stateManager.createExecution(FLOW_A, "1", "{}");
@@ -187,9 +164,6 @@ class DashboardStatsIntegrationTest {
 
         PipelineExecution rejected = stateManager.createExecution(FLOW_B, "1", "{}");
         stateManager.transition(rejected.getId(), ExecutionStatus.REJECTED, Map.of());
-
-        artifactStore.putMarkdown(completed.getId(), "test_plan.md", "# Plan\n", "test-spec");
-        artifactStore.putMarkdown(running.getId(), "scope_manifest.md", "# Scope\n", "triage");
 
         auditLog.record(running.getId(), AuditEventType.STEP_FAILED, "triage",
                 Map.of("error", "boom"));

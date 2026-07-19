@@ -246,7 +246,9 @@ a:hover { text-decoration: underline; }
 }
 .badge-muted, .badge-status-CANCELLED {
   background: hsl(var(--muted));
-  color: hsl(var(--muted-foreground));
+  /* secondary-foreground, not muted-foreground: the latter is only ~4.2:1 on
+     --muted in the light theme, under WCAG AA for this 12px text. */
+  color: hsl(var(--secondary-foreground));
 }
 .badge-status-PENDING, .badge-status-RUNNING, .badge-status-AWAITING_SUBFLOW {
   border-color: hsl(var(--border));
@@ -306,7 +308,13 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 .textarea { height: auto; min-height: 5rem; padding: 0.5rem 0.75rem; line-height: 1.5; resize: vertical; }
-.select { appearance: none; }
+.select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  padding-right: 2rem;
+}
 .input:focus-visible, .select:focus-visible, .textarea:focus-visible {
   outline: none;
   border-color: hsl(var(--ring));

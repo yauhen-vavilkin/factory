@@ -12,6 +12,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -118,6 +119,20 @@ class ReviewUiControllerTest {
                         .param("reviewer", "qa"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/reviews/" + REVIEW_ID + "?error=boom+message"));
+    }
+
+    @Test
+    void decide_concurrentDecision_redirectsWithFriendlyMessage() throws Exception {
+        when(decisionService.decide(REVIEW_ID, HitlDecision.APPROVE, "qa", null, Map.of()))
+                .thenThrow(new OptimisticLockingFailureException("row was updated by another transaction"));
+
+        mvc.perform(post("/reviews/{id}/decision", REVIEW_ID)
+                        .param("decision", "APPROVE")
+                        .param("reviewer", "qa"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(result -> assertThat(result.getResponse().getRedirectedUrl())
+                        .startsWith("/reviews/" + REVIEW_ID + "?error=")
+                        .contains("decided+concurrently"));
     }
 
     // ----- inbox status filtering -----

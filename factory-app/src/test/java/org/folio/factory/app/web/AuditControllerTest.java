@@ -74,7 +74,8 @@ class AuditControllerTest {
                 .andExpect(jsonPath("$.items[0].stepId").value("test-spec"))
                 .andExpect(jsonPath("$.items[0].actor").value("engine"))
                 .andExpect(jsonPath("$.items[0].detail.connector").value("github"))
-                .andExpect(jsonPath("$.totalElements").value(1));
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.hasNext").value(false));
 
         verify(audit).findAllByOrderByIdDesc(any(Pageable.class));
     }

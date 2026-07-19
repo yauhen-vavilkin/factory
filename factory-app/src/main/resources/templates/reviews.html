@@ -14,7 +14,8 @@
            th:attrappend="aria-current=${tab == selectedStatus} ? 'page'">PENDING</a>
     </nav>
 
-    <div class="table-wrap" th:unless="${#lists.isEmpty(reviews)}">
+    <div th:unless="${#lists.isEmpty(reviews)}">
+    <div class="table-wrap">
         <table>
             <thead>
             <tr>
@@ -23,7 +24,7 @@
                 <th>Created</th>
                 <th th:if="${showDecision}">Decided</th>
                 <th th:if="${showDecision}">Decision</th>
-                <th></th>
+                <th><span class="sr-only">Actions</span></th>
             </tr>
             </thead>
             <tbody>
@@ -48,8 +49,8 @@
             </tbody>
         </table>
     </div>
-
     <nav th:replace="~{fragments/components :: pagination(${page}, ${baseUrl})}"></nav>
+    </div>
 
     <div class="empty-state" th:if="${#lists.isEmpty(reviews)}">Nothing to show for this status.</div>
 </section>

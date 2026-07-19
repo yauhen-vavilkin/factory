@@ -228,8 +228,13 @@ public class ExecutionEngine {
     }
 
     private void complete(PipelineExecution execution) {
-        stateManager.transition(execution.getId(), ExecutionStatus.COMPLETED, null);
-        subFlowInvoker.onChildCompleted(execution.getId());
+        PipelineExecution current = stateManager.transition(execution.getId(), ExecutionStatus.COMPLETED, null);
+        // Guard refusal means a concurrent resolution (e.g. cancel) won: the run did
+        // not complete, so a waiting parent must not resume on this child's outputs —
+        // the terminated-children sweep escalates it instead.
+        if (current.getStatus() == ExecutionStatus.COMPLETED) {
+            subFlowInvoker.onChildCompleted(execution.getId());
+        }
     }
 
     private void failTerminally(UUID executionId, Exception e) {

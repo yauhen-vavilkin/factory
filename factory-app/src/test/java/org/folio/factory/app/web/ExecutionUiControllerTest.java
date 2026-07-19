@@ -263,6 +263,35 @@ class ExecutionUiControllerTest {
                 .andExpect(model().attribute("pollUrl", (Object) null));
     }
 
+    // ----- detail: sub-flow child rows -----
+
+    @Test
+    void execution_detail_childRowsCarryStepLabelWithNullFallback() throws Exception {
+        PipelineExecution parent = execution(ExecutionStatus.AWAITING_SUBFLOW, 1, "{}");
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(parent));
+        when(flowRegistry.find("test-factory")).thenReturn(Optional.of(descriptor()));
+        when(executions.findByParentExecutionId(EXECUTION_ID)).thenReturn(List.of(
+                child(UUID.fromString("00000000-0000-0000-0000-000000000002"), 1),
+                child(UUID.fromString("00000000-0000-0000-0000-000000000003"), 99)));
+
+        var result = mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> children =
+                (List<Map<String, Object>>) result.getModelAndView().getModel().get("children");
+        assertThat(children).hasSize(2);
+        assertThat(children.get(0))
+                .containsEntry("flowId", "child-flow")
+                .containsEntry("status", ExecutionStatus.RUNNING)
+                .containsEntry("stepLabel", "step 1 · QA gate 1");
+        assertThat(children.get(0).get("idShort").toString()).isNotBlank();
+        assertThat(children.get(1))
+                .as("out-of-range parent step index must fall back to a null label, not throw")
+                .containsEntry("stepLabel", null);
+    }
+
     @Test
     void executions_baseUrl_urlEncodesFilterValues() throws Exception {
         when(executions.search(any(), any(), any())).thenCallRealMethod();
@@ -295,6 +324,21 @@ class ExecutionUiControllerTest {
         execution.setCurrentStepIndex(stepIndex);
         execution.setRetryCounts(retryCounts);
         return execution;
+    }
+
+    private static PipelineExecution child(UUID id, int parentStepIndex) {
+        PipelineExecution child = new PipelineExecution("child-flow", "1", "{}");
+        child.setStatus(ExecutionStatus.RUNNING);
+        child.setParentExecutionId(EXECUTION_ID);
+        child.setParentStepIndex(parentStepIndex);
+        try {
+            var field = PipelineExecution.class.getDeclaredField("id");
+            field.setAccessible(true);
+            field.set(child, id);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+        return child;
     }
 
     private static Artifact artifact(String name, int version, String content, String createdBy) {

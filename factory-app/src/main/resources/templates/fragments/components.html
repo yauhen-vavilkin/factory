@@ -18,6 +18,18 @@
        th:href="${baseUrl} + '&page=' + ${page.number + 1}">Next</a>
 </nav>
 
+<!-- For Slice-backed feeds (no total count available on unbounded tables). -->
+<nav th:fragment="slicePagination(page, baseUrl)" class="pagination" aria-label="Pagination"
+     th:if="${page != null}">
+    <span th:if="${page.first}" class="btn btn-outline btn-sm disabled" aria-disabled="true">Previous</span>
+    <a th:unless="${page.first}" class="btn btn-outline btn-sm"
+       th:href="${baseUrl} + '&page=' + ${page.number - 1}">Previous</a>
+    <span class="pagination-info" th:text="'Page ' + ${page.number + 1}">Page 1</span>
+    <span th:if="${page.last}" class="btn btn-outline btn-sm disabled" aria-disabled="true">Next</span>
+    <a th:unless="${page.last}" class="btn btn-outline btn-sm"
+       th:href="${baseUrl} + '&page=' + ${page.number + 1}">Next</a>
+</nav>
+
 <div th:fragment="auditTable(events, showExecution)" class="table-wrap">
     <table>
         <thead>
@@ -36,8 +48,10 @@
                 <span th:unless="${ev['executionId']}" class="muted">—</span>
             </td>
             <td><span class="badge badge-outline" th:text="${ev['eventType']}"></span></td>
-            <td th:text="${ev['stepId']}">—</td>
-            <td th:text="${ev['actor']}">—</td>
+            <td><span th:if="${ev['stepId']}" th:text="${ev['stepId']}"></span>
+                <span th:unless="${ev['stepId']}" class="muted">—</span></td>
+            <td><span th:if="${ev['actor']}" th:text="${ev['actor']}"></span>
+                <span th:unless="${ev['actor']}" class="muted">—</span></td>
             <td>
                 <details class="details-inline" th:if="${ev['detail']}">
                     <summary>View</summary>

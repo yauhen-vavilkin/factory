@@ -18,6 +18,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.SliceImpl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
@@ -29,6 +30,7 @@ import org.thymeleaf.context.Context;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -197,6 +199,7 @@ class UiRenderSmokeTest {
         Context context = new Context();
         context.setVariable("steps", steps);
         context.setVariable("page", page);
+        context.setVariable("slice", new SliceImpl<>(List.of("a", "b"), PageRequest.of(1, 2), true));
         context.setVariable("baseUrl", "/executions?status=RUNNING");
 
         String html = templateEngine.process("fragment-smoke", context);
@@ -207,7 +210,23 @@ class UiRenderSmokeTest {
                 .contains("retry ×2")
                 .contains("class=\"pagination\"")
                 .contains("&amp;page=0")
-                .contains("&amp;page=2");
+                .contains("&amp;page=2")
+                // slicePagination: no total count, but prev/next links still render
+                .contains("Page 2");
+    }
+
+    @Test
+    void unknownExecutionRendersHtmlErrorPage() {
+        ResponseEntity<String> response = rest.get()
+                .uri("/executions/" + UUID.randomUUID())
+                .retrieve()
+                .onStatus(status -> true, (req, res) -> { })
+                .toEntity(String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody())
+                .contains("app-shell")
+                .contains("Not found");
     }
 
     private String assertRendered(String path, String marker) {

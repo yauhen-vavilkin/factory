@@ -1,12 +1,17 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.registry.model.StepDescriptor;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Shared formatting and request-parsing helpers for the server-rendered views.
@@ -55,5 +60,27 @@ final class UiFormat {
 
     static String errorRedirect(String path, String message) {
         return "redirect:" + path + "?error=" + encode(message == null ? "Request failed" : message);
+    }
+
+    /** The one row shape the {@code auditTable} fragment renders, wherever it appears. */
+    static Map<String, Object> auditRow(AuditEvent event, JsonMapper jsonMapper) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("occurredAt", format(event.getOccurredAt()));
+        row.put("eventType", event.getEventType().name());
+        row.put("stepId", event.getStepId());
+        row.put("actor", event.getActor());
+        row.put("executionId", event.getExecutionId());
+        row.put("executionShort", event.getExecutionId() == null ? null
+                : abbreviate(event.getExecutionId().toString()));
+        row.put("detail", prettyDetail(event.getDetail(), jsonMapper));
+        return row;
+    }
+
+    private static String prettyDetail(String detail, JsonMapper jsonMapper) {
+        if (detail == null || detail.isBlank()) {
+            return null;
+        }
+        JsonNode node = jsonMapper.readTree(detail);
+        return jsonMapper.writerWithDefaultPrettyPrinter().writeValueAsString(node);
     }
 }
