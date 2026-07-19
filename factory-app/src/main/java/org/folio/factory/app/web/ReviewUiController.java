@@ -5,6 +5,11 @@ import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.hitl.HitlDecision;
 import org.folio.factory.core.hitl.HitlDecisionService;
 import org.folio.factory.core.repository.HitlReviewRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,6 +23,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -49,12 +55,41 @@ public class ReviewUiController {
         return "redirect:/reviews";
     }
 
+    private static final int PAGE_SIZE = 50;
+    private static final List<String> STATUS_TABS =
+            List.of("PENDING", "APPROVED", "AMENDED", "REJECTED", "ALL");
+
     @GetMapping("/reviews")
-    public String reviews(Model model) {
-        var pending = reviews.findByStatusOrderByCreatedAtAsc(HitlReviewStatus.PENDING).stream()
-                .map(this::reviewRow).toList();
-        model.addAttribute("reviews", pending);
+    public String reviews(@RequestParam(name = "status", defaultValue = "PENDING") String status,
+                          @RequestParam(name = "page", defaultValue = "0") int page, Model model) {
+        String selected = normaliseStatus(status);
+        Page<HitlReview> paged = null;
+        List<HitlReview> rows;
+        if ("PENDING".equals(selected)) {
+            rows = reviews.findByStatusOrderByCreatedAtAsc(HitlReviewStatus.PENDING);
+        } else if ("ALL".equals(selected)) {
+            rows = reviews.findAllByOrderByCreatedAtDesc();
+        } else {
+            Pageable pageable = PageRequest.of(Math.max(page, 0), PAGE_SIZE,
+                    Sort.by(Sort.Direction.DESC, "createdAt"));
+            paged = reviews.findByStatus(HitlReviewStatus.valueOf(selected), pageable);
+            rows = paged.getContent();
+        }
+        model.addAttribute("reviews", rows.stream().map(this::reviewRow).toList());
+        model.addAttribute("statusTabs", STATUS_TABS);
+        model.addAttribute("selectedStatus", selected);
+        model.addAttribute("showDecision", !"PENDING".equals(selected));
+        model.addAttribute("page", paged);
+        model.addAttribute("baseUrl", "/reviews?status=" + selected);
         return "reviews";
+    }
+
+    private static String normaliseStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return "PENDING";
+        }
+        String upper = status.strip().toUpperCase();
+        return STATUS_TABS.contains(upper) ? upper : "PENDING";
     }
 
     @GetMapping("/reviews/{id}")
@@ -107,6 +142,10 @@ public class ReviewUiController {
         row.put("flowId", reviewPackage.path("flowId").asString());
         row.put("gateId", review.getGateId());
         row.put("createdAt", review.getCreatedAt());
+        row.put("status", review.getStatus());
+        row.put("decision", review.getDecision());
+        row.put("reviewer", review.getReviewer());
+        row.put("decidedAt", review.getDecidedAt());
         return row;
     }
 

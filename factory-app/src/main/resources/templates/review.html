@@ -32,14 +32,23 @@
           th:action="@{'/reviews/' + ${review.id} + '/decision'}">
         <div class="card" th:each="artifact : ${pkg.path('artifacts')}">
             <div class="card-header">
-                <h2 class="card-title"
-                    th:text="${artifact.path('name').asString() + ' (v' + artifact.path('version').asInt() + ')'}"></h2>
+                <h2 class="card-title" th:text="${artifact.path('name').asString()}"></h2>
+                <p class="card-description" th:text="'Version ' + ${artifact.path('version').asInt()}"></p>
             </div>
             <div class="card-content">
-                <div class="field">
-                    <textarea class="textarea textarea-code"
-                              th:name="'artifact:' + ${artifact.path('name').asString()}"
-                              th:text="${artifact.path('content').asString()}"></textarea>
+                <div class="compare-grid">
+                    <div class="field">
+                        <span class="label"
+                              th:text="'v' + ${artifact.path('version').asInt()} + ' (original)'">v1 (original)</span>
+                        <pre class="code-block" th:text="${artifact.path('content').asString()}"></pre>
+                    </div>
+                    <div class="field">
+                        <label class="label" th:for="'edit-' + ${artifact.path('name').asString()}">Your edit (AMEND)</label>
+                        <textarea class="textarea textarea-code"
+                                  th:id="'edit-' + ${artifact.path('name').asString()}"
+                                  th:name="'artifact:' + ${artifact.path('name').asString()}"
+                                  th:text="${artifact.path('content').asString()}"></textarea>
+                    </div>
                 </div>
             </div>
         </div>
@@ -59,7 +68,8 @@
             <div class="card-footer">
                 <button class="btn btn-primary" type="submit" name="decision" value="APPROVE">Approve</button>
                 <button class="btn btn-outline" type="submit" name="decision" value="AMEND">Amend (save edits)</button>
-                <button class="btn btn-destructive" type="submit" name="decision" value="REJECT">Reject</button>
+                <button class="btn btn-destructive" type="submit" name="decision" value="REJECT"
+                        data-confirm="Reject this review? The execution will be terminated.">Reject</button>
             </div>
         </div>
     </form>

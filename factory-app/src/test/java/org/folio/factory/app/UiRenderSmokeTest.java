@@ -93,6 +93,37 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void flowsListRenders() {
+        assertRendered("/flows", "Registered flow plugins");
+    }
+
+    @Test
+    void flowDetailRenders() {
+        String body = assertRendered("/flows/test-factory", "Retry policy");
+        // The trigger-dialog sample <script> block must hold raw (un-escaped) JSON so the
+        // sample-fill helper copies valid text into the textarea. The escaped form only
+        // appears in the textarea itself, where the browser decodes it back.
+        assertThat(body)
+                .contains("type=\"application/json\"")
+                .contains("\"issueKey\"");
+    }
+
+    @Test
+    void workersListRenders() {
+        assertRendered("/workers", "agent worker library");
+    }
+
+    @Test
+    void promptsListRenders() {
+        assertRendered("/prompts", "Bundled prompt templates");
+    }
+
+    @Test
+    void promptEditorRenders() {
+        assertRendered("/prompts/triage-agent?file=system", "Version history");
+    }
+
+    @Test
     void executionDetailRenders() {
         PipelineExecution execution = executions.save(new PipelineExecution("test-factory", "1", "{}"));
         artifactStore.putMarkdown(execution.getId(), "test_plan.md", "# Plan\n", "test-spec");
@@ -138,11 +169,12 @@ class UiRenderSmokeTest {
                 .contains("&amp;page=2");
     }
 
-    private void assertRendered(String path, String marker) {
+    private String assertRendered(String path, String marker) {
         ResponseEntity<String> response = rest.get().uri(path).retrieve().toEntity(String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody())
                 .contains("app-shell")
                 .contains(marker);
+        return response.getBody();
     }
 }

@@ -551,6 +551,9 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   border: 0;
 }
 .muted { color: hsl(var(--muted-foreground)); }
+.badge-row { display: flex; flex-wrap: wrap; gap: 0.375rem; align-items: center; }
+* + .badge-row { margin-top: 0.75rem; }
+tbody tr.row-active { background: hsl(var(--muted) / 0.6); }
 .stack { display: flex; flex-direction: column; gap: 1.5rem; }
 .details-inline { margin-top: 0.5rem; }
 .details-inline summary { cursor: pointer; font-size: 0.8125rem; color: hsl(var(--muted-foreground)); }

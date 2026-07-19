@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Prompt', activeNav='prompts', content=~{:: .page-body}, scripts=~{:: #page-scripts})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="page-header">
+        <h1 th:text="${workerId}">worker</h1>
+        <div class="page-header-meta">
+            <span class="badge badge-success" th:unless="${overridden}">Default in effect</span>
+            <span class="badge badge-warning" th:if="${overridden}"
+                  th:text="'Overridden v' + ${activeVersion}">Overridden</span>
+        </div>
+    </div>
+
+    <nav class="tabs" aria-label="Prompt files">
+        <a th:each="name : ${promptNames}" th:href="@{'/prompts/' + ${workerId}(file=${name})}"
+           th:text="${name}" th:attrappend="aria-current=${name == activeFile} ? 'page'">system</a>
+    </nav>
+
+    <div class="compare-grid">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Reference</h2>
+                <p class="card-description" th:text="${referenceLabel}">Bundled default</p>
+            </div>
+            <div class="card-content">
+                <pre class="code-block" th:text="${referenceContent}"></pre>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Editor</h2>
+                <p class="card-description">Effective content. Saving stores a new attributed version.</p>
+            </div>
+            <form method="post" th:action="@{'/prompts/' + ${workerId} + '/save'}">
+                <div class="card-content">
+                    <input type="hidden" name="file" th:value="${activeFile}">
+                    <div class="field">
+                        <label class="label sr-only" for="prompt-editor-content">Prompt content</label>
+                        <textarea class="textarea textarea-code" id="prompt-editor-content" name="content"
+                                  data-prompt-editor spellcheck="false"
+                                  th:text="${effectiveContent}"></textarea>
+                    </div>
+                    <div class="field">
+                        <label class="label" for="prompt-author">Author</label>
+                        <input class="input" type="text" id="prompt-author" name="author" required
+                               data-author-source placeholder="your name">
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <button class="btn btn-primary" type="submit">Save as new version</button>
+                </div>
+            </form>
+            <form method="post" class="card-footer" data-revert-form
+                  th:action="@{'/prompts/' + ${workerId} + '/revert'}">
+                <input type="hidden" name="file" th:value="${activeFile}">
+                <input type="hidden" name="author" data-author-target>
+                <button class="btn btn-destructive" type="submit" th:disabled="${!overridden}"
+                        data-confirm="Revert to the bundled default prompt? A new history entry is created.">
+                    Revert to default
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Version history</h2>
+        </div>
+        <div class="card-content">
+            <div class="empty-state" th:if="${#lists.isEmpty(history)}">
+                No overrides yet — the bundled default is in effect.
+            </div>
+            <div class="table-wrap" th:unless="${#lists.isEmpty(history)}">
+                <table>
+                    <thead>
+                    <tr><th>Version</th><th>Author</th><th>Created</th><th>Type</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="h : ${history}" th:classappend="${h['current']} ? 'row-active'">
+                        <td th:text="'v' + ${h['version']}">v1</td>
+                        <td th:text="${h['author']}">author</td>
+                        <td class="muted" th:text="${h['createdAt']}">when</td>
+                        <td>
+                            <span class="badge badge-outline" th:if="${h['useDefault']}">Reverted to default</span>
+                            <span class="badge badge-outline" th:unless="${h['useDefault']}">Override</span>
+                            <span class="badge badge-success badge-sm" th:if="${h['current']}">Active</span>
+                        </td>
+                        <td>
+                            <a class="btn btn-outline btn-sm" th:href="${h['compareHref']}"
+                               th:attrappend="aria-current=${h['comparing']} ? 'true'">Compare</a>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+<script id="page-scripts" th:src="@{/js/prompt-editor.js}"></script>
+</body>
+</html>

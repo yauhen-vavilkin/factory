@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title=${flow['name']}, activeNav='flows', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="page-header">
+        <h1 th:text="${flow['name']}">Flow</h1>
+        <div class="page-header-meta">
+            <span th:text="${flow['id']}">flow-id</span>
+            <span class="badge badge-outline" th:text="'v' + ${flow['version']}">v1</span>
+            <button type="button" class="btn btn-primary btn-sm" data-dialog-open="trigger-dialog">Trigger flow</button>
+        </div>
+    </div>
+
+    <div class="stack">
+        <section th:unless="${#lists.isEmpty(steps)}">
+            <div class="page-header">
+                <h2 class="card-title">Pipeline</h2>
+            </div>
+            <ol th:replace="~{fragments/components :: stepper(${steps})}"></ol>
+        </section>
+
+        <section>
+            <div class="page-header">
+                <h2 class="card-title">Steps</h2>
+            </div>
+            <div class="card" th:each="s : ${steps}">
+                <div class="card-header">
+                    <h3 class="card-title" th:text="'Step ' + ${s['index']} + ' · ' + ${s['label']}">Step</h3>
+                    <div class="badge-row">
+                        <span class="badge badge-outline" th:text="${s['type']}">TYPE</span>
+                        <span class="badge badge-outline" th:text="${s['stepId']}">step-id</span>
+                    </div>
+                </div>
+                <div class="card-content" th:switch="${s['type']}">
+                    <div th:case="'AGENT'">
+                        <dl class="def-list">
+                            <dt>Worker</dt>
+                            <dd><a th:href="@{/workers}" th:text="${s['workerId']}">worker</a></dd>
+                        </dl>
+                        <div class="field" th:unless="${#lists.isEmpty(s['inputs'])}">
+                            <span class="label">Inputs</span>
+                            <div class="badge-row">
+                                <span class="badge badge-outline" th:each="i : ${s['inputs']}" th:text="${i}">in</span>
+                            </div>
+                        </div>
+                        <div class="field" th:unless="${#lists.isEmpty(s['outputs'])}">
+                            <span class="label">Outputs</span>
+                            <div class="badge-row">
+                                <span class="badge badge-outline" th:each="o : ${s['outputs']}" th:text="${o}">out</span>
+                            </div>
+                        </div>
+                        <div class="field" th:unless="${s['config'].isEmpty()}">
+                            <span class="label">Config</span>
+                            <dl class="def-list">
+                                <th:block th:each="c : ${s['config']}">
+                                    <dt th:text="${c.key}">key</dt>
+                                    <dd th:text="${c.value}">value</dd>
+                                </th:block>
+                            </dl>
+                        </div>
+                    </div>
+                    <div th:case="'HITL_GATE'">
+                        <dl class="def-list">
+                            <dt>Gate</dt><dd th:text="${s['gate']['gateId']}">gate-id</dd>
+                            <dt>Title</dt><dd th:text="${s['gate']['title']}">title</dd>
+                        </dl>
+                        <div class="field">
+                            <span class="label">Review instructions</span>
+                            <p class="card-description" th:text="${s['gate']['reviewInstructions']}">instructions</p>
+                        </div>
+                        <div class="field" th:unless="${#lists.isEmpty(s['gate']['reviewedArtifacts'])}">
+                            <span class="label">Reviewed artifacts</span>
+                            <div class="badge-row">
+                                <span class="badge badge-outline"
+                                      th:each="a : ${s['gate']['reviewedArtifacts']}" th:text="${a}">artifact</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div th:case="'SUB_FLOW'">
+                        <dl class="def-list">
+                            <dt>Sub-flow</dt>
+                            <dd><a th:href="@{'/flows/' + ${s['subFlow']['flowId']}}"
+                                   th:text="${s['subFlow']['flowId']}">sub-flow</a></dd>
+                        </dl>
+                        <div class="field" th:unless="${s['subFlow']['inputMapping'].isEmpty()}">
+                            <span class="label">Input mapping</span>
+                            <dl class="def-list">
+                                <th:block th:each="m : ${s['subFlow']['inputMapping']}">
+                                    <dt th:text="${m.key}">parent</dt>
+                                    <dd th:text="'→ ' + ${m.value}">child</dd>
+                                </th:block>
+                            </dl>
+                        </div>
+                        <div class="field" th:unless="${s['subFlow']['outputMapping'].isEmpty()}">
+                            <span class="label">Output mapping</span>
+                            <dl class="def-list">
+                                <th:block th:each="m : ${s['subFlow']['outputMapping']}">
+                                    <dt th:text="${m.key}">child</dt>
+                                    <dd th:text="'→ ' + ${m.value}">parent</dd>
+                                </th:block>
+                            </dl>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <div class="page-header">
+                <h2 class="card-title">Triggers</h2>
+            </div>
+            <div class="empty-state" th:if="${#lists.isEmpty(triggers)}">No triggers declared.</div>
+            <div class="table-wrap" th:unless="${#lists.isEmpty(triggers)}">
+                <table>
+                    <thead>
+                    <tr><th>Event type</th><th>Filter (JSON pointer)</th><th>Expected value</th></tr>
+                    </thead>
+                    <tbody>
+                    <th:block th:each="t : ${triggers}">
+                        <tr th:if="${t['filters'].isEmpty()}">
+                            <td><span class="badge badge-outline" th:text="${t['eventType']}">event</span></td>
+                            <td class="muted" colspan="2">Any payload</td>
+                        </tr>
+                        <tr th:each="f : ${t['filters']}" th:unless="${t['filters'].isEmpty()}">
+                            <td><span class="badge badge-outline" th:text="${t['eventType']}">event</span></td>
+                            <td><code th:text="${f.key}">/pointer</code></td>
+                            <td th:text="${f.value}">value</td>
+                        </tr>
+                    </th:block>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section>
+            <div class="page-header">
+                <h2 class="card-title">Retry policy</h2>
+            </div>
+            <div class="card">
+                <div class="card-content">
+                    <dl class="def-list">
+                        <dt>Max attempts</dt><dd th:text="${retryPolicy['maxAttempts']}">3</dd>
+                        <dt>Backoff (seconds)</dt>
+                        <dd>
+                            <div class="badge-row">
+                                <span class="badge badge-outline"
+                                      th:each="b : ${retryPolicy['backoffSeconds']}" th:text="${b}">30</span>
+                            </div>
+                        </dd>
+                    </dl>
+                </div>
+            </div>
+        </section>
+
+        <section th:if="${rawYaml}">
+            <details class="details-inline">
+                <summary>Descriptor YAML</summary>
+                <pre class="code-block" th:text="${rawYaml}"></pre>
+            </details>
+        </section>
+    </div>
+
+    <dialog id="trigger-dialog" class="dialog" aria-labelledby="trigger-dialog-title">
+        <form method="post" th:action="@{'/flows/' + ${flow['id']} + '/trigger'}">
+            <div class="dialog-header">
+                <h2 class="dialog-title" id="trigger-dialog-title">Trigger flow</h2>
+                <p class="card-description">Starts a manual execution of this flow.</p>
+            </div>
+            <div class="field" th:unless="${#lists.isEmpty(samples)}">
+                <label class="label" for="trigger-sample">Sample payload</label>
+                <select class="select" id="trigger-sample" data-sample-target="trigger-payload">
+                    <option th:each="s : ${samples}" th:value="${s['name']}" th:text="${s['name']}">sample</option>
+                </select>
+            </div>
+            <div class="field">
+                <label class="label" for="trigger-payload">Payload (JSON)</label>
+                <textarea class="textarea textarea-code" id="trigger-payload" name="payload"
+                          th:text="${defaultPayload}"></textarea>
+            </div>
+            <div class="field">
+                <label class="label" for="trigger-dedup">Dedup key (optional)</label>
+                <input class="input" type="text" id="trigger-dedup" name="dedupKey" placeholder="leave blank for none">
+            </div>
+            <div class="dialog-footer">
+                <button type="button" class="btn btn-outline" data-dialog-close>Cancel</button>
+                <button type="submit" class="btn btn-primary">Trigger</button>
+            </div>
+            <script th:each="s : ${samples}" type="application/json"
+                    th:attr="data-sample=${s['name']}" th:utext="${s['prettyJson']}"></script>
+        </form>
+    </dialog>
+</section>
+</body>
+</html>

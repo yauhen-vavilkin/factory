@@ -1,6 +1,7 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.core.domain.HitlReview;
+import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.hitl.HitlDecision;
 import org.folio.factory.core.hitl.HitlDecisionService;
 import org.folio.factory.core.repository.HitlReviewRepository;
@@ -11,16 +12,21 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.view.InternalResourceViewResolver;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
@@ -112,6 +118,61 @@ class ReviewUiControllerTest {
                         .param("reviewer", "qa"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/reviews/" + REVIEW_ID + "?error=boom+message"));
+    }
+
+    // ----- inbox status filtering -----
+
+    @Test
+    void reviews_default_showsPendingListWithoutDecisionColumns() throws Exception {
+        when(reviews.findByStatusOrderByCreatedAtAsc(HitlReviewStatus.PENDING)).thenReturn(List.of());
+
+        mvc.perform(get("/reviews"))
+                .andExpect(status().isOk())
+                .andExpect(view().name("reviews"))
+                .andExpect(model().attribute("selectedStatus", "PENDING"))
+                .andExpect(model().attribute("showDecision", false))
+                .andExpect(model().attribute("page", (Object) null));
+
+        verify(reviews).findByStatusOrderByCreatedAtAsc(HitlReviewStatus.PENDING);
+    }
+
+    @Test
+    void reviews_decidedStatus_pagesByStatusAndShowsDecisionColumns() throws Exception {
+        when(reviews.findByStatus(eq(HitlReviewStatus.APPROVED), any()))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 50), 0));
+
+        mvc.perform(get("/reviews").param("status", "APPROVED"))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("selectedStatus", "APPROVED"))
+                .andExpect(model().attribute("showDecision", true))
+                .andExpect(model().attributeExists("page"));
+
+        verify(reviews).findByStatus(eq(HitlReviewStatus.APPROVED), any());
+    }
+
+    @Test
+    void reviews_all_usesFindAllOrdered() throws Exception {
+        when(reviews.findAllByOrderByCreatedAtDesc()).thenReturn(List.of());
+
+        mvc.perform(get("/reviews").param("status", "ALL"))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("selectedStatus", "ALL"))
+                .andExpect(model().attribute("showDecision", true))
+                .andExpect(model().attribute("page", (Object) null));
+
+        verify(reviews).findAllByOrderByCreatedAtDesc();
+    }
+
+    @Test
+    void reviews_invalidStatus_fallsBackToPending() throws Exception {
+        when(reviews.findByStatusOrderByCreatedAtAsc(HitlReviewStatus.PENDING)).thenReturn(List.of());
+
+        mvc.perform(get("/reviews").param("status", "NONSENSE"))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("selectedStatus", "PENDING"));
+
+        verify(reviews).findByStatusOrderByCreatedAtAsc(HitlReviewStatus.PENDING);
+        verifyNoInteractions(decisionService);
     }
 
     @Test
