@@ -5,11 +5,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.http.HttpMethod.GET;
 import static org.springframework.http.HttpMethod.POST;
 import static org.springframework.http.HttpMethod.PUT;
@@ -58,6 +60,33 @@ class GitHubRestConnectorTest {
                 .andRespond(withSuccess());
 
         connector.commitFiles("o/r", "b", Map.of("tests/a.feature", "Feature: x"), "Add tests");
+        server.verify();
+    }
+
+    @Test
+    void commitFilesReusesShaWhenFileExists() {
+        server.expect(requestTo("https://api.github.com/repos/o/r/contents/tests/a.feature?ref=b"))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("{\"sha\": \"existing123\"}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.com/repos/o/r/contents/tests/a.feature"))
+                .andExpect(method(PUT))
+                .andExpect(jsonPath("$.sha").value("existing123"))
+                .andExpect(jsonPath("$.branch").value("b"))
+                .andRespond(withSuccess());
+
+        connector.commitFiles("o/r", "b", Map.of("tests/a.feature", "Feature: x"), "Update tests");
+        server.verify();
+    }
+
+    @Test
+    void commitFilesRethrowsNon404ShaLookupFailure() {
+        server.expect(requestTo("https://api.github.com/repos/o/r/contents/tests/a.feature?ref=b"))
+                .andExpect(method(GET))
+                .andRespond(withStatus(HttpStatus.FORBIDDEN));
+
+        assertThatThrownBy(() ->
+                connector.commitFiles("o/r", "b", Map.of("tests/a.feature", "Feature: x"), "Add tests"))
+                .isInstanceOf(HttpClientErrorException.Forbidden.class);
         server.verify();
     }
 

@@ -56,6 +56,28 @@ class JiraRestConnectorTest {
     }
 
     @Test
+    void getIssueSerializesNonTextualDescription() {
+        server.expect(requestTo("https://jira.example.org/rest/api/2/issue/ERM-42"))
+                .andExpect(method(GET))
+                .andRespond(withSuccess("""
+                        {"key": "ERM-42",
+                         "fields": {
+                            "summary": "Add agreement endpoint",
+                            "description": {"type": "doc", "content": [{"type": "paragraph"}]},
+                            "status": {"name": "Ready for QA"},
+                            "issuetype": {"name": "Story"},
+                            "labels": []}}
+                        """, MediaType.APPLICATION_JSON));
+
+        JiraIssue issue = connector.getIssue("ERM-42");
+
+        assertThat(issue.description())
+                .contains("\"type\":\"doc\"")
+                .contains("\"content\":[{\"type\":\"paragraph\"}]");
+        server.verify();
+    }
+
+    @Test
     void transitionResolvesIdByName() {
         server.expect(requestTo("https://jira.example.org/rest/api/2/issue/ERM-42/transitions"))
                 .andExpect(method(GET))
