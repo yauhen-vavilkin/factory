@@ -23,9 +23,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
@@ -43,11 +40,8 @@ import java.util.TreeMap;
 @Controller
 public class DashboardUiController {
 
-    private static final int MAX_SIZE = 200;
     private static final int DEFAULT_DAYS = 14;
     private static final Set<Integer> ALLOWED_DAYS = Set.of(1, 7, 14, 30, 90);
-    private static final DateTimeFormatter TIMESTAMP =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC);
 
     private final List<ConnectorHealth> connectors;
     private final FlowRegistry flowRegistry;
@@ -78,21 +72,18 @@ public class DashboardUiController {
         model.addAttribute("days", ALLOWED_DAYS.contains(days) ? days : DEFAULT_DAYS);
 
         Map<ExecutionStatus, Long> byStatus = new EnumMap<>(ExecutionStatus.class);
-        long total = 0;
-        for (ExecutionStatus status : ExecutionStatus.values()) {
-            long count = executions.countByStatus(status);
-            byStatus.put(status, count);
-            total += count;
+        for (Object[] row : executions.countGroupedByStatus()) {
+            byStatus.put((ExecutionStatus) row[0], (Long) row[1]);
         }
+        long total = byStatus.values().stream().mapToLong(Long::longValue).sum();
         model.addAttribute("totalExecutions", total);
-        model.addAttribute("completedCount", byStatus.get(ExecutionStatus.COMPLETED));
-        model.addAttribute("awaitingHitlCount", byStatus.get(ExecutionStatus.AWAITING_HITL));
-        model.addAttribute("failedCount", byStatus.get(ExecutionStatus.FAILED_ESCALATED));
-        model.addAttribute("cancelledCount", byStatus.get(ExecutionStatus.CANCELLED));
-        model.addAttribute("rejectedCount", byStatus.get(ExecutionStatus.REJECTED));
+        model.addAttribute("completedCount", byStatus.getOrDefault(ExecutionStatus.COMPLETED, 0L));
+        model.addAttribute("awaitingHitlCount", byStatus.getOrDefault(ExecutionStatus.AWAITING_HITL, 0L));
+        model.addAttribute("failedCount", byStatus.getOrDefault(ExecutionStatus.FAILED_ESCALATED, 0L));
+        model.addAttribute("cancelledCount", byStatus.getOrDefault(ExecutionStatus.CANCELLED, 0L));
+        model.addAttribute("rejectedCount", byStatus.getOrDefault(ExecutionStatus.REJECTED, 0L));
 
-        model.addAttribute("pendingReviews", reviews
-                .findByStatus(HitlReviewStatus.PENDING, PageRequest.of(0, 1)).getTotalElements());
+        model.addAttribute("pendingReviews", reviews.countByStatus(HitlReviewStatus.PENDING));
 
         model.addAttribute("engineEnabled", engineProperties.enabled());
         Map<String, Boolean> connectorConfig = connectorConfiguration();
@@ -130,8 +121,9 @@ public class DashboardUiController {
                         @RequestParam(name = "page", defaultValue = "0") int page,
                         @RequestParam(name = "size", defaultValue = "50") int size,
                         Model model) {
-        Pageable pageable = PageRequest.of(Math.max(page, 0), clampSize(size));
-        AuditEventType type = parseTypeLenient(eventType);
+        int clampedSize = PageValidation.clampSize(size, 1);
+        Pageable pageable = PageRequest.of(Math.max(page, 0), clampedSize);
+        AuditEventType type = UiFormat.enumOrNull(AuditEventType.class, eventType);
 
         Page<AuditEvent> result = type == null
                 ? audit.findAllByOrderByIdDesc(pageable)
@@ -142,7 +134,7 @@ public class DashboardUiController {
         model.addAttribute("eventTypes", AuditEventType.values());
         model.addAttribute("selectedEventType", type == null ? "" : type.name());
         model.addAttribute("baseUrl", "/audit?eventType="
-                + (type == null ? "" : type.name()) + "&size=" + clampSize(size));
+                + (type == null ? "" : type.name()) + "&size=" + clampedSize);
         return "audit";
     }
 
@@ -161,20 +153,20 @@ public class DashboardUiController {
         row.put("version", flow.version());
         row.put("registeredAt", flowRegistryEntries
                 .findById(new FlowRegistryEntry.Key(flow.id(), flow.version()))
-                .map(entry -> format(entry.getRegisteredAt()))
+                .map(entry -> UiFormat.format(entry.getRegisteredAt()))
                 .orElse("—"));
         return row;
     }
 
     private Map<String, Object> auditRow(AuditEvent event) {
         Map<String, Object> row = new LinkedHashMap<>();
-        row.put("occurredAt", format(event.getOccurredAt()));
+        row.put("occurredAt", UiFormat.format(event.getOccurredAt()));
         row.put("eventType", event.getEventType().name());
         row.put("stepId", event.getStepId());
         row.put("actor", event.getActor());
         row.put("executionId", event.getExecutionId());
         row.put("executionShort", event.getExecutionId() == null ? null
-                : abbreviate(event.getExecutionId().toString()));
+                : UiFormat.abbreviate(event.getExecutionId().toString()));
         row.put("detail", prettyDetail(event.getDetail()));
         return row;
     }
@@ -185,31 +177,5 @@ public class DashboardUiController {
         }
         JsonNode node = jsonMapper.readTree(detail);
         return jsonMapper.writerWithDefaultPrettyPrinter().writeValueAsString(node);
-    }
-
-    private AuditEventType parseTypeLenient(String eventType) {
-        if (eventType == null || eventType.isBlank()) {
-            return null;
-        }
-        try {
-            return AuditEventType.valueOf(eventType.strip().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
-    }
-
-    private int clampSize(int size) {
-        if (size < 1) {
-            return 1;
-        }
-        return Math.min(size, MAX_SIZE);
-    }
-
-    private static String abbreviate(String value) {
-        return value.length() <= 13 ? value : value.substring(0, 10) + "...";
-    }
-
-    private static String format(Instant instant) {
-        return instant == null ? "" : TIMESTAMP.format(instant);
     }
 }

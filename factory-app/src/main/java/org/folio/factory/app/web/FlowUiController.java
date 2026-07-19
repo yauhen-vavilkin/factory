@@ -30,7 +30,6 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -59,6 +58,7 @@ public class FlowUiController {
     private final PromptCatalog promptCatalog;
     private final JsonMapper jsonMapper;
     private final PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
+    private volatile Map<String, List<Map<String, Object>>> samplesByFlow;
 
     public FlowUiController(FlowRegistry flowRegistry, FlowRegistryEntryRepository mirror, PipelineRouter router,
                             AgentWorkerRegistry workers, PromptCatalog promptCatalog, JsonMapper jsonMapper) {
@@ -109,14 +109,14 @@ public class FlowUiController {
             String body = payload == null || payload.isBlank() ? "{}" : payload;
             payloadNode = jsonMapper.readTree(body);
         } catch (JacksonException parseFailure) {
-            return redirectWithError(id, "Invalid JSON payload: " + parseFailure.getMessage());
+            return UiFormat.errorRedirect("/flows/" + id, "Invalid JSON payload: " + parseFailure.getMessage());
         }
         try {
             UUID executionId = router.routeManual(id, payloadNode, TriggerController.normalisedDedupKey(dedupKey));
             redirect.addFlashAttribute("message", "Execution started");
             return "redirect:/executions/" + executionId;
         } catch (FlowValidationException | IllegalArgumentException | DailyBudgetExceededException e) {
-            return redirectWithError(id, e.getMessage());
+            return UiFormat.errorRedirect("/flows/" + id, e.getMessage());
         }
     }
 
@@ -154,7 +154,7 @@ public class FlowUiController {
             row.put("index", i);
             row.put("stepId", step.stepId());
             row.put("type", step.type().name());
-            row.put("label", stepLabel(step));
+            row.put("label", UiFormat.stepLabel(step));
             row.put("sublabel", step.stepId() + " · " + step.type());
             row.put("state", "pending");
             switch (step.type()) {
@@ -170,14 +170,6 @@ public class FlowUiController {
             rows.add(row);
         }
         return rows;
-    }
-
-    private static String stepLabel(StepDescriptor step) {
-        return switch (step.type()) {
-            case AGENT -> step.workerId();
-            case HITL_GATE -> step.gate().title();
-            case SUB_FLOW -> "Sub-flow: " + step.subFlow().flowId();
-        };
     }
 
     private static Map<String, Object> gateRow(HitlGateSpec gate) {
@@ -222,12 +214,21 @@ public class FlowUiController {
     }
 
     private List<Map<String, Object>> samplesFor(String flowId) {
-        List<Map<String, Object>> samples = new ArrayList<>();
+        Map<String, List<Map<String, Object>>> cache = samplesByFlow;
+        if (cache == null) {
+            cache = loadSamples();
+            samplesByFlow = cache;
+        }
+        return cache.getOrDefault(flowId, List.of());
+    }
+
+    private Map<String, List<Map<String, Object>>> loadSamples() {
+        Map<String, List<Map<String, Object>>> byFlow = new LinkedHashMap<>();
         Resource[] resources;
         try {
             resources = resolver.getResources(SAMPLES_PATTERN);
         } catch (IOException e) {
-            return samples;
+            return byFlow;
         }
         for (Resource resource : resources) {
             JsonNode root;
@@ -236,19 +237,17 @@ public class FlowUiController {
             } catch (IOException | JacksonException unreadable) {
                 continue;
             }
-            if (!flowId.equals(root.path("flowId").asString(""))) {
-                continue;
-            }
             JsonNode payload = root.path("payload");
             JsonNode content = payload.isMissingNode() ? jsonMapper.createObjectNode() : payload;
             Map<String, Object> sample = new LinkedHashMap<>();
             sample.put("name", sampleName(resource.getFilename()));
             sample.put("prettyJson", escapeScriptClosers(
                     jsonMapper.writerWithDefaultPrettyPrinter().writeValueAsString(content)));
-            samples.add(sample);
+            byFlow.computeIfAbsent(root.path("flowId").asString(""), k -> new ArrayList<>()).add(sample);
         }
-        samples.sort(Comparator.comparing(sample -> String.valueOf(sample.get("name"))));
-        return samples;
+        byFlow.values().forEach(samples ->
+                samples.sort(Comparator.comparing(sample -> String.valueOf(sample.get("name")))));
+        return byFlow;
     }
 
     /**
@@ -288,10 +287,5 @@ public class FlowUiController {
         row.put("prompts", promptCatalog.promptsFor(worker.id()));
         row.put("usedBy", usedBy);
         return row;
-    }
-
-    private static String redirectWithError(String flowId, String message) {
-        return "redirect:/flows/" + flowId + "?error="
-                + URLEncoder.encode(message == null ? "Request failed" : message, StandardCharsets.UTF_8);
     }
 }

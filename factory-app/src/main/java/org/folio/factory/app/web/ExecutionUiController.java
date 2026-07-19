@@ -25,11 +25,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -45,10 +40,7 @@ import java.util.UUID;
 @Controller
 public class ExecutionUiController {
 
-    private static final int MAX_SIZE = 200;
     private static final int DEFAULT_SIZE = 20;
-    private static final DateTimeFormatter TIMESTAMP =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC);
 
     private final PipelineExecutionRepository executions;
     private final ArtifactStore artifactStore;
@@ -74,23 +66,14 @@ public class ExecutionUiController {
                              @RequestParam(name = "page", defaultValue = "0") int page,
                              @RequestParam(name = "size", defaultValue = "20") int size,
                              Model model) {
-        int clampedSize = clampSize(size);
+        int clampedSize = PageValidation.clampSize(size, DEFAULT_SIZE);
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampedSize,
                 Sort.by(Sort.Direction.DESC, "createdAt"));
-        ExecutionStatus parsedStatus = parseStatusLenient(status);
+        ExecutionStatus parsedStatus = UiFormat.enumOrNull(ExecutionStatus.class, status);
         boolean hasStatus = parsedStatus != null;
         boolean hasFlow = flow != null && !flow.isBlank();
 
-        Page<PipelineExecution> result;
-        if (hasStatus && hasFlow) {
-            result = executions.findByStatusAndFlowId(parsedStatus, flow, pageable);
-        } else if (hasStatus) {
-            result = executions.findByStatus(parsedStatus, pageable);
-        } else if (hasFlow) {
-            result = executions.findByFlowId(flow, pageable);
-        } else {
-            result = executions.findAll(pageable);
-        }
+        Page<PipelineExecution> result = executions.search(parsedStatus, flow, pageable);
 
         model.addAttribute("executions", result.getContent().stream().map(this::executionRow).toList());
         model.addAttribute("page", result);
@@ -99,8 +82,8 @@ public class ExecutionUiController {
         model.addAttribute("selectedStatus", hasStatus ? parsedStatus.name() : "");
         model.addAttribute("selectedFlow", hasFlow ? flow : "");
         model.addAttribute("filtersActive", hasStatus || hasFlow);
-        model.addAttribute("baseUrl", "/executions?status=" + encode(hasStatus ? parsedStatus.name() : "")
-                + "&flow=" + encode(hasFlow ? flow : "") + "&size=" + clampedSize);
+        model.addAttribute("baseUrl", "/executions?status=" + UiFormat.encode(hasStatus ? parsedStatus.name() : "")
+                + "&flow=" + UiFormat.encode(hasFlow ? flow : "") + "&size=" + clampedSize);
         return "executions";
     }
 
@@ -123,15 +106,15 @@ public class ExecutionUiController {
     private Map<String, Object> executionRow(PipelineExecution execution) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", execution.getId());
-        row.put("idShort", abbreviate(execution.getId().toString()));
+        row.put("idShort", UiFormat.abbreviate(execution.getId().toString()));
         row.put("flowId", execution.getFlowId());
         row.put("status", execution.getStatus());
         row.put("currentStepIndex", execution.getCurrentStepIndex());
-        row.put("createdAt", format(execution.getCreatedAt()));
-        row.put("updatedAt", format(execution.getUpdatedAt()));
+        row.put("createdAt", UiFormat.format(execution.getCreatedAt()));
+        row.put("updatedAt", UiFormat.format(execution.getUpdatedAt()));
         row.put("parentExecutionId", execution.getParentExecutionId());
         row.put("parentShort", execution.getParentExecutionId() == null ? null
-                : abbreviate(execution.getParentExecutionId().toString()));
+                : UiFormat.abbreviate(execution.getParentExecutionId().toString()));
         return row;
     }
 
@@ -147,21 +130,13 @@ public class ExecutionUiController {
             StepDescriptor step = chain.get(i);
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("type", step.type().name());
-            row.put("label", stepLabel(step));
+            row.put("label", UiFormat.stepLabel(step));
             row.put("sublabel", step.stepId() + " · " + step.type());
             row.put("state", stepState(i, execution));
             row.put("attempts", retryCounts.path(step.stepId()).asInt(0));
             steps.add(row);
         }
         return steps;
-    }
-
-    private static String stepLabel(StepDescriptor step) {
-        return switch (step.type()) {
-            case AGENT -> step.workerId();
-            case HITL_GATE -> step.gate().title();
-            case SUB_FLOW -> "Sub-flow: " + step.subFlow().flowId();
-        };
     }
 
     private static String stepState(int index, PipelineExecution execution) {
@@ -184,7 +159,7 @@ public class ExecutionUiController {
             version.put("content", artifact.getContent());
             version.put("createdBy", artifact.getCreatedBy());
             version.put("label", "v" + artifact.getVersion() + " · " + artifact.getCreatedBy()
-                    + " · " + format(artifact.getCreatedAt()));
+                    + " · " + UiFormat.format(artifact.getCreatedAt()));
             version.put("panelId", "artifact-" + panel++);
             version.put("latest", false);
             byName.computeIfAbsent(artifact.getName(), n -> new ArrayList<>()).add(version);
@@ -207,7 +182,7 @@ public class ExecutionUiController {
         for (PipelineExecution child : executions.findByParentExecutionId(id)) {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("id", child.getId());
-            row.put("idShort", abbreviate(child.getId().toString()));
+            row.put("idShort", UiFormat.abbreviate(child.getId().toString()));
             row.put("flowId", child.getFlowId());
             row.put("status", child.getStatus());
             row.put("stepLabel", childStepLabel(flow, child.getParentStepIndex()));
@@ -220,7 +195,7 @@ public class ExecutionUiController {
         if (flow == null || parentStepIndex == null || !flow.hasStep(parentStepIndex)) {
             return null;
         }
-        return "step " + parentStepIndex + " · " + stepLabel(flow.step(parentStepIndex));
+        return "step " + parentStepIndex + " · " + UiFormat.stepLabel(flow.step(parentStepIndex));
     }
 
     private HitlReview pendingReview(PipelineExecution execution, UUID id) {
@@ -238,41 +213,11 @@ public class ExecutionUiController {
 
     private Map<String, Object> auditRow(AuditEvent event) {
         Map<String, Object> row = new LinkedHashMap<>();
-        row.put("occurredAt", format(event.getOccurredAt()));
+        row.put("occurredAt", UiFormat.format(event.getOccurredAt()));
         row.put("eventType", event.getEventType());
         row.put("stepId", event.getStepId());
         row.put("actor", event.getActor());
         row.put("detail", event.getDetail());
         return row;
-    }
-
-    private ExecutionStatus parseStatusLenient(String status) {
-        if (status == null || status.isBlank()) {
-            return null;
-        }
-        try {
-            return ExecutionStatus.valueOf(status.strip().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
-    }
-
-    private int clampSize(int size) {
-        if (size < 1) {
-            return DEFAULT_SIZE;
-        }
-        return Math.min(size, MAX_SIZE);
-    }
-
-    private static String encode(String value) {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8);
-    }
-
-    private static String abbreviate(String value) {
-        return value.length() <= 13 ? value : value.substring(0, 10) + "...";
-    }
-
-    private static String format(Instant instant) {
-        return instant == null ? "" : TIMESTAMP.format(instant);
     }
 }

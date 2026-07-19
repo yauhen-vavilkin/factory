@@ -85,16 +85,15 @@ class DashboardUiControllerTest {
     }
 
     private void stubKpiCounts() {
-        when(executions.countByStatus(ExecutionStatus.PENDING)).thenReturn(2L);
-        when(executions.countByStatus(ExecutionStatus.RUNNING)).thenReturn(1L);
-        when(executions.countByStatus(ExecutionStatus.AWAITING_HITL)).thenReturn(3L);
-        when(executions.countByStatus(ExecutionStatus.AWAITING_SUBFLOW)).thenReturn(0L);
-        when(executions.countByStatus(ExecutionStatus.COMPLETED)).thenReturn(10L);
-        when(executions.countByStatus(ExecutionStatus.FAILED_ESCALATED)).thenReturn(4L);
-        when(executions.countByStatus(ExecutionStatus.REJECTED)).thenReturn(1L);
-        when(executions.countByStatus(ExecutionStatus.CANCELLED)).thenReturn(2L);
-        when(reviews.findByStatus(eq(HitlReviewStatus.PENDING), any()))
-                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 1), 5));
+        when(executions.countGroupedByStatus()).thenReturn(List.of(
+                new Object[]{ExecutionStatus.PENDING, 2L},
+                new Object[]{ExecutionStatus.RUNNING, 1L},
+                new Object[]{ExecutionStatus.AWAITING_HITL, 3L},
+                new Object[]{ExecutionStatus.COMPLETED, 10L},
+                new Object[]{ExecutionStatus.FAILED_ESCALATED, 4L},
+                new Object[]{ExecutionStatus.REJECTED, 1L},
+                new Object[]{ExecutionStatus.CANCELLED, 2L}));
+        when(reviews.countByStatus(HitlReviewStatus.PENDING)).thenReturn(5L);
     }
 
     @Test

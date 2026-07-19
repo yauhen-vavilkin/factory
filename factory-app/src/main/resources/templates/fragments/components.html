@@ -65,9 +65,6 @@
             <span class="badge badge-destructive badge-sm"
                   th:if="${s['attempts'] != null and s['attempts'] > 0}"
                   th:text="'retry ×' + ${s['attempts']}"></span>
-            <details class="details-inline" th:if="${s['detailsHtmlId']}" th:id="${s['detailsHtmlId']}">
-                <summary>Details</summary>
-            </details>
         </div>
     </li>
 </ol>

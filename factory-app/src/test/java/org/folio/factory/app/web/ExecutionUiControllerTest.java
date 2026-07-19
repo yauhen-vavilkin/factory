@@ -84,6 +84,7 @@ class ExecutionUiControllerTest {
 
     @Test
     void executions_noFilters_usesFindAll() throws Exception {
+        when(executions.search(any(), any(), any())).thenCallRealMethod();
         when(executions.findAll(any(Pageable.class))).thenReturn(emptyPage());
 
         mvc.perform(get("/executions"))
@@ -98,6 +99,7 @@ class ExecutionUiControllerTest {
 
     @Test
     void executions_statusFilter_dispatchesToFindByStatus() throws Exception {
+        when(executions.search(any(), any(), any())).thenCallRealMethod();
         when(executions.findByStatus(eq(ExecutionStatus.RUNNING), any())).thenReturn(emptyPage());
 
         mvc.perform(get("/executions").param("status", "RUNNING"))
@@ -109,6 +111,7 @@ class ExecutionUiControllerTest {
 
     @Test
     void executions_flowFilter_dispatchesToFindByFlowId() throws Exception {
+        when(executions.search(any(), any(), any())).thenCallRealMethod();
         when(executions.findByFlowId(eq("test-factory"), any())).thenReturn(emptyPage());
 
         mvc.perform(get("/executions").param("flow", "test-factory"))
@@ -120,6 +123,7 @@ class ExecutionUiControllerTest {
 
     @Test
     void executions_statusAndFlow_dispatchesToCombinedQuery() throws Exception {
+        when(executions.search(any(), any(), any())).thenCallRealMethod();
         when(executions.findByStatusAndFlowId(eq(ExecutionStatus.COMPLETED), eq("test-factory"), any()))
                 .thenReturn(emptyPage());
 
@@ -132,6 +136,7 @@ class ExecutionUiControllerTest {
 
     @Test
     void executions_invalidStatus_treatedAsAll() throws Exception {
+        when(executions.search(any(), any(), any())).thenCallRealMethod();
         when(executions.findAll(any(Pageable.class))).thenReturn(emptyPage());
 
         mvc.perform(get("/executions").param("status", "NONSENSE"))
@@ -260,6 +265,7 @@ class ExecutionUiControllerTest {
 
     @Test
     void executions_baseUrl_urlEncodesFilterValues() throws Exception {
+        when(executions.search(any(), any(), any())).thenCallRealMethod();
         when(executions.findByFlowId(eq("a b&c"), any())).thenReturn(emptyPage());
 
         var result = mvc.perform(get("/executions").param("flow", "a b&c"))

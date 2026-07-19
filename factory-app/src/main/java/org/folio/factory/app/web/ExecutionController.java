@@ -60,18 +60,8 @@ public class ExecutionController {
             @RequestParam(name = "size", defaultValue = "50") int size) {
         Pageable pageable = PageValidation.pageable(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         boolean hasStatus = status != null && !status.isBlank();
-        boolean hasFlow = flowId != null && !flowId.isBlank();
-
-        Page<PipelineExecution> result;
-        if (hasStatus && hasFlow) {
-            result = executions.findByStatusAndFlowId(parseStatus(status), flowId, pageable);
-        } else if (hasStatus) {
-            result = executions.findByStatus(parseStatus(status), pageable);
-        } else if (hasFlow) {
-            result = executions.findByFlowId(flowId, pageable);
-        } else {
-            result = executions.findAll(pageable);
-        }
+        ExecutionStatus parsedStatus = hasStatus ? parseStatus(status) : null;
+        Page<PipelineExecution> result = executions.search(parsedStatus, flowId, pageable);
         return PageResponse.of(result, this::toSummary);
     }
 

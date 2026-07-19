@@ -24,4 +24,12 @@ final class PageValidation {
     static Pageable pageable(int page, int size) {
         return pageable(page, size, Sort.unsorted());
     }
+
+    /** Lenient page-size clamp for the UI: non-positive falls back, oversized caps at {@code MAX_SIZE}. */
+    static int clampSize(int size, int fallback) {
+        if (size < 1) {
+            return fallback;
+        }
+        return Math.min(size, MAX_SIZE);
+    }
 }

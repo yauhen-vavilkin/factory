@@ -9,8 +9,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -77,6 +75,6 @@ public class PromptUiController {
     }
 
     private String redirectToList(String message) {
-        return "redirect:/prompts?error=" + URLEncoder.encode(message, StandardCharsets.UTF_8);
+        return "redirect:/prompts?error=" + UiFormat.encode(message);
     }
 }

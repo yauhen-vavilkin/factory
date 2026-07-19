@@ -67,6 +67,7 @@ class ExecutionControllerTest {
     @Test
     void list_noFilters_usesFindAllAndWrapsInEnvelope() throws Exception {
         PipelineExecution execution = execution();
+        when(executions.search(any(), any(), any(Pageable.class))).thenCallRealMethod();
         when(executions.findAll(any(Pageable.class))).thenReturn(pageOf(execution));
 
         mvc.perform(get("/api/executions"))
@@ -83,6 +84,7 @@ class ExecutionControllerTest {
 
     @Test
     void list_statusOnly_usesFindByStatus() throws Exception {
+        when(executions.search(any(), any(), any(Pageable.class))).thenCallRealMethod();
         when(executions.findByStatus(eq(ExecutionStatus.RUNNING), any(Pageable.class)))
                 .thenReturn(pageOf(execution()));
 
@@ -94,6 +96,7 @@ class ExecutionControllerTest {
 
     @Test
     void list_flowIdOnly_usesFindByFlowId() throws Exception {
+        when(executions.search(any(), any(), any(Pageable.class))).thenCallRealMethod();
         when(executions.findByFlowId(eq("test-factory"), any(Pageable.class))).thenReturn(pageOf(execution()));
 
         mvc.perform(get("/api/executions").param("flowId", "test-factory"))
@@ -104,6 +107,7 @@ class ExecutionControllerTest {
 
     @Test
     void list_statusAndFlowId_usesCombinedFinder() throws Exception {
+        when(executions.search(any(), any(), any(Pageable.class))).thenCallRealMethod();
         when(executions.findByStatusAndFlowId(eq(ExecutionStatus.COMPLETED), eq("test-factory"), any(Pageable.class)))
                 .thenReturn(pageOf(execution()));
 
