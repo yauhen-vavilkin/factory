@@ -14,7 +14,7 @@ The full product spec ("FOLIO AI SDLC Factory") defines five flows: A — Test
 Factory, B — Kong & Keycloak Release Automation, C — Release Pipeline
 Orchestrator, D — AI Junior Developer, E — Grails-to-Java Rewrite Orchestrator
 (which composes A and D as sub-flows). **Milestone 1 (this repo today) ships
-the shared framework plus Flow A only.** New flows must be added as plugins —
+the shared framework plus the Test Factory flow only.** New flows must be added as plugins —
 never by modifying the control plane.
 
 ## Commands
@@ -27,7 +27,7 @@ mvn -pl factory-core test -Dtest=SubFlowIntegrationTest          # single test c
 mvn -pl factory-core test -Dtest=SubFlowIntegrationTest#method   # single test method
 ```
 
-Trigger Flow A locally without Jira credentials:
+Trigger the Test Factory flow locally without Jira credentials:
 
 ```bash
 curl -s -X POST localhost:8080/api/triggers/manual \
@@ -58,7 +58,7 @@ factory-core                control plane — knows NOTHING about any flow
 factory-connectors          Jira / GitHub / TestRail REST clients + graceful fallbacks
 factory-agents              LLM worker base (Spring AI ChatClient), prompt loading,
                             frontmatter codec, secret-scan post-processor
-factory-flow-test-factory   Flow A plugin: flows/test-factory.yaml + 5 workers + prompts
+factory-flow-test-factory   Test Factory plugin: flows/test-factory.yaml + 5 workers + prompts
 factory-app                 Spring Boot composition root: REST API, HITL web UI, Flyway
 ```
 
@@ -114,8 +114,8 @@ Flow modules plug in via the `AgentWorker` SPI and a YAML descriptor; only
 `prompts/<worker-id>/system.md` + `user.md` (single-pass `{placeholder}`
 rendering via `PromptLoader`), calls the Spring AI `ChatClient`, parses the
 response with `FrontmatterCodec` (YAML frontmatter + markdown body), and runs
-post-processors (e.g. `SecretScanPostProcessor`; Flow A adds
-`KarateSanityPostProcessor`). Flow A's five workers live in
+post-processors (e.g. `SecretScanPostProcessor`; the Test Factory flow adds
+`KarateSanityPostProcessor`). Test Factory's five workers live in
 `factory-flow-test-factory/.../worker/`; its chain is
 `flows/test-factory.yaml`: triage → test-spec → HITL gate 1 → test-automation
 (Karate) → test-execution → HITL gate 2 → finalizer (TestRail/GitHub/Jira
@@ -149,8 +149,8 @@ No engine, router, or gateway changes — if a change seems to require touching
   parent/child, HITL decisions) are covered by `factory-core` integration
   tests using fake workers and fake flow descriptors under
   `factory-core/src/test/resources/flows/`.
-- Full Flow A end-to-end lives in `factory-app` (`FlowAEndToEndTest`,
-  `FlowAZeroCredentialsTest`): scripted LLM, WireMock'd Jira/GitHub/TestRail,
+- Full Test Factory end-to-end lives in `factory-app` (`TestFactoryEndToEndTest`,
+  `TestFactoryZeroCredentialsTest`): scripted LLM, WireMock'd Jira/GitHub/TestRail,
   including a QA amendment at gate 1 and the zero-credentials path. When
   changing flow behavior, extend these rather than mocking the engine.
 

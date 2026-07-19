@@ -1,13 +1,13 @@
-package org.folio.factory.flowa.worker;
+package org.folio.factory.testfactory.worker;
 
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
-import org.folio.factory.flowa.FlowAProperties;
-import org.folio.factory.flowa.artifact.ScriptBundleCodec;
-import org.folio.factory.flowa.model.ScriptBundle;
+import org.folio.factory.testfactory.TestFactoryProperties;
+import org.folio.factory.testfactory.artifact.ScriptBundleCodec;
+import org.folio.factory.testfactory.model.ScriptBundle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.util.FileSystemUtils;
@@ -39,11 +39,11 @@ public class TestExecutionWorker implements AgentWorker {
 
     private final ScriptBundleCodec bundleCodec;
     private final FrontmatterCodec frontmatterCodec;
-    private final FlowAProperties properties;
+    private final TestFactoryProperties properties;
     private final JsonMapper jsonMapper;
 
     public TestExecutionWorker(ScriptBundleCodec bundleCodec, FrontmatterCodec frontmatterCodec,
-                               FlowAProperties properties, JsonMapper jsonMapper) {
+                               TestFactoryProperties properties, JsonMapper jsonMapper) {
         this.bundleCodec = bundleCodec;
         this.frontmatterCodec = frontmatterCodec;
         this.properties = properties;
@@ -80,8 +80,8 @@ public class TestExecutionWorker implements AgentWorker {
                 # Test Results (Advisory Mode)
 
                 No reference environment is configured, so the generated scripts were **not executed**.
-                To enable execution, set `FACTORY_FLOWA_EXECUTION_BASE_URL` and
-                `FACTORY_FLOWA_EXECUTION_KARATE_JAR`.
+                To enable execution, set `FACTORY_TEST_FACTORY_EXECUTION_BASE_URL` and
+                `FACTORY_TEST_FACTORY_EXECUTION_KARATE_JAR`.
 
                 Review the generated scripts for correctness before sign-off.
                 """;
@@ -91,7 +91,7 @@ public class TestExecutionWorker implements AgentWorker {
     private String executeWithKarate(ScriptBundle bundle) {
         Path workDir = null;
         try {
-            workDir = Files.createTempDirectory("factory-flowa-run");
+            workDir = Files.createTempDirectory("factory-test-factory-run");
             for (ScriptBundle.ScriptFile file : bundle.files()) {
                 Path target = workDir.resolve(file.path()).normalize();
                 if (!target.startsWith(workDir)) {

@@ -1,9 +1,9 @@
-package org.folio.factory.flowa.worker;
+package org.folio.factory.testfactory.worker;
 
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.folio.factory.flowa.worker.TestExecutionWorker.MAX_CONSOLE_LOG_CHARS;
+import static org.folio.factory.testfactory.worker.TestExecutionWorker.MAX_CONSOLE_LOG_CHARS;
 
 class TestExecutionWorkerTest {
 

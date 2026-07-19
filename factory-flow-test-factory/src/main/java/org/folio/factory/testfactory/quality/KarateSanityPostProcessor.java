@@ -1,11 +1,11 @@
-package org.folio.factory.flowa.quality;
+package org.folio.factory.testfactory.quality;
 
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.engine.StepPostProcessor;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.StepDescriptor;
-import org.folio.factory.flowa.artifact.ScriptBundleCodec;
-import org.folio.factory.flowa.model.ScriptBundle;
+import org.folio.factory.testfactory.artifact.ScriptBundleCodec;
+import org.folio.factory.testfactory.model.ScriptBundle;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;

@@ -11,8 +11,8 @@
   </parent>
 
   <artifactId>factory-flow-test-factory</artifactId>
-  <name>Factory Flow A — Test Factory</name>
-  <description>Flow A plugin: story to manual test cases to automated tests</description>
+  <name>Factory Test Factory Flow</name>
+  <description>Test Factory plugin: story to manual test cases to automated tests</description>
 
   <dependencies>
     <dependency>

@@ -1,4 +1,4 @@
-package org.folio.factory.flowa.model;
+package org.folio.factory.testfactory.model;
 
 import java.util.List;
 

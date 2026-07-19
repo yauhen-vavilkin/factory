@@ -53,7 +53,7 @@ agent_chain:
         What to check, and what AMEND vs REJECT should mean at this gate.
       reviewed_artifacts: [test_plan.md, scope_manifest.md]
 
-  - step_id: delegate                # SUB_FLOW example (not part of Flow A)
+  - step_id: delegate                # SUB_FLOW example (not part of the Test Factory flow)
     type: SUB_FLOW
     sub_flow:
       flow_id: some-registered-flow

@@ -16,7 +16,7 @@
 *.log
 
 # Docs, license and CI are not needed inside the build context.
-# NOTE: do NOT add a broad `*.md` / `**/*.md` rule — Flow A ships prompt resources at
+# NOTE: do NOT add a broad `*.md` / `**/*.md` rule — the Test Factory flow ships prompt resources at
 # */src/main/resources/prompts/**/*.md that must remain in the context and on the classpath.
 doc/
 scripts/

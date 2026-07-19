@@ -1,4 +1,4 @@
-package org.folio.factory.flowa.worker;
+package org.folio.factory.testfactory.worker;
 
 import org.folio.factory.agents.artifact.Frontmatter;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
@@ -13,9 +13,9 @@ import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.metrics.EngineMetrics;
 import org.folio.factory.core.service.AuditLog;
-import org.folio.factory.flowa.FlowAProperties;
-import org.folio.factory.flowa.artifact.ScriptBundleCodec;
-import org.folio.factory.flowa.model.ScriptBundle;
+import org.folio.factory.testfactory.TestFactoryProperties;
+import org.folio.factory.testfactory.artifact.ScriptBundleCodec;
+import org.folio.factory.testfactory.model.ScriptBundle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.client.HttpClientErrorException;
@@ -44,13 +44,13 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
     private final TestRailConnector testRail;
     private final FrontmatterCodec frontmatterCodec;
     private final ScriptBundleCodec bundleCodec;
-    private final FlowAProperties properties;
+    private final TestFactoryProperties properties;
     private final AuditLog auditLog;
     private final EngineMetrics engineMetrics;
 
     public TestFactoryFinalizerWorker(JiraConnector jira, GitHubConnector gitHub,
                                       TestRailConnector testRail, FrontmatterCodec frontmatterCodec,
-                                      ScriptBundleCodec bundleCodec, FlowAProperties properties,
+                                      ScriptBundleCodec bundleCodec, TestFactoryProperties properties,
                                       AuditLog auditLog, EngineMetrics engineMetrics) {
         this.jira = jira;
         this.gitHub = gitHub;
@@ -102,7 +102,7 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
                               ScriptBundle bundle, String issueKey) {
         if (properties.targetRepo() == null || properties.targetRepo().isBlank()) {
             record(context, actions, "github", "commit scripts", "skipped",
-                    "no target repository configured (FACTORY_FLOWA_TARGET_REPO)");
+                    "no target repository configured (FACTORY_TEST_FACTORY_TARGET_REPO)");
             return null;
         }
         String branch = "test-factory/" + issueKey;
@@ -155,7 +155,7 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
                               Frontmatter plan, Frontmatter results, String issueKey) {
         if (properties.testrailSectionId() == null) {
             record(context, actions, "testrail", "sync cases", "skipped",
-                    "no TestRail section configured (FACTORY_FLOWA_TESTRAIL_SECTION_ID)");
+                    "no TestRail section configured (FACTORY_TEST_FACTORY_TESTRAIL_SECTION_ID)");
             return;
         }
         try {

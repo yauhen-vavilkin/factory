@@ -1,4 +1,4 @@
-package org.folio.factory.flowa;
+package org.folio.factory.testfactory;
 
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.connectors.github.GitHubConnector;
@@ -6,12 +6,12 @@ import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.testrail.TestRailConnector;
 import org.folio.factory.core.metrics.EngineMetrics;
 import org.folio.factory.core.service.AuditLog;
-import org.folio.factory.flowa.artifact.ScriptBundleCodec;
-import org.folio.factory.flowa.worker.TestAutomationAgentWorker;
-import org.folio.factory.flowa.worker.TestExecutionWorker;
-import org.folio.factory.flowa.worker.TestFactoryFinalizerWorker;
-import org.folio.factory.flowa.worker.TestSpecAgentWorker;
-import org.folio.factory.flowa.worker.TriageAgentWorker;
+import org.folio.factory.testfactory.artifact.ScriptBundleCodec;
+import org.folio.factory.testfactory.worker.TestAutomationAgentWorker;
+import org.folio.factory.testfactory.worker.TestExecutionWorker;
+import org.folio.factory.testfactory.worker.TestFactoryFinalizerWorker;
+import org.folio.factory.testfactory.worker.TestSpecAgentWorker;
+import org.folio.factory.testfactory.worker.TriageAgentWorker;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -19,12 +19,12 @@ import org.springframework.context.annotation.Configuration;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Flow A plugin wiring. The flow itself is data ({@code flows/test-factory.yaml});
+ * Test Factory plugin wiring. The flow itself is data ({@code flows/test-factory.yaml});
  * this class only assembles the worker beans the descriptor references.
  */
 @Configuration
-@EnableConfigurationProperties(FlowAProperties.class)
-public class FlowAConfiguration {
+@EnableConfigurationProperties(TestFactoryProperties.class)
+public class TestFactoryConfiguration {
 
     @Bean
     public TriageAgentWorker triageAgentWorker(ChatClient.Builder chatClientBuilder,
@@ -43,14 +43,14 @@ public class FlowAConfiguration {
     @Bean
     public TestAutomationAgentWorker testAutomationAgentWorker(ChatClient.Builder chatClientBuilder,
                                                                ScriptBundleCodec bundleCodec,
-                                                               FlowAProperties properties) {
+                                                               TestFactoryProperties properties) {
         return new TestAutomationAgentWorker(chatClientBuilder.build(), bundleCodec, properties);
     }
 
     @Bean
     public TestExecutionWorker testExecutionWorker(ScriptBundleCodec bundleCodec,
                                                    FrontmatterCodec frontmatterCodec,
-                                                   FlowAProperties properties,
+                                                   TestFactoryProperties properties,
                                                    JsonMapper jsonMapper) {
         return new TestExecutionWorker(bundleCodec, frontmatterCodec, properties, jsonMapper);
     }
@@ -61,7 +61,7 @@ public class FlowAConfiguration {
                                                                  TestRailConnector testRailConnector,
                                                                  FrontmatterCodec frontmatterCodec,
                                                                  ScriptBundleCodec bundleCodec,
-                                                                 FlowAProperties properties,
+                                                                 TestFactoryProperties properties,
                                                                  AuditLog auditLog,
                                                                  EngineMetrics engineMetrics) {
         return new TestFactoryFinalizerWorker(jiraConnector, gitHubConnector, testRailConnector,
