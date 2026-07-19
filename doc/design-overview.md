@@ -5,7 +5,8 @@ control plane, the plugin model, the shared services every flow consumes, and
 the principles and safety controls that govern them. It deliberately ignores
 individual flows — a flow is a *client* of this platform, and the platform has
 no knowledge of any specific flow. For the currently implemented flow and how
-to run it, see the [README](../README.md).
+to run it, see the [README](../README.md); for building flows of your own on
+this platform, see the [developer guide](extending-the-factory.md).
 
 ## 1. Context and goals
 
