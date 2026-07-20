@@ -184,6 +184,19 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void artifactsListAndDetailRender() {
+        PipelineExecution execution = executions.save(new PipelineExecution("test-factory", "1", "{}"));
+        var artifact = artifactStore.putMarkdown(execution.getId(), "coverage_report.md",
+                "# Coverage\nAll branches hit.\n", "test-exec");
+
+        String list = assertRendered("/artifacts", "Immutable artifact versions");
+        assertThat(list).contains("coverage_report.md").contains("test-factory");
+
+        String detail = assertRendered("/artifacts/" + artifact.getId(), "All branches hit.");
+        assertThat(detail).contains("coverage_report.md").contains("test-exec");
+    }
+
+    @Test
     void reviewDetailRenders() {
         PipelineExecution execution = executions.save(new PipelineExecution("test-factory", "1", "{}"));
         String reviewPackage = "{\"title\":\"Review test plan\",\"flowId\":\"test-factory\","

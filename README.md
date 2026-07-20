@@ -80,7 +80,8 @@ cards and charts. Work the two QA gates at <http://localhost:8080/reviews>
 (approve/amend/reject — edits are saved as new artifact versions) and watch
 progress at <http://localhost:8080/executions> (full audit timeline per
 execution). The rest of the console: `/flows`
-and `/workers` (registered flow plugins and the agent worker library), `/prompts`
+and `/workers` (registered flow plugins and the agent worker library),
+`/artifacts` (immutable artifact versions across all executions), `/prompts`
 (read-only viewer for each worker's bundled prompt templates), `/audit` (the
 append-only event log) and `/status` (engine and connector health).
 
