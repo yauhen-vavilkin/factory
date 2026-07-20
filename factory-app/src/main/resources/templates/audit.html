@@ -13,8 +13,8 @@
             <label class="label" for="filter-event-type">Event type</label>
             <select class="select" id="filter-event-type" name="eventType">
                 <option value="" th:selected="${selectedEventType == ''}">All</option>
-                <option th:each="t : ${eventTypes}" th:value="${t}" th:text="${t}"
-                        th:selected="${t.name() == selectedEventType}"></option>
+                <option th:each="t : ${eventTypes}" th:value="${t['value']}" th:text="${t['label']}"
+                        th:selected="${t['value'] == selectedEventType}"></option>
             </select>
         </div>
         <button class="btn btn-outline" type="submit">Apply</button>

@@ -47,7 +47,9 @@
                    th:text="${ev['executionShort']}"></a>
                 <span th:unless="${ev['executionId']}" class="muted">—</span>
             </td>
-            <td><span class="badge badge-outline" th:text="${ev['eventType']}"></span></td>
+            <td><span class="badge"
+                      th:classappend="${ev['eventTone']} != null ? 'badge-' + ${ev['eventTone']} : 'badge-outline'"
+                      th:text="${ev['eventLabel']}"></span></td>
             <td><span th:if="${ev['stepId']}" th:text="${ev['stepId']}"></span>
                 <span th:unless="${ev['stepId']}" class="muted">—</span></td>
             <td><span th:if="${ev['actor']}" th:text="${ev['actor']}"></span>

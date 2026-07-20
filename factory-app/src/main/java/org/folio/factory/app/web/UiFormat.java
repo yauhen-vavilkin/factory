@@ -1,6 +1,7 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.core.domain.AuditEvent;
+import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.registry.model.StepDescriptor;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -11,6 +12,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -67,6 +69,8 @@ final class UiFormat {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("occurredAt", format(event.getOccurredAt()));
         row.put("eventType", event.getEventType().name());
+        row.put("eventLabel", eventLabel(event.getEventType()));
+        row.put("eventTone", eventTone(event.getEventType()));
         row.put("stepId", event.getStepId());
         row.put("actor", event.getActor());
         row.put("executionId", event.getExecutionId());
@@ -74,6 +78,30 @@ final class UiFormat {
                 : abbreviate(event.getExecutionId().toString()));
         row.put("detail", prettyDetail(event.getDetail(), jsonMapper));
         return row;
+    }
+
+    /** Human label for an audit event: hand-named where the enum reads poorly, sentence case otherwise. */
+    static String eventLabel(AuditEventType type) {
+        return switch (type) {
+            case HITL_REQUESTED -> "Review requested";
+            case HITL_DECIDED -> "Review decided";
+            case SUBFLOW_INVOKED -> "Sub-flow invoked";
+            case SUBFLOW_RETURNED -> "Sub-flow returned";
+            default -> {
+                String words = type.name().toLowerCase(Locale.ROOT).replace('_', ' ');
+                yield Character.toUpperCase(words.charAt(0)) + words.substring(1);
+            }
+        };
+    }
+
+    /** Badge tone for an audit event, or null for the neutral outline badge. */
+    static String eventTone(AuditEventType type) {
+        return switch (type) {
+            case STEP_FAILED, ESCALATED, EXECUTION_BUDGET_EXCEEDED -> "destructive";
+            case RETRY_SCHEDULED -> "warning";
+            case EXECUTION_COMPLETED -> "success";
+            default -> null;
+        };
     }
 
     private static String prettyDetail(String detail, JsonMapper jsonMapper) {

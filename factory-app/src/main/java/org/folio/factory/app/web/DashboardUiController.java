@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -134,7 +135,8 @@ public class DashboardUiController {
         model.addAttribute("events", result.getContent().stream()
                 .map(event -> UiFormat.auditRow(event, jsonMapper)).toList());
         model.addAttribute("page", result);
-        model.addAttribute("eventTypes", AuditEventType.values());
+        model.addAttribute("eventTypes", Arrays.stream(AuditEventType.values())
+                .map(t -> Map.of("value", t.name(), "label", UiFormat.eventLabel(t))).toList());
         model.addAttribute("selectedEventType", type == null ? "" : type.name());
         model.addAttribute("baseUrl", "/audit?eventType="
                 + (type == null ? "" : type.name()) + "&size=" + clampedSize);

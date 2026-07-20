@@ -218,6 +218,21 @@ class DashboardUiControllerTest {
     }
 
     @Test
+    void audit_eventTypeOptions_carryHumanizedLabels() throws Exception {
+        when(audit.findAllByOrderByIdDesc(any())).thenReturn(emptyPage(0, 50));
+
+        var result = mvc.perform(get("/audit")).andExpect(status().isOk()).andReturn();
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, String>> options =
+                (List<Map<String, String>>) result.getModelAndView().getModel().get("eventTypes");
+        assertThat(options)
+                .contains(Map.of("value", "HITL_REQUESTED", "label", "Review requested"))
+                .contains(Map.of("value", "SUBFLOW_INVOKED", "label", "Sub-flow invoked"))
+                .contains(Map.of("value", "STATE_TRANSITION", "label", "State transition"));
+    }
+
+    @Test
     void audit_validEventType_dispatchesToTypedQueryWithPageable() throws Exception {
         when(audit.findByEventTypeOrderByIdDesc(eq(AuditEventType.STEP_COMPLETED), any()))
                 .thenReturn(emptyPage(2, 10));
@@ -268,6 +283,8 @@ class DashboardUiControllerTest {
         assertThat(events).hasSize(1);
         Map<String, Object> row = events.get(0);
         assertThat(row.get("eventType")).isEqualTo("STEP_COMPLETED");
+        assertThat(row.get("eventLabel")).isEqualTo("Step completed");
+        assertThat(row.get("eventTone")).isNull();
         assertThat(row.get("executionId")).isEqualTo(executionId);
         assertThat(row.get("detail").toString()).contains("\n").contains("\"note\"");
     }
