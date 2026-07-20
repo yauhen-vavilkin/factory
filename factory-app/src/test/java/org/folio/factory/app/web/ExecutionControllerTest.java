@@ -3,6 +3,7 @@ package org.folio.factory.app.web;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
@@ -12,6 +13,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -20,6 +25,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -41,9 +50,101 @@ class ExecutionControllerTest {
 
     @BeforeEach
     void setUp() {
-        mvc = MockMvcBuilders.standaloneSetup(new ExecutionController(executions, artifactStore, auditLog))
+        mvc = MockMvcBuilders
+                .standaloneSetup(new ExecutionController(executions, artifactStore, auditLog))
                 .setControllerAdvice(new ApiExceptionHandler())
                 .build();
+    }
+
+    private PipelineExecution execution() {
+        return new PipelineExecution("test-factory", "1.0.0", "{}");
+    }
+
+    private Page<PipelineExecution> pageOf(PipelineExecution execution) {
+        return new PageImpl<>(List.of(execution), PageRequest.of(0, 50), 1);
+    }
+
+    @Test
+    void list_noFilters_usesFindAllAndWrapsInEnvelope() throws Exception {
+        PipelineExecution execution = execution();
+        when(executions.search(any(), any(), any(Pageable.class))).thenCallRealMethod();
+        when(executions.findAll(any(Pageable.class))).thenReturn(pageOf(execution));
+
+        mvc.perform(get("/api/executions"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].id").value(execution.getId().toString()))
+                .andExpect(jsonPath("$.items[0].flowId").value("test-factory"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(50))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.totalPages").value(1));
+
+        verify(executions).findAll(any(Pageable.class));
+    }
+
+    @Test
+    void list_statusOnly_usesFindByStatus() throws Exception {
+        when(executions.search(any(), any(), any(Pageable.class))).thenCallRealMethod();
+        when(executions.findByStatus(eq(ExecutionStatus.RUNNING), any(Pageable.class)))
+                .thenReturn(pageOf(execution()));
+
+        mvc.perform(get("/api/executions").param("status", "RUNNING"))
+                .andExpect(status().isOk());
+
+        verify(executions).findByStatus(eq(ExecutionStatus.RUNNING), any(Pageable.class));
+    }
+
+    @Test
+    void list_flowIdOnly_usesFindByFlowId() throws Exception {
+        when(executions.search(any(), any(), any(Pageable.class))).thenCallRealMethod();
+        when(executions.findByFlowId(eq("test-factory"), any(Pageable.class))).thenReturn(pageOf(execution()));
+
+        mvc.perform(get("/api/executions").param("flowId", "test-factory"))
+                .andExpect(status().isOk());
+
+        verify(executions).findByFlowId(eq("test-factory"), any(Pageable.class));
+    }
+
+    @Test
+    void list_statusAndFlowId_usesCombinedFinder() throws Exception {
+        when(executions.search(any(), any(), any(Pageable.class))).thenCallRealMethod();
+        when(executions.findByStatusAndFlowId(eq(ExecutionStatus.COMPLETED), eq("test-factory"), any(Pageable.class)))
+                .thenReturn(pageOf(execution()));
+
+        mvc.perform(get("/api/executions").param("status", "COMPLETED").param("flowId", "test-factory"))
+                .andExpect(status().isOk());
+
+        verify(executions).findByStatusAndFlowId(eq(ExecutionStatus.COMPLETED), eq("test-factory"), any(Pageable.class));
+    }
+
+    @Test
+    void list_invalidStatus_unprocessableWithoutRepositoryAccess() throws Exception {
+        mvc.perform(get("/api/executions").param("status", "BOGUS"))
+                .andExpect(status().is(422))
+                .andExpect(jsonPath("$.error").value(containsString("BOGUS")));
+
+        verifyNoInteractions(executions);
+    }
+
+    @Test
+    void list_sizeTooLarge_unprocessable() throws Exception {
+        mvc.perform(get("/api/executions").param("size", "201"))
+                .andExpect(status().is(422));
+        verifyNoInteractions(executions);
+    }
+
+    @Test
+    void list_sizeTooSmall_unprocessable() throws Exception {
+        mvc.perform(get("/api/executions").param("size", "0"))
+                .andExpect(status().is(422));
+        verifyNoInteractions(executions);
+    }
+
+    @Test
+    void list_negativePage_unprocessable() throws Exception {
+        mvc.perform(get("/api/executions").param("page", "-1"))
+                .andExpect(status().is(422));
+        verifyNoInteractions(executions);
     }
 
     @Test

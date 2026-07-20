@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Dashboard', activeNav='dashboard', content=~{:: .page-body}, scripts=~{:: #page-scripts})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="page-header">
+        <h1>Dashboard</h1>
+        <p class="page-description">Pipeline throughput, execution outcomes, and review load across the factory.</p>
+    </div>
+
+    <nav class="tabs" aria-label="Time range">
+        <a th:each="d : ${ {1, 7, 14, 30, 90} }" th:href="@{/(days=${d})}"
+           th:text="${d == 1 ? '24h' : d + 'd'}"
+           th:attrappend="aria-current=${d == days} ? 'page'">14d</a>
+    </nav>
+
+    <div class="kpi-grid">
+        <div class="kpi">
+            <span class="kpi-value" th:text="${totalExecutions}">0</span>
+            <span class="kpi-label">Total executions</span>
+        </div>
+        <div class="kpi">
+            <span class="kpi-value" th:text="${completedCount}">0</span>
+            <span class="kpi-label">Completed</span>
+        </div>
+        <div class="kpi">
+            <span class="kpi-value" th:text="${awaitingHitlCount}">0</span>
+            <span class="kpi-label">Awaiting review</span>
+            <span class="kpi-trend" th:text="${pendingReviews} + ' pending HITL reviews'">0 pending HITL reviews</span>
+        </div>
+        <div class="kpi">
+            <span class="kpi-value" th:text="${failedCount}">0</span>
+            <span class="kpi-label">Failed / escalated</span>
+        </div>
+        <div class="kpi">
+            <span class="kpi-value" th:text="${cancelledCount + rejectedCount}">0</span>
+            <span class="kpi-label">Cancelled / rejected</span>
+            <span class="kpi-trend"
+                  th:text="${cancelledCount} + ' cancelled · ' + ${rejectedCount} + ' rejected'">0 cancelled · 0 rejected</span>
+        </div>
+        <div class="kpi">
+            <span class="kpi-value">
+                <span class="badge badge-success" th:if="${engineEnabled}">Running</span>
+                <span class="badge badge-muted" th:unless="${engineEnabled}">Disabled</span>
+            </span>
+            <span class="kpi-label">Execution engine</span>
+        </div>
+        <div class="kpi">
+            <span class="kpi-value" th:text="${connectorsConfigured} + ' of ' + ${connectorsTotal}">0 of 0</span>
+            <span class="kpi-label">Connectors configured</span>
+        </div>
+    </div>
+
+    <div class="charts-grid" th:attr="data-days=${days}">
+        <div class="chart-card card" data-chart="chart-executions">
+            <div class="card-header"><h2 class="card-title">Executions over time</h2></div>
+            <div class="card-content">
+                <div class="chart-region">
+                    <canvas id="chart-executions" role="img"
+                            aria-label="Stacked bar chart of executions per day by terminal status"></canvas>
+                </div>
+                <p class="empty-state" data-empty hidden>No data in this range.</p>
+            </div>
+        </div>
+
+        <div class="chart-card card" data-chart="chart-status-mix">
+            <div class="card-header"><h2 class="card-title">Current status mix</h2></div>
+            <div class="card-content">
+                <div class="chart-region">
+                    <canvas id="chart-status-mix" role="img"
+                            aria-label="Doughnut chart of current executions by status"></canvas>
+                </div>
+                <p class="empty-state" data-empty hidden>No data in this range.</p>
+            </div>
+        </div>
+
+        <div class="chart-card card" data-chart="chart-throughput">
+            <div class="card-header"><h2 class="card-title">Throughput by flow</h2></div>
+            <div class="card-content">
+                <div class="chart-region">
+                    <canvas id="chart-throughput" role="img"
+                            aria-label="Horizontal bar chart of total executions per flow"></canvas>
+                </div>
+                <p class="empty-state" data-empty hidden>No data in this range.</p>
+            </div>
+        </div>
+
+        <div class="chart-card card">
+            <div class="card-header">
+                <h2 class="card-title">HITL review latency</h2>
+                <p class="card-description">Human-in-the-loop gate load and decision timing.</p>
+            </div>
+            <div class="card-content">
+                <dl class="def-list">
+                    <dt>Pending</dt><dd id="hitl-pending">—</dd>
+                    <dt>Avg decision time</dt><dd id="hitl-avg">—</dd>
+                    <dt>Oldest pending</dt><dd id="hitl-oldest">—</dd>
+                    <dt>Decided in window</dt><dd id="hitl-decided">—</dd>
+                </dl>
+            </div>
+        </div>
+
+        <div class="chart-card card" data-chart="chart-step-failures">
+            <div class="card-header"><h2 class="card-title">Step failures &amp; retries</h2></div>
+            <div class="card-content">
+                <div class="chart-region">
+                    <canvas id="chart-step-failures" role="img"
+                            aria-label="Horizontal bar chart of step failures and scheduled retries per step"></canvas>
+                </div>
+                <p class="empty-state" data-empty hidden>No data in this range.</p>
+            </div>
+        </div>
+
+        <div class="chart-card card" data-chart="chart-connectors">
+            <div class="card-header"><h2 class="card-title">Connector actions</h2></div>
+            <div class="card-content">
+                <div class="chart-region">
+                    <canvas id="chart-connectors" role="img"
+                            aria-label="Stacked bar chart of connector actions executed versus skipped per connector"></canvas>
+                </div>
+                <p class="empty-state" data-empty hidden>No data in this range.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<div id="page-scripts">
+    <script th:src="@{/webjars/chart.js/dist/chart.umd.js}"></script>
+    <script th:src="@{/js/charts.js}"></script>
+</div>
+</body>
+</html>

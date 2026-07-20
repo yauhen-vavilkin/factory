@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Artifacts', activeNav='artifacts', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="page-header">
+        <h1>Artifacts</h1>
+        <p class="page-description">Immutable artifact versions across all executions, most recent first.</p>
+    </div>
+
+    <form class="filter-bar" method="get" th:action="@{/artifacts}">
+        <div class="filter-field">
+            <label class="label" for="filter-name">Name</label>
+            <select class="select" id="filter-name" name="name">
+                <option value="" th:selected="${selectedName == ''}">All</option>
+                <option th:each="n : ${names}" th:value="${n}" th:text="${n}"
+                        th:selected="${n == selectedName}"></option>
+            </select>
+        </div>
+        <button class="btn btn-outline" type="submit">Apply</button>
+    </form>
+
+    <div th:if="${#lists.isEmpty(artifacts)}" class="empty-state">
+        No artifacts match this filter.
+        <a th:if="${filtersActive}" th:href="@{/artifacts}">Clear filter</a>
+    </div>
+
+    <div th:unless="${#lists.isEmpty(artifacts)}">
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr><th>Artifact</th><th>Version</th><th>Flow</th><th>Execution</th><th>Created by</th><th>Created</th></tr>
+                </thead>
+                <tbody>
+                <tr th:each="a : ${artifacts}">
+                    <td><a th:href="@{'/artifacts/' + ${a['id']}}" th:text="${a['name']}"></a></td>
+                    <td th:text="'v' + ${a['version']}"></td>
+                    <td><span th:if="${a['flowId']}" th:text="${a['flowId']}"></span>
+                        <span th:unless="${a['flowId']}" class="muted">—</span></td>
+                    <td><a th:href="@{'/executions/' + ${a['executionId']}}" th:text="${a['executionShort']}"></a></td>
+                    <td class="muted" th:text="${a['createdBy']}"></td>
+                    <td class="muted" th:text="${a['createdAt']}"></td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <nav th:replace="~{fragments/components :: slicePagination(${page}, ${baseUrl})}"></nav>
+    </div>
+</section>
+</body>
+</html>

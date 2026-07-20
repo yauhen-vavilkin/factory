@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Workers', activeNav='workers', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="page-header">
+        <h1>Workers</h1>
+        <p class="page-description">The agent worker library. Workers are stateless and reusable across flows.</p>
+    </div>
+
+    <div class="empty-state" th:if="${#lists.isEmpty(workers)}">No agent workers registered.</div>
+
+    <div class="table-wrap" th:unless="${#lists.isEmpty(workers)}">
+        <table>
+            <thead>
+            <tr><th>Worker</th><th>Class</th><th>Kind</th><th>Used by</th>
+                <th><span class="sr-only">Actions</span></th></tr>
+            </thead>
+            <tbody>
+            <tr th:each="w : ${workers}">
+                <td th:text="${w['id']}">worker-id</td>
+                <td class="muted"><code th:text="${w['className']}">Class</code></td>
+                <td>
+                    <span class="badge" th:if="${w['llm']}">LLM</span>
+                    <span class="badge badge-outline" th:unless="${w['llm']}">Plain</span>
+                </td>
+                <td>
+                    <div class="badge-row" th:unless="${#lists.isEmpty(w['usedBy'])}">
+                        <a class="badge badge-outline" th:each="u : ${w['usedBy']}"
+                           th:href="@{'/flows/' + ${u['flowId']}}"
+                           th:text="${u['flowId']} + ' · ' + ${u['stepId']}">flow · step</a>
+                    </div>
+                    <span class="muted" th:if="${#lists.isEmpty(w['usedBy'])}">—</span>
+                </td>
+                <td>
+                    <a class="btn btn-outline btn-sm" th:if="${w['llm']}"
+                       th:href="@{'/prompts/' + ${w['id']}}">Prompts</a>
+                </td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+</body>
+</html>

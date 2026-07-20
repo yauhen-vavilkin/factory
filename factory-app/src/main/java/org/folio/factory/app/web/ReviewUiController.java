@@ -5,9 +5,11 @@ import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.hitl.HitlDecision;
 import org.folio.factory.core.hitl.HitlDecisionService;
 import org.folio.factory.core.repository.HitlReviewRepository;
-import org.folio.factory.core.repository.PipelineExecutionRepository;
-import org.folio.factory.core.service.ArtifactStore;
-import org.folio.factory.core.service.AuditLog;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,52 +20,69 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
 /**
- * Minimal server-rendered HITL console: a review inbox, a review detail page
- * with inline artifact editing, and an execution timeline. No JavaScript build —
- * plain HTML forms against the same decision service the REST API uses.
+ * Server-rendered HITL console: a review inbox and a review detail page with
+ * inline artifact editing. Plain HTML forms post against the same decision
+ * service the REST API uses.
  */
 @Controller
-public class UiController {
+public class ReviewUiController {
 
     private static final String ARTIFACT_FIELD_PREFIX = "artifact:";
 
     private final HitlReviewRepository reviews;
     private final HitlDecisionService decisionService;
-    private final PipelineExecutionRepository executions;
-    private final ArtifactStore artifactStore;
-    private final AuditLog auditLog;
     private final JsonMapper jsonMapper;
 
-    public UiController(HitlReviewRepository reviews, HitlDecisionService decisionService,
-                        PipelineExecutionRepository executions, ArtifactStore artifactStore,
-                        AuditLog auditLog, JsonMapper jsonMapper) {
+    public ReviewUiController(HitlReviewRepository reviews, HitlDecisionService decisionService,
+                              JsonMapper jsonMapper) {
         this.reviews = reviews;
         this.decisionService = decisionService;
-        this.executions = executions;
-        this.artifactStore = artifactStore;
-        this.auditLog = auditLog;
         this.jsonMapper = jsonMapper;
     }
 
-    @GetMapping("/")
-    public String home() {
-        return "redirect:/reviews";
-    }
+    private static final int PAGE_SIZE = 50;
+    private static final List<String> STATUS_TABS =
+            List.of("PENDING", "APPROVED", "AMENDED", "REJECTED", "ALL");
 
     @GetMapping("/reviews")
-    public String reviews(Model model) {
-        var pending = reviews.findByStatusOrderByCreatedAtAsc(HitlReviewStatus.PENDING).stream()
-                .map(this::reviewRow).toList();
-        model.addAttribute("reviews", pending);
+    public String reviews(@RequestParam(name = "status", defaultValue = "PENDING") String status,
+                          @RequestParam(name = "page", defaultValue = "0") int page, Model model) {
+        String selected = normaliseStatus(status);
+        Page<HitlReview> paged = null;
+        List<HitlReview> rows;
+        if ("PENDING".equals(selected)) {
+            // The inbox stays unpaged by design: it is bounded and worked top-down.
+            rows = reviews.findByStatusOrderByCreatedAtAsc(HitlReviewStatus.PENDING);
+        } else {
+            Pageable pageable = PageRequest.of(Math.max(page, 0), PAGE_SIZE,
+                    Sort.by(Sort.Direction.DESC, "createdAt"));
+            paged = "ALL".equals(selected)
+                    ? reviews.findAll(pageable)
+                    : reviews.findByStatus(HitlReviewStatus.valueOf(selected), pageable);
+            rows = paged.getContent();
+        }
+        model.addAttribute("reviews", rows.stream().map(this::reviewRow).toList());
+        model.addAttribute("statusTabs", STATUS_TABS);
+        model.addAttribute("selectedStatus", selected);
+        model.addAttribute("showDecision", !"PENDING".equals(selected));
+        model.addAttribute("page", paged);
+        model.addAttribute("baseUrl", "/reviews?status=" + selected);
         return "reviews";
+    }
+
+    private static String normaliseStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return "PENDING";
+        }
+        String upper = status.strip().toUpperCase();
+        return STATUS_TABS.contains(upper) ? upper : "PENDING";
     }
 
     @GetMapping("/reviews/{id}")
@@ -104,24 +123,12 @@ public class UiController {
             redirect.addFlashAttribute("message", "Decision " + hitlDecision + " recorded for review " + id);
             return "redirect:/reviews";
         } catch (IllegalArgumentException | IllegalStateException | NoSuchElementException e) {
-            return redirectWithError(id, e.getMessage());
+            return UiFormat.errorRedirect("/reviews/" + id, e.getMessage());
+        } catch (OptimisticLockingFailureException e) {
+            // HitlReview is @Version-ed: a concurrent reviewer's decision committed first.
+            return UiFormat.errorRedirect("/reviews/" + id,
+                    "This review was decided concurrently; reload to see the outcome");
         }
-    }
-
-    @GetMapping("/executions")
-    public String executions(Model model) {
-        model.addAttribute("executions", executions.findAllByOrderByCreatedAtDesc());
-        return "executions";
-    }
-
-    @GetMapping("/executions/{id}")
-    public String execution(@PathVariable("id") UUID id, Model model) {
-        var execution = executions.findById(id)
-                .orElseThrow(() -> new NoSuchElementException("No execution " + id));
-        model.addAttribute("execution", execution);
-        model.addAttribute("artifacts", artifactStore.allForExecution(id));
-        model.addAttribute("events", auditLog.forExecution(id));
-        return "execution";
     }
 
     private Map<String, Object> reviewRow(HitlReview review) {
@@ -131,12 +138,11 @@ public class UiController {
         row.put("title", reviewPackage.path("title").asString());
         row.put("flowId", reviewPackage.path("flowId").asString());
         row.put("gateId", review.getGateId());
-        row.put("createdAt", review.getCreatedAt());
+        row.put("createdAt", UiFormat.format(review.getCreatedAt()));
+        row.put("status", review.getStatus());
+        row.put("decision", review.getDecision());
+        row.put("reviewer", review.getReviewer());
+        row.put("decidedAt", UiFormat.format(review.getDecidedAt()));
         return row;
-    }
-
-    private String redirectWithError(UUID reviewId, String message) {
-        return "redirect:/reviews/" + reviewId + "?error="
-                + URLEncoder.encode(message == null ? "Request failed" : message, StandardCharsets.UTF_8);
     }
 }

@@ -37,7 +37,8 @@ factory-connectors/          Jira, GitHub, TestRail REST clients + graceful fall
 factory-agents/              LLM base worker (Spring AI ChatClient), prompt loading,
                              frontmatter codec, secret-scan post-processor
 factory-flow-test-factory/   Test Factory plugin: flows/test-factory.yaml + 5 workers + prompts
-factory-app/                 Spring Boot app: REST API, HITL web UI, Flyway, config
+factory-app/                 Spring Boot app: management console (server-rendered UI),
+                             REST API, Flyway, config
 ```
 
 Key invariants, enforced by the framework:
@@ -75,10 +76,15 @@ curl -s -X POST localhost:8080/api/triggers/manual \
   -d @factory-app/src/main/resources/samples/sample-story-inline.json
 ```
 
-Then open <http://localhost:8080/reviews> and work the two QA gates
-(approve/amend/reject — edits are saved as new artifact versions). Watch
-progress on <http://localhost:8080/executions> (full audit timeline per
-execution) and check connector status on <http://localhost:8080/api/status>.
+Then open the management UI at <http://localhost:8080/> — a dashboard with KPI
+cards and charts. Work the two QA gates at <http://localhost:8080/reviews>
+(approve/amend/reject — edits are saved as new artifact versions) and watch
+progress at <http://localhost:8080/executions> (full audit timeline per
+execution). The rest of the console: `/flows`
+and `/workers` (registered flow plugins and the agent worker library),
+`/artifacts` (immutable artifact versions across all executions), `/prompts`
+(read-only viewer for each worker's bundled prompt templates), `/audit` (the
+append-only event log) and `/status` (engine and connector health).
 
 Manual triggers are never deduplicated by default — re-running the curl starts a
 new execution. To opt a manual trigger into dedup, add an idempotency key to the

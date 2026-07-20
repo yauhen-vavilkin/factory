@@ -2,6 +2,8 @@ package org.folio.factory.core.repository;
 
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -48,9 +50,36 @@ public interface PipelineExecutionRepository extends JpaRepository<PipelineExecu
             @Param("statuses") List<ExecutionStatus> statuses,
             @Param("parentStatus") ExecutionStatus parentStatus);
 
-    List<PipelineExecution> findAllByOrderByCreatedAtDesc();
+    Page<PipelineExecution> findByStatus(ExecutionStatus status, Pageable pageable);
+
+    Page<PipelineExecution> findByFlowId(String flowId, Pageable pageable);
+
+    Page<PipelineExecution> findByStatusAndFlowId(ExecutionStatus status, String flowId, Pageable pageable);
+
+    /**
+     * Filtered execution search: dispatches to the narrowest finder for the given
+     * combination of a status and flow id. A null status or a null/blank flow id is
+     * treated as "no filter" on that dimension.
+     */
+    default Page<PipelineExecution> search(ExecutionStatus status, String flowId, Pageable pageable) {
+        boolean hasStatus = status != null;
+        boolean hasFlow = flowId != null && !flowId.isBlank();
+        if (hasStatus && hasFlow) {
+            return findByStatusAndFlowId(status, flowId, pageable);
+        }
+        if (hasStatus) {
+            return findByStatus(status, pageable);
+        }
+        if (hasFlow) {
+            return findByFlowId(flowId, pageable);
+        }
+        return findAll(pageable);
+    }
 
     long countByStatus(ExecutionStatus status);
+
+    @Query("select e.status, count(e) from PipelineExecution e group by e.status")
+    List<Object[]> countGroupedByStatus();
 
     boolean existsByFlowIdAndDedupKeyAndIdNotAndStatusNotIn(
             String flowId, String dedupKey, UUID id, Collection<ExecutionStatus> statuses);

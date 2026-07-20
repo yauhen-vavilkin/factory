@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Prompts', activeNav='prompts', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="page-header">
+        <h1>Prompts</h1>
+        <p class="page-description">Bundled prompt templates per LLM worker, shipped in the application. Read-only.</p>
+    </div>
+
+    <div class="empty-state" th:if="${#lists.isEmpty(workers)}">No prompt templates found.</div>
+
+    <div class="card" th:each="w : ${workers}">
+        <div class="card-header">
+            <h2 class="card-title" th:text="${w['workerId']}">worker</h2>
+        </div>
+        <div class="card-content">
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr><th>Prompt</th><th><span class="sr-only">Actions</span></th></tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="p : ${w['prompts']}">
+                        <td th:text="${p}">system</td>
+                        <td>
+                            <a class="btn btn-outline btn-sm"
+                               th:href="@{'/prompts/' + ${w['workerId']}(file=${p})}">View</a>
+                        </td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</section>
+</body>
+</html>

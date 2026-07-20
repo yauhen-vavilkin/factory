@@ -3,6 +3,7 @@ package org.folio.factory.core.engine;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
+import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
@@ -54,6 +55,9 @@ class SubFlowIntegrationTest {
 
     @Autowired
     HitlReviewRepository reviews;
+
+    @Autowired
+    FlowRegistry flowRegistry;
 
     /**
      * Pumps the engine (claim + advance) until {@code executionId} reaches a terminal
@@ -147,6 +151,21 @@ class SubFlowIntegrationTest {
         subFlowInvoker.escalateParentsOfTerminatedChildren();
 
         assertThat(stateManager.get(parent.getId()).getStatus()).isEqualTo(ExecutionStatus.AWAITING_SUBFLOW);
+    }
+
+    @Test
+    void invokeOnResolvedParentCreatesNoChild() {
+        PipelineExecution parent = stateManager.createExecution("fake-parent", "1.0.0", null);
+        stateManager.transition(parent.getId(), ExecutionStatus.CANCELLED, null);
+
+        UUID childId = subFlowInvoker.invoke(stateManager.get(parent.getId()),
+                flowRegistry.require("fake-parent").step(1));
+
+        assertThat(childId).isNull();
+        assertThat(executions.findByParentExecutionId(parent.getId())).isEmpty();
+        assertThat(stateManager.get(parent.getId()).getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
+        assertThat(auditLog.forExecution(parent.getId()))
+                .noneMatch(e -> e.getEventType() == AuditEventType.SUBFLOW_INVOKED);
     }
 
     @Test

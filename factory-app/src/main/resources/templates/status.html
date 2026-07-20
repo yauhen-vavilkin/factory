@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Status', activeNav='status', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="page-header">
+        <h1>Status</h1>
+        <p class="page-description">Engine health, connector configuration, and the registered flow catalog.</p>
+    </div>
+
+    <div class="stack">
+        <section>
+            <div class="page-header">
+                <h2 class="card-title">Execution engine</h2>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <span class="badge badge-success" th:if="${engine['enabled']}">Running</span>
+                    <span class="badge badge-muted" th:unless="${engine['enabled']}">Disabled</span>
+                </div>
+                <div class="card-content">
+                    <dl class="def-list">
+                        <dt>Poll interval</dt><dd th:text="${engine['pollIntervalMs']} + ' ms'"></dd>
+                        <dt>Batch size</dt><dd th:text="${engine['batchSize']}"></dd>
+                        <dt>Worker threads</dt><dd th:text="${engine['workerThreads']}"></dd>
+                        <dt>Lease timeout</dt><dd th:text="${engine['leaseTimeoutSeconds']} + ' s'"></dd>
+                    </dl>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <div class="page-header">
+                <h2 class="card-title">Connectors</h2>
+            </div>
+            <div class="empty-state" th:if="${#lists.isEmpty(connectors)}">No connectors registered.</div>
+            <div class="card-grid" th:unless="${#lists.isEmpty(connectors)}">
+                <div class="card" th:each="c : ${connectors}">
+                    <div class="card-header">
+                        <h3 class="card-title" th:text="${c['name']}"></h3>
+                        <span class="badge badge-success" th:if="${c['configured']}">Configured</span>
+                        <span class="badge badge-outline" th:unless="${c['configured']}">Not configured</span>
+                        <p class="card-description" th:unless="${c['configured']}">
+                            Sync actions run in advisory mode and are audited as CONNECTOR_SKIPPED.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <div class="page-header">
+                <h2 class="card-title">Flow registry</h2>
+            </div>
+            <div class="table-wrap" th:unless="${#lists.isEmpty(flows)}">
+                <table>
+                    <thead>
+                    <tr><th>Id</th><th>Name</th><th>Version</th><th>Registered</th></tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="f : ${flows}">
+                        <td><a th:href="@{'/flows/' + ${f['id']}}" th:text="${f['id']}"></a></td>
+                        <td th:text="${f['name']}"></td>
+                        <td th:text="${f['version']}"></td>
+                        <td class="muted" th:text="${f['registeredAt']}"></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="empty-state" th:if="${#lists.isEmpty(flows)}">No flows registered.</div>
+        </section>
+
+        <section>
+            <div class="page-header">
+                <h2 class="card-title">Actuator</h2>
+            </div>
+            <div class="card">
+                <div class="card-content">
+                    <nav class="tabs" aria-label="Actuator endpoints">
+                        <a th:href="@{/actuator/health}">Health</a>
+                        <a th:href="@{/actuator/metrics}">Metrics</a>
+                        <a th:href="@{/actuator/prometheus}">Prometheus</a>
+                    </nav>
+                </div>
+            </div>
+        </section>
+    </div>
+</section>
+</body>
+</html>

@@ -200,26 +200,41 @@ public class ExecutionEngine {
         int attempts = stateManager.incrementRetry(executionId, step.stepId());
         if (attempts < flow.retryPolicy().maxAttempts()) {
             long backoff = flow.retryPolicy().backoffFor(attempts);
-            stateManager.scheduleRetry(executionId, backoff, error);
-            auditLog.record(executionId, AuditEventType.RETRY_SCHEDULED, step.stepId(),
-                    Map.of("attempt", attempts, "backoffSeconds", backoff));
-            engineMetrics.stepRetryScheduled();
-            log.warn("Step '{}' of execution {} failed (attempt {}); retrying in {}s: {}",
-                    step.stepId(), executionId, attempts, backoff, error);
-        } else {
-            stateManager.transition(executionId, ExecutionStatus.FAILED_ESCALATED, Map.of("stepId", step.stepId()));
+            // Skip the retry bookkeeping when the guard refused the state change —
+            // e.g. the run was cancelled while this step was still in flight.
+            if (stateManager.scheduleRetry(executionId, backoff, error)) {
+                auditLog.record(executionId, AuditEventType.RETRY_SCHEDULED, step.stepId(),
+                        Map.of("attempt", attempts, "backoffSeconds", backoff));
+                engineMetrics.stepRetryScheduled();
+                log.warn("Step '{}' of execution {} failed (attempt {}); retrying in {}s: {}",
+                        step.stepId(), executionId, attempts, backoff, error);
+            } else {
+                log.warn("Step '{}' of execution {} failed but the run is already resolved; skipping retry",
+                        step.stepId(), executionId);
+            }
+        } else if (hitlGateOpener.openEscalationReview(execution, step, error, attempts) != null) {
+            // openEscalationReview transitions to FAILED_ESCALATED and inserts the
+            // review atomically; a null return means the guard refused the
+            // transition (a concurrent resolution), so no review exists to attribute.
             auditLog.record(executionId, AuditEventType.ESCALATED, step.stepId(),
                     Map.of("attempts", attempts, "error", error));
             engineMetrics.stepEscalated();
-            hitlGateOpener.openEscalationReview(stateManager.get(executionId), step, error, attempts);
             log.error("Step '{}' of execution {} exhausted its retry budget after {} attempts; escalated to human review",
                     step.stepId(), executionId, attempts);
+        } else {
+            log.warn("Step '{}' of execution {} exhausted retries but the run is already resolved; skipping escalation",
+                    step.stepId(), executionId);
         }
     }
 
     private void complete(PipelineExecution execution) {
-        stateManager.transition(execution.getId(), ExecutionStatus.COMPLETED, null);
-        subFlowInvoker.onChildCompleted(execution.getId());
+        PipelineExecution current = stateManager.transition(execution.getId(), ExecutionStatus.COMPLETED, null);
+        // Guard refusal means a concurrent resolution (e.g. cancel) won: the run did
+        // not complete, so a waiting parent must not resume on this child's outputs —
+        // the terminated-children sweep escalates it instead.
+        if (current.getStatus() == ExecutionStatus.COMPLETED) {
+            subFlowInvoker.onChildCompleted(execution.getId());
+        }
     }
 
     private void failTerminally(UUID executionId, Exception e) {

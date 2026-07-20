@@ -21,11 +21,15 @@ never by modifying the control plane.
 
 ```bash
 docker compose up -d                     # PostgreSQL (required for run and tests)
-mvn spring-boot:run -pl factory-app      # run the app (needs ANTHROPIC_API_KEY)
+mvn spring-boot:run -pl factory-app      # run the app (needs ANTHROPIC_API_KEY, or FACTORY_LLM_* / .env)
 mvn verify                               # full build + unit/integration tests (Docker required — Testcontainers)
 mvn -pl factory-core test -Dtest=SubFlowIntegrationTest          # single test class
 mvn -pl factory-core test -Dtest=SubFlowIntegrationTest#method   # single test method
 ```
+
+`spring-boot:run -pl factory-app` resolves the sibling modules from `~/.m2`,
+not the reactor — after changing `factory-core`/`factory-agents`/a flow module,
+run `mvn install -DskipTests` first or the app runs (or fails) on stale jars.
 
 Trigger the Test Factory flow locally without Jira credentials:
 
@@ -36,9 +40,11 @@ curl -s -X POST localhost:8080/api/triggers/manual \
 ```
 
 Then work the QA gates at `http://localhost:8080/reviews`, watch progress at
-`/executions`, check connectors at `/api/status`. With zero connector
-credentials the flow still completes end-to-end: execution runs in **advisory
-mode** and every external sync is audited as `CONNECTOR_SKIPPED`.
+`/executions`, check connectors at `/api/status`. The rest of the console:
+`/` (dashboard), `/flows`, `/artifacts`, `/workers`, `/prompts`, `/audit`,
+`/status`. With zero connector credentials the flow still completes
+end-to-end: execution runs in **advisory mode** and every external sync is
+audited as `CONNECTOR_SKIPPED`.
 
 ## Stack
 
@@ -59,7 +65,8 @@ factory-connectors          Jira / GitHub / TestRail REST clients + graceful fal
 factory-agents              LLM worker base (Spring AI ChatClient), prompt loading,
                             frontmatter codec, secret-scan post-processor
 factory-flow-test-factory   Test Factory plugin: flows/test-factory.yaml + 5 workers + prompts
-factory-app                 Spring Boot composition root: REST API, HITL web UI, Flyway
+factory-app                 Spring Boot composition root: management console (server-rendered
+                            Thymeleaf UI), REST API, Flyway
 ```
 
 The hard rule: `factory-core` cannot even compile against a flow module.
@@ -121,6 +128,30 @@ post-processors (e.g. `SecretScanPostProcessor`; the Test Factory flow adds
 (Karate) → test-execution → HITL gate 2 → finalizer (TestRail/GitHub/Jira
 sync).
 
+### Management console (factory-app web UI)
+
+Server-rendered Thymeleaf, no build step: shared layout + fragments under
+`templates/`, tokens/app CSS and a small vanilla-JS layer under `static/`.
+Conventions that are easy to violate silently:
+
+- **Layout parameter shadowing** — every page is wrapped by
+  `fragments/layout :: page(title, activeNav, content, scripts)`, and those
+  four names stay in scope inside the inserted page body, shadowing any
+  same-named model attribute. Never name a model attribute `title`,
+  `activeNav`, `content`, or `scripts`.
+- **Templates stay dumb** — controllers build row `Map`s (template access is
+  `${row['key']}`, so records don't work); shared row/format helpers live in
+  `UiFormat` (timestamps, audit rows, event labels/tones, step labels).
+- **Slice, not Page, for unbounded tables** — audit and artifact feeds page
+  with `Slice`/`slicePagination`/`SliceResponse` so no per-request `count(*)`
+  runs against append-only tables. Bounded lists (executions, reviews) use
+  `Page`/`PageResponse`.
+- **Exception split** — `ApiExceptionHandler` (`@RestControllerAdvice`, scoped
+  to `@RestController`) returns JSON; `UiExceptionHandler` renders the HTML
+  404 page for `@Controller` routes.
+- Page-size params: REST validates strictly (`PageValidation.pageable`, 422);
+  UI clamps leniently (`PageValidation.clampSize`).
+
 ## Adding a new flow (the plugin pattern)
 
 1. New module (or reuse one) with `src/main/resources/flows/<flow>.yaml`:
@@ -153,6 +184,10 @@ No engine, router, or gateway changes — if a change seems to require touching
   `TestFactoryZeroCredentialsTest`): scripted LLM, WireMock'd Jira/GitHub/TestRail,
   including a QA amendment at gate 1 and the zero-credentials path. When
   changing flow behavior, extend these rather than mocking the engine.
+- UI pages get two tiers: standalone MockMvc controller tests (dispatch and
+  model shape) and `UiRenderSmokeTest` — the only tier that resolves the
+  layout/component fragments. Anything content-bearing must assert real page
+  text there; standalone tests cannot catch fragment-scope bugs.
 
 ## Communication
 - Short, direct, content-dense — no padding, praise, or narrative summaries.

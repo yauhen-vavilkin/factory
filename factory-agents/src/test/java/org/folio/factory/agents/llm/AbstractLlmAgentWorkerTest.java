@@ -86,4 +86,14 @@ class AbstractLlmAgentWorkerTest {
                 .isInstanceOf(AgentExecutionException.class)
                 .hasMessageContaining("unparseable output twice");
     }
+
+    @Test
+    void loadsClasspathPromptsForSystemAndUser() {
+        TestWorker worker = new TestWorker(ChatClient.create(new StubChatModel()));
+
+        assertThat(worker.systemPrompt(Map.of("context_name", "unit-test")))
+                .contains("You are a test worker. Context: unit-test.");
+        assertThat(worker.userPrompt(Map.of("input", "X")))
+                .contains("Summarise this input: X");
+    }
 }

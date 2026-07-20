@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Artifact', activeNav='artifacts', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="page-header">
+        <h1 th:text="${artifact['name']}">artifact</h1>
+        <div class="page-header-meta">
+            <span class="badge badge-outline" th:text="'v' + ${artifact['version']}">v1</span>
+            <span th:if="${artifact['flowId']}" th:text="${artifact['flowId']}">flow</span>
+            <span>·</span>
+            <a th:href="@{'/executions/' + ${artifact['executionId']}}"
+               th:text="${artifact['executionShort']}">execution</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title" th:text="${artifact['name']} + ' · v' + ${artifact['version']}">artifact</h2>
+            <p class="card-description"
+               th:text="${artifact['createdBy']} + ' · ' + ${artifact['createdAt']}
+                        + ' · ' + ${artifact['contentType']}">meta</p>
+        </div>
+        <div class="card-content">
+            <pre class="code-block" th:text="${artifact['artifactContent']}"></pre>
+            <p class="muted sub-tag" th:if="${artifact['sha256']}"
+               th:text="'sha256: ' + ${artifact['sha256']}"></p>
+        </div>
+    </div>
+</section>
+</body>
+</html>

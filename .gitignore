@@ -15,3 +15,4 @@ target/
 
 # local credentials
 .env
+/.claude/launch.json

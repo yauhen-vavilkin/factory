@@ -1,31 +1,64 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org" lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>AI Factory — Executions</title>
-    <style>
-        body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 70rem; color: #1a1a1a; }
-        nav a { margin-right: 1rem; }
-        table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-        th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid #ddd; }
-        .status-COMPLETED { color: #1e7e34; font-weight: 600; }
-        .status-FAILED_ESCALATED, .status-REJECTED, .status-CANCELLED { color: #b3261e; font-weight: 600; }
-        .status-AWAITING_HITL { color: #b26a00; font-weight: 600; }
-    </style>
-</head>
+<html th:replace="~{fragments/layout :: page(title='Executions', activeNav='executions', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
 <body>
-<nav><a href="/reviews">Reviews</a> <a href="/executions"><strong>Executions</strong></a> <a href="/api/status">Status</a></nav>
-<h1>Pipeline executions</h1>
-<table>
-    <tr><th>Execution</th><th>Flow</th><th>Status</th><th>Step</th><th>Created</th><th>Updated</th></tr>
-    <tr th:each="e : ${executions}">
-        <td><a th:href="@{'/executions/' + ${e.id}}" th:text="${#strings.abbreviate(e.id.toString(), 13)}"></a></td>
-        <td th:text="${e.flowId}"></td>
-        <td th:class="'status-' + ${e.status}" th:text="${e.status}"></td>
-        <td th:text="${e.currentStepIndex}"></td>
-        <td th:text="${e.createdAt}"></td>
-        <td th:text="${e.updatedAt}"></td>
-    </tr>
-</table>
+<section class="page-body">
+    <div class="page-header">
+        <h1>Executions</h1>
+        <p class="page-description">Pipeline runs across all flows, most recent first.</p>
+    </div>
+
+    <form class="filter-bar" method="get" th:action="@{/executions}">
+        <div class="filter-field">
+            <label class="label" for="filter-status">Status</label>
+            <select class="select" id="filter-status" name="status">
+                <option value="" th:selected="${selectedStatus == ''}">All</option>
+                <option th:each="s : ${statuses}" th:value="${s}" th:text="${s}"
+                        th:selected="${s.name() == selectedStatus}"></option>
+            </select>
+        </div>
+        <div class="filter-field">
+            <label class="label" for="filter-flow">Flow</label>
+            <select class="select" id="filter-flow" name="flow">
+                <option value="" th:selected="${selectedFlow == ''}">All</option>
+                <option th:each="f : ${flows}" th:value="${f}" th:text="${f}"
+                        th:selected="${f == selectedFlow}"></option>
+            </select>
+        </div>
+        <button class="btn btn-outline" type="submit">Apply</button>
+    </form>
+
+    <div th:if="${#lists.isEmpty(executions)}" class="empty-state">
+        No executions match these filters.
+        <a th:if="${filtersActive}" th:href="@{/executions}">Clear filters</a>
+    </div>
+
+    <div th:unless="${#lists.isEmpty(executions)}">
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr><th>Execution</th><th>Flow</th><th>Status</th><th>Step</th><th>Created</th><th>Updated</th></tr>
+                </thead>
+                <tbody>
+                <tr th:each="e : ${executions}">
+                    <td>
+                        <a th:href="@{'/executions/' + ${e['id']}}" th:text="${e['idShort']}"></a>
+                        <div class="muted sub-tag" th:if="${e['parentExecutionId']}">
+                            <a th:href="@{'/executions/' + ${e['parentExecutionId']}}"
+                               th:text="'↳ sub-flow of ' + ${e['parentShort']}"></a>
+                        </div>
+                    </td>
+                    <td th:text="${e['flowId']}"></td>
+                    <td><span th:replace="~{fragments/components :: statusBadge(${e['status']})}"></span></td>
+                    <td th:text="${e['currentStepIndex']}"></td>
+                    <td class="muted" th:text="${e['createdAt']}"></td>
+                    <td class="muted" th:text="${e['updatedAt']}"></td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+        <nav th:replace="~{fragments/components :: pagination(${page}, ${baseUrl})}"></nav>
+    </div>
+</section>
 </body>
 </html>

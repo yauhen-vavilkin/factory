@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Flows', activeNav='flows', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="page-header">
+        <h1>Flows</h1>
+        <p class="page-description">Registered flow plugins. Each is a data-driven pipeline descriptor.</p>
+    </div>
+
+    <div class="empty-state" th:if="${#lists.isEmpty(flows)}">No flow plugins registered.</div>
+
+    <div class="card-grid" th:unless="${#lists.isEmpty(flows)}">
+        <a class="card" th:each="f : ${flows}" th:href="@{'/flows/' + ${f['id']}}">
+            <div class="card-header">
+                <h2 class="card-title" th:text="${f['name']}">Flow</h2>
+                <p class="card-description" th:text="${f['id']}">flow-id</p>
+                <span class="badge badge-outline" th:text="'v' + ${f['version']}">v1</span>
+            </div>
+            <div class="card-content">
+                <dl class="def-list">
+                    <dt>Steps</dt><dd th:text="${f['stepCount']}">0</dd>
+                    <dt>Gates</dt><dd th:text="${f['gateCount']}">0</dd>
+                </dl>
+                <div class="badge-row" th:unless="${#lists.isEmpty(f['eventTypes'])}">
+                    <span class="badge badge-outline" th:each="e : ${f['eventTypes']}" th:text="${e}">event</span>
+                </div>
+            </div>
+        </a>
+    </div>
+</section>
+</body>
+</html>

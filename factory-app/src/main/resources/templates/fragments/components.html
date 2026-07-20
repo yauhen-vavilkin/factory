@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+
+<span th:fragment="statusBadge(status)" class="badge"
+      th:classappend="'badge-status-' + ${status}" th:text="${status}">STATUS</span>
+
+<nav th:fragment="pagination(page, baseUrl)" class="pagination" aria-label="Pagination"
+     th:if="${page != null}">
+    <span th:if="${page.first}" class="btn btn-outline btn-sm disabled" aria-disabled="true">Previous</span>
+    <a th:unless="${page.first}" class="btn btn-outline btn-sm"
+       th:href="${baseUrl} + '&page=' + ${page.number - 1}">Previous</a>
+    <span class="pagination-info"
+          th:text="'Page ' + ${page.number + 1} + ' of ' + ${page.totalPages} + ' · ' + ${page.totalElements} + ' total'">
+        Page 1 of 1 · 0 total</span>
+    <span th:if="${page.last}" class="btn btn-outline btn-sm disabled" aria-disabled="true">Next</span>
+    <a th:unless="${page.last}" class="btn btn-outline btn-sm"
+       th:href="${baseUrl} + '&page=' + ${page.number + 1}">Next</a>
+</nav>
+
+<!-- For Slice-backed feeds (no total count available on unbounded tables). -->
+<nav th:fragment="slicePagination(page, baseUrl)" class="pagination" aria-label="Pagination"
+     th:if="${page != null}">
+    <span th:if="${page.first}" class="btn btn-outline btn-sm disabled" aria-disabled="true">Previous</span>
+    <a th:unless="${page.first}" class="btn btn-outline btn-sm"
+       th:href="${baseUrl} + '&page=' + ${page.number - 1}">Previous</a>
+    <span class="pagination-info" th:text="'Page ' + ${page.number + 1}">Page 1</span>
+    <span th:if="${page.last}" class="btn btn-outline btn-sm disabled" aria-disabled="true">Next</span>
+    <a th:unless="${page.last}" class="btn btn-outline btn-sm"
+       th:href="${baseUrl} + '&page=' + ${page.number + 1}">Next</a>
+</nav>
+
+<div th:fragment="auditTable(events, showExecution)" class="table-wrap">
+    <table>
+        <thead>
+        <tr>
+            <th>When</th>
+            <th th:if="${showExecution}">Execution</th>
+            <th>Event</th><th>Step</th><th>Actor</th><th>Detail</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="ev : ${events}">
+            <td th:text="${ev['occurredAt']}"></td>
+            <td th:if="${showExecution}">
+                <a th:if="${ev['executionId']}" th:href="@{'/executions/' + ${ev['executionId']}}"
+                   th:text="${ev['executionShort']}"></a>
+                <span th:unless="${ev['executionId']}" class="muted">—</span>
+            </td>
+            <td><span class="badge"
+                      th:classappend="${ev['eventTone']} != null ? 'badge-' + ${ev['eventTone']} : 'badge-outline'"
+                      th:text="${ev['eventLabel']}"></span></td>
+            <td><span th:if="${ev['stepId']}" th:text="${ev['stepId']}"></span>
+                <span th:unless="${ev['stepId']}" class="muted">—</span></td>
+            <td><span th:if="${ev['actor']}" th:text="${ev['actor']}"></span>
+                <span th:unless="${ev['actor']}" class="muted">—</span></td>
+            <td>
+                <details class="details-inline" th:if="${ev['detail']}">
+                    <summary>View</summary>
+                    <pre class="code-block" th:text="${ev['detail']}"></pre>
+                </details>
+            </td>
+        </tr>
+        <tr th:if="${#lists.isEmpty(events)}">
+            <td th:attr="colspan=${showExecution} ? 6 : 5">
+                <div class="empty-state">No audit events yet.</div>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+
+<ol th:fragment="stepper(steps)" class="stepper">
+    <li th:each="s : ${steps}" class="step"
+        th:attr="data-state=${s['state']}, data-type=${s['type']}">
+        <span class="step-marker" aria-hidden="true"></span>
+        <div class="step-body">
+            <span class="step-label" th:text="${s['label']}"></span>
+            <span class="sr-only" th:text="${s['state']}"></span>
+            <span class="step-sublabel" th:if="${s['sublabel']}" th:text="${s['sublabel']}"></span>
+            <span class="badge badge-destructive badge-sm"
+                  th:if="${s['attempts'] != null and s['attempts'] > 0}"
+                  th:text="'retry ×' + ${s['attempts']}"></span>
+        </div>
+    </li>
+</ol>
+
+</body>
+</html>

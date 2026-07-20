@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Prompt', activeNav='prompts', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="page-header">
+        <h1 th:text="${workerId}">worker</h1>
+        <div class="page-header-meta">
+            <span class="badge badge-success">Read-only</span>
+        </div>
+    </div>
+
+    <nav class="tabs" aria-label="Prompt files">
+        <a th:each="name : ${promptNames}" th:href="@{'/prompts/' + ${workerId}(file=${name})}"
+           th:text="${name}" th:attrappend="aria-current=${name == activeFile} ? 'page'">system</a>
+    </nav>
+
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title" th:text="${activeFile}">system</h2>
+            <p class="card-description">Bundled default — read-only</p>
+        </div>
+        <div class="card-content">
+            <pre class="code-block" th:text="${promptContent}"></pre>
+        </div>
+    </div>
+</section>
+</body>
+</html>

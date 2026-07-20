@@ -3,7 +3,6 @@ package org.folio.factory.app.web;
 import org.folio.factory.connectors.ConnectorHealth;
 import org.folio.factory.core.engine.EngineProperties;
 import org.folio.factory.core.registry.FlowRegistry;
-import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 

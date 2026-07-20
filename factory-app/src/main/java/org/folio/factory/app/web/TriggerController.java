@@ -39,7 +39,7 @@ public class TriggerController {
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of("executionId", executionId.toString()));
     }
 
-    private static String normalisedDedupKey(String dedupKey) {
+    static String normalisedDedupKey(String dedupKey) {
         if (dedupKey == null || dedupKey.isBlank()) {
             return null;
         }

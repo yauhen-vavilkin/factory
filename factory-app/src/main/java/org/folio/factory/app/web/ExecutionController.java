@@ -7,9 +7,13 @@ import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
@@ -49,8 +53,16 @@ public class ExecutionController {
     }
 
     @GetMapping
-    public List<ExecutionSummary> list() {
-        return executions.findAllByOrderByCreatedAtDesc().stream().map(this::toSummary).toList();
+    public PageResponse<ExecutionSummary> list(
+            @RequestParam(name = "status", required = false) String status,
+            @RequestParam(name = "flowId", required = false) String flowId,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "50") int size) {
+        Pageable pageable = PageValidation.pageable(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        boolean hasStatus = status != null && !status.isBlank();
+        ExecutionStatus parsedStatus = hasStatus ? parseStatus(status) : null;
+        Page<PipelineExecution> result = executions.search(parsedStatus, flowId, pageable);
+        return PageResponse.of(result, this::toSummary);
     }
 
     @GetMapping("/{id}")
@@ -61,6 +73,14 @@ public class ExecutionController {
                 .map(this::toArtifactSummary).toList();
         List<AuditEntry> audit = auditLog.forExecution(id).stream().map(this::toAuditEntry).toList();
         return new ExecutionDetail(toSummary(execution), execution.getErrorMessage(), artifacts, audit);
+    }
+
+    private ExecutionStatus parseStatus(String status) {
+        try {
+            return ExecutionStatus.valueOf(status.strip().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Unknown execution status '" + status + "'");
+        }
     }
 
     private ExecutionSummary toSummary(PipelineExecution execution) {
