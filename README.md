@@ -37,7 +37,8 @@ factory-connectors/          Jira, GitHub, TestRail REST clients + graceful fall
 factory-agents/              LLM base worker (Spring AI ChatClient), prompt loading,
                              frontmatter codec, secret-scan post-processor
 factory-flow-test-factory/   Test Factory plugin: flows/test-factory.yaml + 5 workers + prompts
-factory-app/                 Spring Boot app: REST API, HITL web UI, Flyway, config
+factory-app/                 Spring Boot app: management console (server-rendered UI),
+                             REST API, Flyway, config
 ```
 
 Key invariants, enforced by the framework:
