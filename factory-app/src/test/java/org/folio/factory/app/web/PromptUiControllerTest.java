@@ -61,6 +61,15 @@ class PromptUiControllerTest {
         assertThat((List<String>) workers.get(1).get("prompts")).containsExactly("system");
     }
 
+    @Test
+    void list_errorParam_surfacesInModelForTheAlert() throws Exception {
+        when(catalog.all()).thenReturn(List.of());
+
+        mvc.perform(get("/prompts").param("error", "No prompts for worker 'ghost'"))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("error", "No prompts for worker 'ghost'"));
+    }
+
     // ----- detail -----
 
     @Test

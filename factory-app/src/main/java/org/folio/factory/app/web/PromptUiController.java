@@ -32,7 +32,7 @@ public class PromptUiController {
     }
 
     @GetMapping("/prompts")
-    public String prompts(Model model) {
+    public String prompts(@RequestParam(name = "error", required = false) String error, Model model) {
         Map<String, List<String>> byWorker = new LinkedHashMap<>();
         for (PromptRef ref : catalog.all()) {
             byWorker.computeIfAbsent(ref.workerId(), w -> new ArrayList<>()).add(ref.promptName());
@@ -45,6 +45,7 @@ public class PromptUiController {
             workers.add(worker);
         });
         model.addAttribute("workers", workers);
+        model.addAttribute("error", error);
         return "prompts";
     }
 
