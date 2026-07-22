@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.Map;
 
 /**
  * Flow-agnostic engine telemetry. Publishes Micrometer meters for pipeline
@@ -105,6 +106,27 @@ public class EngineMetrics {
                 .publishPercentileHistogram()
                 .register(registry)
                 .record(duration);
+    }
+
+    /**
+     * Records LLM token usage a worker reported through its result metrics
+     * ({@code promptTokens}/{@code completionTokens} keys). No-op when the step
+     * reported no token metrics (deterministic workers, scripted test models).
+     */
+    public void recordLlmTokens(String workerId, Map<String, Object> metrics) {
+        recordTokenCount(workerId, "prompt", metrics.get("promptTokens"));
+        recordTokenCount(workerId, "completion", metrics.get("completionTokens"));
+    }
+
+    private void recordTokenCount(String workerId, String type, Object count) {
+        if (count instanceof Number tokens && tokens.longValue() > 0) {
+            Counter.builder("factory.llm.tokens")
+                    .description("LLM tokens consumed by agent worker steps, tagged by worker and prompt/completion type")
+                    .tag("worker", workerId)
+                    .tag("type", type)
+                    .register(registry)
+                    .increment(tokens.doubleValue());
+        }
     }
 
     /**

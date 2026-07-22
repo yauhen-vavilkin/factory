@@ -50,6 +50,6 @@ public class TestAutomationAgentWorker extends AbstractLlmAgentWorker {
             throw new AgentExecutionException("Test automation produced no script files");
         }
         ScriptBundle normalised = new ScriptBundle(framework, bundle.files());
-        return AgentResult.of("test_scripts.md", bundleCodec.render(normalised));
+        return resultWithUsage("test_scripts.md", bundleCodec.render(normalised));
     }
 }

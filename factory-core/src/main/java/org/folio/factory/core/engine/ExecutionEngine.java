@@ -149,6 +149,7 @@ public class ExecutionEngine {
                     artifactStore.putMarkdown(executionId, output.getKey(), output.getValue(), step.stepId());
                 }
                 auditLog.record(executionId, AuditEventType.STEP_COMPLETED, step.stepId(), result.metrics());
+                engineMetrics.recordLlmTokens(step.workerId(), result.metrics());
                 // Guarded advance: if a duplicate driver (lease-reaped run) moved the
                 // execution meanwhile, stop instead of double-advancing past a step.
                 boolean advanced = stateManager.advanceStep(executionId, execution.getCurrentStepIndex(),
