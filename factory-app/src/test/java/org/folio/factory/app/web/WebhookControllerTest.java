@@ -47,7 +47,19 @@ class WebhookControllerTest {
         mvc("s3cret").perform(post("/api/webhooks/jira").param("token", "wrong")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("Invalid webhook token"));
+
+        verifyNoInteractions(router);
+    }
+
+    @Test
+    void jira_malformedJsonBody_badRequestJsonError() throws Exception {
+        mvc("").perform(post("/api/webhooks/jira")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Malformed request body"));
 
         verifyNoInteractions(router);
     }

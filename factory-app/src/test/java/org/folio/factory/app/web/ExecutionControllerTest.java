@@ -134,6 +134,15 @@ class ExecutionControllerTest {
     }
 
     @Test
+    void get_malformedUuid_badRequestJsonError() throws Exception {
+        mvc.perform(get("/api/executions/not-a-uuid"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value(containsString("id")));
+
+        verifyNoInteractions(executions);
+    }
+
+    @Test
     void list_sizeTooSmall_unprocessable() throws Exception {
         mvc.perform(get("/api/executions").param("size", "0"))
                 .andExpect(status().is(422));

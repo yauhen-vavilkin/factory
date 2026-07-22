@@ -46,6 +46,28 @@ class TriggerControllerTest {
     }
 
     @Test
+    void manual_malformedJsonBody_badRequestJsonError() throws Exception {
+        mvc.perform(post("/api/triggers/manual")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"flowId\":"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Malformed request body"));
+
+        verifyNoInteractions(router);
+    }
+
+    @Test
+    void manual_unsupportedMediaType_jsonError() throws Exception {
+        mvc.perform(post("/api/triggers/manual")
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("flowId=test-factory"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.error").value(containsString("text/plain")));
+
+        verifyNoInteractions(router);
+    }
+
+    @Test
     void manual_dedupKeyLongerThan255Chars_rejectedWithoutRouting() throws Exception {
         String oversize = "k".repeat(256);
 
