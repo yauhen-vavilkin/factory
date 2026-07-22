@@ -19,10 +19,14 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.SequencedSet;
+import java.util.Set;
 
 /**
  * The plugin layer: discovers YAML flow descriptors on the classpath at startup,
@@ -61,6 +65,7 @@ public class FlowRegistry {
             loaded.add(new LoadedFlow(descriptor, yaml));
         }
         validateSubFlowReferences();
+        validateSubFlowCycles();
         loaded.forEach(this::mirrorToDatabase);
         log.info("Flow registry loaded {} flow(s): {}", flows.size(), flows.keySet());
     }
@@ -87,6 +92,32 @@ public class FlowRegistry {
                 }
             }
         }
+    }
+
+    private void validateSubFlowCycles() {
+        Set<String> done = new HashSet<>();
+        for (String flowId : flows.keySet()) {
+            visitSubFlows(flowId, new LinkedHashSet<>(), done);
+        }
+    }
+
+    private void visitSubFlows(String flowId, SequencedSet<String> path, Set<String> done) {
+        if (done.contains(flowId)) {
+            return;
+        }
+        if (!path.add(flowId)) {
+            List<String> cycle = new ArrayList<>(path);
+            cycle.subList(0, cycle.indexOf(flowId)).clear();
+            cycle.add(flowId);
+            throw new FlowValidationException("Sub-flow cycle detected: " + String.join(" -> ", cycle));
+        }
+        for (StepDescriptor step : flows.get(flowId).agentChain()) {
+            if (step.type() == StepType.SUB_FLOW) {
+                visitSubFlows(step.subFlow().flowId(), path, done);
+            }
+        }
+        path.remove(flowId);
+        done.add(flowId);
     }
 
     private void mirrorToDatabase(LoadedFlow loadedFlow) {

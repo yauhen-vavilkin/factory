@@ -1,0 +1,12 @@
+id: cycle-b
+name: Cycle B
+version: 1.0.0
+agent_chain:
+  - step_id: work
+    type: AGENT
+    worker_id: echo-worker
+    outputs: [b_doc.md]
+  - step_id: delegate
+    type: SUB_FLOW
+    sub_flow:
+      flow_id: cycle-a

@@ -1,0 +1,12 @@
+id: self-loop
+name: Self Loop
+version: 1.0.0
+agent_chain:
+  - step_id: work
+    type: AGENT
+    worker_id: echo-worker
+    outputs: [doc.md]
+  - step_id: recurse
+    type: SUB_FLOW
+    sub_flow:
+      flow_id: self-loop
