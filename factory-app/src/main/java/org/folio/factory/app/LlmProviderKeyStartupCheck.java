@@ -28,13 +28,16 @@ class LlmProviderKeyStartupCheck {
     static String missingKeyWarning(String provider, String anthropicKey, String openAiKey) {
         String envVar = switch (provider) {
             case "anthropic" -> anthropicKey.isBlank() ? "ANTHROPIC_API_KEY" : null;
-            case "openai" -> openAiKey.isBlank() ? "FACTORY_LLM_API_KEY" : null;
+            // "unused" is application.yaml's placeholder default for the openai
+            // provider — an unset FACTORY_LLM_API_KEY arrives as that literal.
+            case "openai" -> openAiKey.isBlank() || "unused".equals(openAiKey) ? "FACTORY_LLM_API_KEY" : null;
             default -> null;
         };
         if (envVar == null) {
             return null;
         }
         return "LLM provider '" + provider + "' has no API key — set " + envVar
-                + " or LLM-backed steps will fail at runtime and escalate to human review";
+                + " or LLM-backed steps will fail at runtime and escalate to human review"
+                + " (ignore if the endpoint needs no key, e.g. local Ollama)";
     }
 }

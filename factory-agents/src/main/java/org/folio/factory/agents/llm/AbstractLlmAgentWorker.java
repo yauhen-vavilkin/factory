@@ -28,9 +28,10 @@ public abstract class AbstractLlmAgentWorker implements AgentWorker {
     private static final Logger log = LoggerFactory.getLogger(AbstractLlmAgentWorker.class);
 
     // Token usage of the last successful model call on this thread. Set per call
-    // (never accumulated) and cleared by resultWithUsage, so a reused engine pool
-    // thread cannot leak counts into the next step. A worker making several calls
-    // per execute reports only the last one.
+    // (never accumulated) and cleared both at callForEntity entry and on read, so
+    // a reused engine pool thread cannot leak counts into a later step even when
+    // a worker throws after its call. A worker making several calls per execute
+    // reports only the last one.
     private static final ThreadLocal<long[]> USAGE = new ThreadLocal<>();
 
     protected final ChatClient chatClient;
@@ -52,6 +53,7 @@ public abstract class AbstractLlmAgentWorker implements AgentWorker {
      * structured output support, retrying once on unparseable output.
      */
     protected <T> T callForEntity(Map<String, Object> variables, Class<T> type) {
+        USAGE.remove();
         String system = systemPrompt(variables);
         String user = userPrompt(variables);
         try {

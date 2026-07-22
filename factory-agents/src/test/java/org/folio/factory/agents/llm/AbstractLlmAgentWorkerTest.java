@@ -123,6 +123,21 @@ class AbstractLlmAgentWorkerTest {
     }
 
     @Test
+    void usageDoesNotLeakAcrossCallsOnTheSameThread() {
+        // Simulates a worker that captured usage and then threw before building
+        // its result: the next call on the same pooled thread must start clean.
+        TestWorker first = new TestWorker(ChatClient.create(
+                new StubChatModel().enqueue("{\"title\": \"t\", \"points\": []}", 120, 45)));
+        first.callForEntity(Map.of("context_name", "x", "input", "y"), Summary.class);
+
+        TestWorker second = new TestWorker(ChatClient.create(new StubChatModel()));
+        assertThatThrownBy(() -> second.callForEntity(Map.of("context_name", "x", "input", "y"), Summary.class))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(second.resultWithUsage("out.md", "content").metrics()).isEmpty();
+    }
+
+    @Test
     void nonParseFailurePropagatesWithoutRetry() {
         StubChatModel model = new StubChatModel();
         TestWorker worker = new TestWorker(ChatClient.create(model));

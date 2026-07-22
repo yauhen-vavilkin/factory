@@ -19,9 +19,15 @@ class LlmProviderKeyStartupCheckTest {
     }
 
     @Test
+    void warnsForOpenAiProviderWithTheUnusedYamlPlaceholder() {
+        assertThat(LlmProviderKeyStartupCheck.missingKeyWarning("openai", "", "unused"))
+                .contains("FACTORY_LLM_API_KEY");
+    }
+
+    @Test
     void silentWhenTheActiveProviderHasAKey() {
         assertThat(LlmProviderKeyStartupCheck.missingKeyWarning("anthropic", "sk-ant-x", "")).isNull();
-        assertThat(LlmProviderKeyStartupCheck.missingKeyWarning("openai", "", "unused")).isNull();
+        assertThat(LlmProviderKeyStartupCheck.missingKeyWarning("openai", "", "gsk_real")).isNull();
     }
 
     @Test
