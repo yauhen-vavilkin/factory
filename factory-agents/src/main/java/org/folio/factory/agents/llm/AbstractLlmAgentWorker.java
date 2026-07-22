@@ -5,6 +5,7 @@ import org.folio.factory.core.agent.AgentWorker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import tools.jackson.core.JacksonException;
 
 import java.util.Map;
 
@@ -45,7 +46,10 @@ public abstract class AbstractLlmAgentWorker implements AgentWorker {
         String user = userPrompt(variables);
         try {
             return chatClient.prompt().system(system).user(user).call().entity(type);
-        } catch (RuntimeException firstFailure) {
+        } catch (JacksonException firstFailure) {
+            // JacksonException is what BeanOutputConverter propagates on unparseable
+            // output; transport/auth/rate-limit failures must fall through to the
+            // engine's step retry instead of triggering a second model call here.
             log.warn("Worker '{}' got unparseable structured output ({}); retrying once",
                     id(), firstFailure.getMessage());
             try {
@@ -55,7 +59,7 @@ public abstract class AbstractLlmAgentWorker implements AgentWorker {
                                 + "Respond with ONLY the requested JSON — no prose, no code fences.")
                         .call()
                         .entity(type);
-            } catch (RuntimeException secondFailure) {
+            } catch (JacksonException secondFailure) {
                 throw new AgentExecutionException("Worker '" + id() + "' produced unparseable output twice: "
                         + secondFailure.getMessage(), secondFailure);
             }

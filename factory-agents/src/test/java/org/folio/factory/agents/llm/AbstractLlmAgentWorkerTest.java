@@ -88,6 +88,17 @@ class AbstractLlmAgentWorkerTest {
     }
 
     @Test
+    void nonParseFailurePropagatesWithoutRetry() {
+        StubChatModel model = new StubChatModel();
+        TestWorker worker = new TestWorker(ChatClient.create(model));
+
+        assertThatThrownBy(() -> worker.callForEntity(Map.of("context_name", "x", "input", "y"), Summary.class))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no queued response");
+        assertThat(model.receivedPrompts()).hasSize(1);
+    }
+
+    @Test
     void loadsClasspathPromptsForSystemAndUser() {
         TestWorker worker = new TestWorker(ChatClient.create(new StubChatModel()));
 
