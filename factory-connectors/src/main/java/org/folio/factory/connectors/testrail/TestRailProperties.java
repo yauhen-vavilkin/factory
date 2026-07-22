@@ -6,6 +6,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record TestRailProperties(String baseUrl, String username, String apiKey, Long projectId) {
 
     public boolean isConfigured() {
-        return baseUrl != null && !baseUrl.isBlank();
+        return baseUrl != null && !baseUrl.isBlank()
+                && username != null && !username.isBlank()
+                && apiKey != null && !apiKey.isBlank()
+                && projectId != null && projectId > 0;
     }
 }
