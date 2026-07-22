@@ -97,8 +97,8 @@ escalation) as the other terminal states. The full lifecycle is in the
 
 - Scope isolation: a worker physically receives only its declared `inputs`
   (plus the trigger payload if it declares the reserved input `$trigger`).
-- Output completeness: a step fails if the worker does not return every
-  declared output artifact.
+- Output scope: a step fails if the worker does not return every declared
+  output artifact, or returns one it did not declare.
 - Immutability: artifact writes are insert-only versioning; audit is
   append-only.
 - Bounded retry: per-step attempts counted against the flow's `retry_policy`;
@@ -510,6 +510,7 @@ registered flow must resolve to a bean (a dangling reference fails startup).
 ```bash
 docker compose up -d                     # PostgreSQL
 export ANTHROPIC_API_KEY=sk-ant-...
+mvn install -DskipTests                  # -pl resolves siblings from ~/.m2
 mvn spring-boot:run -pl factory-app
 
 curl -s -X POST localhost:8080/api/triggers/manual \
@@ -630,10 +631,12 @@ is everything the worker may see:
 artifact was not declared — use it rather than `inputs().get(...)`.
 
 [`AgentResult`](../factory-core/src/main/java/org/folio/factory/core/agent/AgentResult.java)
-is `outputs` (artifact name → content — must include every declared output;
-`AgentResult.of(name, content)` for the single-artifact case) plus optional
-`metrics` (token counts, durations, …) which are recorded in the audit log
-with the `STEP_COMPLETED` event.
+is `outputs` (artifact name → content — must match the declared outputs
+exactly; `AgentResult.of(name, content)` for the single-artifact case) plus
+optional `metrics` (token counts, durations, …) which are recorded in the
+audit log with the `STEP_COMPLETED` event. LLM workers can return
+`resultWithUsage(name, content)` to carry the model call's
+`promptTokens`/`completionTokens` into those metrics automatically.
 
 ### Failure semantics — design for them
 

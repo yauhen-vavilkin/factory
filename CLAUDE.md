@@ -21,7 +21,7 @@ never by modifying the control plane.
 
 ```bash
 docker compose up -d                     # PostgreSQL (required for run and tests)
-mvn spring-boot:run -pl factory-app      # run the app (needs ANTHROPIC_API_KEY, or FACTORY_LLM_* / .env)
+mvn spring-boot:run -pl factory-app      # run the app (needs ANTHROPIC_API_KEY or FACTORY_LLM_* env vars)
 mvn verify                               # full build + unit/integration tests (Docker required — Testcontainers)
 mvn -pl factory-core test -Dtest=SubFlowIntegrationTest          # single test class
 mvn -pl factory-core test -Dtest=SubFlowIntegrationTest#method   # single test method
@@ -118,7 +118,7 @@ Flow modules plug in via the `AgentWorker` SPI and a YAML descriptor; only
 ### LLM agent workers (factory-agents + flow modules)
 
 `AbstractLlmAgentWorker` is the base: it loads
-`prompts/<worker-id>/system.md` + `user.md` (single-pass `{placeholder}`
+`prompts/<worker-id>/system.md` + `user.md` (single-pass `{{placeholder}}`
 rendering via `PromptLoader`), calls the Spring AI `ChatClient`, parses the
 response with `FrontmatterCodec` (YAML frontmatter + markdown body), and runs
 post-processors (e.g. `SecretScanPostProcessor`; the Test Factory flow adds

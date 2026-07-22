@@ -123,10 +123,11 @@ Engine contract for an AGENT step:
   versions), plus the trigger payload iff `$trigger` is declared. An `inputs`
   entry that no earlier step produced fails the attempt at runtime
   (`requires artifact '…' which does not exist`).
-- The worker must return **every** artifact named in `outputs`
-  (`did not produce declared output artifact` otherwise). Anything it returns
-  is persisted as a new artifact version attributed to the `step_id`, after
-  all `StepPostProcessor` beans pass.
+- The worker must return **exactly** the artifacts named in `outputs`: a
+  missing one fails the attempt (`did not produce declared output artifact`),
+  and so does an undeclared extra (`produced undeclared output artifact(s)`).
+  Each declared output is persisted as a new artifact version attributed to
+  the `step_id`, after all `StepPostProcessor` beans pass.
 - Any exception fails the attempt and consumes the retry budget.
 
 ### `type: HITL_GATE`

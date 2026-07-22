@@ -70,6 +70,9 @@ factory:
     # Must exceed the longest legitimate single step (Karate runs are capped at 15
     # min) or the reaper re-queues live executions. Raise if your steps run longer.
     lease-timeout-seconds: ${FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS:1800}
+    # Cadence of the lease reaper + sub-flow reconciliation sweep. Read by the
+    # @Scheduled placeholder in ExecutionPoller, not by EngineProperties.
+    reap-interval-ms: ${FACTORY_ENGINE_REAP_INTERVAL_MS:30000}
     # OPS-2: max seconds shutdown blocks draining in-flight engine steps before the
     # JVM exits; a longer step is abandoned and re-queued by the reaper after
     # lease-timeout-seconds. Keep <= the container termination grace period.
