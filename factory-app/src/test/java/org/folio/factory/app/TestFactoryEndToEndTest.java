@@ -268,6 +268,39 @@ class TestFactoryEndToEndTest {
         testRail.verify(3, postRequestedFor(urlPathEqualTo("/index.php")));
     }
 
+    @Test
+    void invalidAmendmentAtGate1IsRejectedWithoutNewArtifactVersion() {
+        ResponseEntity<JsonNode> triggerResponse = rest.post()
+                .uri("/api/triggers/manual")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("flowId", "test-factory", "payload", Map.of("issueKey", "ERM-1001")))
+                .retrieve()
+                .toEntity(JsonNode.class);
+        UUID executionId = UUID.fromString(triggerResponse.getBody().path("executionId").asString());
+
+        JsonNode review = awaitPendingReview(executionId, "gate-1-test-plan");
+
+        // Stripping the frontmatter must be rejected by the amendment validator
+        // inside decide(), leaving the review PENDING and the artifact at v1.
+        ResponseEntity<JsonNode> decision = rest.post()
+                .uri("/api/hitl/reviews/" + review.path("id").asString() + "/decision")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("decision", "AMEND", "reviewer", "qa-lead",
+                        "amendedArtifacts", Map.of("test_plan.md", "plain text, no frontmatter")))
+                .retrieve()
+                .onStatus(status -> true, (req, res) -> { })
+                .toEntity(JsonNode.class);
+
+        assertThat(decision.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
+        assertThat(decision.getBody().path("error").asString()).contains("not structurally valid");
+        assertThat(artifactStore.getLatest(executionId, "test_plan.md").orElseThrow().getVersion()).isEqualTo(1);
+        assertThat(reviews.findById(UUID.fromString(review.path("id").asString())).orElseThrow().getStatus())
+                .isEqualTo(HitlReviewStatus.PENDING);
+        // The execution stays parked at the gate — quiescent for the next test's
+        // WireMock reset, per the parking rule documented above.
+        assertThat(stateManager.get(executionId).getStatus()).isEqualTo(ExecutionStatus.AWAITING_HITL);
+    }
+
     private JsonNode awaitPendingReview(UUID executionId, String gateId) {
         await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
                 assertThat(reviews.findByExecutionIdOrderByCreatedAtAsc(executionId).stream()

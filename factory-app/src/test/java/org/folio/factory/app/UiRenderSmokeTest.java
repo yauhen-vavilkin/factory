@@ -249,6 +249,22 @@ class UiRenderSmokeTest {
                 .contains("Not found");
     }
 
+    // Companion to unknownExecutionRendersHtmlErrorPage: the same miss on the REST
+    // route must hit ApiExceptionHandler, not the HTML advice — this is the only
+    // fully-wired check of the Api-vs-Ui advice precedence.
+    @Test
+    void unknownExecutionApiReturnsJsonError() {
+        ResponseEntity<String> response = rest.get()
+                .uri("/api/executions/" + UUID.randomUUID())
+                .retrieve()
+                .onStatus(status -> true, (req, res) -> { })
+                .toEntity(String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getHeaders().getContentType().toString()).contains("json");
+        assertThat(response.getBody()).contains("\"error\"").contains("No execution");
+    }
+
     private String assertRendered(String path, String marker) {
         ResponseEntity<String> response = rest.get().uri(path).retrieve().toEntity(String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
