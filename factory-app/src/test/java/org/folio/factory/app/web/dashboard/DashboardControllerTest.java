@@ -38,7 +38,8 @@ class DashboardControllerTest {
     private DashboardStats stats(int days) {
         return new DashboardStats(Instant.parse("2026-07-19T00:00:00Z"), days,
                 List.of(), List.of(), List.of(), List.of(),
-                new HitlStats(2, 100.0, 4, 50.0), List.of());
+                new HitlStats(2, 100.0, 4, 50.0), List.of(),
+                new DashboardStats.TokenUsage(120, 45), List.of());
     }
 
     @Test

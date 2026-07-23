@@ -495,6 +495,8 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   margin-top: 1.5rem;
 }
 .charts-grid > * { min-width: 0; }
+/* A wide table needs the whole row; a half-width cell clips its trailing columns. */
+.charts-grid > .grid-span-full { grid-column: 1 / -1; }
 .chart-card .card-content { padding-top: 0.5rem; }
 .chart-card .chart-region { height: 18rem; position: relative; }
 .chart-card .chart-region > canvas { display: block; width: 100% !important; max-width: 100%; }

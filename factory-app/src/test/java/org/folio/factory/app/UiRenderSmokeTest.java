@@ -85,6 +85,20 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void dashboardRendersTokenKpiAndBreakdownTable() {
+        PipelineExecution execution = executions.save(new PipelineExecution("test-factory", "1", "{}"));
+        auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "test-automation", "engine",
+                Map.of("promptTokens", 1786, "completionTokens", 353));
+
+        String body = assertRendered("/", "LLM tokens");
+        assertThat(body)
+                .contains("Token spend by step")
+                // Grouped thousands, and the per-step row reached the table body.
+                .contains("2,139")
+                .contains("test-automation");
+    }
+
+    @Test
     void chartJsWebjarServes() {
         ResponseEntity<String> response = rest.get()
                 .uri("/webjars/chart.js/dist/chart.umd.js")
@@ -178,9 +192,12 @@ class UiRenderSmokeTest {
         PipelineExecution execution = executions.save(new PipelineExecution("test-factory", "1", "{}"));
         artifactStore.putMarkdown(execution.getId(), "test_plan.md", "# Plan\n", "test-spec");
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "triage", "engine",
-                Map.of("note", "done"));
+                Map.of("promptTokens", 734, "completionTokens", 110));
 
-        assertRendered("/executions/" + execution.getId(), "Audit timeline");
+        String body = assertRendered("/executions/" + execution.getId(), "Audit timeline");
+        assertThat(body)
+                .contains("LLM tokens: 844 total")
+                .contains("844 tokens (734 in / 110 out)");
     }
 
     @Test

@@ -1,5 +1,8 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
+import org.folio.factory.app.web.dashboard.DashboardStats.TokenUsage;
+import org.folio.factory.app.web.dashboard.DashboardStatsService;
 import org.folio.factory.connectors.ConnectorHealth;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
@@ -24,6 +27,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.view.InternalResourceViewResolver;
 import tools.jackson.databind.json.JsonMapper;
@@ -34,6 +38,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -62,6 +67,9 @@ class DashboardUiControllerTest {
     @Mock
     private AuditEventRepository audit;
 
+    @Mock
+    private DashboardStatsService dashboardStats;
+
     @Captor
     private ArgumentCaptor<Pageable> pageableCaptor;
 
@@ -78,7 +86,8 @@ class DashboardUiControllerTest {
     private MockMvc mvcWithConnectors(List<ConnectorHealth> connectors) {
         EngineProperties engine = new EngineProperties(true, 2000L, 5, 4, 1800L, 30, true);
         DashboardUiController controller = new DashboardUiController(
-                connectors, flowRegistry, engine, flowRegistryEntries, executions, reviews, audit, json);
+                connectors, flowRegistry, engine, flowRegistryEntries, executions, reviews, audit, json,
+                dashboardStats);
         return MockMvcBuilders.standaloneSetup(controller)
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
@@ -94,6 +103,10 @@ class DashboardUiControllerTest {
                 new Object[]{ExecutionStatus.REJECTED, 1L},
                 new Object[]{ExecutionStatus.CANCELLED, 2L}));
         when(reviews.countByStatus(HitlReviewStatus.PENDING)).thenReturn(5L);
+        when(dashboardStats.tokenUsage(anyInt())).thenReturn(new TokenUsage(1234, 567));
+        when(dashboardStats.stepTokens(anyInt())).thenReturn(List.of(
+                new StepTokenCount("test-factory", "test-automation", 1000, 400),
+                new StepTokenCount("test-factory", "triage", 234, 167)));
     }
 
     @Test
@@ -113,7 +126,38 @@ class DashboardUiControllerTest {
                 .andExpect(model().attribute("rejectedCount", 1L))
                 .andExpect(model().attribute("engineEnabled", true))
                 .andExpect(model().attribute("connectorsConfigured", 1))
-                .andExpect(model().attribute("connectorsTotal", 2));
+                .andExpect(model().attribute("connectorsTotal", 2))
+                .andExpect(model().attribute("tokenTotal", "1,801"))
+                .andExpect(model().attribute("tokenBreakdown", "1,234 in · 567 out"));
+    }
+
+    @Test
+    void dashboard_tokenRowsCarryGroupedCountsHeaviestFirst() throws Exception {
+        stubKpiCounts();
+
+        MvcResult result = mvc.perform(get("/")).andExpect(status().isOk()).andReturn();
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows =
+                (List<Map<String, Object>>) result.getModelAndView().getModel().get("stepTokens");
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(0)).containsEntry("stepId", "test-automation")
+                .containsEntry("prompt", "1,000")
+                .containsEntry("completion", "400")
+                .containsEntry("total", "1,400");
+        assertThat(rows.get(1)).containsEntry("stepId", "triage").containsEntry("total", "401");
+    }
+
+    @Test
+    void dashboard_scopesTokenQueriesToTheClampedWindow() throws Exception {
+        stubKpiCounts();
+
+        mvc.perform(get("/?days=999")).andExpect(status().isOk());
+
+        // The unknown range falls back to 14, and the token queries must use that
+        // same clamped value rather than the raw request parameter.
+        verify(dashboardStats).tokenUsage(14);
+        verify(dashboardStats).stepTokens(14);
     }
 
     @Test
