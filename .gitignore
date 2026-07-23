@@ -15,4 +15,7 @@ target/
 
 # local credentials
 .env
-/.claude/launch.json
+
+# local AI agent tooling state (never shared)
+/.claude/
+/.superpowers/
