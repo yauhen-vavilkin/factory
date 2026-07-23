@@ -67,17 +67,23 @@ docker compose up -d
 # 2. LLM provider (Spring AI — Anthropic by default, swappable via config)
 export ANTHROPIC_API_KEY=sk-ant-...
 
-# 3. Run
+# 3. Build the modules into ~/.m2 — `-pl factory-app` resolves its siblings
+#    from there, so this must run before the first spring-boot:run
+mvn install -DskipTests
+
+# 4. Run
 mvn spring-boot:run -pl factory-app
 
-# 4. Trigger the Test Factory flow with the bundled sample story (no Jira needed — issue inline)
+# 5. Trigger the Test Factory flow with the bundled sample story (no Jira needed — issue inline)
 curl -s -X POST localhost:8080/api/triggers/manual \
   -H 'Content-Type: application/json' \
   -d @factory-app/src/main/resources/samples/sample-story-inline.json
 ```
 
 Then open the management UI at <http://localhost:8080/> — a dashboard with KPI
-cards and charts. Work the two QA gates at <http://localhost:8080/reviews>
+cards and charts. The run deliberately **pauses at the first QA gate**
+(`AWAITING_HITL`) and does not proceed until you act on it: work the two QA
+gates at <http://localhost:8080/reviews>
 (approve/amend/reject — edits are saved as new artifact versions) and watch
 progress at <http://localhost:8080/executions> (full audit timeline per
 execution). The rest of the console: `/flows`
@@ -107,6 +113,8 @@ against `/actuator/health`.
 docker build -t folio-factory-app:local .
 
 # needs a reachable PostgreSQL — start one with `docker compose up -d`
+# (on Linux add: --add-host=host.docker.internal:host-gateway — the name is
+#  only auto-provided by Docker Desktop)
 docker run --rm -p 8080:8080 \
   -e FACTORY_DB_URL=jdbc:postgresql://host.docker.internal:5432/factory \
   -e ANTHROPIC_API_KEY=sk-ant-... \
@@ -145,6 +153,7 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_LLM_BASE_URL` / `_COMPLETIONS_PATH` | OpenAI-compatible endpoint (defaults target Groq: `https://api.groq.com/openai/v1` + `/chat/completions`) |
 | `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (default `jdbc:postgresql://localhost:5432/factory`) |
 | `FACTORY_DB_POOL_MAX` / `_MIN_IDLE` | HikariCP pool sizing (defaults `16` / `4`; see `doc/performance.md`) |
+| `FACTORY_DB_POOL_CONNECTION_TIMEOUT_MS` / `_MAX_LIFETIME_MS` / `_IDLE_TIMEOUT_MS` / `_LEAK_DETECTION_MS` | HikariCP tuning (defaults `30000` / `1800000` / `600000` / `60000`) |
 | `FACTORY_HTTP_CONNECT_TIMEOUT` / `_READ_TIMEOUT` | Connector HTTP timeouts (Duration; defaults `5s` / `30s`) |
 | `FACTORY_CONNECTORS_JIRA_BASE_URL` / `_EMAIL` / `_API_TOKEN` | Jira REST v2 |
 | `FACTORY_CONNECTORS_GITHUB_TOKEN` (+ `_BASE_URL` for GHE) | GitHub REST |
@@ -159,6 +168,13 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_RETENTION_ENABLED` / `_TTL_DAYS` / `_RUN_CRON` | Purge of old terminal runs (**off** by default; audit is never purged) |
 | `FACTORY_LOG_FORMAT` | Structured logging: `ecs`/`logstash`/`gelf` (empty = human-readable) |
 | `FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS` / `_SHUTDOWN_AWAIT_SECONDS` | Crash-recovery lease / graceful-drain budget (defaults `1800` / `30`) |
+| `FACTORY_ENGINE_POLL_INTERVAL_MS` / `_BATCH_SIZE` / `_WORKER_THREADS` | Poller cadence / claims per poll / engine pool size (defaults `2000` / `5` / `4`) |
+| `FACTORY_ENGINE_REAP_INTERVAL_MS` | Lease-reaper and sub-flow reconciliation cadence (default `30000`) |
+| `FACTORY_ENGINE_RECLAIM_RUNNING_ON_STARTUP` | Requeue orphaned RUNNING rows at boot (default `true`; **must be `false` for multi-instance** — see `doc/runbook.md`) |
+| `FACTORY_RETENTION_BATCH_SIZE` | Executions purged per retention run (default `100`) |
+| `FACTORY_TEST_FACTORY_BASE_BRANCH` | Branch generated test PRs fork from (default `main`) |
+| `FACTORY_WEBHOOKS_SHARED_SECRET` | Webhook auth token (see below; unauthenticated while unset) |
+| `FACTORY_SHUTDOWN_PHASE_TIMEOUT` | Per-phase graceful-shutdown budget (Duration; default `60s`) |
 
 Webhooks: `POST /api/webhooks/jira` and `/api/webhooks/github`
 (shared secret: `FACTORY_WEBHOOKS_SHARED_SECRET` checked against `?token=`).

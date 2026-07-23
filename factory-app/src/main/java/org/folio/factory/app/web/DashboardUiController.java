@@ -1,5 +1,8 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
+import org.folio.factory.app.web.dashboard.DashboardStats.TokenUsage;
+import org.folio.factory.app.web.dashboard.DashboardStatsService;
 import org.folio.factory.connectors.ConnectorHealth;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
@@ -52,12 +55,14 @@ public class DashboardUiController {
     private final HitlReviewRepository reviews;
     private final AuditEventRepository audit;
     private final JsonMapper jsonMapper;
+    private final DashboardStatsService dashboardStats;
 
     public DashboardUiController(List<ConnectorHealth> connectors, FlowRegistry flowRegistry,
                                  EngineProperties engineProperties,
                                  FlowRegistryEntryRepository flowRegistryEntries,
                                  PipelineExecutionRepository executions, HitlReviewRepository reviews,
-                                 AuditEventRepository audit, JsonMapper jsonMapper) {
+                                 AuditEventRepository audit, JsonMapper jsonMapper,
+                                 DashboardStatsService dashboardStats) {
         this.connectors = connectors;
         this.flowRegistry = flowRegistry;
         this.engineProperties = engineProperties;
@@ -66,11 +71,13 @@ public class DashboardUiController {
         this.reviews = reviews;
         this.audit = audit;
         this.jsonMapper = jsonMapper;
+        this.dashboardStats = dashboardStats;
     }
 
     @GetMapping("/")
     public String dashboard(@RequestParam(name = "days", defaultValue = "14") int days, Model model) {
-        model.addAttribute("days", ALLOWED_DAYS.contains(days) ? days : DEFAULT_DAYS);
+        int window = ALLOWED_DAYS.contains(days) ? days : DEFAULT_DAYS;
+        model.addAttribute("days", window);
 
         Map<ExecutionStatus, Long> byStatus = new EnumMap<>(ExecutionStatus.class);
         for (Object[] row : executions.countGroupedByStatus()) {
@@ -91,7 +98,25 @@ public class DashboardUiController {
         int configured = (int) connectorConfig.values().stream().filter(Boolean::booleanValue).count();
         model.addAttribute("connectorsConfigured", configured);
         model.addAttribute("connectorsTotal", connectorConfig.size());
+
+        // Unlike the all-time KPIs above, token spend is scoped to the selected window.
+        TokenUsage tokens = dashboardStats.tokenUsage(window);
+        model.addAttribute("tokenTotal", UiFormat.count(tokens.totalTokens()));
+        model.addAttribute("tokenBreakdown",
+                UiFormat.count(tokens.promptTokens()) + " in · " + UiFormat.count(tokens.completionTokens()) + " out");
+        model.addAttribute("stepTokens", dashboardStats.stepTokens(window).stream()
+                .map(DashboardUiController::stepTokenRow).toList());
         return "dashboard";
+    }
+
+    private static Map<String, Object> stepTokenRow(StepTokenCount step) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("flowId", step.flowId());
+        row.put("stepId", step.stepId());
+        row.put("prompt", UiFormat.count(step.promptTokens()));
+        row.put("completion", UiFormat.count(step.completionTokens()));
+        row.put("total", UiFormat.count(step.totalTokens()));
+        return row;
     }
 
     @GetMapping("/status")

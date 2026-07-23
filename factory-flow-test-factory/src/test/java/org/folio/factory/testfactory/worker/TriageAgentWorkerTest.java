@@ -1,6 +1,7 @@
 package org.folio.factory.testfactory.worker;
 
 import org.folio.factory.agents.artifact.Frontmatter;
+import org.folio.factory.agents.llm.StubChatModel;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.jira.JiraIssue;

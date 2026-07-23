@@ -81,6 +81,7 @@
             <span class="badge badge-destructive badge-sm"
                   th:if="${s['attempts'] != null and s['attempts'] > 0}"
                   th:text="'retry ×' + ${s['attempts']}"></span>
+            <span class="step-sublabel" th:if="${s['tokens']}" th:text="${s['tokens']}"></span>
         </div>
     </li>
 </ol>

@@ -49,6 +49,11 @@
             <span class="kpi-value" th:text="${connectorsConfigured} + ' of ' + ${connectorsTotal}">0 of 0</span>
             <span class="kpi-label">Connectors configured</span>
         </div>
+        <div class="kpi">
+            <span class="kpi-value" th:text="${tokenTotal}">0</span>
+            <span class="kpi-label">LLM tokens</span>
+            <span class="kpi-trend" th:text="${tokenBreakdown}">0 in · 0 out</span>
+        </div>
     </div>
 
     <div class="charts-grid" th:attr="data-days=${days}">
@@ -119,6 +124,32 @@
                             aria-label="Stacked bar chart of connector actions executed versus skipped per connector"></canvas>
                 </div>
                 <p class="empty-state" data-empty hidden>No data in this range.</p>
+            </div>
+        </div>
+
+        <div class="chart-card card grid-span-full">
+            <div class="card-header">
+                <h2 class="card-title">Token spend by step</h2>
+                <p class="card-description">Where LLM tokens go across flows in this range.</p>
+            </div>
+            <div class="card-content">
+                <p class="empty-state" th:if="${#lists.isEmpty(stepTokens)}">No token usage in this range.</p>
+                <div class="table-wrap" th:unless="${#lists.isEmpty(stepTokens)}">
+                    <table>
+                        <thead>
+                        <tr><th>Flow</th><th>Step</th><th>Prompt</th><th>Completion</th><th>Total</th></tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="t : ${stepTokens}">
+                            <td th:text="${t['flowId']}"></td>
+                            <td th:text="${t['stepId']}"></td>
+                            <td class="muted" th:text="${t['prompt']}"></td>
+                            <td class="muted" th:text="${t['completion']}"></td>
+                            <td th:text="${t['total']}"></td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>

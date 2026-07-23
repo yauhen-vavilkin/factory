@@ -1,6 +1,7 @@
 package org.folio.factory.app;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReviewStatus;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.core.env.Environment;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
@@ -97,6 +99,9 @@ class TestFactoryEndToEndTest {
 
     @LocalServerPort
     int port;
+
+    @Autowired
+    Environment environment;
 
     @Autowired
     StateManager stateManager;
@@ -239,10 +244,16 @@ class TestFactoryEndToEndTest {
         // Assert every connector's outcome in the report, not just GitHub's: a silently
         // "failed" sync would otherwise only surface at the WireMock verifies below,
         // where the report's failure detail is no longer visible.
-        assertThat(syncReport).contains("https://github.com/folio-org/mod-agreements/pull/7");
-        assertThat(syncReport).contains("**github** branch + commit + PR: done");
-        assertThat(syncReport).contains("**testrail** cases + run: done");
-        assertThat(syncReport).contains("**jira** comment: done");
+        //
+        // These carry the connector request journals in their failure description. A rare
+        // flake here reported `testrail ... failed — 404 Not Found: [no body]`, and the
+        // report alone could not distinguish "the stub did not match" from "the request
+        // never reached the server" — the journals separate the two on the next occurrence.
+        assertThat(syncReport).as("sync report%s", connectorDiagnostics())
+                .contains("https://github.com/folio-org/mod-agreements/pull/7")
+                .contains("**github** branch + commit + PR: done")
+                .contains("**testrail** cases + run: done")
+                .contains("**jira** comment: done");
 
         // 6. Audit trail covers the whole lifecycle.
         var eventTypes = auditLog.forExecution(executionId).stream().map(e -> e.getEventType()).toList();
@@ -266,6 +277,63 @@ class TestFactoryEndToEndTest {
         gitHub.verify(postRequestedFor(urlEqualTo("/repos/folio-org/mod-agreements/pulls")));
         // TestRail: 2 add_case calls + 1 add_run (advisory mode → no results call).
         testRail.verify(3, postRequestedFor(urlPathEqualTo("/index.php")));
+    }
+
+    @Test
+    void invalidAmendmentAtGate1IsRejectedWithoutNewArtifactVersion() {
+        ResponseEntity<JsonNode> triggerResponse = rest.post()
+                .uri("/api/triggers/manual")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("flowId", "test-factory", "payload", Map.of("issueKey", "ERM-1001")))
+                .retrieve()
+                .toEntity(JsonNode.class);
+        UUID executionId = UUID.fromString(triggerResponse.getBody().path("executionId").asString());
+
+        JsonNode review = awaitPendingReview(executionId, "gate-1-test-plan");
+
+        // Stripping the frontmatter must be rejected by the amendment validator
+        // inside decide(), leaving the review PENDING and the artifact at v1.
+        ResponseEntity<JsonNode> decision = rest.post()
+                .uri("/api/hitl/reviews/" + review.path("id").asString() + "/decision")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("decision", "AMEND", "reviewer", "qa-lead",
+                        "amendedArtifacts", Map.of("test_plan.md", "plain text, no frontmatter")))
+                .retrieve()
+                .onStatus(status -> true, (req, res) -> { })
+                .toEntity(JsonNode.class);
+
+        assertThat(decision.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
+        assertThat(decision.getBody().path("error").asString()).contains("not structurally valid");
+        assertThat(artifactStore.getLatest(executionId, "test_plan.md").orElseThrow().getVersion()).isEqualTo(1);
+        assertThat(reviews.findById(UUID.fromString(review.path("id").asString())).orElseThrow().getStatus())
+                .isEqualTo(HitlReviewStatus.PENDING);
+        // The execution stays parked at the gate — quiescent for the next test's
+        // WireMock reset, per the parking rule documented above.
+        assertThat(stateManager.get(executionId).getStatus()).isEqualTo(ExecutionStatus.AWAITING_HITL);
+    }
+
+    /**
+     * Every request each connector stub server actually served, with the configured
+     * base URL beside the real one. Empty journals mean the traffic never arrived;
+     * {@code matched=false} entries mean it arrived and no stub matched.
+     */
+    private String connectorDiagnostics() {
+        StringBuilder diagnostics = new StringBuilder();
+        appendServerDiagnostics(diagnostics, "jira", jira, "factory.connectors.jira.base-url");
+        appendServerDiagnostics(diagnostics, "github", gitHub, "factory.connectors.github.base-url");
+        appendServerDiagnostics(diagnostics, "testrail", testRail, "factory.connectors.testrail.base-url");
+        return diagnostics.toString();
+    }
+
+    private void appendServerDiagnostics(StringBuilder out, String name, WireMockServer server, String property) {
+        out.append(String.format("%n  %s: running=%s actual=%s configured=%s stubs=%d",
+                name, server.isRunning(), server.isRunning() ? server.baseUrl() : "-",
+                environment.getProperty(property), server.getStubMappings().size()));
+        for (ServeEvent event : server.getAllServeEvents()) {
+            out.append(String.format("%n    %s %s -> %d matched=%s",
+                    event.getRequest().getMethod(), event.getRequest().getUrl(),
+                    event.getResponse().getStatus(), event.getWasMatched()));
+        }
     }
 
     private JsonNode awaitPendingReview(UUID executionId, String gateId) {

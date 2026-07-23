@@ -32,7 +32,7 @@ class AbstractLlmAgentWorkerTest {
         public AgentResult execute(AgentContext context) {
             Summary summary = callForEntity(
                     Map.of("context_name", "unit-test", "input", "hello"), Summary.class);
-            return AgentResult.of("summary.md", summary.title());
+            return resultWithUsage("summary.md", summary.title());
         }
     }
 
@@ -85,6 +85,67 @@ class AbstractLlmAgentWorkerTest {
         assertThatThrownBy(() -> worker.callForEntity(Map.of("context_name", "x", "input", "y"), Summary.class))
                 .isInstanceOf(AgentExecutionException.class)
                 .hasMessageContaining("unparseable output twice");
+    }
+
+    @Test
+    void resultCarriesTokenUsageOfTheModelCall() {
+        StubChatModel model = new StubChatModel()
+                .enqueue("{\"title\": \"Hello\", \"points\": []}", 120, 45);
+        TestWorker worker = new TestWorker(ChatClient.create(model));
+
+        AgentResult result = worker.execute(null);
+
+        assertThat(result.metrics()).containsEntry("promptTokens", 120L)
+                .containsEntry("completionTokens", 45L);
+    }
+
+    @Test
+    void resultAfterParseRetryCarriesTheSuccessfulCallsUsage() {
+        StubChatModel model = new StubChatModel()
+                .enqueue("not json", 10, 5)
+                .enqueue("{\"title\": \"Recovered\", \"points\": []}", 200, 80);
+        TestWorker worker = new TestWorker(ChatClient.create(model));
+
+        AgentResult result = worker.execute(null);
+
+        assertThat(result.metrics()).containsEntry("promptTokens", 200L)
+                .containsEntry("completionTokens", 80L);
+    }
+
+    @Test
+    void zeroUsageLeavesMetricsEmpty() {
+        StubChatModel model = new StubChatModel().enqueue("{\"title\": \"t\", \"points\": []}");
+        TestWorker worker = new TestWorker(ChatClient.create(model));
+
+        AgentResult result = worker.execute(null);
+
+        assertThat(result.metrics()).isEmpty();
+    }
+
+    @Test
+    void usageDoesNotLeakAcrossCallsOnTheSameThread() {
+        // Simulates a worker that captured usage and then threw before building
+        // its result: the next call on the same pooled thread must start clean.
+        TestWorker first = new TestWorker(ChatClient.create(
+                new StubChatModel().enqueue("{\"title\": \"t\", \"points\": []}", 120, 45)));
+        first.callForEntity(Map.of("context_name", "x", "input", "y"), Summary.class);
+
+        TestWorker second = new TestWorker(ChatClient.create(new StubChatModel()));
+        assertThatThrownBy(() -> second.callForEntity(Map.of("context_name", "x", "input", "y"), Summary.class))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(second.resultWithUsage("out.md", "content").metrics()).isEmpty();
+    }
+
+    @Test
+    void nonParseFailurePropagatesWithoutRetry() {
+        StubChatModel model = new StubChatModel();
+        TestWorker worker = new TestWorker(ChatClient.create(model));
+
+        assertThatThrownBy(() -> worker.callForEntity(Map.of("context_name", "x", "input", "y"), Summary.class))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no queued response");
+        assertThat(model.receivedPrompts()).hasSize(1);
     }
 
     @Test

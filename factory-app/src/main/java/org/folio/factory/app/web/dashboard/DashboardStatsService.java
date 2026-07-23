@@ -6,6 +6,8 @@ import org.folio.factory.app.web.dashboard.DashboardStats.FlowStatusCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.HitlStats;
 import org.folio.factory.app.web.dashboard.DashboardStats.StatusCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepFailureCount;
+import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
+import org.folio.factory.app.web.dashboard.DashboardStats.TokenUsage;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 
@@ -32,7 +34,7 @@ public class DashboardStatsService {
     }
 
     public DashboardStats compute(int days) {
-        OffsetDateTime since = Instant.now().minus(days, ChronoUnit.DAYS).atOffset(ZoneOffset.UTC);
+        OffsetDateTime since = since(days);
 
         PendingRow pending = pending();
         DecidedRow decided = decided(since);
@@ -41,7 +43,58 @@ public class DashboardStatsService {
 
         return new DashboardStats(Instant.now(), days,
                 executionsByStatus(), executionsByFlowAndStatus(), executionsPerDay(since),
-                stepFailures(since), hitl, connectorOutcomes(since));
+                stepFailures(since), hitl, connectorOutcomes(since),
+                tokenUsage(since), stepTokens(since));
+    }
+
+    /** Window totals for the token KPI card; the UI renders these without the rest of the payload. */
+    public TokenUsage tokenUsage(int days) {
+        return tokenUsage(since(days));
+    }
+
+    /** Per-flow, per-step token spend, heaviest first. */
+    public List<StepTokenCount> stepTokens(int days) {
+        return stepTokens(since(days));
+    }
+
+    private static OffsetDateTime since(int days) {
+        return Instant.now().minus(days, ChronoUnit.DAYS).atOffset(ZoneOffset.UTC);
+    }
+
+    // Steps that report no usage (HITL gates, deterministic workers) store '{}', so
+    // detail->>'promptTokens' is SQL NULL there and sum() skips it; coalesce keeps an
+    // all-empty window at 0 rather than null.
+    private TokenUsage tokenUsage(OffsetDateTime since) {
+        return jdbc.sql("""
+                        SELECT coalesce(sum((detail->>'promptTokens')::bigint), 0) AS prompt,
+                               coalesce(sum((detail->>'completionTokens')::bigint), 0) AS completion
+                        FROM audit_event
+                        WHERE event_type = 'STEP_COMPLETED' AND occurred_at >= :since
+                        """)
+                .param("since", since)
+                .query((rs, n) -> new TokenUsage(rs.getLong("prompt"), rs.getLong("completion")))
+                .single();
+    }
+
+    private List<StepTokenCount> stepTokens(OffsetDateTime since) {
+        return jdbc.sql("""
+                        SELECT coalesce(e.flow_id, '(purged)') AS flow_id, a.step_id,
+                               coalesce(sum((a.detail->>'promptTokens')::bigint), 0) AS prompt,
+                               coalesce(sum((a.detail->>'completionTokens')::bigint), 0) AS completion
+                        FROM audit_event a LEFT JOIN pipeline_execution e ON e.id = a.execution_id
+                        WHERE a.event_type = 'STEP_COMPLETED' AND a.occurred_at >= :since
+                        -- jsonb_exists, not the `?` operator: JDBC would bind `?` as a parameter.
+                          AND a.step_id IS NOT NULL AND jsonb_exists(a.detail, 'promptTokens')
+                        -- Output aliases are only usable bare in ORDER BY, not inside an
+                        -- expression, so the sum is repeated rather than referenced.
+                        GROUP BY 1, 2
+                        ORDER BY coalesce(sum((a.detail->>'promptTokens')::bigint), 0)
+                                 + coalesce(sum((a.detail->>'completionTokens')::bigint), 0) DESC
+                        """)
+                .param("since", since)
+                .query((rs, n) -> new StepTokenCount(rs.getString("flow_id"), rs.getString("step_id"),
+                        rs.getLong("prompt"), rs.getLong("completion")))
+                .list();
     }
 
     private List<StatusCount> executionsByStatus() {

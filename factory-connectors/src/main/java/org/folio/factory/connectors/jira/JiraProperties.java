@@ -6,6 +6,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record JiraProperties(String baseUrl, String email, String apiToken) {
 
     public boolean isConfigured() {
-        return baseUrl != null && !baseUrl.isBlank();
+        return baseUrl != null && !baseUrl.isBlank()
+                && email != null && !email.isBlank()
+                && apiToken != null && !apiToken.isBlank();
     }
 }

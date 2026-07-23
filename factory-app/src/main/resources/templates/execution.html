@@ -30,6 +30,10 @@
         <section th:unless="${#lists.isEmpty(steps)}">
             <div class="page-header">
                 <h2 class="card-title">Progress</h2>
+                <p class="page-description" th:if="${tokenTotals['present']}"
+                   th:text="'LLM tokens: ' + ${tokenTotals['total']} + ' total · '
+                            + ${tokenTotals['prompt']} + ' prompt · ' + ${tokenTotals['completion']} + ' completion'">
+                </p>
             </div>
             <ol th:replace="~{fragments/components :: stepper(${steps})}"></ol>
         </section>

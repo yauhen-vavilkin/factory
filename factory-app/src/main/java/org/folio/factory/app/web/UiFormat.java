@@ -8,6 +8,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.text.NumberFormat;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -34,6 +35,11 @@ final class UiFormat {
 
     static String abbreviate(String value) {
         return value.length() <= 13 ? value : value.substring(0, 10) + "...";
+    }
+
+    /** Groups a count with thousands separators — token totals reach seven figures. */
+    static String count(long value) {
+        return NumberFormat.getIntegerInstance(Locale.US).format(value);
     }
 
     static String stepLabel(StepDescriptor step) {

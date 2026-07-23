@@ -133,6 +133,18 @@ class DashboardStatsIntegrationTest {
         assertThat(stats.hitl().pending()).isEqualTo(1);
         assertThat(stats.hitl().decidedInWindow()).isEqualTo(1);
 
+        // 734 + 810 prompt, 110 + 660 completion; the '{}' completion adds nothing.
+        assertThat(stats.tokens().promptTokens()).isEqualTo(1544);
+        assertThat(stats.tokens().completionTokens()).isEqualTo(770);
+        assertThat(stats.tokens().totalTokens()).isEqualTo(2314);
+
+        assertThat(stats.stepTokens())
+                .as("ordered heaviest first, and the zero-usage step is omitted entirely")
+                .extracting(DashboardStats.StepTokenCount::stepId)
+                .containsExactly("test-spec", "triage");
+        assertThat(stats.stepTokens().get(0).flowId()).isEqualTo(FLOW_A);
+        assertThat(stats.stepTokens().get(0).totalTokens()).isEqualTo(1470);
+
         // Widening the window to 30 days pulls the 10-day-old rows in.
         DashboardStats stats30 = dashboardStatsService.compute(30);
         assertThat(stats30.executionsPerDay())
@@ -173,6 +185,14 @@ class DashboardStatsIntegrationTest {
                 Map.of("connector", "github", "action", "open-pr"));
         auditLog.record(completed.getId(), AuditEventType.CONNECTOR_SKIPPED, "finalize",
                 Map.of("connector", "jira", "reason", "unconfigured"));
+
+        // Token-bearing completions plus one that reported nothing: the '{}' row must
+        // contribute zero to the totals and produce no breakdown row at all.
+        auditLog.record(completed.getId(), AuditEventType.STEP_COMPLETED, "triage",
+                Map.of("promptTokens", 734, "completionTokens", 110));
+        auditLog.record(completed.getId(), AuditEventType.STEP_COMPLETED, "test-spec",
+                Map.of("promptTokens", 810, "completionTokens", 660));
+        auditLog.record(completed.getId(), AuditEventType.STEP_COMPLETED, "finalize", Map.of());
 
         reviews.save(new HitlReview(running.getId(), "gate-1-test-plan", 2, "{}"));
         HitlReview decided = new HitlReview(completed.getId(), "gate-2-signoff", 5, "{}");

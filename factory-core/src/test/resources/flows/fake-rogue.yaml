@@ -1,0 +1,13 @@
+id: fake-rogue
+name: Fake Rogue Flow
+version: 1.0.0
+triggers:
+  - event_type: manual
+retry_policy:
+  max_attempts: 1
+  backoff_seconds: [0]
+agent_chain:
+  - step_id: rogue
+    type: AGENT
+    worker_id: rogue-worker
+    outputs: [expected.md]

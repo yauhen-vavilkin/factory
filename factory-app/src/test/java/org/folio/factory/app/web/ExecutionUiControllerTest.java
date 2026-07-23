@@ -1,5 +1,7 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.core.domain.AuditEvent;
+import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.PipelineExecution;
@@ -173,6 +175,43 @@ class ExecutionUiControllerTest {
         assertThat(steps.get(2))
                 .containsEntry("state", "pending")
                 .containsEntry("label", "finalizer-worker");
+    }
+
+    @Test
+    void execution_detail_attachesTokensPerStepAndTotalsTheRun() throws Exception {
+        PipelineExecution execution = execution(ExecutionStatus.AWAITING_HITL, 1, "{}");
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(flowRegistry.find("test-factory")).thenReturn(Optional.of(descriptor()));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "triage", "engine",
+                        "{\"promptTokens\":734,\"completionTokens\":110}"),
+                // A deterministic worker reports no usage: contributes nothing and
+                // leaves its step without a token label.
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "finalize", "engine", "{}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_STARTED, "triage", "engine",
+                        "{\"promptTokens\":999}")));
+
+        var result = mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "prompt", "734", "completion", "110", "total", "844")))
+                .andReturn();
+
+        List<Map<String, Object>> steps = steps(result);
+        assertThat(steps.get(0)).containsEntry("tokens", "844 tokens (734 in / 110 out)");
+        assertThat(steps.get(1)).containsEntry("tokens", null);
+    }
+
+    @Test
+    void execution_detail_runWithoutLlmStepsReportsNoTokens() throws Exception {
+        PipelineExecution execution = execution(ExecutionStatus.RUNNING, 0, "{}");
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(flowRegistry.find("test-factory")).thenReturn(Optional.of(descriptor()));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", false, "prompt", "0", "completion", "0", "total", "0")));
     }
 
     @Test

@@ -47,7 +47,7 @@ public class TestSpecAgentWorker extends AbstractLlmAgentWorker {
         metadata.put("issue_key", plan.issueKey());
         metadata.put("case_count", plan.cases().size());
         metadata.put("cases", jsonMapper.convertValue(plan.cases(), Object.class));
-        return AgentResult.of("test_plan.md", frontmatterCodec.render(metadata, renderBody(plan)));
+        return resultWithUsage("test_plan.md", frontmatterCodec.render(metadata, renderBody(plan)));
     }
 
     private String renderBody(TestPlan plan) {

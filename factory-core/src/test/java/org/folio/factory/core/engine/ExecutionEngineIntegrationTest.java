@@ -100,6 +100,20 @@ class ExecutionEngineIntegrationTest {
     }
 
     @Test
+    void undeclaredOutputIsRejectedAndNothingPersisted() {
+        PipelineExecution execution = stateManager.createExecution("fake-rogue", "1.0.0", null);
+        driveUntil(execution.getId(), ExecutionStatus.FAILED_ESCALATED);
+
+        assertThat(artifactStore.getLatest(execution.getId(), "rogue.md")).isEmpty();
+        assertThat(artifactStore.getLatest(execution.getId(), "expected.md")).isEmpty();
+
+        var failure = auditLog.forExecution(execution.getId()).stream()
+                .filter(e -> e.getEventType() == AuditEventType.STEP_FAILED)
+                .findFirst().orElseThrow();
+        assertThat(failure.getDetail()).contains("undeclared").contains("rogue.md");
+    }
+
+    @Test
     void exhaustedRetryBudgetEscalatesToHumanReview() {
         PipelineExecution execution = stateManager.createExecution("fake-failing", "1.0.0", null);
         driveUntil(execution.getId(), ExecutionStatus.FAILED_ESCALATED);

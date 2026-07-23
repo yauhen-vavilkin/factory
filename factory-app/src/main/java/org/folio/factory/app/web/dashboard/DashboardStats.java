@@ -7,7 +7,7 @@ import java.util.List;
 public record DashboardStats(Instant generatedAt, int days,
         List<StatusCount> executionsByStatus, List<FlowStatusCount> executionsByFlowAndStatus,
         List<DailyCount> executionsPerDay, List<StepFailureCount> stepFailures, HitlStats hitl,
-        List<ConnectorOutcome> connectorOutcomes) {
+        List<ConnectorOutcome> connectorOutcomes, TokenUsage tokens, List<StepTokenCount> stepTokens) {
 
     public record StatusCount(String status, long count) {
     }
@@ -26,5 +26,20 @@ public record DashboardStats(Instant generatedAt, int days,
     }
 
     public record ConnectorOutcome(String connector, String eventType, long count) {
+    }
+
+    /** LLM tokens consumed by agent steps that completed inside the window. */
+    public record TokenUsage(long promptTokens, long completionTokens) {
+
+        public long totalTokens() {
+            return promptTokens + completionTokens;
+        }
+    }
+
+    public record StepTokenCount(String flowId, String stepId, long promptTokens, long completionTokens) {
+
+        public long totalTokens() {
+            return promptTokens + completionTokens;
+        }
     }
 }

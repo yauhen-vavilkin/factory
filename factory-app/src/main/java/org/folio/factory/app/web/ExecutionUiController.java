@@ -1,6 +1,8 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.core.domain.Artifact;
+import org.folio.factory.core.domain.AuditEvent;
+import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
@@ -92,15 +94,52 @@ public class ExecutionUiController {
                 .orElseThrow(() -> new NoSuchElementException("No execution " + id));
         boolean terminal = execution.getStatus().isTerminal();
 
+        List<AuditEvent> events = auditLog.forExecution(id);
+        Map<String, long[]> tokensByStep = tokensByStep(events);
+
         model.addAttribute("execution", execution);
-        model.addAttribute("steps", stepStates(execution));
+        model.addAttribute("steps", stepStates(execution, tokensByStep));
+        model.addAttribute("tokenTotals", tokenTotals(tokensByStep));
         model.addAttribute("artifactGroups", artifactGroups(id));
         model.addAttribute("children", childRows(execution, id));
         model.addAttribute("pendingReview", pendingReview(execution, id));
-        model.addAttribute("events", auditLog.forExecution(id).stream()
+        model.addAttribute("events", events.stream()
                 .map(event -> UiFormat.auditRow(event, jsonMapper)).toList());
         model.addAttribute("pollUrl", terminal ? null : "/api/executions/" + id);
         return "execution";
+    }
+
+    /**
+     * Token usage per step, read from the {@code STEP_COMPLETED} audit rows already
+     * loaded for the timeline. A retried step emits one completion row, so counts
+     * never double up; steps that reported nothing are simply absent from the map.
+     */
+    private Map<String, long[]> tokensByStep(List<AuditEvent> events) {
+        Map<String, long[]> byStep = new LinkedHashMap<>();
+        for (AuditEvent event : events) {
+            if (event.getEventType() != AuditEventType.STEP_COMPLETED || event.getStepId() == null) {
+                continue;
+            }
+            JsonNode detail = jsonMapper.readTree(event.getDetail() == null ? "{}" : event.getDetail());
+            long prompt = detail.path("promptTokens").asLong(0);
+            long completion = detail.path("completionTokens").asLong(0);
+            if (prompt + completion > 0) {
+                byStep.put(event.getStepId(), new long[]{prompt, completion});
+            }
+        }
+        return byStep;
+    }
+
+    private static Map<String, Object> tokenTotals(Map<String, long[]> tokensByStep) {
+        long prompt = tokensByStep.values().stream().mapToLong(t -> t[0]).sum();
+        long completion = tokensByStep.values().stream().mapToLong(t -> t[1]).sum();
+        Map<String, Object> totals = new LinkedHashMap<>();
+        // A run with no LLM step renders nothing rather than a row of zeroes.
+        totals.put("present", prompt + completion > 0);
+        totals.put("prompt", UiFormat.count(prompt));
+        totals.put("completion", UiFormat.count(completion));
+        totals.put("total", UiFormat.count(prompt + completion));
+        return totals;
     }
 
     private Map<String, Object> executionRow(PipelineExecution execution) {
@@ -118,7 +157,7 @@ public class ExecutionUiController {
         return row;
     }
 
-    private List<Map<String, Object>> stepStates(PipelineExecution execution) {
+    private List<Map<String, Object>> stepStates(PipelineExecution execution, Map<String, long[]> tokensByStep) {
         FlowDescriptor flow = flowRegistry.find(execution.getFlowId()).orElse(null);
         if (flow == null) {
             return List.of();
@@ -134,6 +173,10 @@ public class ExecutionUiController {
             row.put("sublabel", step.stepId() + " · " + step.type());
             row.put("state", stepState(i, execution));
             row.put("attempts", retryCounts.path(step.stepId()).asInt(0));
+            long[] tokens = tokensByStep.get(step.stepId());
+            row.put("tokens", tokens == null ? null
+                    : UiFormat.count(tokens[0] + tokens[1]) + " tokens ("
+                            + UiFormat.count(tokens[0]) + " in / " + UiFormat.count(tokens[1]) + " out)");
             steps.add(row);
         }
         return steps;
