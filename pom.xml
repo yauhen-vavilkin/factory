@@ -22,6 +22,7 @@
     <module>factory-core</module>
     <module>factory-connectors</module>
     <module>factory-agents</module>
+    <module>factory-sandbox</module>
     <module>factory-flow-test-factory</module>
     <module>factory-app</module>
   </modules>
