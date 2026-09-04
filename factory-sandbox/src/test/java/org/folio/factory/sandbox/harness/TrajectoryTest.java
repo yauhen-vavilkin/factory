@@ -1,0 +1,73 @@
+package org.folio.factory.sandbox.harness;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+class TrajectoryTest {
+
+  private final JsonMapper mapper = JsonMapper.builder().build();
+
+  @TempDir
+  Path workDir;
+
+  @Test
+  void writesOneJsonLinePerStepAndFinalReport() throws Exception {
+    StepRecord first = new StepRecord("2026-09-04T10:00:00Z", 1, "read", 22, 430, true, 120L);
+    StepRecord second = new StepRecord("2026-09-04T10:00:05Z", 2, "apply_patch", 512, 14, false, 900L);
+    HarnessReport report = new HarnessReport(2, HarnessReport.Outcome.COMPLETED,
+        HarnessReport.StopReason.COMPLETED, 1, 2048L, 0);
+
+    try (Trajectory trajectory = Trajectory.open(workDir)) {
+      trajectory.append(first);
+      trajectory.append(second);
+      trajectory.append(report);
+    }
+
+    List<String> lines = Files.readAllLines(workDir.resolve(Trajectory.FILE_NAME));
+    assertEquals(3, lines.size());
+    JsonNode stepOne = mapper.readTree(lines.get(0));
+    assertEquals("2026-09-04T10:00:00Z", stepOne.get("ts").textValue());
+    assertEquals(1, stepOne.get("step").intValue());
+    assertEquals("read", stepOne.get("tool").textValue());
+    assertEquals(22, stepOne.get("args_len").intValue());
+    assertEquals(430, stepOne.get("out_len").intValue());
+    assertEquals(120L, stepOne.get("duration_ms").longValue());
+    assertTrue(stepOne.get("ok").booleanValue());
+    JsonNode stepTwo = mapper.readTree(lines.get(1));
+    assertFalse(stepTwo.get("ok").booleanValue());
+    JsonNode reportNode = mapper.readTree(lines.get(2));
+    assertEquals(2, reportNode.get("steps").intValue());
+    assertEquals("COMPLETED", reportNode.get("outcome").textValue());
+    assertEquals("COMPLETED", reportNode.get("stop_reason").textValue());
+    assertEquals(1, reportNode.get("files_changed").intValue());
+    assertEquals(2048L, reportNode.get("diff_size_bytes").longValue());
+    assertEquals(0, reportNode.get("format_errors").intValue());
+  }
+
+  @Test
+  void persistsEachStepImmediately() throws Exception {
+    try (Trajectory trajectory = Trajectory.open(workDir)) {
+      trajectory.append(new StepRecord("2026-09-04T10:00:00Z", 1, "exec", 30, 100, true, 5L));
+
+      assertEquals(1, Files.readAllLines(workDir.resolve(Trajectory.FILE_NAME)).size());
+    }
+  }
+
+  @Test
+  void createsWorkDirWhenMissing() throws Exception {
+    try (Trajectory trajectory = Trajectory.open(workDir.resolve("nested/deep"))) {
+      trajectory.append(new StepRecord("ts", 1, "exec", 10, 10, true, 1L));
+    }
+
+    assertTrue(Files.exists(workDir.resolve("nested/deep/trajectory.jsonl")));
+  }
+}
