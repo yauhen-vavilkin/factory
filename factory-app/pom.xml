@@ -29,6 +29,10 @@
     </dependency>
     <dependency>
       <groupId>org.folio.factory</groupId>
+      <artifactId>factory-sandbox</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.folio.factory</groupId>
       <artifactId>factory-flow-test-factory</artifactId>
     </dependency>
 

@@ -24,7 +24,9 @@ factory:
     poll-interval-ms: 2000
     batch-size: 5
     worker-threads: 4
-    lease-timeout-seconds: 1800
+    # 45 min: strictly above the 30-min harness job timeout + clone/teardown
+    # margin, so the reaper never re-queues a live coding step (T14 R7).
+    lease-timeout-seconds: 2700
   connectors:
     jira:
       base-url: ${FACTORY_CONNECTORS_JIRA_BASE_URL:}
@@ -48,6 +50,17 @@ factory:
     # Explicit placeholders: relaxed binding would NOT map the underscored env
     # vars onto these kebab-case properties by itself.
     testrail-section-id: ${FACTORY_FLOWA_TESTRAIL_SECTION_ID:}
+  harness:
+    max-steps: 40
+    max-format-errors: 3
+    job-timeout-min: 30
+    model-id: ${FACTORY_HARNESS_MODEL:glm-5.3-flash}
+  sandbox:
+    mode: ${FACTORY_SANDBOX_MODE:docker}
+    image: maven:3.9-eclipse-temurin-21
+    docker-host: ${DOCKER_HOST:unix:///var/run/docker.sock}
+    workspace-root: ${java.io.tmpdir}/factory-sandboxes
+    workspace-retention: 0s
 
 management:
   endpoints:

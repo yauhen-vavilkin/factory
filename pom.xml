@@ -32,6 +32,7 @@
     <spring-ai.version>2.0.0</spring-ai.version>
     <testcontainers.version>2.0.5</testcontainers.version>
     <wiremock.version>3.13.1</wiremock.version>
+    <docker-java.version>3.7.1</docker-java.version>
   </properties>
 
   <dependencyManagement>
@@ -60,6 +61,11 @@
       </dependency>
       <dependency>
         <groupId>org.folio.factory</groupId>
+        <artifactId>factory-sandbox</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.folio.factory</groupId>
         <artifactId>factory-flow-test-factory</artifactId>
         <version>${project.version}</version>
       </dependency>
@@ -69,6 +75,16 @@
         <version>${testcontainers.version}</version>
         <type>pom</type>
         <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.github.docker-java</groupId>
+        <artifactId>docker-java-core</artifactId>
+        <version>${docker-java.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.github.docker-java</groupId>
+        <artifactId>docker-java-transport-zerodep</artifactId>
+        <version>${docker-java.version}</version>
       </dependency>
       <dependency>
         <groupId>org.wiremock</groupId>

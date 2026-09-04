@@ -14,10 +14,12 @@ import org.folio.factory.sandbox.api.SandboxService;
 import org.folio.factory.sandbox.api.SandboxSpec;
 import org.folio.factory.sandbox.exception.SandboxException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnProperty(name = "factory.sandbox.mode", havingValue = "docker",
+    matchIfMissing = true)
 public class DockerSandboxService implements SandboxService {
 
   private static final String DEFAULT_IMAGE = "maven:3.9-eclipse-temurin-21";
@@ -28,14 +30,14 @@ public class DockerSandboxService implements SandboxService {
   private final String image;
 
   public DockerSandboxService(DockerClient dockerClient) {
-    this(dockerClient, DEFAULT_IMAGE);
+    this.dockerClient = dockerClient;
+    this.image = DEFAULT_IMAGE;
   }
 
   @Autowired
-  public DockerSandboxService(DockerClient dockerClient,
-      @Value("${factory.sandbox.image:maven:3.9-eclipse-temurin-21}") String image) {
+  public DockerSandboxService(DockerClient dockerClient, SandboxProperties properties) {
     this.dockerClient = dockerClient;
-    this.image = image;
+    this.image = properties.image();
   }
 
   @Override
