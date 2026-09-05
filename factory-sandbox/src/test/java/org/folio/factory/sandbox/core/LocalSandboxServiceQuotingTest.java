@@ -56,7 +56,7 @@ class LocalSandboxServiceQuotingTest {
   }
 
   private LocalSandboxService newService(Path workspaceRoot, Duration retention) {
-    SandboxProperties properties = new SandboxProperties("local", null, null, workspaceRoot, retention);
+    SandboxProperties properties = new SandboxProperties("local", null, null, workspaceRoot, retention, null);
     return new LocalSandboxService(properties, clock);
   }
 

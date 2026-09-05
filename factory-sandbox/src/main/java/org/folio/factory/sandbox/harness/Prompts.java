@@ -16,6 +16,16 @@ public final class Prompts {
     return load(CODING_WORKER_PROMPT);
   }
 
+  public static final String FOLIO_CONTEXT_PROMPT = "prompts/folio-context.md";
+
+  public static String folioContext() {
+    return load(FOLIO_CONTEXT_PROMPT);
+  }
+
+  public static String codingWorkerSystemPrompt() {
+    return codingWorker() + "\n" + folioContext();
+  }
+
   public static String load(String path) {
     try (InputStream in = Prompts.class.getClassLoader().getResourceAsStream(path)) {
       if (in == null) {

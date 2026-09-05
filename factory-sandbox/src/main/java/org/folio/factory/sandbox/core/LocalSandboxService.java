@@ -40,11 +40,13 @@ public class LocalSandboxService implements SandboxService {
     Path workspace = properties.workspaceRoot().resolve(sanitize(sandboxId)).toAbsolutePath();
     String cloneCommand = "git clone " + Shell.quote(spec.repoUrl()) + " repo && cd repo && git checkout -b "
         + Shell.quote(spec.branch()) + " " + Shell.quote("origin/" + spec.baseBranch());
+    boolean workspaceCreated = false;
     try {
       Files.createDirectories(properties.workspaceRoot());
       sweepExpiredWorkspaces();
       deleteRecursively(workspace);
       Files.createDirectories(workspace);
+      workspaceCreated = true;
       ProcessOutput output = runCommand(workspace, cloneCommand, CLONE_TIMEOUT_SEC);
       if (output.timedOut()) {
         throw new SandboxException("Git clone timed out after " + CLONE_TIMEOUT_SEC + "s in "
@@ -57,9 +59,14 @@ public class LocalSandboxService implements SandboxService {
       return new SandboxHandle(sandboxId, workspace.toString());
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
+      deleteWorkspaceQuietly(workspaceCreated, workspace);
       throw new SandboxException("Sandbox creation interrupted for task " + spec.taskId(), e);
     } catch (IOException e) {
+      deleteWorkspaceQuietly(workspaceCreated, workspace);
       throw new SandboxException("Failed to create sandbox for task " + spec.taskId(), e);
+    } catch (RuntimeException e) {
+      deleteWorkspaceQuietly(workspaceCreated, workspace);
+      throw e;
     }
   }
 
@@ -119,6 +126,16 @@ public class LocalSandboxService implements SandboxService {
       return Long.valueOf(Files.readString(marker).trim());
     } catch (IOException | NumberFormatException e) {
       return null;
+    }
+  }
+
+  private static void deleteWorkspaceQuietly(boolean workspaceCreated, Path workspace) {
+    if (!workspaceCreated) {
+      return;
+    }
+    try {
+      deleteRecursively(workspace);
+    } catch (IOException e) {
     }
   }
 

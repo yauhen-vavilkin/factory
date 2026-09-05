@@ -97,6 +97,8 @@ public class CodingWorker implements AgentWorker {
       metadata.put("files_changed", report.filesChanged());
       metadata.put("diff_size_bytes", report.diffSizeBytes());
       metadata.put("format_errors", report.formatErrors());
+      metadata.put("tokens_in", report.tokensIn());
+      metadata.put("tokens_out", report.tokensOut());
       String reportMd = frontmatterCodec.render(metadata, "");
 
       Map<String, Object> metrics = new LinkedHashMap<String, Object>();

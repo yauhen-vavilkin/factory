@@ -43,9 +43,3 @@ Work in this order and repeat as needed until the task is done:
 - Run `test` for the affected module before you finish.
 - To finish, reply with plain text (no tool call): root cause, what you changed,
   and the test results you observed.
-
-## FOLIO CONTEXT
-
-[FOLIO context pack — added in T15: folio-org conventions, ModuleDescriptor, Okapi
-headers vs Eureka, multi-tenancy, typical mod-* anatomy, "read the module README
-and RAML before editing".]

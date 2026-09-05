@@ -2,18 +2,22 @@ package org.folio.factory.sandbox.harness;
 
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
+import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 
 public class SpringAiChatModelAdapter implements ChatModelAdapter {
+
+  private static final int MAX_TOKENS = 8192;
 
   private final ChatModel chatModel;
   private final HarnessConfig config;
@@ -44,16 +48,28 @@ public class SpringAiChatModelAdapter implements ChatModelAdapter {
             .build());
       }
     }
-    ToolCallingChatOptions options = ToolCallingChatOptions.builder()
+    AnthropicChatOptions options = AnthropicChatOptions.builder()
         .model(config.modelId())
+        .maxTokens(MAX_TOKENS)
         .toolCallbacks(toolCallbacks)
         .build();
     ChatResponse response = chatModel.call(new Prompt(messages, options));
+    ChatResponseMetadata metadata = response.getMetadata();
+    Usage usage = metadata == null ? null : metadata.getUsage();
+    TokenUsage tokenUsage = new TokenUsage(
+        orZero(usage == null ? null : usage.getPromptTokens()),
+        orZero(usage == null ? null : usage.getCompletionTokens()));
     AssistantMessage assistant = response.getResult().getOutput();
     if (assistant.hasToolCalls()) {
-      AssistantMessage.ToolCall toolCall = assistant.getToolCalls().get(0);
-      return ModelReply.toolCall(new ToolCall(toolCall.id(), toolCall.name(), toolCall.arguments()));
+      List<ToolCall> toolCalls = assistant.getToolCalls().stream()
+          .map(toolCall -> new ToolCall(toolCall.id(), toolCall.name(), toolCall.arguments()))
+          .toList();
+      return ModelReply.toolCalls(toolCalls, tokenUsage);
     }
-    return ModelReply.text(assistant.getText());
+    return ModelReply.text(assistant.getText(), tokenUsage);
+  }
+
+  private static long orZero(Integer tokens) {
+    return tokens == null ? 0L : tokens;
   }
 }

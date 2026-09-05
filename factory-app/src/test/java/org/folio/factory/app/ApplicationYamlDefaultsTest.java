@@ -68,6 +68,9 @@ class ApplicationYamlDefaultsTest {
           .isEqualTo(Path.of(System.getProperty("java.io.tmpdir"), "factory-sandboxes"));
       assertThat(sandbox.dockerHost())
           .isEqualTo(System.getenv().getOrDefault("DOCKER_HOST", "unix:///var/run/docker.sock"));
+      assertThat(sandbox.mavenCacheVolume())
+          .isEqualTo(System.getenv().getOrDefault("FACTORY_SANDBOX_MAVEN_CACHE_VOLUME",
+              "factory-m2-cache"));
       assertThat(env.getProperty("factory.sandbox.mode"))
           .isEqualTo(System.getenv().getOrDefault("FACTORY_SANDBOX_MODE", "docker"));
       assertThat(env.getProperty("factory.sandbox.image"))
@@ -77,6 +80,19 @@ class ApplicationYamlDefaultsTest {
       assertThat(env.getProperty("factory.sandbox.workspace-root"))
           .isEqualTo(System.getProperty("java.io.tmpdir") + "/factory-sandboxes");
       assertThat(env.getProperty("factory.sandbox.workspace-retention")).isEqualTo("0s");
+      assertThat(env.getProperty("factory.sandbox.maven-cache-volume"))
+          .isEqualTo(System.getenv().getOrDefault("FACTORY_SANDBOX_MAVEN_CACHE_VOLUME",
+              "factory-m2-cache"));
+    });
+  }
+
+  @Test
+  void freezesLlmBaseUrl() {
+    runner.run(context -> {
+      Environment env = context.getEnvironment();
+      assertThat(env.getProperty("spring.ai.anthropic.base-url"))
+          .isEqualTo(System.getenv().getOrDefault("FACTORY_LLM_BASE_URL",
+              "https://api.z.ai/api/anthropic"));
     });
   }
 

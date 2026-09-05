@@ -48,7 +48,7 @@ class CodingWorkerLifecycleTest {
   @Test
   void teardownExactlyOnceOnCompleted() {
     when(harness.run(any(), anyString(), any())).thenReturn(new HarnessReport(3,
-        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0));
+        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0, 0L, 0L));
 
     AgentResult result = worker().execute(context());
 
@@ -98,7 +98,7 @@ class CodingWorkerLifecycleTest {
   @Test
   void diffCommandFailureIsInfrastructureFailure() {
     when(harness.run(any(), anyString(), any())).thenReturn(new HarnessReport(3,
-        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0));
+        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0, 0L, 0L));
     sandbox.diffExitCode = 1;
 
     assertThatThrownBy(() -> worker().execute(context()))
@@ -109,7 +109,7 @@ class CodingWorkerLifecycleTest {
   @Test
   void teardownFailureAfterSuccessfulRunIsAgentExecutionException() {
     when(harness.run(any(), anyString(), any())).thenReturn(new HarnessReport(3,
-        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0));
+        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0, 0L, 0L));
     sandbox.diffStdout = "[status]\n\n[diff]\n+ok";
     sandbox.failTeardown = true;
 
@@ -119,7 +119,7 @@ class CodingWorkerLifecycleTest {
 
   private void assertFailedRunRecordsStopReason(HarnessReport.StopReason stopReason) {
     when(harness.run(any(), anyString(), any())).thenReturn(new HarnessReport(5,
-        HarnessReport.Outcome.FAILED, stopReason, 1, 256L, 0));
+        HarnessReport.Outcome.FAILED, stopReason, 1, 256L, 0, 0L, 0L));
 
     AgentResult result = worker().execute(context());
 

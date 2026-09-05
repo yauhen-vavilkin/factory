@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "factory.sandbox")
 public record SandboxProperties(String mode, String image, String dockerHost,
-    Path workspaceRoot, Duration workspaceRetention) {
+    Path workspaceRoot, Duration workspaceRetention, String mavenCacheVolume) {
 
   public SandboxProperties {
     mode = mode == null ? "docker" : mode;
@@ -20,5 +20,7 @@ public record SandboxProperties(String mode, String image, String dockerHost,
     workspaceRoot = workspaceRoot != null ? workspaceRoot
         : Path.of(System.getProperty("java.io.tmpdir", "/tmp"), "factory-sandboxes");
     workspaceRetention = workspaceRetention == null ? Duration.ZERO : workspaceRetention;
+    mavenCacheVolume = mavenCacheVolume == null || mavenCacheVolume.isBlank()
+        ? "factory-m2-cache" : mavenCacheVolume;
   }
 }

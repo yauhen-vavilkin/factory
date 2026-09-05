@@ -164,6 +164,17 @@ class LocalSandboxServiceTest {
   }
 
   @Test
+  void failedCloneLeavesNoWorkspaceDirectory() {
+    LocalSandboxService service = newService(root, Duration.ZERO);
+    String repoUrl = sources.resolve("no-such-repo").toAbsolutePath().toString();
+
+    assertThatThrownBy(() -> service.create(new SandboxSpec("t-cleanup", repoUrl, "main", "task/t-cleanup")))
+        .isInstanceOf(SandboxException.class);
+
+    assertThat(Files.notExists(root.resolve("sbx-t-cleanup"))).isTrue();
+  }
+
+  @Test
   void createSanitizesTaskIdIntoWorkspaceDirectoryName() throws Exception {
     String repoUrl = sourceRepo(sources.resolve("repo-9"));
     LocalSandboxService service = newService(root, Duration.ZERO);
@@ -177,7 +188,7 @@ class LocalSandboxServiceTest {
   }
 
   private LocalSandboxService newService(Path workspaceRoot, Duration retention) {
-    SandboxProperties properties = new SandboxProperties("local", null, null, workspaceRoot, retention);
+    SandboxProperties properties = new SandboxProperties("local", null, null, workspaceRoot, retention, null);
     return new LocalSandboxService(properties, clock);
   }
 

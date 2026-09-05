@@ -24,7 +24,7 @@ class TrajectoryTest {
     StepRecord first = new StepRecord("2026-09-04T10:00:00Z", 1, "read", 22, 430, true, 120L);
     StepRecord second = new StepRecord("2026-09-04T10:00:05Z", 2, "apply_patch", 512, 14, false, 900L);
     HarnessReport report = new HarnessReport(2, HarnessReport.Outcome.COMPLETED,
-        HarnessReport.StopReason.COMPLETED, 1, 2048L, 0);
+        HarnessReport.StopReason.COMPLETED, 1, 2048L, 0, 0L, 0L);
 
     try (Trajectory trajectory = Trajectory.open(workDir)) {
       trajectory.append(first);
@@ -51,6 +51,24 @@ class TrajectoryTest {
     assertEquals(1, reportNode.get("files_changed").intValue());
     assertEquals(2048L, reportNode.get("diff_size_bytes").longValue());
     assertEquals(0, reportNode.get("format_errors").intValue());
+    assertEquals(0L, reportNode.get("tokens_in").longValue());
+    assertEquals(0L, reportNode.get("tokens_out").longValue());
+  }
+
+  @Test
+  void reportLineCarriesTokenTotals() throws Exception {
+    HarnessReport report = new HarnessReport(3, HarnessReport.Outcome.COMPLETED,
+        HarnessReport.StopReason.COMPLETED, 1, 512L, 0, 137L, 63L);
+
+    try (Trajectory trajectory = Trajectory.open(workDir)) {
+      trajectory.append(report);
+    }
+
+    List<String> lines = Files.readAllLines(workDir.resolve(Trajectory.FILE_NAME));
+    assertEquals(1, lines.size());
+    JsonNode reportNode = mapper.readTree(lines.get(0));
+    assertEquals(137L, reportNode.get("tokens_in").longValue());
+    assertEquals(63L, reportNode.get("tokens_out").longValue());
   }
 
   @Test

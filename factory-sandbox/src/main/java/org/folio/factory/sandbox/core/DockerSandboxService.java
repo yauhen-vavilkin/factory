@@ -3,8 +3,11 @@ package org.folio.factory.sandbox.core;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.CreateContainerResponse;
 import com.github.dockerjava.api.exception.NotFoundException;
+import com.github.dockerjava.api.model.Bind;
 import com.github.dockerjava.api.model.Frame;
+import com.github.dockerjava.api.model.HostConfig;
 import com.github.dockerjava.api.model.StreamType;
+import com.github.dockerjava.api.model.Volume;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
@@ -24,30 +27,37 @@ import org.springframework.stereotype.Component;
 public class DockerSandboxService implements SandboxService {
 
   private static final String DEFAULT_IMAGE = "maven:3.9-eclipse-temurin-21";
+  private static final String DEFAULT_MAVEN_CACHE_VOLUME = "factory-m2-cache";
   private static final String WORKSPACE_DIR = "/workspace";
   private static final long CLONE_TIMEOUT_SEC = 300L;
 
   private final DockerClient dockerClient;
   private final String image;
+  private final String mavenCacheVolume;
 
   public DockerSandboxService(DockerClient dockerClient) {
     this.dockerClient = dockerClient;
     this.image = DEFAULT_IMAGE;
+    this.mavenCacheVolume = DEFAULT_MAVEN_CACHE_VOLUME;
   }
 
   @Autowired
   public DockerSandboxService(DockerClient dockerClient, SandboxProperties properties) {
     this.dockerClient = dockerClient;
     this.image = properties.image();
+    this.mavenCacheVolume = properties.mavenCacheVolume();
   }
 
   @Override
   public SandboxHandle create(SandboxSpec spec) {
+    String containerId = null;
     try {
       CreateContainerResponse container = dockerClient.createContainerCmd(image)
+          .withCmd("sleep", "infinity")
           .withWorkingDir(WORKSPACE_DIR)
+          .withHostConfig(new HostConfig().withBinds(new Bind(mavenCacheVolume, new Volume("/root/.m2"))))
           .exec();
-      String containerId = container.getId();
+      containerId = container.getId();
       dockerClient.startContainerCmd(containerId).exec();
       String cloneCommand = "git clone --depth 1 " + Shell.quote(spec.repoUrl()) + " repo && cd repo && git checkout -b "
           + Shell.quote(spec.branch()) + " " + Shell.quote(spec.baseBranch());
@@ -60,8 +70,10 @@ public class DockerSandboxService implements SandboxService {
       return new SandboxHandle("sbx-" + spec.taskId(), containerId);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
+      removeContainerQuietly(containerId);
       throw new SandboxException("Sandbox creation interrupted for task " + spec.taskId(), e);
     } catch (RuntimeException e) {
+      removeContainerQuietly(containerId);
       if (e instanceof SandboxException sandboxEx) {
         throw sandboxEx;
       }
@@ -92,6 +104,19 @@ public class DockerSandboxService implements SandboxService {
           .withRemoveVolumes(true)
           .exec();
     } catch (NotFoundException e) {
+    }
+  }
+
+  private void removeContainerQuietly(String containerId) {
+    if (containerId == null) {
+      return;
+    }
+    try {
+      dockerClient.removeContainerCmd(containerId)
+          .withForce(true)
+          .withRemoveVolumes(true)
+          .exec();
+    } catch (RuntimeException e) {
     }
   }
 

@@ -29,6 +29,7 @@ import org.folio.factory.sandbox.harness.CodingHarness;
 import org.folio.factory.sandbox.harness.HarnessConfig;
 import org.folio.factory.sandbox.harness.ModelReply;
 import org.folio.factory.sandbox.harness.ToolDispatcher;
+import org.folio.factory.sandbox.harness.TokenUsage;
 import org.folio.factory.sandbox.harness.Trajectory;
 import org.folio.factory.sandbox.tools.ApplyPatchTool;
 import org.folio.factory.sandbox.tools.ExecTool;
@@ -152,7 +153,7 @@ class CodingWorkerTest {
     String expected = "{\"ts\":\"2026-09-04T10:00:00Z\",\"step\":1,\"tool\":\"final\",\"args_len\":0,"
         + "\"out_len\":4,\"duration_ms\":0,\"ok\":true}\n"
         + "{\"steps\":1,\"outcome\":\"COMPLETED\",\"stop_reason\":\"COMPLETED\",\"files_changed\":0,"
-        + "\"diff_size_bytes\":0,\"format_errors\":0}\n";
+        + "\"diff_size_bytes\":0,\"format_errors\":0,\"tokens_in\":0,\"tokens_out\":0}\n";
     assertThat(result.outputs().get("trajectory.jsonl")).isEqualTo(expected);
     assertThat(Files.readString(workDir.resolve(Trajectory.FILE_NAME))).isEqualTo(expected);
   }
@@ -170,7 +171,8 @@ class CodingWorkerTest {
     JsonNode metadata = codec.parse(result.outputs().get("report.md")).metadata();
     List<String> keys = new ArrayList<>(metadata.propertyNames());
     assertThat(keys).containsExactlyInAnyOrder("task_id", "repo_url", "branch", "outcome",
-        "stop_reason", "steps", "files_changed", "diff_size_bytes", "format_errors");
+        "stop_reason", "steps", "files_changed", "diff_size_bytes", "format_errors",
+        "tokens_in", "tokens_out");
     assertThat(metadata.path("task_id").asString()).isEqualTo("T-15");
     assertThat(metadata.path("repo_url").asString()).isEqualTo("https://github.com/folio/o-r.git");
     assertThat(metadata.path("branch").asString()).isEqualTo("dev/T15");
@@ -180,6 +182,24 @@ class CodingWorkerTest {
     assertThat(metadata.path("files_changed").asInt()).isEqualTo(0);
     assertThat(metadata.path("diff_size_bytes").asLong()).isEqualTo(0L);
     assertThat(metadata.path("format_errors").asInt()).isEqualTo(0);
+    assertThat(metadata.path("tokens_in").asLong()).isEqualTo(0L);
+    assertThat(metadata.path("tokens_out").asLong()).isEqualTo(0L);
+  }
+
+  @Test
+  void reportCarriesTokenTotals() {
+    FakeSandboxService sandbox = new FakeSandboxService();
+    sandbox.diffStdout = "[status]\n\n[diff]\n+ok";
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.text("done", new TokenUsage(250, 125)));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+    CodingWorker worker = new CodingWorker(sandbox, harness(), codec);
+
+    AgentResult result = worker.execute(context());
+
+    JsonNode metadata = codec.parse(result.outputs().get("report.md")).metadata();
+    assertThat(metadata.path("tokens_in").asLong()).isEqualTo(250L);
+    assertThat(metadata.path("tokens_out").asLong()).isEqualTo(125L);
   }
 
   private CodingHarness harness() {

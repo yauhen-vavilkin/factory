@@ -23,8 +23,10 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.anthropic.AnthropicChatOptions;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
+import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 
 @ExtendWith(MockitoExtension.class)
@@ -72,6 +74,29 @@ class SpringAiChatModelAdapterTest {
   }
 
   @Test
+  void batchOfToolCallsIsReturnedWhole() {
+    AssistantMessage assistant = AssistantMessage.builder()
+        .toolCalls(List.of(
+            new AssistantMessage.ToolCall(
+                "call-1", "function", "read", "{\"path\":\"repo/pom.xml\"}"),
+            new AssistantMessage.ToolCall(
+                "call-2", "function", "list", "{\"path\":\"repo\"}")))
+        .build();
+    when(chatModel.call(any(Prompt.class))).thenReturn(responseFor(assistant));
+
+    ModelReply reply = adapter().reply("system", "fix the bug", List.of());
+
+    assertTrue(reply.isToolCall());
+    assertEquals(2, reply.toolCalls().size());
+    assertEquals("call-1", reply.toolCalls().get(0).id());
+    assertEquals("read", reply.toolCalls().get(0).name());
+    assertEquals("{\"path\":\"repo/pom.xml\"}", reply.toolCalls().get(0).arguments());
+    assertEquals("call-2", reply.toolCalls().get(1).id());
+    assertEquals("list", reply.toolCalls().get(1).name());
+    assertEquals("{\"path\":\"repo\"}", reply.toolCalls().get(1).arguments());
+  }
+
+  @Test
   void buildsPromptWithHistoryMessagesOptionsAndCallbacks() {
     when(chatModel.call(any(Prompt.class)))
         .thenReturn(responseFor(AssistantMessage.builder().content("ok").build()));
@@ -96,8 +121,10 @@ class SpringAiChatModelAdapterTest {
     assertEquals("call-1", replayedResult.getResponses().get(0).id());
     assertEquals("read", replayedResult.getResponses().get(0).name());
     assertEquals("<project/>", replayedResult.getResponses().get(0).responseData());
-    ToolCallingChatOptions options = (ToolCallingChatOptions) prompt.getOptions();
+    assertTrue(prompt.getOptions() instanceof AnthropicChatOptions);
+    AnthropicChatOptions options = (AnthropicChatOptions) prompt.getOptions();
     assertEquals("glm-5.3-flash", options.getModel());
+    assertEquals(8192, options.getMaxTokens().intValue());
     assertEquals(1, options.getToolCallbacks().size());
     assertSame(toolCallback, options.getToolCallbacks().get(0));
   }
@@ -107,5 +134,28 @@ class SpringAiChatModelAdapterTest {
     when(chatModel.call(any(Prompt.class))).thenThrow(new RuntimeException("provider 500"));
 
     assertThrows(RuntimeException.class, () -> adapter().reply("system", "task", List.of()));
+  }
+
+  @Test
+  void usageMetadataMapsIntoReply() {
+    ChatResponseMetadata metadata = ChatResponseMetadata.builder()
+        .usage(new DefaultUsage(11, 7))
+        .build();
+    when(chatModel.call(any(Prompt.class))).thenReturn(new ChatResponse(List.of(
+        new Generation(AssistantMessage.builder().content("done").build())), metadata));
+
+    ModelReply reply = adapter().reply("system", "fix the bug", List.of());
+
+    assertEquals(new TokenUsage(11, 7), reply.usage());
+  }
+
+  @Test
+  void usageIsNullSafeWithoutMetadata() {
+    when(chatModel.call(any(Prompt.class)))
+        .thenReturn(responseFor(AssistantMessage.builder().content("done").build()));
+
+    ModelReply reply = adapter().reply("system", "fix the bug", List.of());
+
+    assertEquals(TokenUsage.ZERO, reply.usage());
   }
 }

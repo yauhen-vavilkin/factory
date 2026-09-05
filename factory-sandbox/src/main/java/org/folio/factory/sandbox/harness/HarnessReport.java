@@ -1,7 +1,7 @@
 package org.folio.factory.sandbox.harness;
 
 public record HarnessReport(int steps, Outcome outcome, StopReason stopReason, int filesChanged,
-    long diffSizeBytes, int formatErrors) {
+    long diffSizeBytes, int formatErrors, long tokensIn, long tokensOut) {
 
   public enum Outcome {
     COMPLETED, FAILED

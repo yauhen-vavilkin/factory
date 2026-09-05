@@ -23,7 +23,9 @@ import com.github.dockerjava.api.command.InspectExecCmd;
 import com.github.dockerjava.api.command.InspectExecResponse;
 import com.github.dockerjava.api.command.RemoveContainerCmd;
 import com.github.dockerjava.api.command.StartContainerCmd;
+import com.github.dockerjava.api.model.Bind;
 import com.github.dockerjava.api.model.Frame;
+import com.github.dockerjava.api.model.HostConfig;
 import com.github.dockerjava.api.model.StreamType;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
 import org.folio.factory.sandbox.api.CommandResult;
@@ -85,6 +87,47 @@ class DockerSandboxServiceTest {
   }
 
   @Test
+  void createBindsMavenCacheNamedVolume() throws Exception {
+    CreateContainerCmd createCmd = mock(CreateContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    CreateContainerResponse createResponse = mock(CreateContainerResponse.class);
+    when(createResponse.getId()).thenReturn(CONTAINER_ID);
+    when(dockerClient.createContainerCmd(IMAGE)).thenReturn(createCmd);
+    when(createCmd.exec()).thenReturn(createResponse);
+
+    StartContainerCmd startCmd = mock(StartContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    when(dockerClient.startContainerCmd(CONTAINER_ID)).thenReturn(startCmd);
+
+    mockExecPipeline(CLONE_COMMAND, 0, new byte[0], new byte[0]);
+
+    service.create(SPEC);
+
+    ArgumentCaptor<HostConfig> hostConfigCaptor = ArgumentCaptor.forClass(HostConfig.class);
+    verify(createCmd).withHostConfig(hostConfigCaptor.capture());
+    Bind[] binds = hostConfigCaptor.getValue().getBinds();
+    assertEquals(1, binds.length);
+    assertEquals("factory-m2-cache", binds[0].getPath());
+    assertEquals("/root/.m2", binds[0].getVolume().getPath());
+  }
+
+  @Test
+  void createRunsKeepAliveCommandInsteadOfImageDefault() throws Exception {
+    CreateContainerCmd createCmd = mock(CreateContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    CreateContainerResponse createResponse = mock(CreateContainerResponse.class);
+    when(createResponse.getId()).thenReturn(CONTAINER_ID);
+    when(dockerClient.createContainerCmd(IMAGE)).thenReturn(createCmd);
+    when(createCmd.exec()).thenReturn(createResponse);
+
+    StartContainerCmd startCmd = mock(StartContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    when(dockerClient.startContainerCmd(CONTAINER_ID)).thenReturn(startCmd);
+
+    mockExecPipeline(CLONE_COMMAND, 0, new byte[0], new byte[0]);
+
+    service.create(SPEC);
+
+    verify(createCmd).withCmd("sleep", "infinity");
+  }
+
+  @Test
   void cloneFailsThrowsSandboxException() throws Exception {
     CreateContainerCmd createCmd = mock(CreateContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
     CreateContainerResponse createResponse = mock(CreateContainerResponse.class);
@@ -96,6 +139,57 @@ class DockerSandboxServiceTest {
     when(dockerClient.startContainerCmd(CONTAINER_ID)).thenReturn(startCmd);
 
     mockExecPipeline(CLONE_COMMAND, 128, new byte[0], "fatal: repository not found".getBytes(UTF_8));
+    RemoveContainerCmd removeCmd = mock(RemoveContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    when(dockerClient.removeContainerCmd(CONTAINER_ID)).thenReturn(removeCmd);
+
+    SandboxException ex = assertThrows(SandboxException.class, () -> service.create(SPEC));
+
+    assertTrue(ex.getMessage().contains("fatal: repository not found"));
+    verify(dockerClient).removeContainerCmd(CONTAINER_ID);
+    verify(removeCmd).withForce(true);
+    verify(removeCmd).exec();
+  }
+
+  @Test
+  void cloneThrowStillRemovesContainer() throws Exception {
+    CreateContainerCmd createCmd = mock(CreateContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    CreateContainerResponse createResponse = mock(CreateContainerResponse.class);
+    when(createResponse.getId()).thenReturn(CONTAINER_ID);
+    when(dockerClient.createContainerCmd(IMAGE)).thenReturn(createCmd);
+    when(createCmd.exec()).thenReturn(createResponse);
+
+    StartContainerCmd startCmd = mock(StartContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    when(dockerClient.startContainerCmd(CONTAINER_ID)).thenReturn(startCmd);
+
+    execCreateCmd = mock(ExecCreateCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    when(dockerClient.execCreateCmd(CONTAINER_ID)).thenReturn(execCreateCmd);
+    when(execCreateCmd.exec()).thenThrow(new IllegalStateException("docker exec pipeline blew up"));
+
+    RemoveContainerCmd removeCmd = mock(RemoveContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    when(dockerClient.removeContainerCmd(CONTAINER_ID)).thenReturn(removeCmd);
+
+    assertThrows(SandboxException.class, () -> service.create(SPEC));
+
+    verify(dockerClient).removeContainerCmd(CONTAINER_ID);
+    verify(removeCmd).withForce(true);
+    verify(removeCmd).exec();
+  }
+
+  @Test
+  void cleanupFailureDoesNotMaskOriginalException() throws Exception {
+    CreateContainerCmd createCmd = mock(CreateContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    CreateContainerResponse createResponse = mock(CreateContainerResponse.class);
+    when(createResponse.getId()).thenReturn(CONTAINER_ID);
+    when(dockerClient.createContainerCmd(IMAGE)).thenReturn(createCmd);
+    when(createCmd.exec()).thenReturn(createResponse);
+
+    StartContainerCmd startCmd = mock(StartContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    when(dockerClient.startContainerCmd(CONTAINER_ID)).thenReturn(startCmd);
+
+    mockExecPipeline(CLONE_COMMAND, 128, new byte[0], "fatal: repository not found".getBytes(UTF_8));
+    RemoveContainerCmd removeCmd = mock(RemoveContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    when(dockerClient.removeContainerCmd(CONTAINER_ID)).thenReturn(removeCmd);
+    when(removeCmd.exec()).thenThrow(new IllegalStateException("remove container failed"));
 
     SandboxException ex = assertThrows(SandboxException.class, () -> service.create(SPEC));
 
