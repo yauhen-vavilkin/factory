@@ -21,7 +21,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(properties = "spring.jpa.hibernate.ddl-auto=create-drop")
+@SpringBootTest(properties = "spring.jpa.hibernate.ddl-auto=create")
 @Testcontainers
 class ExecutionEngineIntegrationTest {
 

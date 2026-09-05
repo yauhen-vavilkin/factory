@@ -22,7 +22,7 @@ import static org.awaitility.Awaitility.await;
  * driven to completion without any manual engine calls.
  */
 @SpringBootTest(properties = {
-        "spring.jpa.hibernate.ddl-auto=create-drop",
+        "spring.jpa.hibernate.ddl-auto=create",
         "factory.engine.enabled=true",
         "factory.engine.poll-interval-ms=250"
 })
