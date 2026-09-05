@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_SELF;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -32,6 +33,7 @@ import org.folio.factory.sandbox.exception.SandboxException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -44,7 +46,7 @@ class DockerSandboxServiceTest {
   private static final SandboxSpec SPEC =
       new SandboxSpec("task1", "https://example.com/repo.git", "main", "feature/x");
   private static final String CLONE_COMMAND =
-      "git clone --depth 1 https://example.com/repo.git repo && cd repo && git checkout -b feature/x main";
+      "git clone --depth 1 'https://example.com/repo.git' repo && cd repo && git checkout -b 'feature/x' 'main'";
 
   @Mock
   private DockerClient dockerClient;
@@ -98,6 +100,30 @@ class DockerSandboxServiceTest {
     SandboxException ex = assertThrows(SandboxException.class, () -> service.create(SPEC));
 
     assertTrue(ex.getMessage().contains("fatal: repository not found"));
+  }
+
+  @Test
+  void createQuotesCloneCommandTokens() throws Exception {
+    CreateContainerCmd createCmd = mock(CreateContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    CreateContainerResponse createResponse = mock(CreateContainerResponse.class);
+    when(createResponse.getId()).thenReturn(CONTAINER_ID);
+    when(dockerClient.createContainerCmd(IMAGE)).thenReturn(createCmd);
+    when(createCmd.exec()).thenReturn(createResponse);
+
+    StartContainerCmd startCmd = mock(StartContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    when(dockerClient.startContainerCmd(CONTAINER_ID)).thenReturn(startCmd);
+
+    mockExecPipeline("clone", 0, new byte[0], new byte[0]);
+
+    service.create(SPEC);
+    service.create(new SandboxSpec("task1", "https://example.com/repo.git", "main", "feature/x; touch /pwned"));
+
+    ArgumentCaptor<String> cmdCaptor = ArgumentCaptor.forClass(String.class);
+    verify(execCreateCmd, times(2)).withCmd(eq("/bin/sh"), eq("-c"), cmdCaptor.capture());
+    assertEquals("git clone --depth 1 'https://example.com/repo.git' repo && cd repo && git checkout -b "
+        + "'feature/x' 'main'", cmdCaptor.getAllValues().get(0));
+    assertEquals("git clone --depth 1 'https://example.com/repo.git' repo && cd repo && git checkout -b "
+        + "'feature/x; touch /pwned' 'main'", cmdCaptor.getAllValues().get(1));
   }
 
   @Test

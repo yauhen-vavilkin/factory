@@ -1,0 +1,91 @@
+package org.folio.factory.devfactory;
+
+import org.folio.factory.core.registry.FlowDescriptorParser;
+import org.folio.factory.core.registry.FlowValidationException;
+import org.folio.factory.core.registry.model.FlowDescriptor;
+import org.folio.factory.core.registry.model.RetryPolicy;
+import org.folio.factory.core.registry.model.StepDescriptor;
+import org.folio.factory.core.registry.model.StepType;
+import org.junit.jupiter.api.Test;
+import tools.jackson.databind.JsonNode;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+class DevFactoryFlowDescriptorTest {
+
+    private final FlowDescriptorParser parser = new FlowDescriptorParser();
+
+    @Test
+    void loadsTriggerSchemasAndRetryPolicy() {
+        FlowDescriptor flow = parser.parse(descriptorYaml(), "flows/dev-factory.yaml");
+
+        assertThat(flow.id()).isEqualTo("dev-factory");
+        assertThat(flow.name()).isNotBlank();
+        assertThat(flow.version()).isNotBlank();
+        assertThat(flow.triggers()).hasSize(1);
+        assertThat(flow.triggers().getFirst().eventType()).isEqualTo("file.inbox");
+        assertThat(flow.triggers().getFirst().filters()).isEmpty();
+        assertThat(textValues(flow.inputSchema().get("required")))
+                .containsExactly("taskId", "repoUrl", "goal");
+        assertThat(textValues(flow.outputSchema().get("artifacts")))
+                .containsExactly("patch.diff", "report.md", "trajectory.jsonl", "delivery-summary.md");
+        assertThat(flow.retryPolicy()).isEqualTo(RetryPolicy.DEFAULT);
+    }
+
+    @Test
+    void agentChainDeclaresCodingThenFinalize() {
+        FlowDescriptor flow = parser.parse(descriptorYaml(), "flows/dev-factory.yaml");
+
+        assertThat(flow.agentChain()).hasSize(2);
+        assertThat(flow.agentChain())
+                .allSatisfy(step -> assertThat(step.type()).isEqualTo(StepType.AGENT));
+
+        StepDescriptor coding = flow.step(0);
+        assertThat(coding.stepId()).isEqualTo("coding");
+        assertThat(coding.workerId()).isEqualTo("coding-worker");
+        assertThat(coding.inputs()).containsExactly("$trigger");
+        assertThat(coding.outputs()).containsExactly("patch.diff", "report.md", "trajectory.jsonl");
+
+        StepDescriptor finalize = flow.step(1);
+        assertThat(finalize.stepId()).isEqualTo("finalize");
+        assertThat(finalize.workerId()).isEqualTo("dev-factory-finalizer");
+        assertThat(finalize.inputs()).containsExactly("report.md", "$trigger");
+        assertThat(finalize.outputs()).containsExactly("delivery-summary.md");
+    }
+
+    @Test
+    void strictnessAppliesToThisDescriptor() {
+        String withoutWorkerId = descriptorYaml().lines()
+                .filter(line -> !line.equals("    worker_id: coding-worker"))
+                .collect(Collectors.joining("\n"));
+
+        assertThatThrownBy(() -> parser.parse(withoutWorkerId, "flows/dev-factory.yaml"))
+                .isInstanceOf(FlowValidationException.class)
+                .hasMessageContaining("worker_id");
+    }
+
+    private static String descriptorYaml() {
+        try (InputStream in = DevFactoryFlowDescriptorTest.class.getClassLoader()
+                .getResourceAsStream("flows/dev-factory.yaml")) {
+            assertThat(in).as("classpath resource flows/dev-factory.yaml").isNotNull();
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static List<String> textValues(JsonNode array) {
+        List<String> values = new ArrayList<>();
+        array.forEach(node -> values.add(node.asString()));
+        return values;
+    }
+}

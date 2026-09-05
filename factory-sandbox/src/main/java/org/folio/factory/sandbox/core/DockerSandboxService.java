@@ -13,6 +13,7 @@ import org.folio.factory.sandbox.api.SandboxHandle;
 import org.folio.factory.sandbox.api.SandboxService;
 import org.folio.factory.sandbox.api.SandboxSpec;
 import org.folio.factory.sandbox.exception.SandboxException;
+import org.folio.factory.sandbox.tools.Shell;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -48,8 +49,8 @@ public class DockerSandboxService implements SandboxService {
           .exec();
       String containerId = container.getId();
       dockerClient.startContainerCmd(containerId).exec();
-      String cloneCommand = "git clone --depth 1 " + spec.repoUrl() + " repo && cd repo && git checkout -b "
-          + spec.branch() + " " + spec.baseBranch();
+      String cloneCommand = "git clone --depth 1 " + Shell.quote(spec.repoUrl()) + " repo && cd repo && git checkout -b "
+          + Shell.quote(spec.branch()) + " " + Shell.quote(spec.baseBranch());
       ExecOutput output = runExec(containerId, cloneCommand, CLONE_TIMEOUT_SEC);
       if (output.exitCode() != 0) {
         throw new SandboxException(

@@ -61,6 +61,10 @@ factory:
     docker-host: ${DOCKER_HOST:unix:///var/run/docker.sock}
     workspace-root: ${java.io.tmpdir}/factory-sandboxes
     workspace-retention: 0s
+  inbox:
+    dir: ${FACTORY_INBOX_DIR:tasks-inbox}
+    enabled: ${FACTORY_INBOX_ENABLED:true}
+    poll-interval-ms: ${FACTORY_INBOX_POLL_INTERVAL_MS:5000}
 
 management:
   endpoints:

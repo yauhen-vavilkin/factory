@@ -15,6 +15,7 @@ import org.folio.factory.sandbox.api.SandboxHandle;
 import org.folio.factory.sandbox.api.SandboxService;
 import org.folio.factory.sandbox.api.SandboxSpec;
 import org.folio.factory.sandbox.exception.SandboxException;
+import org.folio.factory.sandbox.tools.Shell;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -37,8 +38,8 @@ public class LocalSandboxService implements SandboxService {
   public SandboxHandle create(SandboxSpec spec) {
     String sandboxId = "sbx-" + spec.taskId();
     Path workspace = properties.workspaceRoot().resolve(sanitize(sandboxId)).toAbsolutePath();
-    String cloneCommand = "git clone " + spec.repoUrl() + " repo && cd repo && git checkout -b "
-        + spec.branch() + " origin/" + spec.baseBranch();
+    String cloneCommand = "git clone " + Shell.quote(spec.repoUrl()) + " repo && cd repo && git checkout -b "
+        + Shell.quote(spec.branch()) + " " + Shell.quote("origin/" + spec.baseBranch());
     try {
       Files.createDirectories(properties.workspaceRoot());
       sweepExpiredWorkspaces();

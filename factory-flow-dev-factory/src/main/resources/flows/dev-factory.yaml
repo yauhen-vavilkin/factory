@@ -1,0 +1,23 @@
+id: dev-factory
+name: Dev Factory
+version: 1.0.0
+triggers:
+  - event_type: file.inbox
+input_schema:
+  required: [taskId, repoUrl, goal]
+output_schema:
+  artifacts: [patch.diff, report.md, trajectory.jsonl, delivery-summary.md]
+retry_policy:
+  max_attempts: 3
+  backoff_seconds: [30, 120, 300]
+agent_chain:
+  - step_id: coding
+    type: AGENT
+    worker_id: coding-worker
+    inputs: ["$trigger"]
+    outputs: [patch.diff, report.md, trajectory.jsonl]
+  - step_id: finalize
+    type: AGENT
+    worker_id: dev-factory-finalizer
+    inputs: [report.md, "$trigger"]
+    outputs: [delivery-summary.md]
