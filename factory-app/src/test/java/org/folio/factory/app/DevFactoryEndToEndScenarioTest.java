@@ -91,6 +91,7 @@ class DevFactoryEndToEndScenarioTest {
     private final JsonMapper json = JsonMapper.builder().build();
 
     @Test
+    @org.junit.jupiter.api.Tag("eval-pack")
     void taskFileInInboxRunsDevFactoryToCompletion() throws Exception {
         Path sourceRepo = createSourceRepo(sourceRoot.resolve("source-repo"));
         try (WatchService watcher = FileSystems.getDefault().newWatchService()) {

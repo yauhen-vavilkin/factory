@@ -51,6 +51,7 @@ class CodingWorkerFullExportScenarioTest {
   Path root;
 
   @Test
+  @org.junit.jupiter.api.Tag("eval-pack")
   void untrackedNewFileOnlyIsExportedAndReproducedInConsumerCheckout() throws Exception {
     Scenario scenario = scenario("T19-A", (s, handle) -> exec(s.sandbox(), handle,
         "cd repo && printf 'public class NewUtil {}\\n' > NewUtil.java"));
@@ -163,6 +164,7 @@ class CodingWorkerFullExportScenarioTest {
   }
 
   @Test
+  @org.junit.jupiter.api.Tag("eval-pack")
   void noOpRunStillProducesExplicitNoChangesPatch() throws Exception {
     Scenario scenario = scenario("T19-F", (s, handle) -> { });
 

@@ -108,6 +108,7 @@ class CodingWorkerEarlyCompletionComparisonTest {
   }
 
   @Test
+  @org.junit.jupiter.api.Tag("eval-pack")
   void failingShapedEarlyFinalPreservesAnswerStopReasonAndTokens() {
     scriptFailingShapedRun();
     sandbox.diffStdout = "";
@@ -120,6 +121,7 @@ class CodingWorkerEarlyCompletionComparisonTest {
   }
 
   @Test
+  @org.junit.jupiter.api.Tag("eval-pack")
   void successfulRunWithVerificationPreservesSameEvidence() {
     sandbox.diffStdout = "[status]\n M a/pom.xml\n M b/pom.xml\n M c/pom.xml\n M d/pom.xml"
         + "\n M e/pom.xml\n M f/pom.xml\n M g/pom.xml\n\n[diff]\n"

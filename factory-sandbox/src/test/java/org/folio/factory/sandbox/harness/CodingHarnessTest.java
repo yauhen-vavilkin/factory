@@ -344,6 +344,7 @@ class CodingHarnessTest {
   }
 
   @Test
+  @org.junit.jupiter.api.Tag("eval-pack")
   void earlyCompletionWithoutChangeFailsTaskOutcomeWhenNoopNotPermitted(
       @TempDir Path workDir) throws Exception {
     CodingHarness harness = harness(HarnessConfig.defaults());
@@ -396,6 +397,7 @@ class CodingHarnessTest {
   }
 
   @Test
+  @org.junit.jupiter.api.Tag("eval-pack")
   void verifiedNoOpWithPermittedContractSucceeds(@TempDir Path workDir) throws Exception {
     CodingHarness harness = harness(HarnessConfig.defaults());
     when(adapter.reply(anyString(), anyString(), anyList()))
