@@ -46,20 +46,24 @@ class DevFactoryFinalizerTest {
     DevFactoryFinalizer finalizer = new DevFactoryFinalizer(artifactStore, codec);
 
     assertThat(finalizer.id()).isEqualTo("dev-factory-finalizer");
-    AgentResult result = finalizer.execute(context(reportMd("COMPLETED", "COMPLETED")));
+    AgentResult result = finalizer.execute(context(reportMd("COMPLETED", "COMPLETED",
+        "SUCCEEDED", "CHANGES_DELIVERED")));
 
     Frontmatter summary = codec.parse(result.outputs().get("delivery-summary.md"));
     JsonNode metadata = summary.metadata();
     List<String> keys = new ArrayList<>(metadata.propertyNames());
     assertThat(keys).containsExactlyInAnyOrder("flow_id", "task_id", "repo_url", "branch",
-        "outcome", "stop_reason", "artifact_count");
+        "outcome", "stop_reason", "task_outcome", "task_outcome_reason", "artifact_count");
     assertThat(metadata.path("flow_id").asString()).isEqualTo("dev-factory");
     assertThat(metadata.path("task_id").asString()).isEqualTo("T-16");
     assertThat(metadata.path("repo_url").asString()).isEqualTo("https://github.com/folio/o-r.git");
     assertThat(metadata.path("branch").asString()).isEqualTo("dev/T16");
     assertThat(metadata.path("outcome").asString()).isEqualTo("COMPLETED");
     assertThat(metadata.path("stop_reason").asString()).isEqualTo("COMPLETED");
+    assertThat(metadata.path("task_outcome").asString()).isEqualTo("SUCCEEDED");
+    assertThat(metadata.path("task_outcome_reason").asString()).isEqualTo("CHANGES_DELIVERED");
     assertThat(metadata.path("artifact_count").asInt()).isEqualTo(4);
+    assertThat(summary.body()).contains("- Task outcome: SUCCEEDED (reason: CHANGES_DELIVERED)");
 
     List<String> inventoryLines = summary.body().lines()
         .filter(line -> line.startsWith("- `"))
@@ -72,17 +76,49 @@ class DevFactoryFinalizerTest {
   }
 
   @Test
-  void failedOutcomeFlowsThrough() {
+  void failedHarnessReportReachesSummaryAsNonSuccess() {
     when(artifactStore.allForExecution(EXECUTION_ID))
         .thenReturn(List.of(artifact("report.md", 1)));
     DevFactoryFinalizer finalizer = new DevFactoryFinalizer(artifactStore, codec);
 
-    AgentResult result = finalizer.execute(context(reportMd("FAILED", "TIMEOUT")));
+    AgentResult result = finalizer.execute(context(reportMd("FAILED", "TIMEOUT",
+        "FAILED", "MODEL_RUN_FAILED")));
 
     Frontmatter summary = codec.parse(result.outputs().get("delivery-summary.md"));
     assertThat(summary.metadata().path("outcome").asString()).isEqualTo("FAILED");
     assertThat(summary.metadata().path("stop_reason").asString()).isEqualTo("TIMEOUT");
+    assertThat(summary.metadata().path("task_outcome").asString()).isEqualTo("FAILED");
+    assertThat(summary.metadata().path("task_outcome_reason").asString())
+        .isEqualTo("MODEL_RUN_FAILED");
     assertThat(summary.body()).contains("- Harness outcome: FAILED (stop reason: TIMEOUT)");
+    assertThat(summary.body())
+        .contains("- Task outcome: FAILED (reason: MODEL_RUN_FAILED)");
+  }
+
+  @Test
+  void completedModelRunWithoutUsefulWorkIsNotPresentedAsSuccess() {
+    when(artifactStore.allForExecution(EXECUTION_ID))
+        .thenReturn(List.of(artifact("report.md", 1)));
+    DevFactoryFinalizer finalizer = new DevFactoryFinalizer(artifactStore, codec);
+
+    AgentResult result = finalizer.execute(context(reportMd("COMPLETED", "COMPLETED",
+        "FAILED", "NO_OP_NOT_PERMITTED")));
+
+    Frontmatter summary = codec.parse(result.outputs().get("delivery-summary.md"));
+    assertThat(summary.metadata().path("outcome").asString()).isEqualTo("COMPLETED");
+    assertThat(summary.metadata().path("task_outcome").asString()).isEqualTo("FAILED");
+    assertThat(summary.body())
+        .contains("- Task outcome: FAILED (reason: NO_OP_NOT_PERMITTED)")
+        .doesNotContain("- Task outcome: SUCCEEDED");
+  }
+
+  @Test
+  void reportWithoutTaskOutcomeFailsFinalizeStep() {
+    DevFactoryFinalizer finalizer = new DevFactoryFinalizer(artifactStore, codec);
+
+    assertThatThrownBy(() -> finalizer.execute(context(reportMdWithoutTaskOutcome())))
+        .isInstanceOf(AgentExecutionException.class)
+        .hasMessageContaining("task_outcome");
   }
 
   @Test
@@ -111,17 +147,31 @@ class DevFactoryFinalizerTest {
         "branch", "decoy/wrong-branch"));
   }
 
-  private String reportMd(String outcome, String stopReason) {
+  private String reportMd(String outcome, String stopReason, String taskOutcome,
+      String taskOutcomeReason) {
     Map<String, Object> metadata = new LinkedHashMap<>();
     metadata.put("task_id", "T-16");
     metadata.put("repo_url", "https://github.com/folio/o-r.git");
     metadata.put("branch", "dev/T16");
     metadata.put("outcome", outcome);
     metadata.put("stop_reason", stopReason);
+    metadata.put("task_outcome", taskOutcome);
+    metadata.put("task_outcome_reason", taskOutcomeReason);
     metadata.put("steps", 3);
     metadata.put("files_changed", 2);
     metadata.put("diff_size_bytes", 1024);
     metadata.put("format_errors", 0);
+    return codec.render(metadata, "");
+  }
+
+  private String reportMdWithoutTaskOutcome() {
+    Map<String, Object> metadata = new LinkedHashMap<>();
+    metadata.put("task_id", "T-16");
+    metadata.put("repo_url", "https://github.com/folio/o-r.git");
+    metadata.put("branch", "dev/T16");
+    metadata.put("outcome", "COMPLETED");
+    metadata.put("stop_reason", "COMPLETED");
+    metadata.put("steps", 3);
     return codec.render(metadata, "");
   }
 

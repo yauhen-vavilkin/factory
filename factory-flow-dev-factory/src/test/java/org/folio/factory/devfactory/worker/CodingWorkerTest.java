@@ -1,8 +1,10 @@
 package org.folio.factory.devfactory.worker;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.nio.file.Files;
@@ -27,9 +29,13 @@ import org.folio.factory.sandbox.exception.SandboxException;
 import org.folio.factory.sandbox.harness.ChatModelAdapter;
 import org.folio.factory.sandbox.harness.CodingHarness;
 import org.folio.factory.sandbox.harness.HarnessConfig;
+import org.folio.factory.sandbox.harness.HarnessReport;
 import org.folio.factory.sandbox.harness.ModelReply;
+import org.folio.factory.sandbox.harness.TaskContract;
+import org.folio.factory.sandbox.harness.TaskOutcome;
 import org.folio.factory.sandbox.harness.ToolDispatcher;
 import org.folio.factory.sandbox.harness.TokenUsage;
+import org.folio.factory.sandbox.harness.ToolCall;
 import org.folio.factory.sandbox.harness.Trajectory;
 import org.folio.factory.sandbox.tools.ApplyPatchTool;
 import org.folio.factory.sandbox.tools.ExecTool;
@@ -41,6 +47,7 @@ import org.folio.factory.sandbox.tools.ToolResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import tools.jackson.databind.JsonNode;
@@ -152,8 +159,10 @@ class CodingWorkerTest {
 
     String expected = "{\"ts\":\"2026-09-04T10:00:00Z\",\"step\":1,\"tool\":\"final\",\"args_len\":0,"
         + "\"out_len\":4,\"duration_ms\":0,\"ok\":true}\n"
-        + "{\"steps\":1,\"outcome\":\"COMPLETED\",\"stop_reason\":\"COMPLETED\",\"files_changed\":0,"
-        + "\"diff_size_bytes\":0,\"format_errors\":0,\"tokens_in\":0,\"tokens_out\":0}\n";
+        + "{\"steps\":1,\"outcome\":\"COMPLETED\",\"stop_reason\":\"COMPLETED\","
+        + "\"task_outcome\":\"FAILED\",\"task_outcome_reason\":\"NO_OP_NOT_PERMITTED\","
+        + "\"files_changed\":0,\"diff_size_bytes\":0,\"format_errors\":0,"
+        + "\"tokens_in\":0,\"tokens_out\":0}\n";
     assertThat(result.outputs().get("trajectory.jsonl")).isEqualTo(expected);
     assertThat(Files.readString(workDir.resolve(Trajectory.FILE_NAME))).isEqualTo(expected);
   }
@@ -161,9 +170,13 @@ class CodingWorkerTest {
   @Test
   void reportCarriesFrozenFrontmatterFields() {
     FakeSandboxService sandbox = new FakeSandboxService();
-    sandbox.diffStdout = "[status]\n\n[diff]\n+ok";
-    when(adapter.reply(anyString(), anyString(), anyList())).thenReturn(ModelReply.text("done"));
-    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+    sandbox.diffStdout = "[status]\n M pom.xml\n\n[diff]\n+ok";
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.toolCall(new ToolCall("t1", "apply_patch", "{\"diff\":\"x\"}")))
+        .thenReturn(ModelReply.text("done"));
+    when(applyPatchTool.apply(HANDLE, "x")).thenReturn(ToolResult.success("applied"));
+    when(gitDiffTool.diff(HANDLE))
+        .thenReturn(ToolResult.success("[status]\n M pom.xml\n\n[diff]\n+ok"));
     CodingWorker worker = new CodingWorker(sandbox, harness(), codec);
 
     AgentResult result = worker.execute(context());
@@ -171,19 +184,98 @@ class CodingWorkerTest {
     JsonNode metadata = codec.parse(result.outputs().get("report.md")).metadata();
     List<String> keys = new ArrayList<>(metadata.propertyNames());
     assertThat(keys).containsExactlyInAnyOrder("task_id", "repo_url", "branch", "outcome",
-        "stop_reason", "steps", "files_changed", "diff_size_bytes", "format_errors",
-        "tokens_in", "tokens_out");
+        "stop_reason", "task_outcome", "task_outcome_reason", "steps", "files_changed",
+        "diff_size_bytes", "format_errors", "tokens_in", "tokens_out");
     assertThat(metadata.path("task_id").asString()).isEqualTo("T-15");
     assertThat(metadata.path("repo_url").asString()).isEqualTo("https://github.com/folio/o-r.git");
     assertThat(metadata.path("branch").asString()).isEqualTo("dev/T15");
     assertThat(metadata.path("outcome").asString()).isEqualTo("COMPLETED");
     assertThat(metadata.path("stop_reason").asString()).isEqualTo("COMPLETED");
-    assertThat(metadata.path("steps").asInt()).isEqualTo(1);
-    assertThat(metadata.path("files_changed").asInt()).isEqualTo(0);
-    assertThat(metadata.path("diff_size_bytes").asLong()).isEqualTo(0L);
+    assertThat(metadata.path("task_outcome").asString()).isEqualTo("SUCCEEDED");
+    assertThat(metadata.path("task_outcome_reason").asString()).isEqualTo("CHANGES_DELIVERED");
+    assertThat(metadata.path("steps").asInt()).isEqualTo(2);
+    assertThat(metadata.path("files_changed").asInt()).isEqualTo(1);
+    assertThat(metadata.path("diff_size_bytes").asLong()).isEqualTo(3L);
     assertThat(metadata.path("format_errors").asInt()).isEqualTo(0);
     assertThat(metadata.path("tokens_in").asLong()).isEqualTo(0L);
     assertThat(metadata.path("tokens_out").asLong()).isEqualTo(0L);
+  }
+
+  @Test
+  void reportCarriesTaskOutcomeForEarlyModelCompletion() {
+    FakeSandboxService sandbox = new FakeSandboxService();
+    sandbox.diffStdout = "";
+    when(adapter.reply(anyString(), anyString(), anyList())).thenReturn(ModelReply.text("done"));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+    CodingWorker worker = new CodingWorker(sandbox, harness(), codec);
+
+    AgentResult result = worker.execute(context());
+
+    JsonNode metadata = codec.parse(result.outputs().get("report.md")).metadata();
+    assertThat(metadata.path("outcome").asString()).isEqualTo("COMPLETED");
+    assertThat(metadata.path("task_outcome").asString()).isEqualTo("FAILED");
+    assertThat(metadata.path("task_outcome_reason").asString()).isEqualTo("NO_OP_NOT_PERMITTED");
+  }
+
+  @Test
+  void contractFieldsFromTriggerPayloadReachHarnessUnchanged() {
+    FakeSandboxService sandbox = new FakeSandboxService();
+    sandbox.diffStdout = "[status]\n M pom.xml\n\n[diff]\n+ok";
+    CodingHarness harness = org.mockito.Mockito.mock(CodingHarness.class);
+    when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(2,
+        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 1, 8L, 0, 0L, 0L,
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED));
+    CodingWorker worker = new CodingWorker(sandbox, harness, codec);
+    JsonNode payload = JsonMapper.builder().build().readTree("""
+        {"taskId":"T-18",
+         "repoUrl":"https://github.com/folio/o-r.git",
+         "baseBranch":"main",
+         "branch":"dev/T18",
+         "goal":"fix the NPE in CodingWorker",
+         "acceptance":["repro command fails before the fix","test suite passes after"],
+         "constraints":{"allow_paths":["factory-core"],"allow_noop":false,"language":"java-21"},
+         "notes":"regression appeared after release 4.2; see ticket FOLIO-1234."}
+        """);
+
+    worker.execute(new AgentContext(UUID.randomUUID(), "coding", Map.of(), payload,
+        Map.of("workDir", workDir.toString()),
+        List.of("patch.diff", "report.md", "trajectory.jsonl")));
+
+    ArgumentCaptor<TaskContract> captor = ArgumentCaptor.forClass(TaskContract.class);
+    verify(harness).run(any(), captor.capture(), any());
+    TaskContract contract = captor.getValue();
+    assertThat(contract.goal()).isEqualTo("fix the NPE in CodingWorker");
+    assertThat(contract.acceptance().size()).isEqualTo(2);
+    assertThat(contract.acceptance().get(0).asString()).isEqualTo("repro command fails before the fix");
+    assertThat(contract.acceptance().get(1).asString()).isEqualTo("test suite passes after");
+    assertThat(contract.constraints().size()).isEqualTo(3);
+    assertThat(contract.constraints().path("language").asString()).isEqualTo("java-21");
+    assertThat(contract.constraints().path("allow_paths").get(0).asString())
+        .isEqualTo("factory-core");
+    assertThat(contract.allowsNoOp()).isFalse();
+    assertThat(contract.notes())
+        .isEqualTo("regression appeared after release 4.2; see ticket FOLIO-1234.");
+  }
+
+  @Test
+  void missingContractFieldsStillRunWithBareGoal() {
+    FakeSandboxService sandbox = new FakeSandboxService();
+    sandbox.diffStdout = "[status]\n M pom.xml\n\n[diff]\n+ok";
+    CodingHarness harness = org.mockito.Mockito.mock(CodingHarness.class);
+    when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(1,
+        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 1, 8L, 0, 0L, 0L,
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED));
+    CodingWorker worker = new CodingWorker(sandbox, harness, codec);
+
+    worker.execute(context());
+
+    ArgumentCaptor<TaskContract> captor = ArgumentCaptor.forClass(TaskContract.class);
+    verify(harness).run(any(), captor.capture(), any());
+    TaskContract contract = captor.getValue();
+    assertThat(contract.goal()).isEqualTo("fix the NPE in CodingWorker");
+    assertThat(contract.acceptance()).isNull();
+    assertThat(contract.constraints()).isNull();
+    assertThat(contract.notes()).isNull();
   }
 
   @Test

@@ -53,6 +53,8 @@ public class DevFactoryFinalizer implements AgentWorker {
     String branch = requiredText(reportMetadata, "branch");
     String outcome = requiredText(reportMetadata, "outcome");
     String stopReason = requiredText(reportMetadata, "stop_reason");
+    String taskOutcome = requiredText(reportMetadata, "task_outcome");
+    String taskOutcomeReason = requiredText(reportMetadata, "task_outcome_reason");
 
     List<Artifact> rows = artifactStore.allForExecution(context.executionId());
 
@@ -63,6 +65,8 @@ public class DevFactoryFinalizer implements AgentWorker {
     metadata.put("branch", branch);
     metadata.put("outcome", outcome);
     metadata.put("stop_reason", stopReason);
+    metadata.put("task_outcome", taskOutcome);
+    metadata.put("task_outcome_reason", taskOutcomeReason);
     metadata.put("artifact_count", rows.size());
 
     StringBuilder body = new StringBuilder()
@@ -72,8 +76,11 @@ public class DevFactoryFinalizer implements AgentWorker {
         .append("- Repository: ").append(repoUrl).append("\n")
         .append("- Branch: ").append(branch).append("\n")
         .append("- Harness outcome: ").append(outcome)
-        .append(" (stop reason: ").append(stopReason).append(")\n\n")
-        .append("## Artifact inventory\n\n");
+        .append(" (stop reason: ").append(stopReason).append(")\n")
+        .append("- Task outcome: ").append(taskOutcome)
+        .append(" (reason: ").append(taskOutcomeReason).append(")")
+        .append("SUCCEEDED".equals(taskOutcome) ? " — validated useful outcome\n" : "\n")
+        .append("\n## Artifact inventory\n\n");
     for (Artifact row : rows) {
       body.append("- `").append(row.getName()).append("` v").append(row.getVersion())
           .append(" — sha256:").append(row.getSha256()).append("\n");

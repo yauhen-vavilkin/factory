@@ -22,6 +22,8 @@ import org.folio.factory.sandbox.api.SandboxSpec;
 import org.folio.factory.sandbox.exception.SandboxException;
 import org.folio.factory.sandbox.harness.CodingHarness;
 import org.folio.factory.sandbox.harness.HarnessReport;
+import org.folio.factory.sandbox.harness.TaskContract;
+import org.folio.factory.sandbox.harness.TaskOutcome;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -47,8 +49,9 @@ class CodingWorkerLifecycleTest {
 
   @Test
   void teardownExactlyOnceOnCompleted() {
-    when(harness.run(any(), anyString(), any())).thenReturn(new HarnessReport(3,
-        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0, 0L, 0L));
+    when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(3,
+        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0, 0L, 0L,
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED));
 
     AgentResult result = worker().execute(context());
 
@@ -88,7 +91,7 @@ class CodingWorkerLifecycleTest {
 
   @Test
   void harnessRuntimeExceptionSurfacesAsAgentExecutionExceptionWithTeardownOnce() {
-    when(harness.run(any(), anyString(), any())).thenThrow(new RuntimeException("harness blew up"));
+    when(harness.run(any(), any(TaskContract.class), any())).thenThrow(new RuntimeException("harness blew up"));
 
     assertThatThrownBy(() -> worker().execute(context()))
         .isInstanceOf(AgentExecutionException.class);
@@ -97,8 +100,9 @@ class CodingWorkerLifecycleTest {
 
   @Test
   void diffCommandFailureIsInfrastructureFailure() {
-    when(harness.run(any(), anyString(), any())).thenReturn(new HarnessReport(3,
-        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0, 0L, 0L));
+    when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(3,
+        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0, 0L, 0L,
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED));
     sandbox.diffExitCode = 1;
 
     assertThatThrownBy(() -> worker().execute(context()))
@@ -108,8 +112,9 @@ class CodingWorkerLifecycleTest {
 
   @Test
   void teardownFailureAfterSuccessfulRunIsAgentExecutionException() {
-    when(harness.run(any(), anyString(), any())).thenReturn(new HarnessReport(3,
-        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0, 0L, 0L));
+    when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(3,
+        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0, 0L, 0L,
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED));
     sandbox.diffStdout = "[status]\n\n[diff]\n+ok";
     sandbox.failTeardown = true;
 
@@ -118,8 +123,9 @@ class CodingWorkerLifecycleTest {
   }
 
   private void assertFailedRunRecordsStopReason(HarnessReport.StopReason stopReason) {
-    when(harness.run(any(), anyString(), any())).thenReturn(new HarnessReport(5,
-        HarnessReport.Outcome.FAILED, stopReason, 1, 256L, 0, 0L, 0L));
+    when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(5,
+        HarnessReport.Outcome.FAILED, stopReason, 1, 256L, 0, 0L, 0L,
+        TaskOutcome.FAILED, TaskOutcome.Reason.MODEL_RUN_FAILED));
 
     AgentResult result = worker().execute(context());
 

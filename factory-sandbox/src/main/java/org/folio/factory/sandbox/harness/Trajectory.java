@@ -51,6 +51,8 @@ public final class Trajectory implements Closeable {
     node.put("steps", report.steps());
     node.put("outcome", report.outcome().name());
     node.put("stop_reason", report.stopReason().name());
+    node.put("task_outcome", report.taskOutcome().name());
+    node.put("task_outcome_reason", report.taskOutcomeReason().name());
     node.put("files_changed", report.filesChanged());
     node.put("diff_size_bytes", report.diffSizeBytes());
     node.put("format_errors", report.formatErrors());

@@ -85,7 +85,7 @@ class CodingHarnessTest {
     when(gitDiffTool.diff(HANDLE))
         .thenReturn(ToolResult.success("[status]\n M pom.xml\n\n[diff]\n+fix\n"));
 
-    HarnessReport report = harness.run(HANDLE, "fix NPE", workDir);
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
 
     assertEquals(HarnessReport.Outcome.COMPLETED, report.outcome());
     assertEquals(HarnessReport.StopReason.COMPLETED, report.stopReason());
@@ -111,7 +111,7 @@ class CodingHarnessTest {
     when(gitDiffTool.diff(HANDLE))
         .thenReturn(ToolResult.success("[status]\n M pom.xml\n\n[diff]\n" + diffBody));
 
-    HarnessReport report = harness.run(HANDLE, "fix NPE", workDir);
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
 
     assertEquals(HarnessReport.Outcome.COMPLETED, report.outcome());
     assertEquals(HarnessReport.StopReason.COMPLETED, report.stopReason());
@@ -142,7 +142,7 @@ class CodingHarnessTest {
         .thenReturn(ToolResult.success("readme"));
     when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
 
-    HarnessReport report = harness.run(HANDLE, "fix NPE", workDir);
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
 
     InOrder inOrder = inOrder(readTool);
     inOrder.verify(readTool).read(HANDLE, "repo/pom.xml", null, null);
@@ -192,7 +192,7 @@ class CodingHarnessTest {
         .thenReturn(ToolResult.success("<project/>"));
     when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
 
-    HarnessReport report = harness.run(HANDLE, "fix NPE", workDir);
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
 
     assertEquals(HarnessReport.Outcome.COMPLETED, report.outcome());
     assertEquals(HarnessReport.StopReason.COMPLETED, report.stopReason());
@@ -208,7 +208,7 @@ class CodingHarnessTest {
     when(readTool.read(HANDLE, "repo/pom.xml", null, null)).thenReturn(ToolResult.success("<project/>"));
     when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
 
-    HarnessReport report = harness.run(HANDLE, "fix NPE", workDir);
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
 
     assertEquals(HarnessReport.Outcome.FAILED, report.outcome());
     assertEquals(HarnessReport.StopReason.STEPS_EXCEEDED, report.stopReason());
@@ -227,7 +227,7 @@ class CodingHarnessTest {
         .thenReturn(ModelReply.toolCall(new ToolCall("f3", "grep", "{}")));
     when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
 
-    HarnessReport report = harness.run(HANDLE, "fix NPE", workDir);
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
 
     assertEquals(HarnessReport.Outcome.FAILED, report.outcome());
     assertEquals(HarnessReport.StopReason.FORMAT_ERRORS_EXCEEDED, report.stopReason());
@@ -255,7 +255,7 @@ class CodingHarnessTest {
     when(readTool.read(HANDLE, "repo/pom.xml", null, null)).thenReturn(ToolResult.success("<project/>"));
     when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
 
-    HarnessReport report = harness.run(HANDLE, "fix NPE", workDir);
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
 
     assertEquals(HarnessReport.Outcome.COMPLETED, report.outcome());
     assertEquals(0, report.formatErrors());
@@ -277,7 +277,7 @@ class CodingHarnessTest {
     when(readTool.read(HANDLE, "repo/pom.xml", null, null)).thenReturn(ToolResult.success("<project/>"));
     when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
 
-    HarnessReport report = harness.run(HANDLE, "fix NPE", workDir);
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
 
     assertEquals(HarnessReport.Outcome.FAILED, report.outcome());
     assertEquals(HarnessReport.StopReason.TIMEOUT, report.stopReason());
@@ -292,7 +292,7 @@ class CodingHarnessTest {
         .thenThrow(new RuntimeException("provider 500"));
     when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
 
-    HarnessReport report = harness.run(HANDLE, "fix NPE", workDir);
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
 
     assertEquals(HarnessReport.Outcome.FAILED, report.outcome());
     assertEquals(HarnessReport.StopReason.MODEL_ERROR, report.stopReason());
@@ -313,7 +313,7 @@ class CodingHarnessTest {
     when(readTool.read(HANDLE, "repo/pom.xml", null, null)).thenReturn(ToolResult.success("<project/>"));
     when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
 
-    HarnessReport report = harness.run(HANDLE, "fix NPE", workDir);
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
 
     assertEquals(137L, report.tokensIn());
     assertEquals(63L, report.tokensOut());
@@ -322,6 +322,166 @@ class CodingHarnessTest {
     assertTrue(lastLine.contains("\"tokens_in\":137"));
     assertTrue(lastLine.contains("\"tokens_out\":63"));
   }
+
+  @Test
+  void contractDirectiveIsTheFirstTurnUserMessage(@TempDir Path workDir) {
+    CodingHarness harness = harness(HarnessConfig.defaults());
+    when(adapter.reply(anyString(), anyString(), anyList())).thenReturn(ModelReply.text("done"));
+    when(gitDiffTool.diff(HANDLE))
+        .thenReturn(ToolResult.success("[status]\n M pom.xml\n\n[diff]\n+fix\n"));
+    TaskContract contract = new TaskContract("fix the NPE in CodingWorker",
+        jsonArray("[\"repro command fails before the fix\", \"test suite passes after\"]"),
+        jsonObject("{\"allow_paths\":[\"factory-core\"],\"language\":\"java-21\"}"),
+        "regression appeared after 4.2");
+    harness.run(HANDLE, contract, workDir);
+
+    ArgumentCaptor<String> userMessage = ArgumentCaptor.forClass(String.class);
+    verify(adapter).reply(anyString(), userMessage.capture(), anyList());
+    assertEquals(contract.directive(), userMessage.getValue());
+    assertTrue(userMessage.getValue().contains("repro command fails before the fix"));
+    assertTrue(userMessage.getValue().contains("allow_paths"));
+    assertTrue(userMessage.getValue().contains("regression appeared after 4.2"));
+  }
+
+  @Test
+  void earlyCompletionWithoutChangeFailsTaskOutcomeWhenNoopNotPermitted(
+      @TempDir Path workDir) throws Exception {
+    CodingHarness harness = harness(HarnessConfig.defaults());
+    when(adapter.reply(anyString(), anyString(), anyList())).thenReturn(ModelReply.text("done"));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+    TaskContract contract = new TaskContract("reproduce the NPE and fix it",
+        jsonArray("[\"repro command fails before the fix\"]"), null, null);
+
+    HarnessReport report = harness.run(HANDLE, contract, workDir);
+
+    assertEquals(HarnessReport.Outcome.COMPLETED, report.outcome());
+    assertEquals(TaskOutcome.FAILED, report.taskOutcome());
+    assertEquals(TaskOutcome.Reason.NO_OP_NOT_PERMITTED, report.taskOutcomeReason());
+  }
+
+  @Test
+  void earlyCompletionWithNoopPermittedButNoVerificationFailsTaskOutcome(
+      @TempDir Path workDir) throws Exception {
+    CodingHarness harness = harness(HarnessConfig.defaults());
+    when(adapter.reply(anyString(), anyString(), anyList())).thenReturn(ModelReply.text("done"));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+    TaskContract contract = new TaskContract("verify the reported NPE is real",
+        null, jsonObject("{\"allow_noop\":true}"), null);
+
+    HarnessReport report = harness.run(HANDLE, contract, workDir);
+
+    assertEquals(HarnessReport.Outcome.COMPLETED, report.outcome());
+    assertEquals(TaskOutcome.FAILED, report.taskOutcome());
+    assertEquals(TaskOutcome.Reason.NO_VERIFICATION_EVIDENCE, report.taskOutcomeReason());
+  }
+
+  @Test
+  void noopWithOnlyFailingToolCallsStillLacksVerificationEvidence(
+      @TempDir Path workDir) throws Exception {
+    CodingHarness harness = harness(HarnessConfig.defaults());
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.toolCall(new ToolCall("t1", "read", "{\"path\":\"repo/nope\"}")))
+        .thenReturn(ModelReply.text("verified"));
+    when(readTool.read(HANDLE, "repo/nope", null, null))
+        .thenReturn(ToolResult.failure("read failed: no such file"));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+    TaskContract contract = new TaskContract("verify the reported NPE is real",
+        null, jsonObject("{\"allow_noop\":true}"), null);
+
+    HarnessReport report = harness.run(HANDLE, contract, workDir);
+
+    assertEquals(HarnessReport.Outcome.COMPLETED, report.outcome());
+    assertEquals(TaskOutcome.FAILED, report.taskOutcome());
+    assertEquals(TaskOutcome.Reason.NO_VERIFICATION_EVIDENCE, report.taskOutcomeReason());
+  }
+
+  @Test
+  void verifiedNoOpWithPermittedContractSucceeds(@TempDir Path workDir) throws Exception {
+    CodingHarness harness = harness(HarnessConfig.defaults());
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.toolCall(
+            new ToolCall("t1", "exec", "{\"cmd\":\"cd repo && mvn -pl core test -B\"}")))
+        .thenReturn(ModelReply.text("Reproduction passes on main: the reported NPE "
+            + "no longer occurs, test run is green, no change needed."));
+    when(execTool.run(HANDLE, "cd repo && mvn -pl core test -B", null))
+        .thenReturn(ToolResult.success("Tests run: 12, Failures: 0"));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+    TaskContract contract = new TaskContract("verify the reported NPE is real",
+        jsonArray("[\"reproduction command result recorded\"]"),
+        jsonObject("{\"allow_noop\":true}"), null);
+
+    HarnessReport report = harness.run(HANDLE, contract, workDir);
+
+    assertEquals(HarnessReport.Outcome.COMPLETED, report.outcome());
+    assertEquals(TaskOutcome.SUCCEEDED, report.taskOutcome());
+    assertEquals(TaskOutcome.Reason.NO_OP_VERIFIED, report.taskOutcomeReason());
+  }
+
+  @Test
+  void changedResultWithFinalReportSucceeds(@TempDir Path workDir) throws Exception {
+    CodingHarness harness = harness(HarnessConfig.defaults());
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.toolCall(new ToolCall("t1", "apply_patch", "{\"diff\":\"update pom\"}")))
+        .thenReturn(ModelReply.text("fixed the NPE, tests pass"));
+    when(applyPatchTool.apply(HANDLE, "update pom")).thenReturn(ToolResult.success("patch applied"));
+    when(gitDiffTool.diff(HANDLE))
+        .thenReturn(ToolResult.success("[status]\n M pom.xml\n\n[diff]\ndiff --git a/pom.xml b/pom.xml\n"));
+    TaskContract contract = new TaskContract("fix the NPE",
+        jsonArray("[\"tests pass\"]"), null, null);
+
+    HarnessReport report = harness.run(HANDLE, contract, workDir);
+
+    assertEquals(HarnessReport.Outcome.COMPLETED, report.outcome());
+    assertEquals(TaskOutcome.SUCCEEDED, report.taskOutcome());
+    assertEquals(TaskOutcome.Reason.CHANGES_DELIVERED, report.taskOutcomeReason());
+  }
+
+  @Test
+  void blankFinalReplyFailsTaskOutcomeEvenWithChanges(@TempDir Path workDir) throws Exception {
+    CodingHarness harness = harness(HarnessConfig.defaults());
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.toolCall(new ToolCall("t1", "apply_patch", "{\"diff\":\"update pom\"}")))
+        .thenReturn(ModelReply.text("  "));
+    when(applyPatchTool.apply(HANDLE, "update pom")).thenReturn(ToolResult.success("patch applied"));
+    when(gitDiffTool.diff(HANDLE))
+        .thenReturn(ToolResult.success("[status]\n M pom.xml\n\n[diff]\ndiff --git a/pom.xml b/pom.xml\n"));
+    TaskContract contract = new TaskContract("fix the NPE", null, null, null);
+
+    HarnessReport report = harness.run(HANDLE, contract, workDir);
+
+    assertEquals(HarnessReport.Outcome.COMPLETED, report.outcome());
+    assertEquals(TaskOutcome.FAILED, report.taskOutcome());
+    assertEquals(TaskOutcome.Reason.MISSING_FINAL_REPORT, report.taskOutcomeReason());
+  }
+
+  @Test
+  void failedModelRunFailsTaskOutcomeRegardlessOfDiff(@TempDir Path workDir) throws Exception {
+    CodingHarness harness = harness(new HarnessConfig(3, 3, 30L, "glm-5.3-flash"));
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.toolCall(new ToolCall("t1", "apply_patch", "{\"diff\":\"update pom\"}")));
+    when(applyPatchTool.apply(HANDLE, "update pom")).thenReturn(ToolResult.success("patch applied"));
+    when(gitDiffTool.diff(HANDLE))
+        .thenReturn(ToolResult.success("[status]\n M pom.xml\n\n[diff]\ndiff --git a/pom.xml b/pom.xml\n"));
+    TaskContract contract = new TaskContract("fix the NPE", null, null, null);
+
+    HarnessReport report = harness.run(HANDLE, contract, workDir);
+
+    assertEquals(HarnessReport.Outcome.FAILED, report.outcome());
+    assertEquals(HarnessReport.StopReason.STEPS_EXCEEDED, report.stopReason());
+    assertEquals(TaskOutcome.FAILED, report.taskOutcome());
+    assertEquals(TaskOutcome.Reason.MODEL_RUN_FAILED, report.taskOutcomeReason());
+  }
+
+  private static tools.jackson.databind.JsonNode jsonArray(String json) {
+    return MAPPER.readTree(json);
+  }
+
+  private static tools.jackson.databind.JsonNode jsonObject(String json) {
+    return MAPPER.readTree(json);
+  }
+
+  private static final tools.jackson.databind.json.JsonMapper MAPPER =
+      tools.jackson.databind.json.JsonMapper.builder().build();
 
   private static final class MutableClock extends Clock {
 

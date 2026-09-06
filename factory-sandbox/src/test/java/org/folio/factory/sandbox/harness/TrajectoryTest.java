@@ -24,7 +24,8 @@ class TrajectoryTest {
     StepRecord first = new StepRecord("2026-09-04T10:00:00Z", 1, "read", 22, 430, true, 120L);
     StepRecord second = new StepRecord("2026-09-04T10:00:05Z", 2, "apply_patch", 512, 14, false, 900L);
     HarnessReport report = new HarnessReport(2, HarnessReport.Outcome.COMPLETED,
-        HarnessReport.StopReason.COMPLETED, 1, 2048L, 0, 0L, 0L);
+        HarnessReport.StopReason.COMPLETED, 1, 2048L, 0, 0L, 0L,
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED);
 
     try (Trajectory trajectory = Trajectory.open(workDir)) {
       trajectory.append(first);
@@ -58,7 +59,8 @@ class TrajectoryTest {
   @Test
   void reportLineCarriesTokenTotals() throws Exception {
     HarnessReport report = new HarnessReport(3, HarnessReport.Outcome.COMPLETED,
-        HarnessReport.StopReason.COMPLETED, 1, 512L, 0, 137L, 63L);
+        HarnessReport.StopReason.COMPLETED, 1, 512L, 0, 137L, 63L,
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED);
 
     try (Trajectory trajectory = Trajectory.open(workDir)) {
       trajectory.append(report);
@@ -69,6 +71,24 @@ class TrajectoryTest {
     JsonNode reportNode = mapper.readTree(lines.get(0));
     assertEquals(137L, reportNode.get("tokens_in").longValue());
     assertEquals(63L, reportNode.get("tokens_out").longValue());
+  }
+
+  @Test
+  void reportLineCarriesTaskOutcomeDistinctFromModelOutcome() throws Exception {
+    HarnessReport report = new HarnessReport(1, HarnessReport.Outcome.COMPLETED,
+        HarnessReport.StopReason.COMPLETED, 0, 0L, 0, 0L, 0L,
+        TaskOutcome.FAILED, TaskOutcome.Reason.NO_OP_NOT_PERMITTED);
+
+    try (Trajectory trajectory = Trajectory.open(workDir)) {
+      trajectory.append(report);
+    }
+
+    List<String> lines = Files.readAllLines(workDir.resolve(Trajectory.FILE_NAME));
+    assertEquals(1, lines.size());
+    JsonNode reportNode = mapper.readTree(lines.get(0));
+    assertEquals("COMPLETED", reportNode.get("outcome").textValue());
+    assertEquals("FAILED", reportNode.get("task_outcome").textValue());
+    assertEquals("NO_OP_NOT_PERMITTED", reportNode.get("task_outcome_reason").textValue());
   }
 
   @Test

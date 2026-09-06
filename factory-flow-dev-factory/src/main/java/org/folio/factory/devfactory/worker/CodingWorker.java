@@ -18,6 +18,7 @@ import org.folio.factory.sandbox.api.SandboxService;
 import org.folio.factory.sandbox.api.SandboxSpec;
 import org.folio.factory.sandbox.harness.CodingHarness;
 import org.folio.factory.sandbox.harness.HarnessReport;
+import org.folio.factory.sandbox.harness.TaskContract;
 import org.folio.factory.sandbox.harness.Trajectory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,7 +63,7 @@ public class CodingWorker implements AgentWorker {
     String repoUrl = requireTriggerKey(context, "repoUrl");
     String baseBranch = requireTriggerKey(context, "baseBranch");
     String branch = requireTriggerKey(context, "branch");
-    String goal = requireTriggerKey(context, "goal");
+    TaskContract contract = contractFrom(context.triggerPayload());
 
     Path workDir = null;
     boolean tempWorkDir = false;
@@ -77,7 +78,7 @@ public class CodingWorker implements AgentWorker {
         tempWorkDir = true;
       }
       handle = sandboxService.create(new SandboxSpec(taskId, repoUrl, baseBranch, branch));
-      HarnessReport report = harness.run(handle, goal, workDir);
+      HarnessReport report = harness.run(handle, contract, workDir);
       CommandResult diff = sandboxService.exec(handle, DIFF_COMMAND, DIFF_TIMEOUT_SEC);
       if (!diff.ok()) {
         String reason = diff.stderr() == null || diff.stderr().isBlank() ? diff.stdout() : diff.stderr();
@@ -93,6 +94,8 @@ public class CodingWorker implements AgentWorker {
       metadata.put("branch", branch);
       metadata.put("outcome", report.outcome().name());
       metadata.put("stop_reason", report.stopReason().name());
+      metadata.put("task_outcome", report.taskOutcome().name());
+      metadata.put("task_outcome_reason", report.taskOutcomeReason().name());
       metadata.put("steps", report.steps());
       metadata.put("files_changed", report.filesChanged());
       metadata.put("diff_size_bytes", report.diffSizeBytes());
@@ -104,6 +107,7 @@ public class CodingWorker implements AgentWorker {
       Map<String, Object> metrics = new LinkedHashMap<String, Object>();
       metrics.put("outcome", report.outcome().name());
       metrics.put("stop_reason", report.stopReason().name());
+      metrics.put("task_outcome", report.taskOutcome().name());
       metrics.put("steps", report.steps());
       metrics.put("diff_size_bytes", report.diffSizeBytes());
 
@@ -135,7 +139,28 @@ public class CodingWorker implements AgentWorker {
   }
 
   private static String requireTriggerKey(AgentContext context, String key) {
-    JsonNode payload = context.triggerPayload();
+    return requirePayloadKey(context.triggerPayload(), key);
+  }
+
+  /**
+   * Builds the executor's task contract from the trigger payload: goal (still
+   * required) plus the acceptance criteria, constraints and notes filed with
+   * the task, passed through as JSON subtrees so nothing is re-parsed,
+   * truncated or silently dropped. A malformed section fails the step loudly
+   * rather than being dropped.
+   */
+  private static TaskContract contractFrom(JsonNode payload) {
+    String goal = requirePayloadKey(payload, "goal");
+    JsonNode acceptance = payload.get("acceptance");
+    JsonNode constraints = payload.get("constraints");
+    JsonNode notes = payload.get("notes");
+    return new TaskContract(goal,
+        acceptance == null || acceptance.isNull() ? null : acceptance,
+        constraints == null || constraints.isNull() ? null : constraints,
+        notes != null && notes.isTextual() ? notes.asString() : null);
+  }
+
+  private static String requirePayloadKey(JsonNode payload, String key) {
     String value = payload == null ? "" : payload.path(key).asString("");
     if (value.isBlank()) {
       throw new AgentExecutionException("coding-worker trigger payload missing key '" + key + "'");

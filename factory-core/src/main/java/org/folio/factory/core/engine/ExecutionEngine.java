@@ -36,6 +36,17 @@ import java.util.UUID;
  * bookkeeping) commits in its own short transaction via the core services. A
  * crash mid-step is recovered by the poller's lease reaper; re-running a step
  * writes new artifact versions rather than corrupting old ones.</p>
+ *
+ * <p>Outcome layers are deliberately separate and must not be conflated:
+ * (1) <em>engine termination</em> — this state machine's {@code COMPLETED}
+ * status only means every step of the flow ran and terminated normally;
+ * (2) <em>model outcome</em> — what the coding harness's own run ended with
+ * (e.g. steps/time budget exhausted vs. model stopped with a final report);
+ * (3) <em>validated task outcome</em> — whether the run's result is a useful
+ * outcome for the filed task contract. A {@code COMPLETED} execution may
+ * carry a FAILED model outcome or a FAILED validated task outcome in its
+ * artifacts (e.g. report.md {@code task_outcome}); consumers of run results
+ * must read that field rather than infer success from engine termination.</p>
  */
 @Component
 public class ExecutionEngine {

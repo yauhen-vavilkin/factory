@@ -155,6 +155,9 @@ class DevFactoryEndToEndScenarioTest {
         assertThat(reportMetadata.path("branch").asString()).isEqualTo("task/" + TASK_ID);
         assertThat(reportMetadata.path("outcome").asString()).isEqualTo("COMPLETED");
         assertThat(reportMetadata.path("stop_reason").asString()).isEqualTo("COMPLETED");
+        assertThat(reportMetadata.path("task_outcome").asString()).isEqualTo("SUCCEEDED");
+        assertThat(reportMetadata.path("task_outcome_reason").asString())
+                .isEqualTo("CHANGES_DELIVERED");
         assertThat(reportMetadata.path("steps").asInt()).isEqualTo(4);
         assertThat(reportMetadata.path("files_changed").asInt()).isEqualTo(1);
         assertThat(reportMetadata.path("diff_size_bytes").asLong()).isPositive();
@@ -170,6 +173,8 @@ class DevFactoryEndToEndScenarioTest {
         assertThat(turns.get(4))
                 .contains("\"outcome\":\"COMPLETED\"")
                 .contains("\"stop_reason\":\"COMPLETED\"")
+                .contains("\"task_outcome\":\"SUCCEEDED\"")
+                .contains("\"task_outcome_reason\":\"CHANGES_DELIVERED\"")
                 .contains("\"steps\":4")
                 .contains("\"files_changed\":1")
                 .contains("\"format_errors\":0");
@@ -183,6 +188,9 @@ class DevFactoryEndToEndScenarioTest {
         assertThat(summaryMetadata.path("branch").asString()).isEqualTo("task/" + TASK_ID);
         assertThat(summaryMetadata.path("outcome").asString()).isEqualTo("COMPLETED");
         assertThat(summaryMetadata.path("stop_reason").asString()).isEqualTo("COMPLETED");
+        assertThat(summaryMetadata.path("task_outcome").asString()).isEqualTo("SUCCEEDED");
+        assertThat(summaryMetadata.path("task_outcome_reason").asString())
+                .isEqualTo("CHANGES_DELIVERED");
         assertThat(summaryMetadata.path("artifact_count").asInt())
                 .as("the summary cannot list itself").isEqualTo(3);
         String summaryBody = summary.body();
