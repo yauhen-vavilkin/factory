@@ -1,6 +1,7 @@
 package org.folio.factory.devfactory.worker;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -20,6 +21,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
+import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.sandbox.api.CommandResult;
 import org.folio.factory.sandbox.api.SandboxHandle;
@@ -57,6 +59,17 @@ import tools.jackson.databind.json.JsonMapper;
 class CodingWorkerTest {
 
   private static final SandboxHandle HANDLE = new SandboxHandle("sbx-1", "c-1");
+
+  static final String BASE_SHA = "0123456789abcdef0123456789abcdef01234567";
+  static final String REV_PARSE_COMMAND = "cd repo && git rev-parse HEAD";
+
+  static String exportCommand(String baseRevision) {
+    return "cd repo && base=" + baseRevision
+        + " && idx=$(mktemp) && { GIT_INDEX_FILE=\"$idx\" git read-tree \"$base\""
+        + " && GIT_INDEX_FILE=\"$idx\" git add -A"
+        + " && GIT_INDEX_FILE=\"$idx\" git diff --binary -M --cached \"$base\";"
+        + " rc=$?; rm -f \"$idx\"; exit \"$rc\"; }";
+  }
 
   @Mock
   private ChatModelAdapter adapter;
@@ -96,7 +109,8 @@ class CodingWorkerTest {
     AgentResult result = worker.execute(context());
 
     assertThat(sandbox.calls).containsExactly(
-        "create:T-15", "exec:cd repo && git diff", "teardown:sbx-1");
+        "create:T-15", "exec:" + REV_PARSE_COMMAND, "exec:" + exportCommand(BASE_SHA),
+        "teardown:sbx-1");
     assertThat(sandbox.teardowns).isEqualTo(1);
     assertThat(result.outputs()).containsOnlyKeys("patch.diff", "report.md", "trajectory.jsonl");
   }
@@ -148,6 +162,32 @@ class CodingWorkerTest {
   }
 
   @Test
+  void binaryPatchIsPreservedByteForByteIncludingTerminatingBlankLine() {
+    String binaryDiff = "diff --git a/icon.bin b/icon.bin\n"
+        + "new file mode 100644\n"
+        + "GIT binary patch\n"
+        + "literal 9\n"
+        + "QcmZ={aQg4e5MpQv01W^Fga7~l\n"
+        + "\n"
+        + "literal 0\n"
+        + "HcmV?d00001\n"
+        + "\n";
+    FakeSandboxService sandbox = new FakeSandboxService();
+    sandbox.diffStdout = "[status]\n\n[diff]\n" + binaryDiff;
+    when(adapter.reply(anyString(), anyString(), anyList())).thenReturn(ModelReply.text("done"));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+    CodingWorker worker = new CodingWorker(sandbox, harness(), codec);
+
+    AgentResult result = worker.execute(context());
+
+    assertThat(result.outputs().get("patch.diff"))
+        .as("git binary patch base85 blocks are terminated by an empty line; git apply "
+            + "rejects (exit 128, 'corrupt binary patch') a patch whose trailing blank line "
+            + "was normalized away")
+        .isEqualTo(binaryDiff);
+  }
+
+  @Test
   void trajectoryArtifactIsThisRunTrajectoryFile() throws Exception {
     FakeSandboxService sandbox = new FakeSandboxService();
     sandbox.diffStdout = "[status]\n\n[diff]\n+ok";
@@ -183,12 +223,13 @@ class CodingWorkerTest {
 
     JsonNode metadata = codec.parse(result.outputs().get("report.md")).metadata();
     List<String> keys = new ArrayList<>(metadata.propertyNames());
-    assertThat(keys).containsExactlyInAnyOrder("task_id", "repo_url", "branch", "outcome",
-        "stop_reason", "task_outcome", "task_outcome_reason", "steps", "files_changed",
+    assertThat(keys).containsExactlyInAnyOrder("task_id", "repo_url", "branch", "base_revision",
+        "outcome", "stop_reason", "task_outcome", "task_outcome_reason", "steps", "files_changed",
         "diff_size_bytes", "format_errors", "tokens_in", "tokens_out");
     assertThat(metadata.path("task_id").asString()).isEqualTo("T-15");
     assertThat(metadata.path("repo_url").asString()).isEqualTo("https://github.com/folio/o-r.git");
     assertThat(metadata.path("branch").asString()).isEqualTo("dev/T15");
+    assertThat(metadata.path("base_revision").asString()).isEqualTo(BASE_SHA);
     assertThat(metadata.path("outcome").asString()).isEqualTo("COMPLETED");
     assertThat(metadata.path("stop_reason").asString()).isEqualTo("COMPLETED");
     assertThat(metadata.path("task_outcome").asString()).isEqualTo("SUCCEEDED");
@@ -294,6 +335,54 @@ class CodingWorkerTest {
     assertThat(metadata.path("tokens_out").asLong()).isEqualTo(125L);
   }
 
+  @Test
+  void revParseFailureIsInfrastructureFailure() {
+    FakeSandboxService sandbox = new FakeSandboxService();
+    sandbox.revParseExitCode = 1;
+    CodingWorker worker = new CodingWorker(sandbox, harness(), codec);
+
+    assertThatThrownBy(() -> worker.execute(context()))
+        .isInstanceOf(AgentExecutionException.class)
+        .hasMessageContaining("base revision");
+    assertThat(sandbox.calls).containsExactly(
+        "create:T-15", "exec:" + REV_PARSE_COMMAND, "teardown:sbx-1");
+    assertThat(sandbox.teardowns).isEqualTo(1);
+  }
+
+  @Test
+  void malformedBaseRevisionFailsBeforeExportRuns() {
+    FakeSandboxService sandbox = new FakeSandboxService();
+    sandbox.revParseStdout = "main\n";
+    CodingWorker worker = new CodingWorker(sandbox, harness(), codec);
+
+    assertThatThrownBy(() -> worker.execute(context()))
+        .isInstanceOf(AgentExecutionException.class)
+        .hasMessageContaining("base revision");
+    assertThat(sandbox.calls).containsExactly(
+        "create:T-15", "exec:" + REV_PARSE_COMMAND, "teardown:sbx-1");
+  }
+
+  @Test
+  void artifactsAreDurablyWrittenToWorkDirBeforeTeardown() throws Exception {
+    FakeSandboxService sandbox = new FakeSandboxService();
+    sandbox.diffStdout = "[status]\n\n[diff]\n+ok";
+    when(adapter.reply(anyString(), anyString(), anyList())).thenReturn(ModelReply.text("done"));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+    sandbox.teardownProbeDir = workDir;
+    CodingWorker worker = new CodingWorker(sandbox, harness(), codec);
+
+    AgentResult result = worker.execute(context());
+
+    assertThat(sandbox.teardownSawPatchDiff)
+        .as("patch.diff must be durably written before teardown runs")
+        .isTrue();
+    assertThat(sandbox.teardownSawReportMd)
+        .as("report.md must be durably written before teardown runs")
+        .isTrue();
+    assertThat(workDir.resolve("patch.diff")).hasContent(result.outputs().get("patch.diff"));
+    assertThat(workDir.resolve("report.md")).hasContent(result.outputs().get("report.md"));
+  }
+
   private CodingHarness harness() {
     return new CodingHarness(adapter, new ToolDispatcher(readTool, listTool, applyPatchTool,
         execTool, gitDiffTool, testTool), gitDiffTool, new MutableClock(
@@ -314,15 +403,18 @@ class CodingWorkerTest {
 
   private static final class FakeSandboxService implements SandboxService {
 
-    private static final String DIFF_COMMAND = "cd repo && git diff";
-
     private final List<String> calls = new ArrayList<>();
     private String diffStdout = "";
     private int diffExitCode;
+    private String revParseStdout = BASE_SHA + "\n";
+    private int revParseExitCode;
     private boolean failCreate;
     private boolean failExec;
     private boolean failTeardown;
     private int teardowns;
+    private Path teardownProbeDir;
+    private boolean teardownSawPatchDiff;
+    private boolean teardownSawReportMd;
 
     @Override
     public SandboxHandle create(SandboxSpec spec) {
@@ -339,7 +431,10 @@ class CodingWorkerTest {
       if (failExec) {
         throw new SandboxException("exec failed");
       }
-      if (DIFF_COMMAND.equals(command)) {
+      if (REV_PARSE_COMMAND.equals(command)) {
+        return new CommandResult(revParseExitCode, revParseStdout, "", 5L);
+      }
+      if (exportCommand(BASE_SHA).equals(command)) {
         return new CommandResult(diffExitCode, diffStdout, "", 5L);
       }
       return new CommandResult(1, "", "unexpected command", 0L);
@@ -349,6 +444,10 @@ class CodingWorkerTest {
     public void teardown(SandboxHandle handle) {
       calls.add("teardown:" + handle.sandboxId());
       teardowns++;
+      if (teardownProbeDir != null) {
+        teardownSawPatchDiff = java.nio.file.Files.exists(teardownProbeDir.resolve("patch.diff"));
+        teardownSawReportMd = java.nio.file.Files.exists(teardownProbeDir.resolve("report.md"));
+      }
       if (failTeardown) {
         throw new SandboxException("teardown failed");
       }

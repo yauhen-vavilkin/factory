@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -122,6 +123,25 @@ class CodingWorkerLifecycleTest {
         .isInstanceOf(AgentExecutionException.class);
   }
 
+  @Test
+  void persistenceFailureRetainsSandboxAndWorkDirForRecovery() throws Exception {
+    when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(3,
+        HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0, 0L, 0L,
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED));
+    sandbox.diffStdout = "[status]\n\n[diff]\n+ok";
+    Path workDirAsRegularFile = Files.createTempFile(workDir, "workdir-as-file-", null);
+
+    assertThatThrownBy(() -> worker().execute(context(workDirAsRegularFile)))
+        .isInstanceOf(AgentExecutionException.class)
+        .hasMessageContaining("persist")
+        .hasMessageContaining("retained");
+    assertThat(sandbox.teardowns)
+        .as("the sandbox holding the model's unique change must not be torn down "
+            + "when the artifact could not be persisted")
+        .isZero();
+    assertThat(workDirAsRegularFile).exists();
+  }
+
   private void assertFailedRunRecordsStopReason(HarnessReport.StopReason stopReason) {
     when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(5,
         HarnessReport.Outcome.FAILED, stopReason, 1, 256L, 0, 0L, 0L,
@@ -141,6 +161,10 @@ class CodingWorkerLifecycleTest {
   }
 
   private AgentContext context() {
+    return context(workDir);
+  }
+
+  private AgentContext context(Path configuredWorkDir) {
     JsonNode payload = JsonMapper.builder().build().valueToTree(Map.of(
         "taskId", "T-15",
         "repoUrl", "https://github.com/folio/o-r.git",
@@ -148,13 +172,11 @@ class CodingWorkerLifecycleTest {
         "branch", "dev/T15",
         "goal", "fix the NPE in CodingWorker"));
     return new AgentContext(UUID.randomUUID(), "coding", Map.of(), payload,
-        Map.of("workDir", workDir.toString()),
+        Map.of("workDir", configuredWorkDir.toString()),
         List.of("patch.diff", "report.md", "trajectory.jsonl"));
   }
 
   private static final class FakeSandboxService implements SandboxService {
-
-    private static final String DIFF_COMMAND = "cd repo && git diff";
 
     private final List<String> calls = new ArrayList<>();
     private String diffStdout = "";
@@ -179,7 +201,10 @@ class CodingWorkerLifecycleTest {
       if (failExec) {
         throw new SandboxException("exec failed");
       }
-      if (DIFF_COMMAND.equals(command)) {
+      if (CodingWorkerTest.REV_PARSE_COMMAND.equals(command)) {
+        return new CommandResult(0, CodingWorkerTest.BASE_SHA + "\n", "", 5L);
+      }
+      if (CodingWorkerTest.exportCommand(CodingWorkerTest.BASE_SHA).equals(command)) {
         return new CommandResult(diffExitCode, diffStdout, "", 5L);
       }
       return new CommandResult(1, "", "unexpected command", 0L);
