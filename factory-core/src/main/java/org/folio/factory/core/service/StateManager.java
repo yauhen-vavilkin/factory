@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -62,6 +63,22 @@ public class StateManager {
                 Map.of("flowId", flowId, "flowVersion", flowVersion,
                         "parentExecutionId", parentExecutionId.toString()));
         return saved;
+    }
+
+    @Transactional
+    public PipelineExecution createAdmittedExecution(String flowId, String flowVersion,
+                                                     String triggerPayloadJson, String admissionKey) {
+        PipelineExecution execution = new PipelineExecution(flowId, flowVersion, triggerPayloadJson);
+        execution.setAdmissionKey(admissionKey);
+        PipelineExecution saved = executions.saveAndFlush(execution);
+        auditLog.record(saved.getId(), AuditEventType.EXECUTION_STARTED, null,
+                Map.of("flowId", flowId, "flowVersion", flowVersion, "admissionKey", admissionKey));
+        return saved;
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<PipelineExecution> findAdmitted(String flowId, String admissionKey) {
+        return executions.findByFlowIdAndAdmissionKey(flowId, admissionKey);
     }
 
     @Transactional(readOnly = true)

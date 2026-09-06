@@ -116,6 +116,27 @@ class CodingWorkerTest {
     assertThat(result.outputs()).containsOnlyKeys("patch.diff", "report.md", "trajectory.jsonl");
   }
 
+  /**
+   * T22 R4: the worker must hand its execution identity to the sandbox as
+   * owner so the workspace is execution-owned, not shared by task name.
+   */
+  @Test
+  void handsExecutionIdentityToSandboxAsWorkspaceOwner() {
+    FakeSandboxService sandbox = new FakeSandboxService();
+    sandbox.diffStdout = "[status]\n\n[diff]\n(no changes)";
+    when(adapter.reply(anyString(), anyString(), anyList())).thenReturn(ModelReply.text("done"));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+    CodingWorker worker = new CodingWorker(sandbox, harness(), codec);
+
+    UUID executionId = UUID.randomUUID();
+    worker.execute(context(executionId));
+
+    assertThat(sandbox.lastSpec.taskId()).isEqualTo("T-15");
+    assertThat(sandbox.lastSpec.ownerId())
+        .as("sandbox must be owned by the execution, keyed by its id")
+        .isEqualTo(executionId.toString());
+  }
+
   @Test
   void patchDiffIsDiffStdoutWithoutStatusSection() {
     FakeSandboxService sandbox = new FakeSandboxService();
@@ -453,13 +474,17 @@ class CodingWorkerTest {
   }
 
   private AgentContext context() {
+    return context(UUID.randomUUID());
+  }
+
+  private AgentContext context(UUID executionId) {
     JsonNode payload = JsonMapper.builder().build().valueToTree(Map.of(
         "taskId", "T-15",
         "repoUrl", "https://github.com/folio/o-r.git",
         "baseBranch", "main",
         "branch", "dev/T15",
         "goal", "fix the NPE in CodingWorker"));
-    return new AgentContext(UUID.randomUUID(), "coding", Map.of(), payload,
+    return new AgentContext(executionId, "coding", Map.of(), payload,
         Map.of("workDir", workDir.toString()),
         List.of("patch.diff", "report.md", "trajectory.jsonl"));
   }
@@ -467,6 +492,7 @@ class CodingWorkerTest {
   private static final class FakeSandboxService implements SandboxService {
 
     private final List<String> calls = new ArrayList<>();
+    private SandboxSpec lastSpec;
     private String diffStdout = "";
     private int diffExitCode;
     private String revParseStdout = BASE_SHA + "\n";
@@ -482,6 +508,7 @@ class CodingWorkerTest {
     @Override
     public SandboxHandle create(SandboxSpec spec) {
       calls.add("create:" + spec.taskId());
+      lastSpec = spec;
       if (failCreate) {
         throw new SandboxException("create failed");
       }

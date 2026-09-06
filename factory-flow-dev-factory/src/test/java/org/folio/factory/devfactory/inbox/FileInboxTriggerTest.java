@@ -52,12 +52,13 @@ class FileInboxTriggerTest {
     @Test
     void validFileRoutesNormalizedPayloadAndClaims() throws IOException {
         Path file = write("t1.yaml", VALID_TASK);
-        when(router.route(any())).thenReturn(List.of(UUID.randomUUID()));
+        when(router.routeAdmitted(any(), any())).thenReturn(List.of(UUID.randomUUID()));
 
         trigger.poll();
 
         ArgumentCaptor<TriggerEvent> captor = ArgumentCaptor.forClass(TriggerEvent.class);
-        verify(router, times(1)).route(captor.capture());
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(router, times(1)).routeAdmitted(captor.capture(), keyCaptor.capture());
         TriggerEvent event = captor.getValue();
         assertThat(event.type()).isEqualTo("file.inbox");
         assertThat(event.source()).isEqualTo("file-inbox:t1.yaml");
@@ -79,19 +80,24 @@ class FileInboxTriggerTest {
         assertThat(payload.get("constraints").isObject()).isTrue();
         assertThat(payload.get("constraints").size()).isZero();
         assertThat(payload.get("notes").isNull()).isTrue();
+        assertThat(keyCaptor.getValue())
+                .startsWith("file.inbox:")
+                .hasSize("file.inbox:".length() + 64);
         assertThat(file).doesNotExist();
         assertThat(inbox.resolve("processed/t1.yaml")).exists();
     }
 
     @Test
-    void malformedYamlMovesToFailed() throws IOException {
+    void malformedYamlMovesToFailedAndStaysObservable() throws IOException {
         Path file = write("bad.yaml", "id: [unclosed");
 
         trigger.poll();
 
         assertThat(file).doesNotExist();
-        assertThat(inbox.resolve("failed/bad.yaml")).exists();
-        verify(router, never()).route(any());
+        Path failedFile = inbox.resolve("failed/bad.yaml");
+        assertThat(failedFile).exists();
+        assertThat(Files.readString(failedFile)).isEqualTo("id: [unclosed");
+        verify(router, never()).routeAdmitted(any(), any());
     }
 
     @Test
@@ -105,7 +111,7 @@ class FileInboxTriggerTest {
 
         assertThat(file).doesNotExist();
         assertThat(inbox.resolve("failed/nogoal.yaml")).exists();
-        verify(router, never()).route(any());
+        verify(router, never()).routeAdmitted(any(), any());
     }
 
     @Test
@@ -121,7 +127,7 @@ class FileInboxTriggerTest {
 
         assertThat(file).doesNotExist();
         assertThat(inbox.resolve("failed/shabase.yaml")).exists();
-        verify(router, never()).route(any());
+        verify(router, never()).routeAdmitted(any(), any());
     }
 
     @Test
@@ -137,25 +143,25 @@ class FileInboxTriggerTest {
 
         assertThat(file).doesNotExist();
         assertThat(inbox.resolve("failed/badbranch.yaml")).exists();
-        verify(router, never()).route(any());
+        verify(router, never()).routeAdmitted(any(), any());
     }
 
     @Test
     void emptyRouteResultMovesToFailed() throws IOException {
         Path file = write("nomatch.yaml", VALID_TASK);
-        when(router.route(any())).thenReturn(List.of());
+        when(router.routeAdmitted(any(), any())).thenReturn(List.of());
 
         trigger.poll();
 
         assertThat(file).doesNotExist();
         assertThat(inbox.resolve("failed/nomatch.yaml")).exists();
-        verify(router, times(1)).route(any());
+        verify(router, times(1)).routeAdmitted(any(), any());
     }
 
     @Test
     void routeThrowMovesToFailedAndDoesNotPropagate() throws IOException {
         Path file = write("boom.yaml", VALID_TASK);
-        when(router.route(any())).thenThrow(new RuntimeException("router down"));
+        when(router.routeAdmitted(any(), any())).thenThrow(new RuntimeException("router down"));
 
         assertThatCode(trigger::poll).doesNotThrowAnyException();
 
@@ -166,9 +172,9 @@ class FileInboxTriggerTest {
     @Test
     void secondPollClaimsNothingNew() throws IOException {
         write("t8.yaml", VALID_TASK);
-        when(router.route(any())).thenReturn(List.of(UUID.randomUUID()));
+        when(router.routeAdmitted(any(), any())).thenReturn(List.of(UUID.randomUUID()));
         trigger.poll();
-        verify(router, times(1)).route(any());
+        verify(router, times(1)).routeAdmitted(any(), any());
         assertThat(inbox.resolve("processed/t8.yaml")).exists();
 
         write("processed/inside.yaml", VALID_TASK);
@@ -176,7 +182,7 @@ class FileInboxTriggerTest {
 
         trigger.poll();
 
-        verify(router, times(1)).route(any());
+        verify(router, times(1)).routeAdmitted(any(), any());
         assertThat(inbox.resolve("processed/inside.yaml")).exists();
         assertThat(inbox.resolve("notes.txt")).exists();
         try (DirectoryStream<Path> top = Files.newDirectoryStream(inbox, "*.{yaml,yml}")) {
@@ -195,6 +201,83 @@ class FileInboxTriggerTest {
         assertThatCode(missing::poll).doesNotThrowAnyException();
 
         verifyNoInteractions(router);
+    }
+
+    /**
+     * T22 R3 crash boundary: the route happens before the claim move, so a
+     * failed move (or a crash between commit and move) must leave the file in
+     * the inbox and re-polling must re-route it as the SAME admission — the
+     * router's idempotent admission then returns the existing execution
+     * instead of creating a duplicate.
+     */
+    @Test
+    void failedClaimLeavesFileAndRePollReplaysSameAdmissionKey() throws IOException {
+        Path file = write("crash.yaml", VALID_TASK);
+        when(router.routeAdmitted(any(), any())).thenReturn(List.of(UUID.randomUUID()));
+        // Break the claim move: 'processed' exists as a regular file, so
+        // createDirectories(targetDir) fails inside claim().
+        Files.writeString(inbox.resolve("processed"), "not a directory");
+
+        trigger.poll();
+        verify(router, times(1)).routeAdmitted(any(), any());
+        assertThat(file).as("file must stay in the inbox when the claim move fails").exists();
+
+        Files.delete(inbox.resolve("processed"));
+        trigger.poll();
+        verify(router, times(2)).routeAdmitted(any(), any());
+
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(router, times(2)).routeAdmitted(any(), keyCaptor.capture());
+        assertThat(keyCaptor.getAllValues()).as("both routes must carry the same admission key")
+                .containsExactly(keyCaptor.getAllValues().getFirst(), keyCaptor.getAllValues().getFirst());
+        assertThat(file).doesNotExist();
+        assertThat(inbox.resolve("processed/crash.yaml")).exists();
+    }
+
+    /**
+     * T22 R1: admission identity is the normalized task content, not the file
+     * name — and cosmetic-only YAML differences (key order, indentation,
+     * comments) that parse to the same normalized task are the same admission.
+     */
+    @Test
+    void admissionKeyIsContentIdentityRegardlessOfFileNameOrYamlCosmetics() throws IOException {
+        when(router.routeAdmitted(any(), any())).thenReturn(List.of(UUID.randomUUID()));
+        String reordered = """
+                # operator comment
+                goal:   Implement the widget parser.
+                repo:   https://github.com/acme/widgets.git
+                id: TASK-100
+                """;
+
+        write("t1.yaml", VALID_TASK);
+        write("a-completely-different-name.yml", reordered);
+        trigger.poll();
+
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(router, times(2)).routeAdmitted(any(), keyCaptor.capture());
+        assertThat(keyCaptor.getAllValues().get(0))
+                .as("same normalized content under different names is the same admission")
+                .isEqualTo(keyCaptor.getAllValues().get(1));
+    }
+
+    /**
+     * T22 R1/R5: a re-dropped file with changed content is an intentional new
+     * revision — a distinct admission key, so the router admits a new
+     * execution with its own audit trail.
+     */
+    @Test
+    void revisedContentUnderTheSameFileNameIsADistinctAdmissionKey() throws IOException {
+        when(router.routeAdmitted(any(), any())).thenReturn(List.of(UUID.randomUUID()));
+
+        write("t9.yaml", VALID_TASK);
+        trigger.poll();
+        write("t9.yaml", VALID_TASK.replace("Implement", "Rewrite and harden"));
+        trigger.poll();
+
+        ArgumentCaptor<String> keyCaptor = ArgumentCaptor.forClass(String.class);
+        verify(router, times(2)).routeAdmitted(any(), keyCaptor.capture());
+        assertThat(keyCaptor.getAllValues().get(0))
+                .isNotEqualTo(keyCaptor.getAllValues().get(1));
     }
 
     private Path write(String name, String content) throws IOException {

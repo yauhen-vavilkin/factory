@@ -51,6 +51,10 @@ import static org.folio.factory.core.domain.ExecutionStatus.COMPLETED;
  * flow and driven to COMPLETED by the real engine — a scripted ChatModel codes
  * in the local sandbox (create → patch → diff → teardown-once) and the four
  * declared artifacts land in the ArtifactStore with the expected content.
+ *
+ * <p>T22: admission through the real inbox is idempotent — re-dropping the
+ * same content returns the existing execution, a revised file is admitted as
+ * a new revision, and sandbox workspaces are execution-owned.
  */
 @SpringBootTest(properties = {"spring.ai.model.chat=none",
         "factory.engine.poll-interval-ms=250", "factory.inbox.poll-interval-ms=250"})
@@ -60,7 +64,7 @@ import static org.folio.factory.core.domain.ExecutionStatus.COMPLETED;
 class DevFactoryEndToEndScenarioTest {
 
     private static final String TASK_ID = "TASK-E2E-1";
-    private static final String WORKSPACE_DIR = "sbx-" + TASK_ID;
+    private static final String REPLAY_TASK_ID = "TASK-E2E-2";
 
     @Container
     @ServiceConnection
@@ -99,7 +103,7 @@ class DevFactoryEndToEndScenarioTest {
 
             Files.writeString(inbox.resolve(TASK_ID + ".yaml"), taskFile(sourceRepo));
 
-            UUID executionId = awaitSingleDevFactoryExecution();
+            UUID executionId = awaitSingleDevFactoryExecution(TASK_ID);
 
             await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> {
                 PipelineExecution execution = stateManager.get(executionId);
@@ -120,16 +124,81 @@ class DevFactoryEndToEndScenarioTest {
         }
     }
 
-    private UUID awaitSingleDevFactoryExecution() {
-        await().atMost(Duration.ofSeconds(60)).untilAsserted(() ->
-                assertThat(devFactoryExecutions()).hasSize(1));
-        return devFactoryExecutions().get(0).getId();
+    /**
+     * T22 full-stack admission semantics through the REAL inbox: identical
+     * content re-dropped is a replay that must not create a second execution;
+     * revised content under the same file name is an intentional new revision
+     * admitted as a new execution, and both run to completion with their own
+     * execution-owned workspaces.
+     */
+    @Test
+    void replayedTaskFileAdmitsOnceAndRevisedTaskFileAdmitsNewRevision() throws Exception {
+        Path sourceRepo = createSourceRepo(sourceRoot.resolve("replay-source-repo"));
+        String fileName = REPLAY_TASK_ID + ".yaml";
+        String original = taskFile(REPLAY_TASK_ID, sourceRepo, """
+                Append the line "T16 scenario change." to README.md and finish with a short report.""");
+
+        Files.writeString(inbox.resolve(fileName), original);
+        UUID first = awaitSingleDevFactoryExecution(REPLAY_TASK_ID);
+        awaitCompleted(first);
+        awaitTopLevelClaimed(fileName);
+
+        Files.writeString(inbox.resolve(fileName), original);
+        awaitTopLevelClaimed(fileName);
+        assertThat(devFactoryExecutions(REPLAY_TASK_ID))
+                .as("identical content re-dropped must replay the same admission, not a new execution")
+                .hasSize(1)
+                .first()
+                .returns(first, PipelineExecution::getId);
+
+        Files.writeString(inbox.resolve(fileName), taskFile(REPLAY_TASK_ID, sourceRepo, """
+                Revised: append the line "T16 scenario change." to README.md and finish with a short report."""));
+        await().atMost(Duration.ofSeconds(60))
+                .until(() -> devFactoryExecutions(REPLAY_TASK_ID).size() == 2);
+        UUID second = devFactoryExecutions(REPLAY_TASK_ID).stream()
+                .map(PipelineExecution::getId)
+                .filter(id -> !id.equals(first))
+                .findFirst().orElseThrow();
+        awaitCompleted(first);
+        awaitCompleted(second);
+
+        assertThat(stateManager.get(first).getAdmissionKey())
+                .as("distinct revisions must hold distinct admission keys")
+                .isNotEqualTo(stateManager.get(second).getAdmissionKey());
+        assertThat(devFactoryExecutions(REPLAY_TASK_ID)).hasSize(2);
     }
 
-    private List<PipelineExecution> devFactoryExecutions() {
+    private void awaitCompleted(UUID executionId) {
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> {
+            PipelineExecution execution = stateManager.get(executionId);
+            assertThat(execution.getStatus())
+                    .as("execution %s did not complete; error message: %s",
+                            executionId, execution.getErrorMessage())
+                    .isEqualTo(COMPLETED);
+        });
+    }
+
+    private void awaitTopLevelClaimed(String fileName) {
+        await().atMost(Duration.ofSeconds(10)).until(() ->
+                !Files.exists(inbox.resolve(fileName)));
+    }
+
+    private UUID awaitSingleDevFactoryExecution(String taskId) {
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() ->
+                assertThat(devFactoryExecutions(taskId)).hasSize(1));
+        return devFactoryExecutions(taskId).get(0).getId();
+    }
+
+    private List<PipelineExecution> devFactoryExecutions(String taskId) {
         return executions.findAllByOrderByCreatedAtDesc().stream()
                 .filter(execution -> execution.getFlowId().equals("dev-factory"))
+                .filter(execution -> taskId(json.readTree(execution.getTriggerPayload()))
+                        .equals(taskId))
                 .toList();
+    }
+
+    private static String taskId(JsonNode triggerPayload) {
+        return triggerPayload.path("taskId").asString("");
     }
 
     private void assertInboxClaim() {
@@ -236,6 +305,9 @@ class DevFactoryEndToEndScenarioTest {
     }
 
     private void assertExactlyOnce(UUID executionId, WatchService watcher) throws InterruptedException {
+        // T22 R4: the sandbox workspace is owned by the execution, keyed by
+        // its id — never by the shared task name.
+        String workspaceDir = "sbx-" + executionId;
         int creates = 0;
         int deletes = 0;
         WatchKey key;
@@ -244,7 +316,7 @@ class DevFactoryEndToEndScenarioTest {
                 if (event.kind() == OVERFLOW) {
                     fail("WatchService OVERFLOW while observing the workspace root: %s", event);
                 }
-                if (!WORKSPACE_DIR.equals(event.context().toString())) {
+                if (!workspaceDir.equals(event.context().toString())) {
                     continue;
                 }
                 if (event.kind() == ENTRY_CREATE) {
@@ -258,9 +330,9 @@ class DevFactoryEndToEndScenarioTest {
         }
         assertThat(creates).as("sandbox workspace creations").isEqualTo(1);
         assertThat(deletes).as("sandbox workspace deletions").isEqualTo(1);
-        assertThat(Files.notExists(workspaceRoot.resolve(WORKSPACE_DIR)))
+        assertThat(Files.notExists(workspaceRoot.resolve(workspaceDir)))
                 .as("sandbox workspace must be torn down").isTrue();
-        assertThat(devFactoryExecutions())
+        assertThat(devFactoryExecutions(TASK_ID))
                 .as("no duplicate dev-factory execution appeared during the run").hasSize(1);
     }
 
@@ -290,19 +362,24 @@ class DevFactoryEndToEndScenarioTest {
     }
 
     private static String taskFile(Path sourceRepo) {
+        return taskFile(TASK_ID, sourceRepo, """
+                Append the line "T16 scenario change." to README.md and finish with a short report.""");
+    }
+
+    private static String taskFile(String taskId, Path sourceRepo, String goal) {
         return """
-                id: TASK-E2E-1
+                id: %s
                 repo: %s
                 base: main
-                branch: task/TASK-E2E-1
+                branch: task/%s
                 goal: |
-                  Append the line "T16 scenario change." to README.md and finish with a short report.
+                  %s
                 acceptance:
                   - patch.diff modifies README.md
                 constraints:
                   allow_paths:
                     - README.md
                 notes: Scenario task file for the T16 end-to-end test.
-                """.formatted(sourceRepo.toAbsolutePath());
+                """.formatted(taskId, sourceRepo.toAbsolutePath(), taskId, goal.stripTrailing());
     }
 }

@@ -14,6 +14,11 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.folio.factory.sandbox.api.CommandResult;
 import org.folio.factory.sandbox.api.SandboxHandle;
@@ -185,6 +190,65 @@ class LocalSandboxServiceTest {
     assertThat(Files.isDirectory(sanitized)).isTrue();
     assertThat(Files.isDirectory(sanitized.resolve("repo/.git"))).isTrue();
     assertThat(Files.isDirectory(Path.of(handle.containerId()).resolve("repo/.git"))).isTrue();
+  }
+
+  /**
+   * T22 R4: two executions of the SAME task (distinct ownerId) must get
+   * distinct, execution-owned workspaces — creating the second must not
+   * delete or disturb the first execution's workspace.
+   */
+  @Test
+  void createForDistinctOwnersOfTheSameTaskKeepsBothWorkspaces() throws Exception {
+    String repoUrl = sourceRepo(sources.resolve("repo-10"));
+    LocalSandboxService service = newService(root, Duration.ZERO);
+
+    SandboxHandle first = service.create(
+        new SandboxSpec("t-10", repoUrl, "main", "task/t-10", "11111111-1111-4111-8111-111111111111"));
+    SandboxHandle second = service.create(
+        new SandboxSpec("t-10", repoUrl, "main", "task/t-10", "22222222-2222-4222-8222-222222222222"));
+
+    assertThat(first.sandboxId()).isEqualTo("sbx-11111111-1111-4111-8111-111111111111");
+    assertThat(second.sandboxId()).isEqualTo("sbx-22222222-2222-4222-8222-222222222222");
+    assertThat(first.containerId()).isNotEqualTo(second.containerId());
+    assertThat(Files.isDirectory(Path.of(first.containerId()).resolve("repo/.git")))
+        .as("the first execution's workspace must survive the second execution's create")
+        .isTrue();
+    assertThat(Files.isDirectory(Path.of(second.containerId()).resolve("repo/.git"))).isTrue();
+  }
+
+  /**
+   * T22 R4 concurrency shape: two creates for the same task run
+   * simultaneously; with execution-owned paths both must finish with intact
+   * clones (the legacy shared task-named path destroyed one from under the
+   * other mid-clone).
+   */
+  @Test
+  void concurrentCreatesForTheSameTaskWithDistinctOwnersKeepBothWorkspaces() throws Exception {
+    String repoUrl = sourceRepo(sources.resolve("repo-11"));
+    LocalSandboxService service = newService(root, Duration.ZERO);
+    CyclicBarrier barrier = new CyclicBarrier(2);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      Callable<SandboxHandle> ownerOne = () -> {
+        barrier.await(30, TimeUnit.SECONDS);
+        return service.create(
+            new SandboxSpec("t-11", repoUrl, "main", "task/t-11", "33333333-3333-4333-8333-333333333333"));
+      };
+      Callable<SandboxHandle> ownerTwo = () -> {
+        barrier.await(30, TimeUnit.SECONDS);
+        return service.create(
+            new SandboxSpec("t-11", repoUrl, "main", "task/t-11", "44444444-4444-4444-8444-444444444444"));
+      };
+      Future<SandboxHandle> first = pool.submit(ownerOne);
+      Future<SandboxHandle> second = pool.submit(ownerTwo);
+
+      assertThat(Files.isDirectory(Path.of(first.get(120, TimeUnit.SECONDS).containerId())
+          .resolve("repo/.git"))).isTrue();
+      assertThat(Files.isDirectory(Path.of(second.get(120, TimeUnit.SECONDS).containerId())
+          .resolve("repo/.git"))).isTrue();
+    } finally {
+      pool.shutdownNow();
+    }
   }
 
   private LocalSandboxService newService(Path workspaceRoot, Duration retention) {

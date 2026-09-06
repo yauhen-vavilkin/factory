@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface PipelineExecutionRepository extends JpaRepository<PipelineExecution, UUID> {
@@ -46,4 +47,6 @@ public interface PipelineExecutionRepository extends JpaRepository<PipelineExecu
             @Param("parentStatus") ExecutionStatus parentStatus);
 
     List<PipelineExecution> findAllByOrderByCreatedAtDesc();
+
+    Optional<PipelineExecution> findByFlowIdAndAdmissionKey(String flowId, String admissionKey);
 }

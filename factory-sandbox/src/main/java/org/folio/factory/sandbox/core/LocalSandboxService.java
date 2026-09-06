@@ -36,7 +36,11 @@ public class LocalSandboxService implements SandboxService {
 
   @Override
   public SandboxHandle create(SandboxSpec spec) {
-    String sandboxId = "sbx-" + spec.taskId();
+    // T22 R4: key the workspace by the owning execution when the caller
+    // supplies one, so concurrent executions of the same task never collide
+    // on (or delete) each other's workspaces. The cleanup below is then also
+    // scoped: it can only clear a leftover of THIS execution's own attempts.
+    String sandboxId = "sbx-" + (spec.ownerId() != null ? spec.ownerId() : spec.taskId());
     Path workspace = properties.workspaceRoot().resolve(sanitize(sandboxId)).toAbsolutePath();
     String cloneCommand = "git clone " + Shell.quote(spec.repoUrl()) + " repo && cd repo && git checkout -b "
         + Shell.quote(spec.branch()) + " " + Shell.quote("origin/" + spec.baseBranch());

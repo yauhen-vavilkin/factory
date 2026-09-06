@@ -89,7 +89,10 @@ public class CodingWorker implements AgentWorker {
         workDir = Files.createTempDirectory("devfactory-");
         tempWorkDir = true;
       }
-      handle = sandboxService.create(new SandboxSpec(taskId, repoUrl, baseBranch, branch));
+      handle = sandboxService.create(new SandboxSpec(taskId, repoUrl, baseBranch, branch,
+          // T22 R4: execution-owned workspace — concurrent executions of the
+          // same task get distinct workspaces and cannot delete each other's.
+          context.executionId() == null ? null : context.executionId().toString()));
       String baseRevision = readBaseRevision(handle);
       HarnessReport report = harness.run(handle, contract, workDir);
       CommandResult diff = sandboxService.exec(handle, exportCommand(baseRevision),

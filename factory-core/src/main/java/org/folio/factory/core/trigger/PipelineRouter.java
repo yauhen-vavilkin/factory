@@ -7,6 +7,7 @@ import org.folio.factory.core.registry.model.TriggerContract;
 import org.folio.factory.core.service.StateManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -61,6 +62,68 @@ public class PipelineRouter {
         FlowDescriptor flow = flowRegistry.require(flowId);
         requireInputs(flow, payload);
         return start(flow, TriggerEvent.of("manual", "api", payload)).getId();
+    }
+
+    public List<UUID> routeAdmitted(TriggerEvent event, String admissionKey) {
+        requireAdmissionKey(admissionKey);
+        List<UUID> admitted = new ArrayList<>();
+        for (FlowDescriptor flow : flowRegistry.all()) {
+            if (matches(flow, event) && hasRequiredInputs(flow, event.payload())) {
+                admitted.add(startAdmitted(flow, event, admissionKey).getId());
+            }
+        }
+        if (admitted.isEmpty()) {
+            log.debug("No flow matched trigger event type '{}' from {}", event.type(), event.source());
+        }
+        return admitted;
+    }
+
+    /**
+     * Idempotent admission variant of {@link #route}: the caller supplies a
+     * stable admission key naming the admitted event revision (T22). Routing
+     * the same revision again returns the execution admitted before — one
+     * admitted revision yields exactly one execution per matching flow — and
+     * the unique (flow_id, admission_key) constraint in the database backs the
+     * promise under concurrency: racing admissions collide, the loser re-reads
+     * and returns the winner's execution. Admission keys are per flow, so
+     * several flows may still subscribe to the same event.
+     */
+    private PipelineExecution startAdmitted(FlowDescriptor flow, TriggerEvent event, String admissionKey) {
+        String payloadJson = event.payload() == null ? null : jsonMapper.writeValueAsString(event.payload());
+        PipelineExecution existing = stateManager.findAdmitted(flow.id(), admissionKey).orElse(null);
+        if (existing != null) {
+            log.info("Trigger '{}' from {} replayed admission {} of flow '{}': returning existing execution {}",
+                    event.type(), event.source(), admissionKey, flow.id(), existing.getId());
+            return existing;
+        }
+        try {
+            PipelineExecution execution = stateManager.createAdmittedExecution(
+                    flow.id(), flow.version(), payloadJson, admissionKey);
+            log.info("Trigger '{}' from {} admitted as {} started execution {} of flow '{}'",
+                    event.type(), event.source(), admissionKey, execution.getId(), flow.id());
+            return execution;
+        } catch (DataIntegrityViolationException e) {
+            // A racing poller admitted the same revision first and committed;
+            // the unique constraint aborted this insert. Return the winner.
+            PipelineExecution winner = stateManager.findAdmitted(flow.id(), admissionKey).orElse(null);
+            if (winner == null) {
+                throw e;
+            }
+            log.info("Trigger '{}' from {} lost the admission race for {} of flow '{}': returning execution {}",
+                    event.type(), event.source(), admissionKey, flow.id(), winner.getId());
+            return winner;
+        }
+    }
+
+    private static void requireAdmissionKey(String admissionKey) {
+        if (admissionKey == null || admissionKey.isBlank()) {
+            throw new IllegalArgumentException(
+                    "admissionKey must not be blank — admitted events need a stable revision identity");
+        }
+        if (admissionKey.length() > 100) {
+            throw new IllegalArgumentException("admissionKey must not exceed 100 characters, got "
+                    + admissionKey.length());
+        }
     }
 
     private boolean matches(FlowDescriptor flow, TriggerEvent event) {

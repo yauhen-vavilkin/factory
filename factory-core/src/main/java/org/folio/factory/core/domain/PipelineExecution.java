@@ -7,6 +7,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -15,7 +16,13 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "pipeline_execution")
+@Table(name = "pipeline_execution",
+        // T22 idempotent admission: backs find-or-create admission in every
+        // schema (Hibernate-generated test schemas and Flyway V2 alike).
+        // Nullable: manual/legacy/child executions carry no admission key and
+        // PostgreSQL treats NULLs as distinct, so they never collide.
+        uniqueConstraints = @UniqueConstraint(name = "uq_execution_flow_admission",
+                columnNames = {"flow_id", "admission_key"}))
 public class PipelineExecution {
 
     @Id
@@ -39,6 +46,9 @@ public class PipelineExecution {
 
     @Column(name = "parent_step_index")
     private Integer parentStepIndex;
+
+    @Column(name = "admission_key", length = 100)
+    private String admissionKey;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "trigger_payload")
@@ -136,6 +146,14 @@ public class PipelineExecution {
 
     public String getTriggerPayload() {
         return triggerPayload;
+    }
+
+    public String getAdmissionKey() {
+        return admissionKey;
+    }
+
+    public void setAdmissionKey(String admissionKey) {
+        this.admissionKey = admissionKey;
     }
 
     public String getRetryCounts() {

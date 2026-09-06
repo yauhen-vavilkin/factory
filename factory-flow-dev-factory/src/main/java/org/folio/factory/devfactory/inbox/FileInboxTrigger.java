@@ -29,8 +29,15 @@ import tools.jackson.databind.node.ObjectNode;
  * Scans the dev-factory inbox directory on a fixed cadence, parses each
  * top-level yaml task file, routes a {@code file.inbox} trigger event and
  * claims the file by moving it to {@code processed/} (at least one execution
- * created) or {@code failed/} (parse/validation failure, empty route result
+ * admitted) or {@code failed/} (parse/validation failure, empty route result
  * or route exception).
+ *
+ * <p>T22 idempotent admission: the event is admitted under
+ * {@link FileInboxAdmissionKey the content-derived admission key} via
+ * {@link PipelineRouter#routeAdmitted}. Route-before-claim is still the
+ * order, so a crash or failed claim move between the database commit and the
+ * file move simply re-routes the same admission on the next poll — the
+ * router returns the already-admitted execution instead of duplicating it.
  */
 @Component
 @ConditionalOnProperty(prefix = "factory.inbox", name = "enabled",
@@ -89,9 +96,11 @@ public class FileInboxTrigger {
             return;
         }
         try {
-            TriggerEvent event = TriggerEvent.of(EVENT_TYPE, "file-inbox:" + fileName, payload(task));
-            List<UUID> created = router.route(event);
-            claim(file, created == null || created.isEmpty() ? FAILED_DIR : PROCESSED_DIR);
+            JsonNode payload = payload(task);
+            String admissionKey = FileInboxAdmissionKey.of(payload);
+            TriggerEvent event = TriggerEvent.of(EVENT_TYPE, "file-inbox:" + fileName, payload);
+            List<UUID> admitted = router.routeAdmitted(event, admissionKey);
+            claim(file, admitted == null || admitted.isEmpty() ? FAILED_DIR : PROCESSED_DIR);
         } catch (RuntimeException e) {
             log.warn("Routing failed for task file {}: {}", fileName, e.getMessage());
             claim(file, FAILED_DIR);

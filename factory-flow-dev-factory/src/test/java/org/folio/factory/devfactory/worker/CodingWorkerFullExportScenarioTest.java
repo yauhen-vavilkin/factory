@@ -307,6 +307,7 @@ class CodingWorkerFullExportScenarioTest {
   private final class Scenario {
 
     private final String taskId;
+    private final UUID executionId = UUID.randomUUID();
     private final BiConsumer<Scenario, SandboxHandle> modelTurns;
     private final SandboxService sandbox;
     private final Path sourceRepo;
@@ -345,7 +346,8 @@ class CodingWorkerFullExportScenarioTest {
     }
 
     Path workspaceDir() {
-      return root.resolve("sbx-root").resolve("sbx-" + taskId);
+      // T22 R4: the workspace is owned by the execution, keyed by its id.
+      return root.resolve("sbx-root").resolve("sbx-" + executionId);
     }
 
     AgentContext context() throws IOException {
@@ -356,7 +358,7 @@ class CodingWorkerFullExportScenarioTest {
            "branch":"dev/%s",
            "goal":"T19 scenario change"}
           """.formatted(taskId, sourceRepo.toString().replace("\\", "\\\\"), taskId));
-      return new AgentContext(UUID.randomUUID(), "coding", Map.of(), payload,
+      return new AgentContext(executionId, "coding", Map.of(), payload,
           Map.of("workDir", workDir.toString()),
           List.of("patch.diff", "report.md", "trajectory.jsonl"));
     }
