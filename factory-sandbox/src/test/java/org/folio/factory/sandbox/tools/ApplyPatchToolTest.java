@@ -23,6 +23,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class ApplyPatchToolTest {
 
   private static final SandboxHandle HANDLE = new SandboxHandle("sbx-task1", "c1");
+  private static final String PATCH_FILE = "/tmp/factory-patch-sbx-task1.diff";
   private static final String DIFF = """
       diff --git a/pom.xml b/pom.xml
       --- a/pom.xml
@@ -34,9 +35,9 @@ class ApplyPatchToolTest {
       """;
   private static final String STAGE_COMMAND =
       "printf '%s' " + Shell.quote(Base64.getEncoder().encodeToString(DIFF.getBytes(UTF_8)))
-          + " | base64 -d > /tmp/factory-patch.diff";
-  private static final String CHECK_COMMAND = "cd repo && git apply --check /tmp/factory-patch.diff";
-  private static final String APPLY_COMMAND = "cd repo && git apply /tmp/factory-patch.diff";
+          + " | base64 -d > " + PATCH_FILE;
+  private static final String CHECK_COMMAND = "cd repo && git apply --check " + PATCH_FILE;
+  private static final String APPLY_COMMAND = "cd repo && git apply " + PATCH_FILE;
 
   @Mock
   private SandboxService sandboxService;

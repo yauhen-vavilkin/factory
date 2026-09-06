@@ -68,9 +68,9 @@ class SpringAiChatModelAdapterTest {
     ModelReply reply = adapter().reply("system", "fix the bug", List.of());
 
     assertTrue(reply.isToolCall());
-    assertEquals("call-1", reply.toolCall().id());
-    assertEquals("read", reply.toolCall().name());
-    assertEquals("{\"path\":\"repo/pom.xml\"}", reply.toolCall().arguments());
+    assertEquals("call-1", reply.toolCalls().get(0).id());
+    assertEquals("read", reply.toolCalls().get(0).name());
+    assertEquals("{\"path\":\"repo/pom.xml\"}", reply.toolCalls().get(0).arguments());
   }
 
   @Test
@@ -157,5 +157,32 @@ class SpringAiChatModelAdapterTest {
     ModelReply reply = adapter().reply("system", "fix the bug", List.of());
 
     assertEquals(TokenUsage.ZERO, reply.usage());
+  }
+
+  /**
+   * T23 R1 empirical pin: Spring AI's {@code ChatResponse.getResult()} on a
+   * zero-generation response (observed on the pre-fix code: it returns null,
+   * so the unguarded {@code getResult().getOutput()} crashed with a
+   * NullPointerException). The adapter must instead surface a dedicated
+   * diagnostic so the harness can distinguish an empty model response from a
+   * provider failure.
+   */
+  @Test
+  void zeroGenerationResponseSurfacesAsDedicatedDiagnostic() {
+    when(chatModel.call(any(Prompt.class))).thenReturn(new ChatResponse(List.of()));
+
+    EmptyModelResponseException thrown = assertThrows(EmptyModelResponseException.class,
+        () -> adapter().reply("system", "fix the bug", List.of()));
+    assertTrue(thrown.getMessage().contains("zero generations"));
+  }
+
+  @Test
+  void nullAssistantOutputSurfacesAsDedicatedDiagnostic() {
+    // A generation carrying no assistant output is the other empty shape.
+    when(chatModel.call(any(Prompt.class))).thenReturn(new ChatResponse(List.of(new Generation(null))));
+
+    EmptyModelResponseException thrown = assertThrows(EmptyModelResponseException.class,
+        () -> adapter().reply("system", "fix the bug", List.of()));
+    assertTrue(thrown.getMessage().contains("no assistant output"));
   }
 }

@@ -179,6 +179,35 @@ class CodingHarnessTest {
     assertTrue(lines.get(3).contains("\"outcome\":\"COMPLETED\""));
   }
 
+  /**
+   * T23 R3: a batch's later tool calls must not inherit earlier calls'
+   * durations — each trajectory step reports that call's own execution time.
+   */
+  @Test
+  void batchToolCallDurationsArePerCallNotCumulative(@TempDir Path workDir) throws Exception {
+    CodingHarness harness = harness(HarnessConfig.defaults());
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.toolCalls(List.of(
+            new ToolCall("t1", "read", "{\"path\":\"repo/pom.xml\"}"),
+            new ToolCall("t2", "read", "{\"path\":\"repo/README.md\"}")), TokenUsage.ZERO))
+        .thenReturn(ModelReply.text("done"));
+    when(readTool.read(HANDLE, "repo/pom.xml", null, null)).thenAnswer(invocation -> {
+      clock.advance(Duration.ofMillis(100));
+      return ToolResult.success("<project/>");
+    });
+    when(readTool.read(HANDLE, "repo/README.md", null, null)).thenAnswer(invocation -> {
+      clock.advance(Duration.ofMillis(50));
+      return ToolResult.success("readme");
+    });
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+
+    harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
+
+    List<String> lines = Files.readAllLines(workDir.resolve(Trajectory.FILE_NAME));
+    assertTrue(lines.get(0).contains("\"duration_ms\":100"), lines.get(0));
+    assertTrue(lines.get(1).contains("\"duration_ms\":50"), lines.get(1));
+  }
+
   @Test
   void formatErrorsWithinBatchCountPerCall(@TempDir Path workDir) throws Exception {
     CodingHarness harness = harness(HarnessConfig.defaults());
@@ -198,6 +227,65 @@ class CodingHarnessTest {
     assertEquals(HarnessReport.StopReason.COMPLETED, report.stopReason());
     assertEquals(2, report.formatErrors());
     assertEquals(2, report.steps());
+  }
+
+  /**
+   * T23 R2 pin of the documented rule (HarnessConfig#maxFormatErrors):
+   * maxFormatErrors is a whole-run total budget, so the repeated
+   * [malformed, valid] batch must terminate — a valid call in the same batch
+   * no longer resets the streak.
+   */
+  @Test
+  void repeatedMalformedThenValidBatchesTripTotalFormatErrorLimit(@TempDir Path workDir)
+      throws Exception {
+    CodingHarness harness = harness(new HarnessConfig(40, 3, 30L, "glm-5.3-flash"));
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.toolCalls(List.of(
+            new ToolCall("g1", "grep", "{}"),
+            new ToolCall("r1", "read", "{\"path\":\"repo/pom.xml\"}")), TokenUsage.ZERO))
+        .thenReturn(ModelReply.toolCalls(List.of(
+            new ToolCall("g2", "grep", "{}"),
+            new ToolCall("r2", "read", "{\"path\":\"repo/pom.xml\"}")), TokenUsage.ZERO))
+        .thenReturn(ModelReply.toolCalls(List.of(
+            new ToolCall("g3", "grep", "{}"),
+            new ToolCall("r3", "read", "{\"path\":\"repo/pom.xml\"}")), TokenUsage.ZERO))
+        .thenReturn(ModelReply.text("done"));
+    when(readTool.read(HANDLE, "repo/pom.xml", null, null))
+        .thenReturn(ToolResult.success("<project/>"));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
+
+    assertEquals(HarnessReport.Outcome.FAILED, report.outcome());
+    assertEquals(HarnessReport.StopReason.FORMAT_ERRORS_EXCEEDED, report.stopReason());
+    assertEquals(3, report.formatErrors());
+    assertEquals(3, report.steps());
+    verify(adapter, times(3)).reply(anyString(), anyString(), anyList());
+  }
+
+  /**
+   * T23 R2 pin of the boundary evaluation: the limit is checked before the
+   * next model reply, so a single batch that exhausts the budget stops the
+   * run without soliciting (or trusting) another reply.
+   */
+  @Test
+  void singleBatchAtFormatErrorLimitStopsBeforeNextModelReply(@TempDir Path workDir)
+      throws Exception {
+    CodingHarness harness = harness(new HarnessConfig(40, 3, 30L, "glm-5.3-flash"));
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.toolCalls(List.of(
+            new ToolCall("g1", "grep", "{}"),
+            new ToolCall("g2", "grep", "{}"),
+            new ToolCall("g3", "grep", "{}")), TokenUsage.ZERO))
+        .thenReturn(ModelReply.text("done"));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
+
+    assertEquals(HarnessReport.Outcome.FAILED, report.outcome());
+    assertEquals(HarnessReport.StopReason.FORMAT_ERRORS_EXCEEDED, report.stopReason());
+    assertEquals(3, report.formatErrors());
+    verify(adapter, times(1)).reply(anyString(), anyString(), anyList());
   }
 
   @Test
@@ -301,6 +389,32 @@ class CodingHarnessTest {
     assertEquals(2, lines.size());
     assertTrue(lines.get(0).contains("\"tool\":\"model_error\""));
     assertTrue(lines.get(1).contains("\"stop_reason\":\"MODEL_ERROR\""));
+  }
+
+  /**
+   * T23 R1: an empty model response (zero generations / no assistant output)
+   * is a distinct, preserved diagnostic — not conflated with MODEL_ERROR and
+   * not an unguarded crash.
+   */
+  @Test
+  void emptyModelResponseSurfacesAsDistinctDiagnosticStopReason(@TempDir Path workDir) throws Exception {
+    CodingHarness harness = harness(HarnessConfig.defaults());
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.toolCall(new ToolCall("t1", "read", "{\"path\":\"repo/pom.xml\"}")))
+        .thenThrow(new EmptyModelResponseException(
+            "model returned an empty response: zero generations"));
+    when(readTool.read(HANDLE, "repo/pom.xml", null, null)).thenReturn(ToolResult.success("<project/>"));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
+
+    assertEquals(HarnessReport.Outcome.FAILED, report.outcome());
+    assertEquals(HarnessReport.StopReason.EMPTY_MODEL_RESPONSE, report.stopReason());
+    assertEquals(2, report.steps());
+    List<String> lines = Files.readAllLines(workDir.resolve(Trajectory.FILE_NAME));
+    assertEquals(3, lines.size());
+    assertTrue(lines.get(1).contains("\"tool\":\"empty_model_response\""));
+    assertTrue(lines.get(2).contains("\"stop_reason\":\"EMPTY_MODEL_RESPONSE\""));
   }
 
   @Test

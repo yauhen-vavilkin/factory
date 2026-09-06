@@ -13,6 +13,10 @@ public record HarnessReport(int steps, Outcome outcome, StopReason stopReason, i
   }
 
   public enum StopReason {
-    COMPLETED, STEPS_EXCEEDED, FORMAT_ERRORS_EXCEEDED, TIMEOUT, MODEL_ERROR
+    // T23 R1: EMPTY_MODEL_RESPONSE is an additive diagnostic for a model
+    // reply with zero generations / no assistant output (distinct from a
+    // provider failure).
+    COMPLETED, STEPS_EXCEEDED, FORMAT_ERRORS_EXCEEDED, TIMEOUT, MODEL_ERROR,
+    EMPTY_MODEL_RESPONSE
   }
 }

@@ -36,7 +36,7 @@ class HarnessReportTest {
 
   @Test
   void enumsCoverAllExits() {
-    assertEquals(5, HarnessReport.StopReason.values().length);
+    assertEquals(6, HarnessReport.StopReason.values().length);
     assertEquals(2, HarnessReport.Outcome.values().length);
     assertEquals(2, TaskOutcome.values().length);
     assertEquals(6, TaskOutcome.Reason.values().length);

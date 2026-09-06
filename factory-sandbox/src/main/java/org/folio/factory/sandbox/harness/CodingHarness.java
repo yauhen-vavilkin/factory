@@ -39,8 +39,11 @@ public class CodingHarness {
     long timeoutMs = config.jobTimeoutMin() * 60_000L;
     List<ChatMessage> history = new ArrayList<>();
     int steps = 0;
+    // Total malformed tool calls so far; the ONLY format-error counter. Per
+    // the documented rule (HarnessConfig#maxFormatErrors) it is a whole-run
+    // budget: valid calls never reset it, and it is enforced at model-reply
+    // (batch) boundaries below.
     int formatErrors = 0;
-    int consecutiveFormatErrors = 0;
     long tokensIn = 0;
     long tokensOut = 0;
     String finalReply = null;
@@ -53,7 +56,9 @@ public class CodingHarness {
               successfulToolCalls, finalReply, contract,
               HarnessReport.Outcome.FAILED, HarnessReport.StopReason.STEPS_EXCEEDED);
         }
-        if (consecutiveFormatErrors >= config.maxFormatErrors()) {
+        // T23 R2: enforce the documented whole-run total budget of malformed
+        // tool calls, checked before the next model reply.
+        if (formatErrors >= config.maxFormatErrors()) {
           return finish(trajectory, handle, steps, formatErrors, tokensIn, tokensOut,
               successfulToolCalls, finalReply, contract,
               HarnessReport.Outcome.FAILED, HarnessReport.StopReason.FORMAT_ERRORS_EXCEEDED);
@@ -67,6 +72,15 @@ public class CodingHarness {
         ModelReply reply;
         try {
           reply = adapter.reply(systemPrompt, taskGoal, List.copyOf(history));
+        } catch (EmptyModelResponseException e) {
+          // T23 R1: zero generations / no assistant output is a preserved
+          // diagnostic, distinct from a provider failure (MODEL_ERROR).
+          steps++;
+          trajectory.append(new StepRecord(clock.instant().toString(), steps, "empty_model_response",
+              0, 0, false, clock.millis() - stepStartedAt));
+          return finish(trajectory, handle, steps, formatErrors, tokensIn, tokensOut,
+              successfulToolCalls, finalReply, contract,
+              HarnessReport.Outcome.FAILED, HarnessReport.StopReason.EMPTY_MODEL_RESPONSE);
         } catch (RuntimeException e) {
           steps++;
           trajectory.append(new StepRecord(clock.instant().toString(), steps, "model_error",
@@ -90,12 +104,15 @@ public class CodingHarness {
               HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED);
         }
         for (ToolCall toolCall : reply.toolCalls()) {
+          // T23 R3: each trajectory step reports this call's own execution
+          // time, not time accumulated since the model reply began.
+          long callStartedAt = clock.millis();
           ToolExecution execution = dispatcher.execute(handle, toolCall.name(), toolCall.arguments());
+          long callDurationMs = clock.millis() - callStartedAt;
           if (execution.formatError()) {
+            // T23 R2: the total budget only ever grows; a valid call in the
+            // same batch does not reset it.
             formatErrors++;
-            consecutiveFormatErrors++;
-          } else {
-            consecutiveFormatErrors = 0;
           }
           if (execution.result().ok()) {
             successfulToolCalls++;
@@ -105,7 +122,7 @@ public class CodingHarness {
           history.add(ChatMessage.toolResult(toolCall.id(), toolCall.name(), resultText));
           trajectory.append(new StepRecord(clock.instant().toString(), steps, toolCall.name(),
               safeLength(toolCall.arguments()), safeLength(resultText), execution.result().ok(),
-              clock.millis() - stepStartedAt));
+              callDurationMs));
         }
       }
     }

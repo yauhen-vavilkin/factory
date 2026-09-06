@@ -23,8 +23,4 @@ public record ModelReply(String text, List<ToolCall> toolCalls, TokenUsage usage
   public boolean isToolCall() {
     return toolCalls != null && !toolCalls.isEmpty();
   }
-
-  public ToolCall toolCall() {
-    return toolCalls.get(0);
-  }
 }

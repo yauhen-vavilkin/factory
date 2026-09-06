@@ -54,12 +54,20 @@ public class SpringAiChatModelAdapter implements ChatModelAdapter {
         .toolCallbacks(toolCallbacks)
         .build();
     ChatResponse response = chatModel.call(new Prompt(messages, options));
+    if (response == null || response.getResult() == null) {
+      throw new EmptyModelResponseException(
+          "model returned an empty response: zero generations");
+    }
+    AssistantMessage assistant = response.getResult().getOutput();
+    if (assistant == null) {
+      throw new EmptyModelResponseException(
+          "model returned an empty response: no assistant output");
+    }
     ChatResponseMetadata metadata = response.getMetadata();
     Usage usage = metadata == null ? null : metadata.getUsage();
     TokenUsage tokenUsage = new TokenUsage(
         orZero(usage == null ? null : usage.getPromptTokens()),
         orZero(usage == null ? null : usage.getCompletionTokens()));
-    AssistantMessage assistant = response.getResult().getOutput();
     if (assistant.hasToolCalls()) {
       List<ToolCall> toolCalls = assistant.getToolCalls().stream()
           .map(toolCall -> new ToolCall(toolCall.id(), toolCall.name(), toolCall.arguments()))
