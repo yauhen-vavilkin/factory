@@ -186,3 +186,153 @@ selection, iterative skill/tool improvement and owner consultation.
 
 This document deliberately contains no task status or claim that the fixes were
 implemented. The bot allocates normal Txx task IDs in WORKFLOW at intake.
+
+
+## Post-migration correction intake — 2026-09-06
+
+Read this correction list before the historical FTQ-01..06 installation order above.
+The current accepted baseline is main 409e2fc after T23; T21 delivered the FTQ-05
+eval pack, T22 admission ownership, T23 telemetry. These do not close the independently
+confirmed T18/T19 escaped defects. Next correction contracts are T24/FTQ-09 then
+T25/FTQ-10; WORKFLOW controls execution. No paid model run is started by these docs.
+
+## FTQ-09 — Reject validated success without requirement evidence (P1)
+
+Evidence: the post-migration audit found that `CodingHarness` treats any successful
+tool, including list/read, as useful activity and can return `NO_OP_VERIFIED` for a
+list-only run. It can also return success for a changed tree when a required test
+was never run or failed. Existing tests encode apply-patch-without-tests as success.
+This is an escaped T18 acceptance defect, not evidence that the external T19
+permission-rejected run was accepted.
+
+Requirements:
+
+- **R1:** Derive the required verification obligations from the frozen task
+  contract and make the terminal `TaskOutcome` depend on their evidence, not on a
+  generic successful tool call, a non-empty final response, or `filesChanged > 0`.
+- **R2:** Return `NO_OP_VERIFIED` only when no-op is explicitly allowed and fresh,
+  discriminating evidence proves the requested behavior already holds. Successful
+  list/read activity alone must return `FAILED`, never a success outcome.
+- **R3:** A changed result may return `SUCCEEDED` only when every mandatory check
+  ran after the final relevant source/config/test/fixture edit, passed, and is bound
+  to that exact output/tree. Missing, skipped, red, executor-failed, or stale checks
+  must return `FAILED` (or the existing explicit infrastructure-failure outcome),
+  never success.
+- **R4:** Preserve bounded final text and useful diagnostics for all outcomes, but
+  never use self-report, final text, tool count, or change count as a substitute for
+  requirement evidence. Keep compatible T18 fields/outcomes where their semantics
+  remain valid.
+- **R5:** Add independently executable negative and positive scenarios for
+  list-only no-op, changed/no-test, changed/red-test, green-test-then-edit,
+  verified no-op, and changed/fresh-green. A fresh Codex review must assess every
+  acceptance boundary and whether the tests can fail under a plausible regression.
+
+Definition of done: the focused scenario suite demonstrates every failure boundary
+above and normal valid successes, project gates pass on the final tree, and a fresh
+Codex acceptance review accepts R1-R5. Review unavailability or quota exhaustion
+pauses the task; it does not authorize an automatic reviewer fallback.
+
+Allocated correction contract: `tasks/T24.md` in the project control directory.
+
+## FTQ-10 — Preserve recoverable output until durable persistence (P1)
+
+Evidence: with the shipped flow's default configuration, `CodingWorker` creates a
+temporary work directory. Its `finally` teardown can remove that last filesystem
+copy before `ExecutionEngine` attempts downstream `ArtifactStore` persistence.
+Export failure follows the same destructive path, and current scenarios use an
+explicit `workDir`, so they do not cover the default boundary. This is an escaped
+T19 data-integrity defect; the audit did not establish an actual historical user
+data loss.
+
+Requirements:
+
+- **R1:** Define and enforce the durability/ownership boundary for the default
+  configuration with no `workDir`: destructive teardown must not remove the last
+  recoverable copy before downstream persistence is acknowledged.
+- **R2:** Publish a recovery bundle with integrity metadata before destructive
+  cleanup whenever successful worker output has not yet been acknowledged by the
+  `ArtifactStore`. A downstream persistence failure must return failure plus a
+  usable recovery locator; an incomplete bundle must never be advertised as a
+  complete accepted artifact.
+- **R3:** On export failure or partial output, retain the smallest recoverable
+  attempt state and an explicit incomplete/failure manifest. Preserve already
+  produced unique data while preventing partial output from being accepted as a
+  complete change.
+- **R4:** Scope recovery data by stable execution/attempt identity. A retry must not
+  overwrite or delete a prior recoverable attempt, and cleanup is allowed only
+  after acknowledged durable persistence or an explicit, tested retention action.
+- **R5:** Add independently executable scenarios covering default no-`workDir`,
+  downstream `ArtifactStore` failure, export failure, partial output, retry
+  preservation, and reconstruction in a fresh consumer checkout. A fresh Codex
+  data-integrity review must verify byte/content integrity and failure ordering.
+
+Definition of done: every failure case retains an accurately labelled recovery
+artifact, a consumer reconstructs and verifies the successful change from the
+recovered artifact, normal persistence still permits safe cleanup, project gates
+pass, and a fresh Codex review accepts R1-R5. Review unavailability or quota
+exhaustion pauses the task; it does not authorize an automatic reviewer fallback.
+
+Allocated correction contract: `tasks/T25.md` in the project control directory.
+
+## FTQ-05 supplement — extend the accepted T21 eval pack
+
+T21 delivered the original FTQ-05 eval pack on main 71deff3. Do not create a second
+umbrella eval task or rewrite T21 evidence. T24 and T25 must reuse and extend that
+pack with their actual escaped-defect counterexamples, including consumer checks.
+The existence of the pack does not close F1/F2: revalidation at main 409e2fc still
+finds the generic-tool success and temporary-output cleanup branches.
+
+## FTQ-03 intake supplement — live early-completion cause remains unknown
+
+T20 preserved bounded final response/stop-reason evidence, but the audit explicitly
+classifies elimination of the live GLM early-completion cause as unproven
+(`2026-09-06-autodev-post-migration-audit.md:47,132-137`). Preserve the original
+FTQ-03 statement that the cause is unknown. Do not relabel the observation as a
+model, prompt, adapter, or acceptance defect without discriminating evidence, and do
+not add retries as diagnosis.
+
+At a future FTQ-03 intake, first compare the allowed failing evidence with a
+representative success and identify the exact stop boundary. Allocate further
+product work only for the smallest demonstrated remaining cause. A new paid live run
+requires the existing owner authorization and quota limits; another empty run alone
+does not prove improvement.
+
+## ADQ-02 — Decide deadline and process-group cleanup semantics (gated)
+
+This is a separate AutoDev control-plane decision task. It is not a product FTQ,
+does not authorize a timer implementation, and must not send signals to any live
+managed run while being researched or reviewed.
+
+Gate: obtain an explicit owner decision on semantics, compatibility, risk, and
+rollback before creating any implementation task. The current cron interval is a
+wake cadence, not a child-process deadline.
+
+Requirements:
+
+- **R1:** Map the launcher/process tree and ownership boundaries, including parent,
+  child, grandchildren, process groups/sessions, receipt/PID identity, and the
+  points at which a run is admitted, settled, or known stale. Separate observed
+  behavior from unproven hang/orphan hypotheses.
+- **R2:** Present deadline choices with a recommendation: when a deadline starts,
+  which stages it covers, configuration/default/disable behavior, maximum/grace
+  periods, quota and restart interaction, and backward compatibility. Do not treat
+  reconciler or cron cadence as the deadline.
+- **R3:** Specify a race-safe cleanup protocol for a future implementation:
+  positively identify the owned process group, send TERM, wait a bounded grace
+  period, escalate to KILL only for surviving owned members, reap children, and
+  refuse to signal on stale/missing/mismatched identity. Define exact results for
+  normal exit, timeout, launcher crash, and partial cleanup.
+- **R4:** Specify evidence and recovery semantics before cleanup: preserve logs,
+  final output, receipts, task revision, process identity, and recoverable artifacts;
+  make settle/retry behavior idempotent and prevent a late predecessor from
+  publishing after a successor. State how an operator disables or rolls back the
+  mechanism.
+- **R5:** Define a hermetic test plan using fake disposable process trees and
+  controlled clocks for normal completion, TERM-responsive child, TERM-ignoring
+  grandchild, stale PID/process-group reuse, launcher crash, repeated reconcile,
+  and restart recovery. Tests must prove unrelated processes receive no signal.
+
+Decision deliverable: alternatives, recommended semantics, risk analysis, migration
+and rollback plan, exact acceptance scenarios, and owner decision. Research may use
+only synthetic disposable processes; no live kill, restart, schedule change, timer,
+or production implementation is authorized by ADQ-02.
