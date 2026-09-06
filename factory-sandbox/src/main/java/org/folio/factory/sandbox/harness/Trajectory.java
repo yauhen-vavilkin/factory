@@ -35,6 +35,22 @@ public final class Trajectory implements Closeable {
   }
 
   public void append(StepRecord record) {
+    ObjectNode node = stepFields(record);
+    writeLine(node.toString());
+  }
+
+  /**
+   * The final record is the one place a step carries text: the model's last
+   * answer, already bounded by the harness ({@code out_len} keeps the full
+   * original length when the text was truncated).
+   */
+  public void appendFinal(StepRecord record, String text) {
+    ObjectNode node = stepFields(record);
+    node.put("text", text == null ? "" : text);
+    writeLine(node.toString());
+  }
+
+  private ObjectNode stepFields(StepRecord record) {
     ObjectNode node = mapper.createObjectNode();
     node.put("ts", record.ts());
     node.put("step", record.stepNumber());
@@ -43,7 +59,7 @@ public final class Trajectory implements Closeable {
     node.put("out_len", record.outputLength());
     node.put("duration_ms", record.durationMs());
     node.put("ok", record.ok());
-    writeLine(node.toString());
+    return node;
   }
 
   public void append(HarnessReport report) {

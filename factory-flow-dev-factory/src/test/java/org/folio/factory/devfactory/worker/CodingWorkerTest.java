@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.folio.factory.agents.artifact.Frontmatter;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
@@ -198,7 +199,7 @@ class CodingWorkerTest {
     AgentResult result = worker.execute(context());
 
     String expected = "{\"ts\":\"2026-09-04T10:00:00Z\",\"step\":1,\"tool\":\"final\",\"args_len\":0,"
-        + "\"out_len\":4,\"duration_ms\":0,\"ok\":true}\n"
+        + "\"out_len\":4,\"duration_ms\":0,\"ok\":true,\"text\":\"done\"}\n"
         + "{\"steps\":1,\"outcome\":\"COMPLETED\",\"stop_reason\":\"COMPLETED\","
         + "\"task_outcome\":\"FAILED\",\"task_outcome_reason\":\"NO_OP_NOT_PERMITTED\","
         + "\"files_changed\":0,\"diff_size_bytes\":0,\"format_errors\":0,"
@@ -265,7 +266,7 @@ class CodingWorkerTest {
     CodingHarness harness = org.mockito.Mockito.mock(CodingHarness.class);
     when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(2,
         HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 1, 8L, 0, 0L, 0L,
-        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED));
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED, ""));
     CodingWorker worker = new CodingWorker(sandbox, harness, codec);
     JsonNode payload = JsonMapper.builder().build().readTree("""
         {"taskId":"T-18",
@@ -305,7 +306,7 @@ class CodingWorkerTest {
     CodingHarness harness = org.mockito.Mockito.mock(CodingHarness.class);
     when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(1,
         HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 1, 8L, 0, 0L, 0L,
-        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED));
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED, ""));
     CodingWorker worker = new CodingWorker(sandbox, harness, codec);
 
     worker.execute(context());
@@ -317,6 +318,68 @@ class CodingWorkerTest {
     assertThat(contract.acceptance()).isNull();
     assertThat(contract.constraints()).isNull();
     assertThat(contract.notes()).isNull();
+  }
+
+  @Test
+  void reportBodyPreservesScriptedModelFinalResponse() {
+    FakeSandboxService sandbox = new FakeSandboxService();
+    sandbox.diffStdout = "[status]\n M pom.xml\n\n[diff]\n+ok";
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.toolCall(new ToolCall("t1", "apply_patch", "{\"diff\":\"x\"}")))
+        .thenReturn(ModelReply.text(
+            "Root cause: cached Spring context closed in the shutdown hook; "
+                + "changed ddl-auto to create; all 37 tests green."));
+    when(applyPatchTool.apply(HANDLE, "x")).thenReturn(ToolResult.success("applied"));
+    when(gitDiffTool.diff(HANDLE))
+        .thenReturn(ToolResult.success("[status]\n M pom.xml\n\n[diff]\n+ok"));
+    CodingWorker worker = new CodingWorker(sandbox, harness(), codec);
+
+    AgentResult result = worker.execute(context());
+
+    assertThat(codec.parse(result.outputs().get("report.md")).body())
+        .contains("Root cause: cached Spring context closed in the shutdown hook; "
+            + "changed ddl-auto to create; all 37 tests green.");
+  }
+
+  @Test
+  void trajectoryFinalRecordCarriesFinalResponseText() {
+    FakeSandboxService sandbox = new FakeSandboxService();
+    sandbox.diffStdout = "[status]\n\n[diff]\n(no changes)";
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.text("Could not reproduce within the sandbox; no change made."));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+    CodingWorker worker = new CodingWorker(sandbox, harness(), codec);
+
+    AgentResult result = worker.execute(context());
+
+    List<String> lines = result.outputs().get("trajectory.jsonl").lines().toList();
+    assertThat(lines.get(0))
+        .contains("\"tool\":\"final\"")
+        .contains("\"text\":\"Could not reproduce within the sandbox; no change made.\"")
+        .contains("\"out_len\":55");
+  }
+
+  @Test
+  void overlongFinalResponseIsTruncatedWithVisibleMarkerAndFullLengthRecorded() {
+    FakeSandboxService sandbox = new FakeSandboxService();
+    sandbox.diffStdout = "[status]\n\n[diff]\n(no changes)";
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.text("x".repeat(10_000)));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+    CodingWorker worker = new CodingWorker(sandbox, harness(), codec);
+
+    AgentResult result = worker.execute(context());
+
+    Frontmatter report = codec.parse(result.outputs().get("report.md"));
+    assertThat(report.body())
+        .startsWith("x".repeat(64))
+        .contains("[final response truncated: 5904 chars omitted]");
+    assertThat(report.body().length())
+        .isLessThanOrEqualTo(CodingHarness.FINAL_TEXT_MAX_CHARS + 100);
+    List<String> lines = result.outputs().get("trajectory.jsonl").lines().toList();
+    assertThat(lines.get(0))
+        .contains("\"out_len\":10000")
+        .contains("[final response truncated: 5904 chars omitted]");
   }
 
   @Test

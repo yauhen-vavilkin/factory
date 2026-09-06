@@ -10,7 +10,7 @@ class HarnessReportTest {
   void holdsRunOutcome() {
     HarnessReport report = new HarnessReport(12, HarnessReport.Outcome.FAILED,
         HarnessReport.StopReason.STEPS_EXCEEDED, 3, 8192L, 1, 0L, 0L,
-        TaskOutcome.FAILED, TaskOutcome.Reason.MODEL_RUN_FAILED);
+        TaskOutcome.FAILED, TaskOutcome.Reason.MODEL_RUN_FAILED, "done");
 
     assertEquals(12, report.steps());
     assertEquals(HarnessReport.Outcome.FAILED, report.outcome());
@@ -28,7 +28,7 @@ class HarnessReportTest {
   void holdsTokenTotals() {
     HarnessReport report = new HarnessReport(12, HarnessReport.Outcome.FAILED,
         HarnessReport.StopReason.STEPS_EXCEEDED, 3, 8192L, 1, 137L, 63L,
-        TaskOutcome.FAILED, TaskOutcome.Reason.MODEL_RUN_FAILED);
+        TaskOutcome.FAILED, TaskOutcome.Reason.MODEL_RUN_FAILED, "done");
 
     assertEquals(137L, report.tokensIn());
     assertEquals(63L, report.tokensOut());
@@ -46,7 +46,7 @@ class HarnessReportTest {
   void taskOutcomeIsSeparateFromModelOutcome() {
     HarnessReport report = new HarnessReport(1, HarnessReport.Outcome.COMPLETED,
         HarnessReport.StopReason.COMPLETED, 0, 0L, 0, 0L, 0L,
-        TaskOutcome.FAILED, TaskOutcome.Reason.NO_OP_NOT_PERMITTED);
+        TaskOutcome.FAILED, TaskOutcome.Reason.NO_OP_NOT_PERMITTED, "done");
 
     assertEquals(HarnessReport.Outcome.COMPLETED, report.outcome());
     assertEquals(TaskOutcome.FAILED, report.taskOutcome());

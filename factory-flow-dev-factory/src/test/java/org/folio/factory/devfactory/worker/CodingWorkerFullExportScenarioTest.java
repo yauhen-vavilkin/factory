@@ -323,7 +323,7 @@ class CodingWorkerFullExportScenarioTest {
           modelTurns.accept(this, invocation.getArgument(0));
           return new HarnessReport(3, HarnessReport.Outcome.COMPLETED,
               HarnessReport.StopReason.COMPLETED, 2, 128L, 0, 0L, 0L,
-              TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED);
+              TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED, "");
         });
       } catch (Exception e) {
         throw new IllegalStateException("scenario setup failed for " + taskId, e);

@@ -149,7 +149,8 @@ class DevFactoryEndToEndScenarioTest {
                 .doesNotContain("[diff]");
 
         Artifact reportArtifact = latest(executionId, "report.md", "coding");
-        JsonNode reportMetadata = frontmatterCodec.parse(reportArtifact.getContent()).metadata();
+        Frontmatter report = frontmatterCodec.parse(reportArtifact.getContent());
+        JsonNode reportMetadata = report.metadata();
         assertThat(reportMetadata.path("task_id").asString()).isEqualTo(TASK_ID);
         assertThat(reportMetadata.path("repo_url").asString()).isEqualTo(sourceRepo.toString());
         assertThat(reportMetadata.path("branch").asString()).isEqualTo("task/" + TASK_ID);
@@ -162,6 +163,9 @@ class DevFactoryEndToEndScenarioTest {
         assertThat(reportMetadata.path("files_changed").asInt()).isEqualTo(1);
         assertThat(reportMetadata.path("diff_size_bytes").asLong()).isPositive();
         assertThat(reportMetadata.path("format_errors").asInt()).isZero();
+        assertThat(report.body())
+                .as("T20 R1: the model's final response must survive in report.md")
+                .contains("Scenario complete: README.md updated.");
 
         Artifact trajectoryArtifact = latest(executionId, "trajectory.jsonl", "coding");
         List<String> turns = trajectoryArtifact.getContent().lines().toList();
@@ -169,7 +173,9 @@ class DevFactoryEndToEndScenarioTest {
         assertThat(turns.get(0)).contains("\"tool\":\"read\"").contains("\"ok\":true");
         assertThat(turns.get(1)).contains("\"tool\":\"apply_patch\"").contains("\"ok\":true");
         assertThat(turns.get(2)).contains("\"tool\":\"git_diff\"").contains("\"ok\":true");
-        assertThat(turns.get(3)).contains("\"tool\":\"final\"");
+            assertThat(turns.get(3))
+                    .contains("\"tool\":\"final\"")
+                    .contains("\"text\":\"Scenario complete: README.md updated.\"");
         assertThat(turns.get(4))
                 .contains("\"outcome\":\"COMPLETED\"")
                 .contains("\"stop_reason\":\"COMPLETED\"")

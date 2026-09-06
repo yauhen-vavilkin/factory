@@ -52,7 +52,7 @@ class CodingWorkerLifecycleTest {
   void teardownExactlyOnceOnCompleted() {
     when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(3,
         HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0, 0L, 0L,
-        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED));
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED, ""));
 
     AgentResult result = worker().execute(context());
 
@@ -103,7 +103,7 @@ class CodingWorkerLifecycleTest {
   void diffCommandFailureIsInfrastructureFailure() {
     when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(3,
         HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0, 0L, 0L,
-        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED));
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED, ""));
     sandbox.diffExitCode = 1;
 
     assertThatThrownBy(() -> worker().execute(context()))
@@ -115,7 +115,7 @@ class CodingWorkerLifecycleTest {
   void teardownFailureAfterSuccessfulRunIsAgentExecutionException() {
     when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(3,
         HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0, 0L, 0L,
-        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED));
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED, ""));
     sandbox.diffStdout = "[status]\n\n[diff]\n+ok";
     sandbox.failTeardown = true;
 
@@ -127,7 +127,7 @@ class CodingWorkerLifecycleTest {
   void persistenceFailureRetainsSandboxAndWorkDirForRecovery() throws Exception {
     when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(3,
         HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED, 2, 512L, 0, 0L, 0L,
-        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED));
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED, ""));
     sandbox.diffStdout = "[status]\n\n[diff]\n+ok";
     Path workDirAsRegularFile = Files.createTempFile(workDir, "workdir-as-file-", null);
 
@@ -145,7 +145,7 @@ class CodingWorkerLifecycleTest {
   private void assertFailedRunRecordsStopReason(HarnessReport.StopReason stopReason) {
     when(harness.run(any(), any(TaskContract.class), any())).thenReturn(new HarnessReport(5,
         HarnessReport.Outcome.FAILED, stopReason, 1, 256L, 0, 0L, 0L,
-        TaskOutcome.FAILED, TaskOutcome.Reason.MODEL_RUN_FAILED));
+        TaskOutcome.FAILED, TaskOutcome.Reason.MODEL_RUN_FAILED, ""));
 
     AgentResult result = worker().execute(context());
 

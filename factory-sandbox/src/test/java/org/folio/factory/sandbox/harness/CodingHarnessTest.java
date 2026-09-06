@@ -472,6 +472,56 @@ class CodingHarnessTest {
     assertEquals(TaskOutcome.Reason.MODEL_RUN_FAILED, report.taskOutcomeReason());
   }
 
+  @Test
+  void finalResponseCarriedOnReportAndTrajectoryFinalRecord(@TempDir Path workDir) throws Exception {
+    CodingHarness harness = harness(HarnessConfig.defaults());
+    String finalText = "changed ddl-auto to create in seven integration tests; mvn green";
+    when(adapter.reply(anyString(), anyString(), anyList())).thenReturn(ModelReply.text(finalText));
+    when(gitDiffTool.diff(HANDLE))
+        .thenReturn(ToolResult.success("[status]\n M pom.xml\n\n[diff]\n+fix\n"));
+
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix the warning"), workDir);
+
+    assertEquals(finalText, report.finalText());
+    List<String> lines = Files.readAllLines(workDir.resolve(Trajectory.FILE_NAME));
+    assertTrue(lines.get(0).contains("\"tool\":\"final\""));
+    assertTrue(lines.get(0).contains("\"text\":\"" + finalText + "\""));
+    assertTrue(lines.get(0).contains("\"out_len\":" + finalText.length()));
+  }
+
+  @Test
+  void overlongFinalResponseIsBoundedAndFullLengthStaysRecorded(@TempDir Path workDir)
+      throws Exception {
+    CodingHarness harness = harness(HarnessConfig.defaults());
+    String finalText = "y".repeat(CodingHarness.FINAL_TEXT_MAX_CHARS + 100);
+    when(adapter.reply(anyString(), anyString(), anyList())).thenReturn(ModelReply.text(finalText));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix"), workDir);
+
+    String marker = "[final response truncated: 100 chars omitted]";
+    assertEquals(CodingHarness.FINAL_TEXT_MAX_CHARS + 1 + marker.length(),
+        report.finalText().length());
+    assertTrue(report.finalText().endsWith(marker));
+    List<String> lines = Files.readAllLines(workDir.resolve(Trajectory.FILE_NAME));
+    assertTrue(lines.get(0).contains("\"out_len\":" + finalText.length()));
+    assertTrue(lines.get(0).contains(marker));
+  }
+
+  @Test
+  void failedRunWithoutFinalReplyCarriesEmptyFinalText(@TempDir Path workDir) throws Exception {
+    CodingHarness harness = harness(new HarnessConfig(3, 3, 30L, "glm-5.3-flash"));
+    when(adapter.reply(anyString(), anyString(), anyList()))
+        .thenReturn(ModelReply.toolCall(new ToolCall("t1", "read", "{\"path\":\"repo/pom.xml\"}")));
+    when(readTool.read(HANDLE, "repo/pom.xml", null, null)).thenReturn(ToolResult.success("<project/>"));
+    when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+
+    HarnessReport report = harness.run(HANDLE, TaskContract.ofGoal("fix NPE"), workDir);
+
+    assertEquals(HarnessReport.Outcome.FAILED, report.outcome());
+    assertEquals("", report.finalText());
+  }
+
   private static tools.jackson.databind.JsonNode jsonArray(String json) {
     return MAPPER.readTree(json);
   }

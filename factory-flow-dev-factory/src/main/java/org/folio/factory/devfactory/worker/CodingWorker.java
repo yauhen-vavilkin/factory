@@ -26,9 +26,10 @@ import tools.jackson.databind.JsonNode;
 
 /**
  * Coding step of the dev-factory flow: owns exactly one sandbox for the
- * execution (create → harness run → diff → teardown-once), then freezes the
- * run into the three artifacts the flow descriptor declares — patch.diff,
- * report.md (frontmatter-only) and trajectory.jsonl. A FAILED harness report
+   * execution (create → harness run → diff → teardown-once), then freezes the
+   * run into the three artifacts the flow descriptor declares — patch.diff,
+   * report.md (frontmatter plus the bounded final model response as body)
+   * and trajectory.jsonl. A FAILED harness report
  * (steps/format/timeout/model exhausted) is a normal result; only
  * infrastructure errors throw.
  *
@@ -116,7 +117,7 @@ public class CodingWorker implements AgentWorker {
       metadata.put("format_errors", report.formatErrors());
       metadata.put("tokens_in", report.tokensIn());
       metadata.put("tokens_out", report.tokensOut());
-      String reportMd = frontmatterCodec.render(metadata, "");
+      String reportMd = frontmatterCodec.render(metadata, report.finalText());
 
       Map<String, Object> metrics = new LinkedHashMap<String, Object>();
       metrics.put("outcome", report.outcome().name());

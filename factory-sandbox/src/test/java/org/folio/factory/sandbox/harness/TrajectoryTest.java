@@ -25,7 +25,7 @@ class TrajectoryTest {
     StepRecord second = new StepRecord("2026-09-04T10:00:05Z", 2, "apply_patch", 512, 14, false, 900L);
     HarnessReport report = new HarnessReport(2, HarnessReport.Outcome.COMPLETED,
         HarnessReport.StopReason.COMPLETED, 1, 2048L, 0, 0L, 0L,
-        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED);
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED, "done");
 
     try (Trajectory trajectory = Trajectory.open(workDir)) {
       trajectory.append(first);
@@ -60,7 +60,7 @@ class TrajectoryTest {
   void reportLineCarriesTokenTotals() throws Exception {
     HarnessReport report = new HarnessReport(3, HarnessReport.Outcome.COMPLETED,
         HarnessReport.StopReason.COMPLETED, 1, 512L, 0, 137L, 63L,
-        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED);
+        TaskOutcome.SUCCEEDED, TaskOutcome.Reason.CHANGES_DELIVERED, "done");
 
     try (Trajectory trajectory = Trajectory.open(workDir)) {
       trajectory.append(report);
@@ -77,7 +77,7 @@ class TrajectoryTest {
   void reportLineCarriesTaskOutcomeDistinctFromModelOutcome() throws Exception {
     HarnessReport report = new HarnessReport(1, HarnessReport.Outcome.COMPLETED,
         HarnessReport.StopReason.COMPLETED, 0, 0L, 0, 0L, 0L,
-        TaskOutcome.FAILED, TaskOutcome.Reason.NO_OP_NOT_PERMITTED);
+        TaskOutcome.FAILED, TaskOutcome.Reason.NO_OP_NOT_PERMITTED, "done");
 
     try (Trajectory trajectory = Trajectory.open(workDir)) {
       trajectory.append(report);
@@ -89,6 +89,34 @@ class TrajectoryTest {
     assertEquals("COMPLETED", reportNode.get("outcome").textValue());
     assertEquals("FAILED", reportNode.get("task_outcome").textValue());
     assertEquals("NO_OP_NOT_PERMITTED", reportNode.get("task_outcome_reason").textValue());
+  }
+
+  @Test
+  void finalRecordCarriesTextAfterTheStandardStepFields() throws Exception {
+    try (Trajectory trajectory = Trajectory.open(workDir)) {
+      trajectory.appendFinal(
+          new StepRecord("2026-09-05T16:48:28Z", 3, "final", 0, 361, true, 6829L),
+          "Could not reproduce; no change made.");
+    }
+
+    JsonNode node = mapper.readTree(
+        Files.readString(workDir.resolve(Trajectory.FILE_NAME)));
+    assertEquals("final", node.get("tool").textValue());
+    assertEquals(0, node.get("args_len").intValue());
+    assertEquals(361, node.get("out_len").intValue());
+    assertEquals("Could not reproduce; no change made.", node.get("text").textValue());
+  }
+
+  @Test
+  void regularStepRecordsStayTextFree() throws Exception {
+    try (Trajectory trajectory = Trajectory.open(workDir)) {
+      trajectory.append(new StepRecord("2026-09-05T16:48:21Z", 2, "exec", 120, 1165, true, 4890L));
+    }
+
+    JsonNode node = mapper.readTree(
+        Files.readString(workDir.resolve(Trajectory.FILE_NAME)));
+    assertFalse(node.has("text"));
+    assertFalse(node.has("args"));
   }
 
   @Test

@@ -12,6 +12,11 @@ import org.springframework.stereotype.Component;
 @Component
 public class CodingHarness {
 
+  /** Bound for the preserved final model response, in characters. */
+  public static final int FINAL_TEXT_MAX_CHARS = 4096;
+
+  private static final String TRUNCATION_MARKER = "[final response truncated: %d chars omitted]";
+
   private final ChatModelAdapter adapter;
   private final ToolDispatcher dispatcher;
   private final GitDiffTool gitDiffTool;
@@ -77,8 +82,9 @@ public class CodingHarness {
         }
         if (!reply.isToolCall()) {
           finalReply = reply.text();
-          trajectory.append(new StepRecord(clock.instant().toString(), steps, "final",
-              0, safeLength(reply.text()), true, clock.millis() - stepStartedAt));
+          trajectory.appendFinal(new StepRecord(clock.instant().toString(), steps, "final",
+              0, safeLength(reply.text()), true, clock.millis() - stepStartedAt),
+              boundedFinalText(reply.text()));
           return finish(trajectory, handle, steps, formatErrors, tokensIn, tokensOut,
               successfulToolCalls, finalReply, contract,
               HarnessReport.Outcome.COMPLETED, HarnessReport.StopReason.COMPLETED);
@@ -140,9 +146,28 @@ public class CodingHarness {
       taskOutcomeReason = TaskOutcome.Reason.CHANGES_DELIVERED;
     }
     HarnessReport report = new HarnessReport(steps, outcome, stopReason, filesChanged, diffSizeBytes,
-        formatErrors, tokensIn, tokensOut, taskOutcome, taskOutcomeReason);
+        formatErrors, tokensIn, tokensOut, taskOutcome, taskOutcomeReason,
+        boundedFinalText(finalReply));
     trajectory.append(report);
     return report;
+  }
+
+  /**
+   * Bounds the preserved final response so one runaway answer cannot blow up
+   * the inspectable artifacts; the truncation marker follows the
+   * {@code OutputLimiter} convention and the full original length stays
+   * recorded as the final record's {@code out_len}.
+   */
+  static String boundedFinalText(String text) {
+    if (text == null) {
+      return "";
+    }
+    if (text.length() <= FINAL_TEXT_MAX_CHARS) {
+      return text;
+    }
+    int omitted = text.length() - FINAL_TEXT_MAX_CHARS;
+    return text.substring(0, FINAL_TEXT_MAX_CHARS) + "\n"
+        + String.format(TRUNCATION_MARKER, omitted);
   }
 
   private static String resultText(ToolResult result) {
