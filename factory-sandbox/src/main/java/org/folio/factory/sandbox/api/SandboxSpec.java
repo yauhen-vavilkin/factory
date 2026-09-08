@@ -10,9 +10,11 @@ package org.folio.factory.sandbox.api;
  * @param ownerId identity of the execution that owns this sandbox (T22 R4).
  *        When present, the local-mode workspace directory is keyed by it — a
  *        collision-free execution identity — so two concurrent executions of
- *        the same task can never delete each other's workspaces. Callers
- *        without an execution identity may omit it and keep the legacy
- *        shared, task-named path (which is NOT an isolation boundary).
+ *        the same task can never delete each other's workspaces. Owners are
+ *        expected to key per attempt as well (T25 S09), so one attempt's
+ *        create can never sweep another attempt's retained workspace.
+ *        Callers without an execution identity may omit it and keep the
+ *        legacy shared, task-named path (which is NOT an isolation boundary).
  */
 public record SandboxSpec(String taskId, String repoUrl, String baseBranch, String branch, String ownerId) {
 

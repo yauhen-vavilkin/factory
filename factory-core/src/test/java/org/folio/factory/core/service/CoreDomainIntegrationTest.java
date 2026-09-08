@@ -79,4 +79,20 @@ class CoreDomainIntegrationTest {
         assertThat(stateManager.retryCount(execution.getId(), "triage")).isEqualTo(2);
         assertThat(stateManager.retryCount(execution.getId(), "unknown")).isZero();
     }
+
+    @Test
+    void attemptOrdinalsAreMonotonicAndIndependentOfRetryBudgetReset() {
+        PipelineExecution execution = stateManager.createExecution("test-flow", "1.0.0", null);
+
+        assertThat(stateManager.nextAttempt(execution.getId(), "triage")).isEqualTo(1);
+        assertThat(stateManager.incrementRetry(execution.getId(), "triage")).isEqualTo(1);
+        assertThat(stateManager.nextAttempt(execution.getId(), "triage")).isEqualTo(2);
+        assertThat(stateManager.incrementRetry(execution.getId(), "triage")).isEqualTo(2);
+
+        stateManager.resetRetry(execution.getId(), "triage");
+        assertThat(stateManager.retryCount(execution.getId(), "triage")).isZero();
+        assertThat(stateManager.nextAttempt(execution.getId(), "triage")).isEqualTo(3);
+
+        assertThat(stateManager.nextAttempt(execution.getId(), "test-spec")).isEqualTo(1);
+    }
 }

@@ -30,7 +30,7 @@ public class StateManager {
 
     private static final Logger log = LoggerFactory.getLogger(StateManager.class);
 
-    private static final TypeReference<Map<String, Integer>> RETRY_COUNTS_TYPE = new TypeReference<>() {
+    private static final TypeReference<Map<String, Integer>> STRING_INT_MAP_TYPE = new TypeReference<>() {
     };
 
     private final PipelineExecutionRepository executions;
@@ -151,6 +151,22 @@ public class StateManager {
         executions.save(execution);
     }
 
+    /**
+     * Allocates the durable attempt ordinal for a step: returns 1 on the first
+     * call and ascends monotonically on every subsequent call. Independent of
+     * the retry budget — {@link #resetRetry} clears only the budget — so an
+     * allocated ordinal is never reissued (a crash mid-attempt burns it).
+     */
+    @Transactional
+    public int nextAttempt(UUID executionId, String stepId) {
+        PipelineExecution execution = load(executionId);
+        Map<String, Integer> counts = readIntMap(execution.getAttemptCounts());
+        int next = counts.merge(stepId, 1, Integer::sum);
+        execution.setAttemptCounts(jsonMapper.writeValueAsString(counts));
+        executions.save(execution);
+        return next;
+    }
+
     @Transactional(readOnly = true)
     public int retryCount(UUID executionId, String stepId) {
         return readRetryCounts(load(executionId)).getOrDefault(stepId, 0);
@@ -204,10 +220,13 @@ public class StateManager {
     }
 
     private Map<String, Integer> readRetryCounts(PipelineExecution execution) {
-        String json = execution.getRetryCounts();
+        return readIntMap(execution.getRetryCounts());
+    }
+
+    private Map<String, Integer> readIntMap(String json) {
         if (json == null || json.isBlank()) {
             return new HashMap<>();
         }
-        return new HashMap<>(jsonMapper.readValue(json, RETRY_COUNTS_TYPE));
+        return new HashMap<>(jsonMapper.readValue(json, STRING_INT_MAP_TYPE));
     }
 }

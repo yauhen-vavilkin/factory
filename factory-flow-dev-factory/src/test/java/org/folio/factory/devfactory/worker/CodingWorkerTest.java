@@ -148,7 +148,7 @@ class CodingWorkerTest {
     assertThat(sandbox.lastSpec.taskId()).isEqualTo("T-15");
     assertThat(sandbox.lastSpec.ownerId())
         .as("sandbox must be owned by the execution, keyed by its id")
-        .isEqualTo(executionId.toString());
+        .isEqualTo(executionId + "-attempt-1");
   }
 
   @Test

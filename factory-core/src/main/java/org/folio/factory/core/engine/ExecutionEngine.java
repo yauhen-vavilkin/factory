@@ -61,6 +61,7 @@ public class ExecutionEngine {
     private final HitlGateOpener hitlGateOpener;
     private final SubFlowInvoker subFlowInvoker;
     private final List<StepPostProcessor> postProcessors;
+    private final List<StepRecoveryStore> recoveryStores;
     private final JsonMapper jsonMapper;
 
     public ExecutionEngine(FlowRegistry flowRegistry,
@@ -71,7 +72,8 @@ public class ExecutionEngine {
                            HitlGateOpener hitlGateOpener,
                            SubFlowInvoker subFlowInvoker,
                            List<StepPostProcessor> postProcessors,
-                           JsonMapper jsonMapper) {
+                           JsonMapper jsonMapper,
+                           List<StepRecoveryStore> recoveryStores) {
         this.flowRegistry = flowRegistry;
         this.workerRegistry = workerRegistry;
         this.stateManager = stateManager;
@@ -81,6 +83,7 @@ public class ExecutionEngine {
         this.subFlowInvoker = subFlowInvoker;
         this.postProcessors = postProcessors;
         this.jsonMapper = jsonMapper;
+        this.recoveryStores = recoveryStores;
     }
 
     /**
@@ -126,18 +129,38 @@ public class ExecutionEngine {
     private boolean runAgentStep(PipelineExecution execution, FlowDescriptor flow, StepDescriptor step) {
         UUID executionId = execution.getId();
         stateManager.heartbeat(executionId);
+        // Durable attempt ordinal (T25): monotonic per (executionId, stepId),
+        // allocated from the persisted attempt_counts map and committed here —
+        // strictly before buildContext/worker.execute — so it is the SOLE
+        // attempt identity: a crash mid-attempt burns the ordinal and no
+        // requeue (ordinary retry or escalation-approved, whose budget reset
+        // deliberately does not touch it) can ever reissue a prior one.
+        // Computed once and reused for the audit, the worker context (T25
+        // recovery-bundle key and workspace owner), and the bundle discard.
+        int attempt = stateManager.nextAttempt(executionId, step.stepId());
         auditLog.record(executionId, AuditEventType.STEP_STARTED, step.stepId(),
-                Map.of("workerId", step.workerId(), "attempt", stateManager.retryCount(executionId, step.stepId()) + 1));
+                Map.of("workerId", step.workerId(), "attempt", attempt));
         try {
             AgentWorker worker = workerRegistry.require(step.workerId());
-            AgentContext context = buildContext(execution, step);
+            AgentContext context = buildContext(execution, step, attempt);
             AgentResult result = worker.execute(context);
             requireDeclaredOutputs(step, result);
             for (StepPostProcessor postProcessor : postProcessors) {
                 postProcessor.process(flow, step, result.outputs());
             }
-            for (Map.Entry<String, String> output : result.outputs().entrySet()) {
-                artifactStore.putMarkdown(executionId, output.getKey(), output.getValue(), step.stepId());
+            persistOutputs(executionId, step, result);
+            // Only a fully persisted attempt is acknowledged: every declared
+            // output reached the artifact store, so the worker-published
+            // recovery bundle for exactly this attempt is disposable. A
+            // discard failure must never fail the step — a leaked bundle is
+            // the safe direction, destruction-before-ack is not.
+            for (StepRecoveryStore recoveryStore : recoveryStores) {
+                try {
+                    recoveryStore.discardAcknowledged(executionId, step.stepId(), attempt);
+                } catch (Exception discardFailure) {
+                    log.warn("Could not discard acknowledged recovery bundle of execution {} step '{}' attempt {}: {}",
+                            executionId, step.stepId(), attempt, discardFailure.getMessage(), discardFailure);
+                }
             }
             auditLog.record(executionId, AuditEventType.STEP_COMPLETED, step.stepId(), result.metrics());
             // Guarded advance: if a duplicate driver (lease-reaped run) moved the
@@ -149,7 +172,41 @@ public class ExecutionEngine {
         }
     }
 
-    private AgentContext buildContext(PipelineExecution execution, StepDescriptor step) {
+    /**
+     * Persists every produced output; a failure rethrows as an
+     * {@link AgentExecutionException} carrying the worker-published
+     * {@code recovery_locator} so the existing step-failure channel (STEP_FAILED
+     * audit, retry/escalation errorMessage) points at the preserved bundle.
+     * The recovery bundle is deliberately NOT discarded on this path. The
+     * same channel already carries worker-side terminal failures: a worker
+     * whose run died after coding work exists publishes its INCOMPLETE
+     * bundle (failure_reason {@code TERMINAL_EXCEPTION}, workspace snapshot
+     * attached) before any teardown, so its surfaced failure points at the
+     * preserved copy — or, when publication itself failed, is the worker's
+     * fail-closed retention error naming both retained locations.
+     */
+    private void persistOutputs(UUID executionId, StepDescriptor step, AgentResult result) {
+        String persisting = null;
+        try {
+            for (Map.Entry<String, String> output : result.outputs().entrySet()) {
+                persisting = output.getKey();
+                artifactStore.putMarkdown(executionId, output.getKey(), output.getValue(), step.stepId());
+            }
+        } catch (Exception e) {
+            Object locator = result.metrics() == null ? null : result.metrics().get("recovery_locator");
+            StringBuilder message = new StringBuilder("Persisting outputs of step '").append(step.stepId())
+                    .append("' failed");
+            if (persisting != null) {
+                message.append(" at artifact '").append(persisting).append("'");
+            }
+            if (locator != null) {
+                message.append("; worker-published recovery bundle: ").append(locator);
+            }
+            throw new AgentExecutionException(message.toString(), e);
+        }
+    }
+
+    private AgentContext buildContext(PipelineExecution execution, StepDescriptor step, int attempt) {
         Map<String, ArtifactContent> inputs = new HashMap<>();
         for (String inputName : step.inputs()) {
             if (StepDescriptor.TRIGGER_INPUT.equals(inputName)) {
@@ -166,7 +223,7 @@ public class ExecutionEngine {
             triggerPayload = jsonMapper.readTree(execution.getTriggerPayload());
         }
         return new AgentContext(execution.getId(), step.stepId(), inputs, triggerPayload,
-                step.config(), step.outputs());
+                step.config(), step.outputs(), attempt);
     }
 
     private void requireDeclaredOutputs(StepDescriptor step, AgentResult result) {

@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -19,6 +20,8 @@ import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
+import org.folio.factory.core.service.ArtifactStore;
+import org.folio.factory.devfactory.worker.recovery.RecoveryBundleStore;
 import org.folio.factory.sandbox.api.SandboxHandle;
 import org.folio.factory.sandbox.api.SandboxService;
 import org.folio.factory.sandbox.core.LocalSandboxService;
@@ -44,6 +47,7 @@ import tools.jackson.databind.json.JsonMapper;
 class CodingWorkerFullExportScenarioTest {
 
   private static final long EXEC_TIMEOUT_SEC = 60L;
+  private static final String WORKSPACE_SNAPSHOT_ARTIFACT = "workspace-snapshot.tar.gz.b64";
 
   private final FrontmatterCodec codec = new FrontmatterCodec();
 
@@ -175,13 +179,35 @@ class CodingWorkerFullExportScenarioTest {
 
   @Test
   void exportFailureIsInfrastructureFailureAndStillTearsDownSandbox() throws Exception {
-    Scenario scenario = scenario("T19-G", (s, handle) ->
-        exec(s.sandbox(), handle, "cd repo && rm -rf .git"));
+    Scenario scenario = scenario("T19-G", (s, handle) -> {
+      // S04 blind-spot fix: a unique coding write exists before .git is
+      // destroyed — the run has unique bytes no diff can recover.
+      exec(s.sandbox(), handle,
+          "cd repo && printf 'g-unique-coding-write\\n' > unique.txt");
+      exec(s.sandbox(), handle, "cd repo && rm -rf .git");
+    });
 
     assertThatThrownBy(() -> scenario.worker().execute(scenario.context()))
         .isInstanceOf(AgentExecutionException.class)
         .hasMessageContaining("sandbox");
     assertThat(scenario.workspaceDir()).doesNotExist();
+    // T25: the sandbox teardown is only honest because an incomplete
+    // EXPORT_FAILED bundle (no patch.diff entry) was published first — it is
+    // the preserved copy of this attempt.
+    RecoveryBundleStore.RecoveryBundle bundle = scenario.bundle().orElseThrow();
+    assertThat(bundle.completeness()).isEqualTo("INCOMPLETE");
+    assertThat(bundle.failureReason()).isEqualTo("EXPORT_FAILED");
+    assertThat(bundle.artifactNames()).doesNotContain("patch.diff");
+    assertThat(bundle.artifactNames())
+        .as("the unique worktree bytes ride the bundle as one snapshot artifact")
+        .contains(WORKSPACE_SNAPSHOT_ARTIFACT);
+    assertThat(decodeSnapshotMember(bundle.directory(), "unique.txt"))
+        .as("the bundled snapshot must decode back to the unique coding bytes")
+        .isEqualTo("g-unique-coding-write\n");
+    for (String name : bundle.artifactNames()) {
+      assertThat(bundle.artifactSha256(name))
+          .isEqualTo(ArtifactStore.sha256(Files.readString(bundle.directory().resolve(name))));
+    }
   }
 
   @Test
@@ -199,6 +225,20 @@ class CodingWorkerFullExportScenarioTest {
         .as("sandbox holding the model's unique change must be retained on persistence failure")
         .exists();
     assertThat(workDirAsRegularFile).exists();
+    // T25: the retained workspace is now complemented by an incomplete
+    // PERSIST_FAILED bundle carrying exactly the outputs that actually made
+    // it to disk (here: none — the workDir itself was the obstruction) with
+    // digests for whatever does appear.
+    RecoveryBundleStore.RecoveryBundle bundle = scenario.bundle().orElseThrow();
+    assertThat(bundle.completeness()).isEqualTo("INCOMPLETE");
+    assertThat(bundle.failureReason()).isEqualTo("PERSIST_FAILED");
+    assertThat(bundle.artifactNames())
+        .as("nothing was written into the obstructed workDir, so nothing can be bundled")
+        .isEmpty();
+    for (String name : bundle.artifactNames()) {
+      assertThat(bundle.artifactSha256(name))
+          .isEqualTo(ArtifactStore.sha256(Files.readString(bundle.directory().resolve(name))));
+    }
   }
 
   @Test
@@ -239,6 +279,26 @@ class CodingWorkerFullExportScenarioTest {
         .as("scenario arrange command failed: %s%nstdout=%s%nstderr=%s",
             command, result.stdout(), result.stderr())
         .isTrue();
+  }
+
+  /**
+   * S04 byte-level recovery check: base64-decode the bundled workspace
+   * snapshot, untar it and read one member back — the snapshot must round-trip
+   * the sandbox worktree's unique bytes.
+   */
+  private static String decodeSnapshotMember(Path bundleDir, String memberName) throws Exception {
+    byte[] tarGz = Base64.getMimeDecoder().decode(
+        Files.readString(bundleDir.resolve(WORKSPACE_SNAPSHOT_ARTIFACT), StandardCharsets.UTF_8));
+    Path tarFile = Files.createTempFile("t25-snapshot", ".tar.gz");
+    Files.write(tarFile, tarGz);
+    Path extractDir = Files.createTempDirectory("t25-snapshot-extract");
+    Process extract = new ProcessBuilder("tar", "xzf", tarFile.toString(),
+        "-C", extractDir.toString()).redirectErrorStream(true).start();
+    extract.getInputStream().readAllBytes();
+    assertThat(extract.waitFor())
+        .as("bundled workspace snapshot must extract as a tar.gz")
+        .isZero();
+    return Files.readString(extractDir.resolve(memberName), StandardCharsets.UTF_8);
   }
 
   private String baseRevision(AgentResult result) throws IOException {
@@ -312,6 +372,8 @@ class CodingWorkerFullExportScenarioTest {
     private final SandboxService sandbox;
     private final Path sourceRepo;
     private final CodingHarness harness = org.mockito.Mockito.mock(CodingHarness.class);
+    private final RecoveryBundleStore recoveryStore =
+        new RecoveryBundleStore(root.resolve("recovery"));
     private Path workDir;
 
     Scenario(String taskId, BiConsumer<Scenario, SandboxHandle> modelTurns) {
@@ -334,7 +396,11 @@ class CodingWorkerFullExportScenarioTest {
     }
 
     CodingWorker worker() {
-      return new CodingWorker(sandbox, harness, codec);
+      return new CodingWorker(sandbox, harness, codec, recoveryStore);
+    }
+
+    java.util.Optional<RecoveryBundleStore.RecoveryBundle> bundle() {
+      return recoveryStore.find(executionId, "coding", 1);
     }
 
     SandboxService sandbox() {
@@ -346,8 +412,14 @@ class CodingWorkerFullExportScenarioTest {
     }
 
     Path workspaceDir() {
-      // T22 R4: the workspace is owned by the execution, keyed by its id.
-      return root.resolve("sbx-root").resolve("sbx-" + executionId);
+      // T22 R4/T25 S09: the workspace is owned by the execution, keyed
+      // UNIFORMLY per attempt (this suite runs attempt-1 contexts).
+      return workspaceDir(1);
+    }
+
+    Path workspaceDir(int attempt) {
+      return root.resolve("sbx-root").resolve(
+          "sbx-" + executionId + "-attempt-" + attempt);
     }
 
     AgentContext context() throws IOException {

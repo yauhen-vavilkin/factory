@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +38,11 @@ import tools.jackson.databind.json.JsonMapper;
 class CodingWorkerLifecycleTest {
 
   private static final SandboxHandle HANDLE = new SandboxHandle("sbx-1", "c-1");
+
+  private static final String SNAPSHOT_COMMAND = "cd repo && f=$(mktemp)"
+      + " && { tar --exclude=.git -czf \"$f\" ."
+      + " && base64 \"$f\"; }; rc=$?; rm -f \"$f\"; exit \"$rc\"";
+  private static final String SNAPSHOT_STDOUT = "SGVsbG8=\n";
 
   @Mock
   private CodingHarness harness;
@@ -97,6 +103,32 @@ class CodingWorkerLifecycleTest {
     assertThatThrownBy(() -> worker().execute(context()))
         .isInstanceOf(AgentExecutionException.class);
     assertThat(sandbox.teardowns).isEqualTo(1);
+  }
+
+  /**
+   * T25 S08 fail-closed surface: when the terminal-preserve attempt itself
+   * dies with a non-AgentExecutionException (here presentDeclaredOutputs'
+   * UncheckedIOException on an unreadable partially persisted output), the
+   * surfaced failure must still be the fail-closed AgentExecutionException
+   * naming the TERMINAL_EXCEPTION preserve — never the raw preserve-path
+   * exception — and the sandbox must be retained.
+   */
+  @Test
+  void terminalPreserveReadFailureFailsClosedAsAgentExecutionException() throws Exception {
+    when(harness.run(any(), any(TaskContract.class), any()))
+        .thenThrow(new RuntimeException("harness blew up after coding work"));
+    Path trajectory = Files.writeString(workDir.resolve("trajectory.jsonl"), "{}\n");
+    Files.setPosixFilePermissions(trajectory, PosixFilePermissions.fromString("---------"));
+    try {
+      assertThatThrownBy(() -> worker().execute(context()))
+          .isInstanceOf(AgentExecutionException.class)
+          .hasMessageContaining("TERMINAL_EXCEPTION");
+      assertThat(sandbox.teardowns)
+          .as("a failed preserve means no preservation — the sandbox must be retained")
+          .isZero();
+    } finally {
+      Files.setPosixFilePermissions(trajectory, PosixFilePermissions.fromString("rw-r--r--"));
+    }
   }
 
   @Test
@@ -206,6 +238,9 @@ class CodingWorkerLifecycleTest {
       }
       if (CodingWorkerTest.exportCommand(CodingWorkerTest.BASE_SHA).equals(command)) {
         return new CommandResult(diffExitCode, diffStdout, "", 5L);
+      }
+      if (SNAPSHOT_COMMAND.equals(command)) {
+        return new CommandResult(0, SNAPSHOT_STDOUT, "", 5L);
       }
       return new CommandResult(1, "", "unexpected command", 0L);
     }

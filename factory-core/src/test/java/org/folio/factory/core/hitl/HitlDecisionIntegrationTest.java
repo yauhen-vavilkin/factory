@@ -1,5 +1,6 @@
 package org.folio.factory.core.hitl;
 
+import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
@@ -9,6 +10,7 @@ import org.folio.factory.core.engine.ExecutionEngine;
 import org.folio.factory.core.engine.HitlGateOpener;
 import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.service.ArtifactStore;
+import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +19,7 @@ import org.springframework.boot.testcontainers.service.connection.ServiceConnect
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
 import java.util.Map;
@@ -41,6 +44,12 @@ class HitlDecisionIntegrationTest {
 
     @Autowired
     StateManager stateManager;
+
+    @Autowired
+    AuditLog auditLog;
+
+    @Autowired
+    JsonMapper jsonMapper;
 
     @Autowired
     ArtifactStore artifactStore;
@@ -132,6 +141,20 @@ class HitlDecisionIntegrationTest {
 
         assertThat(stateManager.get(execution.getId()).getStatus()).isEqualTo(ExecutionStatus.PENDING);
         assertThat(stateManager.retryCount(execution.getId(), "doomed")).isZero();
+
+        // The requeue burns a fresh budget (run-fail x2) and re-escalates; its
+        // STEP_STARTED audits must carry the NEXT durable attempt ordinals
+        // (T25 S12 identity): [1,2,3,4], never a reissued [1,2,1,2].
+        drive();
+        assertThat(stateManager.get(execution.getId()).getStatus()).isEqualTo(ExecutionStatus.FAILED_ESCALATED);
+        assertThat(stateManager.retryCount(execution.getId(), "doomed")).isEqualTo(2);
+        List<Integer> startedAttempts = auditLog.forExecution(execution.getId()).stream()
+                .filter(e -> e.getEventType() == AuditEventType.STEP_STARTED)
+                .map(e -> jsonMapper.readTree(e.getDetail()).path("attempt").asInt())
+                .toList();
+        assertThat(startedAttempts)
+                .as("STEP_STARTED attempt ordinals ascend monotonically across the escalation requeue")
+                .containsExactly(1, 2, 3, 4);
     }
 
     @Test

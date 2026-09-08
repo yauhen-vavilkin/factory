@@ -58,6 +58,15 @@ public class PipelineExecution {
     @Column(name = "retry_counts", nullable = false)
     private String retryCounts = "{}";
 
+    // T25 durable attempt ordinals: per-step monotonically allocated attempt
+    // counter, deliberately separate from retry_counts (a pure retry budget
+    // that resetRetry clears) so an ordinal, once allocated, is never reissued.
+    // Backed in both schemas: Hibernate-generated test schemas (ddl-auto=create
+    // from this mapping) and Flyway V3 for validate+flyway app tests.
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "attempt_counts", nullable = false)
+    private String attemptCounts = "{}";
+
     @Column(name = "error_message", columnDefinition = "text")
     private String errorMessage;
 
@@ -162,6 +171,14 @@ public class PipelineExecution {
 
     public void setRetryCounts(String retryCounts) {
         this.retryCounts = retryCounts;
+    }
+
+    public String getAttemptCounts() {
+        return attemptCounts;
+    }
+
+    public void setAttemptCounts(String attemptCounts) {
+        this.attemptCounts = attemptCounts;
     }
 
     public String getErrorMessage() {

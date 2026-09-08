@@ -311,8 +311,9 @@ class DevFactoryEndToEndScenarioTest {
 
     private void assertExactlyOnce(UUID executionId, WatchService watcher) throws InterruptedException {
         // T22 R4: the sandbox workspace is owned by the execution, keyed by
-        // its id — never by the shared task name.
-        String workspaceDir = "sbx-" + executionId;
+        // its id — never by the shared task name; T25 S09 scopes the key
+        // uniformly per attempt (this run is attempt 1).
+        String workspaceDir = "sbx-" + executionId + "-attempt-1";
         int creates = 0;
         int deletes = 0;
         WatchKey key;
