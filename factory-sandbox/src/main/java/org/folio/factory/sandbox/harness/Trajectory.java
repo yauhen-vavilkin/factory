@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 public final class Trajectory implements Closeable {
@@ -74,7 +75,32 @@ public final class Trajectory implements Closeable {
     node.put("format_errors", report.formatErrors());
     node.put("tokens_in", report.tokensIn());
     node.put("tokens_out", report.tokensOut());
+    appendVerification(node, report.verification());
     writeLine(node.toString());
+  }
+
+  /** T24 R4: per-check verdicts and the final identity they were bound to. */
+  private void appendVerification(ObjectNode node,
+      VerificationLedger.VerificationSummary verification) {
+    ObjectNode verificationNode = node.putObject("verification");
+    if (verification.resultIdentity() == null) {
+      verificationNode.putNull("result_identity");
+    } else {
+      verificationNode.put("result_identity", verification.resultIdentity());
+    }
+    ArrayNode checks = verificationNode.putArray("checks");
+    for (VerificationLedger.CheckState state : verification.checks()) {
+      ObjectNode check = checks.addObject();
+      check.put("id", state.id());
+      check.put("command", state.command());
+      check.put("status", state.status().name());
+      if (state.boundIdentity() == null) {
+        check.putNull("bound_identity");
+      } else {
+        check.put("bound_identity", state.boundIdentity());
+      }
+      check.put("detail", state.detail());
+    }
   }
 
   @Override

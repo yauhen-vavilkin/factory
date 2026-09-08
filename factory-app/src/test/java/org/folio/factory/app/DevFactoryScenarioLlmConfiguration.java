@@ -36,6 +36,9 @@ public class DevFactoryScenarioLlmConfiguration {
         "+T16 scenario change.",
         "");
 
+    /** T24: the discriminating check the task file declares as mandatory. */
+    static final String VERIFY_CMD = "cd repo && grep -n 'T16 scenario change.' README.md";
+
     static final class ScriptedCodingChatModel implements ChatModel {
 
         private final ObjectMapper mapper = JsonMapper.builder().build();
@@ -48,6 +51,7 @@ public class DevFactoryScenarioLlmConfiguration {
                 case 0 -> toolCall("call-1", "read", args().put("path", "repo/README.md"));
                 case 1 -> toolCall("call-2", "apply_patch", args().put("diff", README_PATCH));
                 case 2 -> toolCall("call-3", "git_diff", args());
+                case 3 -> toolCall("call-4", "exec", args().put("cmd", VERIFY_CMD));
                 default -> new AssistantMessage("Scenario complete: README.md updated.");
             };
             return new ChatResponse(List.of(new Generation(assistant)));

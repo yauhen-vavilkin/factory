@@ -121,6 +121,77 @@ class TaskContractTest {
         .isInstanceOf(IllegalArgumentException.class);
   }
 
+  /**
+   * T24 R1: the frozen contract carries explicit, machine-readable
+   * verification obligations under {@code constraints.checks}; each entry
+   * needs a non-blank {@code command}, {@code id} defaults to the command.
+   */
+  @Test
+  void requiredChecksParseIdAndCommandWithCommandAsDefaultId() {
+    ArrayNode checks = mapper.createArrayNode();
+    checks.addObject().put("id", "tests").put("command", "cd repo && mvn test -B");
+    checks.addObject().put("command", "rg -n SearchHelper repo/src");
+    ObjectNode constraints = mapper.createObjectNode();
+    constraints.set("checks", checks);
+
+    TaskContract contract = new TaskContract("goal", null, constraints, null);
+
+    assertThat(contract.requiredChecks()).containsExactly(
+        new TaskContract.RequiredCheck("tests", "cd repo && mvn test -B"),
+        new TaskContract.RequiredCheck("rg -n SearchHelper repo/src",
+            "rg -n SearchHelper repo/src"));
+  }
+
+  /** T24 R1: no {@code checks} key means no verification obligations. */
+  @Test
+  void requiredChecksEmptyWithoutChecksConstraint() {
+    assertThat(new TaskContract("goal", null, null, null).requiredChecks()).isEmpty();
+    assertThat(new TaskContract("goal", null, mapper.createObjectNode(), null).requiredChecks())
+        .isEmpty();
+    ObjectNode other = mapper.createObjectNode();
+    other.put("allow_noop", true);
+    assertThat(new TaskContract("goal", null, other, null).requiredChecks()).isEmpty();
+  }
+
+  /** T24 R1: a malformed checks constraint fails fast at contract construction. */
+  @Test
+  void malformedChecksConstraintRejected() {
+    JsonNode notArray = mapper.readTree("{\"checks\":{\"command\":\"mvn test\"}}");
+    assertThatThrownBy(() -> new TaskContract("goal", null, notArray, null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("checks");
+
+    ArrayNode entryNotObject = mapper.createArrayNode();
+    entryNotObject.add("mvn test");
+    assertThatThrownBy(() -> contractWithChecks(entryNotObject))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("'checks' entry");
+
+    ArrayNode missingCommand = mapper.createArrayNode();
+    missingCommand.addObject().put("id", "tests");
+    assertThatThrownBy(() -> contractWithChecks(missingCommand))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("command");
+
+    ArrayNode blankCommand = mapper.createArrayNode();
+    blankCommand.addObject().put("command", "   ");
+    assertThatThrownBy(() -> contractWithChecks(blankCommand))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("command");
+
+    ArrayNode blankId = mapper.createArrayNode();
+    blankId.addObject().put("id", "  ").put("command", "mvn test");
+    assertThatThrownBy(() -> contractWithChecks(blankId))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("id");
+  }
+
+  private TaskContract contractWithChecks(JsonNode checks) {
+    ObjectNode constraints = mapper.createObjectNode();
+    constraints.set("checks", checks);
+    return new TaskContract("goal", null, constraints, null);
+  }
+
   @Test
   void ofGoalCarriesBareGoal() {
     TaskContract contract = TaskContract.ofGoal("just the goal");

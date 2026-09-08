@@ -139,6 +139,10 @@ class EvalPackHermeticSummaryTest {
     ArrayNode acceptance = contract.putArray("acceptance");
     EvalPackScenarios.REGRESSION_ACCEPTANCE.lines()
         .filter(line -> !line.isBlank()).forEach(acceptance::add);
+    // T24: the discriminating check is a declared contract obligation; the
+    // scripted verify turn (t3, after the patch) discharges it fresh.
+    contract.putObject("constraints").putArray("checks").addObject()
+        .put("id", "check").put("command", "cd repo && sh check.sh");
     contract.put("notes", EvalPackScenarios.REGRESSION_NOTES);
     return pack.run("REGRESSION-SUM", fixture, contract, List.of(
         ModelReply.toolCalls(List.of(new ToolCall("t1", "exec",

@@ -229,7 +229,7 @@ class DevFactoryEndToEndScenarioTest {
         assertThat(reportMetadata.path("task_outcome").asString()).isEqualTo("SUCCEEDED");
         assertThat(reportMetadata.path("task_outcome_reason").asString())
                 .isEqualTo("CHANGES_DELIVERED");
-        assertThat(reportMetadata.path("steps").asInt()).isEqualTo(4);
+        assertThat(reportMetadata.path("steps").asInt()).isEqualTo(5);
         assertThat(reportMetadata.path("files_changed").asInt()).isEqualTo(1);
         assertThat(reportMetadata.path("diff_size_bytes").asLong()).isPositive();
         assertThat(reportMetadata.path("format_errors").asInt()).isZero();
@@ -239,21 +239,26 @@ class DevFactoryEndToEndScenarioTest {
 
         Artifact trajectoryArtifact = latest(executionId, "trajectory.jsonl", "coding");
         List<String> turns = trajectoryArtifact.getContent().lines().toList();
-        assertThat(turns).hasSize(5);
+        assertThat(turns).hasSize(6);
         assertThat(turns.get(0)).contains("\"tool\":\"read\"").contains("\"ok\":true");
         assertThat(turns.get(1)).contains("\"tool\":\"apply_patch\"").contains("\"ok\":true");
         assertThat(turns.get(2)).contains("\"tool\":\"git_diff\"").contains("\"ok\":true");
-            assertThat(turns.get(3))
-                    .contains("\"tool\":\"final\"")
-                    .contains("\"text\":\"Scenario complete: README.md updated.\"");
+        assertThat(turns.get(3))
+                .as("T24: the declared mandatory check ran after the change and passed")
+                .contains("\"tool\":\"exec\"").contains("\"ok\":true");
         assertThat(turns.get(4))
+                .contains("\"tool\":\"final\"")
+                .contains("\"text\":\"Scenario complete: README.md updated.\"");
+        assertThat(turns.get(5))
                 .contains("\"outcome\":\"COMPLETED\"")
                 .contains("\"stop_reason\":\"COMPLETED\"")
                 .contains("\"task_outcome\":\"SUCCEEDED\"")
                 .contains("\"task_outcome_reason\":\"CHANGES_DELIVERED\"")
-                .contains("\"steps\":4")
+                .contains("\"steps\":5")
                 .contains("\"files_changed\":1")
-                .contains("\"format_errors\":0");
+                .contains("\"format_errors\":0")
+                .contains("\"verification\":{\"result_identity\"")
+                .contains("\"status\":\"PASS\"");
 
         Artifact summaryArtifact = latest(executionId, "delivery-summary.md", "finalize");
         Frontmatter summary = frontmatterCodec.parse(summaryArtifact.getContent());
@@ -379,7 +384,11 @@ class DevFactoryEndToEndScenarioTest {
                 constraints:
                   allow_paths:
                     - README.md
+                  checks:
+                    - id: verify
+                      command: %s
                 notes: Scenario task file for the T16 end-to-end test.
-                """.formatted(taskId, sourceRepo.toAbsolutePath(), taskId, goal.stripTrailing());
+                """.formatted(taskId, sourceRepo.toAbsolutePath(), taskId, goal.stripTrailing(),
+                DevFactoryScenarioLlmConfiguration.VERIFY_CMD);
     }
 }

@@ -1,5 +1,7 @@
 package org.folio.factory.sandbox.harness;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import tools.jackson.databind.JsonNode;
 
@@ -13,11 +15,28 @@ import tools.jackson.databind.JsonNode;
  * task explicitly permits finishing without any change to the repository —
  * for example when the requested behavior turns out to already work. Without
  * it, an unchanged result cannot be a validated success.</p>
+ *
+ * <p>Constraints may also carry {@code checks}: an array of explicit
+ * verification obligations ({@link RequiredCheck}). Each check is a shell
+ * command that discriminates the task's requirements; the coding harness
+ * requires fresh, passing evidence for every declared check before a
+ * terminal success outcome (T24).</p>
  */
 public record TaskContract(String goal, JsonNode acceptance, JsonNode constraints, String notes) {
 
   /** Constraint key that explicitly permits a no-op (unchanged) result. */
   public static final String ALLOW_NOOP_KEY = "allow_noop";
+
+  /** Constraint key carrying the explicit verification obligations. */
+  public static final String CHECKS_KEY = "checks";
+
+  /**
+   * One explicit verification obligation derived from the frozen contract:
+   * the discriminating {@code command} plus a stable {@code id} (defaults to
+   * the command) used in reports and diagnostics.
+   */
+  public record RequiredCheck(String id, String command) {
+  }
 
   private static final String ACCEPTANCE_HEADING = "Acceptance criteria (all must hold):";
   private static final String CONSTRAINTS_HEADING = "Constraints:";
@@ -33,6 +52,51 @@ public record TaskContract(String goal, JsonNode acceptance, JsonNode constraint
     if (constraints != null && !constraints.isObject()) {
       throw new IllegalArgumentException("task contract constraints must be a JSON object");
     }
+    if (constraints != null && constraints.has(CHECKS_KEY)) {
+      validateChecks(constraints.get(CHECKS_KEY));
+    }
+  }
+
+  private static void validateChecks(JsonNode checks) {
+    if (!checks.isArray()) {
+      throw new IllegalArgumentException(
+          "task contract '" + CHECKS_KEY + "' must be a JSON array of check objects");
+    }
+    for (JsonNode entry : checks) {
+      if (entry == null || !entry.isObject()) {
+        throw new IllegalArgumentException(
+            "task contract '" + CHECKS_KEY + "' entry must be a JSON object");
+      }
+      JsonNode command = entry.get("command");
+      if (command == null || !command.isString() || command.textValue().isBlank()) {
+        throw new IllegalArgumentException(
+            "task contract '" + CHECKS_KEY + "' entry needs a non-blank string 'command'");
+      }
+      JsonNode id = entry.get("id");
+      if (id != null && !id.isNull() && (!id.isString() || id.textValue().isBlank())) {
+        throw new IllegalArgumentException(
+            "task contract '" + CHECKS_KEY + "' entry 'id' must be a non-blank string");
+      }
+    }
+  }
+
+  /**
+   * The explicit verification obligations declared under
+   * {@code constraints.checks}, in declaration order. Empty when the contract
+   * declares none.
+   */
+  public List<RequiredCheck> requiredChecks() {
+    if (constraints == null || !constraints.has(CHECKS_KEY)) {
+      return List.of();
+    }
+    List<RequiredCheck> parsed = new ArrayList<>();
+    for (JsonNode entry : constraints.get(CHECKS_KEY)) {
+      String command = entry.get("command").textValue();
+      JsonNode id = entry.get("id");
+      parsed.add(new RequiredCheck(
+          id == null || id.isNull() ? command : id.textValue(), command));
+    }
+    return List.copyOf(parsed);
   }
 
   /** A contract that carries only a goal (acceptance/constraints/notes empty). */

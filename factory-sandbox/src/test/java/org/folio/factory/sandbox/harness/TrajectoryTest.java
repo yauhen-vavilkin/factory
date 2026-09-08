@@ -91,9 +91,35 @@ class TrajectoryTest {
     assertEquals("NO_OP_NOT_PERMITTED", reportNode.get("task_outcome_reason").textValue());
   }
 
+  /** T24 R4: the report line carries the verification diagnostics additively. */
   @Test
-  void finalRecordCarriesTextAfterTheStandardStepFields() throws Exception {
+  void reportLineCarriesVerificationSummary() throws Exception {
+    VerificationLedger.CheckState state = new VerificationLedger.CheckState(
+        "tests", "cd repo && mvn test -B", VerificationLedger.Status.STALE,
+        "older-identity", "required check passed only against an earlier working-tree state");
+    HarnessReport report = new HarnessReport(3, HarnessReport.Outcome.COMPLETED,
+        HarnessReport.StopReason.COMPLETED, 1, 512L, 0, 0L, 0L,
+        TaskOutcome.FAILED, TaskOutcome.Reason.REQUIRED_CHECK_STALE, "done",
+        new VerificationLedger.VerificationSummary("final-identity", List.of(state)));
+
     try (Trajectory trajectory = Trajectory.open(workDir)) {
+      trajectory.append(report);
+    }
+
+    JsonNode reportNode = mapper.readTree(
+        Files.readString(workDir.resolve(Trajectory.FILE_NAME)));
+    JsonNode verification = reportNode.get("verification");
+    assertEquals("final-identity", verification.get("result_identity").textValue());
+    JsonNode check = verification.get("checks").get(0);
+    assertEquals("tests", check.get("id").textValue());
+    assertEquals("cd repo && mvn test -B", check.get("command").textValue());
+    assertEquals("STALE", check.get("status").textValue());
+    assertEquals("older-identity", check.get("bound_identity").textValue());
+    assertEquals("REQUIRED_CHECK_STALE", reportNode.get("task_outcome_reason").textValue());
+  }
+
+  @Test
+  void finalRecordCarriesTextAfterTheStandardStepFields() throws Exception {    try (Trajectory trajectory = Trajectory.open(workDir)) {
       trajectory.appendFinal(
           new StepRecord("2026-09-05T16:48:28Z", 3, "final", 0, 361, true, 6829L),
           "Could not reproduce; no change made.");

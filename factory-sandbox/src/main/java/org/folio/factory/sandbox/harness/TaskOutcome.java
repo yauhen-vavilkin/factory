@@ -35,6 +35,21 @@ public enum TaskOutcome {
     NO_VERIFICATION_EVIDENCE,
 
     /** Model completed without any final report text. */
-    MISSING_FINAL_REPORT
+    MISSING_FINAL_REPORT,
+
+    /** T24 R1: the contract declares no verification checks, so a changed
+     * result cannot be requirement-bound and must not be a success. */
+    NO_REQUIRED_CHECKS,
+
+    /** T24 R1/R3: a mandatory contract check was never executed. */
+    REQUIRED_CHECK_MISSING,
+
+    /** T24 R3: the latest execution of a mandatory contract check failed
+     * (red) or could not be executed (executor error); no success. */
+    REQUIRED_CHECK_FAILED,
+
+    /** T24 R3: the mandatory check passed only against an earlier
+     * working-tree state (stale receipt); no success. */
+    REQUIRED_CHECK_STALE
   }
 }

@@ -47,6 +47,10 @@ class EvalPackHermeticRegressionFixTest {
         .filter(line -> !line.isBlank()).forEach(acceptance::add);
     ObjectNode constraints = contract.putObject("constraints");
     constraints.putArray("allow_paths").add("greet.sh").add("check.sh");
+    // T24: the discriminating check is a declared contract obligation; the
+    // scripted verify turn (t3, after the patch) discharges it fresh.
+    constraints.putArray("checks").addObject()
+        .put("id", "check").put("command", "cd repo && sh check.sh");
     contract.put("notes", EvalPackScenarios.REGRESSION_NOTES);
 
     EvalPackScenarios.PackRun run = pack.run("REGRESSION-FIX", fixture, contract, List.of(

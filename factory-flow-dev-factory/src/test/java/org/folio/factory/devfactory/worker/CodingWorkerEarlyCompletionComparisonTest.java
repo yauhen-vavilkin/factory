@@ -3,6 +3,7 @@ package org.folio.factory.devfactory.worker;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -105,6 +106,10 @@ class CodingWorkerEarlyCompletionComparisonTest {
   @BeforeEach
   void setUp() {
     sandbox = new FakeSandboxService();
+    // T24 B1: finish() derives the result identity from worktreeIdentity;
+    // serve one constant tree id so check receipts bind to it.
+    lenient().when(gitDiffTool.worktreeIdentity(HANDLE))
+        .thenReturn(ToolResult.success(CodingWorkerTest.WORKTREE_TREE_ID));
   }
 
   @Test
@@ -128,7 +133,8 @@ class CodingWorkerEarlyCompletionComparisonTest {
         + "diff --git a/pom.xml b/pom.xml\n--- a/pom.xml\n+++ b/pom.xml\n";
     scriptSuccessfulRun();
 
-    AgentResult result = worker().execute(context());
+    AgentResult result = worker()
+        .execute(contextWithChecks("cd repo && mvn -pl factory-core -am test -B"));
 
     assertFinalResponsePreserved(result, SUCCESS_FINAL_TEXT, "COMPLETED",
         "SUCCEEDED", "CHANGES_DELIVERED", 9620L, 402L, 7);
@@ -214,12 +220,22 @@ class CodingWorkerEarlyCompletionComparisonTest {
   }
 
   private AgentContext context() {
+    return context(Map.of());
+  }
+
+  /** T24: the successful shape's contract declares its verification check. */
+  private AgentContext contextWithChecks(String checkCmd) {
+    return context(Map.of("checks", List.of(Map.of("id", "tests", "command", checkCmd))));
+  }
+
+  private AgentContext context(Map<String, Object> constraints) {
     JsonNode payload = JsonMapper.builder().build().valueToTree(Map.of(
         "taskId", "T-20",
         "repoUrl", "https://github.com/folio/o-r.git",
         "baseBranch", "main",
         "branch", "dev/T20",
-        "goal", "Investigate and fix the Surefire shutdown warning"));
+        "goal", "Investigate and fix the Surefire shutdown warning",
+        "constraints", constraints));
     return new AgentContext(UUID.randomUUID(), "coding", Map.of(), payload,
         Map.of("workDir", workDir.toString()),
         List.of("patch.diff", "report.md", "trajectory.jsonl"));

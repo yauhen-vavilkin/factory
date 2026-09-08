@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -47,6 +48,7 @@ import org.folio.factory.sandbox.tools.ListTool;
 import org.folio.factory.sandbox.tools.ReadTool;
 import org.folio.factory.sandbox.tools.TestTool;
 import org.folio.factory.sandbox.tools.ToolResult;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -63,6 +65,12 @@ class CodingWorkerTest {
 
   static final String BASE_SHA = "0123456789abcdef0123456789abcdef01234567";
   static final String REV_PARSE_COMMAND = "cd repo && git rev-parse HEAD";
+
+  /**
+   * T24 B1: the mocked git boundary serves one constant delivered-content
+   * tree id, so check receipts bind to the finish() result identity.
+   */
+  static final String WORKTREE_TREE_ID = "6".repeat(64);
 
   static String exportCommand(String baseRevision) {
     return "cd repo && base=" + baseRevision
@@ -97,6 +105,12 @@ class CodingWorkerTest {
 
   @TempDir
   Path workDir;
+
+  @BeforeEach
+  void setUp() {
+    lenient().when(gitDiffTool.worktreeIdentity(HANDLE))
+        .thenReturn(ToolResult.success(WORKTREE_TREE_ID));
+  }
 
   @Test
   void lifecycleOrderAndExactDeclaredOutputs() {
@@ -224,7 +238,11 @@ class CodingWorkerTest {
         + "{\"steps\":1,\"outcome\":\"COMPLETED\",\"stop_reason\":\"COMPLETED\","
         + "\"task_outcome\":\"FAILED\",\"task_outcome_reason\":\"NO_OP_NOT_PERMITTED\","
         + "\"files_changed\":0,\"diff_size_bytes\":0,\"format_errors\":0,"
-        + "\"tokens_in\":0,\"tokens_out\":0}\n";
+        + "\"tokens_in\":0,\"tokens_out\":0,"
+        // T24 R4/B1: additive verification diagnostics; the contract declares
+        // no checks, and the result identity is the captured worktree tree id.
+        + "\"verification\":{\"result_identity\":\"" + WORKTREE_TREE_ID + "\","
+        + "\"checks\":[]}}\n";
     assertThat(result.outputs().get("trajectory.jsonl")).isEqualTo(expected);
     assertThat(Files.readString(workDir.resolve(Trajectory.FILE_NAME))).isEqualTo(expected);
   }
@@ -233,15 +251,20 @@ class CodingWorkerTest {
   void reportCarriesFrozenFrontmatterFields() {
     FakeSandboxService sandbox = new FakeSandboxService();
     sandbox.diffStdout = "[status]\n M pom.xml\n\n[diff]\n+ok";
+    String checkCmd = "cd repo && mvn test -B";
     when(adapter.reply(anyString(), anyString(), anyList()))
         .thenReturn(ModelReply.toolCall(new ToolCall("t1", "apply_patch", "{\"diff\":\"x\"}")))
+        .thenReturn(ModelReply.toolCall(new ToolCall("t2", "exec",
+            "{\"cmd\":\"" + checkCmd + "\"}")))
         .thenReturn(ModelReply.text("done"));
     when(applyPatchTool.apply(HANDLE, "x")).thenReturn(ToolResult.success("applied"));
+    when(execTool.run(HANDLE, checkCmd, null))
+        .thenReturn(ToolResult.success("Tests run: 9, Failures: 0"));
     when(gitDiffTool.diff(HANDLE))
         .thenReturn(ToolResult.success("[status]\n M pom.xml\n\n[diff]\n+ok"));
     CodingWorker worker = new CodingWorker(sandbox, harness(), codec);
 
-    AgentResult result = worker.execute(context());
+    AgentResult result = worker.execute(contextWithChecks(checkCmd));
 
     JsonNode metadata = codec.parse(result.outputs().get("report.md")).metadata();
     List<String> keys = new ArrayList<>(metadata.propertyNames());
@@ -256,7 +279,7 @@ class CodingWorkerTest {
     assertThat(metadata.path("stop_reason").asString()).isEqualTo("COMPLETED");
     assertThat(metadata.path("task_outcome").asString()).isEqualTo("SUCCEEDED");
     assertThat(metadata.path("task_outcome_reason").asString()).isEqualTo("CHANGES_DELIVERED");
-    assertThat(metadata.path("steps").asInt()).isEqualTo(2);
+    assertThat(metadata.path("steps").asInt()).isEqualTo(3);
     assertThat(metadata.path("files_changed").asInt()).isEqualTo(1);
     assertThat(metadata.path("diff_size_bytes").asLong()).isEqualTo(3L);
     assertThat(metadata.path("format_errors").asInt()).isEqualTo(0);
@@ -475,6 +498,24 @@ class CodingWorkerTest {
 
   private AgentContext context() {
     return context(UUID.randomUUID());
+  }
+
+  /**
+   * T24: a payload whose contract declares the mandatory verification check —
+   * the T18 frontmatter scenario now succeeds through real check evidence
+   * instead of a bare changed-file count.
+   */
+  private AgentContext contextWithChecks(String checkCmd) {
+    JsonNode payload = JsonMapper.builder().build().valueToTree(Map.of(
+        "taskId", "T-15",
+        "repoUrl", "https://github.com/folio/o-r.git",
+        "baseBranch", "main",
+        "branch", "dev/T15",
+        "goal", "fix the NPE in CodingWorker",
+        "constraints", Map.of("checks", List.of(Map.of("id", "tests", "command", checkCmd)))));
+    return new AgentContext(UUID.randomUUID(), "coding", Map.of(), payload,
+        Map.of("workDir", workDir.toString()),
+        List.of("patch.diff", "report.md", "trajectory.jsonl"));
   }
 
   private AgentContext context(UUID executionId) {

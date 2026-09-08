@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -36,11 +37,19 @@ import org.mockito.Captor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import tools.jackson.databind.node.ObjectNode;
 
 @ExtendWith(MockitoExtension.class)
 class CodingHarnessTest {
 
   private static final SandboxHandle HANDLE = new SandboxHandle("sbx-t13", "c1");
+
+  /**
+   * T24 B1: finish() (and every declared-check receipt) derives identity
+   * from worktreeIdentity; the mocked-boundary tests serve one constant
+   * delivered-content tree id so receipts bind to the final identity.
+   */
+  private static final String WORKTREE_TREE_ID = "5".repeat(64);
 
   @Mock
   private ChatModelAdapter adapter;
@@ -71,6 +80,8 @@ class CodingHarnessTest {
   @BeforeEach
   void setUp() {
     clock = new MutableClock(Instant.parse("2026-09-04T10:00:00Z"));
+    lenient().when(gitDiffTool.worktreeIdentity(HANDLE))
+        .thenReturn(ToolResult.success(WORKTREE_TREE_ID));
   }
 
   private CodingHarness harness(HarnessConfig config) {
@@ -510,46 +521,69 @@ class CodingHarnessTest {
     assertEquals(TaskOutcome.Reason.NO_VERIFICATION_EVIDENCE, report.taskOutcomeReason());
   }
 
+  /**
+   * T24 R2 updated expectation: a permitted no-op is a verified success only
+   * when the contract's declared check actually ran green and stays bound to
+   * the final (unchanged) tree identity — successful tool activity alone no
+   * longer suffices.
+   */
   @Test
   @org.junit.jupiter.api.Tag("eval-pack")
   void verifiedNoOpWithPermittedContractSucceeds(@TempDir Path workDir) throws Exception {
     CodingHarness harness = harness(HarnessConfig.defaults());
+    String checkCmd = "cd repo && mvn -pl core test -B";
     when(adapter.reply(anyString(), anyString(), anyList()))
         .thenReturn(ModelReply.toolCall(
-            new ToolCall("t1", "exec", "{\"cmd\":\"cd repo && mvn -pl core test -B\"}")))
+            new ToolCall("t1", "exec", "{\"cmd\":\"" + checkCmd + "\"}")))
         .thenReturn(ModelReply.text("Reproduction passes on main: the reported NPE "
             + "no longer occurs, test run is green, no change needed."));
-    when(execTool.run(HANDLE, "cd repo && mvn -pl core test -B", null))
+    when(execTool.run(HANDLE, checkCmd, null))
         .thenReturn(ToolResult.success("Tests run: 12, Failures: 0"));
     when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
+    ObjectNode constraints = jsonObject("{\"allow_noop\":true}").deepCopy();
+    constraints.putArray("checks").addObject().put("id", "repro").put("command", checkCmd);
     TaskContract contract = new TaskContract("verify the reported NPE is real",
-        jsonArray("[\"reproduction command result recorded\"]"),
-        jsonObject("{\"allow_noop\":true}"), null);
+        jsonArray("[\"reproduction command result recorded\"]"), constraints, null);
 
     HarnessReport report = harness.run(HANDLE, contract, workDir);
 
     assertEquals(HarnessReport.Outcome.COMPLETED, report.outcome());
     assertEquals(TaskOutcome.SUCCEEDED, report.taskOutcome());
     assertEquals(TaskOutcome.Reason.NO_OP_VERIFIED, report.taskOutcomeReason());
+    assertEquals(VerificationLedger.Status.PASS, report.verification().checks().get(0).status());
   }
 
+  /**
+   * T24 R1/R3 updated expectation: a changed result plus final report is a
+   * success only when the contract's mandatory check ran after the change,
+   * passed, and is bound to the final tree — a changed-file count alone no
+   * longer suffices.
+   */
   @Test
   void changedResultWithFinalReportSucceeds(@TempDir Path workDir) throws Exception {
     CodingHarness harness = harness(HarnessConfig.defaults());
+    String checkCmd = "cd repo && mvn test -B";
     when(adapter.reply(anyString(), anyString(), anyList()))
         .thenReturn(ModelReply.toolCall(new ToolCall("t1", "apply_patch", "{\"diff\":\"update pom\"}")))
+        .thenReturn(ModelReply.toolCall(
+            new ToolCall("t2", "exec", "{\"cmd\":\"" + checkCmd + "\"}")))
         .thenReturn(ModelReply.text("fixed the NPE, tests pass"));
     when(applyPatchTool.apply(HANDLE, "update pom")).thenReturn(ToolResult.success("patch applied"));
+    when(execTool.run(HANDLE, checkCmd, null))
+        .thenReturn(ToolResult.success("Tests run: 8, Failures: 0"));
     when(gitDiffTool.diff(HANDLE))
         .thenReturn(ToolResult.success("[status]\n M pom.xml\n\n[diff]\ndiff --git a/pom.xml b/pom.xml\n"));
+    ObjectNode constraints = jsonObject("{}").deepCopy();
+    constraints.putArray("checks").addObject().put("id", "tests").put("command", checkCmd);
     TaskContract contract = new TaskContract("fix the NPE",
-        jsonArray("[\"tests pass\"]"), null, null);
+        jsonArray("[\"tests pass\"]"), constraints, null);
 
     HarnessReport report = harness.run(HANDLE, contract, workDir);
 
     assertEquals(HarnessReport.Outcome.COMPLETED, report.outcome());
     assertEquals(TaskOutcome.SUCCEEDED, report.taskOutcome());
     assertEquals(TaskOutcome.Reason.CHANGES_DELIVERED, report.taskOutcomeReason());
+    assertEquals(VerificationLedger.Status.PASS, report.verification().checks().get(0).status());
   }
 
   @Test
@@ -642,9 +676,10 @@ class CodingHarnessTest {
     return MAPPER.readTree(json);
   }
 
-  private static tools.jackson.databind.JsonNode jsonObject(String json) {
-    return MAPPER.readTree(json);
+  private static tools.jackson.databind.node.ObjectNode jsonObject(String json) {
+    return (tools.jackson.databind.node.ObjectNode) MAPPER.readTree(json);
   }
+
 
   private static final tools.jackson.databind.json.JsonMapper MAPPER =
       tools.jackson.databind.json.JsonMapper.builder().build();
