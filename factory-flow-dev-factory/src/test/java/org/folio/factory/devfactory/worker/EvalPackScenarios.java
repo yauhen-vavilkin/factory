@@ -227,4 +227,37 @@ final class EvalPackScenarios {
         .as("git %s in %s failed%nstderr: %s", String.join(" ", args), dir, stderr)
         .isZero();
   }
+
+  // ---------------------------------------------------------------------
+  // T26 additive helpers (appended; everything above is byte-unchanged).
+  // ---------------------------------------------------------------------
+
+  /** {@code exec} tool-call arguments JSON for the given command. */
+  static String execArgs(String cmd) {
+    return "{\"cmd\":" + JSON.valueToTree(cmd).toString() + "}";
+  }
+
+  /** {@code apply_patch} tool-call arguments JSON for the given diff. */
+  static String patchArgs(String diff) {
+    return "{\"diff\":" + JSON.valueToTree(diff).toString() + "}";
+  }
+
+  /**
+   * T26: the maven-shaped check fixture — the greeting regression fixture
+   * (planted {@code Goodbye}) plus a fixture-committed fake {@code mvnw}
+   * wrapper whose output body is pure fixture DATA: the scripted
+   * dirty-but-exit-0 maven-shaped output a false-verification counterexample
+   * injects. The wrapper only prints the body and exits 0; every decision
+   * afterwards is the real harness/sandbox machinery.
+   */
+  Path createMavenCheckFixture(String name, String mvnwOutputBody) throws Exception {
+    Path dir = createGreetingFixture(name, "Goodbye, $1.");
+    Files.writeString(dir.resolve("mvnw"), "#!/bin/sh\n"
+        + "cat <<'FACTORY-MVNW-OUTPUT-BODY'\n"
+        + mvnwOutputBody
+        + "\nFACTORY-MVNW-OUTPUT-BODY\n");
+    git(dir, "add", "mvnw");
+    git(dir, "commit", "-qm", "fixture: fake mvnw wrapper (fixture data)");
+    return dir.toAbsolutePath();
+  }
 }
