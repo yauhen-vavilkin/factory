@@ -26,6 +26,9 @@ validations:
     exitCode: 0
     result: "CLI syntax, partial-to-final visibility, and whitespace checks passed"
 blockers: []
-nextMilestone: M2
-nextAction: "Await explicit authorization before starting M2."
+remainingRoadmapState: SUPERSEDED
+supersededMilestones: [M2, M3, M4, M5]
+supersededBy: docs/exec-plans/dev-factory-v1-replanned-handoff/
+nextMilestone: null
+nextAction: "Use plan pi-minimal-v2 for all remaining implementation scope; preserve this file as historical M1 acceptance evidence."
 updatedAt: "2026-09-10T19:48:47+02:00"

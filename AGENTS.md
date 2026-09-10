@@ -69,6 +69,10 @@ A researcher agent that investigates a Jira ticket before coding starts. It uses
 
 See: `docs/sessions/` for design decisions and open questions.
 
+## Dev Factory v1 Execution Policy
+
+The active remaining roadmap is plan `pi-minimal-v2` in `docs/exec-plans/dev-factory-v1-replanned-handoff/`. It uses the accepted HYBRID ownership: external Pi owns coding; Factory owns preparation, sandbox, candidate, verification, and outcome. Read that package's `README.md`, `EXECUTION_RULES.md`, working `STATUS.yaml`, and current milestone before implementation; execute only that milestone and keep its report/status current. The old `dev-factory-v1` M0/M1 status and reports remain historical acceptance evidence, while its M2–M5 implementation scope is superseded. Do not redesign the accepted architecture or implement explicit deferrals.
+
 ---
 
 ## Key Architectural Rules

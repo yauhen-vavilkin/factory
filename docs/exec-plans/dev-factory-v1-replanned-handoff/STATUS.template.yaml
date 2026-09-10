@@ -1,0 +1,29 @@
+schemaVersion: 1
+planId: pi-minimal-v2
+# Populate from the local checkout. This template is not acceptance evidence.
+branch: null
+startingHead: null
+checkpointHead: null
+observedRemoteHead: 9f46a1d9f52b96558116452e6b15f24ba8e650bb
+currentMilestone: M1
+state: NOT_STARTED
+milestones:
+  M1:
+    state: NOT_STARTED
+    report: reports/M1.md
+  M2:
+    state: NOT_STARTED
+    report: reports/M2.md
+  M3:
+    state: NOT_STARTED
+    report: reports/M3.md
+    workflowOperational: null
+    benchmarkOutcome: null
+    firstLowSolved: false
+  M4:
+    state: NOT_STARTED
+    report: reports/M4.md
+blockers: []
+nextAction: Confirm local M1 evidence and adopt this plan without reimplementing it.
+# States: NOT_STARTED, IN_PROGRESS, ACCEPTED, BLOCKED.
+# Historical old-plan acceptance stays in its original report/status files.
