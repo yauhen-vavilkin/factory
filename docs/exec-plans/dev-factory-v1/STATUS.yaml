@@ -1,30 +1,31 @@
 schemaVersion: 1
 plan: dev-factory-v1
 spec: docs/exec-plans/dev-factory-v1/SPEC.md
-currentMilestone: M0
+currentMilestone: M1
 state: ACCEPTED
-head: 0efd6fa55f9ba4f06ccdf5905002b90b9cc20c68
+startingHead: 6aa3f708cf199ed8e0a8645d7d5e5bbf16aea785
+acceptedCommit: b6ba5415f8e4ba54736454a36523264968a23e90
 branch: main
 validations:
-  - command: "mvn test -B"
-    exitCode: 1
-    result: "614 tests observed before reactor stopped; SandboxServiceIntegrationTest failed because maven:3.9-eclipse-temurin-21 was absent locally"
   - command: "./scripts/factory validate --unit"
     exitCode: 0
-    result: "385 pure tests; 0 failures, 0 errors, 0 skipped"
-  - command: "./scripts/factory validate --integration"
+    result: "396 pure tests; 0 failures, 0 errors, 0 skipped"
+  - command: "./mvnw -B -pl factory-core -Dgroups=integration -Dtest=PipelineRouterAdmissionIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test"
     exitCode: 0
-    result: "47 infrastructure tests including real Docker sandbox; 0 failures, 0 errors, 0 skipped"
-  - command: "./scripts/factory validate --eval-pack"
+    result: "7 PostgreSQL admission tests including replay and 8-way concurrent duplicate admission"
+  - command: "./mvnw -B -pl factory-core -Dgroups=integration -Dtest=PipelineRouterIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test"
     exitCode: 0
-    result: "12 scripted eval-pack tests including all three required scenarios; 0 failures, 0 errors, 0 skipped"
-  - command: "offline lifecycle and persistence validation"
+    result: "5 PostgreSQL generic router regression tests"
+  - command: "./mvnw -B -pl factory-core -Dgroups=integration -Dtest=ExecutionEngineIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test"
     exitCode: 0
-    result: "no-key readiness, duplicate guard, loopback-only sockets, stop/restart, DB/artifact persistence, permissions, and invalid-live failure passed"
-  - command: "clean clone startup from preliminary M0 commit b5e3f5964d779ba3aced7cd5eb1b485f7633178c"
+    result: "4 PostgreSQL engine and state regression tests"
+  - command: "focused M1 parser, resolver, and contract suite"
     exitCode: 0
-    result: "clean status, init, infra health, offline doctor, cold build, readiness, stop, and infra down passed"
+    result: "22 tests; 0 failures, 0 errors, 0 skipped"
+  - command: "bash -n scripts/factory; atomic submit smoke; git diff --check"
+    exitCode: 0
+    result: "CLI syntax, partial-to-final visibility, and whitespace checks passed"
 blockers: []
-nextMilestone: M1
-nextAction: "Await explicit authorization before starting M1."
-updatedAt: "2026-09-10T16:35:00+02:00"
+nextMilestone: M2
+nextAction: "Await explicit authorization before starting M2."
+updatedAt: "2026-09-10T19:48:47+02:00"
