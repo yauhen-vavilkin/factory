@@ -18,6 +18,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(properties = "spring.jpa.hibernate.ddl-auto=create")
+@org.junit.jupiter.api.Tag("integration")
 @Testcontainers
 class CoreDomainIntegrationTest {
 

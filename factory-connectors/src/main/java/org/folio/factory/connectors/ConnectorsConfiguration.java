@@ -10,6 +10,7 @@ import org.folio.factory.connectors.testrail.TestRailConnector;
 import org.folio.factory.connectors.testrail.TestRailProperties;
 import org.folio.factory.connectors.testrail.TestRailRestConnector;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
@@ -24,22 +25,28 @@ import org.springframework.web.client.RestClient;
 public class ConnectorsConfiguration {
 
     @Bean
-    public JiraConnector jiraConnector(JiraProperties properties, RestClient.Builder builder) {
-        return properties.isConfigured()
+    public JiraConnector jiraConnector(JiraProperties properties, RestClient.Builder builder,
+                                       @Value("${factory.connectors.external-writes-enabled:true}")
+                                       boolean externalWritesEnabled) {
+        return externalWritesEnabled && properties.isConfigured()
                 ? new JiraRestConnector(properties, builder.clone())
                 : new UnconfiguredConnectors.Jira();
     }
 
     @Bean
-    public GitHubConnector gitHubConnector(GitHubProperties properties, RestClient.Builder builder) {
-        return properties.isConfigured()
+    public GitHubConnector gitHubConnector(GitHubProperties properties, RestClient.Builder builder,
+                                           @Value("${factory.connectors.external-writes-enabled:true}")
+                                           boolean externalWritesEnabled) {
+        return externalWritesEnabled && properties.isConfigured()
                 ? new GitHubRestConnector(properties, builder.clone())
                 : new UnconfiguredConnectors.GitHub();
     }
 
     @Bean
-    public TestRailConnector testRailConnector(TestRailProperties properties, RestClient.Builder builder) {
-        return properties.isConfigured()
+    public TestRailConnector testRailConnector(TestRailProperties properties, RestClient.Builder builder,
+                                               @Value("${factory.connectors.external-writes-enabled:true}")
+                                               boolean externalWritesEnabled) {
+        return externalWritesEnabled && properties.isConfigured()
                 ? new TestRailRestConnector(properties, builder.clone())
                 : new UnconfiguredConnectors.TestRail();
     }

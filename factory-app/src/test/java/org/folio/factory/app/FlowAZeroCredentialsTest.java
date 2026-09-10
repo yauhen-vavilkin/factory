@@ -33,10 +33,12 @@ import static org.awaitility.Awaitility.await;
  * every skipped side effect instead of failing.
  */
 @SpringBootTest(properties = {
+        "factory.mode=offline",
         "spring.ai.model.chat=none",
         "factory.engine.poll-interval-ms=250"
 })
 @Import(StubLlmConfiguration.class)
+@org.junit.jupiter.api.Tag("integration")
 @Testcontainers
 @DirtiesContext
 class FlowAZeroCredentialsTest {

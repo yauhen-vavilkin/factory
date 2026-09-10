@@ -12,7 +12,7 @@ class AnthropicApiKeyGuardTest {
 
   @Test
   void chatModelNoneBootsWithBlankKey() {
-    runner.withPropertyValues("spring.ai.model.chat=none")
+    runner.withPropertyValues("factory.mode=offline", "spring.ai.model.chat=none")
         .run(context -> assertThat(context).hasNotFailed());
   }
 
@@ -30,5 +30,35 @@ class AnthropicApiKeyGuardTest {
   void presentKeyBoots() {
     runner.withPropertyValues("spring.ai.anthropic.api-key=test-key")
         .run(context -> assertThat(context).hasNotFailed());
+  }
+
+  @Test
+  void offlineModeRejectsProviderModel() {
+    runner.withPropertyValues("factory.mode=offline", "spring.ai.model.chat=anthropic",
+            "spring.ai.anthropic.api-key=test-key")
+        .run(context -> {
+          assertThat(context).hasFailed();
+          assertThat(context.getStartupFailure()).hasMessageContaining("scripted ChatModel");
+        });
+  }
+
+  @Test
+  void liveModeRejectsLocalSandboxBeforeNetworkUse() {
+    runner.withPropertyValues("factory.mode=live", "factory.sandbox.mode=local",
+            "spring.ai.anthropic.api-key=test-key")
+        .run(context -> {
+          assertThat(context).hasFailed();
+          assertThat(context.getStartupFailure()).hasMessageContaining("cannot use")
+              .hasMessageContaining("factory.sandbox.mode=local");
+        });
+  }
+
+  @Test
+  void liveModeRejectsDisabledProviderModel() {
+    runner.withPropertyValues("factory.mode=live", "spring.ai.model.chat=none")
+        .run(context -> {
+          assertThat(context).hasFailed();
+          assertThat(context.getStartupFailure()).hasMessageContaining("explicit provider ChatModel");
+        });
   }
 }

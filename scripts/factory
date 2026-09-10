@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+STATE_DIR="$ROOT_DIR/.factory"
+CONFIG_FILE="$STATE_DIR/config/factory.env"
+PASSWORD_FILE="$STATE_DIR/secrets/postgres-password"
+PID_FILE="$STATE_DIR/run/factory.pid"
+APP_LOG="$STATE_DIR/logs/factory.log"
+
+fail() {
+  echo "factory: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./scripts/factory init
+  ./scripts/factory infra up|down
+  ./scripts/factory doctor --offline
+  ./scripts/factory start --mode offline|live
+  ./scripts/factory stop
+  ./scripts/factory validate --unit|--integration|--eval-pack
+EOF
+}
+
+require_init() {
+  [[ -f "$CONFIG_FILE" && -f "$PASSWORD_FILE" ]] ||
+    fail "not initialized; run ./scripts/factory init"
+}
+
+load_config() {
+  require_init
+  set -a
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
+  set +a
+}
+
+file_mode() {
+  if stat -f '%Lp' "$1" >/dev/null 2>&1; then
+    stat -f '%Lp' "$1"
+  else
+    stat -c '%a' "$1"
+  fi
+}
+
+init_factory() {
+  umask 077
+  mkdir -p "$STATE_DIR/config" "$STATE_DIR/secrets" "$STATE_DIR/data/postgres" \
+    "$STATE_DIR/data/artifacts" "$STATE_DIR/data/recovery" "$STATE_DIR/data/inbox" \
+    "$STATE_DIR/data/sandboxes" "$STATE_DIR/cache/maven-home" \
+    "$STATE_DIR/cache/maven-repository" "$STATE_DIR/logs/validation" \
+    "$STATE_DIR/run"
+  find "$STATE_DIR" -type d -exec chmod 700 {} +
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    printf '%s\n' 'FACTORY_POSTGRES_PORT=55432' 'FACTORY_APP_PORT=18080' > "$CONFIG_FILE"
+  fi
+  if [[ ! -f "$PASSWORD_FILE" ]]; then
+    if command -v openssl >/dev/null 2>&1; then
+      openssl rand -hex 24 > "$PASSWORD_FILE"
+    else
+      fail "openssl is required to create the local PostgreSQL password"
+    fi
+  fi
+  chmod 600 "$CONFIG_FILE" "$PASSWORD_FILE"
+  echo "Factory state initialized at $STATE_DIR"
+}
+
+compose() {
+  load_config
+  (cd "$ROOT_DIR" && docker compose "$@")
+}
+
+infra() {
+  case "${1:-}" in
+    up)
+      compose up -d --wait postgres
+      ;;
+    down)
+      compose down
+      ;;
+    *) fail "infra requires up or down" ;;
+  esac
+}
+
+doctor_offline() {
+  load_config
+  command -v java >/dev/null || fail "Java 21 is required"
+  [[ $(java -version 2>&1 | head -1) == *'21.'* ]] || fail "Java 21 is required"
+  [[ -x "$ROOT_DIR/mvnw" ]] || fail "the pinned Maven Wrapper is missing or not executable"
+  command -v docker >/dev/null || fail "Docker is required for PostgreSQL"
+  docker info >/dev/null 2>&1 || fail "Docker daemon is unavailable (BLOCKED_REQUIRES_DOCKER)"
+  compose ps --status running postgres | grep -q postgres ||
+    fail "PostgreSQL is not running; run ./scripts/factory infra up"
+  [[ $(file_mode "$STATE_DIR") == 700 ]] || fail "$STATE_DIR must have mode 0700"
+  [[ $(file_mode "$CONFIG_FILE") == 600 ]] || fail "$CONFIG_FILE must have mode 0600"
+  [[ $(file_mode "$PASSWORD_FILE") == 600 ]] || fail "$PASSWORD_FILE must have mode 0600"
+  echo "Offline doctor: OK (Java 21, wrapper, Docker, PostgreSQL, permissions)"
+  echo "Offline model: scripted local ChatModel; API credentials are not read"
+}
+
+running_pid() {
+  [[ -f "$PID_FILE" ]] || return 1
+  local pid
+  pid=$(<"$PID_FILE")
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  if ps -p "$pid" -o command= 2>/dev/null | grep -q 'factory-app.*\.jar'; then
+    return 0
+  fi
+  command -v lsof >/dev/null &&
+    lsof -nP -p "$pid" 2>/dev/null | grep '/factory-app/target/factory-app-.*\.jar' >/dev/null
+}
+
+start_factory() {
+  [[ "${1:-}" == "--mode" ]] || fail "start requires --mode offline or --mode live"
+  local mode="${2:-}"
+  [[ "$mode" == offline || "$mode" == live ]] || fail "mode must be offline or live"
+  load_config
+  if running_pid; then
+    fail "Factory is already running with PID $(<"$PID_FILE")"
+  fi
+  if curl -fsS "http://127.0.0.1:${FACTORY_APP_PORT}/actuator/health" >/dev/null 2>&1; then
+    fail "another Factory instance is already listening on 127.0.0.1:${FACTORY_APP_PORT}"
+  fi
+  rm -f "$PID_FILE"
+  mkdir "$STATE_DIR/run/start.lock" 2>/dev/null || fail "another Factory start is in progress"
+  trap 'rmdir "$STATE_DIR/run/start.lock" 2>/dev/null || true' EXIT
+
+  if [[ "$mode" == offline ]]; then
+    doctor_offline
+  elif [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+    fail "live mode requires ANTHROPIC_API_KEY; no provider request was made"
+  fi
+
+  (cd "$ROOT_DIR" && export MAVEN_USER_HOME="$STATE_DIR/cache/maven-home" && \
+    ./mvnw -B -pl factory-app -am package -DskipTests)
+  local jar="$ROOT_DIR/factory-app/target/factory-app-0.1.0-SNAPSHOT.jar"
+  [[ -f "$jar" ]] || fail "application jar was not built: $jar"
+  local db_password
+  db_password=$(<"$PASSWORD_FILE")
+  : > "$APP_LOG"
+  (
+    export SPRING_PROFILES_ACTIVE="$mode"
+    export FACTORY_MODE="$mode"
+    export FACTORY_APP_PORT FACTORY_POSTGRES_PORT
+    export FACTORY_DATA_DIR="$STATE_DIR/data"
+    export FACTORY_DB_URL="jdbc:postgresql://127.0.0.1:${FACTORY_POSTGRES_PORT}/factory"
+    export FACTORY_DB_USER=factory
+    export FACTORY_DB_PASSWORD="$db_password"
+    export FACTORY_EXTERNAL_WRITES_ENABLED=false
+    if [[ "$mode" == offline ]]; then
+        unset ANTHROPIC_API_KEY GLM_API_KEY FACTORY_LLM_BASE_URL FACTORY_LLM_MODEL
+    fi
+    exec nohup java -jar "$jar"
+  ) >> "$APP_LOG" 2>&1 &
+  local pid=$!
+  printf '%s\n' "$pid" > "$PID_FILE"
+  chmod 600 "$PID_FILE" "$APP_LOG"
+  rmdir "$STATE_DIR/run/start.lock"
+  trap - EXIT
+
+  local attempt
+  for attempt in $(seq 1 90); do
+    if curl -fsS "http://127.0.0.1:${FACTORY_APP_PORT}/actuator/health" >/dev/null 2>&1; then
+      echo "Factory is ready in $mode mode at http://127.0.0.1:${FACTORY_APP_PORT} (PID $pid)"
+      return 0
+    fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      rm -f "$PID_FILE"
+      tail -40 "$APP_LOG" >&2
+      fail "Factory exited before readiness"
+    fi
+    sleep 1
+  done
+  stop_factory || true
+  tail -40 "$APP_LOG" >&2
+  fail "Factory did not become ready within 90 seconds"
+}
+
+stop_factory() {
+  if ! running_pid; then
+    rm -f "$PID_FILE"
+    echo "Factory is not running"
+    return 0
+  fi
+  local pid
+  pid=$(<"$PID_FILE")
+  kill -TERM "$pid"
+  local attempt
+  for attempt in $(seq 1 30); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      rm -f "$PID_FILE"
+      echo "Factory stopped; persistent data was preserved"
+      return 0
+    fi
+    sleep 1
+  done
+  fail "Factory PID $pid did not stop after SIGTERM; inspect $APP_LOG"
+}
+
+count_reports() {
+  local marker="$1"
+  local total=0
+  local file tests failures errors skipped
+  while IFS= read -r file; do
+    tests=$(sed -n 's/.*<testsuite[^>]* tests="\([0-9][0-9]*\)".*/\1/p' "$file" | head -1)
+    failures=$(sed -n 's/.*<testsuite[^>]* failures="\([0-9][0-9]*\)".*/\1/p' "$file" | head -1)
+    errors=$(sed -n 's/.*<testsuite[^>]* errors="\([0-9][0-9]*\)".*/\1/p' "$file" | head -1)
+    skipped=$(sed -n 's/.*<testsuite[^>]* skipped="\([0-9][0-9]*\)".*/\1/p' "$file" | head -1)
+    total=$((total + ${tests:-0}))
+    printf '%s tests=%s failures=%s errors=%s skipped=%s\n' \
+      "${file#"$ROOT_DIR/"}" "${tests:-0}" "${failures:-0}" "${errors:-0}" "${skipped:-0}"
+  done < <(find "$ROOT_DIR" -path '*/target/surefire-reports/TEST-*.xml' -newer "$marker" -type f | sort)
+  echo "TOTAL_TESTS=$total"
+}
+
+validate_suite() {
+  local option="${1:-}"
+  local suite
+  case "$option" in
+    --unit) suite=unit ;;
+    --integration) suite=integration ;;
+    --eval-pack) suite=eval-pack ;;
+    *) fail "validate requires --unit, --integration, or --eval-pack" ;;
+  esac
+  init_factory >/dev/null
+  local marker="$STATE_DIR/run/validate-${suite}.marker"
+  local log="$STATE_DIR/logs/validation/${suite}.log"
+  local summary="$STATE_DIR/logs/validation/${suite}-tests.txt"
+  touch "$marker"
+  if [[ "$suite" == integration ]]; then
+    docker info >/dev/null 2>&1 || fail "integration suite requires Docker (BLOCKED_REQUIRES_DOCKER)"
+    docker image inspect maven:3.9-eclipse-temurin-21 >/dev/null 2>&1 ||
+      docker pull maven:3.9-eclipse-temurin-21
+  fi
+  local rc=0
+  (
+    cd "$ROOT_DIR"
+    export MAVEN_USER_HOME="$STATE_DIR/cache/maven-home"
+    case "$suite" in
+      unit) ./mvnw test -B '-Dgroups=!integration & !eval-pack & !live' ;;
+      integration) ./mvnw test -B -Dgroups=integration -Dsurefire.failIfNoSpecifiedTests=false ;;
+      eval-pack) ./mvnw test -B -Dgroups=eval-pack -Dsurefire.failIfNoSpecifiedTests=false ;;
+    esac
+  ) > "$log" 2>&1 || rc=$?
+  count_reports "$marker" | tee "$summary"
+  local total
+  total=$(sed -n 's/^TOTAL_TESTS=//p' "$summary")
+  [[ "$total" =~ ^[1-9][0-9]*$ ]] || fail "$suite selected zero tests; see $log"
+  [[ "$rc" == 0 ]] || fail "$suite validation failed with exit $rc; see $log"
+  if [[ "$suite" == integration ]]; then
+    grep -q 'SandboxServiceIntegrationTest' "$summary" || fail "real Docker integration test was not selected"
+  elif [[ "$suite" == eval-pack ]]; then
+    grep -q 'EvalPackHermeticRegressionFixTest' "$summary" || fail "eval regression scenario missing"
+    grep -q 'EvalPackHermeticCounterexampleTest' "$summary" || fail "eval counterexample scenario missing"
+    grep -q 'EvalPackHermeticSummaryTest' "$summary" || fail "eval summary scenario missing"
+  else
+    grep -q 'CodingHarnessTest' "$summary" || fail "harness unit tests were not selected"
+    grep -q 'AnthropicApiKeyGuardTest' "$summary" || fail "startup guard unit tests were not selected"
+  fi
+  echo "$suite validation passed: $total tests; log=$log; selection=$summary"
+}
+
+command="${1:-}"
+shift || true
+case "$command" in
+  init) [[ $# == 0 ]] || fail "init takes no arguments"; init_factory ;;
+  infra) infra "$@" ;;
+  doctor) [[ "${1:-}" == --offline && $# == 1 ]] || fail "doctor requires --offline"; doctor_offline ;;
+  start) start_factory "$@" ;;
+  stop) [[ $# == 0 ]] || fail "stop takes no arguments"; stop_factory ;;
+  validate) validate_suite "$@" ;;
+  *) usage; exit 1 ;;
+esac

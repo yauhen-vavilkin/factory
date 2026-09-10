@@ -53,10 +53,12 @@ import static org.awaitility.Awaitility.await;
  * approve at gate 2 → finalizer syncs all three connectors.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+        "factory.mode=offline",
         "spring.ai.model.chat=none",
         "factory.engine.poll-interval-ms=250"
 })
 @Import(StubLlmConfiguration.class)
+@org.junit.jupiter.api.Tag("integration")
 @Testcontainers
 @DirtiesContext
 class FlowAEndToEndTest {

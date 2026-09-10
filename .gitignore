@@ -6,3 +6,5 @@ target/
 .vscode/
 .DS_Store
 .mvn/wrapper/maven-wrapper.jar
+
+.factory/

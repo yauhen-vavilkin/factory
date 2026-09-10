@@ -426,7 +426,7 @@ public class CodingWorker implements AgentWorker {
   private String captureWorkspaceSnapshot(SandboxHandle handle) {
     CommandResult snapshot = sandboxService.exec(handle,
         "cd repo && f=$(mktemp) && { tar --exclude=.git -czf \"$f\" ."
-            + " && base64 \"$f\"; }; rc=$?; rm -f \"$f\"; exit \"$rc\"",
+            + " && base64 < \"$f\"; }; rc=$?; rm -f \"$f\"; exit \"$rc\"",
         SNAPSHOT_TIMEOUT_SEC);
     if (!snapshot.ok() || snapshot.stdout() == null || snapshot.stdout().isBlank()) {
       String reason = snapshot.stderr() == null || snapshot.stderr().isBlank()

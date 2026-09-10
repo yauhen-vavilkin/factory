@@ -13,6 +13,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(properties = "spring.jpa.hibernate.ddl-auto=create")
+@org.junit.jupiter.api.Tag("integration")
 @Testcontainers
 class FlowRegistryIntegrationTest {
 

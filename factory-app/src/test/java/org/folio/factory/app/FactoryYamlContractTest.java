@@ -21,8 +21,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * evidence: most yaml values equal the code defaults, so this pins the yaml
  * itself — a misspelled or ignored key must fail here.
  */
-@SpringBootTest(properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false"})
+@SpringBootTest(properties = {"factory.mode=offline", "spring.ai.model.chat=none", "factory.engine.enabled=false"})
 @Import(StubLlmConfiguration.class)
+@org.junit.jupiter.api.Tag("integration")
 @Testcontainers
 class FactoryYamlContractTest {
 
@@ -42,6 +43,9 @@ class FactoryYamlContractTest {
     @Test
     void engineLeaseTimeoutIsPinnedAboveHarnessJobTimeout() {
         assertEquals(Long.valueOf(2700L), engineProperties.leaseTimeoutSeconds());
+        assertEquals(Integer.valueOf(1), engineProperties.maxConcurrentExecutions());
+        assertEquals(Integer.valueOf(1), engineProperties.batchSize());
+        assertEquals(Integer.valueOf(1), engineProperties.workerThreads());
     }
 
     @Test

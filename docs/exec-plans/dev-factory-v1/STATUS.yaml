@@ -1,0 +1,30 @@
+schemaVersion: 1
+plan: dev-factory-v1
+spec: docs/exec-plans/dev-factory-v1/SPEC.md
+currentMilestone: M0
+state: ACCEPTED
+head: 0efd6fa55f9ba4f06ccdf5905002b90b9cc20c68
+branch: main
+validations:
+  - command: "mvn test -B"
+    exitCode: 1
+    result: "614 tests observed before reactor stopped; SandboxServiceIntegrationTest failed because maven:3.9-eclipse-temurin-21 was absent locally"
+  - command: "./scripts/factory validate --unit"
+    exitCode: 0
+    result: "385 pure tests; 0 failures, 0 errors, 0 skipped"
+  - command: "./scripts/factory validate --integration"
+    exitCode: 0
+    result: "47 infrastructure tests including real Docker sandbox; 0 failures, 0 errors, 0 skipped"
+  - command: "./scripts/factory validate --eval-pack"
+    exitCode: 0
+    result: "12 scripted eval-pack tests including all three required scenarios; 0 failures, 0 errors, 0 skipped"
+  - command: "offline lifecycle and persistence validation"
+    exitCode: 0
+    result: "no-key readiness, duplicate guard, loopback-only sockets, stop/restart, DB/artifact persistence, permissions, and invalid-live failure passed"
+  - command: "clean clone startup from preliminary M0 commit b5e3f5964d779ba3aced7cd5eb1b485f7633178c"
+    exitCode: 0
+    result: "clean status, init, infra health, offline doctor, cold build, readiness, stop, and infra down passed"
+blockers: []
+nextMilestone: M1
+nextAction: "Await explicit authorization before starting M1."
+updatedAt: "2026-09-10T16:35:00+02:00"

@@ -2,9 +2,9 @@ spring:
   application:
     name: ai-factory
   datasource:
-    url: ${FACTORY_DB_URL:jdbc:postgresql://localhost:5432/factory}
+    url: ${FACTORY_DB_URL:jdbc:postgresql://127.0.0.1:55432/factory}
     username: ${FACTORY_DB_USER:factory}
-    password: ${FACTORY_DB_PASSWORD:factory}
+    password: ${FACTORY_DB_PASSWORD:}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -21,14 +21,17 @@ spring:
           max-tokens: 8192
 
 factory:
+  mode: ${FACTORY_MODE:live}
   engine:
     poll-interval-ms: 2000
-    batch-size: 5
-    worker-threads: 4
+    max-concurrent-executions: 1
+    batch-size: 1
+    worker-threads: 1
     # 45 min: strictly above the 30-min harness job timeout + clone/teardown
     # margin, so the reaper never re-queues a live coding step (T14 R7).
     lease-timeout-seconds: 2700
   connectors:
+    external-writes-enabled: ${FACTORY_EXTERNAL_WRITES_ENABLED:true}
     jira:
       base-url: ${FACTORY_CONNECTORS_JIRA_BASE_URL:}
       email: ${FACTORY_CONNECTORS_JIRA_EMAIL:}
@@ -60,11 +63,11 @@ factory:
     mode: ${FACTORY_SANDBOX_MODE:docker}
     image: maven:3.9-eclipse-temurin-21
     docker-host: ${DOCKER_HOST:unix:///var/run/docker.sock}
-    workspace-root: ${java.io.tmpdir}/factory-sandboxes
+    workspace-root: ${FACTORY_DATA_DIR:.factory/data}/sandboxes
     workspace-retention: 0s
     maven-cache-volume: ${FACTORY_SANDBOX_MAVEN_CACHE_VOLUME:factory-m2-cache}
   inbox:
-    dir: ${FACTORY_INBOX_DIR:tasks-inbox}
+    dir: ${FACTORY_INBOX_DIR:.factory/data/inbox}
     enabled: ${FACTORY_INBOX_ENABLED:true}
     poll-interval-ms: ${FACTORY_INBOX_POLL_INTERVAL_MS:5000}
 
@@ -73,3 +76,40 @@ management:
     web:
       exposure:
         include: health,info
+
+server:
+  address: ${FACTORY_SERVER_ADDRESS:127.0.0.1}
+  port: ${FACTORY_APP_PORT:18080}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: offline
+  ai:
+    model:
+      chat: none
+
+factory:
+  mode: offline
+  connectors:
+    external-writes-enabled: false
+  sandbox:
+    mode: docker
+  dev:
+    recovery-root: ${FACTORY_DATA_DIR:.factory/data}/recovery
+
+---
+spring:
+  config:
+    activate:
+      on-profile: live
+
+factory:
+  mode: live
+  connectors:
+    external-writes-enabled: false
+  sandbox:
+    mode: docker
+  dev:
+    recovery-root: ${FACTORY_DATA_DIR:.factory/data}/recovery

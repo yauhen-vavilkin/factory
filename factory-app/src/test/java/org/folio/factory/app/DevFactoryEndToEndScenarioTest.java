@@ -10,6 +10,8 @@ import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
+import org.folio.factory.sandbox.api.SandboxHandle;
+import org.folio.factory.sandbox.api.SandboxService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +21,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -26,24 +29,19 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.WatchEvent;
-import java.nio.file.WatchKey;
-import java.nio.file.WatchService;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
-import static java.nio.file.StandardWatchEventKinds.ENTRY_CREATE;
-import static java.nio.file.StandardWatchEventKinds.ENTRY_DELETE;
-import static java.nio.file.StandardWatchEventKinds.OVERFLOW;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.fail;
 import static org.awaitility.Awaitility.await;
 import static org.folio.factory.core.domain.ExecutionStatus.COMPLETED;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * R10 end-to-end scenario: a task file dropped into the dev-factory inbox is
@@ -56,9 +54,10 @@ import static org.folio.factory.core.domain.ExecutionStatus.COMPLETED;
  * same content returns the existing execution, a revised file is admitted as
  * a new revision, and sandbox workspaces are execution-owned.
  */
-@SpringBootTest(properties = {"spring.ai.model.chat=none",
+@SpringBootTest(properties = {"factory.mode=offline", "spring.ai.model.chat=none",
         "factory.engine.poll-interval-ms=250", "factory.inbox.poll-interval-ms=250"})
 @Import(DevFactoryScenarioLlmConfiguration.class)
+@org.junit.jupiter.api.Tag("integration")
 @Testcontainers
 @DirtiesContext
 class DevFactoryEndToEndScenarioTest {
@@ -92,36 +91,36 @@ class DevFactoryEndToEndScenarioTest {
     @Autowired FrontmatterCodec frontmatterCodec;
     @Autowired PipelineExecutionRepository executions;
 
+    @MockitoSpyBean SandboxService sandboxService;
+
     private final JsonMapper json = JsonMapper.builder().build();
 
     @Test
     @org.junit.jupiter.api.Tag("eval-pack")
     void taskFileInInboxRunsDevFactoryToCompletion() throws Exception {
         Path sourceRepo = createSourceRepo(sourceRoot.resolve("source-repo"));
-        try (WatchService watcher = FileSystems.getDefault().newWatchService()) {
-            workspaceRoot.register(watcher, ENTRY_CREATE, ENTRY_DELETE);
+        clearInvocations(sandboxService);
 
-            Files.writeString(inbox.resolve(TASK_ID + ".yaml"), taskFile(sourceRepo));
+        Files.writeString(inbox.resolve(TASK_ID + ".yaml"), taskFile(sourceRepo));
 
-            UUID executionId = awaitSingleDevFactoryExecution(TASK_ID);
+        UUID executionId = awaitSingleDevFactoryExecution(TASK_ID);
 
-            await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> {
-                PipelineExecution execution = stateManager.get(executionId);
-                assertThat(execution.getStatus())
-                        .as("dev-factory execution did not complete; error message: %s",
-                                execution.getErrorMessage())
-                        .isEqualTo(COMPLETED);
-            });
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> {
+            PipelineExecution execution = stateManager.get(executionId);
+            assertThat(execution.getStatus())
+                    .as("dev-factory execution did not complete; error message: %s",
+                            execution.getErrorMessage())
+                    .isEqualTo(COMPLETED);
+        });
 
-            // The claim move happens after route() returns inside the same inbox
-            // poll, so it must be awaited even though the execution already exists.
-            await().atMost(Duration.ofSeconds(10)).until(() ->
-                    Files.exists(inbox.resolve("processed").resolve(TASK_ID + ".yaml")));
+        // The claim move happens after route() returns inside the same inbox
+        // poll, so it must be awaited even though the execution already exists.
+        await().atMost(Duration.ofSeconds(10)).until(() ->
+                Files.exists(inbox.resolve("processed").resolve(TASK_ID + ".yaml")));
 
-            assertInboxClaim();
-            assertArtifacts(executionId, sourceRepo);
-            assertExactlyOnce(executionId, watcher);
-        }
+        assertInboxClaim();
+        assertArtifacts(executionId, sourceRepo);
+        assertExactlyOnce(executionId);
     }
 
     /**
@@ -309,33 +308,14 @@ class DevFactoryEndToEndScenarioTest {
         return artifact;
     }
 
-    private void assertExactlyOnce(UUID executionId, WatchService watcher) throws InterruptedException {
+    private void assertExactlyOnce(UUID executionId) {
         // T22 R4: the sandbox workspace is owned by the execution, keyed by
         // its id — never by the shared task name; T25 S09 scopes the key
         // uniformly per attempt (this run is attempt 1).
         String workspaceDir = "sbx-" + executionId + "-attempt-1";
-        int creates = 0;
-        int deletes = 0;
-        WatchKey key;
-        while ((key = watcher.poll(2, TimeUnit.SECONDS)) != null) {
-            for (WatchEvent<?> event : key.pollEvents()) {
-                if (event.kind() == OVERFLOW) {
-                    fail("WatchService OVERFLOW while observing the workspace root: %s", event);
-                }
-                if (!workspaceDir.equals(event.context().toString())) {
-                    continue;
-                }
-                if (event.kind() == ENTRY_CREATE) {
-                    creates++;
-                }
-                if (event.kind() == ENTRY_DELETE) {
-                    deletes++;
-                }
-            }
-            key.reset();
-        }
-        assertThat(creates).as("sandbox workspace creations").isEqualTo(1);
-        assertThat(deletes).as("sandbox workspace deletions").isEqualTo(1);
+        verify(sandboxService, times(1)).create(argThat(spec ->
+                (executionId + "-attempt-1").equals(spec.ownerId())));
+        verify(sandboxService, times(1)).teardown(org.mockito.ArgumentMatchers.any(SandboxHandle.class));
         assertThat(Files.notExists(workspaceRoot.resolve(workspaceDir)))
                 .as("sandbox workspace must be torn down").isTrue();
         assertThat(devFactoryExecutions(TASK_ID))

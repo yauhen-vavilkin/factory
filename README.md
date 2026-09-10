@@ -45,40 +45,44 @@ Key invariants, enforced by the framework:
 
 ## Quickstart
 
-Prerequisites: Java 21, Maven 3.9+, Docker.
+Prerequisites: Java 21 and Docker with Compose. Maven is provided by the pinned
+wrapper. The supported baseline is explicit offline mode: it needs no model
+credentials and cannot fall back to a paid provider.
 
 ```bash
-# 1. Database
-docker compose up -d
-
-# 2. LLM provider (Spring AI — Anthropic by default, swappable via config)
-export ANTHROPIC_API_KEY=sk-ant-...
-
-# 3. Run
-mvn spring-boot:run -pl factory-app
-
-# 4. Trigger Flow A with the bundled sample story (no Jira needed — issue inline)
-curl -s -X POST localhost:8080/api/triggers/manual \
-  -H 'Content-Type: application/json' \
-  -d @factory-app/src/main/resources/samples/sample-story-inline.json
+./scripts/factory init
+./scripts/factory infra up
+./scripts/factory doctor --offline
+./scripts/factory start --mode offline
+curl -fsS http://127.0.0.1:18080/actuator/health
 ```
 
-Then open <http://localhost:8080/reviews> and work the two QA gates
+Then open <http://127.0.0.1:18080/reviews> and work the two QA gates
 (approve/amend/reject — edits are saved as new artifact versions). Watch
-progress on <http://localhost:8080/executions> (full audit timeline per
-execution) and check connector status on <http://localhost:8080/api/status>.
+progress on <http://127.0.0.1:18080/executions> (full audit timeline per
+execution) and check connector status on <http://127.0.0.1:18080/api/status>.
 
 Without any connector credentials the flow still completes end-to-end: test
 execution runs in **advisory mode** and every external sync is recorded as
 `CONNECTOR_SKIPPED` in the audit log and the `sync_report.md` artifact.
 
+Stop the host JVM and infrastructure without deleting data:
+
+```bash
+./scripts/factory stop
+./scripts/factory infra down
+```
+
+See [`docs/QUICKSTART.md`](docs/QUICKSTART.md) for storage, live-mode, and
+validation details.
+
 ## Configuration
 
 | Environment variable | Purpose |
 |---|---|
-| `ANTHROPIC_API_KEY` | LLM provider key (Spring AI Anthropic starter) |
+| `ANTHROPIC_API_KEY` | Required only for explicit `--mode live` |
 | `FACTORY_LLM_MODEL` | Chat model id (default `claude-sonnet-4-5`) |
-| `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (default `jdbc:postgresql://localhost:5432/factory`) |
+| `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (launcher supplies these without putting secrets in arguments) |
 | `FACTORY_CONNECTORS_JIRA_BASE_URL` / `_EMAIL` / `_API_TOKEN` | Jira REST v2 |
 | `FACTORY_CONNECTORS_GITHUB_TOKEN` (+ `_BASE_URL` for GHE) | GitHub REST |
 | `FACTORY_CONNECTORS_TESTRAIL_BASE_URL` / `_USERNAME` / `_API_KEY` / `_PROJECT_ID` | TestRail API v2 |
@@ -107,10 +111,12 @@ routing matching triggers. No engine, router or gateway changes.
 ## Verification
 
 ```bash
-mvn verify        # unit + integration tests (Testcontainers PostgreSQL; Docker required)
+./scripts/factory validate --unit
+./scripts/factory validate --integration
+./scripts/factory validate --eval-pack
 ```
 
-The suite includes two full Flow A end-to-end tests (scripted LLM, WireMock'd
+The integration suite includes two full Flow A end-to-end tests (scripted LLM, WireMock'd
 Jira/GitHub/TestRail): the happy path with a QA amendment at gate 1, and the
 zero-credentials path. Engine semantics (retry → escalation, poller crash
 recovery, sub-flow parent/child, HITL decisions) are covered in

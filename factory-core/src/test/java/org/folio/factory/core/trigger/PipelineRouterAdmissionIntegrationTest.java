@@ -38,6 +38,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * executions stay admission-free.
  */
 @SpringBootTest(properties = "spring.jpa.hibernate.ddl-auto=create")
+@org.junit.jupiter.api.Tag("integration")
 @Testcontainers
 class PipelineRouterAdmissionIntegrationTest {
 

@@ -41,7 +41,7 @@ class CodingWorkerLifecycleTest {
 
   private static final String SNAPSHOT_COMMAND = "cd repo && f=$(mktemp)"
       + " && { tar --exclude=.git -czf \"$f\" ."
-      + " && base64 \"$f\"; }; rc=$?; rm -f \"$f\"; exit \"$rc\"";
+      + " && base64 < \"$f\"; }; rc=$?; rm -f \"$f\"; exit \"$rc\"";
   private static final String SNAPSHOT_STDOUT = "SGVsbG8=\n";
 
   @Mock

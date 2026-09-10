@@ -34,7 +34,8 @@ public class ExecutionPoller {
 
     @Scheduled(fixedDelayString = "${factory.engine.poll-interval-ms:2000}")
     public void poll() {
-        for (UUID executionId : claimService.claim(properties.batchSize())) {
+        for (UUID executionId : claimService.claimAvailable(
+                properties.batchSize(), properties.maxConcurrentExecutions())) {
             try {
                 executor.execute(() -> engine.advance(executionId));
             } catch (RuntimeException e) {

@@ -26,6 +26,7 @@ import static org.awaitility.Awaitility.await;
         "factory.engine.enabled=true",
         "factory.engine.poll-interval-ms=250"
 })
+@org.junit.jupiter.api.Tag("integration")
 @Testcontainers
 @DirtiesContext
 class ExecutionPollerIntegrationTest {

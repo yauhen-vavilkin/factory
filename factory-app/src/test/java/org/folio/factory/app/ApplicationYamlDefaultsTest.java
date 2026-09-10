@@ -37,6 +37,9 @@ class ApplicationYamlDefaultsTest {
           .isEqualTo(2700L);
       assertThat(context.getEnvironment().getProperty("factory.engine.lease-timeout-seconds"))
           .isEqualTo("2700");
+      assertThat(context.getBean(EngineProperties.class).maxConcurrentExecutions()).isEqualTo(1);
+      assertThat(context.getBean(EngineProperties.class).batchSize()).isEqualTo(1);
+      assertThat(context.getBean(EngineProperties.class).workerThreads()).isEqualTo(1);
     });
   }
 
@@ -65,7 +68,7 @@ class ApplicationYamlDefaultsTest {
       assertThat(sandbox.image()).isEqualTo("maven:3.9-eclipse-temurin-21");
       assertThat(sandbox.workspaceRetention()).isEqualTo(Duration.ZERO);
       assertThat(sandbox.workspaceRoot())
-          .isEqualTo(Path.of(System.getProperty("java.io.tmpdir"), "factory-sandboxes"));
+          .isEqualTo(Path.of(".factory/data/sandboxes"));
       assertThat(sandbox.dockerHost())
           .isEqualTo(System.getenv().getOrDefault("DOCKER_HOST", "unix:///var/run/docker.sock"));
       assertThat(sandbox.mavenCacheVolume())
@@ -78,7 +81,7 @@ class ApplicationYamlDefaultsTest {
       assertThat(env.getProperty("factory.sandbox.docker-host"))
           .isEqualTo(System.getenv().getOrDefault("DOCKER_HOST", "unix:///var/run/docker.sock"));
       assertThat(env.getProperty("factory.sandbox.workspace-root"))
-          .isEqualTo(System.getProperty("java.io.tmpdir") + "/factory-sandboxes");
+          .isEqualTo(".factory/data/sandboxes");
       assertThat(env.getProperty("factory.sandbox.workspace-retention")).isEqualTo("0s");
       assertThat(env.getProperty("factory.sandbox.maven-cache-volume"))
           .isEqualTo(System.getenv().getOrDefault("FACTORY_SANDBOX_MAVEN_CACHE_VOLUME",
@@ -102,10 +105,10 @@ class ApplicationYamlDefaultsTest {
     runner.run(context -> {
       assertThat(context).hasSingleBean(InboxProperties.class);
       assertThat(context.getBean(InboxProperties.class))
-          .isEqualTo(new InboxProperties(true, Path.of("tasks-inbox"), 5000L));
+          .isEqualTo(new InboxProperties(true, Path.of(".factory/data/inbox"), 5000L));
       Environment env = context.getEnvironment();
       assertThat(env.getProperty("factory.inbox.dir"))
-          .isEqualTo(System.getenv().getOrDefault("FACTORY_INBOX_DIR", "tasks-inbox"));
+          .isEqualTo(System.getenv().getOrDefault("FACTORY_INBOX_DIR", ".factory/data/inbox"));
       assertThat(env.getProperty("factory.inbox.enabled"))
           .isEqualTo(System.getenv().getOrDefault("FACTORY_INBOX_ENABLED", "true"));
       assertThat(env.getProperty("factory.inbox.poll-interval-ms"))

@@ -41,6 +41,14 @@ public class ExecutionClaimService {
         return claimed.stream().map(PipelineExecution::getId).toList();
     }
 
+    /** Claims only the remaining configured capacity for this single-instance baseline. */
+    @Transactional
+    public List<UUID> claimAvailable(int limit, int maxConcurrentExecutions) {
+        long active = executions.countByStatus(ExecutionStatus.RUNNING);
+        int available = (int) Math.max(0L, maxConcurrentExecutions - active);
+        return available == 0 ? List.of() : claim(Math.min(limit, available));
+    }
+
     /**
      * Returns a claim that could not be dispatched to the worker pool.
      */

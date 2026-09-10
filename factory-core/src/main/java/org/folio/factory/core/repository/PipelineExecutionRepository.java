@@ -28,6 +28,8 @@ public interface PipelineExecutionRepository extends JpaRepository<PipelineExecu
 
     List<PipelineExecution> findByStatusAndUpdatedAtBefore(ExecutionStatus status, Instant threshold);
 
+    long countByStatus(ExecutionStatus status);
+
     List<PipelineExecution> findByParentExecutionId(UUID parentExecutionId);
 
     /**

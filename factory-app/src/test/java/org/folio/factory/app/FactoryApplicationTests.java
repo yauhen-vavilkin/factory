@@ -8,8 +8,9 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-@SpringBootTest(properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false"})
+@SpringBootTest(properties = {"factory.mode=offline", "spring.ai.model.chat=none", "factory.engine.enabled=false"})
 @Import(StubLlmConfiguration.class)
+@org.junit.jupiter.api.Tag("integration")
 @Testcontainers
 class FactoryApplicationTests {
 
