@@ -22,7 +22,7 @@ Prerequisites: JDK 21, Maven 3.9+, Docker Desktop, git.
 ```bash
 git clone git@github.com:yauhen-vavilkin/factory.git
 cd factory
-git checkout dev/T26-eval-pack-counterexamples   # свежий код; main — только принятая работа
+# непринятый код T26 (только посмотреть): git checkout dev/T26-eval-pack-counterexamples
 
 # 1) база (postgres:16 -> localhost:5432, db/user/pass = factory)
 docker compose up -d
