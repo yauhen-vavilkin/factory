@@ -1,0 +1,33 @@
+id: dev-factory-pi
+name: Dev Factory Pi
+version: 1.0.0
+triggers:
+  - event_type: file.inbox.pi
+input_schema:
+  required: [taskId, repoUrl, baseRevision, resolvedIntent, goal]
+output_schema:
+  artifacts: [candidate.patch, result.json, verification.json, manifest.json]
+retry_policy:
+  max_attempts: 1
+  backoff_seconds: []
+agent_chain:
+  - step_id: prepare
+    type: AGENT
+    worker_id: pi-prepare-worker
+    inputs: ["$trigger"]
+    outputs: [contract.json]
+  - step_id: coding
+    type: AGENT
+    worker_id: pi-coding-worker
+    inputs: ["$trigger", contract.json]
+    outputs: [candidate.patch, pi-session.jsonl, usage.json]
+  - step_id: verify
+    type: AGENT
+    worker_id: pi-verify-worker
+    inputs: ["$trigger", candidate.patch]
+    outputs: [verification.json]
+  - step_id: finalize
+    type: AGENT
+    worker_id: pi-finalize-worker
+    inputs: ["$trigger", candidate.patch, verification.json]
+    outputs: [result.json, manifest.json]

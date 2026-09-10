@@ -36,7 +36,6 @@ import tools.jackson.databind.node.ObjectNode;
     havingValue = "true", matchIfMissing = true)
 public class FileInboxTrigger {
   private static final Logger log = LoggerFactory.getLogger(FileInboxTrigger.class);
-  private static final String EVENT_TYPE = "file.inbox";
 
   private final InboxProperties properties;
   private final InboxTaskFileParser parser;
@@ -99,7 +98,7 @@ public class FileInboxTrigger {
 
     try {
       JsonNode payload = payload(intent);
-      TriggerEvent event = TriggerEvent.of(EVENT_TYPE, "file-inbox:" + fileName, payload);
+      TriggerEvent event = TriggerEvent.of(properties.eventType(), "file-inbox:" + fileName, payload);
       List<UUID> admitted = router.routeAdmitted(event, intent.admissionKey());
       if (admitted == null || admitted.isEmpty()) {
         reject(file, "NO_MATCHING_FLOW", "No flow accepted the resolved task");

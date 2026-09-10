@@ -11,6 +11,7 @@ import tools.jackson.databind.node.ObjectNode;
 public final class TrustedProfileCatalog {
   public static final String VERSION = "dev-factory-v1-m1";
   public static final String JAVA_MAVEN_21 = "java-maven-21";
+  public static final String JAVA_MAVEN_PI = "java21-pi-unit";
   public static final String JAVA_MAVEN_VERIFY = "java-maven-verify";
 
   private final Map<String, ExecutionProfile> profiles;
@@ -25,14 +26,25 @@ public final class TrustedProfileCatalog {
         new ExecutionProfile.NetworkPolicy("APPROVED_DEPENDENCY_PROXY_ONLY", "NONE"),
         new ExecutionProfile.ResourcePolicy(2.0, 4096, 512, 8192), budgets, null);
     ExecutionProfile profile = withHash(profileWithoutHash);
-    profiles = Map.of(profile.id(), profile);
+    ExecutionProfile piWithoutHash = new ExecutionProfile(JAVA_MAVEN_PI, "dev-factory-v1-m2", "JAVA",
+        "MAVEN", "21", null, "factory-pi:jdk21", null, "linux/arm64", "/workspace/repo",
+        List.of(List.of("mvn", "-B", "-ntp", "test")),
+        Map.of("surefire", "**/target/surefire-reports/TEST-*.xml"),
+        new ExecutionProfile.NetworkPolicy("APPROVED_DEPENDENCY_PROXY_ONLY", "GATEWAY_ONLY"),
+        new ExecutionProfile.ResourcePolicy(2.0, 4096, 512, 8192),
+        new ExecutionProfile.Budgets(3600, 300, 900, 40, 16384), null);
+    ExecutionProfile pi = withHash(piWithoutHash);
+    profiles = Map.of(profile.id(), profile, pi.id(), pi);
 
     VerificationPlan planWithoutHash = new VerificationPlan(JAVA_MAVEN_VERIFY, VERSION,
         List.of(new VerificationPlan.Check("maven-tests",
             List.of("./mvnw", "-B", "-ntp", "test"), true, List.of(),
             "**/target/surefire-reports/TEST-*.xml")), null);
     VerificationPlan plan = withHash(planWithoutHash);
-    plans = Map.of(plan.id(), plan);
+    VerificationPlan piPlan = withHash(new VerificationPlan("modsidecar-208-v1", "dev-factory-v1-m2",
+        List.of(new VerificationPlan.Check("maven-tests", List.of("mvn", "-B", "-ntp", "test"),
+            true, List.of(), "**/target/surefire-reports/TEST-*.xml")), null));
+    plans = Map.of(plan.id(), plan, piPlan.id(), piPlan);
   }
 
   public Optional<ExecutionProfile> profile(String id) {

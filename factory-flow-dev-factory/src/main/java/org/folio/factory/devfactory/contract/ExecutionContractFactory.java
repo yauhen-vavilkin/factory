@@ -3,6 +3,7 @@ package org.folio.factory.devfactory.contract;
 import java.util.List;
 import java.util.Map;
 import org.folio.factory.devfactory.profile.ExecutionProfile;
+import org.folio.factory.devfactory.profile.TrustedProfileCatalog;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
@@ -18,7 +19,7 @@ public final class ExecutionContractFactory {
     if (intent == null || !"RESOLVED".equals(intent.status())) {
       throw new IllegalArgumentException("only a resolved intent can be frozen");
     }
-    requirePreparation(preparation);
+    requirePreparation(preparation, intent.profile());
     requireConfiguration(configuration);
     ExecutionProfile.Budgets budgets = intent.profile().budgets().tighten(requestedBudgets(intent));
     List<ExecutionContract.Acceptance> acceptance = intent.task().acceptanceCriteria().stream()
@@ -73,17 +74,22 @@ public final class ExecutionContractFactory {
     return value.asLong();
   }
 
-  private static void requirePreparation(ExecutionContract.PreparationReferences value) {
+  private static void requirePreparation(ExecutionContract.PreparationReferences value,
+                                         ExecutionProfile profile) {
+    boolean freshResolution = TrustedProfileCatalog.JAVA_MAVEN_PI.equals(profile.id());
     if (value == null || blank(value.sourceSnapshotHash()) || blank(value.imageDigest()) || blank(value.platform())
-        || blank(value.dependencySeedHash()) || blank(value.baselineHash())) {
+        || (!freshResolution && blank(value.dependencySeedHash())) || blank(value.baselineHash())) {
       throw new IllegalArgumentException(
-          "freezing requires actual source, image, platform, dependency-seed and baseline references");
+          "freezing requires actual source, image, platform, "
+              + (freshResolution ? "and baseline" : "dependency-seed and baseline") + " references");
     }
     requireSha256("sourceSnapshotHash", value.sourceSnapshotHash());
     if (!value.imageDigest().matches("sha256:[0-9a-f]{64}")) {
       throw new IllegalArgumentException("imageDigest must be an immutable sha256 digest");
     }
-    requireSha256("dependencySeedHash", value.dependencySeedHash());
+    if (!freshResolution) {
+      requireSha256("dependencySeedHash", value.dependencySeedHash());
+    }
     requireSha256("baselineHash", value.baselineHash());
   }
 

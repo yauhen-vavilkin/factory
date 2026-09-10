@@ -20,7 +20,8 @@ Usage:
   ./scripts/factory init
   ./scripts/factory infra up|down
   ./scripts/factory doctor --offline
-  ./scripts/factory start --mode offline|live
+  ./scripts/factory start --mode offline|live|pi
+  ./scripts/factory smoke --pi --scripted
   ./scripts/factory stop
   ./scripts/factory validate --unit|--integration|--eval-pack
   ./scripts/factory resolve-task TASK.yaml
@@ -120,7 +121,7 @@ running_pid() {
 start_factory() {
   [[ "${1:-}" == "--mode" ]] || fail "start requires --mode offline or --mode live"
   local mode="${2:-}"
-  [[ "$mode" == offline || "$mode" == live ]] || fail "mode must be offline or live"
+  [[ "$mode" == offline || "$mode" == live || "$mode" == pi ]] || fail "mode must be offline, live, or pi"
   load_config
   if running_pid; then
     fail "Factory is already running with PID $(<"$PID_FILE")"
@@ -134,7 +135,7 @@ start_factory() {
 
   if [[ "$mode" == offline ]]; then
     doctor_offline
-  elif [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+  elif [[ "$mode" == live && -z "${ANTHROPIC_API_KEY:-}" ]]; then
     fail "live mode requires ANTHROPIC_API_KEY; no provider request was made"
   fi
 
@@ -154,6 +155,7 @@ start_factory() {
     export FACTORY_DB_USER=factory
     export FACTORY_DB_PASSWORD="$db_password"
     export FACTORY_EXTERNAL_WRITES_ENABLED=false
+    if [[ "$mode" == pi ]]; then export FACTORY_INBOX_EVENT_TYPE=file.inbox.pi; fi
     if [[ "$mode" == offline ]]; then
         unset ANTHROPIC_API_KEY GLM_API_KEY FACTORY_LLM_BASE_URL FACTORY_LLM_MODEL
     fi
@@ -181,6 +183,31 @@ start_factory() {
   stop_factory || true
   tail -40 "$APP_LOG" >&2
   fail "Factory did not become ready within 90 seconds"
+}
+
+smoke_pi_scripted() {
+  [[ $# == 2 && "$1" == --pi && "$2" == --scripted ]] || fail "smoke requires --pi --scripted"
+  init_factory >/dev/null
+  command -v docker >/dev/null || fail "Docker is required for Pi smoke"
+  docker info >/dev/null 2>&1 || fail "Docker daemon is unavailable (BLOCKED_REQUIRES_DOCKER)"
+  local log="$STATE_DIR/logs/validation/pi-smoke.log"
+  mkdir -p "$(dirname "$log")"
+  docker build -q -t factory-pi:jdk21 "$ROOT_DIR/factory-sandbox" >> "$log"
+  local raw="$STATE_DIR/logs/validation/pi-rpc.jsonl"
+  printf '%s\n' '{"type":"get_state"}' | docker run --rm -i --network none \
+    --cap-drop ALL --security-opt no-new-privileges --entrypoint /opt/pi/node_modules/.bin/pi \
+    -e HOME=/home/agent -e PI_CODING_AGENT_DIR=/state/pi -e PI_OFFLINE=1 -e PI_TELEMETRY=0 \
+    factory-pi:jdk21 --mode rpc --no-approve --no-extensions --no-skills \
+    --no-prompt-templates --no-themes --no-context-files \
+    --tools read,bash,edit,write,grep,find,ls --session-dir /state/pi/sessions > "$raw"
+  grep -q '"command":"get_state"' "$raw" || fail "Pi did not return a correlated get_state response"
+  {
+    echo "mode=pi scripted=true provider_calls=0 paid_calls=0"
+    echo "image=factory-pi:jdk21 node=22.19.0 pi=0.85.1 network=none non_root=true no_tty=true"
+    echo "raw_rpc=$raw"
+    echo "artifacts=$STATE_DIR/data/artifacts"
+  } | tee "$log"
+  echo "Pi scripted smoke recorded: log=$log"
 }
 
 stop_factory() {
@@ -314,6 +341,7 @@ case "$command" in
   start) start_factory "$@" ;;
   stop) [[ $# == 0 ]] || fail "stop takes no arguments"; stop_factory ;;
   validate) validate_suite "$@" ;;
+  smoke) smoke_pi_scripted "$@" ;;
   resolve-task) resolve_task "$@" ;;
   submit) submit_task "$@" ;;
   *) usage; exit 1 ;;

@@ -1,17 +1,17 @@
 schemaVersion: 1
 planId: pi-minimal-v2
-branch: main
-startingHead: 9f46a1d9f52b96558116452e6b15f24ba8e650bb
-checkpointHead: 9f46a1d9f52b96558116452e6b15f24ba8e650bb
-observedRemoteHead: 9f46a1d9f52b96558116452e6b15f24ba8e650bb
-currentMilestone: M1
-state: ACCEPTED
+branch: dev/M2-pi-vertical-slice
+startingHead: ef26d0bf89ebf9153f58308e4296d3ce368752ba
+checkpointHead: ef26d0bf89ebf9153f58308e4296d3ce368752ba
+observedRemoteHead: null
+currentMilestone: M2
+state: IN_PROGRESS
 milestones:
   M1:
     state: ACCEPTED
     report: reports/M1.md
   M2:
-    state: NOT_STARTED
+    state: IN_PROGRESS
     report: reports/M2.md
   M3:
     state: NOT_STARTED
@@ -22,5 +22,7 @@ milestones:
   M4:
     state: NOT_STARTED
     report: reports/M4.md
-blockers: []
-nextAction: Await explicit authorization to start M2 using prompts/M2-pi-vertical-slice.md.
+blockers:
+  - "M2 gateway, full PostgreSQL fixture flow, independent verifier, and C2-C7 runtime cases remain unimplemented."
+  - "Exact mvn verify gate is red on the legacy DevFactoryEndToEndScenarioTest fixture because checks[].command is rejected by the task-input security boundary."
+nextAction: "Implement fixed-route scripted gateway and wire real Pi coding/export/verify path; do not accept M2 yet."

@@ -70,6 +70,7 @@ factory:
     dir: ${FACTORY_INBOX_DIR:.factory/data/inbox}
     enabled: ${FACTORY_INBOX_ENABLED:true}
     poll-interval-ms: ${FACTORY_INBOX_POLL_INTERVAL_MS:5000}
+    event-type: ${FACTORY_INBOX_EVENT_TYPE:file.inbox}
 
 management:
   endpoints:

@@ -46,6 +46,14 @@ class ExecutionContractFactoryTest {
   }
 
   @Test
+  void catalogContainsPiFreshResolutionProfileWithGatewayOnlyNetwork() {
+    ExecutionProfile profile = catalog.profile(TrustedProfileCatalog.JAVA_MAVEN_PI).orElseThrow();
+    assertThat(profile.networkPolicy().execution()).isEqualTo("GATEWAY_ONLY");
+    assertThat(profile.platform()).isEqualTo("linux/arm64");
+    assertThat(profile.buildCommands()).contains(List.of("mvn", "-B", "-ntp", "test"));
+  }
+
+  @Test
   void operatorBudgetsCanOnlyTightenTrustedMaximums() {
     ResolvedIntent intent = intent();
     var budgets = ((tools.jackson.databind.node.ObjectNode) intent.task().constraints())

@@ -13,6 +13,7 @@ import org.folio.factory.devfactory.resolution.TaskResolutionService;
 import org.folio.factory.devfactory.worker.CodingWorker;
 import org.folio.factory.devfactory.worker.DevFactoryFinalizer;
 import org.folio.factory.devfactory.worker.recovery.RecoveryBundleStore;
+import org.folio.factory.devfactory.pi.PiWorker;
 import org.folio.factory.sandbox.api.SandboxService;
 import org.folio.factory.sandbox.harness.CodingHarness;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +25,11 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(InboxProperties.class)
 public class DevFactoryConfiguration {
+
+  @Bean public PiWorker piPrepareWorker() { return new PiWorker("pi-prepare-worker"); }
+  @Bean public PiWorker piCodingWorker() { return new PiWorker("pi-coding-worker"); }
+  @Bean public PiWorker piVerifyWorker() { return new PiWorker("pi-verify-worker"); }
+  @Bean public PiWorker piFinalizeWorker() { return new PiWorker("pi-finalize-worker"); }
 
   @Bean
   public InboxTaskFileParser inboxTaskFileParser() {
