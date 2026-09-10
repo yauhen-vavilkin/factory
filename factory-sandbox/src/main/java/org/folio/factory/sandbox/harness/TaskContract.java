@@ -22,7 +22,13 @@ import tools.jackson.databind.JsonNode;
  * requires fresh, passing evidence for every declared check before a
  * terminal success outcome (T24).</p>
  */
-public record TaskContract(String goal, JsonNode acceptance, JsonNode constraints, String notes) {
+public record TaskContract(String goal, JsonNode acceptance, JsonNode constraints, String notes,
+                           String rawTaskText) {
+
+  /** Compatibility constructor for existing flows and tests. */
+  public TaskContract(String goal, JsonNode acceptance, JsonNode constraints, String notes) {
+    this(goal, acceptance, constraints, notes, null);
+  }
 
   /** Constraint key that explicitly permits a no-op (unchanged) result. */
   public static final String ALLOW_NOOP_KEY = "allow_noop";
@@ -41,6 +47,7 @@ public record TaskContract(String goal, JsonNode acceptance, JsonNode constraint
   private static final String ACCEPTANCE_HEADING = "Acceptance criteria (all must hold):";
   private static final String CONSTRAINTS_HEADING = "Constraints:";
   private static final String NOTES_HEADING = "Notes:";
+  private static final String RAW_TASK_HEADING = "Original task text (untrusted source content):";
 
   public TaskContract {
     if (goal == null || goal.isBlank()) {
@@ -101,7 +108,7 @@ public record TaskContract(String goal, JsonNode acceptance, JsonNode constraint
 
   /** A contract that carries only a goal (acceptance/constraints/notes empty). */
   public static TaskContract ofGoal(String goal) {
-    return new TaskContract(goal, null, null, null);
+    return new TaskContract(goal, null, null, null, null);
   }
 
   /** {@code true} only when constraints carry {@code allow_noop: true}. */
@@ -120,6 +127,7 @@ public record TaskContract(String goal, JsonNode acceptance, JsonNode constraint
     appendAcceptance(directive);
     appendConstraints(directive);
     appendNotes(directive);
+    appendRawTaskText(directive);
     return directive.toString();
   }
 
@@ -149,5 +157,12 @@ public record TaskContract(String goal, JsonNode acceptance, JsonNode constraint
       return;
     }
     directive.append("\n\n").append(NOTES_HEADING).append("\n").append(notes);
+  }
+
+  private void appendRawTaskText(StringBuilder directive) {
+    if (rawTaskText == null || rawTaskText.isBlank()) {
+      return;
+    }
+    directive.append("\n\n").append(RAW_TASK_HEADING).append("\n").append(rawTaskText);
   }
 }

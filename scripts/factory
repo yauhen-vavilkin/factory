@@ -23,6 +23,8 @@ Usage:
   ./scripts/factory start --mode offline|live
   ./scripts/factory stop
   ./scripts/factory validate --unit|--integration|--eval-pack
+  ./scripts/factory resolve-task TASK.yaml
+  ./scripts/factory submit TASK.yaml
 EOF
 }
 
@@ -265,6 +267,44 @@ validate_suite() {
   echo "$suite validation passed: $total tests; log=$log; selection=$summary"
 }
 
+require_task_file() {
+  local task_file="$1"
+  [[ -f "$task_file" && ! -L "$task_file" ]] || fail "task input must be a regular non-symlink file"
+  local size
+  size=$(wc -c < "$task_file" | tr -d ' ')
+  [[ "$size" -le 262144 ]] || fail "task input exceeds the 256 KiB limit"
+}
+
+resolve_task() {
+  [[ $# == 1 ]] || fail "resolve-task requires one YAML or JSON task file"
+  require_task_file "$1"
+  load_config
+  curl --fail-with-body -sS -H 'Content-Type: application/yaml' \
+    -H "X-Task-Name: $(basename "$1")" --data-binary "@$1" \
+    "http://127.0.0.1:${FACTORY_APP_PORT}/api/dev/tasks/resolve"
+  printf '\n'
+}
+
+submit_task() {
+  [[ $# == 1 ]] || fail "submit requires one YAML or JSON task file"
+  require_task_file "$1"
+  local inbox="$STATE_DIR/data/inbox"
+  mkdir -p "$inbox"
+  chmod 700 "$inbox"
+  local name
+  name=$(basename "$1")
+  case "$name" in
+    *.yaml|*.yml|*.json|*.YAML|*.YML|*.JSON) ;;
+    *) fail "task filename must end in .yaml, .yml, or .json" ;;
+  esac
+  local final="$inbox/$name"
+  [[ ! -e "$final" && ! -e "$final.partial" ]] || fail "inbox already contains $name"
+  cp -- "$1" "$final.partial"
+  chmod 600 "$final.partial"
+  mv -- "$final.partial" "$final"
+  echo "Task submitted atomically to $final"
+}
+
 command="${1:-}"
 shift || true
 case "$command" in
@@ -274,5 +314,7 @@ case "$command" in
   start) start_factory "$@" ;;
   stop) [[ $# == 0 ]] || fail "stop takes no arguments"; stop_factory ;;
   validate) validate_suite "$@" ;;
+  resolve-task) resolve_task "$@" ;;
+  submit) submit_task "$@" ;;
   *) usage; exit 1 ;;
 esac

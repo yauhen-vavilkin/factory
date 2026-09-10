@@ -110,6 +110,9 @@ public class CodingWorker implements AgentWorker {
     String repoUrl = requireTriggerKey(context, "repoUrl");
     String baseBranch = requireTriggerKey(context, "baseBranch");
     String branch = requireTriggerKey(context, "branch");
+    if (isResolvedButNotExecutionReady(context.triggerPayload())) {
+      return blockedBeforeExecution(taskId, repoUrl, branch);
+    }
     TaskContract contract = contractFrom(context.triggerPayload());
 
     Path workDir = null;
@@ -282,6 +285,27 @@ public class CodingWorker implements AgentWorker {
         deleteBestEffort(workDir);
       }
     }
+  }
+
+  private static boolean isResolvedButNotExecutionReady(JsonNode payload) {
+    JsonNode intent = payload == null ? null : payload.get("resolvedIntent");
+    return intent != null && intent.isObject() && !intent.path("executionReady").asBoolean(false);
+  }
+
+  private AgentResult blockedBeforeExecution(String taskId, String repoUrl, String branch) {
+    Map<String, Object> metadata = new LinkedHashMap<>();
+    metadata.put("task_id", taskId);
+    metadata.put("repo_url", repoUrl);
+    metadata.put("branch", branch);
+    metadata.put("outcome", "BLOCKED");
+    metadata.put("stop_reason", "EXECUTION_CONTRACT_NOT_FROZEN");
+    metadata.put("task_outcome", "BLOCKED");
+    metadata.put("task_outcome_reason", "PREPARATION_REFERENCES_REQUIRED");
+    String report = frontmatterCodec.render(metadata,
+        "# Execution blocked\n\nThe task intent is resolved, but source snapshot, image, dependency seed "
+            + "and baseline references have not been prepared. No sandbox, target build, or model was invoked.\n");
+    return new AgentResult(Map.of("patch.diff", EMPTY_PATCH, "report.md", report,
+        "trajectory.jsonl", ""), Map.of("blocked_before_execution", true));
   }
 
   /**
@@ -471,10 +495,12 @@ public class CodingWorker implements AgentWorker {
     JsonNode acceptance = payload.get("acceptance");
     JsonNode constraints = payload.get("constraints");
     JsonNode notes = payload.get("notes");
+    JsonNode rawTaskText = payload.get("rawTaskText");
     return new TaskContract(goal,
         acceptance == null || acceptance.isNull() ? null : acceptance,
         constraints == null || constraints.isNull() ? null : constraints,
-        notes != null && notes.isTextual() ? notes.asString() : null);
+        notes != null && notes.isTextual() ? notes.asString() : null,
+        rawTaskText != null && rawTaskText.isTextual() ? rawTaskText.asString() : null);
   }
 
   private static String requirePayloadKey(JsonNode payload, String key) {

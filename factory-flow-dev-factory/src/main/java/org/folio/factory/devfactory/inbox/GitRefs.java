@@ -58,4 +58,9 @@ public final class GitRefs {
         }
         return s.matches("^[0-9a-fA-F]{40}$") || s.matches("^[0-9a-fA-F]{64}$");
     }
+
+    /** GitHub SHA-1 object id accepted as a frozen source revision in v1. */
+    public static boolean isFullCommitSha(String value) {
+        return value != null && value.matches("^[0-9a-fA-F]{40}$");
+    }
 }

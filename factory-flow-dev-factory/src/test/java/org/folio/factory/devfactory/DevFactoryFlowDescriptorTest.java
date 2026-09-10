@@ -35,7 +35,7 @@ class DevFactoryFlowDescriptorTest {
         assertThat(flow.triggers().getFirst().eventType()).isEqualTo("file.inbox");
         assertThat(flow.triggers().getFirst().filters()).isEmpty();
         assertThat(textValues(flow.inputSchema().get("required")))
-                .containsExactly("taskId", "repoUrl", "goal");
+                .containsExactly("taskId", "repoUrl", "baseRevision", "resolvedIntent", "goal");
         assertThat(textValues(flow.outputSchema().get("artifacts")))
                 .containsExactly("patch.diff", "report.md", "trajectory.jsonl", "delivery-summary.md");
         assertThat(flow.retryPolicy()).isEqualTo(RetryPolicy.DEFAULT);

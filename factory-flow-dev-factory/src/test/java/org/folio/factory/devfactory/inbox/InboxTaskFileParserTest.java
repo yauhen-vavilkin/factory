@@ -7,168 +7,158 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
+import org.folio.factory.devfactory.contract.TaskRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.json.JsonMapper;
 
 class InboxTaskFileParserTest {
+  private static final String SHA = "0123456789abcdef0123456789abcdef01234567";
+  private final InboxTaskFileParser parser = new InboxTaskFileParser();
 
-    private static final String HEX_40 = "0123456789abcdef0123456789abcdef01234567";
-    private static final String HEX_64 =
-            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+  @Test
+  void parsesV1AndPreservesExactRawText(@TempDir Path dir) throws IOException {
+    String yaml = v1("baseRef: master");
+    Path file = write(dir, "task.yaml", yaml);
 
-    private final InboxTaskFileParser parser = new InboxTaskFileParser();
+    TaskRequest task = parser.parse(file);
 
-    @Test
-    void fullEightFieldFileParses(@TempDir Path tmp) throws IOException {
-        Path file = write(tmp, """
-                id: TASK-001
-                repo: https://github.com/acme/widgets.git
-                base: release/1.0
-                branch: task/TASK-001
-                goal: |
-                  Implement the widget parser.
-                  Keep it streaming.
-                acceptance:
-                  - parser handles empty input
-                  - all tests stay green
-                constraints:
-                  allow_paths:
-                    - src/main/java/
-                    - src/test/java/
-                  max_diff_lines: 500
-                notes: |
-                  First line of notes.
-                  Second line of notes.
-                """);
+    assertThat(task.schemaVersion()).isEqualTo(1);
+    assertThat(task.source().id()).isEqualTo("MODSIDECAR-208");
+    assertThat(task.repository()).isEqualTo("folio-org/folio-module-sidecar");
+    assertThat(task.baseRef()).isEqualTo("master");
+    assertThat(task.baseRevision()).isNull();
+    assertThat(task.acceptanceCriteria()).extracting(TaskRequest.AcceptanceCriterion::id)
+        .containsExactly("AC-1");
+    assertThat(task.rawTaskText()).isEqualTo(yaml);
+    assertThat(task.legacyAdapted()).isFalse();
+  }
 
-        InboxTask task = parser.parse(file);
-
-        assertThat(task.id()).isEqualTo("TASK-001");
-        assertThat(task.repo()).isEqualTo("https://github.com/acme/widgets.git");
-        assertThat(task.base()).isEqualTo("release/1.0");
-        assertThat(task.branch()).isEqualTo("task/TASK-001");
-        assertThat(task.goal()).isEqualTo("Implement the widget parser.\nKeep it streaming.\n");
-        assertThat(task.acceptance()).containsExactly(
-                "parser handles empty input", "all tests stay green");
-        assertThat(task.constraints()).containsOnlyKeys("allow_paths", "max_diff_lines");
-        assertThat(task.constraints().get("allow_paths"))
-                .isEqualTo(List.of("src/main/java/", "src/test/java/"));
-        assertThat(task.constraints().get("max_diff_lines")).isEqualTo(500);
-        assertThat(task.notes()).isEqualTo("First line of notes.\nSecond line of notes.\n");
+  @Test
+  void publishedSchemaIsVersionedStrictAndMatchesParserBoundary() throws IOException {
+    try (var input = getClass().getResourceAsStream("/schemas/task-request-v1.schema.json")) {
+      assertThat(input).isNotNull();
+      var schema = JsonMapper.builder().build().readTree(input.readAllBytes());
+      assertThat(schema.path("$id").asString()).isEqualTo("urn:folio-factory:TaskRequest:v1");
+      assertThat(schema.path("additionalProperties").asBoolean()).isFalse();
+      assertThat(schema.path("properties").path("schemaVersion").path("const").asInt())
+          .isEqualTo(TaskRequest.CURRENT_SCHEMA_VERSION);
     }
+  }
 
-    @Test
-    void minimalFileGetsDefaults(@TempDir Path tmp) throws IOException {
-        Path file = write(tmp, """
-                id: TASK-002
-                repo: https://github.com/acme/gadgets.git
-                goal: Make the gadget compile.
-                """);
+  @Test
+  void adaptsLegacyEightKeyFileWithoutDefaultingBase(@TempDir Path dir) throws IOException {
+    String yaml = """
+        id: MODSIDECAR-208
+        repo: folio-org/folio-module-sidecar
+        base: %s
+        branch: task/MODSIDECAR-208
+        goal: Add the setting.
+        acceptance: [works]
+        constraints: {}
+        notes: keep this
+        """.formatted(SHA);
 
-        InboxTask task = parser.parse(file);
+    TaskRequest task = parser.parse(write(dir, "legacy.yml", yaml));
 
-        assertThat(task.id()).isEqualTo("TASK-002");
-        assertThat(task.repo()).isEqualTo("https://github.com/acme/gadgets.git");
-        assertThat(task.goal()).isEqualTo("Make the gadget compile.");
-        assertThat(task.base()).isEqualTo("main");
-        assertThat(task.branch()).isEqualTo("task/TASK-002");
-        assertThat(task.acceptance()).isEmpty();
-        assertThat(task.constraints()).isEmpty();
-        assertThat(task.notes()).isNull();
+    assertThat(task.legacyAdapted()).isTrue();
+    assertThat(task.baseRevision()).isEqualTo(SHA);
+    assertThat(task.metadata().path("legacyDeliveryBranch").asString())
+        .isEqualTo("task/MODSIDECAR-208");
+    assertThat(task.acceptanceCriteria().getFirst().id()).isEqualTo("LEGACY-AC-1");
+    assertThat(task.rawTaskText()).isEqualTo(yaml);
+  }
+
+  @Test
+  void legacyMissingBaseIsRejectedInsteadOfGuessingMain(@TempDir Path dir) throws IOException {
+    assertThatThrownBy(() -> parser.parse(write(dir, "legacy.yaml", """
+        id: X-1
+        repo: folio-org/mod-scheduler
+        goal: Fix it.
+        """))).isInstanceOf(InboxTaskFileException.class).hasMessageContaining("base");
+  }
+
+  @Test
+  void duplicateAndUnknownKeysAreRejected(@TempDir Path dir) throws IOException {
+    assertThatThrownBy(() -> parser.parse(write(dir, "duplicate.yaml",
+        v1("baseRef: main") + "goal: second\n")))
+        .isInstanceOf(InboxTaskFileException.class).hasMessageContaining("Duplicate");
+    assertThatThrownBy(() -> parser.parse(write(dir, "unknown.yaml",
+        v1("baseRef: main") + "shell: mvn test\n")))
+        .isInstanceOf(InboxTaskFileException.class).hasMessageContaining("shell");
+  }
+
+  @Test
+  void revisionAndRefAreSeparateAndExactlyOneIsRequired(@TempDir Path dir) throws IOException {
+    assertThat(parser.parse(write(dir, "sha.json", v1("baseRevision: " + SHA))).baseRevision())
+        .isEqualTo(SHA);
+    assertThatThrownBy(() -> parser.parse(write(dir, "both.yaml",
+        v1("baseRevision: " + SHA + "\nbaseRef: main"))))
+        .hasMessageContaining("exactly one");
+    assertThatThrownBy(() -> parser.parse(write(dir, "short.yaml", v1("baseRevision: abc123"))))
+        .hasMessageContaining("full 40-character");
+    assertThatThrownBy(() -> parser.parse(write(dir, "sha-ref.yaml", v1("baseRef: " + SHA))))
+        .hasMessageContaining("not a commit SHA");
+  }
+
+  @Test
+  void taskCannotSupplyCommandsImagesMountsCredentialsOrNetwork(@TempDir Path dir) throws IOException {
+    for (String key : new String[] {"commands", "image", "mounts", "credentials", "networkPolicy"}) {
+      String content = v1("baseRef: main").replace("constraints: {}", "constraints:\n  " + key + ": bad");
+      assertThatThrownBy(() -> parser.parse(write(dir, key + ".yaml", content)))
+          .hasMessageContaining("cannot define trusted configuration");
     }
+  }
 
-    @Test
-    void malformedYamlRejected(@TempDir Path tmp) throws IOException {
-        Path file = write(tmp, "id: [unclosed");
+  @Test
+  void oversizedInvalidUtf8AndSymlinkAreRejected(@TempDir Path dir) throws IOException {
+    Path oversized = dir.resolve("oversized.yaml");
+    Files.write(oversized, new byte[InboxTaskFileParser.MAX_BYTES + 1]);
+    assertThatThrownBy(() -> parser.parse(oversized)).hasMessageContaining("256 KiB");
+    assertThatThrownBy(() -> parser.parseBytes(new byte[] {(byte) 0xc3, 0x28}, "bad"))
+        .hasMessageContaining("UTF-8");
+    Path target = write(dir, "target.yaml", v1("baseRef: main"));
+    Path link = dir.resolve("link.yaml");
+    Files.createSymbolicLink(link, target);
+    assertThatThrownBy(() -> parser.parse(link)).hasMessageContaining("symbolic links");
+  }
 
-        assertThatThrownBy(() -> parser.parse(file))
-                .isInstanceOf(InboxTaskFileException.class);
-    }
+  @Test
+  void hostileYamlTagIsRejected() {
+    assertThatThrownBy(() -> parser.parseBytes("!!javax.script.ScriptEngineManager []"
+        .getBytes(StandardCharsets.UTF_8), "hostile.yaml"))
+        .isInstanceOf(InboxTaskFileException.class);
+    assertThatThrownBy(() -> parser.parseBytes((v1("baseRef: main") + "---\nfoo: bar\n")
+        .getBytes(StandardCharsets.UTF_8), "multi.yaml"))
+        .isInstanceOf(InboxTaskFileException.class).hasMessageContaining("Trailing token");
+  }
 
-    @Test
-    void missingGoalRejected(@TempDir Path tmp) throws IOException {
-        Path file = write(tmp, """
-                id: TASK-003
-                repo: https://github.com/acme/gadgets.git
-                """);
+  private static String v1(String revision) {
+    return """
+        schemaVersion: 1
+        source:
+          type: JIRA
+          id: MODSIDECAR-208
+          project: MODSIDECAR
+          component: folio-module-sidecar
+        repository: folio-org/folio-module-sidecar
+        %s
+        runKey: default
+        deliveryMode: LOCAL_ONLY
+        metadata: {}
+        goal: Add the setting.
+        acceptanceCriteria:
+          - id: AC-1
+            text: The setting is present.
+            source: TICKET
+        constraints: {}
+        notes: preserve me
+        """.formatted(revision);
+  }
 
-        assertThatThrownBy(() -> parser.parse(file))
-                .isInstanceOf(InboxTaskFileException.class)
-                .hasMessageContaining("goal");
-    }
-
-    @Test
-    void blankIdRejected(@TempDir Path tmp) throws IOException {
-        Path file = write(tmp, """
-                id: "   "
-                repo: https://github.com/acme/gadgets.git
-                goal: Make the gadget compile.
-                """);
-
-        assertThatThrownBy(() -> parser.parse(file))
-                .isInstanceOf(InboxTaskFileException.class)
-                .hasMessageContaining("id");
-    }
-
-    @Test
-    void unknownTopLevelKeyRejected(@TempDir Path tmp) throws IOException {
-        Path file = write(tmp, """
-                id: TASK-004
-                repo: https://github.com/acme/gadgets.git
-                goal: Make the gadget compile.
-                goals: stray key
-                """);
-
-        assertThatThrownBy(() -> parser.parse(file))
-                .isInstanceOf(InboxTaskFileException.class)
-                .hasMessageContaining("goals");
-    }
-
-    @Test
-    void explicitHex40BaseRejected(@TempDir Path tmp) throws IOException {
-        Path file = write(tmp, """
-                id: TASK-005
-                repo: https://github.com/acme/gadgets.git
-                goal: Make the gadget compile.
-                base: %s
-                """.formatted(HEX_40));
-
-        assertThatThrownBy(() -> parser.parse(file))
-                .isInstanceOf(InboxTaskFileException.class)
-                .hasMessageContaining("base");
-    }
-
-    @Test
-    void explicitHex64BranchRejected(@TempDir Path tmp) throws IOException {
-        Path file = write(tmp, """
-                id: TASK-006
-                repo: https://github.com/acme/gadgets.git
-                goal: Make the gadget compile.
-                branch: %s
-                """.formatted(HEX_64));
-
-        assertThatThrownBy(() -> parser.parse(file))
-                .isInstanceOf(InboxTaskFileException.class)
-                .hasMessageContaining("branch");
-    }
-
-    @Test
-    void idWithSpaceRejectedViaDefaultBranch(@TempDir Path tmp) throws IOException {
-        Path file = write(tmp, """
-                id: "bad id"
-                repo: https://github.com/acme/gadgets.git
-                goal: Make the gadget compile.
-                """);
-
-        assertThatThrownBy(() -> parser.parse(file))
-                .isInstanceOf(InboxTaskFileException.class)
-                .hasMessageContaining("branch");
-    }
-
-    private static Path write(Path dir, String yaml) throws IOException {
-        Path file = dir.resolve("task.yaml");
-        Files.writeString(file, yaml, StandardCharsets.UTF_8);
-        return file;
-    }
+  private static Path write(Path dir, String name, String value) throws IOException {
+    Path file = dir.resolve(name);
+    Files.writeString(file, value, StandardCharsets.UTF_8);
+    return file;
+  }
 }

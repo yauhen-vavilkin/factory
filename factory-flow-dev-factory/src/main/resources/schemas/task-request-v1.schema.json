@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:folio-factory:TaskRequest:v1",
+  "title": "TaskRequest/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "source", "goal"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 },
+        "project": { "type": "string", "minLength": 1 },
+        "component": { "type": "string", "minLength": 1 }
+      }
+    },
+    "repository": { "type": "string", "minLength": 1 },
+    "baseRevision": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$" },
+    "baseRef": { "type": "string", "minLength": 1 },
+    "profileId": { "type": "string", "minLength": 1 },
+    "verificationPlanId": { "type": "string", "minLength": 1 },
+    "runKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$", "maxLength": 128 },
+    "deliveryMode": { "const": "LOCAL_ONLY" },
+    "metadata": { "type": "object" },
+    "goal": { "type": "string", "minLength": 1 },
+    "acceptanceCriteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "constraints": { "type": "object" },
+    "notes": { "type": "string" }
+  },
+  "oneOf": [
+    { "required": ["baseRevision"], "not": { "required": ["baseRef"] } },
+    { "required": ["baseRef"], "not": { "required": ["baseRevision"] } }
+  ]
+}

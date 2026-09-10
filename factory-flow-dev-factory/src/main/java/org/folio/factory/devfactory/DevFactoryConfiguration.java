@@ -5,6 +5,11 @@ import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.devfactory.inbox.InboxProperties;
 import org.folio.factory.devfactory.inbox.InboxTaskFileParser;
+import org.folio.factory.devfactory.profile.TrustedProfileCatalog;
+import org.folio.factory.devfactory.resolution.GitHubRepositoryAccess;
+import org.folio.factory.devfactory.resolution.RepositoryAccess;
+import org.folio.factory.devfactory.resolution.RepositoryCatalog;
+import org.folio.factory.devfactory.resolution.TaskResolutionService;
 import org.folio.factory.devfactory.worker.CodingWorker;
 import org.folio.factory.devfactory.worker.DevFactoryFinalizer;
 import org.folio.factory.devfactory.worker.recovery.RecoveryBundleStore;
@@ -23,6 +28,27 @@ public class DevFactoryConfiguration {
   @Bean
   public InboxTaskFileParser inboxTaskFileParser() {
     return new InboxTaskFileParser();
+  }
+
+  @Bean
+  public RepositoryCatalog repositoryCatalog() {
+    return new RepositoryCatalog();
+  }
+
+  @Bean
+  public RepositoryAccess repositoryAccess() {
+    return new GitHubRepositoryAccess();
+  }
+
+  @Bean
+  public TrustedProfileCatalog trustedProfileCatalog() {
+    return new TrustedProfileCatalog();
+  }
+
+  @Bean
+  public TaskResolutionService taskResolutionService(RepositoryCatalog repositoryCatalog,
+      RepositoryAccess repositoryAccess, TrustedProfileCatalog trustedProfileCatalog) {
+    return new TaskResolutionService(repositoryCatalog, repositoryAccess, trustedProfileCatalog);
   }
 
   /**

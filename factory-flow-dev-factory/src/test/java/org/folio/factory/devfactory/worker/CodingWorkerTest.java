@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.nio.file.Files;
@@ -128,6 +129,29 @@ class CodingWorkerTest {
         "teardown:sbx-1");
     assertThat(sandbox.teardowns).isEqualTo(1);
     assertThat(result.outputs()).containsOnlyKeys("patch.diff", "report.md", "trajectory.jsonl");
+  }
+
+  @Test
+  void resolvedIntentWithoutPreparationInvokesNeitherSandboxNorModel() {
+    SandboxService sandbox = org.mockito.Mockito.mock(SandboxService.class);
+    CodingHarness codingHarness = org.mockito.Mockito.mock(CodingHarness.class);
+    CodingWorker worker = new CodingWorker(sandbox, codingHarness, codec);
+    JsonNode payload = JsonMapper.builder().build().valueToTree(Map.of(
+        "taskId", "MODSIDECAR-208",
+        "repoUrl", "https://github.com/folio-org/folio-module-sidecar.git",
+        "baseBranch", BASE_SHA,
+        "branch", "task/MODSIDECAR-208",
+        "goal", "implement it",
+        "resolvedIntent", Map.of("status", "RESOLVED", "executionReady", false)));
+    AgentContext context = new AgentContext(UUID.randomUUID(), "coding", Map.of(), payload,
+        Map.of(), List.of("patch.diff", "report.md", "trajectory.jsonl"));
+
+    AgentResult result = worker.execute(context);
+
+    assertThat(result.outputs().get("report.md"))
+        .contains("task_outcome: \"BLOCKED\"", "No sandbox, target build, or model was invoked");
+    assertThat(result.metrics()).containsEntry("blocked_before_execution", true);
+    verifyNoInteractions(sandbox, codingHarness, adapter);
   }
 
   /**

@@ -4,7 +4,7 @@ version: 1.0.0
 triggers:
   - event_type: file.inbox
 input_schema:
-  required: [taskId, repoUrl, goal]
+  required: [taskId, repoUrl, baseRevision, resolvedIntent, goal]
 output_schema:
   artifacts: [patch.diff, report.md, trajectory.jsonl, delivery-summary.md]
 retry_policy:

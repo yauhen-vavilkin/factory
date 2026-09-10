@@ -47,3 +47,47 @@ tests. `--eval-pack` runs the scripted hermetic evaluation pack, including its
 three required regression, counterexample, and summary scenario classes. Every
 command fails if it selects zero tests and writes its full log and test selection
 under `.factory/logs/validation/`.
+
+## Resolve and submit a development task
+
+Factory accepts UTF-8 YAML or JSON up to 256 KiB. A v1 task names exactly one
+`baseRevision` (a full 40-character SHA) or `baseRef` (a branch). It does not
+default to the repository's current or default branch.
+
+```yaml
+schemaVersion: 1
+source:
+  type: JIRA
+  id: MODSIDECAR-208
+  project: MODSIDECAR
+repository: folio-org/folio-module-sidecar
+baseRevision: c13e0383d9283ef554c195cf5357bb3c6eeb4e65
+runKey: first
+deliveryMode: LOCAL_ONLY
+goal: Add the accepted thread-pool setting.
+acceptanceCriteria:
+  - id: AC-1
+    text: The configured default is 8.
+    source: TICKET
+constraints: {}
+notes: Preserve the complete task text.
+```
+
+With Factory running, inspect the deterministic repository/revision/profile
+decision without submitting it:
+
+```bash
+./scripts/factory resolve-task task.yaml
+```
+
+Submit through an atomic `.partial` to final rename:
+
+```bash
+./scripts/factory submit task.yaml
+```
+
+The same semantic task and `runKey` reuses the database admission. Change
+`runKey` for an intentional new experiment. Invalid files receive a reject
+receipt; ambiguous tasks receive a structured blocker. M1 resolves and stores
+intent but does not run it: coding remains blocked until later preparation has
+produced real source, image, dependency-seed, and baseline references.
