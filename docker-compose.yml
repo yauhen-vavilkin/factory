@@ -1,4 +1,9 @@
 services:
+  factory-gateway:
+    image: python:3.12-alpine
+    command: ["python", "-c", "from http.server import HTTPServer,BaseHTTPRequestHandler; HTTPServer(('0.0.0.0',8080),BaseHTTPRequestHandler).serve_forever()"]
+    networks: [factory-pi-network]
+    restart: unless-stopped
   postgres:
     image: postgres:16
     environment:
@@ -18,6 +23,10 @@ services:
       retries: 30
       start_period: 5s
     restart: unless-stopped
+
+networks:
+  factory-pi-network:
+    internal: true
 
 secrets:
   factory_postgres_password:

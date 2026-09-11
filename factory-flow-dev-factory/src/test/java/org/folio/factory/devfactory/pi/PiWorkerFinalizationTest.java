@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.never;
 
 import java.util.Map;
 import org.folio.factory.core.agent.AgentContext;
@@ -71,9 +70,9 @@ class PiWorkerFinalizationTest {
     AgentResult result = new PiWorker("pi-coding-worker", sandboxes, runner, "", "gateway")
         .execute(context);
     assertThat(result.outputs().get("candidate.patch")).contains("diff --git");
-    assertThat(json.readTree(result.outputs().get("candidate.json")).path("retained").asBoolean()).isTrue();
+    assertThat(json.readTree(result.outputs().get("candidate.json")).path("retained").asBoolean()).isFalse();
     assertThat(result.metrics()).containsEntry("failure_stage", "coding");
-    verify(sandboxes, never()).teardown(handle);
+    verify(sandboxes).teardown(handle);
   }
 
   @Test
@@ -112,7 +111,8 @@ class PiWorkerFinalizationTest {
         org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.anyMap());
     assertThat(argv.getValue()).containsExactly("/opt/pi/node_modules/.bin/pi", "--mode", "rpc",
         "--provider", "java-provider", "--model", "java-model", "--no-approve", "--no-extensions",
-        "--no-skills", "--no-context-files", "--tools", "read,bash,edit,write,grep,find,ls");
+        "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "--tools",
+        "read,bash,edit,write,grep,find,ls", "--session-dir", "/state/pi/sessions");
   }
 
   private AgentResult finalizeWorker(String status, String verification, String candidate,

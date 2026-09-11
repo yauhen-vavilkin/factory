@@ -22,6 +22,7 @@ Usage:
   ./scripts/factory doctor --offline
   ./scripts/factory start --mode offline|live|pi
   ./scripts/factory smoke --pi --scripted
+  ./scripts/factory evidence-verify
   ./scripts/factory stop
   ./scripts/factory validate --unit|--integration|--eval-pack
   ./scripts/factory resolve-task TASK.yaml
@@ -227,6 +228,11 @@ HTTPServer(("0.0.0.0",8080),H).serve_forever()')
     docker run --rm --network "$network" python:3.12-alpine python -c 'import urllib.request; urllib.request.urlopen("http://factory-gateway:8080/health")' >/dev/null 2>&1 && break
     sleep 0.2
   done
+  local direct_egress=ALLOWED
+  if ! docker run --rm --network "$network" --network-alias direct-probe python:3.12-alpine \
+      python -c 'import urllib.request; urllib.request.urlopen("https://example.com", timeout=2)' \
+      >/dev/null 2>&1; then direct_egress=DENIED; fi
+  [[ "$direct_egress" == DENIED ]] || fail "sandbox network permits direct egress"
   local fixture
   fixture=$(mktemp -d "$STATE_DIR/data/sandboxes/pi-smoke-fixture.XXXXXX")
   local verify="$STATE_DIR/data/sandboxes/pi-smoke-verify.$$"
@@ -281,6 +287,7 @@ EOF
   {
     echo "mode=pi scripted=true provider_calls=$(wc -l < "$STATE_DIR/logs/validation/upstream-requests.jsonl") paid_calls=0 gateway=private-fixed-route"
     echo "image=factory-pi:jdk21 node=22.19.0 pi=0.85.1 network=$network non_root=true no_tty=true"
+    echo "DIRECT_EGRESS=$direct_egress gateway_path=SERVING"
     echo "raw_rpc=$raw prompts=model_requests=native_read=native_bash=agent_settled"
     echo "base=$base candidateHead=$candidate_head candidate=$candidate"
     echo "verification=$STATE_DIR/data/artifacts/pi-smoke-verification.json independent=true fresh_checkout=true maven_verify=pi-verify-mvn.log wrong_candidate=rejected"
@@ -288,6 +295,36 @@ EOF
     echo "artifacts=$STATE_DIR/data/artifacts"
   } | tee "$log"
   echo "Pi scripted smoke recorded: log=$log"
+}
+
+evidence_verify() {
+  [[ $# == 0 ]] || fail "evidence-verify takes no arguments"
+  local evidence_dir="$ROOT_DIR/docs/exec-plans/dev-factory-v1-replanned-handoff/evidence/M2"
+  local report="$ROOT_DIR/docs/exec-plans/dev-factory-v1-replanned-handoff/reports/M2.md"
+  local status="$ROOT_DIR/docs/exec-plans/dev-factory-v1-replanned-handoff/STATUS.yaml"
+  [[ -f "$report" && -f "$status" ]] || fail "M2 report/status missing"
+  local head
+  head=$(git -C "$ROOT_DIR" rev-parse HEAD)
+  grep -q "Candidate HEAD: \`$head\`" "$report" || fail "report candidate HEAD is not current HEAD"
+  grep -q '^state: COMPLETE$' "$status" || fail "STATUS.yaml is not COMPLETE"
+  grep -q '^State: COMPLETE\.' "$report" || fail "report state disagrees with STATUS.yaml"
+  local path
+  while IFS= read -r path; do
+    [[ -f "$ROOT_DIR/$path" ]] || fail "cited evidence missing: $path"
+    git -C "$ROOT_DIR" ls-files --error-unmatch "$path" >/dev/null 2>&1 ||
+      fail "cited evidence is untracked: $path"
+  done < <(sed -n 's/.*`\(evidence\/M2\/[^`]*\)`.*/\1/p' "$report" "$status" | sort -u)
+  "$ROOT_DIR/scripts/factory" smoke --pi --scripted >/tmp/factory-evidence-smoke.log
+  local fresh="$ROOT_DIR/.factory/data/artifacts/pi-smoke-candidate.json"
+  cmp -s "$evidence_dir/candidate.json" "$fresh" || fail "candidate evidence does not match fresh smoke"
+  local validation="$ROOT_DIR/.factory/logs/validation/unit-tests.txt"
+  "$ROOT_DIR/scripts/factory" validate --unit >/tmp/factory-evidence-unit.log
+  local fresh_count recorded_count
+  fresh_count=$(sed -n 's/^TOTAL_TESTS=//p' "$validation" | tail -1)
+  recorded_count=$(sed -n 's/.*validate --unit.*\([0-9][0-9]*\) tests.*/\1/p' "$report" | head -1)
+  [[ -n "$recorded_count" && "$fresh_count" == "$recorded_count" ]] ||
+    fail "recorded test count $recorded_count disagrees with fresh count $fresh_count"
+  echo "evidence-verify: PASS head=$head candidate=$fresh_count tests direct-egress=DENIED"
 }
 
 stop_factory() {
@@ -422,6 +459,7 @@ case "$command" in
   stop) [[ $# == 0 ]] || fail "stop takes no arguments"; stop_factory ;;
   validate) validate_suite "$@" ;;
   smoke) smoke_pi_scripted "$@" ;;
+  evidence-verify) evidence_verify "$@" ;;
   resolve-task) resolve_task "$@" ;;
   submit) submit_task "$@" ;;
   *) usage; exit 1 ;;

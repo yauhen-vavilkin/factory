@@ -13,6 +13,7 @@ import com.github.dockerjava.core.command.ExecStartResultCallback;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
+import java.util.Map;
 import org.folio.factory.sandbox.api.CommandResult;
 import org.folio.factory.sandbox.api.SandboxHandle;
 import org.folio.factory.sandbox.api.SandboxService;
@@ -55,8 +56,18 @@ public class DockerSandboxService implements SandboxService {
     try {
       String effectiveNetwork = spec.networkPolicy() == null ? dockerNetwork
           : ("GATEWAY_ONLY".equals(spec.networkPolicy()) ? dockerNetwork : null);
+      if ("GATEWAY_ONLY".equals(spec.networkPolicy())
+          && (dockerNetwork == null || dockerNetwork.isBlank())) {
+        throw new SandboxException("GATEWAY_ONLY requires factory.sandbox.docker-network; refusing default bridge");
+      }
       String effectiveImage = spec.image() == null ? image : spec.image();
       HostConfig hostConfig = new HostConfig().withNetworkMode(effectiveNetwork)
+              .withReadonlyRootfs(true)
+              .withTmpFs(Map.of("/tmp", "rw,nosuid,nodev,mode=1777,size=1g",
+                  "/workspace", "rw,nosuid,nodev,mode=1777,size=2g",
+                  "/state/pi/sessions", "rw,nosuid,nodev,mode=1777,size=1g",
+                  "/state/tmp", "rw,nosuid,nodev,mode=1777,size=256m",
+                  "/home/agent", "rw,nosuid,nodev,mode=1777,size=1g"))
               .withNanoCPUs(2_000_000_000L)
               .withMemory(4L * 1024 * 1024 * 1024)
               .withPidsLimit(512L)

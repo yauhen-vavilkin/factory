@@ -96,14 +96,14 @@ public final class PiWorker implements AgentWorker {
     SandboxHandle handle = sandboxes.create(new SandboxSpec(p.path("taskId").asText(),
         p.path("repoUrl").asText(), p.path("baseRevision").asText(), p.path("branch").asText(),
         context.executionId() + "-attempt-" + context.attempt(), image, platform, networkPolicy));
-    boolean teardown = true;
     try {
       String task = json.writeValueAsString(Map.of("goal", p.path("goal").asText(),
           "acceptance", p.path("acceptance"), "policy", "Only edit the prepared repository."));
       var attempt = runner.run(handle, List.of("/opt/pi/node_modules/.bin/pi", "--mode", "rpc",
           "--provider", provider, "--model", model, "--no-approve",
-          "--no-extensions", "--no-skills", "--no-context-files", "--tools",
-          "read,bash,edit,write,grep,find,ls"), "/workspace/repo", task,
+          "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
+          "--no-context-files", "--tools", "read,bash,edit,write,grep,find,ls",
+          "--session-dir", "/state/pi/sessions"), "/workspace/repo", task,
           Duration.ofMinutes(30), 16L * 1024 * 1024, Map.of(
               "PI_OFFLINE", "1",
               "FACTORY_MODEL_TOKEN", modelToken,
@@ -111,13 +111,13 @@ public final class PiWorker implements AgentWorker {
       CommandResult diff = snapshot(handle, p.path("baseRevision").asText());
       CommandResult head = sandboxes.exec(handle, "cd repo && git rev-parse HEAD", 30);
       if (!attempt.settled()) {
-        teardown = false;
         String failure = json.writeValueAsString(Map.of("status", "FAILED", "stage", "coding",
-            "reason", "PI_UNSETTLED", "retained", true, "patch_bytes", diff.stdout().length()));
+            "reason", "PI_UNSETTLED", "retained", false, "exportAttempted", true,
+            "patch_bytes", diff.stdout().length()));
         return new AgentResult(Map.of("candidate.patch", diff.stdout(),
             "candidate.json", failure, "pi-session.jsonl", attempt.rawExchange(),
             "usage.json", "{\"provider_calls\":1,\"settled\":false,\"retained\":true}"),
-            Map.of("provider_calls", 1, "settled", false, "retained", true,
+            Map.of("provider_calls", 1, "settled", false, "retained", false,
                 "failure_stage", "coding"));
       }
       String candidate = head.stdout().trim();
@@ -129,14 +129,16 @@ public final class PiWorker implements AgentWorker {
           "usage.json", "{\"provider_calls\":1,\"settled\":true}"),
           Map.of("provider_calls", 1, "settled", true, "candidate", candidate));
     } catch (RuntimeException e) {
-      teardown = false;
+      String exportedPatch = "";
+      try { exportedPatch = snapshot(handle, p.path("baseRevision").asText()).stdout(); }
+      catch (RuntimeException ignored) { }
       String failure = json.writeValueAsString(Map.of("status", "FAILED", "stage", "coding",
-          "reason", failureMessage(e), "retained", true));
-      return new AgentResult(Map.of("candidate.patch", "", "candidate.json", failure,
+          "reason", failureMessage(e), "retained", false, "exportAttempted", true));
+      return new AgentResult(Map.of("candidate.patch", exportedPatch, "candidate.json", failure,
           "pi-session.jsonl", "", "usage.json", "{\"provider_calls\":1,\"retained\":true}"),
           Map.of("provider_calls", 1, "settled", false, "retained", true,
               "failure_stage", "coding"));
-    } finally { if (teardown) sandboxes.teardown(handle); }
+    } finally { sandboxes.teardown(handle); }
   }
 
   private static String failureMessage(Throwable error) {

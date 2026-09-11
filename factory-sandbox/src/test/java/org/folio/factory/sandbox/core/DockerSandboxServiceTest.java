@@ -109,6 +109,18 @@ class DockerSandboxServiceTest {
     assertEquals(2_000_000_000L, config.getNanoCPUs());
     assertEquals(4L * 1024 * 1024 * 1024, config.getMemory());
     assertEquals(512L, config.getPidsLimit());
+    assertTrue(config.getReadonlyRootfs());
+    assertTrue(config.getTmpFs().containsKey("/tmp"));
+    assertTrue(config.getTmpFs().containsKey("/workspace"));
+  }
+
+  @Test
+  void gatewayOnlyWithoutNetworkFailsBeforeContainerCreation() {
+    SandboxSpec gatewaySpec = new SandboxSpec("task1", "https://example.com/repo.git", "main",
+        "feature/x", "owner", IMAGE, "linux/amd64", "GATEWAY_ONLY");
+    SandboxException error = assertThrows(SandboxException.class, () -> service.create(gatewaySpec));
+    assertTrue(error.getMessage().contains("GATEWAY_ONLY requires"));
+    verify(dockerClient, times(0)).createContainerCmd(any());
   }
 
   @Test

@@ -67,9 +67,9 @@ public final class PiCodingRunner {
       try { session.stdin().close(); } catch (IOException ignored) { }
       int exit;
       try { exit = session.awaitExit().get(Math.min(timeout.toMillis(), 10_000), TimeUnit.MILLISECONDS); }
-      catch (TimeoutException e) { exit = -1; }
+      catch (TimeoutException e) { session.killWorkload(); exit = -1; }
       catch (InterruptedException e) { Thread.currentThread().interrupt(); exit = -1; }
-      catch (ExecutionException e) { exit = -1; }
+      catch (ExecutionException e) { session.killWorkload(); exit = -1; }
       synchronized (monitor) {
         decoder.finish();
         if (protocolFailure.get() != null) throw protocolFailure.get();
@@ -77,7 +77,20 @@ public final class PiCodingRunner {
             session.stdoutBytes(), session.stderrBytes());
       }
     } catch (IOException e) {
+      session.killWorkload();
       throw new IllegalStateException("Pi RPC write failed", e);
+    }
+  }
+
+  /** Cancellation follows Pi's queue/abort protocol before stopping the whole workload. */
+  public void cancel(ProcessSession session) {
+    try {
+      send(session, command("clear_queue", "factory-cancel-queue"));
+      send(session, command("abort", "factory-cancel-abort"));
+    } catch (IOException ignored) {
+      // The workload kill below is the authoritative cancellation boundary.
+    } finally {
+      session.killWorkload();
     }
   }
 
