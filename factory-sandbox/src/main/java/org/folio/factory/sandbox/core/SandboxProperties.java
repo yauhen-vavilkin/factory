@@ -8,11 +8,17 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
 @ConfigurationProperties(prefix = "factory.sandbox")
 public record SandboxProperties(String mode, String image, String dockerHost,
     Path workspaceRoot, Duration workspaceRetention, String mavenCacheVolume,
-    String dockerNetwork) {
+    String dockerNetwork, String dependencyDockerNetwork) {
 
   public SandboxProperties(String mode, String image, String dockerHost, Path workspaceRoot,
       Duration workspaceRetention, String mavenCacheVolume) {
-    this(mode, image, dockerHost, workspaceRoot, workspaceRetention, mavenCacheVolume, null);
+    this(mode, image, dockerHost, workspaceRoot, workspaceRetention, mavenCacheVolume, null, null);
+  }
+
+  public SandboxProperties(String mode, String image, String dockerHost, Path workspaceRoot,
+      Duration workspaceRetention, String mavenCacheVolume, String dockerNetwork) {
+    this(mode, image, dockerHost, workspaceRoot, workspaceRetention, mavenCacheVolume,
+        dockerNetwork, null);
   }
 
   @ConstructorBinding
@@ -31,5 +37,7 @@ public record SandboxProperties(String mode, String image, String dockerHost,
     mavenCacheVolume = mavenCacheVolume == null || mavenCacheVolume.isBlank()
         ? "factory-m2-cache" : mavenCacheVolume;
     dockerNetwork = dockerNetwork == null || dockerNetwork.isBlank() ? null : dockerNetwork;
+    dependencyDockerNetwork = dependencyDockerNetwork == null || dependencyDockerNetwork.isBlank()
+        ? null : dependencyDockerNetwork;
   }
 }

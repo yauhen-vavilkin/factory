@@ -2,9 +2,9 @@ schemaVersion: 1
 planId: pi-minimal-v2
 branch: main
 startingHead: 34aa29f
-checkpointHead: e3bbfc7b7840169c3453222da61b9e83c46d40c7
+checkpointHead: 7310d5f61d92dc880c26ecf72cde785ed20a3109
 observedRemoteHead: e3bbfc7b7840169c3453222da61b9e83c46d40c7
-currentMilestone: M2
+currentMilestone: M3
 state: COMPLETE
 milestones:
   M1:
@@ -22,13 +22,22 @@ milestones:
       M2-C6: evidence/M2/mvn-verify-excerpt.log
       M2-C7: evidence/M2/gates.txt
   M3:
-    state: NOT_STARTED
+    state: COMPLETE
     report: reports/M3.md
-    workflowOperational: null
-    benchmarkOutcome: null
+    evidence:
+      M3-C1: evidence/M3/baseline.json
+      M3-C2: evidence/M3/baseline.json
+      M3-C3: evidence/M3/low-003-session-excerpt.jsonl
+      M3-C4: evidence/M3/low-003-session-excerpt.jsonl
+      M3-C5: evidence/M3/low-003-session-excerpt.jsonl
+      M3-C6: evidence/M3/gateway-live.jsonl
+      M3-C7: evidence/M3/checks.txt
+    workflowOperational: true
+    benchmarkOutcome: FAILED
     firstLowSolved: false
   M4:
     state: NOT_STARTED
     report: reports/M4.md
-blockers: []
-nextAction: "Await explicit authorization before starting M3."
+blockers:
+  - "The first real Pi request was rejected by Z.AI with HTTP 400 code 1214; the corrected Z.AI compatibility profile is scripted-smoke verified but not live re-qualified because the three live attempts are exhausted."
+nextAction: "Await explicit authorization for a fresh M4 live attempt using the corrected factory-zai compatibility profile."

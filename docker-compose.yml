@@ -1,8 +1,45 @@
 services:
   factory-gateway:
-    image: python:3.12-alpine
-    command: ["python", "-c", "from http.server import HTTPServer,BaseHTTPRequestHandler; HTTPServer(('0.0.0.0',8080),BaseHTTPRequestHandler).serve_forever()"]
-    networks: [factory-pi-network]
+    build:
+      context: ./factory-gateway
+    environment:
+      FACTORY_GATEWAY_MODE: coding
+      FACTORY_UPSTREAM_BASE_URL: ${FACTORY_MODEL_BASE_URL:-https://api.z.ai/api/paas/v4}
+      FACTORY_UPSTREAM_API_KEY: ${FACTORY_MODEL_API_KEY:-}
+      FACTORY_EXPECTED_MODEL: ${FACTORY_MODEL_ID:-glm-5.3-flash}
+      FACTORY_RUN_TOKEN: ${FACTORY_MODEL_TOKEN:-}
+      FACTORY_GATEWAY_EXPIRES_AT: ${FACTORY_GATEWAY_EXPIRES_AT:-0}
+      FACTORY_MAX_ATTEMPTS: ${FACTORY_MODEL_MAX_ATTEMPTS:-40}
+      FACTORY_MAX_OUTPUT_TOKENS: ${FACTORY_MODEL_MAX_OUTPUT_TOKENS:-16384}
+    ports:
+      - "127.0.0.1:${FACTORY_GATEWAY_PORT:-18081}:8080"
+    volumes:
+      - ./.factory/logs/runs:/evidence
+    networks: [factory-pi-network, factory-pi-egress]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 2s
+    restart: unless-stopped
+  factory-dependency-gateway:
+    build:
+      context: ./factory-gateway
+    environment:
+      FACTORY_GATEWAY_MODE: dependencies
+    volumes:
+      - ./.factory/logs/runs:/evidence
+    networks:
+      factory-pi-dependency-network:
+        aliases: [factory-gateway]
+      factory-pi-egress: {}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 2s
     restart: unless-stopped
   postgres:
     image: postgres:16
@@ -26,7 +63,13 @@ services:
 
 networks:
   factory-pi-network:
+    name: ${FACTORY_SANDBOX_DOCKER_NETWORK:-factory-pi-network}
     internal: true
+  factory-pi-dependency-network:
+    name: ${FACTORY_SANDBOX_DEPENDENCY_DOCKER_NETWORK:-factory-pi-dependency-network}
+    internal: true
+  factory-pi-egress:
+    name: ${FACTORY_GATEWAY_EGRESS_NETWORK:-factory-pi-egress}
 
 secrets:
   factory_postgres_password:

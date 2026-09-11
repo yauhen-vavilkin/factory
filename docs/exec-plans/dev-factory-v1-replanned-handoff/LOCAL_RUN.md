@@ -1,6 +1,6 @@
 # Local operation contract
 
-**Target interface, not an assertion that all commands already exist.** Reuse working M0/M1 launcher behavior and names. Today init/infra/doctor-offline/start/stop/validate/resolve-task/submit are documented; the Pi-specific commands below are to be added. [R3](SOURCES.md)
+This is the verified M3 operator path for one local Pi execution. Reuse the existing M0/M1 launcher behavior and names; the Pi-specific commands below now cover gateway qualification, evaluation admission, observation, and bounded export. [R3](SOURCES.md)
 
 ## Configuration
 
@@ -24,6 +24,8 @@ The model ID is accepted research input, **not a verified entitlement**. Base UR
 
 Use General API by default as selected in the Pi decision. An operator may select the distinct Coding Plan endpoint/profile deliberately; do not infer billing/access from a key or switch products silently. No actual price is supplied here. Optional `FACTORY_PRICING_FILE` points to a small operator-owned rate configuration; every run retains its applicable nonsecret snapshot.
 
+Pi sees only the fixed local coding-gateway URL, so `factory-sandbox/pi-models.json` carries the explicit Z.AI compatibility fields (`system` role, Z.AI thinking format and tool streaming). Do not remove them when changing the gateway or upstream URL; URL-based compatibility detection cannot see through this route. Preparation, frozen export and independent verification use a separate dependency-only gateway with Maven GET/HEAD routes and no provider key, run token or model route. The coding gateway's host binding is loopback-only for the explicit doctor; it is not an externally reachable service.
+
 Put fixed runtime version, compaction/retry defaults, resource limits and trusted mirror routes in one versioned Pi profile. They need not become dozens of required `.env` variables. Initially only coding uses a model, so there is no reason to configure analysis/review/fix models. CLI reasoning for the implementation agent and Pi's runtime thinking level are separate settings.
 
 ## Tested path required by M3
@@ -42,7 +44,7 @@ cp .env.example .env
 ./scripts/factory stop
 ```
 
-`infra up` wraps Compose; preserve its persistent DB and loopback bindings. The image is built/pulled explicitly before task spend, then reused by immutable identity. `start --mode pi` uses the host JVM, the Pi flow and the Pi-specific inbox event; it does not need an Anthropic key and makes no hidden paid probe. Offline mode remains separate and key-free.
+`infra up` wraps Compose; preserve its persistent DB and loopback bindings. The image is built/pulled explicitly before task spend, then reused by immutable identity. `start --mode pi` uses the host JVM, the Pi flow and the Pi-specific inbox event; it does not need an Anthropic key and makes no hidden paid probe. The provider key is mapped from legacy `GLM_API_KEY` only when the new `FACTORY_MODEL_API_KEY` is empty, and is passed only to the fixed coding gateway. Offline mode remains separate and key-free. The coding and dependency gateways are removed on a clean stop and on startup failure; the dependency gateway has no provider credentials.
 
 `smoke --pi --scripted` runs actual pinned Pi/Docker against a deterministic fake upstream. It cannot contact the paid provider even if `.env` contains a key.
 

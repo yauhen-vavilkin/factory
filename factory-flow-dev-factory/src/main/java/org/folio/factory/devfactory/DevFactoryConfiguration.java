@@ -34,26 +34,31 @@ public class DevFactoryConfiguration {
   @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
   public PiWorker piPrepareWorker(SandboxService s, PiCodingRunner r,
       @Value("${factory.pi.model-token:}") String token,
-      @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway) {
-    return new PiWorker("pi-prepare-worker", s, r, token, gateway);
+      @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway,
+      @Value("${factory.pi.thinking:high}") String thinking) {
+    return new PiWorker("pi-prepare-worker", s, r, token, gateway, thinking);
   }
   @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
   public PiWorker piCodingWorker(SandboxService s, PiCodingRunner r,
       @Value("${factory.pi.model-token:}") String token,
-      @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway) {
-    return new PiWorker("pi-coding-worker", s, r, token, gateway);
+      @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway,
+      @Value("${factory.pi.thinking:high}") String thinking,
+      RecoveryBundleStore recoveryStore) {
+    return new PiWorker("pi-coding-worker", s, r, token, gateway, thinking, recoveryStore);
   }
   @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
   public PiWorker piVerifyWorker(SandboxService s, PiCodingRunner r,
       @Value("${factory.pi.model-token:}") String token,
-      @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway) {
-    return new PiWorker("pi-verify-worker", s, r, token, gateway);
+      @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway,
+      @Value("${factory.pi.thinking:high}") String thinking) {
+    return new PiWorker("pi-verify-worker", s, r, token, gateway, thinking);
   }
   @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
   public PiWorker piFinalizeWorker(SandboxService s, PiCodingRunner r,
       @Value("${factory.pi.model-token:}") String token,
-      @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway) {
-    return new PiWorker("pi-finalize-worker", s, r, token, gateway);
+      @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway,
+      @Value("${factory.pi.thinking:high}") String thinking) {
+    return new PiWorker("pi-finalize-worker", s, r, token, gateway, thinking);
   }
 
   @Bean

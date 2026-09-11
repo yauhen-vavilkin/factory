@@ -1,6 +1,7 @@
 package org.folio.factory.devfactory.pi;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
@@ -31,21 +32,28 @@ class PiCodingRunnerFailFastTest {
 
     long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
     assertTrue(error.getMessage().contains("prompt"));
+    assertFalse(sessions.combinedRequests(), "model validation must precede the prompt RPC");
     assertTrue(elapsedMs < 1000, "failed RPC must not wait for the settlement deadline");
   }
 
   private static final class FailingPromptSessions implements ProcessSessionFactory {
+    private Session session;
+
     @Override
     public ProcessSession open(SandboxHandle handle, ProcessSessionRequest request,
                                ProcessOutputSink sink) {
-      return new Session(sink);
+      session = new Session(sink);
+      return session;
     }
+
+    boolean combinedRequests() { return session != null && session.combinedRequests; }
   }
 
   private static final class Session implements ProcessSession {
     private final ProcessOutputSink sink;
     private final ByteArrayOutputStream input = new ByteArrayOutputStream();
     private final CompletableFuture<Integer> exit = new CompletableFuture<>();
+    private boolean combinedRequests;
 
     Session(ProcessOutputSink sink) { this.sink = sink; }
 
@@ -61,6 +69,8 @@ class PiCodingRunnerFailFastTest {
     private void respondIfComplete() {
       String request = input.toString(java.nio.charset.StandardCharsets.UTF_8);
       if (!request.endsWith("\n")) return;
+      combinedRequests |= request.contains("\"type\":\"get_state\"")
+          && request.contains("\"type\":\"prompt\"");
       if (request.contains("\"type\":\"get_state\"")) {
         emit("{\"type\":\"response\",\"command\":\"get_state\",\"id\":\"factory-1\",\"success\":true}\n");
       }

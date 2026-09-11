@@ -141,7 +141,8 @@ public class FileInboxTrigger {
     } else {
       payload.put("notes", task.notes());
     }
-    payload.put("rawTaskText", task.rawTaskText());
+    String sourceTaskText = task.metadata().path("sourceTaskText").asString("");
+    payload.put("rawTaskText", sourceTaskText.isBlank() ? task.rawTaskText() : sourceTaskText);
     payload.put("semanticTaskHash", intent.semanticTaskHash());
     payload.put("intentHash", intent.intentHash());
     payload.put("runKey", task.runKey());

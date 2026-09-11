@@ -53,10 +53,12 @@ public final class PiCodingRunner {
     try (session) {
       String stateId = "factory-" + (++requestId[0]);
       JsonNode prompt = prompt(taskJson, "factory-" + (++requestId[0]));
-      send(session, command("get_state", stateId), prompt);
+      send(session, command("get_state", stateId));
       Duration rpcTimeout = timeout.compareTo(Duration.ofSeconds(10)) > 0
           ? Duration.ofSeconds(10) : timeout;
       awaitSuccessfulResponse(events, monitor, stateId, "get_state", rpcTimeout, protocolFailure);
+      validateRequestedModel(snapshot(events, monitor), stateId, argv);
+      send(session, prompt);
       awaitSuccessfulResponse(events, monitor, prompt.path("id").asString(), "prompt", rpcTimeout,
           protocolFailure);
       if (protocolFailure.get() != null) throw protocolFailure.get();
@@ -68,11 +70,22 @@ public final class PiCodingRunner {
           catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
         }
       }
-      boolean settled = hasEvent(events, "agent_settled");
+      boolean settled = hasEvent(snapshot(events, monitor), "agent_settled");
       if (settled) {
-        send(session, command("get_state", "factory-" + (++requestId[0])));
-        send(session, command("get_session_stats", "factory-" + (++requestId[0])));
-        send(session, command("get_last_assistant_text", "factory-" + (++requestId[0])));
+        String finalStateId = "factory-" + (++requestId[0]);
+        String statsId = "factory-" + (++requestId[0]);
+        String assistantTextId = "factory-" + (++requestId[0]);
+        send(session, command("get_state", finalStateId));
+        send(session, command("get_session_stats", statsId));
+        send(session, command("get_last_assistant_text", assistantTextId));
+        Duration diagnosticTimeout = timeout.compareTo(Duration.ofSeconds(2)) > 0
+            ? Duration.ofSeconds(2) : timeout;
+        awaitDiagnosticResponse(events, monitor, finalStateId, "get_state", diagnosticTimeout,
+            protocolFailure);
+        awaitDiagnosticResponse(events, monitor, statsId, "get_session_stats", diagnosticTimeout,
+            protocolFailure);
+        awaitDiagnosticResponse(events, monitor, assistantTextId, "get_last_assistant_text",
+            diagnosticTimeout, protocolFailure);
       }
       try { session.stdin().close(); } catch (IOException ignored) { }
       int exit;
@@ -89,6 +102,16 @@ public final class PiCodingRunner {
     } catch (IOException e) {
       session.killWorkload();
       throw new IllegalStateException("Pi RPC write failed: " + stderr, e);
+    }
+  }
+
+  private static void awaitDiagnosticResponse(List<JsonNode> events, Object monitor, String id,
+                                              String command, Duration timeout,
+                                              AtomicReference<RuntimeException> failure) {
+    try {
+      awaitSuccessfulResponse(events, monitor, id, command, timeout, failure);
+    } catch (RuntimeException ignored) {
+      // Diagnostics enrich the evidence; a settled coding result does not depend on them.
     }
   }
 
@@ -114,6 +137,12 @@ public final class PiCodingRunner {
   private JsonNode prompt(String task, String id) { var n = json.createObjectNode(); n.put("type", "prompt"); n.put("id", id); n.put("message", task); return n; }
   private static boolean hasEvent(List<JsonNode> events, String type) {
     return events.stream().anyMatch(e -> type.equals(e.path("type").asString("")));
+  }
+
+  private static List<JsonNode> snapshot(List<JsonNode> events, Object monitor) {
+    synchronized (monitor) {
+      return List.copyOf(events);
+    }
   }
   private static void awaitSuccessfulResponse(List<JsonNode> events, Object monitor, String id,
                                               String command, Duration timeout,
@@ -148,6 +177,41 @@ public final class PiCodingRunner {
     return text.length() <= maxChars ? text : text.substring(text.length() - maxChars);
   }
 
+  private static void validateRequestedModel(List<JsonNode> events, String stateId,
+                                             List<String> argv) {
+    JsonNode response = events.stream().filter(event -> stateId.equals(event.path("id").asString("")))
+        .findFirst().orElse(null);
+    JsonNode model = response == null ? null : response.path("data").path("model");
+    if (model == null || !model.isObject()) {
+      return;
+    }
+    String requestedProvider = option(argv, "--provider");
+    String requestedModel = option(argv, "--model");
+    String actualProvider = model.path("provider").asString("");
+    String actualModel = model.path("id").asString("");
+    if ((!requestedProvider.isBlank() && !actualProvider.isBlank()
+        && !requestedProvider.equals(actualProvider))
+        || (!requestedModel.isBlank() && !actualModel.isBlank()
+        && !requestedModel.equals(actualModel))) {
+      throw new IllegalStateException("Pi model mismatch: requested " + requestedProvider + "/"
+          + requestedModel + ", runtime returned " + actualProvider + "/" + actualModel);
+    }
+  }
+
+  private static String option(List<String> argv, String name) {
+    for (int i = 0; i + 1 < argv.size(); i++) {
+      if (name.equals(argv.get(i))) {
+        return argv.get(i + 1);
+      }
+    }
+    return "";
+  }
+
   public record CodingAttempt(int processExitCode, boolean settled, String rawExchange,
-                              List<JsonNode> events, long stdoutBytes, long stderrBytes) { }
+                              List<JsonNode> events, long stdoutBytes, long stderrBytes) {
+    public CodingAttempt {
+      rawExchange = rawExchange == null ? "" : rawExchange;
+      events = events == null ? List.of() : List.copyOf(events);
+    }
+  }
 }

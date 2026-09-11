@@ -6,7 +6,7 @@ triggers:
 input_schema:
   required: [taskId, repoUrl, baseRevision, resolvedIntent, goal]
 output_schema:
-  artifacts: [candidate.patch, result.json, verification.json, manifest.json]
+  artifacts: [baseline.json, candidate.patch, result.json, verification.json, manifest.json, usage.json]
 retry_policy:
   max_attempts: 1
   backoff_seconds: []
@@ -15,19 +15,19 @@ agent_chain:
     type: AGENT
     worker_id: pi-prepare-worker
     inputs: ["$trigger"]
-    outputs: [contract.json]
+    outputs: [contract.json, baseline.json, baseline.log]
   - step_id: coding
     type: AGENT
     worker_id: pi-coding-worker
-    inputs: ["$trigger", contract.json]
+    inputs: ["$trigger", contract.json, baseline.json]
     outputs: [candidate.patch, candidate.json, pi-session.jsonl, usage.json]
   - step_id: verify
     type: AGENT
     worker_id: pi-verify-worker
-    inputs: ["$trigger", candidate.patch, candidate.json]
+    inputs: ["$trigger", contract.json, baseline.json, candidate.patch, candidate.json]
     outputs: [verification.json]
   - step_id: finalize
     type: AGENT
     worker_id: pi-finalize-worker
-    inputs: ["$trigger", candidate.patch, verification.json]
+    inputs: ["$trigger", candidate.patch, candidate.json, verification.json, usage.json, pi-session.jsonl]
     outputs: [result.json, manifest.json]

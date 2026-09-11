@@ -1,0 +1,28 @@
+M3 post-implementation review checks (2026-09-11)
+
+Independent review:
+  fresh GPT-6 Astra subagent; reasoning=medium; read-only review; no live provider call
+
+Focused review regression tests:
+  MAVEN_USER_HOME=.factory/cache/maven-home ./mvnw -B -ntp -Dmaven.repo.local=.factory/cache/maven-repository -pl factory-flow-dev-factory,factory-sandbox -am test '-Dgroups=!integration & !eval-pack & !live' -Dtest=PiCodingRunnerFailFastTest,Modsidecar208VerifierTest,PiRpcProtocolTest,PiWorkerFinalizationTest,PiWorkerSnapshotTest,SandboxPropertiesTest,DockerSandboxServiceTest -Dsurefire.failIfNoSpecifiedTests=false
+  exit=0; tests=34; failures=0; errors=0; skipped=0
+
+Required unit gate after review fixes:
+  ./scripts/factory validate --unit
+  exit=0; tests=421; failures=0; errors=0; skipped=0
+  log=.factory/logs/validation/unit.log
+  summary=.factory/logs/validation/unit-tests.txt
+
+Application package after review fixes:
+  MAVEN_USER_HOME=.factory/cache/maven-home ./mvnw -B -ntp -Dmaven.repo.local=.factory/cache/maven-repository -pl factory-app -am package -DskipTests
+  exit=0
+
+Static and configuration checks after review fixes:
+  bash -n scripts/factory; python3 -m py_compile factory-gateway/server.py; git diff --check
+  exit=0
+  docker compose config --quiet
+  exit=0
+
+Previously recorded free scripted Pi smoke remains valid: exit=0, provider_calls=3, paid_calls=0, direct egress denied, native tools and independent verification passed. It was not rerun during this review because the changes did not alter the scripted fixture path.
+
+No paid/live provider request was made during this review. The three recorded M3 live attempts remain unchanged and the corrected Z.AI profile is still not live re-qualified.

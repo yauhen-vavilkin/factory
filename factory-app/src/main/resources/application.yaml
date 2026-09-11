@@ -67,9 +67,11 @@ factory:
     workspace-retention: 0s
     maven-cache-volume: ${FACTORY_SANDBOX_MAVEN_CACHE_VOLUME:factory-m2-cache}
     docker-network: ${FACTORY_SANDBOX_DOCKER_NETWORK:factory-pi-network}
+    dependency-docker-network: ${FACTORY_SANDBOX_DEPENDENCY_DOCKER_NETWORK:factory-pi-dependency-network}
   pi:
     model-token: ${FACTORY_MODEL_TOKEN:}
     gateway-url: ${FACTORY_PI_GATEWAY_URL:http://factory-gateway:8080/v1}
+    thinking: ${FACTORY_MODEL_THINKING:high}
   inbox:
     dir: ${FACTORY_INBOX_DIR:.factory/data/inbox}
     enabled: ${FACTORY_INBOX_ENABLED:true}

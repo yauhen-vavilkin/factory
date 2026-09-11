@@ -12,6 +12,7 @@ public final class TrustedProfileCatalog {
   public static final String VERSION = "dev-factory-v1-m1";
   public static final String JAVA_MAVEN_21 = "java-maven-21";
   public static final String JAVA_MAVEN_PI = "java21-pi-unit";
+  public static final String JAVA_MAVEN_PI_VERSION = "dev-factory-v1-m3";
   public static final String JAVA_MAVEN_VERIFY = "java-maven-verify";
   public static final String SCENARIO_README_VERIFY = "scenario-readme-verify";
 
@@ -28,7 +29,7 @@ public final class TrustedProfileCatalog {
         new ExecutionProfile.NetworkPolicy("APPROVED_DEPENDENCY_PROXY_ONLY", "NONE"),
         new ExecutionProfile.ResourcePolicy(2.0, 4096, 512, 8192), budgets, null);
     ExecutionProfile profile = withHash(profileWithoutHash);
-    ExecutionProfile piWithoutHash = new ExecutionProfile(JAVA_MAVEN_PI, "dev-factory-v1-m2", "JAVA",
+    ExecutionProfile piWithoutHash = new ExecutionProfile(JAVA_MAVEN_PI, JAVA_MAVEN_PI_VERSION, "JAVA",
         "MAVEN", "21", null, "factory-pi:jdk21", null, "linux/arm64",
         "factory-zai", "glm-5.3-flash", "/workspace/repo",
         List.of(List.of("mvn", "-B", "-ntp", "test")),
@@ -47,7 +48,7 @@ public final class TrustedProfileCatalog {
     VerificationPlan scenarioPlan = withHash(new VerificationPlan(SCENARIO_README_VERIFY, VERSION,
         List.of(new VerificationPlan.Check("readme-change",
             List.of("cd repo && grep -n 'T16 scenario change.' README.md"), true, List.of(), null)), null));
-    VerificationPlan piPlan = withHash(new VerificationPlan("modsidecar-208-v1", "dev-factory-v1-m2",
+    VerificationPlan piPlan = withHash(new VerificationPlan("modsidecar-208-v1", JAVA_MAVEN_PI_VERSION,
         List.of(new VerificationPlan.Check("maven-tests", List.of("mvn", "-B", "-ntp", "test"),
             true, List.of(), "**/target/surefire-reports/TEST-*.xml")), null));
     plans = Map.of(plan.id(), plan, piPlan.id(), piPlan, scenarioPlan.id(), scenarioPlan);

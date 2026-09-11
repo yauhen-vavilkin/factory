@@ -1,5 +1,5 @@
 FROM maven:3.9-eclipse-temurin-21
-ARG TARGETARCH
+ARG TARGETARCH=arm64
 # git is already included in the base image (git 2.43.0), so no apt-get install needed.
 USER root
 RUN apt-get update \
@@ -11,6 +11,7 @@ RUN apt-get update \
 WORKDIR /opt/pi
 COPY pi-package.json package.json
 COPY pi-models.json /opt/pi/models.json
+COPY maven-settings.xml /opt/pi/maven-settings.xml
 RUN npm install --package-lock-only --ignore-scripts --omit=dev \
  && npm ci --ignore-scripts --omit=dev \
  && test "$(node -p "require('./node_modules/@earendil-works/pi-coding-agent/package.json').version")" = "0.85.1"
@@ -22,4 +23,4 @@ RUN useradd --create-home --uid 10001 agent \
  && chmod 444 /state/pi/models.json \
  && chown -R agent:agent /state /workspace
 USER agent
-ENV HOME=/home/agent PI_CODING_AGENT_DIR=/state/pi PI_OFFLINE=1 PI_TELEMETRY=0
+ENV HOME=/home/agent TMPDIR=/state/tmp MAVEN_OPTS="-Djansi.force=false -Djansi.tmpdir=/state/tmp" PI_CODING_AGENT_DIR=/state/pi PI_OFFLINE=1 PI_TELEMETRY=0

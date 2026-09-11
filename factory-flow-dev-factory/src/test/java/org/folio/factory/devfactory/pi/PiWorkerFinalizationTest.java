@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
 import java.util.Map;
+import java.nio.file.Path;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.ArtifactContent;
@@ -13,9 +14,11 @@ import org.folio.factory.sandbox.api.SandboxService;
 import org.folio.factory.sandbox.api.CommandResult;
 import org.folio.factory.sandbox.api.SandboxHandle;
 import org.folio.factory.sandbox.api.SandboxSpec;
+import org.folio.factory.devfactory.worker.recovery.RecoveryBundleStore;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.json.JsonMapper;
 
 class PiWorkerFinalizationTest {
@@ -124,6 +127,67 @@ class PiWorkerFinalizationTest {
         "read,bash,edit,write,grep,find,ls", "--thinking", "high", "--append-system-prompt",
         "Factory owns the repository boundary. Edit only the prepared repository; make no external writes; report completion after the requested checks.",
         "--session-dir", "/state/pi/sessions");
+  }
+
+  @Test
+  void codingPublishesRecoveryBundleForTheResultBeforeCleanup(@TempDir Path tempDir) {
+    SandboxService sandboxes = mock(SandboxService.class);
+    PiCodingRunner runner = mock(PiCodingRunner.class);
+    SandboxHandle handle = new SandboxHandle("coding", "container");
+    SandboxHandle exporter = new SandboxHandle("export", "export-container");
+    when(sandboxes.create(org.mockito.ArgumentMatchers.any())).thenReturn(handle);
+    when(sandboxes.freezeForExport(org.mockito.ArgumentMatchers.eq(handle),
+        org.mockito.ArgumentMatchers.any())).thenReturn(exporter);
+    when(runner.run(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyList(),
+        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
+        org.mockito.ArgumentMatchers.any(Duration.class), org.mockito.ArgumentMatchers.anyLong(),
+        org.mockito.ArgumentMatchers.anyMap())).thenReturn(new PiCodingRunner.CodingAttempt(
+            0, true, "session\n", List.of(), 1, 0));
+    when(sandboxes.exec(org.mockito.ArgumentMatchers.eq(exporter),
+        org.mockito.ArgumentMatchers.contains("git add -A"), org.mockito.ArgumentMatchers.anyLong()))
+        .thenReturn(new CommandResult(0, "diff --git a/A b/A\n", "", 1));
+    when(sandboxes.exec(org.mockito.ArgumentMatchers.eq(exporter),
+        org.mockito.ArgumentMatchers.contains("git write-tree"), org.mockito.ArgumentMatchers.anyLong()))
+        .thenReturn(new CommandResult(0, "candidate-tree\n", "", 1));
+    var payload = JsonMapper.builder().build().createObjectNode();
+    payload.put("taskId", "T"); payload.put("repoUrl", "repo"); payload.put("baseRevision", "base");
+    payload.put("branch", "task/T"); payload.put("goal", "edit"); payload.putObject("acceptance");
+    AgentContext context = new AgentContext(java.util.UUID.randomUUID(), "coding", Map.of(
+        "contract.json", new ArtifactContent("contract.json", 1, "application/json",
+            "{\"status\":\"READY\",\"profile\":{\"imageReference\":\"factory-pi:jdk21\","
+                + "\"platform\":\"linux/arm64\",\"modelProvider\":\"factory-zai\","
+                + "\"modelId\":\"glm-5.3-flash\",\"networkPolicy\":{\"execution\":\"NONE\"}}}")),
+        payload, Map.of(), List.of(), 1);
+    RecoveryBundleStore recovery = new RecoveryBundleStore(tempDir.resolve("recovery"));
+
+    AgentResult result = new PiWorker("pi-coding-worker", sandboxes, runner, "", "gateway",
+        "high", recovery).execute(context);
+
+    var bundle = recovery.find(context.executionId(), "coding", 1).orElseThrow();
+    assertThat(bundle.completeness()).isEqualTo("COMPLETE");
+    assertThat(bundle.artifactNames()).contains("candidate.patch", "candidate.json", "usage.json");
+    assertThat(result.metrics()).containsKey("recovery_locator");
+    verify(sandboxes).teardown(handle);
+    verify(sandboxes).teardown(exporter);
+  }
+
+  @Test
+  void verificationPreservesPiFailureReasonWhenCandidatePatchIsEmpty() {
+    var payload = JsonMapper.builder().build().createObjectNode();
+    payload.put("baseRevision", "base");
+    AgentContext context = new AgentContext(java.util.UUID.randomUUID(), "verify", Map.of(
+        "candidate.patch", new ArtifactContent("candidate.patch", 1, "text/plain", ""),
+        "candidate.json", new ArtifactContent("candidate.json", 1, "application/json",
+            "{\"status\":\"FAILED\",\"stage\":\"PI_RUNTIME\","
+                + "\"reason\":\"PI_UNSETTLED\",\"retained\":true,\"base\":\"base\"}")),
+        payload, Map.of(), List.of(), 1);
+
+    AgentResult result = new PiWorker("pi-verify-worker", mock(SandboxService.class),
+        mock(PiCodingRunner.class), "", "gateway").execute(context);
+
+    var verification = json.readTree(result.outputs().get("verification.json"));
+    assertThat(verification.path("reason").asString()).isEqualTo("PI_UNSETTLED");
+    assertThat(verification.path("retained").asBoolean()).isTrue();
   }
 
   private AgentResult finalizeWorker(String status, String verification, String candidate,

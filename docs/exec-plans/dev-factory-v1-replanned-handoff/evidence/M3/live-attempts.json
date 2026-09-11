@@ -1,0 +1,37 @@
+{
+  "preflight": {
+    "requests": 3,
+    "statuses": [200, 200, 200],
+    "reportedModel": "glm-5.3-flash",
+    "totalTokens": [51, 179, 144],
+    "evidence": "preflight-20260911T164108Z.jsonl"
+  },
+  "attempts": [
+    {
+      "runKey": "low-001",
+      "executionId": "b00501b6-fe69-476e-82bf-da1b310ef30e",
+      "providerCalls": 0,
+      "outcome": "FAILED",
+      "stage": "PREPARE",
+      "reason": "baseline dependency resolution failed before coding"
+    },
+    {
+      "runKey": "low-002",
+      "executionId": "4f6b017b-7711-425b-bc05-dee545e421af",
+      "providerCalls": 0,
+      "outcome": "FAILED",
+      "stage": "PREPARE",
+      "reason": "gateway request limit rejected required 10-23 MiB Maven artifacts"
+    },
+    {
+      "runKey": "low-003",
+      "executionId": "de76efa0-3d5c-4d5b-ad56-e81d78728e9f",
+      "providerCalls": 1,
+      "outcome": "FAILED",
+      "stage": "PI_RUNTIME",
+      "reason": "provider returned HTTP 400 code 1214: Incorrect role information"
+    }
+  ],
+  "firstLowSolved": false,
+  "costStatus": "UNPRICED"
+}

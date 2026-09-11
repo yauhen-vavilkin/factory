@@ -1,0 +1,3 @@
+{"model":"glm-5.3-flash","messageCount":2,"messageRoles":["system","user"],"hasTools":true,"toolStream":true,"thinkingFields":["reasoning_effort","thinking"]}
+{"model":"glm-5.3-flash","messageCount":4,"messageRoles":["system","user","assistant","tool"],"hasTools":true,"toolStream":true,"thinkingFields":["reasoning_effort","thinking"]}
+{"model":"glm-5.3-flash","messageCount":6,"messageRoles":["system","user","assistant","tool","assistant","tool"],"hasTools":true,"toolStream":true,"thinkingFields":["reasoning_effort","thinking"]}

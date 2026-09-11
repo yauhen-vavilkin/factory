@@ -38,7 +38,7 @@ public class ExecutionController {
     }
 
     public record ArtifactSummary(String name, int version, String contentType, String createdBy,
-                                  Instant createdAt, String content) {
+                                  Instant createdAt, String sha256, String content) {
     }
 
     public record AuditEntry(String eventType, String stepId, String actor, String detail, Instant occurredAt) {
@@ -71,7 +71,7 @@ public class ExecutionController {
 
     private ArtifactSummary toArtifactSummary(Artifact artifact) {
         return new ArtifactSummary(artifact.getName(), artifact.getVersion(), artifact.getContentType(),
-                artifact.getCreatedBy(), artifact.getCreatedAt(), artifact.getContent());
+                artifact.getCreatedBy(), artifact.getCreatedAt(), artifact.getSha256(), artifact.getContent());
     }
 
     private AuditEntry toAuditEntry(AuditEvent event) {

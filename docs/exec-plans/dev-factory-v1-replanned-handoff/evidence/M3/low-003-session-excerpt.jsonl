@@ -1,0 +1,5 @@
+{"event":"get_state","provider":"factory-zai","model":"glm-5.3-flash","api":"openai-completions","gateway":"http://factory-gateway:8080/v1","thinkingLevel":"high","contextWindow":65536,"maxTokens":16384}
+{"event":"provider_response","status":400,"code":"1214","error":"Incorrect role information","toolCalls":0}
+{"event":"agent_settled","settled":true}
+{"event":"get_session_stats","userMessages":1,"assistantMessages":1,"toolCalls":0,"toolResults":0,"inputTokens":0,"outputTokens":0,"totalTokens":0,"contextTokens":909}
+{"event":"candidate_export","patchBytes":0,"status":"REJECTED_EMPTY_CANDIDATE","verification":"FAIL"}

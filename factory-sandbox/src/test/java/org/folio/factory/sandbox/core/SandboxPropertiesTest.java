@@ -38,6 +38,15 @@ class SandboxPropertiesTest {
   }
 
   @Test
+  void dependencyNetworkIsPreservedSeparatelyFromCodingNetwork() {
+    SandboxProperties properties = new SandboxProperties("docker", null, null, null, null, null,
+        "factory-pi-network", "factory-pi-dependency-network");
+
+    assertThat(properties.dockerNetwork()).isEqualTo("factory-pi-network");
+    assertThat(properties.dependencyDockerNetwork()).isEqualTo("factory-pi-dependency-network");
+  }
+
+  @Test
   void unknownModeRejected() {
     assertThatThrownBy(() -> new SandboxProperties("xyz", null, null, null, null, null))
         .isInstanceOf(IllegalArgumentException.class)

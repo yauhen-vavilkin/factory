@@ -1,0 +1,26 @@
+M3 implementation checks
+
+Focused Maven modules:
+  MAVEN_USER_HOME=.factory/cache/maven-home ./mvnw -B -ntp -Dmaven.repo.local=.factory/cache/maven-repository -pl factory-flow-dev-factory,factory-sandbox -am test '-Dgroups=!integration & !eval-pack & !live'
+  exit=0; tests=385; failures=0; errors=0; skipped=0
+
+Application package:
+  MAVEN_USER_HOME=.factory/cache/maven-home ./mvnw -B -ntp -Dmaven.repo.local=.factory/cache/maven-repository -pl factory-app -am package -DskipTests
+  exit=0
+
+Required unit gate:
+  ./scripts/factory validate --unit
+  exit=0; tests=411; failures=0; errors=0; skipped=0
+
+Scripted Pi gate after the final Z.AI compatibility profile:
+  ./scripts/factory smoke --pi --scripted
+  exit=0; provider_calls=3; paid_calls=0; direct_egress=DENIED; native_tools=PASS; fresh_verification=PASS; wrong_candidate=REJECTED
+
+Source baseline:
+  exact SHA c13e0383d9283ef554c195cf5357bb3c6eeb4e65; mvn clean test exit=0; tests=553; failures=0; errors=0; skipped=0
+
+Static checks:
+  python3 -m py_compile factory-gateway/server.py; bash -n scripts/factory; JSON parse; git diff --check — all passed
+
+Scope:
+  no target checkout changes; no PR, Jira, GitHub, or external repository writes

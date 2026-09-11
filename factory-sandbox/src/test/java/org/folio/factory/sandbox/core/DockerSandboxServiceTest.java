@@ -21,11 +21,13 @@ import com.github.dockerjava.api.command.ExecCreateCmdResponse;
 import com.github.dockerjava.api.command.ExecStartCmd;
 import com.github.dockerjava.api.command.InspectExecCmd;
 import com.github.dockerjava.api.command.InspectExecResponse;
+import com.github.dockerjava.api.command.KillContainerCmd;
 import com.github.dockerjava.api.command.RemoveContainerCmd;
 import com.github.dockerjava.api.command.StartContainerCmd;
 import com.github.dockerjava.api.model.Bind;
 import com.github.dockerjava.api.model.Frame;
 import com.github.dockerjava.api.model.HostConfig;
+import java.nio.file.Path;
 import java.time.Duration;
 import com.github.dockerjava.api.model.StreamType;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
@@ -39,6 +41,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.junit.jupiter.api.io.TempDir;
 
 @ExtendWith(MockitoExtension.class)
 class DockerSandboxServiceTest {
@@ -107,7 +110,7 @@ class DockerSandboxServiceTest {
     HostConfig config = hostConfigCaptor.getValue();
     assertTrue(config.getBinds() == null || config.getBinds().length == 0);
     assertEquals(2_000_000_000L, config.getNanoCPUs());
-    assertEquals(8L * 1024 * 1024 * 1024, config.getMemory());
+    assertEquals(4L * 1024 * 1024 * 1024, config.getMemory());
     assertEquals(512L, config.getPidsLimit());
     assertTrue(config.getReadonlyRootfs());
     assertTrue(config.getTmpFs().containsKey("/tmp"));
@@ -163,6 +166,57 @@ class DockerSandboxServiceTest {
     ArgumentCaptor<HostConfig> hostConfig = ArgumentCaptor.forClass(HostConfig.class);
     verify(createCmd).withHostConfig(hostConfig.capture());
     assertEquals("factory-pi-network", hostConfig.getValue().getNetworkMode());
+  }
+
+  @Test
+  void nonePolicyUsesDockerNoneNetwork(@TempDir Path source) throws Exception {
+    CreateContainerCmd createCmd = mock(CreateContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    CreateContainerResponse createResponse = mock(CreateContainerResponse.class);
+    when(createResponse.getId()).thenReturn(CONTAINER_ID);
+    when(dockerClient.createContainerCmd(IMAGE)).thenReturn(createCmd);
+    when(createCmd.exec()).thenReturn(createResponse);
+    when(dockerClient.startContainerCmd(CONTAINER_ID))
+        .thenReturn(mock(StartContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF)));
+    mockExecPipeline("clone", 0, new byte[0], new byte[0]);
+
+    SandboxSpec noNetwork = new SandboxSpec("task1", source.toUri().toString(), "main", "feature/x",
+        "owner", IMAGE, "linux/amd64", "NONE");
+    service.create(noNetwork);
+
+    ArgumentCaptor<HostConfig> hostConfig = ArgumentCaptor.forClass(HostConfig.class);
+    verify(createCmd).withHostConfig(hostConfig.capture());
+    assertEquals("none", hostConfig.getValue().getNetworkMode());
+  }
+
+  @Test
+  void unknownNetworkPolicyFailsClosed() {
+    SandboxSpec unknown = new SandboxSpec("task1", "https://example.com/repo.git", "main",
+        "feature/x", "owner", IMAGE, "linux/amd64", "DIRECT");
+    SandboxException error = assertThrows(SandboxException.class, () -> service.create(unknown));
+    assertTrue(error.getMessage().contains("unsupported sandbox network policy"));
+    verify(dockerClient, times(0)).createContainerCmd(any());
+  }
+
+  @Test
+  void timedOutExecKillsSandboxWorkload() throws Exception {
+    execCreateCmd = mock(ExecCreateCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    ExecCreateCmdResponse execCreateResponse = mock(ExecCreateCmdResponse.class);
+    when(execCreateResponse.getId()).thenReturn(EXEC_ID);
+    when(dockerClient.execCreateCmd(CONTAINER_ID)).thenReturn(execCreateCmd);
+    when(execCreateCmd.exec()).thenReturn(execCreateResponse);
+
+    ExecStartCmd execStartCmd = mock(ExecStartCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    when(dockerClient.execStartCmd(EXEC_ID)).thenReturn(execStartCmd);
+    when(execStartCmd.exec(any(ExecStartResultCallback.class)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    KillContainerCmd kill = mock(KillContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    when(dockerClient.killContainerCmd(CONTAINER_ID)).thenReturn(kill);
+
+    CommandResult result = service.exec(new SandboxHandle("sbx-task1", CONTAINER_ID), "sleep infinity", 0);
+
+    assertEquals(-1, result.exitCode());
+    verify(dockerClient).killContainerCmd(CONTAINER_ID);
+    verify(kill).exec();
   }
 
   @Test

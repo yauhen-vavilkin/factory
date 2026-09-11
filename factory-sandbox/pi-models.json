@@ -7,11 +7,21 @@
       "models": [
         {
           "id": "glm-5.3-flash",
-          "name": "Scripted GLM 5.3 Flash",
-          "reasoning": false,
+          "name": "GLM 5.3 Flash",
+          "reasoning": true,
           "input": ["text"],
           "contextWindow": 65536,
           "maxTokens": 16384,
+          "compat": {
+            "supportsStore": false,
+            "supportsDeveloperRole": false,
+            "supportsReasoningEffort": true,
+            "maxTokensField": "max_tokens",
+            "thinkingFormat": "zai",
+            "zaiToolStream": true,
+            "supportsStrictMode": false,
+            "requiresReasoningContentOnAssistantMessages": true
+          },
           "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
         }
       ]

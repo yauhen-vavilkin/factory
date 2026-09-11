@@ -6,6 +6,7 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 STATE_DIR="$ROOT_DIR/.factory"
 CONFIG_FILE="$STATE_DIR/config/factory.env"
 PASSWORD_FILE="$STATE_DIR/secrets/postgres-password"
+MODEL_TOKEN_FILE="$STATE_DIR/secrets/model-run-token"
 PID_FILE="$STATE_DIR/run/factory.pid"
 APP_LOG="$STATE_DIR/logs/factory.log"
 
@@ -19,7 +20,7 @@ usage() {
 Usage:
   ./scripts/factory init
   ./scripts/factory infra up|down
-  ./scripts/factory doctor --offline
+  ./scripts/factory doctor --offline|--live
   ./scripts/factory start --mode offline|live|pi
   ./scripts/factory smoke --pi --scripted
   ./scripts/factory evidence-verify
@@ -27,20 +28,70 @@ Usage:
   ./scripts/factory validate --unit|--integration|--eval-pack
   ./scripts/factory resolve-task TASK.yaml
   ./scripts/factory submit TASK.yaml
+  ./scripts/factory run-eval MODSIDECAR-208 --run-key RUN_KEY
+  ./scripts/factory show EXECUTION_ID [--watch]
+  ./scripts/factory export EXECUTION_ID --out DIRECTORY
 EOF
 }
 
 require_init() {
-  [[ -f "$CONFIG_FILE" && -f "$PASSWORD_FILE" ]] ||
+  [[ -f "$CONFIG_FILE" && -f "$PASSWORD_FILE" && -f "$MODEL_TOKEN_FILE" ]] ||
     fail "not initialized; run ./scripts/factory init"
 }
 
 load_config() {
   require_init
-  set -a
-  # shellcheck disable=SC1090
-  source "$CONFIG_FILE"
-  set +a
+  load_dotenv_file "$ROOT_DIR/.env"
+  load_dotenv_file "$CONFIG_FILE"
+  : "${FACTORY_POSTGRES_PORT:=55432}"
+  : "${FACTORY_APP_PORT:=18080}"
+  : "${FACTORY_GATEWAY_PORT:=18081}"
+  : "${FACTORY_MODEL_PROVIDER:=factory-zai}"
+  : "${FACTORY_MODEL_BASE_URL:=https://api.z.ai/api/paas/v4}"
+  : "${FACTORY_MODEL_ID:=glm-5.3-flash}"
+  : "${FACTORY_MODEL_THINKING:=high}"
+  : "${FACTORY_MODEL_CONTEXT_TOKENS:=65536}"
+  : "${FACTORY_MODEL_MAX_OUTPUT_TOKENS:=16384}"
+  : "${FACTORY_ALLOW_UNPRICED:=true}"
+  if [[ -z "${FACTORY_MODEL_API_KEY:-}" && -n "${GLM_API_KEY:-}" ]]; then
+    FACTORY_MODEL_API_KEY="$GLM_API_KEY"
+  fi
+  # This is a Factory-owned per-run credential.  Always use the current
+  # protected file so a stale caller environment cannot keep doctor or
+  # teardown pointed at a revoked token after rotation.
+  FACTORY_MODEL_TOKEN=$(<"$MODEL_TOKEN_FILE")
+  export FACTORY_POSTGRES_PORT FACTORY_APP_PORT FACTORY_GATEWAY_PORT
+  export FACTORY_MODEL_PROVIDER FACTORY_MODEL_BASE_URL FACTORY_MODEL_ID
+  export FACTORY_MODEL_THINKING FACTORY_MODEL_CONTEXT_TOKENS FACTORY_MODEL_MAX_OUTPUT_TOKENS FACTORY_ALLOW_UNPRICED
+  export FACTORY_MODEL_API_KEY FACTORY_MODEL_TOKEN
+  export DOCKER_CONFIG="${DOCKER_CONFIG:-$STATE_DIR/cache/docker-config}"
+}
+
+load_dotenv_file() {
+  local file="$1" line key value
+  [[ -f "$file" && ! -L "$file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" == *=* ]] || continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    key="${key##+([[:space:]])}"
+    key="${key%%+([[:space:]])}"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || fail "invalid dotenv key in $file"
+    # The caller's environment wins over both dotenv files.  Values are data;
+    # they are never evaluated as shell syntax.
+    if [[ -z "${!key+x}" ]]; then
+      value="${value##+([[:space:]])}"
+      value="${value%%+([[:space:]])}"
+      if [[ "$value" == \"*\" && "$value" == *\" ]]; then
+        value="${value:1:${#value}-2}"
+      elif [[ "$value" == \'.*\' && "$value" == *\' ]]; then
+        value="${value:1:${#value}-2}"
+      fi
+      printf -v "$key" '%s' "$value"
+      export "$key"
+    fi
+  done < "$file"
 }
 
 file_mode() {
@@ -56,11 +107,17 @@ init_factory() {
   mkdir -p "$STATE_DIR/config" "$STATE_DIR/secrets" "$STATE_DIR/data/postgres" \
     "$STATE_DIR/data/artifacts" "$STATE_DIR/data/recovery" "$STATE_DIR/data/inbox" \
     "$STATE_DIR/data/sandboxes" "$STATE_DIR/cache/maven-home" \
-    "$STATE_DIR/cache/maven-repository" "$STATE_DIR/logs/validation" \
+    "$STATE_DIR/cache/maven-repository" "$STATE_DIR/cache/docker-config" \
+    "$STATE_DIR/logs/validation" \
+    "$STATE_DIR/logs/runs" \
     "$STATE_DIR/run"
   find "$STATE_DIR" -type d -exec chmod 700 {} + 2>/dev/null || true
   if [[ ! -f "$CONFIG_FILE" ]]; then
-    printf '%s\n' 'FACTORY_POSTGRES_PORT=55432' 'FACTORY_APP_PORT=18080' > "$CONFIG_FILE"
+    printf '%s\n' 'FACTORY_POSTGRES_PORT=55432' 'FACTORY_APP_PORT=18080' \
+      'FACTORY_GATEWAY_PORT=18081' > "$CONFIG_FILE"
+  else
+    grep -q '^FACTORY_GATEWAY_PORT=' "$CONFIG_FILE" ||
+      printf '%s\n' 'FACTORY_GATEWAY_PORT=18081' >> "$CONFIG_FILE"
   fi
   if [[ ! -f "$PASSWORD_FILE" ]]; then
     if command -v openssl >/dev/null 2>&1; then
@@ -69,13 +126,38 @@ init_factory() {
       fail "openssl is required to create the local PostgreSQL password"
     fi
   fi
-  chmod 600 "$CONFIG_FILE" "$PASSWORD_FILE"
+  if [[ ! -f "$MODEL_TOKEN_FILE" ]]; then
+    if command -v openssl >/dev/null 2>&1; then
+      openssl rand -hex 32 > "$MODEL_TOKEN_FILE"
+    else
+      fail "openssl is required to create the local Pi run token"
+    fi
+  fi
+  chmod 600 "$CONFIG_FILE" "$PASSWORD_FILE" "$MODEL_TOKEN_FILE"
+  if [[ -f "$ROOT_DIR/.env" ]]; then
+    [[ ! -L "$ROOT_DIR/.env" ]] || fail ".env must not be a symbolic link"
+    chmod 600 "$ROOT_DIR/.env"
+  fi
   echo "Factory state initialized at $STATE_DIR"
+}
+
+rotate_model_token() {
+  command -v openssl >/dev/null 2>&1 || fail "openssl is required to rotate the local Pi run token"
+  local token
+  token=$(openssl rand -hex 32) || fail "could not generate a local Pi run token"
+  (umask 077; printf '%s\n' "$token" > "$MODEL_TOKEN_FILE")
+  chmod 600 "$MODEL_TOKEN_FILE"
+  FACTORY_MODEL_TOKEN="$token"
+  export FACTORY_MODEL_TOKEN
 }
 
 compose() {
   load_config
-  (cd "$ROOT_DIR" && docker compose "$@")
+  if command -v docker-compose >/dev/null 2>&1; then
+    (cd "$ROOT_DIR" && docker-compose "$@")
+  else
+    (cd "$ROOT_DIR" && docker compose "$@")
+  fi
 }
 
 infra() {
@@ -106,6 +188,97 @@ doctor_offline() {
   echo "Offline model: scripted local ChatModel; API credentials are not read"
 }
 
+effective_config() {
+  local key_state=missing
+  [[ -n "${FACTORY_MODEL_API_KEY:-}" ]] && key_state=configured
+  echo "Effective Pi config: provider=$FACTORY_MODEL_PROVIDER model=$FACTORY_MODEL_ID thinking=$FACTORY_MODEL_THINKING"
+  echo "Effective Pi limits: context=${FACTORY_MODEL_CONTEXT_TOKENS:-65536} max_output=$FACTORY_MODEL_MAX_OUTPUT_TOKENS allow_unpriced=$FACTORY_ALLOW_UNPRICED"
+  echo "Effective upstream: base_url=$FACTORY_MODEL_BASE_URL api_key=$key_state gateway=http://127.0.0.1:${FACTORY_GATEWAY_PORT}"
+  if [[ -n "${FACTORY_LLM_BASE_URL:-}" || -n "${FACTORY_LLM_MODEL:-}" ]]; then
+    echo "Inactive legacy settings detected: FACTORY_LLM_* are not used by Pi mode"
+  fi
+}
+
+doctor_live() {
+  load_config
+  [[ -n "${FACTORY_MODEL_API_KEY:-}" ]] ||
+    fail "live preflight requires FACTORY_MODEL_API_KEY or GLM_API_KEY; no provider request was made"
+  [[ -n "${FACTORY_MODEL_TOKEN:-}" ]] || fail "Pi run token is missing; run ./scripts/factory init"
+  effective_config
+  local gateway="http://127.0.0.1:${FACTORY_GATEWAY_PORT}"
+  curl -fsS "$gateway/health" >/dev/null ||
+    fail "Pi gateway is not reachable; start Factory with --mode pi before the live doctor"
+  local stamp out text_request tool_request final_request
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  out="$STATE_DIR/logs/runs/preflight-${stamp}.jsonl"
+  : > "$out"
+  text_request=$(python3 - "$FACTORY_MODEL_ID" <<'PY'
+import json, sys
+print(json.dumps({"model": sys.argv[1], "messages": [{"role": "user", "content": "Reply with exactly READY."}], "max_tokens": 64, "stream": False}))
+PY
+)
+  tool_request=$(python3 - "$FACTORY_MODEL_ID" <<'PY'
+import json, sys
+print(json.dumps({"model": sys.argv[1], "messages": [{"role": "user", "content": "Use the probe tool once."}], "tools": [{"type": "function", "function": {"name": "probe", "description": "Return a fixed readiness value", "parameters": {"type": "object", "properties": {}}}}], "tool_choice": {"type": "function", "function": {"name": "probe"}}, "max_tokens": 128, "stream": False}))
+PY
+)
+  final_request=$(python3 - "$FACTORY_MODEL_ID" <<'PY'
+import json, sys
+print(json.dumps({"model": sys.argv[1], "messages": [{"role": "user", "content": "Use the probe tool once."}, {"role": "assistant", "tool_calls": [{"id": "preflight-probe", "type": "function", "function": {"name": "probe", "arguments": "{}"}}]}, {"role": "tool", "tool_call_id": "preflight-probe", "content": "READY"}, {"role": "user", "content": "Now reply with exactly READY."}], "max_tokens": 128, "stream": False}))
+PY
+)
+  local index=0 response
+  for response_body in "$text_request" "$tool_request" "$final_request"; do
+    index=$((index + 1))
+    response=$(curl --fail-with-body --max-time 300 -sS \
+      -H "Authorization: Bearer $FACTORY_MODEL_TOKEN" \
+      -H 'Content-Type: application/json' \
+      -d "$response_body" "$gateway/v1/chat/completions") ||
+      fail "live preflight request $index failed; retained $out and made no benchmark request"
+    python3 - "$index" "$FACTORY_MODEL_ID" "$response" >> "$out" <<'PY'
+import json, sys
+index, expected, raw = sys.argv[1:]
+try:
+    body = json.loads(raw)
+except json.JSONDecodeError as error:
+    raise SystemExit(f"response is not valid JSON: {error}")
+if not isinstance(body, dict):
+    raise SystemExit("response is not a JSON object")
+reported = body.get("model")
+if reported is not None and reported != expected:
+    raise SystemExit(f"reported model mismatch: {reported} != {expected}")
+choices = body.get("choices")
+if not isinstance(choices, list) or not choices:
+    raise SystemExit("response has no choices")
+usage = body.get("usage")
+if not isinstance(usage, dict):
+    raise SystemExit("response has no usage object")
+if not isinstance(choices[0], dict):
+    raise SystemExit("response choice is not an object")
+message = choices[0].get("message")
+if not isinstance(message, dict):
+    raise SystemExit("response choice has no message")
+if int(index) in (1, 3):
+    content = message.get("content")
+    if not isinstance(content, str) or content.strip() != "READY":
+        raise SystemExit(f"request {index} did not return exactly READY")
+if int(index) == 2:
+    calls = message.get("tool_calls")
+    if not isinstance(calls, list) or not any(
+        isinstance(call, dict)
+        and isinstance(call.get("function"), dict)
+        and call["function"].get("name") == "probe"
+        for call in calls
+    ):
+        raise SystemExit("tool preflight did not return the probe tool call")
+print(json.dumps({"request": int(index), "json": True, "reported_model": reported,
+                  "usage": usage, "choices": len(choices)}))
+PY
+  done
+  chmod 600 "$out"
+  echo "Live preflight: PASS (3 bounded requests: text, tool call, tool-result replay); evidence=$out"
+}
+
 running_pid() {
   [[ -f "$PID_FILE" ]] || return 1
   local pid
@@ -120,7 +293,7 @@ running_pid() {
 }
 
 start_factory() {
-  [[ "${1:-}" == "--mode" ]] || fail "start requires --mode offline or --mode live"
+  [[ "${1:-}" == "--mode" ]] || fail "start requires --mode offline, live, or pi"
   local mode="${2:-}"
   [[ "$mode" == offline || "$mode" == live || "$mode" == pi ]] || fail "mode must be offline, live, or pi"
   load_config
@@ -132,12 +305,28 @@ start_factory() {
   fi
   rm -f "$PID_FILE"
   mkdir "$STATE_DIR/run/start.lock" 2>/dev/null || fail "another Factory start is in progress"
-  trap 'rmdir "$STATE_DIR/run/start.lock" 2>/dev/null || true' EXIT
+  local pi_gateways_started=false
+  trap 'if [[ "$pi_gateways_started" == true ]]; then revoke_pi_gateways; fi; rmdir "$STATE_DIR/run/start.lock" 2>/dev/null || true' EXIT
 
   if [[ "$mode" == offline ]]; then
     doctor_offline
   elif [[ "$mode" == live && -z "${ANTHROPIC_API_KEY:-}" ]]; then
     fail "live mode requires ANTHROPIC_API_KEY; no provider request was made"
+  elif [[ "$mode" == pi && -z "${FACTORY_MODEL_API_KEY:-}" ]]; then
+    fail "pi mode requires FACTORY_MODEL_API_KEY or GLM_API_KEY; no provider request was made"
+  elif [[ "$mode" == pi ]]; then
+    [[ "$FACTORY_MODEL_PROVIDER" == factory-zai ]] ||
+      fail "pi mode only permits the trusted provider factory-zai"
+    [[ "$FACTORY_MODEL_ID" == glm-5.3-flash ]] ||
+      fail "pi mode only permits the trusted model glm-5.3-flash"
+    rotate_model_token
+    FACTORY_GATEWAY_EXPIRES_AT=$(( $(date +%s) + 7200 ))
+    export FACTORY_GATEWAY_EXPIRES_AT
+    export FACTORY_PI_GATEWAY_URL="http://127.0.0.1:${FACTORY_GATEWAY_PORT}/v1"
+    pi_gateways_started=true
+    compose up -d --build --force-recreate --wait postgres factory-gateway factory-dependency-gateway
+    docker build -q -t factory-pi:jdk21 "$ROOT_DIR/factory-sandbox"
+    effective_config
   fi
 
   (cd "$ROOT_DIR" && export MAVEN_USER_HOME="$STATE_DIR/cache/maven-home" && \
@@ -157,20 +346,22 @@ start_factory() {
     export FACTORY_DB_PASSWORD="$db_password"
     export FACTORY_EXTERNAL_WRITES_ENABLED=false
     if [[ "$mode" == pi ]]; then export FACTORY_INBOX_EVENT_TYPE=file.inbox.pi; fi
-    if [[ "$mode" == offline ]]; then
-        unset ANTHROPIC_API_KEY GLM_API_KEY FACTORY_LLM_BASE_URL FACTORY_LLM_MODEL
+    if [[ "$mode" == offline || "$mode" == pi ]]; then
+        unset ANTHROPIC_API_KEY GLM_API_KEY FACTORY_MODEL_API_KEY
+        unset FACTORY_LLM_BASE_URL FACTORY_LLM_MODEL
     fi
     exec nohup java -jar "$jar"
   ) >> "$APP_LOG" 2>&1 &
   local pid=$!
   printf '%s\n' "$pid" > "$PID_FILE"
   chmod 600 "$PID_FILE" "$APP_LOG"
-  rmdir "$STATE_DIR/run/start.lock"
-  trap - EXIT
 
   local attempt
   for attempt in $(seq 1 90); do
     if curl -fsS "http://127.0.0.1:${FACTORY_APP_PORT}/actuator/health" >/dev/null 2>&1; then
+      pi_gateways_started=false
+      rmdir "$STATE_DIR/run/start.lock"
+      trap - EXIT
       echo "Factory is ready in $mode mode at http://127.0.0.1:${FACTORY_APP_PORT} (PID $pid)"
       return 0
     fi
@@ -182,6 +373,7 @@ start_factory() {
     sleep 1
   done
   stop_factory || true
+  revoke_pi_gateways
   tail -40 "$APP_LOG" >&2
   fail "Factory did not become ready within 90 seconds"
 }
@@ -189,6 +381,7 @@ start_factory() {
 smoke_pi_scripted() {
   [[ $# == 2 && "$1" == --pi && "$2" == --scripted ]] || fail "smoke requires --pi --scripted"
   init_factory >/dev/null
+  load_config
   command -v docker >/dev/null || fail "Docker is required for Pi smoke"
   docker info >/dev/null 2>&1 || fail "Docker daemon is unavailable (BLOCKED_REQUIRES_DOCKER)"
   local log="$STATE_DIR/logs/validation/pi-smoke.log"
@@ -210,7 +403,7 @@ class H(BaseHTTPRequestHandler):
   def do_POST(self):
     if self.path != "/v1/chat/completions": self.send_error(404); return
     n=int(self.headers.get("Content-Length",0)); body=json.loads(self.rfile.read(n)); messages=body.get("messages",[])
-    log.write(json.dumps({"model":body.get("model"),"messageCount":len(messages),"hasTools":bool(body.get("tools"))})+"\n"); log.flush()
+    log.write(json.dumps({"model":body.get("model"),"messageCount":len(messages),"messageRoles":[m.get("role") for m in messages],"hasTools":bool(body.get("tools")),"toolStream":body.get("tool_stream"),"thinkingFields":sorted(k for k in body if "think" in k.lower() or "reason" in k.lower())})+"\n"); log.flush()
     tool_count=sum(1 for m in messages if m.get("role")=="tool")
     if tool_count == 0:
       msg={"role":"assistant","content":None,"tool_calls":[{"id":"read-1","type":"function","function":{"name":"read","arguments":json.dumps({"path":"README.md"})}}]}
@@ -345,6 +538,7 @@ evidence_verify() {
 stop_factory() {
   if ! running_pid; then
     rm -f "$PID_FILE"
+    revoke_pi_gateways
     echo "Factory is not running"
     return 0
   fi
@@ -355,12 +549,19 @@ stop_factory() {
   for attempt in $(seq 1 30); do
     if ! kill -0 "$pid" 2>/dev/null; then
       rm -f "$PID_FILE"
+      revoke_pi_gateways
       echo "Factory stopped; persistent data was preserved"
       return 0
     fi
     sleep 1
   done
+  revoke_pi_gateways
   fail "Factory PID $pid did not stop after SIGTERM; inspect $APP_LOG"
+}
+
+revoke_pi_gateways() {
+  [[ -f "$CONFIG_FILE" && -f "$PASSWORD_FILE" && -f "$MODEL_TOKEN_FILE" ]] || return 0
+  compose rm -sf factory-gateway factory-dependency-gateway >/dev/null 2>&1 || true
 }
 
 count_reports() {
@@ -389,6 +590,7 @@ validate_suite() {
     *) fail "validate requires --unit, --integration, or --eval-pack" ;;
   esac
   init_factory >/dev/null
+  load_config
   local marker="$STATE_DIR/run/validate-${suite}.marker"
   local log="$STATE_DIR/logs/validation/${suite}.log"
   local summary="$STATE_DIR/logs/validation/${suite}-tests.txt"
@@ -464,12 +666,218 @@ submit_task() {
   echo "Task submitted atomically to $final"
 }
 
+run_eval() {
+  [[ $# == 3 && "$1" == MODSIDECAR-208 && "$2" == --run-key ]] ||
+    fail "run-eval requires MODSIDECAR-208 --run-key RUN_KEY"
+  local task_id="$1" run_key="$3"
+  [[ "$run_key" =~ ^[A-Za-z0-9._-]+$ && "$run_key" != default && ${#run_key} -le 128 ]] ||
+    fail "runKey must be a fresh non-default value matching [A-Za-z0-9._-] and at most 128 characters"
+  load_config
+  local task_file="$ROOT_DIR/evals/tasks/${task_id}.md"
+  require_task_file "$task_file"
+  local generated="$STATE_DIR/run/${task_id}-${run_key}.json"
+  [[ ! -e "$generated" && ! -L "$generated" ]] || fail "run-eval mapping already exists: $generated"
+  python3 - "$task_file" "$run_key" "$generated" <<'PY'
+import json
+import pathlib
+import sys
+
+task_file, run_key, output = sys.argv[1:]
+raw = pathlib.Path(task_file).read_text(encoding="utf-8")
+payload = {
+    "schemaVersion": 1,
+    "source": {"type": "JIRA", "id": "MODSIDECAR-208", "project": "MODSIDECAR"},
+    "repository": "folio-org/folio-module-sidecar",
+    "baseRevision": "c13e0383d9283ef554c195cf5357bb3c6eeb4e65",
+    "profileId": "java21-pi-unit",
+    "verificationPlanId": "modsidecar-208-v1",
+    "runKey": run_key,
+    "deliveryMode": "LOCAL_ONLY",
+    "metadata": {"evalId": "MODSIDECAR-208", "mappingVersion": "modsidecar-208-v1",
+                  "sourceTaskText": raw},
+    "goal": "Implement the complete MODSIDECAR-208 task and satisfy its acceptance criteria.",
+    "acceptanceCriteria": [
+        {"id": "AC1", "text": "quarkus.thread-pool.max-threads is configured and defaults to 8.", "source": "TASK"},
+        {"id": "AC2", "text": "QUARKUS_THREAD_POOL_MAX_THREADS overrides the configured value and defaults to 8 when unset.", "source": "TASK"},
+        {"id": "AC3", "text": "README.md documents the variable, default value, description, and required flag.", "source": "TASK"},
+        {"id": "AC4", "text": "The project compiles and passes the Maven test checks.", "source": "TASK"},
+    ],
+    "constraints": {"allow_paths": ["src/main/resources/application.properties", "README.md", "src/test/**", "NEWS.md"]},
+    "notes": "Use only the prepared repository. Factory performs independent verification after coding.",
+}
+pathlib.Path(output).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+PY
+  chmod 600 "$generated"
+  local source_name execution_id receipt_state
+  source_name=$(basename "$generated")
+  submit_task "$generated" >/dev/null
+  for _ in $(seq 1 30); do
+    receipt_state=$(python3 "$STATE_DIR/data/inbox" "$source_name" <<'PY'
+import json
+import pathlib
+import sys
+
+inbox, source_name = sys.argv[1:]
+matches = []
+for directory in ("processed", "blocked", "failed"):
+    root = pathlib.Path(inbox) / directory
+    if not root.is_dir():
+        continue
+    for path in root.glob("*.receipt.json"):
+        try:
+            receipt = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if receipt.get("sourceFile") == source_name:
+            matches.append((path, receipt))
+if len(matches) > 1:
+    raise SystemExit(f"multiple admission receipts found for {source_name}")
+if not matches:
+    raise SystemExit(0)
+path, receipt = matches[0]
+if receipt.get("status") == "ADMITTED" and receipt.get("executionId"):
+    print("ADMITTED:" + receipt["executionId"])
+else:
+    print("REJECTED:" + str(receipt.get("code", "UNKNOWN")) + ":" + str(receipt.get("message", "")))
+PY
+    )
+    case "$receipt_state" in
+      ADMITTED:*)
+        execution_id="${receipt_state#ADMITTED:}"
+        [[ "$execution_id" =~ ^[0-9a-fA-F-]{36}$ ]] ||
+          fail "admission receipt contains an invalid execution id; mapping retained at $generated"
+      echo "Run admitted: task=$task_id runKey=$run_key execution-id=$execution_id"
+      echo "Mapping retained at $generated"
+      return 0
+        ;;
+      REJECTED:*)
+        fail "task admission rejected: ${receipt_state#REJECTED:}; mapping retained at $generated"
+        ;;
+    esac
+    sleep 2
+  done
+  fail "run was submitted but admission was not visible within 60 seconds; mapping retained at $generated"
+}
+
+show_execution() {
+  [[ $# == 1 || $# == 2 ]] || fail "show requires EXECUTION_ID [--watch]"
+  local execution_id="$1" watch=false
+  [[ "$execution_id" =~ ^[0-9a-fA-F-]{36}$ ]] || fail "execution id must be a UUID"
+  if [[ $# == 2 ]]; then
+    [[ "$2" == --watch ]] || fail "show accepts only --watch as its second argument"
+    watch=true
+  fi
+  load_config
+  local response status
+  while true; do
+    response=$(curl -fsS "http://127.0.0.1:${FACTORY_APP_PORT}/api/executions/${execution_id}") ||
+      fail "execution $execution_id is not available"
+    status=$(python3 - "$response" <<'PY'
+import hashlib
+import json
+import sys
+
+detail = json.loads(sys.argv[1])
+execution = detail.get("execution", {})
+interesting = {"baseline.json", "candidate.json", "candidate.patch", "verification.json", "usage.json", "result.json", "manifest.json"}
+artifacts = []
+for item in detail.get("artifacts", []):
+    content = item.get("content") or ""
+    entry = {"name": item.get("name"), "version": item.get("version"),
+             "bytes": len(content.encode()), "sha256": hashlib.sha256(content.encode()).hexdigest()}
+    if item.get("name") in interesting:
+        try:
+            parsed = json.loads(content)
+            entry["summary"] = {k: parsed[k] for k in parsed if k in {"status", "outcome", "benchmarkOutcome", "stage", "reason", "provider_calls", "settled", "cost_status", "candidateTree", "patchSha256"}}
+        except json.JSONDecodeError:
+            pass
+    artifacts.append(entry)
+print(json.dumps({"execution": execution, "error": detail.get("errorMessage"), "artifacts": artifacts}, separators=(",", ":")))
+print(execution.get("status", ""), file=sys.stderr)
+PY
+)
+    printf '%s\n' "${status%%$'\n'*}"
+    if [[ "$watch" != true || "$status" == *COMPLETED* || "$status" == *FAILED_ESCALATED* || "$status" == *REJECTED* || "$status" == *CANCELLED* ]]; then
+      return 0
+    fi
+    sleep 2
+  done
+}
+
+export_execution() {
+  [[ $# == 3 && "$2" == --out ]] || fail "export requires EXECUTION_ID --out DIRECTORY"
+  local execution_id="$1" output_dir="$3"
+  [[ "$execution_id" =~ ^[0-9a-fA-F-]{36}$ ]] || fail "execution id must be a UUID"
+  [[ -n "$output_dir" && "$output_dir" != "/" && "$output_dir" != "$ROOT_DIR" ]] ||
+    fail "export directory is too broad"
+  load_config
+  mkdir -p "$output_dir"
+  [[ ! -L "$output_dir" ]] || fail "export directory must not be a symbolic link"
+  local response
+  response=$(curl -fsS "http://127.0.0.1:${FACTORY_APP_PORT}/api/executions/${execution_id}") ||
+    fail "execution $execution_id is not available"
+  python3 - "$response" "$output_dir" <<'PY'
+import hashlib
+import json
+import os
+import pathlib
+import re
+import sys
+
+detail = json.loads(sys.argv[1])
+out = pathlib.Path(sys.argv[2]).resolve()
+out.mkdir(parents=True, exist_ok=True)
+if out == pathlib.Path("/"):
+    raise SystemExit("refusing to export to filesystem root")
+manifest = {"execution": detail.get("execution"), "artifacts": []}
+
+def write_new(path, content):
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(str(path), flags, 0o600)
+    except FileExistsError:
+        raise SystemExit(f"refusing to overwrite existing export file: {path}")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(content)
+    except Exception:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
+
+for item in detail.get("artifacts", []):
+    name = item.get("name", "")
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+        raise SystemExit(f"unsafe artifact name: {name!r}")
+    if name == "execution.json":
+        raise SystemExit("artifact name is reserved: execution.json")
+    content = item.get("content") or ""
+    path = out / name
+    write_new(path, content)
+    manifest["artifacts"].append({"name": name, "version": item.get("version"),
+        "sha256": hashlib.sha256(content.encode()).hexdigest(), "bytes": len(content.encode())})
+write_new(out / "execution.json", json.dumps(manifest, indent=2) + "\n")
+print(json.dumps({"execution": detail.get("execution", {}).get("id"), "out": str(out),
+                  "artifacts": [a["name"] for a in manifest["artifacts"]]}))
+PY
+}
+
 command="${1:-}"
 shift || true
 case "$command" in
   init) [[ $# == 0 ]] || fail "init takes no arguments"; init_factory ;;
   infra) infra "$@" ;;
-  doctor) [[ "${1:-}" == --offline && $# == 1 ]] || fail "doctor requires --offline"; doctor_offline ;;
+  doctor)
+    case "${1:-}" in
+      --offline) [[ $# == 1 ]] || fail "doctor --offline takes no extra arguments"; doctor_offline ;;
+      --live) [[ $# == 1 ]] || fail "doctor --live takes no extra arguments"; doctor_live ;;
+      *) fail "doctor requires --offline or --live" ;;
+    esac
+    ;;
   start) start_factory "$@" ;;
   stop) [[ $# == 0 ]] || fail "stop takes no arguments"; stop_factory ;;
   validate) validate_suite "$@" ;;
@@ -477,5 +885,8 @@ case "$command" in
   evidence-verify) evidence_verify "$@" ;;
   resolve-task) resolve_task "$@" ;;
   submit) submit_task "$@" ;;
+  run-eval) run_eval "$@" ;;
+  show) show_execution "$@" ;;
+  export) export_execution "$@" ;;
   *) usage; exit 1 ;;
 esac
