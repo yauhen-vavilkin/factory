@@ -2,7 +2,7 @@ schemaVersion: 1
 planId: pi-minimal-v2
 branch: dev/M2-pi-vertical-slice
 startingHead: e2d7afc
-checkpointHead: 8c14083
+checkpointHead: 9f15620
 observedRemoteHead: null
 currentMilestone: M2
 state: ACCEPTED
@@ -22,5 +22,6 @@ milestones:
   M4:
     state: NOT_STARTED
     report: reports/M4.md
-blockers: []
-nextAction: "Prepare M3 only after explicit live-provider authorization and a fresh runKey."
+blockers:
+  - "PostgreSQL DevFactoryEndToEndScenarioTest remains a legacy scripted-ChatModel regression; Pi PostgreSQL E2E conversion is still required before claiming the full M2 contract."
+nextAction: "Convert the PostgreSQL application scenario to dev-factory-pi before M3."
