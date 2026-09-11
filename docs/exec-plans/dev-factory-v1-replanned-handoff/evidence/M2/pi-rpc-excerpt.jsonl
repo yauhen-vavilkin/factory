@@ -1,0 +1,6 @@
+{"type":"response","command":"get_state","success":true,"data":{"model":{"id":"glm-5.3-flash","api":"openai-completions","provider":"factory-zai","baseUrl":"http://factory-gateway:8080/v1","contextWindow":65536,"maxTokens":16384},"autoCompactionEnabled":true}}
+{"type":"response","command":"prompt","success":true}
+{"type":"message_start","message":{"role":"assistant","content":[{"type":"toolCall","id":"read-1","name":"read","arguments":{"path":"README.md"}}],"provider":"factory-zai","model":"glm-5.3-flash"}}
+{"type":"message_update","assistantMessageEvent":{"type":"toolcall_end","toolCall":{"type":"toolCall","id":"bash-1","name":"bash","arguments":{"command":"git config --global --add safe.directory /workspace/repo && echo Pi-scripted-candidate. >> README.md && git add README.md && git commit -m pi-scripted-candidate"}}}}
+{"type":"agent_end","willRetry":false}
+{"type":"agent_settled"}

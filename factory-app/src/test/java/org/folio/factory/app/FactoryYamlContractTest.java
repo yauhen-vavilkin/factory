@@ -59,6 +59,6 @@ class FactoryYamlContractTest {
     @Test
     void sandboxPropertiesLoadFrozenDefaultsFromYaml() {
         assertEquals("docker", sandboxProperties.mode());
-        assertEquals("maven:3.9-eclipse-temurin-21", sandboxProperties.image());
+        assertEquals("factory-pi:jdk21", sandboxProperties.image());
     }
 }

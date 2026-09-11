@@ -14,7 +14,7 @@ public record SandboxProperties(String mode, String image, String dockerHost,
       throw new IllegalArgumentException(
           "factory.sandbox.mode must be 'docker' or 'local', got: " + mode);
     }
-    image = image == null ? "maven:3.9-eclipse-temurin-21" : image;
+    image = image == null ? "factory-pi:jdk21" : image;
     dockerHost = dockerHost != null ? dockerHost
         : System.getenv().getOrDefault("DOCKER_HOST", "unix:///var/run/docker.sock");
     workspaceRoot = workspaceRoot != null ? workspaceRoot

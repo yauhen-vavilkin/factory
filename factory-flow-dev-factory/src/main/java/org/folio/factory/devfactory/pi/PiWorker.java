@@ -20,10 +20,15 @@ public final class PiWorker implements AgentWorker {
   private final String id;
   private final SandboxService sandboxes;
   private final PiCodingRunner runner;
+  private final String modelToken;
+  private final String gatewayUrl;
   private final JsonMapper json = JsonMapper.builder().build();
 
-  public PiWorker(String id, SandboxService sandboxes, PiCodingRunner runner) {
+  public PiWorker(String id, SandboxService sandboxes, PiCodingRunner runner,
+      String modelToken, String gatewayUrl) {
     this.id = id; this.sandboxes = sandboxes; this.runner = runner;
+    this.modelToken = modelToken == null ? "" : modelToken;
+    this.gatewayUrl = gatewayUrl == null ? "http://factory-gateway:8080/v1" : gatewayUrl;
   }
   @Override public String id() { return id; }
 
@@ -63,7 +68,10 @@ public final class PiWorker implements AgentWorker {
           "--provider", "factory-zai", "--model", "glm-5.3-flash", "--no-approve",
           "--no-extensions", "--no-skills", "--no-context-files", "--tools",
           "read,bash,edit,write,grep,find,ls"), "/workspace/repo", task,
-          Duration.ofMinutes(30), 16L * 1024 * 1024, Map.of("PI_OFFLINE", "1"));
+          Duration.ofMinutes(30), 16L * 1024 * 1024, Map.of(
+              "PI_OFFLINE", "1",
+              "FACTORY_MODEL_TOKEN", modelToken,
+              "FACTORY_PI_GATEWAY_URL", gatewayUrl));
       String base = Shell.quote(p.path("baseRevision").asText());
       CommandResult diff = sandboxes.exec(handle, "cd repo && (git diff --binary " + base
           + " HEAD; git ls-files --others --exclude-standard | while IFS= read -r f; do "

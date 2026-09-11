@@ -340,8 +340,8 @@ validate_suite() {
   touch "$marker"
   if [[ "$suite" == integration ]]; then
     docker info >/dev/null 2>&1 || fail "integration suite requires Docker (BLOCKED_REQUIRES_DOCKER)"
-    docker image inspect maven:3.9-eclipse-temurin-21 >/dev/null 2>&1 ||
-      docker pull maven:3.9-eclipse-temurin-21
+    docker image inspect factory-pi:jdk21 >/dev/null 2>&1 ||
+      docker build -q -t factory-pi:jdk21 "$ROOT_DIR/factory-sandbox"
   fi
   local rc=0
   (

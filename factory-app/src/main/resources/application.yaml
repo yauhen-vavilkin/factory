@@ -61,11 +61,14 @@ factory:
     model-id: ${FACTORY_HARNESS_MODEL:glm-5.3-flash}
   sandbox:
     mode: ${FACTORY_SANDBOX_MODE:docker}
-    image: maven:3.9-eclipse-temurin-21
+    image: ${FACTORY_SANDBOX_IMAGE:factory-pi:jdk21}
     docker-host: ${DOCKER_HOST:unix:///var/run/docker.sock}
     workspace-root: ${FACTORY_DATA_DIR:.factory/data}/sandboxes
     workspace-retention: 0s
     maven-cache-volume: ${FACTORY_SANDBOX_MAVEN_CACHE_VOLUME:factory-m2-cache}
+  pi:
+    model-token: ${FACTORY_MODEL_TOKEN:}
+    gateway-url: ${FACTORY_PI_GATEWAY_URL:http://factory-gateway:8080/v1}
   inbox:
     dir: ${FACTORY_INBOX_DIR:.factory/data/inbox}
     enabled: ${FACTORY_INBOX_ENABLED:true}

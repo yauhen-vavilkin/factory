@@ -42,7 +42,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class DockerSandboxServiceTest {
 
-  private static final String IMAGE = "maven:3.9-eclipse-temurin-21";
+  private static final String IMAGE = "factory-pi:jdk21";
   private static final String CONTAINER_ID = "c1";
   private static final String EXEC_ID = "e1";
   private static final SandboxSpec SPEC =

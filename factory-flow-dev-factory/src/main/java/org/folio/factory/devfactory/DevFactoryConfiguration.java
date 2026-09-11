@@ -32,13 +32,29 @@ public class DevFactoryConfiguration {
   @Bean @ConditionalOnBean(ProcessSessionFactory.class)
   public PiCodingRunner piCodingRunner(ProcessSessionFactory sessions) { return new PiCodingRunner(sessions); }
   @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
-  public PiWorker piPrepareWorker(SandboxService s, PiCodingRunner r) { return new PiWorker("pi-prepare-worker", s, r); }
+  public PiWorker piPrepareWorker(SandboxService s, PiCodingRunner r,
+      @Value("${factory.pi.model-token:}") String token,
+      @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway) {
+    return new PiWorker("pi-prepare-worker", s, r, token, gateway);
+  }
   @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
-  public PiWorker piCodingWorker(SandboxService s, PiCodingRunner r) { return new PiWorker("pi-coding-worker", s, r); }
+  public PiWorker piCodingWorker(SandboxService s, PiCodingRunner r,
+      @Value("${factory.pi.model-token:}") String token,
+      @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway) {
+    return new PiWorker("pi-coding-worker", s, r, token, gateway);
+  }
   @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
-  public PiWorker piVerifyWorker(SandboxService s, PiCodingRunner r) { return new PiWorker("pi-verify-worker", s, r); }
+  public PiWorker piVerifyWorker(SandboxService s, PiCodingRunner r,
+      @Value("${factory.pi.model-token:}") String token,
+      @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway) {
+    return new PiWorker("pi-verify-worker", s, r, token, gateway);
+  }
   @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
-  public PiWorker piFinalizeWorker(SandboxService s, PiCodingRunner r) { return new PiWorker("pi-finalize-worker", s, r); }
+  public PiWorker piFinalizeWorker(SandboxService s, PiCodingRunner r,
+      @Value("${factory.pi.model-token:}") String token,
+      @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway) {
+    return new PiWorker("pi-finalize-worker", s, r, token, gateway);
+  }
 
   @Bean
   public InboxTaskFileParser inboxTaskFileParser() {

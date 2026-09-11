@@ -27,7 +27,7 @@ import org.springframework.stereotype.Component;
     matchIfMissing = true)
 public class DockerSandboxService implements SandboxService {
 
-  private static final String DEFAULT_IMAGE = "maven:3.9-eclipse-temurin-21";
+  private static final String DEFAULT_IMAGE = "factory-pi:jdk21";
   private static final String WORKSPACE_DIR = "/workspace";
   private static final long CLONE_TIMEOUT_SEC = 300L;
 

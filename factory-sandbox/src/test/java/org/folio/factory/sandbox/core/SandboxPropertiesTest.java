@@ -14,7 +14,7 @@ class SandboxPropertiesTest {
     SandboxProperties properties = new SandboxProperties(null, null, null, null, null, null);
 
     assertThat(properties.mode()).isEqualTo("docker");
-    assertThat(properties.image()).isEqualTo("maven:3.9-eclipse-temurin-21");
+    assertThat(properties.image()).isEqualTo("factory-pi:jdk21");
     assertThat(properties.dockerHost()).isEqualTo(
         System.getenv().getOrDefault("DOCKER_HOST", "unix:///var/run/docker.sock"));
     assertThat(properties.workspaceRoot()).isEqualTo(

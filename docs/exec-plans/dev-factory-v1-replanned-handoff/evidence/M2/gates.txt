@@ -1,0 +1,4 @@
+./scripts/factory validate --unit: exit 0; TOTAL_TESTS=398; failures=0; errors=0; skipped=0
+./scripts/factory smoke --pi --scripted: exit 0; Pi 0.85.1; native read/bash; agent_settled; independent verification PASS
+./mvnw -B verify: exit 0; BUILD SUCCESS; Pi E2E trigger evidence in mvn-verify-excerpt.log
+git diff --check: exit 0

@@ -1,0 +1,6 @@
+Configured production default: factory-pi:jdk21
+Image build source: factory-sandbox/Dockerfile
+Pi executable: /opt/pi/node_modules/.bin/pi
+Pi argv: /opt/pi/node_modules/.bin/pi --mode rpc --provider factory-zai --model glm-5.3-flash
+Gateway/token plumbing: FACTORY_PI_GATEWAY_URL and FACTORY_MODEL_TOKEN are injected as run-scoped environment values; no credential is committed.
+Image capability check: factory-pi:jdk21 contains /opt/pi/node_modules/.bin/pi (verified by the scripted smoke run).

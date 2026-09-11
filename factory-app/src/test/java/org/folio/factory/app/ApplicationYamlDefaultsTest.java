@@ -65,7 +65,7 @@ class ApplicationYamlDefaultsTest {
       SandboxProperties sandbox = context.getBean(SandboxProperties.class);
       Environment env = context.getEnvironment();
       assertThat(sandbox.mode()).isEqualTo("docker");
-      assertThat(sandbox.image()).isEqualTo("maven:3.9-eclipse-temurin-21");
+      assertThat(sandbox.image()).isEqualTo("factory-pi:jdk21");
       assertThat(sandbox.workspaceRetention()).isEqualTo(Duration.ZERO);
       assertThat(sandbox.workspaceRoot())
           .isEqualTo(Path.of(".factory/data/sandboxes"));
@@ -77,7 +77,7 @@ class ApplicationYamlDefaultsTest {
       assertThat(env.getProperty("factory.sandbox.mode"))
           .isEqualTo(System.getenv().getOrDefault("FACTORY_SANDBOX_MODE", "docker"));
       assertThat(env.getProperty("factory.sandbox.image"))
-          .isEqualTo("maven:3.9-eclipse-temurin-21");
+          .isEqualTo(System.getenv().getOrDefault("FACTORY_SANDBOX_IMAGE", "factory-pi:jdk21"));
       assertThat(env.getProperty("factory.sandbox.docker-host"))
           .isEqualTo(System.getenv().getOrDefault("DOCKER_HOST", "unix:///var/run/docker.sock"));
       assertThat(env.getProperty("factory.sandbox.workspace-root"))
