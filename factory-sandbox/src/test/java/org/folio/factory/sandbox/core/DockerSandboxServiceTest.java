@@ -49,7 +49,7 @@ class DockerSandboxServiceTest {
   private static final SandboxSpec SPEC =
       new SandboxSpec("task1", "https://example.com/repo.git", "main", "feature/x");
   private static final String CLONE_COMMAND =
-      "git clone --depth 1 'https://example.com/repo.git' repo && cd repo && git checkout -b 'feature/x' 'main'";
+      "cp /opt/pi/models.json /state/pi/models.json && git clone --depth 1 'https://example.com/repo.git' repo && cd repo && git checkout -b 'feature/x' 'main'";
 
   @Mock
   private DockerClient dockerClient;
@@ -107,11 +107,31 @@ class DockerSandboxServiceTest {
     HostConfig config = hostConfigCaptor.getValue();
     assertTrue(config.getBinds() == null || config.getBinds().length == 0);
     assertEquals(2_000_000_000L, config.getNanoCPUs());
-    assertEquals(4L * 1024 * 1024 * 1024, config.getMemory());
+    assertEquals(8L * 1024 * 1024 * 1024, config.getMemory());
     assertEquals(512L, config.getPidsLimit());
     assertTrue(config.getReadonlyRootfs());
     assertTrue(config.getTmpFs().containsKey("/tmp"));
     assertTrue(config.getTmpFs().containsKey("/workspace"));
+  }
+
+  @Test
+  void createProvidesWritablePiStateRootForCredentialStore() throws Exception {
+    CreateContainerCmd createCmd = mock(CreateContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    CreateContainerResponse createResponse = mock(CreateContainerResponse.class);
+    when(createResponse.getId()).thenReturn(CONTAINER_ID);
+    when(dockerClient.createContainerCmd(IMAGE)).thenReturn(createCmd);
+    when(createCmd.exec()).thenReturn(createResponse);
+    when(dockerClient.startContainerCmd(CONTAINER_ID))
+        .thenReturn(mock(StartContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF)));
+    mockExecPipeline(CLONE_COMMAND, 0, new byte[0], new byte[0]);
+
+    service.create(SPEC);
+
+    ArgumentCaptor<HostConfig> hostConfig = ArgumentCaptor.forClass(HostConfig.class);
+    verify(createCmd).withHostConfig(hostConfig.capture());
+    String piStateMount = hostConfig.getValue().getTmpFs().get("/state/pi");
+    assertTrue(piStateMount != null && piStateMount.startsWith("rw,"),
+        "Pi credential/state root must be writable");
   }
 
   @Test
@@ -248,9 +268,9 @@ class DockerSandboxServiceTest {
 
     ArgumentCaptor<String> cmdCaptor = ArgumentCaptor.forClass(String.class);
     verify(execCreateCmd, times(2)).withCmd(eq("/bin/sh"), eq("-c"), cmdCaptor.capture());
-    assertEquals("git clone --depth 1 'https://example.com/repo.git' repo && cd repo && git checkout -b "
+    assertEquals("cp /opt/pi/models.json /state/pi/models.json && git clone --depth 1 'https://example.com/repo.git' repo && cd repo && git checkout -b "
         + "'feature/x' 'main'", cmdCaptor.getAllValues().get(0));
-    assertEquals("git clone --depth 1 'https://example.com/repo.git' repo && cd repo && git checkout -b "
+    assertEquals("cp /opt/pi/models.json /state/pi/models.json && git clone --depth 1 'https://example.com/repo.git' repo && cd repo && git checkout -b "
         + "'feature/x; touch /pwned' 'main'", cmdCaptor.getAllValues().get(1));
   }
 

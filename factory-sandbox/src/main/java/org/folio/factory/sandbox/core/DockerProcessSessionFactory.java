@@ -118,6 +118,19 @@ public final class DockerProcessSessionFactory implements ProcessSessionFactory 
     @Override public void killWorkload() { try { docker.killContainerCmd(containerId).exec(); } finally { complete(-1); } }
     @Override public long stdoutBytes() { return stdoutBytes; }
     @Override public long stderrBytes() { return stderrBytes; }
-    @Override public void close() { try { input.close(); } catch (IOException ignored) { } finally { deadline.shutdownNow(); } }
+    @Override public void close() {
+      deadline.shutdownNow();
+      // The RPC exec may terminate the keep-alive workload when its attached
+      // stream closes.  Export is a separate trusted operation and needs the
+      // prepared sandbox alive until the worker snapshots it.
+      try {
+        if (!Boolean.TRUE.equals(docker.inspectContainerCmd(containerId).exec().getState().getRunning())) {
+          docker.startContainerCmd(containerId).exec();
+        }
+      } catch (RuntimeException ignored) {
+        // The caller will report the subsequent export failure with its exact
+        // Docker diagnostic.
+      }
+    }
   }
 }

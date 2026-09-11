@@ -29,6 +29,7 @@ public final class PiCodingRunner {
                            String taskJson, Duration timeout, long maxOutputBytes,
                            Map<String, String> environment) {
     StringBuilder raw = new StringBuilder();
+    StringBuilder stderr = new StringBuilder();
     List<JsonNode> events = new ArrayList<>();
     Object monitor = new Object();
     PiRpcProtocol.Decoder decoder = new PiRpcProtocol.Decoder();
@@ -37,7 +38,11 @@ public final class PiCodingRunner {
     ProcessOutputSink sink = (stream, bytes, offset, length) -> {
       synchronized (monitor) {
         raw.append(new String(bytes, offset, length, StandardCharsets.UTF_8));
-        if (stream != ProcessOutputSink.Stream.STDOUT) return;
+        if (stream != ProcessOutputSink.Stream.STDOUT) {
+          if (stderr.length() < 4096) stderr.append(new String(bytes, offset,
+              Math.min(length, 4096 - stderr.length()), StandardCharsets.UTF_8));
+          return;
+        }
         try { events.addAll(decoder.accept(bytes, offset, length)); }
         catch (RuntimeException e) { protocolFailure.compareAndSet(null, e); }
         monitor.notifyAll();
@@ -49,12 +54,12 @@ public final class PiCodingRunner {
       String stateId = "factory-" + (++requestId[0]);
       JsonNode prompt = prompt(taskJson, "factory-" + (++requestId[0]));
       send(session, command("get_state", stateId), prompt);
-      waitForResponse(events, monitor, stateId, timeout.compareTo(Duration.ofSeconds(10)) > 0
-          ? Duration.ofSeconds(10) : timeout, protocolFailure);
+      Duration rpcTimeout = timeout.compareTo(Duration.ofSeconds(10)) > 0
+          ? Duration.ofSeconds(10) : timeout;
+      awaitSuccessfulResponse(events, monitor, stateId, "get_state", rpcTimeout, protocolFailure);
+      awaitSuccessfulResponse(events, monitor, prompt.path("id").asString(), "prompt", rpcTimeout,
+          protocolFailure);
       if (protocolFailure.get() != null) throw protocolFailure.get();
-      if (events.stream().noneMatch(e -> stateId.equals(e.path("id").asString("")))) {
-        throw new IllegalStateException("Pi get_state response timed out; exchange=" + raw);
-      }
       long deadline = System.nanoTime() + timeout.toNanos();
       synchronized (monitor) {
         while (!hasEvent(events, "agent_settled") && protocolFailure.get() == null
@@ -74,7 +79,7 @@ public final class PiCodingRunner {
       try { exit = session.awaitExit().get(Math.min(timeout.toMillis(), 10_000), TimeUnit.MILLISECONDS); }
       catch (TimeoutException e) { session.killWorkload(); exit = -1; }
       catch (InterruptedException e) { Thread.currentThread().interrupt(); exit = -1; }
-      catch (ExecutionException e) { session.killWorkload(); exit = -1; }
+      catch (ExecutionException e) { exit = -1; }
       synchronized (monitor) {
         decoder.finish();
         if (protocolFailure.get() != null) throw protocolFailure.get();
@@ -83,7 +88,7 @@ public final class PiCodingRunner {
       }
     } catch (IOException e) {
       session.killWorkload();
-      throw new IllegalStateException("Pi RPC write failed", e);
+      throw new IllegalStateException("Pi RPC write failed: " + stderr, e);
     }
   }
 
@@ -110,8 +115,9 @@ public final class PiCodingRunner {
   private static boolean hasEvent(List<JsonNode> events, String type) {
     return events.stream().anyMatch(e -> type.equals(e.path("type").asString("")));
   }
-  private static void waitForResponse(List<JsonNode> events, Object monitor, String id,
-                                      Duration timeout, AtomicReference<RuntimeException> failure) {
+  private static void awaitSuccessfulResponse(List<JsonNode> events, Object monitor, String id,
+                                              String command, Duration timeout,
+                                              AtomicReference<RuntimeException> failure) {
     long deadline = System.nanoTime() + timeout.toNanos();
     synchronized (monitor) {
       while (events.stream().noneMatch(e -> id.equals(e.path("id").asString("")))
@@ -121,6 +127,25 @@ public final class PiCodingRunner {
         catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
       }
     }
+    if (failure.get() != null) throw failure.get();
+    List<JsonNode> snapshot;
+    synchronized (monitor) {
+      snapshot = List.copyOf(events);
+    }
+    JsonNode response = snapshot.stream()
+        .filter(e -> id.equals(e.path("id").asString("")))
+        .findFirst().orElseThrow(() ->
+            new IllegalStateException("Pi " + command + " response timed out; exchange="
+                + boundedTail(snapshot, 2048)));
+    if (response.path("success").isBoolean() && !response.path("success").asBoolean()) {
+      throw new IllegalStateException("Pi " + command + " RPC failed: "
+          + response.path("error").asString("unknown error"));
+    }
+  }
+
+  private static String boundedTail(List<JsonNode> events, int maxChars) {
+    String text = events.toString();
+    return text.length() <= maxChars ? text : text.substring(text.length() - maxChars);
   }
 
   public record CodingAttempt(int processExitCode, boolean settled, String rawExchange,

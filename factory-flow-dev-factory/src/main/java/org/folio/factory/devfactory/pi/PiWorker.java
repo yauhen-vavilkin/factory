@@ -140,7 +140,9 @@ public final class PiWorker implements AgentWorker {
           "pi-session.jsonl", "", "usage.json", "{\"provider_calls\":1,\"retained\":true}"),
           Map.of("provider_calls", 1, "settled", false, "retained", true,
               "failure_stage", "coding"));
-    } finally { sandboxes.teardown(handle); }
+    } finally {
+      sandboxes.teardown(handle);
+    }
   }
 
   private static String failureMessage(Throwable error) {

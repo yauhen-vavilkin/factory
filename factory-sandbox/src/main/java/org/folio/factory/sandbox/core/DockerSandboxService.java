@@ -65,11 +65,11 @@ public class DockerSandboxService implements SandboxService {
               .withReadonlyRootfs(true)
               .withTmpFs(Map.of("/tmp", "rw,nosuid,nodev,mode=1777,size=1g",
                   "/workspace", "rw,nosuid,nodev,mode=1777,size=2g",
-                  "/state/pi/sessions", "rw,nosuid,nodev,mode=1777,size=1g",
+                  "/state/pi", "rw,nosuid,nodev,mode=1777,size=1g",
                   "/state/tmp", "rw,nosuid,nodev,mode=1777,size=256m",
                   "/home/agent", "rw,nosuid,nodev,mode=1777,size=1g"))
               .withNanoCPUs(2_000_000_000L)
-              .withMemory(4L * 1024 * 1024 * 1024)
+              .withMemory(8L * 1024 * 1024 * 1024)
               .withPidsLimit(512L)
               .withCapDrop(Capability.ALL)
               .withSecurityOpts(java.util.List.of("no-new-privileges:true"));
@@ -88,11 +88,11 @@ public class DockerSandboxService implements SandboxService {
           .exec();
       containerId = container.getId();
       dockerClient.startContainerCmd(containerId).exec();
-      String cloneCommand = source == null
+      String cloneCommand = "cp /opt/pi/models.json /state/pi/models.json && " + (source == null
           ? "git clone --depth 1 " + Shell.quote(spec.repoUrl()) + " repo && cd repo && git checkout -b "
               + Shell.quote(spec.branch()) + " " + Shell.quote(spec.baseBranch())
           : "mkdir repo && cp -a /workspace/source/. repo/ && cd repo && git checkout -b "
-              + Shell.quote(spec.branch()) + " " + Shell.quote(spec.baseBranch());
+              + Shell.quote(spec.branch()) + " " + Shell.quote(spec.baseBranch()));
       ExecOutput output = runExec(containerId, cloneCommand, CLONE_TIMEOUT_SEC);
       if (output.exitCode() != 0) {
         throw new SandboxException(
