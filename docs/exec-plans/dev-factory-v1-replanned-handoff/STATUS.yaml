@@ -2,7 +2,7 @@ schemaVersion: 1
 planId: pi-minimal-v2
 branch: dev/M2-pi-vertical-slice
 startingHead: 34aa29f
-checkpointHead: c483659
+checkpointHead: 3d9fa6e
 observedRemoteHead: null
 currentMilestone: M2
 state: COMPLETE
