@@ -2,6 +2,11 @@ services:
   factory-gateway:
     build:
       context: ./factory-gateway
+    # Run the gateway process as the invoking host user so the bind-mounted
+    # evidence directory stays writable (the image default uid 10001 cannot
+    # write a 0700 host-owned directory and evidence recording would silently
+    # fail — found during the M4 live qualification).
+    user: "${FACTORY_GATEWAY_UID:-1000}:${FACTORY_GATEWAY_GID:-1000}"
     environment:
       FACTORY_GATEWAY_MODE: coding
       FACTORY_UPSTREAM_BASE_URL: ${FACTORY_MODEL_BASE_URL:-https://api.z.ai/api/paas/v4}
@@ -26,6 +31,7 @@ services:
   factory-dependency-gateway:
     build:
       context: ./factory-gateway
+    user: "${FACTORY_GATEWAY_UID:-1000}:${FACTORY_GATEWAY_GID:-1000}"
     environment:
       FACTORY_GATEWAY_MODE: dependencies
     volumes:

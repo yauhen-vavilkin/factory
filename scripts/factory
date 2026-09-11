@@ -65,6 +65,11 @@ load_config() {
   export FACTORY_MODEL_THINKING FACTORY_MODEL_CONTEXT_TOKENS FACTORY_MODEL_MAX_OUTPUT_TOKENS FACTORY_ALLOW_UNPRICED
   export FACTORY_MODEL_API_KEY FACTORY_MODEL_TOKEN
   export DOCKER_CONFIG="${DOCKER_CONFIG:-$STATE_DIR/cache/docker-config}"
+  # Gateway containers run as the invoking user so the bind-mounted evidence
+  # directory (.factory/logs/runs, 0700) stays writable by their process.
+  : "${FACTORY_GATEWAY_UID:=$(id -u)}"
+  : "${FACTORY_GATEWAY_GID:=$(id -g)}"
+  export FACTORY_GATEWAY_UID FACTORY_GATEWAY_GID
 }
 
 load_dotenv_file() {
@@ -336,6 +341,14 @@ start_factory() {
     pi_gateways_started=true
     compose up -d --build --force-recreate --wait postgres factory-gateway factory-dependency-gateway
     docker build -q -t factory-pi:jdk21 "$ROOT_DIR/factory-sandbox"
+    # Fail fast if the gateways cannot record their evidence volume: a silent
+    # evidence failure would make live provider calls unauditable.
+    compose exec -T factory-gateway touch /evidence/.write-probe >/dev/null 2>&1 ||
+      fail "coding gateway cannot write its evidence volume (.factory/logs/runs)"
+    compose exec -T factory-gateway rm -f /evidence/.write-probe >/dev/null 2>&1 || true
+    compose exec -T factory-dependency-gateway touch /evidence/.write-probe >/dev/null 2>&1 ||
+      fail "dependency gateway cannot write its evidence volume (.factory/logs/runs)"
+    compose exec -T factory-dependency-gateway rm -f /evidence/.write-probe >/dev/null 2>&1 || true
     effective_config
   fi
 
