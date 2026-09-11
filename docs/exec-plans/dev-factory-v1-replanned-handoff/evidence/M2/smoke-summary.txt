@@ -1,3 +1,9 @@
+[CURRENT FINAL SMOKE — 2026-09-11]
+mode=pi scripted=true provider_calls=3 paid_calls=0 gateway=private-fixed-route
+image=factory-pi:jdk21 node=22.19.0 pi=0.85.1 network=factory-pi-smoke-7101 non_root=true no_tty=true
+DIRECT_EGRESS=DENIED gateway_path=SERVING
+independent=true fresh_checkout=true maven_verify=PASS wrong_candidate=REJECTED
+
 mode=pi scripted=true provider_calls=3 paid_calls=0 gateway=private-fixed-route
 image=factory-pi:jdk21 node=22.19.0 pi=0.85.1 network=factory-pi-smoke-2127299 non_root=true no_tty=true
 DIRECT_EGRESS=DENIED gateway_path=SERVING

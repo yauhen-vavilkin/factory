@@ -283,7 +283,9 @@ EOF
   (cd "$verify/repo" && mvn -B -ntp verify) > "$STATE_DIR/logs/validation/pi-verify-mvn.log" 2>&1 || fail "independent Maven verification failed"
   local wrong="$STATE_DIR/data/sandboxes/pi-smoke-wrong.$$"
   mkdir -p "$wrong"; git -C "$wrong" clone -q "$fixture" repo
-  sed -i 's/return value.trim().toLowerCase();/return value;/' "$wrong/repo/src/main/java/factory/Normalizer.java"
+  local wrong_source="$wrong/repo/src/main/java/factory/Normalizer.java"
+  sed -i.bak 's/return value.trim().toLowerCase();/return value;/' "$wrong_source"
+  rm -f "$wrong_source.bak"
   if (cd "$wrong/repo" && mvn -B -ntp verify >/dev/null 2>&1); then fail "wrong candidate was accepted"; fi
   printf '%s\n' '{"status":"PASS","independent":true,"candidate":"pi-smoke-candidate.patch","candidateHead":"'"$candidate_head"'","freshCheckout":true,"mavenVerify":"pi-verify-mvn.log","wrongCandidate":"REJECTED"}' \
     > "$STATE_DIR/data/artifacts/pi-smoke-verification.json"

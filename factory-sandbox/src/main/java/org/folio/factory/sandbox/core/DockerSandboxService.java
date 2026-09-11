@@ -64,7 +64,6 @@ public class DockerSandboxService implements SandboxService {
       HostConfig hostConfig = new HostConfig().withNetworkMode(effectiveNetwork)
               .withReadonlyRootfs(true)
               .withTmpFs(Map.of("/tmp", "rw,nosuid,nodev,mode=1777,size=1g",
-                  "/workspace", "rw,nosuid,nodev,mode=1777,size=2g",
                   "/state/pi", "rw,nosuid,nodev,mode=1777,size=1g",
                   "/state/tmp", "rw,nosuid,nodev,mode=1777,size=256m",
                   "/home/agent", "rw,nosuid,nodev,mode=1777,size=1g"))
@@ -84,6 +83,9 @@ public class DockerSandboxService implements SandboxService {
       CreateContainerResponse container = dockerClient.createContainerCmd(effectiveImage)
           .withCmd("sleep", "infinity")
           .withWorkingDir(WORKSPACE_DIR)
+          // Unlike tmpfs, this private anonymous volume survives workload stop.
+          // teardown removes it only after the caller has exported the candidate.
+          .withVolumes(new Volume(WORKSPACE_DIR))
           .withHostConfig(hostConfig)
           .exec();
       containerId = container.getId();
@@ -162,6 +164,41 @@ public class DockerSandboxService implements SandboxService {
   }
 
   @Override
+  public SandboxHandle freezeForExport(SandboxHandle handle, SandboxSpec source) {
+    if (Boolean.TRUE.equals(dockerClient.inspectContainerCmd(handle.containerId()).exec()
+        .getState().getRunning())) {
+      dockerClient.killContainerCmd(handle.containerId()).exec();
+    }
+    if (Boolean.TRUE.equals(dockerClient.inspectContainerCmd(handle.containerId()).exec()
+        .getState().getRunning())) {
+      throw new SandboxException("Coding workload is still running; refusing export");
+    }
+    SandboxHandle exporter = create(new SandboxSpec(source.taskId() + "-export", source.repoUrl(),
+        source.baseBranch(), source.branch() + "-export", source.ownerId() + "-export",
+        source.image(), source.platform(), source.networkPolicy()));
+    try {
+      CommandResult directory = exec(exporter, "mkdir /workspace/factory-frozen", 30);
+      if (!directory.ok()) throw new SandboxException("Cannot create frozen-workspace directory");
+      try (var archive = dockerClient.copyArchiveFromContainerCmd(handle.containerId(),
+          "/workspace/repo").exec()) {
+        dockerClient.copyArchiveToContainerCmd(exporter.containerId())
+            .withRemotePath("/workspace/factory-frozen").withTarInputStream(archive).exec();
+      }
+      // Preserve only the fresh checkout's Git metadata. Never execute candidate
+      // hooks, config or index, and remove base files to capture deletions too.
+      CommandResult copy = exec(exporter, "cd repo && "
+          + "find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} + && "
+          + "tar -C /workspace/factory-frozen/repo --exclude=./.git -cf /tmp/factory-tree.tar . && "
+          + "tar -xf /tmp/factory-tree.tar --no-same-owner", 120);
+      if (!copy.ok()) throw new SandboxException("Frozen-workspace copy failed: " + copy.stderr());
+      return exporter;
+    } catch (java.io.IOException | RuntimeException e) {
+      teardown(exporter);
+      throw new SandboxException("Stopped-workspace export failed; coding volume retained", e);
+    }
+  }
+
+  @Override
   public void teardown(SandboxHandle handle) {
     try {
       dockerClient.removeContainerCmd(handle.containerId())
@@ -188,6 +225,7 @@ public class DockerSandboxService implements SandboxService {
   private ExecOutput runExec(String containerId, String command, long timeoutSec) throws InterruptedException {
     String execId = dockerClient.execCreateCmd(containerId)
         .withCmd("/bin/sh", "-c", command)
+        .withWorkingDir(WORKSPACE_DIR)
         .withAttachStdout(true)
         .withAttachStderr(true)
         .exec()

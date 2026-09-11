@@ -111,7 +111,9 @@ class DockerSandboxServiceTest {
     assertEquals(512L, config.getPidsLimit());
     assertTrue(config.getReadonlyRootfs());
     assertTrue(config.getTmpFs().containsKey("/tmp"));
-    assertTrue(config.getTmpFs().containsKey("/workspace"));
+    assertTrue(!config.getTmpFs().containsKey("/workspace"),
+        "candidate files must survive workload stop");
+    verify(createCmd).withVolumes(new com.github.dockerjava.api.model.Volume("/workspace"));
   }
 
   @Test
@@ -286,6 +288,7 @@ class DockerSandboxServiceTest {
     assertTrue(result.durationMs() >= 0);
     assertTrue(result.ok());
     verify(execCreateCmd).withCmd("/bin/sh", "-c", "mvn test");
+    verify(execCreateCmd).withWorkingDir("/workspace");
   }
 
   @Test

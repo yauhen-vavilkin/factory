@@ -6,7 +6,6 @@ import com.github.dockerjava.api.model.Frame;
 import com.github.dockerjava.api.model.StreamType;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
@@ -71,6 +70,7 @@ public final class DockerProcessSessionFactory implements ProcessSessionFactory 
     });
     private volatile long stdoutBytes;
     private volatile long stderrBytes;
+    private ExecStartResultCallback callback;
 
     DockerSession(DockerClient docker, String containerId, String execId, OutputStream input,
                   ProcessSessionRequest request, ProcessOutputSink sink) {
@@ -79,7 +79,7 @@ public final class DockerProcessSessionFactory implements ProcessSessionFactory 
     }
 
     ExecStartResultCallback callback() {
-      return new ExecStartResultCallback() {
+      callback = new ExecStartResultCallback() {
         @Override public void onNext(Frame frame) {
           byte[] bytes = frame.getPayload();
           ProcessOutputSink.Stream stream = frame.getStreamType() == StreamType.STDERR
@@ -92,12 +92,16 @@ public final class DockerProcessSessionFactory implements ProcessSessionFactory 
             else stderrBytes += accepted;
           }
         }
-        @Override public void onComplete() { complete(inspectExit()); }
+        @Override public void onComplete() {
+          try { complete(inspectExit()); }
+          finally { super.onComplete(); }
+        }
         @Override public void onError(Throwable throwable) {
           exit.completeExceptionally(throwable);
           deadline.shutdownNow();
         }
       };
+      return callback;
     }
 
     private void complete(int code) {
@@ -115,21 +119,21 @@ public final class DockerProcessSessionFactory implements ProcessSessionFactory 
     @Override public OutputStream stdin() { return input; }
     @Override public CompletableFuture<Integer> awaitExit() { return exit; }
     @Override public void terminate() { docker.killContainerCmd(containerId).exec(); complete(-1); }
-    @Override public void killWorkload() { try { docker.killContainerCmd(containerId).exec(); } finally { complete(-1); } }
+    @Override public void killWorkload() {
+      if (Boolean.TRUE.equals(docker.inspectContainerCmd(containerId).exec().getState().getRunning())) {
+        docker.killContainerCmd(containerId).exec();
+      }
+      complete(-1);
+    }
     @Override public long stdoutBytes() { return stdoutBytes; }
     @Override public long stderrBytes() { return stderrBytes; }
     @Override public void close() {
-      deadline.shutdownNow();
-      // The RPC exec may terminate the keep-alive workload when its attached
-      // stream closes.  Export is a separate trusted operation and needs the
-      // prepared sandbox alive until the worker snapshots it.
       try {
-        if (!Boolean.TRUE.equals(docker.inspectContainerCmd(containerId).exec().getState().getRunning())) {
-          docker.startContainerCmd(containerId).exec();
-        }
-      } catch (RuntimeException ignored) {
-        // The caller will report the subsequent export failure with its exact
-        // Docker diagnostic.
+        killWorkload();
+      } finally {
+        deadline.shutdownNow();
+        try { input.close(); } catch (IOException ignored) { }
+        try { callback.close(); } catch (IOException ignored) { }
       }
     }
   }

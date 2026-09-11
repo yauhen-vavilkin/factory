@@ -1,3 +1,10 @@
+[M2 FINAL ACCEPTANCE — 2026-09-11]
+Command: MAVEN_USER_HOME="$PWD/.factory/cache/maven-home" ./mvnw -B -pl factory-app -am test -Dgroups=integration -Dtest=DevFactoryPiEndToEndScenarioTest -Dsurefire.failIfNoSpecifiedTests=false
+Exit: 0
+Result: Tests run: 2, Failures: 0, Errors: 0, Skipped: 0; reactor BUILD SUCCESS; elapsed 01:42.
+Evidence: gateway requests=3; candidate.patch bytes=528; candidate.json base=9ee4f5a42324042771793e88274dfcc0c930ffac, candidateTree=2809bb445fdb37c8a52004d6847350b87f4504f4, patchSha256=392ce04f1b7d78ca899f9458bb9f59c87528bed200281b6f09a32188ee4cf5ea; verification status=PASS, independent=true; result outcome=SUCCESS.
+The 5-minute Awaitility window covers fresh private Maven-cache resolution; the worker build/verify command remains bounded at 900 seconds.
+
 [INFO] Scanning for projects...
 [INFO] ------------------------------------------------------------------------
 [INFO] Reactor Build Order:

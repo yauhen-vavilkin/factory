@@ -1,5 +1,8 @@
+Final acceptance: DevFactoryPiEndToEndScenarioTest exit 0; tests=2; failures=0; errors=0; skipped=0; gateway_requests=3; candidate_exported=true; independently_verified=true.
+Final smoke: exit 0; provider_calls=3; paid_calls=0; DIRECT_EGRESS=DENIED; gateway_path=SERVING; wrong_candidate=REJECTED.
+Unit validation final run: exit 0; TOTAL_TESTS=411; failures=0; errors=0; skipped=0.
 F2 fail-fast: DockerSandboxServiceTest.gatewayOnlyWithoutNetworkFailsBeforeContainerCreation; direct probe: DIRECT_EGRESS=DENIED; gateway path: SERVING.
 F3 readonlyRootfs: DockerSandboxServiceTest.createUsesPrivateBoundedResourcesWithoutSharedMavenCache; writable mounts: /tmp, /workspace, /state/pi/sessions, /state/tmp, /home/agent; smoke denied-write boundary is enforced by readonly root.
 F4 timeout: PiCodingRunner kills whole workload on await timeout/transport failure; PiWorker exports snapshot before teardown; cancellation sends clear_queue then abort then killWorkload.
-Unit validation: exit 0; TOTAL_TESTS=409; failures=0; errors=0; skipped=0.
+Unit validation: exit 0; TOTAL_TESTS=411; failures=0; errors=0; skipped=0.
 Smoke: exit 0; DIRECT_EGRESS=DENIED; gateway_path=SERVING.

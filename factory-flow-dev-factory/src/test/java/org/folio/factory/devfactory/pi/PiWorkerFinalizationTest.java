@@ -48,17 +48,20 @@ class PiWorkerFinalizationTest {
     SandboxService sandboxes = mock(SandboxService.class);
     PiCodingRunner runner = mock(PiCodingRunner.class);
     SandboxHandle handle = new SandboxHandle("coding", "container");
+    SandboxHandle exporter = new SandboxHandle("export", "export-container");
     when(sandboxes.create(org.mockito.ArgumentMatchers.any())).thenReturn(handle);
+    when(sandboxes.freezeForExport(org.mockito.ArgumentMatchers.eq(handle),
+        org.mockito.ArgumentMatchers.any())).thenReturn(exporter);
     when(runner.run(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyList(),
         org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
         org.mockito.ArgumentMatchers.any(Duration.class), org.mockito.ArgumentMatchers.anyLong(),
         org.mockito.ArgumentMatchers.anyMap())).thenReturn(new PiCodingRunner.CodingAttempt(
             -1, false, "partial\n", List.of(), 1, 0));
-    when(sandboxes.exec(org.mockito.ArgumentMatchers.eq(handle),
+    when(sandboxes.exec(org.mockito.ArgumentMatchers.eq(exporter),
         org.mockito.ArgumentMatchers.contains("git add -A"), org.mockito.ArgumentMatchers.anyLong()))
         .thenReturn(new CommandResult(0, "diff --git a/A b/A\n", "", 1));
-    when(sandboxes.exec(org.mockito.ArgumentMatchers.eq(handle),
-        org.mockito.ArgumentMatchers.contains("git rev-parse HEAD"), org.mockito.ArgumentMatchers.anyLong()))
+    when(sandboxes.exec(org.mockito.ArgumentMatchers.eq(exporter),
+        org.mockito.ArgumentMatchers.contains("git write-tree"), org.mockito.ArgumentMatchers.anyLong()))
         .thenReturn(new CommandResult(0, "base", "", 1));
     var payload = JsonMapper.builder().build().createObjectNode();
     payload.put("taskId", "T"); payload.put("repoUrl", "repo"); payload.put("baseRevision", "base");
@@ -73,6 +76,9 @@ class PiWorkerFinalizationTest {
     assertThat(json.readTree(result.outputs().get("candidate.json")).path("retained").asBoolean()).isFalse();
     assertThat(result.metrics()).containsEntry("failure_stage", "coding");
     verify(sandboxes).teardown(handle);
+    verify(sandboxes).teardown(exporter);
+    verify(sandboxes, org.mockito.Mockito.never()).exec(org.mockito.ArgumentMatchers.eq(handle),
+        org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyLong());
   }
 
   @Test
@@ -80,15 +86,18 @@ class PiWorkerFinalizationTest {
     SandboxService sandboxes = mock(SandboxService.class);
     PiCodingRunner runner = mock(PiCodingRunner.class);
     SandboxHandle handle = new SandboxHandle("coding", "container");
+    SandboxHandle exporter = new SandboxHandle("export", "export-container");
     when(sandboxes.create(org.mockito.ArgumentMatchers.any())).thenReturn(handle);
+    when(sandboxes.freezeForExport(org.mockito.ArgumentMatchers.eq(handle),
+        org.mockito.ArgumentMatchers.any())).thenReturn(exporter);
     when(runner.run(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyList(),
         org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(),
         org.mockito.ArgumentMatchers.any(Duration.class), org.mockito.ArgumentMatchers.anyLong(),
         org.mockito.ArgumentMatchers.anyMap())).thenReturn(new PiCodingRunner.CodingAttempt(
             0, true, "", List.of(), 1, 0));
-    when(sandboxes.exec(org.mockito.ArgumentMatchers.eq(handle), org.mockito.ArgumentMatchers.contains("git add -A"),
+    when(sandboxes.exec(org.mockito.ArgumentMatchers.eq(exporter), org.mockito.ArgumentMatchers.contains("git add -A"),
         org.mockito.ArgumentMatchers.anyLong())).thenReturn(new CommandResult(0, "diff --git a/A b/A\n", "", 1));
-    when(sandboxes.exec(org.mockito.ArgumentMatchers.eq(handle), org.mockito.ArgumentMatchers.contains("rev-parse HEAD"),
+    when(sandboxes.exec(org.mockito.ArgumentMatchers.eq(exporter), org.mockito.ArgumentMatchers.contains("git write-tree"),
         org.mockito.ArgumentMatchers.anyLong())).thenReturn(new CommandResult(0, "candidate\n", "", 1));
     var payload = JsonMapper.builder().build().createObjectNode();
     payload.put("taskId", "T"); payload.put("repoUrl", "repo"); payload.put("baseRevision", "base");

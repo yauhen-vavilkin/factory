@@ -1,6 +1,7 @@
 package org.folio.factory.sandbox.it;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.core.DefaultDockerClientConfig;
@@ -51,6 +52,8 @@ class PiRpcProcessSessionIntegrationTest {
         }
           assertTrue(raw.toString(StandardCharsets.UTF_8).contains("\"command\":\"get_state\""));
           assertTrue(raw.toString(StandardCharsets.UTF_8).contains("\"command\":\"prompt\""));
+          assertFalse(docker.inspectContainerCmd(id).exec().getState().getRunning(),
+              "closing a stopped RPC session must never restart its workload");
       } finally {
         docker.removeContainerCmd(id).withForce(true).exec();
       }

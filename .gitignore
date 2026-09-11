@@ -6,5 +6,7 @@ target/
 .vscode/
 .DS_Store
 .mvn/wrapper/maven-wrapper.jar
+tasks-inbox/
 
+.env
 .factory/

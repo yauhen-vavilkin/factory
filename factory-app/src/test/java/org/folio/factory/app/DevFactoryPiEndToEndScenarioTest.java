@@ -173,11 +173,17 @@ class DevFactoryPiEndToEndScenarioTest {
             .filter(execution -> execution.getFlowId().equals("dev-factory-pi"))
             .map(PipelineExecution::getId).findFirst().orElse(null),
         id -> id != null);
-    await().atMost(Duration.ofSeconds(90)).until(() ->
+    // The verifier starts with a private empty Maven cache by design.  Allow
+    // fresh dependency resolution while keeping the test below the worker's
+    // 15-minute command deadline.
+    await().atMost(Duration.ofMinutes(5)).until(() ->
         stateManager.get(executionId).getStatus().isTerminal());
     assertThat(stateManager.get(executionId).getStatus()).isEqualTo(COMPLETED);
     assertThat(stateManager.get(executionId).getStatus()).isNotEqualTo(
         org.folio.factory.core.domain.ExecutionStatus.FAILED_ESCALATED);
+    System.out.println("PI_E2E_GATEWAY_REQUESTS=" + gateway.getAllServeEvents().size());
+    System.out.println("PI_E2E_RPC=" + artifactStore.getLatest(executionId, "pi-session.jsonl")
+        .map(Artifact::getContent).orElse("missing"));
     Artifact candidate = artifactStore.getLatest(executionId, "candidate.patch").orElseThrow();
     Artifact verification = artifactStore.getLatest(executionId, "verification.json").orElseThrow();
     Artifact result = artifactStore.getLatest(executionId, "result.json").orElseThrow();

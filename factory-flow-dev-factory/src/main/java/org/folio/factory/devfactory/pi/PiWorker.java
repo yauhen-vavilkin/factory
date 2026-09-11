@@ -93,13 +93,17 @@ public final class PiWorker implements AgentWorker {
     if (provider == null || provider.isBlank() || model == null || model.isBlank()) {
       throw new IllegalStateException("execution contract lacks model provider or model");
     }
-    SandboxHandle handle = sandboxes.create(new SandboxSpec(p.path("taskId").asText(),
+    SandboxSpec source = new SandboxSpec(p.path("taskId").asText(),
         p.path("repoUrl").asText(), p.path("baseRevision").asText(), p.path("branch").asText(),
-        context.executionId() + "-attempt-" + context.attempt(), image, platform, networkPolicy));
+        context.executionId() + "-attempt-" + context.attempt(), image, platform, networkPolicy);
+    SandboxHandle handle = sandboxes.create(source);
+    SandboxHandle exporter = null;
+    PiCodingRunner.CodingAttempt attempt = null;
+    boolean exported = false;
     try {
       String task = json.writeValueAsString(Map.of("goal", p.path("goal").asText(),
           "acceptance", p.path("acceptance"), "policy", "Only edit the prepared repository."));
-      var attempt = runner.run(handle, List.of("/opt/pi/node_modules/.bin/pi", "--mode", "rpc",
+      attempt = runner.run(handle, List.of("/opt/pi/node_modules/.bin/pi", "--mode", "rpc",
           "--provider", provider, "--model", model, "--no-approve",
           "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
           "--no-context-files", "--tools", "read,bash,edit,write,grep,find,ls",
@@ -110,8 +114,11 @@ public final class PiWorker implements AgentWorker {
               "PI_OFFLINE", "1",
               "FACTORY_MODEL_TOKEN", modelToken,
               "FACTORY_PI_GATEWAY_URL", gatewayUrl));
-      CommandResult diff = snapshot(handle, p.path("baseRevision").asText());
-      CommandResult head = sandboxes.exec(handle, "cd repo && git rev-parse HEAD", 30);
+      exporter = sandboxes.freezeForExport(handle, source);
+      CommandResult diff = snapshot(exporter, p.path("baseRevision").asText());
+      CommandResult tree = sandboxes.exec(exporter, "cd repo && git write-tree", 30);
+      if (!tree.ok()) throw new IllegalStateException("Cannot identify frozen candidate tree");
+      exported = true;
       if (!attempt.settled()) {
         String failure = json.writeValueAsString(Map.of("status", "FAILED", "stage", "coding",
             "reason", "PI_UNSETTLED", "retained", false, "exportAttempted", true,
@@ -122,26 +129,33 @@ public final class PiWorker implements AgentWorker {
             Map.of("provider_calls", 1, "settled", false, "retained", false,
                 "failure_stage", "coding"));
       }
-      String candidate = head.stdout().trim();
+      String candidate = tree.stdout().trim();
       String patchHash = org.folio.factory.core.service.ArtifactStore.sha256(diff.stdout());
       return new AgentResult(Map.of("candidate.patch", diff.stdout(),
           "candidate.json", "{\"base\":\"" + p.path("baseRevision").asText()
-              + "\",\"candidate\":\"" + candidate + "\",\"patchSha256\":\""
+              + "\",\"candidateTree\":\"" + candidate + "\",\"patchSha256\":\""
               + patchHash + "\"}", "pi-session.jsonl", attempt.rawExchange(),
           "usage.json", "{\"provider_calls\":1,\"settled\":true}"),
           Map.of("provider_calls", 1, "settled", true, "candidate", candidate));
     } catch (RuntimeException e) {
       String exportedPatch = "";
-      try { exportedPatch = snapshot(handle, p.path("baseRevision").asText()).stdout(); }
+      try {
+        if (exporter == null) exporter = sandboxes.freezeForExport(handle, source);
+        exportedPatch = snapshot(exporter, p.path("baseRevision").asText()).stdout();
+        exported = true;
+      }
       catch (RuntimeException ignored) { }
       String failure = json.writeValueAsString(Map.of("status", "FAILED", "stage", "coding",
-          "reason", failureMessage(e), "retained", false, "exportAttempted", true));
+          "reason", failureMessage(e), "retained", !exported, "exportAttempted", true,
+          "sandbox", handle.containerId()));
       return new AgentResult(Map.of("candidate.patch", exportedPatch, "candidate.json", failure,
-          "pi-session.jsonl", "", "usage.json", "{\"provider_calls\":1,\"retained\":true}"),
+          "pi-session.jsonl", attempt == null ? "" : attempt.rawExchange(),
+          "usage.json", "{\"provider_calls\":1,\"retained\":true}"),
           Map.of("provider_calls", 1, "settled", false, "retained", true,
               "failure_stage", "coding"));
     } finally {
-      sandboxes.teardown(handle);
+      if (exporter != null) sandboxes.teardown(exporter);
+      if (exported) sandboxes.teardown(handle);
     }
   }
 
