@@ -112,7 +112,9 @@ class PiWorkerFinalizationTest {
     assertThat(argv.getValue()).containsExactly("/opt/pi/node_modules/.bin/pi", "--mode", "rpc",
         "--provider", "java-provider", "--model", "java-model", "--no-approve", "--no-extensions",
         "--no-skills", "--no-prompt-templates", "--no-themes", "--no-context-files", "--tools",
-        "read,bash,edit,write,grep,find,ls", "--session-dir", "/state/pi/sessions");
+        "read,bash,edit,write,grep,find,ls", "--thinking", "high", "--append-system-prompt",
+        "Factory owns the repository boundary. Edit only the prepared repository; make no external writes; report completion after the requested checks.",
+        "--session-dir", "/state/pi/sessions");
   }
 
   private AgentResult finalizeWorker(String status, String verification, String candidate,

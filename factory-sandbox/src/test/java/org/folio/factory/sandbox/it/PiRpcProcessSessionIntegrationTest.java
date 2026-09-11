@@ -39,16 +39,18 @@ class PiRpcProcessSessionIntegrationTest {
                     "PI_OFFLINE", "1", "PI_TELEMETRY", "0"), Duration.ofSeconds(30), 1024 * 1024),
             (stream, bytes, offset, length) -> { if (stream.name().equals("STDOUT")) raw.write(bytes, offset, length); });
         try (session) {
-          session.stdin().write("{\"type\":\"get_state\"}\n".getBytes(StandardCharsets.UTF_8));
+          session.stdin().write(("{\"type\":\"get_state\",\"id\":\"state\"}\n"
+              + "{\"type\":\"prompt\",\"id\":\"prompt\",\"message\":\"Reply briefly.\"}\n")
+              .getBytes(StandardCharsets.UTF_8));
           session.stdin().flush();
-          session.stdin().close();
           // A normal Factory completion stops the whole coding workload after
           // collecting the response; Pi's RPC loop is intentionally long-lived.
           Thread.sleep(500);
           session.killWorkload();
           session.awaitExit().get();
         }
-        assertTrue(raw.toString(StandardCharsets.UTF_8).contains("\"command\":\"get_state\""));
+          assertTrue(raw.toString(StandardCharsets.UTF_8).contains("\"command\":\"get_state\""));
+          assertTrue(raw.toString(StandardCharsets.UTF_8).contains("\"command\":\"prompt\""));
       } finally {
         docker.removeContainerCmd(id).withForce(true).exec();
       }

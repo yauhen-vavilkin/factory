@@ -47,9 +47,14 @@ public final class PiCodingRunner {
         new ProcessSessionRequest(argv, cwd, environment, timeout, maxOutputBytes), sink);
     try (session) {
       String stateId = "factory-" + (++requestId[0]);
-      send(session, command("get_state", stateId));
-      waitForResponse(events, monitor, stateId, timeout, protocolFailure);
-      send(session, prompt(taskJson, "factory-" + (++requestId[0])));
+      JsonNode prompt = prompt(taskJson, "factory-" + (++requestId[0]));
+      send(session, command("get_state", stateId), prompt);
+      waitForResponse(events, monitor, stateId, timeout.compareTo(Duration.ofSeconds(10)) > 0
+          ? Duration.ofSeconds(10) : timeout, protocolFailure);
+      if (protocolFailure.get() != null) throw protocolFailure.get();
+      if (events.stream().noneMatch(e -> stateId.equals(e.path("id").asString("")))) {
+        throw new IllegalStateException("Pi get_state response timed out; exchange=" + raw);
+      }
       long deadline = System.nanoTime() + timeout.toNanos();
       synchronized (monitor) {
         while (!hasEvent(events, "agent_settled") && protocolFailure.get() == null
@@ -94,8 +99,10 @@ public final class PiCodingRunner {
     }
   }
 
-  private void send(ProcessSession session, JsonNode request) throws IOException {
-    session.stdin().write((json.writeValueAsString(request) + "\n").getBytes(StandardCharsets.UTF_8));
+  private void send(ProcessSession session, JsonNode... requests) throws IOException {
+    StringBuilder payload = new StringBuilder();
+    for (JsonNode request : requests) payload.append(json.writeValueAsString(request)).append('\n');
+    session.stdin().write(payload.toString().getBytes(StandardCharsets.UTF_8));
     session.stdin().flush();
   }
   private JsonNode command(String name, String id) { var n = json.createObjectNode(); n.put("type", name); n.put("id", id); return n; }

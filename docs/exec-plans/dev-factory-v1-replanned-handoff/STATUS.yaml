@@ -5,13 +5,13 @@ startingHead: 34aa29f
 checkpointHead: 8e7e331922069c2371ae3288b1c55d61176fb78e
 observedRemoteHead: null
 currentMilestone: M2
-state: COMPLETE
+state: INCOMPLETE
 milestones:
   M1:
     state: ACCEPTED
     report: reports/M1.md
   M2:
-    state: COMPLETE
+    state: INCOMPLETE
     report: reports/M2.md
     evidence:
       M2-C1: evidence/M2/image-capability.txt
@@ -30,5 +30,7 @@ milestones:
   M4:
     state: NOT_STARTED
     report: reports/M4.md
-blockers: []
-nextAction: "Proceed to M3 only after reviewing the committed M2 evidence."
+blockers:
+  - id: PI_PROMPT_SETTLEMENT
+    detail: "Factory admits and starts the Pi coding worker, but the scripted gateway receives no prompt request and the execution remains RUNNING; the targeted E2E still times out."
+nextAction: "Repair the production Docker Pi prompt/gateway boundary, then rerun all M2 gates."

@@ -103,6 +103,8 @@ public final class PiWorker implements AgentWorker {
           "--provider", provider, "--model", model, "--no-approve",
           "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes",
           "--no-context-files", "--tools", "read,bash,edit,write,grep,find,ls",
+          "--thinking", "high", "--append-system-prompt",
+          "Factory owns the repository boundary. Edit only the prepared repository; make no external writes; report completion after the requested checks.",
           "--session-dir", "/state/pi/sessions"), "/workspace/repo", task,
           Duration.ofMinutes(30), 16L * 1024 * 1024, Map.of(
               "PI_OFFLINE", "1",

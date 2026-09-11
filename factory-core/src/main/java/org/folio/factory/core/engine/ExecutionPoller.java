@@ -15,7 +15,6 @@ import java.util.UUID;
 @Component
 @ConditionalOnProperty(prefix = "factory.engine", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class ExecutionPoller {
-
     private final ExecutionClaimService claimService;
     private final ExecutionEngine engine;
     private final SubFlowInvoker subFlowInvoker;

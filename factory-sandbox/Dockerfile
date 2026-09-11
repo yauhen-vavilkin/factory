@@ -3,7 +3,7 @@ ARG TARGETARCH
 # git is already included in the base image (git 2.43.0), so no apt-get install needed.
 USER root
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
+ && apt-get install -y --no-install-recommends ca-certificates curl xz-utils ripgrep \
  && node_arch=$(printf '%s' "$TARGETARCH" | sed 's/amd64/x64/') \
  && curl -fsSL "https://nodejs.org/dist/v22.19.0/node-v22.19.0-linux-${node_arch}.tar.xz" \
       | tar -xJ --strip-components=1 -C /usr/local \
