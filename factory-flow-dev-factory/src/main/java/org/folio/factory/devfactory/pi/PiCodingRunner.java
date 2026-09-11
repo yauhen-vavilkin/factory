@@ -67,9 +67,9 @@ public final class PiCodingRunner {
       try { session.stdin().close(); } catch (IOException ignored) { }
       int exit;
       try { exit = session.awaitExit().get(Math.min(timeout.toMillis(), 10_000), TimeUnit.MILLISECONDS); }
-      catch (TimeoutException e) { session.killWorkload(); exit = -1; }
-      catch (InterruptedException e) { Thread.currentThread().interrupt(); session.killWorkload(); exit = -1; }
-      catch (ExecutionException e) { session.killWorkload(); exit = -1; }
+      catch (TimeoutException e) { exit = -1; }
+      catch (InterruptedException e) { Thread.currentThread().interrupt(); exit = -1; }
+      catch (ExecutionException e) { exit = -1; }
       synchronized (monitor) {
         decoder.finish();
         if (protocolFailure.get() != null) throw protocolFailure.get();

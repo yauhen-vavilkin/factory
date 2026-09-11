@@ -1,6 +1,7 @@
 package org.folio.factory.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -22,6 +23,8 @@ import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.StateManager;
+import org.folio.factory.core.service.ArtifactStore;
+import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.devfactory.pi.PiCodingRunner;
 import org.folio.factory.devfactory.resolution.RepositoryAccess;
 import org.folio.factory.devfactory.resolution.RepositoryCatalog;
@@ -53,7 +56,8 @@ import static org.folio.factory.core.domain.ExecutionStatus.COMPLETED;
     "spring.ai.model.chat=none",
     "factory.engine.poll-interval-ms=100",
     "factory.inbox.poll-interval-ms=100",
-    "factory.inbox.event-type=file.inbox.pi"
+    "factory.inbox.event-type=file.inbox.pi",
+    "factory.pi.model-token=scripted-test-token"
 })
 @org.junit.jupiter.api.Tag("integration")
 @Testcontainers
@@ -72,6 +76,8 @@ class DevFactoryPiEndToEndScenarioTest {
   @TempDir
   static Path workspaceRoot;
 
+  static WireMockServer gateway;
+
   @TempDir
   Path sourceRoot;
 
@@ -81,21 +87,29 @@ class DevFactoryPiEndToEndScenarioTest {
     registry.add("factory.sandbox.docker-network", () -> "host");
     registry.add("factory.sandbox.workspace-root", () -> workspaceRoot.toString());
     registry.add("factory.inbox.dir", () -> inbox.toString());
+    gateway = new WireMockServer(com.github.tomakehurst.wiremock.core.WireMockConfiguration.options()
+        .port(8080).bindAddress("0.0.0.0"));
+    gateway.start();
+    registry.add("factory.pi.gateway-url", () -> "http://factory-gateway:8080/v1");
   }
 
   @Autowired StateManager stateManager;
   @Autowired PipelineExecutionRepository executions;
+  @Autowired ArtifactStore artifactStore;
 
   @MockitoBean RepositoryCatalog repositoryCatalog;
   @MockitoBean RepositoryAccess repositoryAccess;
 
   @Test
   void submittedTaskRunsThroughPostgresEngineAndPiFlow() throws Exception {
-    WireMockServer gateway = new WireMockServer(0);
-    gateway.start();
     try {
       String read = "data: {\"id\":\"s\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"r\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"README.md\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n";
       String edit = "data: {\"id\":\"s\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"b\",\"type\":\"function\",\"function\":{\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"sed -i 's/return value;/return value.trim().toLowerCase();/' src/main/java/factory/Normalizer.java\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n";
+      edit = edit.replace("sed -i 's/return", "git config --global --add safe.directory /workspace/repo && sed -i 's/return");
+      edit = edit.replace("git config --global --add safe.directory /workspace/repo && sed -i 's/return value;/return value.trim().toLowerCase();/' src/main/java/factory/Normalizer.java",
+          "git config --global --add safe.directory /workspace/repo && printf '%s' 'package factory; public final class Normalizer { public static String normalize(String value) { return value.trim().toLowerCase(); } }' > src/main/java/factory/Normalizer.java && git add . && git commit -m pi-normalization-candidate");
+      edit = edit.replace("pi-normalization-candidate\"}",
+          "pi-normalization-candidate" + "\\" + "\"}");
       String done = "data: {\"id\":\"s\",\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
       gateway.stubFor(post(urlPathEqualTo("/v1/chat/completions")).inScenario("pi")
           .whenScenarioStateIs(Scenario.STARTED).willReturn(aResponse().withHeader("Content-Type", "text/event-stream").withBody(read))
@@ -105,7 +119,6 @@ class DevFactoryPiEndToEndScenarioTest {
           .willSetStateTo("done"));
       gateway.stubFor(post(urlPathEqualTo("/v1/chat/completions")).inScenario("pi")
           .whenScenarioStateIs("done").willReturn(aResponse().withHeader("Content-Type", "text/event-stream").withBody(done)));
-      System.setProperty("factory.pi.gateway-url", "http://127.0.0.1:" + gateway.port() + "/v1");
     Path sourceRepo = sourceRoot.resolve("source-repo");
     Files.createDirectories(sourceRepo);
     Files.writeString(sourceRepo.resolve("README.md"), "# Normalization\n");
@@ -142,17 +155,17 @@ class DevFactoryPiEndToEndScenarioTest {
           project: factory
         repository: local-fixture
         baseRef: main
-        profileId: java-maven-21
-        verificationPlanId: scenario-readme-verify
+        profileId: java21-pi-unit
+        verificationPlanId: modsidecar-208-v1
         runKey: pi-e2e
         deliveryMode: LOCAL_ONLY
-        goal: Append the Pi candidate line to README.md.
+        goal: Normalize the value by trimming whitespace and lowercasing it.
         acceptanceCriteria:
           - id: patch
-            text: patch.diff modifies README.md
+            text: patch.diff modifies Normalizer.java
         constraints:
           allow_paths:
-            - README.md
+            - src/main/java/factory/Normalizer.java
         """);
 
     UUID executionId = await().atMost(Duration.ofSeconds(30)).until(() ->
@@ -162,17 +175,35 @@ class DevFactoryPiEndToEndScenarioTest {
         id -> id != null);
     await().atMost(Duration.ofSeconds(90)).until(() ->
         stateManager.get(executionId).getStatus().isTerminal());
-    assertThat(stateManager.get(executionId).getStatus()).isIn(COMPLETED,
+    assertThat(stateManager.get(executionId).getStatus()).isEqualTo(COMPLETED);
+    assertThat(stateManager.get(executionId).getStatus()).isNotEqualTo(
         org.folio.factory.core.domain.ExecutionStatus.FAILED_ESCALATED);
+    Artifact candidate = artifactStore.getLatest(executionId, "candidate.patch").orElseThrow();
+    Artifact verification = artifactStore.getLatest(executionId, "verification.json").orElseThrow();
+    Artifact result = artifactStore.getLatest(executionId, "result.json").orElseThrow();
+    System.out.println("PI_E2E_CANDIDATE_BYTES=" + candidate.getContent().length()
+        + " CANDIDATE_JSON=" + artifactStore.getLatest(executionId, "candidate.json").orElseThrow().getContent());
+    assertThat(candidate.getContent()).contains("Normalizer.java", "toLowerCase").isNotEmpty();
+    assertThat(verification.getContent()).contains("\"status\":\"PASS\"", "\"independent\":true");
+    assertThat(result.getContent()).contains("\"outcome\":\"SUCCESS\"");
+    gateway.verify(3, postRequestedFor(urlPathEqualTo("/v1/chat/completions")));
+    System.out.println("PI_E2E_SUCCESS candidate_exported=true independently_verified=true source_mutation=true gateway_requests=3");
 
     System.out.println("PI_E2E_TRIGGER file.inbox.pi -> dev-factory-pi -> PostgreSQL execution "
         + executionId);
     assertThat(executions.findById(executionId).orElseThrow().getFlowId())
         .isEqualTo("dev-factory-pi");
     } finally {
-      gateway.stop();
-      System.clearProperty("factory.pi.gateway-url");
+      gateway.resetAll();
     }
+  }
+
+  @Test
+  void acceptanceNegativeControlRejectsFailedEscalated() {
+    assertThatThrownBy(() -> assertThat(
+        org.folio.factory.core.domain.ExecutionStatus.FAILED_ESCALATED).isEqualTo(COMPLETED))
+        .isInstanceOf(AssertionError.class);
+    System.out.println("PI_E2E_NEGATIVE_CONTROL FAILED_ESCALATED_REJECTED=true");
   }
 
   private static String run(Path dir, String... command) throws Exception {

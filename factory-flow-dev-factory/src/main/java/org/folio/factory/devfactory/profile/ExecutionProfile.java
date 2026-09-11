@@ -14,6 +14,8 @@ public record ExecutionProfile(
     String imageReference,
     String imageDigest,
     String platform,
+    String modelProvider,
+    String modelId,
     String workdir,
     List<List<String>> buildCommands,
     Map<String, String> reportGlobs,

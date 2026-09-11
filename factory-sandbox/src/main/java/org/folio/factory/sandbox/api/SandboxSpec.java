@@ -16,9 +16,14 @@ package org.folio.factory.sandbox.api;
  *        Callers without an execution identity may omit it and keep the
  *        legacy shared, task-named path (which is NOT an isolation boundary).
  */
-public record SandboxSpec(String taskId, String repoUrl, String baseBranch, String branch, String ownerId) {
+public record SandboxSpec(String taskId, String repoUrl, String baseBranch, String branch, String ownerId,
+                          String image, String platform, String networkPolicy) {
 
   public SandboxSpec(String taskId, String repoUrl, String baseBranch, String branch) {
-    this(taskId, repoUrl, baseBranch, branch, null);
+    this(taskId, repoUrl, baseBranch, branch, null, null, null, null);
+  }
+
+  public SandboxSpec(String taskId, String repoUrl, String baseBranch, String branch, String ownerId) {
+    this(taskId, repoUrl, baseBranch, branch, ownerId, null, null, null);
   }
 }

@@ -53,17 +53,24 @@ public class DockerSandboxService implements SandboxService {
   public SandboxHandle create(SandboxSpec spec) {
     String containerId = null;
     try {
-      HostConfig hostConfig = new HostConfig().withNetworkMode(dockerNetwork)
+      String effectiveNetwork = spec.networkPolicy() == null ? dockerNetwork
+          : ("GATEWAY_ONLY".equals(spec.networkPolicy()) ? dockerNetwork : null);
+      String effectiveImage = spec.image() == null ? image : spec.image();
+      HostConfig hostConfig = new HostConfig().withNetworkMode(effectiveNetwork)
               .withNanoCPUs(2_000_000_000L)
               .withMemory(4L * 1024 * 1024 * 1024)
               .withPidsLimit(512L)
               .withCapDrop(Capability.ALL)
               .withSecurityOpts(java.util.List.of("no-new-privileges:true"));
+      if ("host".equals(effectiveNetwork)) {
+        hostConfig.withExtraHosts("factory-gateway:host-gateway");
+      }
       String source = localSource(spec.repoUrl());
       if (source != null) {
+        makeReadable(source);
         hostConfig.withBinds(new Bind(source, new Volume("/workspace/source")));
       }
-      CreateContainerResponse container = dockerClient.createContainerCmd(image)
+      CreateContainerResponse container = dockerClient.createContainerCmd(effectiveImage)
           .withCmd("sleep", "infinity")
           .withWorkingDir(WORKSPACE_DIR)
           .withHostConfig(hostConfig)
@@ -103,6 +110,28 @@ public class DockerSandboxService implements SandboxService {
       return path.toString();
     } catch (IllegalArgumentException e) {
       throw new SandboxException("invalid local repository URL", e);
+    }
+  }
+
+  private static void makeReadable(String source) {
+    try (var paths = java.nio.file.Files.walk(Path.of(source))) {
+      paths.forEach(path -> {
+        try {
+          var permissions = java.nio.file.Files.getPosixFilePermissions(path);
+          permissions.add(java.nio.file.attribute.PosixFilePermission.OWNER_READ);
+          permissions.add(java.nio.file.attribute.PosixFilePermission.GROUP_READ);
+          permissions.add(java.nio.file.attribute.PosixFilePermission.OTHERS_READ);
+          if (java.nio.file.Files.isDirectory(path)) {
+            permissions.add(java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE);
+            permissions.add(java.nio.file.attribute.PosixFilePermission.GROUP_EXECUTE);
+            permissions.add(java.nio.file.attribute.PosixFilePermission.OTHERS_EXECUTE);
+          }
+          java.nio.file.Files.setPosixFilePermissions(path, permissions);
+        } catch (UnsupportedOperationException | java.io.IOException ignored) {
+        }
+      });
+    } catch (java.io.IOException e) {
+      throw new SandboxException("cannot prepare local source permissions", e);
     }
   }
 

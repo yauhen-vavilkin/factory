@@ -22,13 +22,15 @@ public final class TrustedProfileCatalog {
     ExecutionProfile.Budgets budgets = new ExecutionProfile.Budgets(3600, 300, 900, 40, 32768);
     ExecutionProfile profileWithoutHash = new ExecutionProfile(JAVA_MAVEN_21, VERSION, "JAVA",
         "MAVEN", "21", null, "maven:3.9-eclipse-temurin-21", null, "linux/arm64",
+        "factory-zai", "java-maven-21",
         "/workspace/repo", List.of(List.of("./mvnw", "-B", "-ntp", "test")),
         Map.of("surefire", "**/target/surefire-reports/TEST-*.xml"),
         new ExecutionProfile.NetworkPolicy("APPROVED_DEPENDENCY_PROXY_ONLY", "NONE"),
         new ExecutionProfile.ResourcePolicy(2.0, 4096, 512, 8192), budgets, null);
     ExecutionProfile profile = withHash(profileWithoutHash);
     ExecutionProfile piWithoutHash = new ExecutionProfile(JAVA_MAVEN_PI, "dev-factory-v1-m2", "JAVA",
-        "MAVEN", "21", null, "factory-pi:jdk21", null, "linux/arm64", "/workspace/repo",
+        "MAVEN", "21", null, "factory-pi:jdk21", null, "linux/arm64",
+        "factory-zai", "glm-5.3-flash", "/workspace/repo",
         List.of(List.of("mvn", "-B", "-ntp", "test")),
         Map.of("surefire", "**/target/surefire-reports/TEST-*.xml"),
         new ExecutionProfile.NetworkPolicy("APPROVED_DEPENDENCY_PROXY_ONLY", "GATEWAY_ONLY"),
@@ -104,7 +106,8 @@ public final class TrustedProfileCatalog {
     String hash = CanonicalJson.sha256(node);
     return new ExecutionProfile(profile.id(), profile.catalogVersion(), profile.language(),
         profile.buildTool(), profile.languageVersion(), profile.framework(), profile.imageReference(),
-        profile.imageDigest(), profile.platform(), profile.workdir(), profile.buildCommands(),
+        profile.imageDigest(), profile.platform(), profile.modelProvider(), profile.modelId(),
+        profile.workdir(), profile.buildCommands(),
         profile.reportGlobs(), profile.networkPolicy(), profile.resources(), profile.budgets(), hash);
   }
 

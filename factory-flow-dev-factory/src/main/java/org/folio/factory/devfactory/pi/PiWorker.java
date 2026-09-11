@@ -37,7 +37,12 @@ public final class PiWorker implements AgentWorker {
     if ("pi-prepare-worker".equals(id)) {
       Map<String, Object> contract = new LinkedHashMap<>();
       contract.put("schema", "ExecutionContract/v1");
-      contract.put("profile", "java21-pi-unit");
+      JsonNode resolved = context.triggerPayload().path("resolvedIntent");
+      if (!resolved.path("profile").isObject()) {
+        throw new AgentExecutionException("resolved trusted profile is required");
+      }
+      contract.put("profile", resolved.path("profile"));
+      contract.put("resolvedIntent", resolved);
       contract.put("sourceRevision", context.triggerPayload().path("baseRevision").asText());
       contract.put("mode", "PRIVATE_FRESH_RESOLUTION");
       return AgentResult.of("contract.json", json.writeValueAsString(contract));
@@ -78,14 +83,25 @@ public final class PiWorker implements AgentWorker {
 
   private AgentResult code(AgentContext context) {
     var p = context.triggerPayload();
+    JsonNode contract = json.readTree(context.requireInput("contract.json").content());
+    JsonNode profile = contract.path("profile");
+    String image = profile.path("imageReference").asText(null);
+    String platform = profile.path("platform").asText(null);
+    String networkPolicy = profile.path("networkPolicy").path("execution").asText(null);
+    String provider = profile.path("modelProvider").asText(null);
+    String model = profile.path("modelId").asText(null);
+    if (provider == null || provider.isBlank() || model == null || model.isBlank()) {
+      throw new IllegalStateException("execution contract lacks model provider or model");
+    }
     SandboxHandle handle = sandboxes.create(new SandboxSpec(p.path("taskId").asText(),
         p.path("repoUrl").asText(), p.path("baseRevision").asText(), p.path("branch").asText(),
-        context.executionId() + "-attempt-" + context.attempt()));
+        context.executionId() + "-attempt-" + context.attempt(), image, platform, networkPolicy));
+    boolean teardown = true;
     try {
       String task = json.writeValueAsString(Map.of("goal", p.path("goal").asText(),
           "acceptance", p.path("acceptance"), "policy", "Only edit the prepared repository."));
       var attempt = runner.run(handle, List.of("/opt/pi/node_modules/.bin/pi", "--mode", "rpc",
-          "--provider", "factory-zai", "--model", "glm-5.3-flash", "--no-approve",
+          "--provider", provider, "--model", model, "--no-approve",
           "--no-extensions", "--no-skills", "--no-context-files", "--tools",
           "read,bash,edit,write,grep,find,ls"), "/workspace/repo", task,
           Duration.ofMinutes(30), 16L * 1024 * 1024, Map.of(
@@ -95,8 +111,9 @@ public final class PiWorker implements AgentWorker {
       CommandResult diff = snapshot(handle, p.path("baseRevision").asText());
       CommandResult head = sandboxes.exec(handle, "cd repo && git rev-parse HEAD", 30);
       if (!attempt.settled()) {
+        teardown = false;
         String failure = json.writeValueAsString(Map.of("status", "FAILED", "stage", "coding",
-            "reason", "PI_UNSETTLED", "retained", true));
+            "reason", "PI_UNSETTLED", "retained", true, "patch_bytes", diff.stdout().length()));
         return new AgentResult(Map.of("candidate.patch", diff.stdout(),
             "candidate.json", failure, "pi-session.jsonl", attempt.rawExchange(),
             "usage.json", "{\"provider_calls\":1,\"settled\":false,\"retained\":true}"),
@@ -111,16 +128,41 @@ public final class PiWorker implements AgentWorker {
               + patchHash + "\"}", "pi-session.jsonl", attempt.rawExchange(),
           "usage.json", "{\"provider_calls\":1,\"settled\":true}"),
           Map.of("provider_calls", 1, "settled", true, "candidate", candidate));
-    } finally { sandboxes.teardown(handle); }
+    } catch (RuntimeException e) {
+      teardown = false;
+      String failure = json.writeValueAsString(Map.of("status", "FAILED", "stage", "coding",
+          "reason", failureMessage(e), "retained", true));
+      return new AgentResult(Map.of("candidate.patch", "", "candidate.json", failure,
+          "pi-session.jsonl", "", "usage.json", "{\"provider_calls\":1,\"retained\":true}"),
+          Map.of("provider_calls", 1, "settled", false, "retained", true,
+              "failure_stage", "coding"));
+    } finally { if (teardown) sandboxes.teardown(handle); }
   }
 
-  private CommandResult snapshot(SandboxHandle handle, String baseRevision) {
+  private static String failureMessage(Throwable error) {
+    StringBuilder message = new StringBuilder();
+    for (Throwable current = error; current != null; current = current.getCause()) {
+      if (message.length() > 0) message.append("; cause: ");
+      message.append(current.getClass().getSimpleName()).append(": ")
+          .append(current.getMessage() == null ? "" : current.getMessage());
+    }
+    return message.length() == 0 ? "SNAPSHOT_FAILED" : message.toString();
+  }
+
+  CommandResult snapshot(SandboxHandle handle, String baseRevision) {
     String base = Shell.quote(baseRevision);
-    // Capture tracked, staged, unstaged, and untracked work before teardown.
-    return sandboxes.exec(handle, "cd repo && git add -A && (git diff --cached --binary " + base
-        + " HEAD; git diff --binary " + base
-        + " HEAD; git ls-files --others --exclude-standard | while IFS= read -r f; do "
-        + "git diff --binary --no-index /dev/null \"$f\" || test $? -eq 1; done)", 120);
+    // Stage the complete tree, then diff the index against the frozen base.
+    // Comparing base..HEAD loses staged-only work because HEAD is still the base.
+    String command = "cd repo && git add -A && git diff --cached --binary " + base
+        + " > /tmp/factory-candidate.patch && if test ! -s /tmp/factory-candidate.patch "
+        + "&& test -n \"$(git status --porcelain)\"; then "
+        + "echo 'snapshot produced an empty patch for a dirty tree' >&2; exit 2; fi; "
+        + "cat /tmp/factory-candidate.patch";
+    CommandResult result = sandboxes.exec(handle, command, 120);
+    if (!result.ok() || result.stdout().contains("usage: git diff")) {
+      throw new IllegalStateException("snapshot failed: " + result.stderr());
+    }
+    return result;
   }
 
   private AgentResult verify(AgentContext context, String patch) {
