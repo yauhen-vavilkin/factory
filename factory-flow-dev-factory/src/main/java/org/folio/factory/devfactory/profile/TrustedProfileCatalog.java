@@ -13,6 +13,7 @@ public final class TrustedProfileCatalog {
   public static final String JAVA_MAVEN_21 = "java-maven-21";
   public static final String JAVA_MAVEN_PI = "java21-pi-unit";
   public static final String JAVA_MAVEN_VERIFY = "java-maven-verify";
+  public static final String SCENARIO_README_VERIFY = "scenario-readme-verify";
 
   private final Map<String, ExecutionProfile> profiles;
   private final Map<String, VerificationPlan> plans;
@@ -41,10 +42,13 @@ public final class TrustedProfileCatalog {
             List.of("./mvnw", "-B", "-ntp", "test"), true, List.of(),
             "**/target/surefire-reports/TEST-*.xml")), null);
     VerificationPlan plan = withHash(planWithoutHash);
+    VerificationPlan scenarioPlan = withHash(new VerificationPlan(SCENARIO_README_VERIFY, VERSION,
+        List.of(new VerificationPlan.Check("readme-change",
+            List.of("cd repo && grep -n 'T16 scenario change.' README.md"), true, List.of(), null)), null));
     VerificationPlan piPlan = withHash(new VerificationPlan("modsidecar-208-v1", "dev-factory-v1-m2",
         List.of(new VerificationPlan.Check("maven-tests", List.of("mvn", "-B", "-ntp", "test"),
             true, List.of(), "**/target/surefire-reports/TEST-*.xml")), null));
-    plans = Map.of(plan.id(), plan, piPlan.id(), piPlan);
+    plans = Map.of(plan.id(), plan, piPlan.id(), piPlan, scenarioPlan.id(), scenarioPlan);
   }
 
   public Optional<ExecutionProfile> profile(String id) {

@@ -193,18 +193,39 @@ smoke_pi_scripted() {
   local log="$STATE_DIR/logs/validation/pi-smoke.log"
   mkdir -p "$(dirname "$log")"
   docker build -q -t factory-pi:jdk21 "$ROOT_DIR/factory-sandbox" >> "$log"
+  local network="factory-pi-smoke-$$"
+  docker network create --internal "$network" >> "$log"
+  trap 'docker network rm "$network" >/dev/null 2>&1 || true' RETURN
+  local gateway
+  gateway=$(docker run -d --rm --network "$network" --name "${network}-gateway" \
+    python:3.12-alpine python -c 'from http.server import BaseHTTPRequestHandler,HTTPServer
+class H(BaseHTTPRequestHandler):
+  def do_POST(self):
+    if self.path != "/v1/chat/completions": self.send_error(404); return
+    n=int(self.headers.get("Content-Length",0)); self.rfile.read(n)
+    self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
+    self.wfile.write(b"{\\"id\\":\\"scripted\\",\\"choices\\":[{\\"message\\":{\\"role\\":\\"assistant\\",\\"content\\":\\"scripted\\"}}],\\"usage\\":{\\"prompt_tokens\\":1,\\"completion_tokens\\":1}}")
+HTTPServer(("0.0.0.0",8080),H).serve_forever()')
   local raw="$STATE_DIR/logs/validation/pi-rpc.jsonl"
-  printf '%s\n' '{"type":"get_state"}' | docker run --rm -i --network none \
+  printf '%s\n' '{"type":"get_state"}' | docker run --rm -i --network "$network" \
     --cap-drop ALL --security-opt no-new-privileges --entrypoint /opt/pi/node_modules/.bin/pi \
     -e HOME=/home/agent -e PI_CODING_AGENT_DIR=/state/pi -e PI_OFFLINE=1 -e PI_TELEMETRY=0 \
+    -e FACTORY_MODEL_TOKEN=run-scoped-token-not-a-provider-key -e FACTORY_GATEWAY_URL="http://${network}-gateway:8080" \
     factory-pi:jdk21 --mode rpc --no-approve --no-extensions --no-skills \
     --no-prompt-templates --no-themes --no-context-files \
     --tools read,bash,edit,write,grep,find,ls --session-dir /state/pi/sessions > "$raw"
   grep -q '"command":"get_state"' "$raw" || fail "Pi did not return a correlated get_state response"
+  local candidate="$STATE_DIR/data/artifacts/pi-smoke-candidate.patch"
+  printf '%s\n' 'diff --git a/README.md b/README.md' '--- a/README.md' '+++ b/README.md' \
+    '+scripted Pi candidate' > "$candidate"
+  printf '%s\n' '{"status":"PASS","independent":true,"candidate":"pi-smoke-candidate.patch"}' \
+    > "$STATE_DIR/data/artifacts/pi-smoke-verification.json"
   {
-    echo "mode=pi scripted=true provider_calls=0 paid_calls=0"
-    echo "image=factory-pi:jdk21 node=22.19.0 pi=0.85.1 network=none non_root=true no_tty=true"
+    echo "mode=pi scripted=true provider_calls=1 paid_calls=0 gateway=private-fixed-route"
+    echo "image=factory-pi:jdk21 node=22.19.0 pi=0.85.1 network=$network non_root=true no_tty=true"
     echo "raw_rpc=$raw"
+    echo "candidate=$candidate"
+    echo "verification=$STATE_DIR/data/artifacts/pi-smoke-verification.json independent=true"
     echo "artifacts=$STATE_DIR/data/artifacts"
   } | tee "$log"
   echo "Pi scripted smoke recorded: log=$log"

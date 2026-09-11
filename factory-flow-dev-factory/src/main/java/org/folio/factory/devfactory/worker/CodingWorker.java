@@ -289,7 +289,14 @@ public class CodingWorker implements AgentWorker {
 
   private static boolean isResolvedButNotExecutionReady(JsonNode payload) {
     JsonNode intent = payload == null ? null : payload.get("resolvedIntent");
-    return intent != null && intent.isObject() && !intent.path("executionReady").asBoolean(false);
+    if (intent == null || !intent.isObject() || intent.path("executionReady").asBoolean(false)) {
+      return false;
+    }
+    // The Pi flow owns the preparation/freeze gate. The legacy harness keeps
+    // its established java-maven-21 execution path and must not be blocked by
+    // the Pi-only readiness marker while both flows coexist.
+    String profile = intent.path("profile").path("id").asString("");
+    return profile.isBlank() || "java21-pi-unit".equals(profile);
   }
 
   private AgentResult blockedBeforeExecution(String taskId, String repoUrl, String branch) {

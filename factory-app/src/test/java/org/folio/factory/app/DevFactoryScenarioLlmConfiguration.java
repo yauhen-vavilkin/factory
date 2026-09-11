@@ -36,7 +36,7 @@ public class DevFactoryScenarioLlmConfiguration {
         "+T16 scenario change.",
         "");
 
-    /** T24: the discriminating check the task file declares as mandatory. */
+    /** T24: the trusted Maven verification plan command. */
     static final String VERIFY_CMD = "cd repo && grep -n 'T16 scenario change.' README.md";
 
     static final class ScriptedCodingChatModel implements ChatModel {

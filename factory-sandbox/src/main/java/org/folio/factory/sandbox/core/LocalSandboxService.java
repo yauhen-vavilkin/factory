@@ -44,8 +44,10 @@ public class LocalSandboxService implements SandboxService {
     // never a prior attempt's retained workspace.
     String sandboxId = "sbx-" + (spec.ownerId() != null ? spec.ownerId() : spec.taskId());
     Path workspace = properties.workspaceRoot().resolve(sanitize(sandboxId)).toAbsolutePath();
+    String base = spec.baseBranch().matches("[0-9a-fA-F]{40,64}")
+        ? spec.baseBranch() : "origin/" + spec.baseBranch();
     String cloneCommand = "git clone " + Shell.quote(spec.repoUrl()) + " repo && cd repo && git checkout -b "
-        + Shell.quote(spec.branch()) + " " + Shell.quote("origin/" + spec.baseBranch());
+        + Shell.quote(spec.branch()) + " " + Shell.quote(base);
     boolean workspaceCreated = false;
     try {
       Files.createDirectories(properties.workspaceRoot());

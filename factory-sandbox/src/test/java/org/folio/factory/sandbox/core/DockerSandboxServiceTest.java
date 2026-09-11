@@ -87,7 +87,7 @@ class DockerSandboxServiceTest {
   }
 
   @Test
-  void createBindsMavenCacheNamedVolume() throws Exception {
+  void createUsesPrivateBoundedResourcesWithoutSharedMavenCache() throws Exception {
     CreateContainerCmd createCmd = mock(CreateContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
     CreateContainerResponse createResponse = mock(CreateContainerResponse.class);
     when(createResponse.getId()).thenReturn(CONTAINER_ID);
@@ -103,10 +103,11 @@ class DockerSandboxServiceTest {
 
     ArgumentCaptor<HostConfig> hostConfigCaptor = ArgumentCaptor.forClass(HostConfig.class);
     verify(createCmd).withHostConfig(hostConfigCaptor.capture());
-    Bind[] binds = hostConfigCaptor.getValue().getBinds();
-    assertEquals(1, binds.length);
-    assertEquals("factory-m2-cache", binds[0].getPath());
-    assertEquals("/root/.m2", binds[0].getVolume().getPath());
+    HostConfig config = hostConfigCaptor.getValue();
+    assertTrue(config.getBinds() == null || config.getBinds().length == 0);
+    assertEquals(2_000_000_000L, config.getNanoCPUs());
+    assertEquals(4L * 1024 * 1024 * 1024, config.getMemory());
+    assertEquals(512L, config.getPidsLimit());
   }
 
   @Test

@@ -11,6 +11,8 @@ import java.io.OutputStream;
 import java.io.PipedInputStream;
 import java.io.PipedOutputStream;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.folio.factory.sandbox.api.ProcessOutputSink;
 import org.folio.factory.sandbox.api.ProcessSession;
@@ -47,6 +49,7 @@ public final class DockerProcessSessionFactory implements ProcessSessionFactory 
           .withStdIn(dockerInput);
       DockerSession session = new DockerSession(docker, handle.containerId(), create.getId(), input, request, sink);
       start.exec(session.callback());
+      session.deadline.schedule(session::killWorkload, request.timeout().toMillis(), TimeUnit.MILLISECONDS);
       return session;
     } catch (IOException | RuntimeException e) {
       throw new SandboxException("Unable to start Docker process session", e);
@@ -61,6 +64,11 @@ public final class DockerProcessSessionFactory implements ProcessSessionFactory 
     private final ProcessSessionRequest request;
     private final ProcessOutputSink sink;
     private final CompletableFuture<Integer> exit = new CompletableFuture<>();
+    private final ScheduledExecutorService deadline = Executors.newSingleThreadScheduledExecutor(r -> {
+      Thread t = new Thread(r, "factory-docker-session-deadline");
+      t.setDaemon(true);
+      return t;
+    });
     private volatile long stdoutBytes;
     private volatile long stderrBytes;
 
@@ -84,9 +92,16 @@ public final class DockerProcessSessionFactory implements ProcessSessionFactory 
             else stderrBytes += accepted;
           }
         }
-        @Override public void onComplete() { exit.complete(inspectExit()); }
-        @Override public void onError(Throwable throwable) { exit.completeExceptionally(throwable); }
+        @Override public void onComplete() { complete(inspectExit()); }
+        @Override public void onError(Throwable throwable) {
+          exit.completeExceptionally(throwable);
+          deadline.shutdownNow();
+        }
       };
+    }
+
+    private void complete(int code) {
+      if (exit.complete(code)) deadline.shutdownNow();
     }
 
     private int inspectExit() {
@@ -98,12 +113,11 @@ public final class DockerProcessSessionFactory implements ProcessSessionFactory 
     // for normal completion by callers. A closed stream is represented as -1.
     private String findExecId() { return execId; }
     @Override public OutputStream stdin() { return input; }
-    @Override public CompletableFuture<Integer> awaitExit() { return exit.orTimeout(
-        request.timeout().toMillis(), TimeUnit.MILLISECONDS); }
-    @Override public void terminate() { docker.killContainerCmd(containerId).exec(); exit.complete(-1); }
-    @Override public void killWorkload() { docker.killContainerCmd(containerId).exec(); exit.complete(-1); }
+    @Override public CompletableFuture<Integer> awaitExit() { return exit; }
+    @Override public void terminate() { docker.killContainerCmd(containerId).exec(); complete(-1); }
+    @Override public void killWorkload() { try { docker.killContainerCmd(containerId).exec(); } finally { complete(-1); } }
     @Override public long stdoutBytes() { return stdoutBytes; }
     @Override public long stderrBytes() { return stderrBytes; }
-    @Override public void close() { try { input.close(); } catch (IOException ignored) { } }
+    @Override public void close() { try { input.close(); } catch (IOException ignored) { } finally { deadline.shutdownNow(); } }
   }
 }

@@ -125,7 +125,17 @@ public class FileInboxTrigger {
     ArrayNode acceptance = payload.putArray("acceptance");
     task.acceptanceCriteria().forEach(item -> acceptance.add(item.text()));
     payload.set("acceptanceCriteria", json.valueToTree(task.acceptanceCriteria()));
-    payload.set("constraints", task.constraints());
+    ObjectNode constraints = task.constraints() == null
+        ? json.createObjectNode() : (ObjectNode) task.constraints().deepCopy();
+    ArrayNode checks = constraints.putArray("checks");
+    if (intent.verificationPlan() != null) {
+      intent.verificationPlan().checks().stream().filter(check -> check.required()).forEach(check -> {
+        ObjectNode entry = checks.addObject();
+        entry.put("id", check.id());
+        entry.put("command", String.join(" ", check.argv()));
+      });
+    }
+    payload.set("constraints", constraints);
     if (task.notes() == null) {
       payload.putNull("notes");
     } else {

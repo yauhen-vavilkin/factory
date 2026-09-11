@@ -12,6 +12,8 @@ import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.sandbox.api.SandboxHandle;
 import org.folio.factory.sandbox.api.SandboxService;
+import org.folio.factory.devfactory.resolution.RepositoryCatalog;
+import org.folio.factory.devfactory.resolution.RepositoryAccess;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +24,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -34,6 +37,10 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.Set;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.when;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -92,6 +99,8 @@ class DevFactoryEndToEndScenarioTest {
     @Autowired PipelineExecutionRepository executions;
 
     @MockitoSpyBean SandboxService sandboxService;
+    @MockitoBean RepositoryCatalog repositoryCatalog;
+    @MockitoBean RepositoryAccess repositoryAccess;
 
     private final JsonMapper json = JsonMapper.builder().build();
 
@@ -99,6 +108,7 @@ class DevFactoryEndToEndScenarioTest {
     @org.junit.jupiter.api.Tag("eval-pack")
     void taskFileInInboxRunsDevFactoryToCompletion() throws Exception {
         Path sourceRepo = createSourceRepo(sourceRoot.resolve("source-repo"));
+        stubRepository(sourceRepo);
         clearInvocations(sandboxService);
 
         Files.writeString(inbox.resolve(TASK_ID + ".yaml"), taskFile(sourceRepo));
@@ -133,6 +143,7 @@ class DevFactoryEndToEndScenarioTest {
     @Test
     void replayedTaskFileAdmitsOnceAndRevisedTaskFileAdmitsNewRevision() throws Exception {
         Path sourceRepo = createSourceRepo(sourceRoot.resolve("replay-source-repo"));
+        stubRepository(sourceRepo);
         String fileName = REPLAY_TASK_ID + ".yaml";
         String original = taskFile(REPLAY_TASK_ID, sourceRepo, """
                 Append the line "T16 scenario change." to README.md and finish with a short report.""");
@@ -225,7 +236,8 @@ class DevFactoryEndToEndScenarioTest {
         assertThat(reportMetadata.path("branch").asString()).isEqualTo("task/" + TASK_ID);
         assertThat(reportMetadata.path("outcome").asString()).isEqualTo("COMPLETED");
         assertThat(reportMetadata.path("stop_reason").asString()).isEqualTo("COMPLETED");
-        assertThat(reportMetadata.path("task_outcome").asString()).isEqualTo("SUCCEEDED");
+        assertThat(reportMetadata.path("task_outcome").asString())
+                .as("task outcome metadata: %s", reportMetadata).isEqualTo("SUCCEEDED");
         assertThat(reportMetadata.path("task_outcome_reason").asString())
                 .isEqualTo("CHANGES_DELIVERED");
         assertThat(reportMetadata.path("steps").asInt()).isEqualTo(5);
@@ -329,9 +341,44 @@ class DevFactoryEndToEndScenarioTest {
         runGit(dir, "config", "user.email", "t16-scenario@factory.invalid");
         Files.writeString(dir.resolve("README.md"),
                 "# Demo repository\n\nBaseline content for the T16 scenario.\n");
-        runGit(dir, "add", "README.md");
+        Files.writeString(dir.resolve("pom.xml"), """
+                <project xmlns="http://maven.apache.org/POM/4.0.0"
+                         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>org.folio.factory.test</groupId>
+                  <artifactId>scenario-fixture</artifactId>
+                  <version>1.0-SNAPSHOT</version>
+                  <properties><maven.compiler.release>21</maven.compiler.release></properties>
+                </project>
+                """);
+        Path mvnw = dir.resolve("mvnw");
+        Files.writeString(mvnw, "#!/bin/sh\nexec /usr/bin/mvn \"$@\"\n");
+        assertThat(mvnw.toFile().setExecutable(true)).isTrue();
+        runGit(dir, "add", "README.md", "pom.xml", "mvnw");
         runGit(dir, "commit", "-m", "baseline");
         return dir.toAbsolutePath();
+    }
+
+    private void stubRepository(Path sourceRepo) throws Exception {
+        String revision = gitOutput(sourceRepo, "rev-parse", "HEAD").trim();
+        when(repositoryCatalog.candidates(any(), any(), any())).thenReturn(Set.of("folio-org/folio-module-sidecar"));
+        when(repositoryCatalog.origin("folio-org/folio-module-sidecar")).thenReturn(sourceRepo.toString());
+        when(repositoryAccess.resolveBranch(any(), any())).thenReturn(revision);
+        when(repositoryAccess.readFile(any(), any(), any(), anyInt())).thenAnswer(invocation -> {
+            Path file = sourceRepo.resolve(invocation.getArgument(2, String.class));
+            return Files.isRegularFile(file) ? java.util.Optional.of(Files.readAllBytes(file)) : java.util.Optional.empty();
+        });
+    }
+
+    private static String gitOutput(Path dir, String... args) throws Exception {
+        String[] command = new String[args.length + 3];
+        command[0] = "git"; command[1] = "-C"; command[2] = dir.toString();
+        System.arraycopy(args, 0, command, 3, args.length);
+        Process p = new ProcessBuilder(command).start();
+        String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertThat(p.waitFor()).isZero();
+        return out;
     }
 
     private static void runGit(Path dir, String... args) throws Exception {
@@ -354,22 +401,28 @@ class DevFactoryEndToEndScenarioTest {
 
     private static String taskFile(String taskId, Path sourceRepo, String goal) {
         return """
-                id: %s
-                repo: %s
-                base: main
-                branch: task/%s
+                schemaVersion: 1
+                source:
+                  type: TEST
+                  id: %s
+                  project: factory
+                repository: %s
+                baseRef: main
+                profileId: java-maven-21
+                verificationPlanId: scenario-readme-verify
+                runKey: default
+                deliveryMode: LOCAL_ONLY
+                metadata:
+                  legacyDeliveryBranch: task/%s
                 goal: |
                   %s
-                acceptance:
-                  - patch.diff modifies README.md
+                acceptanceCriteria:
+                  - id: patch
+                    text: patch.diff modifies README.md
                 constraints:
                   allow_paths:
                     - README.md
-                  checks:
-                    - id: verify
-                      command: %s
                 notes: Scenario task file for the T16 end-to-end test.
-                """.formatted(taskId, sourceRepo.toAbsolutePath(), taskId, goal.stripTrailing(),
-                DevFactoryScenarioLlmConfiguration.VERIFY_CMD);
+                """.formatted(taskId, sourceRepo.toAbsolutePath(), taskId, goal.stripTrailing());
     }
 }

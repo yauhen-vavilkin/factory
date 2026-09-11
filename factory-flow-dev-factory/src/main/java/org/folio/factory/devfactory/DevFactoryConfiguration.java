@@ -14,22 +14,31 @@ import org.folio.factory.devfactory.worker.CodingWorker;
 import org.folio.factory.devfactory.worker.DevFactoryFinalizer;
 import org.folio.factory.devfactory.worker.recovery.RecoveryBundleStore;
 import org.folio.factory.devfactory.pi.PiWorker;
+import org.folio.factory.devfactory.pi.PiCodingRunner;
 import org.folio.factory.sandbox.api.SandboxService;
+import org.folio.factory.sandbox.api.ProcessSessionFactory;
 import org.folio.factory.sandbox.harness.CodingHarness;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 
 /** Dev Factory plugin wiring: inbox properties and the coding worker bean. */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(InboxProperties.class)
 public class DevFactoryConfiguration {
 
-  @Bean public PiWorker piPrepareWorker() { return new PiWorker("pi-prepare-worker"); }
-  @Bean public PiWorker piCodingWorker() { return new PiWorker("pi-coding-worker"); }
-  @Bean public PiWorker piVerifyWorker() { return new PiWorker("pi-verify-worker"); }
-  @Bean public PiWorker piFinalizeWorker() { return new PiWorker("pi-finalize-worker"); }
+  @Bean @ConditionalOnBean(ProcessSessionFactory.class)
+  public PiCodingRunner piCodingRunner(ProcessSessionFactory sessions) { return new PiCodingRunner(sessions); }
+  @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
+  public PiWorker piPrepareWorker(SandboxService s, PiCodingRunner r) { return new PiWorker("pi-prepare-worker", s, r); }
+  @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
+  public PiWorker piCodingWorker(SandboxService s, PiCodingRunner r) { return new PiWorker("pi-coding-worker", s, r); }
+  @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
+  public PiWorker piVerifyWorker(SandboxService s, PiCodingRunner r) { return new PiWorker("pi-verify-worker", s, r); }
+  @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
+  public PiWorker piFinalizeWorker(SandboxService s, PiCodingRunner r) { return new PiWorker("pi-finalize-worker", s, r); }
 
   @Bean
   public InboxTaskFileParser inboxTaskFileParser() {
