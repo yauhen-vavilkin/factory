@@ -17,21 +17,36 @@ import tools.jackson.databind.json.JsonMapper;
 /** Minimal GitHub read client with fixed public hosts and redirects disabled. */
 public final class GitHubRepositoryAccess implements RepositoryAccess {
   private static final int MAX_API_BYTES = 64 * 1024;
+  private final String apiBase;
   private final HttpClient client = HttpClient.newBuilder()
       .followRedirects(HttpClient.Redirect.NEVER).connectTimeout(Duration.ofSeconds(10)).build();
   private final JsonMapper json = JsonMapper.builder().build();
 
+  /** Production client against the fixed public GitHub API host. */
+  public GitHubRepositoryAccess() {
+    this("https://api.github.com");
+  }
+
+  /** Testable client against an explicit API base (host must stay trusted in production). */
+  GitHubRepositoryAccess(String apiBase) {
+    this.apiBase = apiBase;
+  }
+
   @Override
   public String resolveBranch(String slug, String branch) {
     String encoded = URLEncoder.encode(branch, StandardCharsets.UTF_8).replace("+", "%20");
-    JsonNode response = getJson("https://api.github.com/repos/" + slug + "/git/ref/heads/" + encoded);
+    JsonNode response = getJson(apiBase + "/repos/" + slug + "/git/ref/heads/" + encoded);
     String sha = response.path("object").path("sha").asString("");
     return requireSha(sha, "branch '" + branch + "'");
   }
 
   @Override
   public String verifyCommit(String slug, String fullSha) {
-    JsonNode response = getJson("https://api.github.com/repos/" + slug + "/commits/" + fullSha);
+    // Use the Git Data commit endpoint: it returns only the commit object.
+    // The REST "commits/{sha}" endpoint embeds every changed file patch and
+    // exceeds the bounded-response cap for ordinary merge commits (observed
+    // live on a curated dataset base), breaking admission.
+    JsonNode response = getJson(apiBase + "/repos/" + slug + "/git/commits/" + fullSha);
     return requireSha(response.path("sha").asString(""), "commit '" + fullSha + "'");
   }
 
