@@ -2,7 +2,7 @@ schemaVersion: 1
 planId: pi-minimal-v2
 branch: dev/M2-pi-vertical-slice
 startingHead: 34aa29f
-checkpointHead: 3d9fa6e
+checkpointHead: 8e7e331922069c2371ae3288b1c55d61176fb78e
 observedRemoteHead: null
 currentMilestone: M2
 state: COMPLETE
@@ -11,7 +11,7 @@ milestones:
     state: ACCEPTED
     report: reports/M1.md
   M2:
-    state: INCOMPLETE
+    state: COMPLETE
     report: reports/M2.md
     evidence:
       M2-C1: evidence/M2/image-capability.txt

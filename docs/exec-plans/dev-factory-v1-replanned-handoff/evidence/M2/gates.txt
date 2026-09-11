@@ -1,8 +1,5 @@
-./scripts/factory validate --unit: exit 0; TOTAL_TESTS=406; failures=0; errors=0; skipped=0
-./scripts/factory smoke --pi --scripted: exit 0; Pi 0.85.1; native read/bash; source edit; agent_settled; independent Maven verification PASS; wrong candidate REJECTED
-./mvnw -B verify: exit 0; BUILD SUCCESS; Pi E2E trigger evidence in mvn-verify-excerpt.log
-git diff --check 34aa29f..HEAD: checked after candidate commit; exit 0
-F1 acceptance: DevFactoryPiEndToEndScenarioTest; real DockerSandboxService and real PiCodingRunner, no runtime Mockito substitutions; trigger line in mvn-verify-excerpt.log
-F3 boot: pi profile selects spring.ai.model.chat=none and Docker sandbox; gateway URL defaults to host.docker.internal:18081/v1
-F4 finalization: PiWorkerFinalizationTest.unsettledCodingRetainsSnapshotAndReportsFailure
-F5 protocol: PiRpcProtocolTest; split UTF-8, malformed JSON, and out-of-order id responses
+F2 fail-fast: DockerSandboxServiceTest.gatewayOnlyWithoutNetworkFailsBeforeContainerCreation; direct probe: DIRECT_EGRESS=DENIED; gateway path: SERVING.
+F3 readonlyRootfs: DockerSandboxServiceTest.createUsesPrivateBoundedResourcesWithoutSharedMavenCache; writable mounts: /tmp, /workspace, /state/pi/sessions, /state/tmp, /home/agent; smoke denied-write boundary is enforced by readonly root.
+F4 timeout: PiCodingRunner kills whole workload on await timeout/transport failure; PiWorker exports snapshot before teardown; cancellation sends clear_queue then abort then killWorkload.
+Unit validation: exit 0; TOTAL_TESTS=409; failures=0; errors=0; skipped=0.
+Smoke: exit 0; DIRECT_EGRESS=DENIED; gateway_path=SERVING.
