@@ -3,11 +3,19 @@ package org.folio.factory.sandbox.core;
 import java.nio.file.Path;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 @ConfigurationProperties(prefix = "factory.sandbox")
 public record SandboxProperties(String mode, String image, String dockerHost,
-    Path workspaceRoot, Duration workspaceRetention, String mavenCacheVolume) {
+    Path workspaceRoot, Duration workspaceRetention, String mavenCacheVolume,
+    String dockerNetwork) {
 
+  public SandboxProperties(String mode, String image, String dockerHost, Path workspaceRoot,
+      Duration workspaceRetention, String mavenCacheVolume) {
+    this(mode, image, dockerHost, workspaceRoot, workspaceRetention, mavenCacheVolume, null);
+  }
+
+  @ConstructorBinding
   public SandboxProperties {
     mode = mode == null ? "docker" : mode;
     if (!mode.equals("docker") && !mode.equals("local")) {
@@ -22,5 +30,6 @@ public record SandboxProperties(String mode, String image, String dockerHost,
     workspaceRetention = workspaceRetention == null ? Duration.ZERO : workspaceRetention;
     mavenCacheVolume = mavenCacheVolume == null || mavenCacheVolume.isBlank()
         ? "factory-m2-cache" : mavenCacheVolume;
+    dockerNetwork = dockerNetwork == null || dockerNetwork.isBlank() ? null : dockerNetwork;
   }
 }

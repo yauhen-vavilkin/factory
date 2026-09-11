@@ -33,16 +33,19 @@ public class DockerSandboxService implements SandboxService {
 
   private final DockerClient dockerClient;
   private final String image;
+  private final String dockerNetwork;
 
   public DockerSandboxService(DockerClient dockerClient) {
     this.dockerClient = dockerClient;
     this.image = DEFAULT_IMAGE;
+    this.dockerNetwork = null;
   }
 
   @Autowired
   public DockerSandboxService(DockerClient dockerClient, SandboxProperties properties) {
     this.dockerClient = dockerClient;
     this.image = properties.image();
+    this.dockerNetwork = properties.dockerNetwork();
   }
 
   @Override
@@ -52,7 +55,8 @@ public class DockerSandboxService implements SandboxService {
       CreateContainerResponse container = dockerClient.createContainerCmd(image)
           .withCmd("sleep", "infinity")
           .withWorkingDir(WORKSPACE_DIR)
-          .withHostConfig(new HostConfig().withNanoCPUs(2_000_000_000L)
+          .withHostConfig(new HostConfig().withNetworkMode(dockerNetwork)
+              .withNanoCPUs(2_000_000_000L)
               .withMemory(4L * 1024 * 1024 * 1024)
               .withPidsLimit(512L)
               .withCapDrop(Capability.ALL)

@@ -49,9 +49,28 @@ public final class PiWorker implements AgentWorker {
       return verify(context, patch);
     }
     String verification = context.requireInput("verification.json").content();
-    String outcome = json.readTree(verification).path("status").asString().equals("PASS")
+    var verificationNode = json.readTree(verification);
+    String outcome = verificationNode.path("status").asString().equals("PASS")
         ? "SUCCESS" : "FAILED";
-    return new AgentResult(Map.of("result.json", "{\"outcome\":\"" + outcome + "\"}",
+    var result = json.createObjectNode();
+    result.put("outcome", outcome);
+    if (!"SUCCESS".equals(outcome)) {
+      var failure = result.putObject("failure");
+      failure.put("reason", verificationNode.path("reason").asString("VERIFICATION_FAILED"));
+      failure.put("stage", verificationNode.path("stage").asString("verify"));
+    }
+    var usage = result.putObject("usage");
+    if (context.inputs().containsKey("usage.json")) {
+      usage.setAll((tools.jackson.databind.node.ObjectNode) json.readTree(
+          context.requireInput("usage.json").content()));
+    }
+    result.putObject("cleanup").put("status", "COMPLETE");
+    var session = result.putObject("session");
+    session.put("ref", context.inputs().containsKey("pi-session.jsonl")
+        ? "pi-session.jsonl" : "unknown");
+    result.putObject("references").put("candidate", "candidate.patch")
+        .put("verification", "verification.json");
+    return new AgentResult(Map.of("result.json", json.writeValueAsString(result),
         "manifest.json", "{\"candidate\":\"candidate.patch\",\"verification\":\"verification.json\"}"),
         Map.of("workflowOperational", true, "outcome", outcome));
   }

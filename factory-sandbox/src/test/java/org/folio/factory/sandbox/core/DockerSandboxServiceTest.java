@@ -26,6 +26,7 @@ import com.github.dockerjava.api.command.StartContainerCmd;
 import com.github.dockerjava.api.model.Bind;
 import com.github.dockerjava.api.model.Frame;
 import com.github.dockerjava.api.model.HostConfig;
+import java.time.Duration;
 import com.github.dockerjava.api.model.StreamType;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
 import org.folio.factory.sandbox.api.CommandResult;
@@ -108,6 +109,26 @@ class DockerSandboxServiceTest {
     assertEquals(2_000_000_000L, config.getNanoCPUs());
     assertEquals(4L * 1024 * 1024 * 1024, config.getMemory());
     assertEquals(512L, config.getPidsLimit());
+  }
+
+  @Test
+  void productionCreateUsesConfiguredGatewayNetwork() throws Exception {
+    CreateContainerCmd createCmd = mock(CreateContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    CreateContainerResponse createResponse = mock(CreateContainerResponse.class);
+    when(createResponse.getId()).thenReturn(CONTAINER_ID);
+    when(dockerClient.createContainerCmd(IMAGE)).thenReturn(createCmd);
+    when(createCmd.exec()).thenReturn(createResponse);
+    when(dockerClient.startContainerCmd(CONTAINER_ID))
+        .thenReturn(mock(StartContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF)));
+    mockExecPipeline(CLONE_COMMAND, 0, new byte[0], new byte[0]);
+
+    service = new DockerSandboxService(dockerClient, new SandboxProperties("docker", IMAGE,
+        "docker", null, Duration.ZERO, null, "factory-pi-network"));
+    service.create(SPEC);
+
+    ArgumentCaptor<HostConfig> hostConfig = ArgumentCaptor.forClass(HostConfig.class);
+    verify(createCmd).withHostConfig(hostConfig.capture());
+    assertEquals("factory-pi-network", hostConfig.getValue().getNetworkMode());
   }
 
   @Test
