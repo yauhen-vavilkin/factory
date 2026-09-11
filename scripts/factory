@@ -797,7 +797,7 @@ PY
   source_name=$(basename "$generated")
   submit_task "$generated" >/dev/null
   for _ in $(seq 1 30); do
-    receipt_state=$(python3 "$STATE_DIR/data/inbox" "$source_name" <<'PY'
+    receipt_state=$(python3 - "$STATE_DIR/data/inbox" "$source_name" <<'PY'
 import json
 import pathlib
 import sys
