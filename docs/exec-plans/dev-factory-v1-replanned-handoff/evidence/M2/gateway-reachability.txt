@@ -1,0 +1,5 @@
+F1 production create-path evidence: DockerSandboxServiceTest.productionCreateUsesConfiguredGatewayNetwork
+captures the HostConfig passed by DockerSandboxService.create and asserts
+NetworkMode=factory-pi-network. The application binds this from
+FACTORY_SANDBOX_DOCKER_NETWORK while Pi uses http://factory-gateway:8080/v1.
+This proves network wiring, not a live HTTP probe.
