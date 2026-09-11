@@ -28,7 +28,7 @@ Usage:
   ./scripts/factory validate --unit|--integration|--eval-pack|--gateway
   ./scripts/factory resolve-task TASK.yaml
   ./scripts/factory submit TASK.yaml
-  ./scripts/factory run-eval MODSIDECAR-208 --run-key RUN_KEY
+  ./scripts/factory run-eval TASK_ID --run-key RUN_KEY    # curated: MODSIDECAR-208, MGRENTITLE-161/172/192, MODROLESKC-424/427, MODSCHED-70/76
   ./scripts/factory show EXECUTION_ID [--watch]
   ./scripts/factory export EXECUTION_ID --out DIRECTORY
 EOF
@@ -752,44 +752,95 @@ submit_task() {
 }
 
 run_eval() {
-  [[ $# == 3 && "$1" == MODSIDECAR-208 && "$2" == --run-key ]] ||
-    fail "run-eval requires MODSIDECAR-208 --run-key RUN_KEY"
+  [[ $# == 3 && "$2" == --run-key ]] ||
+    fail "run-eval requires TASK_ID --run-key RUN_KEY"
   local task_id="$1" run_key="$3"
   [[ "$run_key" =~ ^[A-Za-z0-9._-]+$ && "$run_key" != default && ${#run_key} -le 128 ]] ||
     fail "runKey must be a fresh non-default value matching [A-Za-z0-9._-] and at most 128 characters"
   load_config
   local task_file="$ROOT_DIR/evals/tasks/${task_id}.md"
   require_task_file "$task_file"
+  # Trusted curated mapping per task: repository + pinned base revision.
+  # The MODSIDECAR-208 mapping is the frozen accepted benchmark (unchanged);
+  # the seven dataset tasks use pinned origin/main SHAs captured 2026-09-11.
+  local repo base plan
+  case "$task_id" in
+    MODSIDECAR-208)
+      repo="folio-org/folio-module-sidecar"
+      base="c13e0383d9283ef554c195cf5357bb3c6eeb4e65"
+      plan="modsidecar-208-v1" ;;
+    MGRENTITLE-161|MGRENTITLE-172|MGRENTITLE-192)
+      repo="folio-org/mgr-tenant-entitlements"
+      base="0845da6ede6448fa2ae5791bbc3ad180dd6c951c"
+      plan="java-maven-verify" ;;
+    MODROLESKC-424|MODROLESKC-427)
+      repo="folio-org/mod-roles-keycloak"
+      base="4810b91c648f4f54cc0c878cafb7eb20d115ef6f"
+      plan="java-maven-verify" ;;
+    MODSCHED-70|MODSCHED-76)
+      repo="folio-org/mod-scheduler"
+      base="b2d18dd09b7882fdbb7192b65e136a1b03970967"
+      plan="java-maven-verify" ;;
+    *) fail "no trusted curated mapping for task: $task_id" ;;
+  esac
   local generated="$STATE_DIR/run/${task_id}-${run_key}.json"
   [[ ! -e "$generated" && ! -L "$generated" ]] || fail "run-eval mapping already exists: $generated"
-  python3 - "$task_file" "$run_key" "$generated" <<'PY'
+  python3 - "$task_file" "$run_key" "$generated" "$task_id" "$repo" "$base" "$plan" <<'PY'
 import json
 import pathlib
+import re
 import sys
 
-task_file, run_key, output = sys.argv[1:]
+task_file, run_key, output, task_id, repo, base, plan = sys.argv[1:8]
 raw = pathlib.Path(task_file).read_text(encoding="utf-8")
-payload = {
-    "schemaVersion": 1,
-    "source": {"type": "JIRA", "id": "MODSIDECAR-208", "project": "MODSIDECAR"},
-    "repository": "folio-org/folio-module-sidecar",
-    "baseRevision": "c13e0383d9283ef554c195cf5357bb3c6eeb4e65",
-    "profileId": "java21-pi-unit",
-    "verificationPlanId": "modsidecar-208-v1",
-    "runKey": run_key,
-    "deliveryMode": "LOCAL_ONLY",
-    "metadata": {"evalId": "MODSIDECAR-208", "mappingVersion": "modsidecar-208-v1",
+if task_id == "MODSIDECAR-208":
+    payload = {
+        "schemaVersion": 1,
+        "source": {"type": "JIRA", "id": "MODSIDECAR-208", "project": "MODSIDECAR"},
+        "repository": "folio-org/folio-module-sidecar",
+        "baseRevision": "c13e0383d9283ef554c195cf5357bb3c6eeb4e65",
+        "profileId": "java21-pi-unit",
+        "verificationPlanId": "modsidecar-208-v1",
+        "runKey": run_key,
+        "deliveryMode": "LOCAL_ONLY",
+        "metadata": {"evalId": "MODSIDECAR-208", "mappingVersion": "modsidecar-208-v1",
                   "sourceTaskText": raw},
-    "goal": "Implement the complete MODSIDECAR-208 task and satisfy its acceptance criteria.",
-    "acceptanceCriteria": [
-        {"id": "AC1", "text": "quarkus.thread-pool.max-threads is configured and defaults to 8.", "source": "TASK"},
-        {"id": "AC2", "text": "QUARKUS_THREAD_POOL_MAX_THREADS overrides the configured value and defaults to 8 when unset.", "source": "TASK"},
-        {"id": "AC3", "text": "README.md documents the variable, default value, description, and required flag.", "source": "TASK"},
-        {"id": "AC4", "text": "The project compiles and passes the Maven test checks.", "source": "TASK"},
-    ],
-    "constraints": {"allow_paths": ["src/main/resources/application.properties", "README.md", "src/test/**", "NEWS.md"]},
-    "notes": "Use only the prepared repository. Factory performs independent verification after coding.",
-}
+        "goal": "Implement the complete MODSIDECAR-208 task and satisfy its acceptance criteria.",
+        "acceptanceCriteria": [
+            {"id": "AC1", "text": "quarkus.thread-pool.max-threads is configured and defaults to 8.", "source": "TASK"},
+            {"id": "AC2", "text": "QUARKUS_THREAD_POOL_MAX_THREADS overrides the configured value and defaults to 8 when unset.", "source": "TASK"},
+            {"id": "AC3", "text": "README.md documents the variable, default value, description, and required flag.", "source": "TASK"},
+            {"id": "AC4", "text": "The project compiles and passes the Maven test checks.", "source": "TASK"},
+        ],
+        "constraints": {"allow_paths": ["src/main/resources/application.properties", "README.md", "src/test/**", "NEWS.md"]},
+        "notes": "Use only the prepared repository. Factory performs independent verification after coding.",
+    }
+else:
+    goal_match = re.search(r"^# (.+)$", raw, re.M)
+    goal = goal_match.group(1).strip() if goal_match else None
+    if not goal:
+        raise SystemExit(f"no goal heading found in {task_file}")
+    acs = []
+    for match in re.finditer(r"^-\s+\*\*(AC\d+):\*\*\s+(.+)$", raw, re.M):
+        acs.append({"id": match.group(1), "text": match.group(2).strip(), "source": "TASK"})
+    if not acs:
+        raise SystemExit(f"no structured acceptance criteria found in {task_file}")
+    payload = {
+        "schemaVersion": 1,
+        "source": {"type": "JIRA", "id": task_id, "project": task_id.split("-", 1)[0]},
+        "repository": repo,
+        "baseRevision": base,
+        "profileId": "java21-pi-unit",
+        "verificationPlanId": plan,
+        "runKey": run_key,
+        "deliveryMode": "LOCAL_ONLY",
+        "metadata": {"evalId": task_id, "mappingVersion": "dataset-2026-09-11-v1",
+                  "sourceTaskText": raw},
+        "goal": goal + " Implement the complete task and satisfy its acceptance criteria.",
+        "acceptanceCriteria": acs,
+        "constraints": {"allow_paths": ["src/**", "README.md", "NEWS.md"]},
+        "notes": "Use only the prepared repository. Factory performs independent verification after coding.",
+    }
 pathlib.Path(output).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 PY
   chmod 600 "$generated"
