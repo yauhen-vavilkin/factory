@@ -1,0 +1,57 @@
+M4 live attempt low-004 — FIRST SOLVED LOW (2026-09-11, explicitly authorized by the owner)
+
+Authorization: owner approved doctor --live + an attempt budget of two (low-004, low-005)
+after the M4 report; the budget stopped at the first success.
+
+Live doctor (re-qualification of the corrected factory-zai profile):
+  ./scripts/factory doctor --live -> PASS, 3 bounded requests, 47/171/71 tokens,
+  reported model glm-5.3-flash, roles verified; evidence
+  .factory/logs/runs/preflight-20260911T212334Z.jsonl
+  (an earlier 23:19 doctor attempt observed one non-exact-READY completion and
+  was not counted; the second full pass was green)
+
+Run:
+  runKey=low-004  execution=e53b166d-3915-4222-b95e-81480b44fdfc
+  admitted 2026-09-11T21:24:30Z, COMPLETED 21:43:30Z (wall ~19 min)
+  flow=dev-factory-pi 1.0.0  repository=folio-org/folio-module-sidecar
+  base=c13e0383d9283ef554c195cf5357bb3c6eeb4e65 (unchanged benchmark base)
+
+Outcome:
+  result.json:      outcome=SUCCESS benchmarkOutcome=SUCCESS
+  baseline.json:    PASS (553 tests on the clean base before coding)
+  verification.json: status=PASS stage=VERIFY
+  candidate.json:   READY candidateTree=9d407c74fb419a922a892374ded503e04f6b2247
+                    patchSha256=e5beb53736eab653147ebac19155587c68fd9afdbe58300e0effc373415d0ae8
+  candidate.patch:  6856 bytes, 4 files / +61 lines:
+                    application.properties (+quarkus.thread-pool.max-threads=
+                    ${QUARKUS_THREAD_POOL_MAX_THREADS:8}), README.md (variable
+                    table row: default 8, description, required=false),
+                    NEWS.md entry, new ThreadPoolPropertiesTest.java (+58)
+
+Usage (usage.json, native Z.AI stats):
+  provider_calls=11 settled=true duration_ms=415801 (~6.9 min coding)
+  input=689 output=339 cacheRead=11520 reasoning=20 totalTokens=12548
+  cost_status=UNPRICED (no operator rates configured; flash-tier model)
+  doctor usage (3 requests / 289 tokens) is separate from benchmark usage
+  gateway evidence: .factory/logs/runs/gateway-requests.jsonl (14 model
+  requests total = 3 doctor + 11 Pi; all 200; system/user/assistant/tool roles)
+
+Export: .factory/exports/e53b166d-3915-4222-b95e-81480b44fdfc/ — 10 artifacts
+(baseline.json/log, candidate.json/patch, contract.json, manifest.json,
+pi-session.jsonl [959 KB full session], result.json, usage.json,
+verification.json) + execution.json manifest; overwrite-refusing export.
+
+Defects found and fixed during the live session (commits f47a56d, 6abe654,
+and the show/export payload fix):
+  1. gateway evidence volume unwritable (container uid 10001 vs 0700 host dir)
+     -> compose user mapping to the invoking uid/gid + fail-fast write guard
+  2. run-eval admission receipt poll crashed (python3 invoked on a directory)
+     -> fixed argument order; admission itself had succeeded
+  3. show/export passed the whole API response as a python argv entry and died
+     with "Argument list too long" on artifact-rich executions
+     -> payload passed via state-dir file (regression: show/export verified on
+        this execution)
+
+Cohort note: this is the first live success of the corrected-profile cohort
+(M3's low-001..003 cohort remains FAILED for different causes); no statistical
+reliability claim is made from n=1.

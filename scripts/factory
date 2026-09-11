@@ -857,12 +857,13 @@ show_execution() {
   while true; do
     response=$(curl -fsS "http://127.0.0.1:${FACTORY_APP_PORT}/api/executions/${execution_id}") ||
       fail "execution $execution_id is not available"
-    status=$(python3 - "$response" <<'PY'
+    printf '%s' "$response" > "$STATE_DIR/run/show-payload.json"
+    status=$(python3 - "$STATE_DIR/run/show-payload.json" <<'PY'
 import hashlib
 import json
 import sys
 
-detail = json.loads(sys.argv[1])
+detail = json.load(open(sys.argv[1], encoding="utf-8"))
 execution = detail.get("execution", {})
 interesting = {"baseline.json", "candidate.json", "candidate.patch", "verification.json", "usage.json", "result.json", "manifest.json"}
 artifacts = []
@@ -901,7 +902,8 @@ export_execution() {
   local response
   response=$(curl -fsS "http://127.0.0.1:${FACTORY_APP_PORT}/api/executions/${execution_id}") ||
     fail "execution $execution_id is not available"
-  python3 - "$response" "$output_dir" <<'PY'
+  printf '%s' "$response" > "$STATE_DIR/run/export-payload.json"
+  python3 - "$STATE_DIR/run/export-payload.json" "$output_dir" <<'PY'
 import hashlib
 import json
 import os
@@ -909,7 +911,7 @@ import pathlib
 import re
 import sys
 
-detail = json.loads(sys.argv[1])
+detail = json.load(open(sys.argv[1], encoding="utf-8"))
 out = pathlib.Path(sys.argv[2]).resolve()
 out.mkdir(parents=True, exist_ok=True)
 if out == pathlib.Path("/"):
