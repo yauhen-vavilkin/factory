@@ -8,10 +8,10 @@ currentMilestone: M2
 state: INCOMPLETE
 milestones:
   M1:
-    state: INCOMPLETE
+    state: ACCEPTED
     report: reports/M1.md
   M2:
-    state: ACCEPTED
+    state: INCOMPLETE
     report: reports/M2.md
     evidence:
       M2-C1: evidence/M2/image-capability.txt
