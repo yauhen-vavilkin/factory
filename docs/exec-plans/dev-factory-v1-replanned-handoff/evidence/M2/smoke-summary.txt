@@ -1,4 +1,7 @@
 mode=pi scripted=true provider_calls=3 paid_calls=0 gateway=private-fixed-route
-image=factory-pi:jdk21 node=22.19.0 pi=0.85.1 network=factory-pi-smoke non_root=true no_tty=true
-raw_rpc=pi-rpc.jsonl prompts=model_requests=native_read=native_bash=agent_settled
-independent=true fresh_checkout=true maven_verify=pi-verify-mvn.log wrong_candidate=rejected
+image=factory-pi:jdk21 node=22.19.0 pi=0.85.1 network=factory-pi-smoke-1794120 non_root=true no_tty=true
+raw_rpc=/home/ubuntu/.openclaw/workspace/projects/folio/factory-dev/factory/.factory/logs/validation/pi-rpc.jsonl prompts=model_requests=native_read=native_bash=agent_settled
+base=60b0c7a26a96b607b85390f4eaa66ca02ffe0a2b candidateHead=fd953ebaf59ce440db0427bfbabc26179b4b9d5f candidate=/home/ubuntu/.openclaw/workspace/projects/folio/factory-dev/factory/.factory/data/artifacts/pi-smoke-candidate.patch
+verification=/home/ubuntu/.openclaw/workspace/projects/folio/factory-dev/factory/.factory/data/artifacts/pi-smoke-verification.json independent=true fresh_checkout=true maven_verify=pi-verify-mvn.log wrong_candidate=rejected
+upstream_requests=/home/ubuntu/.openclaw/workspace/projects/folio/factory-dev/factory/.factory/logs/validation/upstream-requests.jsonl
+artifacts=/home/ubuntu/.openclaw/workspace/projects/folio/factory-dev/factory/.factory/data/artifacts
