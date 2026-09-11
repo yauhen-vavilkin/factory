@@ -12,6 +12,7 @@ import org.folio.factory.sandbox.api.CommandResult;
 import org.folio.factory.sandbox.api.SandboxHandle;
 import org.folio.factory.sandbox.api.SandboxService;
 import org.folio.factory.sandbox.api.SandboxSpec;
+import org.folio.factory.sandbox.tools.Shell;
 import tools.jackson.databind.json.JsonMapper;
 
 /** Flow-local workers keep Pi execution separate from the legacy harness. */
@@ -38,12 +39,13 @@ public final class PiWorker implements AgentWorker {
     if ("pi-coding-worker".equals(id)) return code(context);
     if ("pi-verify-worker".equals(id)) {
       String patch = context.requireInput("candidate.patch").content();
-      return AgentResult.of("verification.json", patch == null || patch.isBlank()
-          ? "{\"status\":\"FAIL\",\"reason\":\"EMPTY_CANDIDATE\"}"
-          : "{\"status\":\"PASS\",\"candidateBytes\":" + patch.length() + "}");
+      if (patch == null || patch.isBlank()) return AgentResult.of("verification.json",
+          "{\"status\":\"FAIL\",\"reason\":\"EMPTY_CANDIDATE\"}");
+      return verify(context, patch);
     }
     String verification = context.requireInput("verification.json").content();
-    String outcome = verification.contains("\"status\":\"PASS\"") ? "SUCCESS" : "FAILED";
+    String outcome = json.readTree(verification).path("status").asString().equals("PASS")
+        ? "SUCCESS" : "FAILED";
     return new AgentResult(Map.of("result.json", "{\"outcome\":\"" + outcome + "\"}",
         "manifest.json", "{\"candidate\":\"candidate.patch\",\"verification\":\"verification.json\"}"),
         Map.of("workflowOperational", true, "outcome", outcome));
@@ -62,10 +64,39 @@ public final class PiWorker implements AgentWorker {
           "--no-extensions", "--no-skills", "--no-context-files", "--tools",
           "read,bash,edit,write,grep,find,ls"), "/workspace/repo", task,
           Duration.ofMinutes(30), 16L * 1024 * 1024, Map.of("PI_OFFLINE", "1"));
-      CommandResult diff = sandboxes.exec(handle, "cd repo && git diff --binary HEAD", 120);
+      String base = Shell.quote(p.path("baseRevision").asText());
+      CommandResult diff = sandboxes.exec(handle, "cd repo && (git diff --binary " + base
+          + " HEAD; git ls-files --others --exclude-standard | while IFS= read -r f; do "
+          + "git diff --binary --no-index /dev/null \"$f\" || test $? -eq 1; done)", 120);
+      CommandResult head = sandboxes.exec(handle, "cd repo && git rev-parse HEAD", 30);
       if (!attempt.settled()) throw new AgentExecutionException("Pi ended without agent_settled");
-      return new AgentResult(Map.of("candidate.patch", diff.stdout(), "pi-session.jsonl", attempt.rawExchange(),
-          "usage.json", "{\"provider_calls\":1}"), Map.of("provider_calls", 1, "settled", true));
+      String candidate = head.stdout().trim();
+      String patchHash = org.folio.factory.core.service.ArtifactStore.sha256(diff.stdout());
+      return new AgentResult(Map.of("candidate.patch", diff.stdout(),
+          "candidate.json", "{\"base\":\"" + p.path("baseRevision").asText()
+              + "\",\"candidate\":\"" + candidate + "\",\"patchSha256\":\""
+              + patchHash + "\"}", "pi-session.jsonl", attempt.rawExchange(),
+          "usage.json", "{\"provider_calls\":1,\"settled\":true}"),
+          Map.of("provider_calls", 1, "settled", true, "candidate", candidate));
     } finally { sandboxes.teardown(handle); }
+  }
+
+  private AgentResult verify(AgentContext context, String patch) {
+    var p = context.triggerPayload();
+    SandboxHandle fresh = sandboxes.create(new SandboxSpec(p.path("taskId").asText() + "-verify",
+        p.path("repoUrl").asText(), p.path("baseRevision").asText(),
+        p.path("branch").asText() + "-verify", context.executionId() + "-verify"));
+    try {
+      CommandResult applied = sandboxes.exec(fresh, "cd repo && printf '%s' " + Shell.quote(patch)
+          + " | git apply --binary -", 120);
+      if (!applied.ok()) return AgentResult.of("verification.json",
+          "{\"status\":\"FAIL\",\"reason\":\"PATCH_REJECTED\",\"stderr\":"
+              + json.writeValueAsString(applied.stderr()) + "}");
+      CommandResult tests = sandboxes.exec(fresh, "cd repo && mvn -B -ntp verify", 900);
+      String status = tests.ok() ? "PASS" : "FAIL";
+      return AgentResult.of("verification.json", "{\"status\":\"" + status
+          + "\",\"independent\":true,\"freshCheckout\":true,\"mavenVerifyExit\":"
+          + tests.exitCode() + ",\"candidateBytes\":" + patch.length() + "}");
+    } finally { sandboxes.teardown(fresh); }
   }
 }

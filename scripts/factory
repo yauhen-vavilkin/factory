@@ -57,7 +57,7 @@ init_factory() {
     "$STATE_DIR/data/sandboxes" "$STATE_DIR/cache/maven-home" \
     "$STATE_DIR/cache/maven-repository" "$STATE_DIR/logs/validation" \
     "$STATE_DIR/run"
-  find "$STATE_DIR" -type d -exec chmod 700 {} +
+  find "$STATE_DIR" -type d -exec chmod 700 {} + 2>/dev/null || true
   if [[ ! -f "$CONFIG_FILE" ]]; then
     printf '%s\n' 'FACTORY_POSTGRES_PORT=55432' 'FACTORY_APP_PORT=18080' > "$CONFIG_FILE"
   fi
@@ -194,38 +194,94 @@ smoke_pi_scripted() {
   mkdir -p "$(dirname "$log")"
   docker build -q -t factory-pi:jdk21 "$ROOT_DIR/factory-sandbox" >> "$log"
   local network="factory-pi-smoke-$$"
-  docker network create --internal "$network" >> "$log"
+  docker network create --internal --driver bridge "$network" >> "$log"
   trap 'docker network rm "$network" >/dev/null 2>&1 || true' RETURN
   local gateway
-  gateway=$(docker run -d --rm --network "$network" --name "${network}-gateway" \
-    python:3.12-alpine python -c 'from http.server import BaseHTTPRequestHandler,HTTPServer
+  gateway=$(docker run -d --rm --network "$network" --network-alias factory-gateway --name "${network}-gateway" \
+    -v "$STATE_DIR/logs/validation:/evidence" python:3.12-alpine python -c 'import json
+from http.server import BaseHTTPRequestHandler,HTTPServer
+log=open("/evidence/upstream-requests.jsonl","w")
 class H(BaseHTTPRequestHandler):
+  def log_message(self,*a): pass
+  def do_GET(self):
+    if self.path == "/health": self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+    else: self.send_error(404)
   def do_POST(self):
     if self.path != "/v1/chat/completions": self.send_error(404); return
-    n=int(self.headers.get("Content-Length",0)); self.rfile.read(n)
-    self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers()
-    self.wfile.write(b"{\\"id\\":\\"scripted\\",\\"choices\\":[{\\"message\\":{\\"role\\":\\"assistant\\",\\"content\\":\\"scripted\\"}}],\\"usage\\":{\\"prompt_tokens\\":1,\\"completion_tokens\\":1}}")
+    n=int(self.headers.get("Content-Length",0)); body=json.loads(self.rfile.read(n)); messages=body.get("messages",[])
+    log.write(json.dumps({"model":body.get("model"),"messageCount":len(messages),"hasTools":bool(body.get("tools"))})+"\n"); log.flush()
+    tool_count=sum(1 for m in messages if m.get("role")=="tool")
+    if tool_count == 0:
+      msg={"role":"assistant","content":None,"tool_calls":[{"id":"read-1","type":"function","function":{"name":"read","arguments":json.dumps({"path":"README.md"})}}]}
+    elif tool_count == 1:
+      msg={"role":"assistant","content":None,"tool_calls":[{"id":"bash-1","type":"function","function":{"name":"bash","arguments":json.dumps({"command":"git config --global --add safe.directory /workspace/repo && echo Pi-scripted-candidate. >> README.md && git add README.md && git commit -m pi-scripted-candidate"})}}]}
+    else: msg={"role":"assistant","content":"Pi completed the requested fixture change."}
+    delta={"role":"assistant"} if msg.get("tool_calls") else {"content":msg.get("content","")}
+    if msg.get("tool_calls"): delta["tool_calls"]=[{"index":0,"id":msg["tool_calls"][0]["id"],"type":"function","function":{"name":msg["tool_calls"][0]["function"]["name"],"arguments":msg["tool_calls"][0]["function"]["arguments"]}}]
+    chunks=[{"id":"scripted","choices":[{"index":0,"delta":delta,"finish_reason":None}]},{"id":"scripted","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls" if msg.get("tool_calls") else "stop"}]}]
+    self.send_response(200); self.send_header("Content-Type","text/event-stream"); self.send_header("Cache-Control","no-cache"); self.end_headers()
+    for chunk in chunks: self.wfile.write(("data: "+json.dumps(chunk)+"\n\n").encode()); self.wfile.flush()
+    self.wfile.write(b"data: [DONE]\n\n"); self.wfile.flush()
 HTTPServer(("0.0.0.0",8080),H).serve_forever()')
+  for _ in $(seq 1 20); do
+    docker run --rm --network "$network" python:3.12-alpine python -c 'import urllib.request; urllib.request.urlopen("http://factory-gateway:8080/health")' >/dev/null 2>&1 && break
+    sleep 0.2
+  done
+  local fixture
+  fixture=$(mktemp -d "$STATE_DIR/data/sandboxes/pi-smoke-fixture.XXXXXX")
+  local verify="$STATE_DIR/data/sandboxes/pi-smoke-verify.$$"
+  mkdir -p "$verify"
+  git -C "$fixture" init -q -b main
+  git -C "$fixture" config user.name Factory-Smoke; git -C "$fixture" config user.email smoke@factory.invalid
+  printf '%s\n' '# Pi fixture' 'Baseline.' > "$fixture/README.md"
+  cat > "$fixture/pom.xml" <<'EOF'
+<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>factory</groupId><artifactId>pi-fixture</artifactId><version>1</version><properties><maven.compiler.release>21</maven.compiler.release></properties></project>
+EOF
+  git -C "$fixture" add .; git -C "$fixture" commit -q -m base
+  chmod -R a+rwX "$fixture"
+  local base candidate_head candidate
+  base=$(git -C "$fixture" rev-parse HEAD)
   local raw="$STATE_DIR/logs/validation/pi-rpc.jsonl"
-  printf '%s\n' '{"type":"get_state"}' | docker run --rm -i --network "$network" \
-    --cap-drop ALL --security-opt no-new-privileges --entrypoint /opt/pi/node_modules/.bin/pi \
+  : > "$raw"
+  { printf '%s\n' '{"type":"get_state"}' '{"type":"prompt","message":"Update README.md by using native tools. Read it, append the requested Pi scripted candidate line, commit the candidate, and report completion."}'; sleep 20; } | docker run --rm -i --network "$network" \
+    --cap-drop ALL --security-opt no-new-privileges --user 10001:10001 \
+    -v "$fixture:/workspace/repo" --workdir /workspace/repo --entrypoint /opt/pi/node_modules/.bin/pi \
     -e HOME=/home/agent -e PI_CODING_AGENT_DIR=/state/pi -e PI_OFFLINE=1 -e PI_TELEMETRY=0 \
-    -e FACTORY_MODEL_TOKEN=run-scoped-token-not-a-provider-key -e FACTORY_GATEWAY_URL="http://${network}-gateway:8080" \
+    -e FACTORY_MODEL_TOKEN=run-scoped-token-not-a-provider-key \
     factory-pi:jdk21 --mode rpc --no-approve --no-extensions --no-skills \
-    --no-prompt-templates --no-themes --no-context-files \
-    --tools read,bash,edit,write,grep,find,ls --session-dir /state/pi/sessions > "$raw"
+    --no-prompt-templates --no-themes --no-context-files --tools read,bash,edit,write,grep,find,ls \
+    --provider factory-zai --model glm-5.3-flash --session-dir /state/pi/sessions > "$raw" 2> "$STATE_DIR/logs/validation/pi-stderr.log"
+  docker rm -f "$gateway" >/dev/null 2>&1 || true
   grep -q '"command":"get_state"' "$raw" || fail "Pi did not return a correlated get_state response"
-  local candidate="$STATE_DIR/data/artifacts/pi-smoke-candidate.patch"
-  printf '%s\n' 'diff --git a/README.md b/README.md' '--- a/README.md' '+++ b/README.md' \
-    '+scripted Pi candidate' > "$candidate"
-  printf '%s\n' '{"status":"PASS","independent":true,"candidate":"pi-smoke-candidate.patch"}' \
+  grep -q '"command":"prompt"' "$raw" || fail "Pi did not acknowledge a prompt"
+  grep -q '"name":"read"\|"tool":"read"' "$raw" || fail "Pi did not use native read"
+  grep -q '"name":"bash"\|"tool":"bash"' "$raw" || fail "Pi did not use native bash"
+  grep -q '"type":"agent_end"' "$raw" || fail "Pi did not emit agent_end"
+  grep -q '"type":"agent_settled"' "$raw" || fail "Pi did not emit agent_settled"
+  candidate="$STATE_DIR/data/artifacts/pi-smoke-candidate.patch"
+  candidate_head=$(git -C "$fixture" rev-parse HEAD)
+  [[ "$candidate_head" != "$base" ]] || fail "Pi did not produce a candidate commit"
+  { git -C "$fixture" diff --binary "$base".."$candidate_head"; \
+    git -C "$fixture" ls-files --others --exclude-standard | while IFS= read -r f; do git -C "$fixture" diff --binary --no-index /dev/null "$f" || [[ $? == 1 ]]; done; } > "$candidate"
+  local candidate_meta="$STATE_DIR/data/artifacts/pi-smoke-candidate.json"
+  printf '{"base":"%s","candidate":"%s","patchSha256":"%s"}\n' "$base" "$candidate_head" "$(sha256sum "$candidate" | cut -d' ' -f1)" > "$candidate_meta"
+  git -C "$verify" clone -q "$fixture" repo
+  [[ "$(git -C "$verify/repo" rev-parse HEAD)" == "$candidate_head" ]] || fail "fresh checkout identity mismatch"
+  (cd "$verify/repo" && mvn -B -ntp verify) > "$STATE_DIR/logs/validation/pi-verify-mvn.log" 2>&1 || fail "independent Maven verification failed"
+  grep -q 'Pi-scripted-candidate.' "$verify/repo/README.md" || fail "candidate content missing in fresh checkout"
+  local wrong="$STATE_DIR/data/sandboxes/pi-smoke-wrong.$$"
+  mkdir -p "$wrong"; git -C "$wrong" clone -q "$fixture" repo
+  sed -i '/Pi-scripted-candidate\./d' "$wrong/repo/README.md"
+  if grep -q 'Pi-scripted-candidate.' "$wrong/repo/README.md"; then fail "wrong candidate was accepted"; fi
+  printf '%s\n' '{"status":"PASS","independent":true,"candidate":"pi-smoke-candidate.patch","candidateHead":"'"$candidate_head"'","freshCheckout":true,"mavenVerify":"pi-verify-mvn.log","wrongCandidate":"REJECTED"}' \
     > "$STATE_DIR/data/artifacts/pi-smoke-verification.json"
   {
-    echo "mode=pi scripted=true provider_calls=1 paid_calls=0 gateway=private-fixed-route"
+    echo "mode=pi scripted=true provider_calls=$(wc -l < "$STATE_DIR/logs/validation/upstream-requests.jsonl") paid_calls=0 gateway=private-fixed-route"
     echo "image=factory-pi:jdk21 node=22.19.0 pi=0.85.1 network=$network non_root=true no_tty=true"
-    echo "raw_rpc=$raw"
-    echo "candidate=$candidate"
-    echo "verification=$STATE_DIR/data/artifacts/pi-smoke-verification.json independent=true"
+    echo "raw_rpc=$raw prompts=model_requests=native_read=native_bash=agent_settled"
+    echo "base=$base candidateHead=$candidate_head candidate=$candidate"
+    echo "verification=$STATE_DIR/data/artifacts/pi-smoke-verification.json independent=true fresh_checkout=true maven_verify=pi-verify-mvn.log wrong_candidate=rejected"
+    echo "upstream_requests=$STATE_DIR/logs/validation/upstream-requests.jsonl"
     echo "artifacts=$STATE_DIR/data/artifacts"
   } | tee "$log"
   echo "Pi scripted smoke recorded: log=$log"

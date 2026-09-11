@@ -1,0 +1,20 @@
+{
+  "providers": {
+    "factory-zai": {
+      "baseUrl": "http://factory-gateway:8080/v1",
+      "api": "openai-completions",
+      "apiKey": "$FACTORY_MODEL_TOKEN",
+      "models": [
+        {
+          "id": "glm-5.3-flash",
+          "name": "Scripted GLM 5.3 Flash",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 65536,
+          "maxTokens": 16384,
+          "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0}
+        }
+      ]
+    }
+  }
+}

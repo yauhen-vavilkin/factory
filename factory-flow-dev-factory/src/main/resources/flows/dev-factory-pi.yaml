@@ -20,11 +20,11 @@ agent_chain:
     type: AGENT
     worker_id: pi-coding-worker
     inputs: ["$trigger", contract.json]
-    outputs: [candidate.patch, pi-session.jsonl, usage.json]
+    outputs: [candidate.patch, candidate.json, pi-session.jsonl, usage.json]
   - step_id: verify
     type: AGENT
     worker_id: pi-verify-worker
-    inputs: ["$trigger", candidate.patch]
+    inputs: ["$trigger", candidate.patch, candidate.json]
     outputs: [verification.json]
   - step_id: finalize
     type: AGENT
