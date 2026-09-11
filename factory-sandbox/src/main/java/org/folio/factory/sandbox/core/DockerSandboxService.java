@@ -11,6 +11,7 @@ import com.github.dockerjava.api.model.StreamType;
 import com.github.dockerjava.api.model.Volume;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 import org.folio.factory.sandbox.api.CommandResult;
 import org.folio.factory.sandbox.api.SandboxHandle;
@@ -52,20 +53,28 @@ public class DockerSandboxService implements SandboxService {
   public SandboxHandle create(SandboxSpec spec) {
     String containerId = null;
     try {
-      CreateContainerResponse container = dockerClient.createContainerCmd(image)
-          .withCmd("sleep", "infinity")
-          .withWorkingDir(WORKSPACE_DIR)
-          .withHostConfig(new HostConfig().withNetworkMode(dockerNetwork)
+      HostConfig hostConfig = new HostConfig().withNetworkMode(dockerNetwork)
               .withNanoCPUs(2_000_000_000L)
               .withMemory(4L * 1024 * 1024 * 1024)
               .withPidsLimit(512L)
               .withCapDrop(Capability.ALL)
-              .withSecurityOpts(java.util.List.of("no-new-privileges:true")))
+              .withSecurityOpts(java.util.List.of("no-new-privileges:true"));
+      String source = localSource(spec.repoUrl());
+      if (source != null) {
+        hostConfig.withBinds(new Bind(source, new Volume("/workspace/source")));
+      }
+      CreateContainerResponse container = dockerClient.createContainerCmd(image)
+          .withCmd("sleep", "infinity")
+          .withWorkingDir(WORKSPACE_DIR)
+          .withHostConfig(hostConfig)
           .exec();
       containerId = container.getId();
       dockerClient.startContainerCmd(containerId).exec();
-      String cloneCommand = "git clone --depth 1 " + Shell.quote(spec.repoUrl()) + " repo && cd repo && git checkout -b "
-          + Shell.quote(spec.branch()) + " " + Shell.quote(spec.baseBranch());
+      String cloneCommand = source == null
+          ? "git clone --depth 1 " + Shell.quote(spec.repoUrl()) + " repo && cd repo && git checkout -b "
+              + Shell.quote(spec.branch()) + " " + Shell.quote(spec.baseBranch())
+          : "mkdir repo && cp -a /workspace/source/. repo/ && cd repo && git checkout -b "
+              + Shell.quote(spec.branch()) + " " + Shell.quote(spec.baseBranch());
       ExecOutput output = runExec(containerId, cloneCommand, CLONE_TIMEOUT_SEC);
       if (output.exitCode() != 0) {
         throw new SandboxException(
@@ -83,6 +92,17 @@ public class DockerSandboxService implements SandboxService {
         throw sandboxEx;
       }
       throw new SandboxException("Failed to create sandbox for task " + spec.taskId(), e);
+    }
+  }
+
+  private static String localSource(String repoUrl) {
+    if (repoUrl == null || !repoUrl.startsWith("file://")) return null;
+    try {
+      Path path = Path.of(java.net.URI.create(repoUrl)).toAbsolutePath().normalize();
+      if (!java.nio.file.Files.isDirectory(path)) throw new SandboxException("local repository is not a directory");
+      return path.toString();
+    } catch (IllegalArgumentException e) {
+      throw new SandboxException("invalid local repository URL", e);
     }
   }
 

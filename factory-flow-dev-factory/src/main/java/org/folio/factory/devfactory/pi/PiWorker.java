@@ -14,6 +14,7 @@ import org.folio.factory.sandbox.api.SandboxService;
 import org.folio.factory.sandbox.api.SandboxSpec;
 import org.folio.factory.sandbox.tools.Shell;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.JsonNode;
 
 /** Flow-local workers keep Pi execution separate from the legacy harness. */
 public final class PiWorker implements AgentWorker {
@@ -91,12 +92,17 @@ public final class PiWorker implements AgentWorker {
               "PI_OFFLINE", "1",
               "FACTORY_MODEL_TOKEN", modelToken,
               "FACTORY_PI_GATEWAY_URL", gatewayUrl));
-      String base = Shell.quote(p.path("baseRevision").asText());
-      CommandResult diff = sandboxes.exec(handle, "cd repo && (git diff --binary " + base
-          + " HEAD; git ls-files --others --exclude-standard | while IFS= read -r f; do "
-          + "git diff --binary --no-index /dev/null \"$f\" || test $? -eq 1; done)", 120);
+      CommandResult diff = snapshot(handle, p.path("baseRevision").asText());
       CommandResult head = sandboxes.exec(handle, "cd repo && git rev-parse HEAD", 30);
-      if (!attempt.settled()) throw new AgentExecutionException("Pi ended without agent_settled");
+      if (!attempt.settled()) {
+        String failure = json.writeValueAsString(Map.of("status", "FAILED", "stage", "coding",
+            "reason", "PI_UNSETTLED", "retained", true));
+        return new AgentResult(Map.of("candidate.patch", diff.stdout(),
+            "candidate.json", failure, "pi-session.jsonl", attempt.rawExchange(),
+            "usage.json", "{\"provider_calls\":1,\"settled\":false,\"retained\":true}"),
+            Map.of("provider_calls", 1, "settled", false, "retained", true,
+                "failure_stage", "coding"));
+      }
       String candidate = head.stdout().trim();
       String patchHash = org.folio.factory.core.service.ArtifactStore.sha256(diff.stdout());
       return new AgentResult(Map.of("candidate.patch", diff.stdout(),
@@ -108,8 +114,23 @@ public final class PiWorker implements AgentWorker {
     } finally { sandboxes.teardown(handle); }
   }
 
+  private CommandResult snapshot(SandboxHandle handle, String baseRevision) {
+    String base = Shell.quote(baseRevision);
+    // Capture tracked, staged, unstaged, and untracked work before teardown.
+    return sandboxes.exec(handle, "cd repo && git add -A && (git diff --cached --binary " + base
+        + " HEAD; git diff --binary " + base
+        + " HEAD; git ls-files --others --exclude-standard | while IFS= read -r f; do "
+        + "git diff --binary --no-index /dev/null \"$f\" || test $? -eq 1; done)", 120);
+  }
+
   private AgentResult verify(AgentContext context, String patch) {
     var p = context.triggerPayload();
+    JsonNode candidate = json.readTree(context.requireInput("candidate.json").content());
+    if ("FAILED".equals(candidate.path("status").asString())) {
+      return AgentResult.of("verification.json", json.writeValueAsString(Map.of(
+          "status", "FAIL", "independent", false, "stage", candidate.path("stage").asString("coding"),
+          "reason", candidate.path("reason").asString("PI_FAILED"), "retained", true)));
+    }
     SandboxHandle fresh = sandboxes.create(new SandboxSpec(p.path("taskId").asText() + "-verify",
         p.path("repoUrl").asText(), p.path("baseRevision").asText(),
         p.path("branch").asText() + "-verify", context.executionId() + "-verify"));

@@ -1,5 +1,6 @@
-F1 production create-path evidence: DockerSandboxServiceTest.productionCreateUsesConfiguredGatewayNetwork
-captures the HostConfig passed by DockerSandboxService.create and asserts
-NetworkMode=factory-pi-network. The application binds this from
-FACTORY_SANDBOX_DOCKER_NETWORK while Pi uses http://factory-gateway:8080/v1.
-This proves network wiring, not a live HTTP probe.
+Pi acceptance starts a scripted local gateway and routes the real Pi process
+through it; the Maven trigger evidence is in mvn-verify-excerpt.log.
+The shipped pi profile is credential-free (spring.ai.model.chat=none), uses
+Docker, and targets FACTORY_PI_GATEWAY_URL with a host-gateway default.
+No ANTHROPIC_API_KEY is read on this path; the smoke gateway recorded three
+scripted model requests and paid_calls=0.

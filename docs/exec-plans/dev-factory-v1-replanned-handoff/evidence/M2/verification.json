@@ -1,1 +1,1 @@
-{"status":"PASS","independent":true,"candidate":"pi-smoke-candidate.patch","candidateHead":"fd953ebaf59ce440db0427bfbabc26179b4b9d5f","freshCheckout":true,"mavenVerify":"pi-verify-mvn.log","wrongCandidate":"REJECTED"}
+{"status":"PASS","independent":true,"candidate":"pi-smoke-candidate.patch","candidateHead":"998311e8112058849515779e7c0f0496f0ae8475","freshCheckout":true,"mavenVerify":"pi-verify-mvn.log","wrongCandidate":"REJECTED"}

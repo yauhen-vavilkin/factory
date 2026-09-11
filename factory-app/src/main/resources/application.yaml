@@ -90,6 +90,24 @@ server:
 spring:
   config:
     activate:
+      on-profile: pi
+  ai:
+    model:
+      chat: none
+
+factory:
+  mode: pi
+  connectors:
+    external-writes-enabled: false
+  sandbox:
+    mode: docker
+  pi:
+    gateway-url: ${FACTORY_PI_GATEWAY_URL:http://host.docker.internal:18081/v1}
+
+---
+spring:
+  config:
+    activate:
       on-profile: offline
   ai:
     model:

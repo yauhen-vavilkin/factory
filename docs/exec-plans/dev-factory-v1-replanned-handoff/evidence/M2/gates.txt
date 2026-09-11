@@ -1,6 +1,8 @@
-./scripts/factory validate --unit: exit 0; TOTAL_TESTS=402; failures=0; errors=0; skipped=0
-./scripts/factory smoke --pi --scripted: exit 0; Pi 0.85.1; native read/bash; agent_settled; independent verification PASS
+./scripts/factory validate --unit: exit 0; TOTAL_TESTS=406; failures=0; errors=0; skipped=0
+./scripts/factory smoke --pi --scripted: exit 0; Pi 0.85.1; native read/bash; source edit; agent_settled; independent Maven verification PASS; wrong candidate REJECTED
 ./mvnw -B verify: exit 0; BUILD SUCCESS; Pi E2E trigger evidence in mvn-verify-excerpt.log
-git diff --check: exit 0
-F1 production create-path: DockerSandboxServiceTest.productionCreateUsesConfiguredGatewayNetwork; NetworkMode=factory-pi-network
-F4 finalization: PiWorkerFinalizationTest; success and failure result shapes asserted
+git diff --check 34aa29f..HEAD: checked after candidate commit; exit 0
+F1 acceptance: DevFactoryPiEndToEndScenarioTest; real DockerSandboxService and real PiCodingRunner, no runtime Mockito substitutions; trigger line in mvn-verify-excerpt.log
+F3 boot: pi profile selects spring.ai.model.chat=none and Docker sandbox; gateway URL defaults to host.docker.internal:18081/v1
+F4 finalization: PiWorkerFinalizationTest.unsettledCodingRetainsSnapshotAndReportsFailure
+F5 protocol: PiRpcProtocolTest; split UTF-8, malformed JSON, and out-of-order id responses

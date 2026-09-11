@@ -214,7 +214,7 @@ class H(BaseHTTPRequestHandler):
     if tool_count == 0:
       msg={"role":"assistant","content":None,"tool_calls":[{"id":"read-1","type":"function","function":{"name":"read","arguments":json.dumps({"path":"README.md"})}}]}
     elif tool_count == 1:
-      msg={"role":"assistant","content":None,"tool_calls":[{"id":"bash-1","type":"function","function":{"name":"bash","arguments":json.dumps({"command":"git config --global --add safe.directory /workspace/repo && echo Pi-scripted-candidate. >> README.md && git add README.md && git commit -m pi-scripted-candidate"})}}]}
+      msg={"role":"assistant","content":None,"tool_calls":[{"id":"bash-1","type":"function","function":{"name":"bash","arguments":json.dumps({"command":"git config --global --add safe.directory /workspace/repo && sed -i \"s/return value;/return value.trim().toLowerCase();/\" src/main/java/factory/Normalizer.java && git add . && git commit -m pi-normalization-candidate"})}}]}
     else: msg={"role":"assistant","content":"Pi completed the requested fixture change."}
     delta={"role":"assistant"} if msg.get("tool_calls") else {"content":msg.get("content","")}
     if msg.get("tool_calls"): delta["tool_calls"]=[{"index":0,"id":msg["tool_calls"][0]["id"],"type":"function","function":{"name":msg["tool_calls"][0]["function"]["name"],"arguments":msg["tool_calls"][0]["function"]["arguments"]}}]
@@ -233,17 +233,20 @@ HTTPServer(("0.0.0.0",8080),H).serve_forever()')
   mkdir -p "$verify"
   git -C "$fixture" init -q -b main
   git -C "$fixture" config user.name Factory-Smoke; git -C "$fixture" config user.email smoke@factory.invalid
-  printf '%s\n' '# Pi fixture' 'Baseline.' > "$fixture/README.md"
+  mkdir -p "$fixture/src/main/java/factory" "$fixture/src/test/java/factory"
+  printf '%s\n' '# Pi normalization fixture' 'The candidate must normalize input.' > "$fixture/README.md"
   cat > "$fixture/pom.xml" <<'EOF'
-<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>factory</groupId><artifactId>pi-fixture</artifactId><version>1</version><properties><maven.compiler.release>21</maven.compiler.release></properties></project>
+<project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion><groupId>factory</groupId><artifactId>pi-fixture</artifactId><version>1</version><properties><maven.compiler.release>21</maven.compiler.release><maven.compiler.source>21</maven.compiler.source><maven.compiler.target>21</maven.compiler.target><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding></properties><dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.11.0</version><scope>test</scope></dependency></dependencies><build><plugins><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.14.1</version></plugin><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.2</version></plugin></plugins></build></project>
 EOF
+  printf '%s\n' 'package factory;' 'public final class Normalizer {' '  private Normalizer() {}' '  public static String normalize(String value) { return value; }' '}' > "$fixture/src/main/java/factory/Normalizer.java"
+  printf '%s\n' 'package factory;' 'import static org.junit.jupiter.api.Assertions.assertEquals;' 'import org.junit.jupiter.api.Test;' 'class NormalizerTest {' '  @Test void normalizesWhitespaceAndCase() {' '    assertEquals("folio", Normalizer.normalize("  FOLIO  "));' '  }' '}' > "$fixture/src/test/java/factory/NormalizerTest.java"
   git -C "$fixture" add .; git -C "$fixture" commit -q -m base
   chmod -R a+rwX "$fixture"
   local base candidate_head candidate
   base=$(git -C "$fixture" rev-parse HEAD)
   local raw="$STATE_DIR/logs/validation/pi-rpc.jsonl"
   : > "$raw"
-  { printf '%s\n' '{"type":"get_state"}' '{"type":"prompt","message":"Update README.md by using native tools. Read it, append the requested Pi scripted candidate line, commit the candidate, and report completion."}'; sleep 20; } | docker run --rm -i --network "$network" \
+  { printf '%s\n' '{"type":"get_state","id":"smoke-state"}' '{"type":"prompt","id":"smoke-prompt","message":"Update Normalizer.java using native tools. Normalize whitespace and case, run the Maven tests, commit the candidate, and report completion."}'; sleep 20; } | docker run --rm -i --network "$network" \
     --cap-drop ALL --security-opt no-new-privileges --user 10001:10001 \
     -v "$fixture:/workspace/repo" --workdir /workspace/repo --entrypoint /opt/pi/node_modules/.bin/pi \
     -e HOME=/home/agent -e PI_CODING_AGENT_DIR=/state/pi -e PI_OFFLINE=1 -e PI_TELEMETRY=0 \
@@ -261,6 +264,7 @@ EOF
   candidate="$STATE_DIR/data/artifacts/pi-smoke-candidate.patch"
   candidate_head=$(git -C "$fixture" rev-parse HEAD)
   [[ "$candidate_head" != "$base" ]] || fail "Pi did not produce a candidate commit"
+  grep -q 'trim().toLowerCase()' "$fixture/src/main/java/factory/Normalizer.java" || fail "Pi did not edit the normalization source"
   { git -C "$fixture" diff --binary "$base".."$candidate_head"; \
     git -C "$fixture" ls-files --others --exclude-standard | while IFS= read -r f; do git -C "$fixture" diff --binary --no-index /dev/null "$f" || [[ $? == 1 ]]; done; } > "$candidate"
   local candidate_meta="$STATE_DIR/data/artifacts/pi-smoke-candidate.json"
@@ -268,11 +272,10 @@ EOF
   git -C "$verify" clone -q "$fixture" repo
   [[ "$(git -C "$verify/repo" rev-parse HEAD)" == "$candidate_head" ]] || fail "fresh checkout identity mismatch"
   (cd "$verify/repo" && mvn -B -ntp verify) > "$STATE_DIR/logs/validation/pi-verify-mvn.log" 2>&1 || fail "independent Maven verification failed"
-  grep -q 'Pi-scripted-candidate.' "$verify/repo/README.md" || fail "candidate content missing in fresh checkout"
   local wrong="$STATE_DIR/data/sandboxes/pi-smoke-wrong.$$"
   mkdir -p "$wrong"; git -C "$wrong" clone -q "$fixture" repo
-  sed -i '/Pi-scripted-candidate\./d' "$wrong/repo/README.md"
-  if grep -q 'Pi-scripted-candidate.' "$wrong/repo/README.md"; then fail "wrong candidate was accepted"; fi
+  sed -i 's/return value.trim().toLowerCase();/return value;/' "$wrong/repo/src/main/java/factory/Normalizer.java"
+  if (cd "$wrong/repo" && mvn -B -ntp verify >/dev/null 2>&1); then fail "wrong candidate was accepted"; fi
   printf '%s\n' '{"status":"PASS","independent":true,"candidate":"pi-smoke-candidate.patch","candidateHead":"'"$candidate_head"'","freshCheckout":true,"mavenVerify":"pi-verify-mvn.log","wrongCandidate":"REJECTED"}' \
     > "$STATE_DIR/data/artifacts/pi-smoke-verification.json"
   {

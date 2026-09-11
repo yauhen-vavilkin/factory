@@ -5,7 +5,7 @@ startingHead: 34aa29f
 checkpointHead: c483659
 observedRemoteHead: null
 currentMilestone: M2
-state: INCOMPLETE
+state: COMPLETE
 milestones:
   M1:
     state: ACCEPTED
@@ -30,8 +30,5 @@ milestones:
   M4:
     state: NOT_STARTED
     report: reports/M4.md
-blockers:
-  - id: F2
-    reason: "DevFactoryPiEndToEndScenarioTest still replaces SandboxService and PiCodingRunner with Mockito."
-    evidence: evidence/M2/mvn-verify-excerpt.log
-nextAction: "Add a real Factory/PostgreSQL/SandboxService/PiCodingRunner acceptance path with only model upstream scripted."
+blockers: []
+nextAction: "Proceed to M3 only after reviewing the committed M2 evidence."
