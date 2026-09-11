@@ -1,0 +1,40 @@
+M4 stabilization checks (2026-09-11/12; main @ b4b0236 + M4 working tree)
+
+Unit gate (after all M4 changes):
+  ./scripts/factory validate --unit
+  exit=0; tests=421; failures=0; errors=0; skipped=0; wall=41s
+  log=.factory/logs/validation/unit.log selection=.factory/logs/validation/unit-tests.txt
+
+Gateway regression gate (new in M4):
+  ./scripts/factory validate --gateway
+  exit=0; tests=10; result=OK
+  covers: 23 MiB required-artifact class (low-002 regression), 64 MiB cap
+  rejection, model route disabled on the dependency gateway, missing/revoked
+  run-token 401, path-traversal rejection, approved-upstream startup check
+  log=.factory/logs/validation/gateway.log
+
+Scripted Pi smoke (OLD code, before the cleanup fix — defect reproduction):
+  ./scripts/factory smoke --pi --scripted
+  exit=0 (all assertions green); provider_calls=3 paid_calls=0 direct_egress=DENIED
+  native read/bash PASS; fresh verification PASS; wrong candidate REJECTED
+  RESIDUE DEFECT REPRODUCED:
+    sandboxes dir 51 -> 54 entries; disk 372912 KB -> 402644 KB (+~29 MB/run)
+    leaked fixture contains uid-10001-owned git objects; host `rm -rf` fails
+    8 historically leaked factory-pi-smoke-* docker networks also found
+
+Scripted Pi smoke (after the fix):
+  ./scripts/factory smoke --pi --scripted
+  exit=0; wall=63s; workspace_cleanup=PASS network_cleanup=PASS workspaces_removed=3
+  residue after run: 0 entries; leaked smoke networks: 0
+  determinism across runs: base=808449ef490d59a616fa1e3704ae81d19b3adcf8
+  candidateHead=604720114e9665b4a7d969d271a316d549460ca8 (identical both runs)
+
+Static checks:
+  bash -n scripts/factory PASS
+  python3 -m py_compile factory-gateway/server.py factory-gateway/test_gateway.py PASS
+  git diff --check PASS
+  docker compose config --quiet PASS
+
+No live/paid provider request was made during M4: gateway-requests.jsonl is
+absent after two full start/stop/restart cycles; doctor --live and run-eval
+were not executed (authorization-gated).

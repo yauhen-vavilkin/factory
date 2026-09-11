@@ -1,0 +1,36 @@
+M4 discovery: pre-M3 named volume silently abandoned by a compose storage change
+
+Observed during M4 restart verification:
+  the pre-M3 postgres container (created ~2026-09-06, "Up 5 days") used the
+  named volume factory_factory-pgdata; the M3 docker-compose.yml switched the
+  postgres service to the bind mount ./.factory/data/postgres. Any
+  'compose up' on the changed service recreates the container on the new
+  storage: a fresh cluster with zero executions is initialized silently and
+  the old rows become invisible via the API ('show' returns 404).
+  This violates the accepted contract "restart must preserve completed
+  outputs / no automatic DB resets" across the upgrade boundary.
+
+Recovery performed during M4:
+  legacy volume queried via a temporary postgres:16 container (stopped after;
+  volume untouched):
+    3 pipeline_execution rows (2 COMPLETED 2026-09-05, 1 FAILED_ESCALATED)
+    8 artifacts
+  pg_dump --data-only (flyway_schema_history excluded; flow_registry COPY block
+  removed — the live registry rows stay authoritative) imported into the live
+  database with ON_ERROR_STOP=1:
+    pipeline_execution=3, artifact=8, audit_event=34 after import
+  import dump archived at .factory/data/legacy-pgdata-import-20260911.sql
+  (mode 0600, gitignored runtime state)
+  'show' and 'export' of c02f2275-37f3-4517-a76b-03a584092521 verified
+  after the import (exported delivery-summary.md, patch.diff, report.md,
+  trajectory.jsonl + execution.json manifest)
+
+Guard added in scripts/factory (checked by 'infra up' and 'start --mode pi'):
+  if docker volume factory_factory-pgdata exists AND the marker file
+  .factory/data/postgres.legacy-imported is absent -> refuse to proceed
+  (exit 1) with a pointer to reports/M4.md; no silent history reset
+  negative test executed:
+    marker absent  -> "factory: legacy PostgreSQL volume ... refusing to
+                      reset execution history" (exit 1)
+    marker present -> infra up healthy, start proceeds
+  the legacy named volume is retained untouched as an archive

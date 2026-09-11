@@ -76,6 +76,33 @@ Stop the host JVM and infrastructure without deleting data:
 See [`docs/QUICKSTART.md`](docs/QUICKSTART.md) for storage, live-mode, and
 validation details.
 
+### Pi mode (Dev Factory — MODSIDECAR-208)
+
+One-time setup: `cp .env.example .env` and set `FACTORY_MODEL_API_KEY` (Z.AI
+General API key). The key is passed only to the loopback-bound fixed-route
+coding gateway, never to the sandbox. Every `start --mode pi` rotates the
+gateway run token; `stop` revokes both gateways. PostgreSQL data lives in
+`.factory/data/postgres` (a pre-M3 named volume is import-guarded — see the
+M4 report in `docs/exec-plans/dev-factory-v1-replanned-handoff/`).
+
+```bash
+./scripts/factory init
+./scripts/factory infra up
+./scripts/factory start --mode pi
+./scripts/factory smoke --pi --scripted     # free: real Pi+Docker, fake upstream
+./scripts/factory doctor --live             # explicit billable qualification
+./scripts/factory run-eval MODSIDECAR-208 --run-key <fresh-run-key>
+./scripts/factory show <execution-id> --watch
+./scripts/factory export <execution-id> --out .factory/exports/<execution-id>
+./scripts/factory stop
+./scripts/factory validate --unit && ./scripts/factory validate --gateway
+```
+
+`doctor --live` and `run-eval` spend provider budget and require explicit
+operator intent; every other command above makes no provider request. The
+scripted smoke removes its own workspaces and network; historical smoke
+residue under `.factory/data/sandboxes/pi-smoke-*` can be cleared manually.
+
 ## Configuration
 
 | Environment variable | Purpose |

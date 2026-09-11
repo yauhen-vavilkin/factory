@@ -25,7 +25,7 @@ Usage:
   ./scripts/factory smoke --pi --scripted
   ./scripts/factory evidence-verify
   ./scripts/factory stop
-  ./scripts/factory validate --unit|--integration|--eval-pack
+  ./scripts/factory validate --unit|--integration|--eval-pack|--gateway
   ./scripts/factory resolve-task TASK.yaml
   ./scripts/factory submit TASK.yaml
   ./scripts/factory run-eval MODSIDECAR-208 --run-key RUN_KEY
@@ -163,6 +163,7 @@ compose() {
 infra() {
   case "${1:-}" in
     up)
+      guard_legacy_pgdata
       compose up -d --wait postgres
       ;;
     down)
@@ -304,9 +305,17 @@ start_factory() {
     fail "another Factory instance is already listening on 127.0.0.1:${FACTORY_APP_PORT}"
   fi
   rm -f "$PID_FILE"
-  mkdir "$STATE_DIR/run/start.lock" 2>/dev/null || fail "another Factory start is in progress"
+  # Migrate an empty directory lock left by a hard-killed pre-flock start.
+  if [[ -d "$STATE_DIR/run/start.lock" ]]; then
+    rmdir "$STATE_DIR/run/start.lock" 2>/dev/null ||
+      fail "stale directory start lock cannot be removed; inspect $STATE_DIR/run/start.lock"
+  fi
+  # Whole-launcher advisory lock: the kernel releases it when this process
+  # dies, so a hard-killed start cannot permanently block the next one.
+  exec 9>"$STATE_DIR/run/start.lock" || fail "cannot open the Factory start lock"
+  flock -n 9 || fail "another Factory start is in progress"
   local pi_gateways_started=false
-  trap 'if [[ "$pi_gateways_started" == true ]]; then revoke_pi_gateways; fi; rmdir "$STATE_DIR/run/start.lock" 2>/dev/null || true' EXIT
+  trap 'if [[ "${pi_gateways_started:-}" == true ]]; then revoke_pi_gateways; fi' EXIT
 
   if [[ "$mode" == offline ]]; then
     doctor_offline
@@ -319,6 +328,7 @@ start_factory() {
       fail "pi mode only permits the trusted provider factory-zai"
     [[ "$FACTORY_MODEL_ID" == glm-5.3-flash ]] ||
       fail "pi mode only permits the trusted model glm-5.3-flash"
+    guard_legacy_pgdata
     rotate_model_token
     FACTORY_GATEWAY_EXPIRES_AT=$(( $(date +%s) + 7200 ))
     export FACTORY_GATEWAY_EXPIRES_AT
@@ -360,7 +370,6 @@ start_factory() {
   for attempt in $(seq 1 90); do
     if curl -fsS "http://127.0.0.1:${FACTORY_APP_PORT}/actuator/health" >/dev/null 2>&1; then
       pi_gateways_started=false
-      rmdir "$STATE_DIR/run/start.lock"
       trap - EXIT
       echo "Factory is ready in $mode mode at http://127.0.0.1:${FACTORY_APP_PORT} (PID $pid)"
       return 0
@@ -378,6 +387,28 @@ start_factory() {
   fail "Factory did not become ready within 90 seconds"
 }
 
+smoke_remove_workspace() {
+  local dir="$1"
+  [[ -n "$dir" && "$dir" == "$STATE_DIR"/data/sandboxes/* ]] || return 0
+  [[ -e "$dir" ]] || return 0
+  rm -rf -- "$dir" 2>/dev/null || true
+  if [[ -e "$dir" ]]; then
+    # Pi commits into the mounted fixture as uid 10001; reclaim permission
+    # through a root helper container when the host user cannot remove
+    # container-owned git objects.
+    docker run --rm -v "$dir:/reclaim" alpine:3.20 \
+      chmod -R u+rwX,go+rwX /reclaim >/dev/null 2>&1 || true
+    rm -rf -- "$dir" 2>/dev/null || true
+  fi
+}
+
+smoke_cleanup_all() {
+  local dir
+  for dir in ${SMOKE_WORKSPACES[@]+"${SMOKE_WORKSPACES[@]}"}; do
+    smoke_remove_workspace "$dir"
+  done
+}
+
 smoke_pi_scripted() {
   [[ $# == 2 && "$1" == --pi && "$2" == --scripted ]] || fail "smoke requires --pi --scripted"
   init_factory >/dev/null
@@ -389,7 +420,13 @@ smoke_pi_scripted() {
   docker build -q -t factory-pi:jdk21 "$ROOT_DIR/factory-sandbox" >> "$log"
   local network="factory-pi-smoke-$$"
   docker network create --internal --driver bridge "$network" >> "$log"
-  trap 'docker network rm "$network" >/dev/null 2>&1 || true' RETURN
+  # The cleanup trap runs at script exit, after this function's locals are
+  # gone, so the network and transient workspaces are tracked in globals.
+  # Every smoke run removes the fixture/verify/wrong workspaces it created
+  # (M4 stabilization: no run-to-run residue in the sandbox data directory).
+  SMOKE_NETWORK="$network"
+  SMOKE_WORKSPACES=()
+  trap 'smoke_cleanup_all; docker network rm "$SMOKE_NETWORK" >/dev/null 2>&1 || true' EXIT
   local gateway
   gateway=$(docker run -d --rm --network "$network" --network-alias factory-gateway --name "${network}-gateway" \
     -v "$STATE_DIR/logs/validation:/evidence" python:3.12-alpine python -c 'import json
@@ -429,8 +466,10 @@ HTTPServer(("0.0.0.0",8080),H).serve_forever()')
   local fixture
   local fixed_git_date="2020-01-01T00:00:00Z"
   fixture=$(mktemp -d "$STATE_DIR/data/sandboxes/pi-smoke-fixture.XXXXXX")
+  SMOKE_WORKSPACES+=("$fixture")
   local verify="$STATE_DIR/data/sandboxes/pi-smoke-verify.$$"
   mkdir -p "$verify"
+  SMOKE_WORKSPACES+=("$verify")
   git -C "$fixture" init -q -b main
   git -C "$fixture" config user.name Factory-Smoke; git -C "$fixture" config user.email smoke@factory.invalid
   mkdir -p "$fixture/src/main/java/factory" "$fixture/src/test/java/factory"
@@ -475,7 +514,9 @@ EOF
   [[ "$(git -C "$verify/repo" rev-parse HEAD)" == "$candidate_head" ]] || fail "fresh checkout identity mismatch"
   (cd "$verify/repo" && mvn -B -ntp verify) > "$STATE_DIR/logs/validation/pi-verify-mvn.log" 2>&1 || fail "independent Maven verification failed"
   local wrong="$STATE_DIR/data/sandboxes/pi-smoke-wrong.$$"
-  mkdir -p "$wrong"; git -C "$wrong" clone -q "$fixture" repo
+  mkdir -p "$wrong"
+  SMOKE_WORKSPACES+=("$wrong")
+  git -C "$wrong" clone -q "$fixture" repo
   local wrong_source="$wrong/repo/src/main/java/factory/Normalizer.java"
   sed -i.bak 's/return value.trim().toLowerCase();/return value;/' "$wrong_source"
   rm -f "$wrong_source.bak"
@@ -492,7 +533,14 @@ EOF
     echo "upstream_requests=$STATE_DIR/logs/validation/upstream-requests.jsonl"
     echo "artifacts=$STATE_DIR/data/artifacts"
   } | tee "$log"
-  echo "Pi scripted smoke recorded: log=$log"
+  trap - EXIT
+  smoke_cleanup_all
+  docker network rm "$network" >/dev/null 2>&1 || true
+  local residue
+  for residue in ${SMOKE_WORKSPACES[@]+"${SMOKE_WORKSPACES[@]}"}; do
+    [[ ! -e "$residue" ]] || fail "smoke workspace cleanup failed: $residue remains"
+  done
+  echo "Pi scripted smoke recorded: log=$log (workspace_cleanup=PASS network_cleanup=PASS workspaces_removed=${#SMOKE_WORKSPACES[@]})"
 }
 
 evidence_verify() {
@@ -564,6 +612,19 @@ revoke_pi_gateways() {
   compose rm -sf factory-gateway factory-dependency-gateway >/dev/null 2>&1 || true
 }
 
+guard_legacy_pgdata() {
+  # Pre-M3 compose stored PostgreSQL in the named volume factory_factory-pgdata;
+  # the current bind-mounted data directory starts empty, so recreating the
+  # container on the new storage silently hides that execution history
+  # (observed and imported during M4).  Refuse to proceed until the legacy
+  # data is imported and the marker file exists.
+  if command -v docker >/dev/null 2>&1 && \
+     docker volume inspect factory_factory-pgdata >/dev/null 2>&1 && \
+     [[ ! -f "$STATE_DIR/data/postgres.legacy-imported" ]]; then
+    fail "legacy PostgreSQL volume factory_factory-pgdata exists but was not imported into .factory/data/postgres; refusing to reset execution history (see docs/exec-plans/dev-factory-v1-replanned-handoff/reports/M4.md)"
+  fi
+}
+
 count_reports() {
   local marker="$1"
   local total=0
@@ -587,13 +648,24 @@ validate_suite() {
     --unit) suite=unit ;;
     --integration) suite=integration ;;
     --eval-pack) suite=eval-pack ;;
-    *) fail "validate requires --unit, --integration, or --eval-pack" ;;
+    --gateway) suite=gateway ;;
+    *) fail "validate requires --unit, --integration, --eval-pack, or --gateway" ;;
   esac
   init_factory >/dev/null
   load_config
   local marker="$STATE_DIR/run/validate-${suite}.marker"
   local log="$STATE_DIR/logs/validation/${suite}.log"
   local summary="$STATE_DIR/logs/validation/${suite}-tests.txt"
+  if [[ "$suite" == gateway ]]; then
+    python3 -m unittest discover -s "$ROOT_DIR/factory-gateway" -p 'test_*.py' > "$log" 2>&1 ||
+      fail "gateway validation failed; see $log"
+    local count
+    count=$(sed -n 's/^Ran \([0-9][0-9]*\) tests.*/\1/p' "$log" | tail -1)
+    [[ "$count" =~ ^[1-9][0-9]*$ ]] || fail "gateway validation selected zero tests; see $log"
+    grep -q '^OK' "$log" || fail "gateway validation was not OK; see $log"
+    echo "gateway validation passed: $count tests; log=$log"
+    return 0
+  fi
   touch "$marker"
   if [[ "$suite" == integration ]]; then
     docker info >/dev/null 2>&1 || fail "integration suite requires Docker (BLOCKED_REQUIRES_DOCKER)"

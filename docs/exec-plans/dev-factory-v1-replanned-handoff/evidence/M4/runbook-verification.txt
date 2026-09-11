@@ -1,0 +1,40 @@
+M4 LOCAL_RUN.md sequence verification (2026-09-11/12; zero paid provider calls)
+
+  .env prepared from .env.example with a DUMMY FACTORY_MODEL_API_KEY
+    [documented here: no provider request is triggered by start/smoke/show/
+     export/stop; only doctor --live and run-eval contact the upstream]
+  ./scripts/factory init                 OK (idempotent; state dirs, secrets,
+                                          0600 modes enforced)
+  ./scripts/factory infra up             OK (postgres container healthy)
+  ./scripts/factory start --mode pi      OK — ready in 43s at 127.0.0.1:18080;
+                                          coding+dependency gateways healthy;
+                                          gateway run token rotated; gateways
+                                          recreated with the new token
+  ./scripts/factory smoke --pi --scripted  OK — 63s; provider_calls=3 (scripted
+                                          fake upstream), paid_calls=0, direct
+                                          egress DENIED, native tools PASS,
+                                          fresh verification PASS, wrong
+                                          candidate REJECTED, workspace cleanup
+                                          PASS
+  ./scripts/factory doctor --offline     OK (Java 21, wrapper, Docker,
+                                          PostgreSQL, permissions)
+  ./scripts/factory show c02f2275-...    OK — COMPLETED execution with 4
+                                          artifacts + hashes
+  ./scripts/factory export ... --out ...  OK — 5 files incl. execution.json
+                                          manifest; refuses overwrite
+  ./scripts/factory stop                 OK — gateways revoked, persistent
+                                          data preserved
+  kill -9 app + ./scripts/factory start --mode pi
+                                         OK — crash+restart; stale PID handled;
+                                          no stale start lock (flock)
+  ./scripts/factory validate --unit      OK — 421 tests
+  ./scripts/factory validate --gateway   OK — 10 tests
+
+  NOT executed (billable / authorization-gated): doctor --live, run-eval
+
+Runbook deltas recorded by M4:
+  - validate --gateway added to the launcher and documented in README
+  - scripted smoke now removes its own workspaces/network (was leaking one
+    fixture + two clones per run, ~29 MB)
+  - pre-M3 legacy pgdata volume is import-guarded before any compose start
+  - start lock is flock-based (kernel-released), surviving launcher SIGKILL

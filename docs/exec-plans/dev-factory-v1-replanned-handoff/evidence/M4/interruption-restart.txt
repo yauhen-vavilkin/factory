@@ -1,0 +1,34 @@
+M4 scripted interruption/restart and revocation evidence (zero paid calls)
+
+Stale start lock — defect reproduction (launcher at b4b0236):
+  old launcher copy started with 'start --mode pi'; launcher process SIGKILLed
+  right after .factory/run/start.lock appeared
+  -> start.lock directory persists after the kill
+  -> old launcher retry: "factory: another Factory start is in progress"
+     (permanent block; EXIT trap cannot fire on SIGKILL; mkdir lock has no owner)
+
+Fixed launcher (flock-based advisory lock):
+  stale empty directory lock migrated via rmdir, flock acquired on
+  .factory/run/start.lock file; start proceeds normally
+  -> "Factory is ready in pi mode" (wall 43s, app PID 3005236)
+  kernel releases the flock on process death; no permanent block is possible
+
+App crash + restart (bind-mounted postgres storage):
+  kill -9 <app pid> (crash simulation); ./scripts/factory start --mode pi
+  RESTART_EXIT=0; ready again (new PID 3017967); stale PID file handled
+  execution c02f2275-37f3-4517-a76b-03a584092521 remains COMPLETED and
+  inspectable across the crash+restart (completed outputs preserved)
+  gateway run token rotated on the new start: token-rotated=yes
+  previous run token against the new coding gateway: HTTP 401
+  (authorization check runs before any upstream contact — no provider call)
+  paid gateway requests during the whole sequence: 0 (evidence file absent)
+
+Clean stop:
+  ./scripts/factory stop -> "Factory stopped; persistent data was preserved"
+  factory-gateway / factory-dependency-gateway containers after stop: none
+  (both revoked); postgres keeps running with its data intact
+
+Scripted smoke interruption behavior: smoke workspaces live in fresh mktemp
+directories per run; the EXIT-trap cleanup removes them on failure paths too;
+repeated runs share no workspace state (deterministic base/candidate heads
+recorded in checks.txt).

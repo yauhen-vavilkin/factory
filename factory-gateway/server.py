@@ -66,7 +66,10 @@ class GatewayState:
         self.lock = threading.Lock()
         self.attempts = 0
         self.log_lock = threading.Lock()
-        self.log_path = "/evidence/gateway-requests.jsonl"
+        self.log_path = os.path.join(
+            os.environ.get("FACTORY_GATEWAY_EVIDENCE_DIR", "/evidence"),
+            "gateway-requests.jsonl",
+        )
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
 
     def allowed(self) -> tuple[bool, str]:
