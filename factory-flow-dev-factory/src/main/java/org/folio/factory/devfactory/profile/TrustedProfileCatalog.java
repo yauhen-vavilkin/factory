@@ -31,7 +31,7 @@ public final class TrustedProfileCatalog {
     ExecutionProfile profile = withHash(profileWithoutHash);
     ExecutionProfile piWithoutHash = new ExecutionProfile(JAVA_MAVEN_PI, JAVA_MAVEN_PI_VERSION, "JAVA",
         "MAVEN", "21", null, "factory-pi:jdk21", null, "linux/arm64",
-        "factory-zai", "glm-5.3", "/workspace/repo",
+        "factory-zai", "glm-5.3-flash", "/workspace/repo",
         List.of(List.of("mvn", "-B", "-ntp", "test")),
         Map.of("surefire", "**/target/surefire-reports/TEST-*.xml"),
         new ExecutionProfile.NetworkPolicy("APPROVED_DEPENDENCY_PROXY_ONLY", "GATEWAY_ONLY"),
