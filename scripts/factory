@@ -331,8 +331,12 @@ start_factory() {
   elif [[ "$mode" == pi ]]; then
     [[ "$FACTORY_MODEL_PROVIDER" == factory-zai ]] ||
       fail "pi mode only permits the trusted provider factory-zai"
-    [[ "$FACTORY_MODEL_ID" == glm-5.3-flash ]] ||
-      fail "pi mode only permits the trusted model glm-5.3-flash"
+    # Trusted z.ai models on the coding endpoint: glm-5.3-flash (default)
+    # and glm-5.3 (dataset v3 upgrade for Medium/High, 2026-09-12).
+    case "$FACTORY_MODEL_ID" in
+      glm-5.3|glm-5.3-flash) ;;
+      *) fail "pi mode only permits trusted models glm-5.3 / glm-5.3-flash" ;;
+    esac
     guard_legacy_pgdata
     rotate_model_token
     FACTORY_GATEWAY_EXPIRES_AT=$(( $(date +%s) + 7200 ))
