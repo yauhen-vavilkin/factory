@@ -1,0 +1,631 @@
+[
+  {
+    "task": "MGRENTITLE-161",
+    "runKey": "mgrentitle-161-001",
+    "execution": "6daa9c9d-42a8-4a9e-901f-fd1a74d141df",
+    "gateway_delta": 4,
+    "status": "COMPLETED",
+    "error_message": null,
+    "artifacts": [
+      "baseline.json",
+      "baseline.log",
+      "candidate.json",
+      "candidate.patch",
+      "contract.json",
+      "manifest.json",
+      "pi-session.jsonl",
+      "result.json",
+      "usage.json",
+      "verification.json"
+    ],
+    "patch_bytes": 0,
+    "verification": {
+      "status": "FAIL",
+      "independent": false,
+      "stage": "coding",
+      "reason": "EMPTY_CANDIDATE",
+      "retained": false,
+      "base": "0845da6ede6448fa2ae5791bbc3ad180dd6c951c"
+    },
+    "result": {
+      "outcome": "FAILED",
+      "workflowOperational": true,
+      "benchmarkOutcome": "FAILED",
+      "failure": {
+        "reason": "EMPTY_CANDIDATE",
+        "stage": "coding"
+      },
+      "usage": {
+        "schema": "PiUsage/v1",
+        "provider": "factory-zai",
+        "model": "glm-5.3-flash",
+        "provider_calls": 4,
+        "settled": true,
+        "process_exit_code": -1,
+        "duration_ms": 28992,
+        "stdout_bytes": 25295,
+        "stderr_bytes": 0,
+        "cost_status": "UNPRICED",
+        "estimated_cost": null,
+        "native_usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        }
+      },
+      "cleanup": {
+        "status": "COMPLETE",
+        "retained": false
+      },
+      "session": {
+        "ref": "pi-session.jsonl"
+      },
+      "references": {
+        "candidate": "candidate.patch",
+        "verification": "verification.json",
+        "usage": "usage.json"
+      }
+    },
+    "usage": {
+      "schema": "PiUsage/v1",
+      "provider": "factory-zai",
+      "model": "glm-5.3-flash",
+      "provider_calls": 4,
+      "settled": true,
+      "process_exit_code": -1,
+      "duration_ms": 28992,
+      "stdout_bytes": 25295,
+      "stderr_bytes": 0,
+      "cost_status": "UNPRICED",
+      "estimated_cost": null,
+      "native_usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      }
+    }
+  },
+  {
+    "task": "MGRENTITLE-172",
+    "runKey": "mgrentitle-172-001",
+    "execution": "03dbe20e-f22f-470d-bc59-43932a03ff6f",
+    "gateway_delta": 13,
+    "status": "COMPLETED",
+    "error_message": null,
+    "artifacts": [
+      "baseline.json",
+      "baseline.log",
+      "candidate.json",
+      "candidate.patch",
+      "contract.json",
+      "manifest.json",
+      "pi-session.jsonl",
+      "result.json",
+      "usage.json",
+      "verification.json"
+    ],
+    "patch_bytes": 0,
+    "verification": {
+      "status": "FAIL",
+      "independent": false,
+      "stage": "coding",
+      "reason": "EMPTY_CANDIDATE",
+      "retained": false,
+      "base": "0845da6ede6448fa2ae5791bbc3ad180dd6c951c"
+    },
+    "result": {
+      "outcome": "FAILED",
+      "workflowOperational": true,
+      "benchmarkOutcome": "FAILED",
+      "failure": {
+        "reason": "EMPTY_CANDIDATE",
+        "stage": "coding"
+      },
+      "usage": {
+        "schema": "PiUsage/v1",
+        "provider": "factory-zai",
+        "model": "glm-5.3-flash",
+        "provider_calls": 13,
+        "settled": true,
+        "process_exit_code": -1,
+        "duration_ms": 81457,
+        "stdout_bytes": 512277,
+        "stderr_bytes": 0,
+        "cost_status": "UNPRICED",
+        "estimated_cost": null,
+        "native_usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        }
+      },
+      "cleanup": {
+        "status": "COMPLETE",
+        "retained": false
+      },
+      "session": {
+        "ref": "pi-session.jsonl"
+      },
+      "references": {
+        "candidate": "candidate.patch",
+        "verification": "verification.json",
+        "usage": "usage.json"
+      }
+    },
+    "usage": {
+      "schema": "PiUsage/v1",
+      "provider": "factory-zai",
+      "model": "glm-5.3-flash",
+      "provider_calls": 13,
+      "settled": true,
+      "process_exit_code": -1,
+      "duration_ms": 81457,
+      "stdout_bytes": 512277,
+      "stderr_bytes": 0,
+      "cost_status": "UNPRICED",
+      "estimated_cost": null,
+      "native_usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      }
+    }
+  },
+  {
+    "task": "MGRENTITLE-192",
+    "error": "ADMISSION_FAILED",
+    "log": "MGRENTITLE-192-admit.txt"
+  },
+  {
+    "task": "MODROLESKC-424",
+    "runKey": "modroleskc-424-001",
+    "execution": "350388ba-432c-4f76-a47c-51b6adccacbb",
+    "gateway_delta": 4,
+    "status": "COMPLETED",
+    "error_message": null,
+    "artifacts": [
+      "baseline.json",
+      "baseline.log",
+      "candidate.json",
+      "candidate.patch",
+      "contract.json",
+      "manifest.json",
+      "pi-session.jsonl",
+      "result.json",
+      "usage.json",
+      "verification.json"
+    ],
+    "patch_bytes": 0,
+    "verification": {
+      "status": "FAIL",
+      "independent": false,
+      "stage": "coding",
+      "reason": "EMPTY_CANDIDATE",
+      "retained": false,
+      "base": "4810b91c648f4f54cc0c878cafb7eb20d115ef6f"
+    },
+    "result": {
+      "outcome": "FAILED",
+      "workflowOperational": true,
+      "benchmarkOutcome": "FAILED",
+      "failure": {
+        "reason": "EMPTY_CANDIDATE",
+        "stage": "coding"
+      },
+      "usage": {
+        "schema": "PiUsage/v1",
+        "provider": "factory-zai",
+        "model": "glm-5.3-flash",
+        "provider_calls": 4,
+        "settled": true,
+        "process_exit_code": -1,
+        "duration_ms": 28925,
+        "stdout_bytes": 25192,
+        "stderr_bytes": 0,
+        "cost_status": "UNPRICED",
+        "estimated_cost": null,
+        "native_usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        }
+      },
+      "cleanup": {
+        "status": "COMPLETE",
+        "retained": false
+      },
+      "session": {
+        "ref": "pi-session.jsonl"
+      },
+      "references": {
+        "candidate": "candidate.patch",
+        "verification": "verification.json",
+        "usage": "usage.json"
+      }
+    },
+    "usage": {
+      "schema": "PiUsage/v1",
+      "provider": "factory-zai",
+      "model": "glm-5.3-flash",
+      "provider_calls": 4,
+      "settled": true,
+      "process_exit_code": -1,
+      "duration_ms": 28925,
+      "stdout_bytes": 25192,
+      "stderr_bytes": 0,
+      "cost_status": "UNPRICED",
+      "estimated_cost": null,
+      "native_usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      }
+    }
+  },
+  {
+    "task": "MODROLESKC-427",
+    "runKey": "modroleskc-427-001",
+    "execution": "8ee9e089-1e97-4b4e-904a-e9868f447724",
+    "gateway_delta": 4,
+    "status": "COMPLETED",
+    "error_message": null,
+    "artifacts": [
+      "baseline.json",
+      "baseline.log",
+      "candidate.json",
+      "candidate.patch",
+      "contract.json",
+      "manifest.json",
+      "pi-session.jsonl",
+      "result.json",
+      "usage.json",
+      "verification.json"
+    ],
+    "patch_bytes": 0,
+    "verification": {
+      "status": "FAIL",
+      "independent": false,
+      "stage": "coding",
+      "reason": "EMPTY_CANDIDATE",
+      "retained": false,
+      "base": "4810b91c648f4f54cc0c878cafb7eb20d115ef6f"
+    },
+    "result": {
+      "outcome": "FAILED",
+      "workflowOperational": true,
+      "benchmarkOutcome": "FAILED",
+      "failure": {
+        "reason": "EMPTY_CANDIDATE",
+        "stage": "coding"
+      },
+      "usage": {
+        "schema": "PiUsage/v1",
+        "provider": "factory-zai",
+        "model": "glm-5.3-flash",
+        "provider_calls": 4,
+        "settled": true,
+        "process_exit_code": -1,
+        "duration_ms": 29149,
+        "stdout_bytes": 29809,
+        "stderr_bytes": 0,
+        "cost_status": "UNPRICED",
+        "estimated_cost": null,
+        "native_usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        }
+      },
+      "cleanup": {
+        "status": "COMPLETE",
+        "retained": false
+      },
+      "session": {
+        "ref": "pi-session.jsonl"
+      },
+      "references": {
+        "candidate": "candidate.patch",
+        "verification": "verification.json",
+        "usage": "usage.json"
+      }
+    },
+    "usage": {
+      "schema": "PiUsage/v1",
+      "provider": "factory-zai",
+      "model": "glm-5.3-flash",
+      "provider_calls": 4,
+      "settled": true,
+      "process_exit_code": -1,
+      "duration_ms": 29149,
+      "stdout_bytes": 29809,
+      "stderr_bytes": 0,
+      "cost_status": "UNPRICED",
+      "estimated_cost": null,
+      "native_usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      }
+    }
+  },
+  {
+    "task": "MODSCHED-70",
+    "runKey": "modsched-70-001",
+    "execution": "a09dc7f0-ee61-488a-8b6a-66044ae7f8f6",
+    "gateway_delta": 4,
+    "status": "COMPLETED",
+    "error_message": null,
+    "artifacts": [
+      "baseline.json",
+      "baseline.log",
+      "candidate.json",
+      "candidate.patch",
+      "contract.json",
+      "manifest.json",
+      "pi-session.jsonl",
+      "result.json",
+      "usage.json",
+      "verification.json"
+    ],
+    "patch_bytes": 0,
+    "verification": {
+      "status": "FAIL",
+      "independent": false,
+      "stage": "coding",
+      "reason": "EMPTY_CANDIDATE",
+      "retained": false,
+      "base": "b2d18dd09b7882fdbb7192b65e136a1b03970967"
+    },
+    "result": {
+      "outcome": "FAILED",
+      "workflowOperational": true,
+      "benchmarkOutcome": "FAILED",
+      "failure": {
+        "reason": "EMPTY_CANDIDATE",
+        "stage": "coding"
+      },
+      "usage": {
+        "schema": "PiUsage/v1",
+        "provider": "factory-zai",
+        "model": "glm-5.3-flash",
+        "provider_calls": 4,
+        "settled": true,
+        "process_exit_code": -1,
+        "duration_ms": 28919,
+        "stdout_bytes": 28299,
+        "stderr_bytes": 0,
+        "cost_status": "UNPRICED",
+        "estimated_cost": null,
+        "native_usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        }
+      },
+      "cleanup": {
+        "status": "COMPLETE",
+        "retained": false
+      },
+      "session": {
+        "ref": "pi-session.jsonl"
+      },
+      "references": {
+        "candidate": "candidate.patch",
+        "verification": "verification.json",
+        "usage": "usage.json"
+      }
+    },
+    "usage": {
+      "schema": "PiUsage/v1",
+      "provider": "factory-zai",
+      "model": "glm-5.3-flash",
+      "provider_calls": 4,
+      "settled": true,
+      "process_exit_code": -1,
+      "duration_ms": 28919,
+      "stdout_bytes": 28299,
+      "stderr_bytes": 0,
+      "cost_status": "UNPRICED",
+      "estimated_cost": null,
+      "native_usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      }
+    }
+  },
+  {
+    "task": "MODSCHED-76",
+    "runKey": "modsched-76-001",
+    "execution": "d5df54b0-9959-435a-af40-e11e62434870",
+    "gateway_delta": 4,
+    "status": "COMPLETED",
+    "error_message": null,
+    "artifacts": [
+      "baseline.json",
+      "baseline.log",
+      "candidate.json",
+      "candidate.patch",
+      "contract.json",
+      "manifest.json",
+      "pi-session.jsonl",
+      "result.json",
+      "usage.json",
+      "verification.json"
+    ],
+    "patch_bytes": 0,
+    "verification": {
+      "status": "FAIL",
+      "independent": false,
+      "stage": "coding",
+      "reason": "EMPTY_CANDIDATE",
+      "retained": false,
+      "base": "b2d18dd09b7882fdbb7192b65e136a1b03970967"
+    },
+    "result": {
+      "outcome": "FAILED",
+      "workflowOperational": true,
+      "benchmarkOutcome": "FAILED",
+      "failure": {
+        "reason": "EMPTY_CANDIDATE",
+        "stage": "coding"
+      },
+      "usage": {
+        "schema": "PiUsage/v1",
+        "provider": "factory-zai",
+        "model": "glm-5.3-flash",
+        "provider_calls": 4,
+        "settled": true,
+        "process_exit_code": -1,
+        "duration_ms": 28534,
+        "stdout_bytes": 25485,
+        "stderr_bytes": 0,
+        "cost_status": "UNPRICED",
+        "estimated_cost": null,
+        "native_usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        }
+      },
+      "cleanup": {
+        "status": "COMPLETE",
+        "retained": false
+      },
+      "session": {
+        "ref": "pi-session.jsonl"
+      },
+      "references": {
+        "candidate": "candidate.patch",
+        "verification": "verification.json",
+        "usage": "usage.json"
+      }
+    },
+    "usage": {
+      "schema": "PiUsage/v1",
+      "provider": "factory-zai",
+      "model": "glm-5.3-flash",
+      "provider_calls": 4,
+      "settled": true,
+      "process_exit_code": -1,
+      "duration_ms": 28534,
+      "stdout_bytes": 25485,
+      "stderr_bytes": 0,
+      "cost_status": "UNPRICED",
+      "estimated_cost": null,
+      "native_usage": {
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "totalTokens": 0,
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "total": 0
+        }
+      }
+    }
+  }
+]

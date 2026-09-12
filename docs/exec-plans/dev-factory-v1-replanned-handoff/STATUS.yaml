@@ -49,4 +49,4 @@ milestones:
     firstLowSolved: true
 blockers:
   - "The pre-M3 named volume factory_factory-pgdata is retained as an archive after its execution history (3 executions, 8 artifacts) was imported into .factory/data/postgres during M4; it can be removed after owner confirmation."
-nextAction: "Owner decision on the single next capability: another curated Low eval (7 remaining tasks in evals/tasks/), controlled PR delivery of the verified MODSIDECAR-208 candidate, or the deferred T26 AutoDev VERIFY continuation."
+nextAction: "Dataset batch 2026-09-12 (7 tasks, owner-authorized) executed: 0/7 solved — all admitted runs FAILED on provider balance exhaustion (Z.AI 429 code 1113, evidence/M4/dataset-batch-20260912.txt); MGRENTITLE-192 admission rejected on Gherkin-style AC format, parser fixed post-batch. Rerun blocked on owner Z.AI recharge; afterwards: controlled PR delivery of the verified MODSIDECAR-208 candidate or the deferred T26 AutoDev VERIFY continuation."

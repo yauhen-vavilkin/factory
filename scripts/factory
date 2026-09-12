@@ -824,6 +824,20 @@ else:
     for match in re.finditer(r"^-\s+\*\*(AC\d+):\*\*\s+(.+)$", raw, re.M):
         acs.append({"id": match.group(1), "text": match.group(2).strip(), "source": "TASK"})
     if not acs:
+        # Gherkin-style criteria ("- **ACn: Title**" plus indented Given/When/Then
+        # sub-bullets, observed in MGRENTITLE-192 during the 2026-09-12 batch) are
+        # normalized into the canonical single-line form before failing over.
+        def _gherkin_to_canonical(m):
+            title = " ".join(m.group(2).split())
+            bullets = re.findall(r"^[ \t]+-[ \t]+(.+)$", m.group(3), re.M)
+            text = title + (": " + "; ".join(" ".join(b.split()) for b in bullets) if bullets else "")
+            return "- **%s:** %s" % (m.group(1), text)
+        normalized = re.sub(
+            r"^-\s+\*\*(AC\d+):\s*([^*\n]+)\*\*\s*\n((?:[ \t]+-[ \t]+.*\n?)+)",
+            _gherkin_to_canonical, raw, flags=re.M)
+        for match in re.finditer(r"^-\s+\*\*(AC\d+):\*\*\s+(.+)$", normalized, re.M):
+            acs.append({"id": match.group(1), "text": match.group(2).strip(), "source": "TASK"})
+    if not acs:
         raise SystemExit(f"no structured acceptance criteria found in {task_file}")
     payload = {
         "schemaVersion": 1,

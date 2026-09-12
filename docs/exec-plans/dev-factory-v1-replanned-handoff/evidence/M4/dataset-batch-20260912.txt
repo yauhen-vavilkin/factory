@@ -1,0 +1,51 @@
+Dataset qualification batch — 2026-09-12 (post-M4, owner-authorized 2026-09-11T22:11Z "run all tasks")
+================================================================================
+
+Batch: 7 curated tasks (evals/tasks/*.md minus solved MODSIDECAR-208), sequential,
+per-task app restart (fresh gateway run token, fresh 40-attempt budget), watch cap
+5400s, export + digest per task. Start 2026-09-11T22:24:50Z, end 22:33:52Z (9 min).
+
+Result: 0/7 solved. 6 admitted+COMPLETED, all benchmarkOutcome=FAILED
+(EMPTY_CANDIDATE, stage=coding, independent=false, retained=false); 1 admission
+rejection. No false successes; every failure recorded and exported.
+
+Root cause (single): provider balance exhaustion. Z.AI returned
+  429 {"code":"1113","message":"Insufficient balance or no resource package. Please recharge."}
+on the first batch task (MGRENTITLE-172) after ~13 gateway calls of real Pi work
+(session stdout 512 KB: thinking deltas, 2 tool executions, agent_start x3), then
+3 auto-retry attempts (2s/4s/8s) all failed -> empty candidate. All subsequent
+tasks: 4 gateway calls, instant 429, empty candidate. Provider-reported usage on
+every settled session: totalTokens=0 (429s rejected pre-inference; batch cost ~0).
+Reference: low-004 (MODSIDECAR-208) succeeded 21:43:30Z on 12.5K tokens; the
+account balance ran out between 21:43Z and 22:25Z.
+
+Per-task:
+  MGRENTITLE-172  exec 03dbe20e-f22f-470d-bc59-43932a03ff6f  COMPLETED FAILED EMPTY_CANDIDATE  gw+13  ~81s Pi
+  MGRENTITLE-192  —                                           ADMISSION_FAILED "no structured acceptance criteria found" (Gherkin-style AC block; client-side, before any provider contact)
+  MODSCHED-76     exec d5df54b0-9959-435a-af40-e11e62434870  COMPLETED FAILED EMPTY_CANDIDATE  gw+4   ~29s Pi
+  MODROLESKC-424  exec 350388ba-432c-4f76-a47c-51b6adccacbb  COMPLETED FAILED EMPTY_CANDIDATE  gw+4   ~29s Pi
+  MODROLESKC-427  exec 8ee9e089-1e97-4b4e-904a-e9868f447724  COMPLETED FAILED EMPTY_CANDIDATE  gw+4   ~29s Pi
+  MODSCHED-70     exec a09dc7f0-ee61-488a-8b6a-66044ae7f8f6  COMPLETED FAILED EMPTY_CANDIDATE  gw+4   ~29s Pi
+  MGRENTITLE-161  exec 6daa9c9d-42a8-4a9e-901f-dd1a74d141df  COMPLETED FAILED EMPTY_CANDIDATE  gw+4   ~29s Pi
+
+Exports: .factory/exports/<exec-id>/ per admitted task (pi-session.jsonl contains
+the 429 auto_retry events). Batch digests: /tmp/m4-dataset/*-digest.json and
+ALL-RESULTS.json (copied to evidence/M4/dataset-batch-20260912-all-results.json).
+
+Machinery proven at batch scale (free observations):
+- 7 sequential admissions over 6 app restarts; gateway run token rotated per
+  task (previous tokens rejected 401 before upstream contact — verified in M4).
+- Fail-closed admission kept an unparseable task out (MGRENTITLE-192) instead of
+  silently running a task without criteria.
+- Honest reporting: every EMPTY_CANDIDATE recorded as FAILED/retained=false; no
+  provider usage was fabricated (totalTokens=0 as reported).
+
+Post-batch fix (zero provider calls): run-eval AC parser now normalizes
+Gherkin-style criteria blocks ("- **ACn: Title**" + indented Given/When/Then
+sub-bullets, MGRENTITLE-192) into the canonical single-line form. Offline
+regression across all 8 eval task files: 7 files extract identically, 192 now
+extracts 3 ACs. Recorded in the same commit as this evidence.
+
+Blocker (owner action): Z.AI account balance recharge. After recharge the batch
+rerun is ready: same task order, fresh run keys (-002), ~10 min wall time if
+balance holds. MGRENTITLE-192 admission must be re-verified on that rerun.
