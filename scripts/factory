@@ -769,17 +769,38 @@ run_eval() {
       repo="folio-org/folio-module-sidecar"
       base="c13e0383d9283ef554c195cf5357bb3c6eeb4e65"
       plan="modsidecar-208-v1" ;;
-    MGRENTITLE-161|MGRENTITLE-172|MGRENTITLE-192)
+    # Dataset bases repaired 2026-09-12: each base is the parent of the
+    # task's fix commit (repo state exactly BEFORE the fix). The original
+    # shared per-repo bases (origin/main heads of 2026-09-08..10) already
+    # contained every task's fix, which made positive solves impossible
+    # ("already implemented" empties and patches failing over existing code).
+    MGRENTITLE-161)
       repo="folio-org/mgr-tenant-entitlements"
-      base="0845da6ede6448fa2ae5791bbc3ad180dd6c951c"
+      base="bebe335b1f86753a03ecbcbc14d3cd7811c22d42"
       plan="java-maven-verify" ;;
-    MODROLESKC-424|MODROLESKC-427)
+    MGRENTITLE-172)
+      repo="folio-org/mgr-tenant-entitlements"
+      base="dad5c4146bfb1761bb64f3df1054548dac9e6009"
+      plan="java-maven-verify" ;;
+    MGRENTITLE-192)
+      repo="folio-org/mgr-tenant-entitlements"
+      base="8c5a9a2b01cdc804bafe7176669e7ca64efc1270"
+      plan="java-maven-verify" ;;
+    MODROLESKC-424)
       repo="folio-org/mod-roles-keycloak"
-      base="4810b91c648f4f54cc0c878cafb7eb20d115ef6f"
+      base="d80e83f6281736e53b17064a79615609f7c21126"
       plan="java-maven-verify" ;;
-    MODSCHED-70|MODSCHED-76)
+    MODROLESKC-427)
+      repo="folio-org/mod-roles-keycloak"
+      base="cb76d7166affaae024bfbbeba98f1aad64496a62"
+      plan="java-maven-verify" ;;
+    MODSCHED-70)
       repo="folio-org/mod-scheduler"
-      base="b2d18dd09b7882fdbb7192b65e136a1b03970967"
+      base="409150b6787c884b94f0f2de1115e67634d6abef"
+      plan="java-maven-verify" ;;
+    MODSCHED-76)
+      repo="folio-org/mod-scheduler"
+      base="a8ac6c8862e3692adfd0c03936df6c46fd5ecd3d"
       plan="java-maven-verify" ;;
     *) fail "no trusted curated mapping for task: $task_id" ;;
   esac
