@@ -1,5 +1,12 @@
 # Factory quality backlog — owner-requested engineering work
 
+> **Status: historical record (created 2026-09-05).** This backlog was
+> written for an external OpenClaw harness whose control directory
+> (`WORKFLOW.md`) is not part of this repository. Retained as a record of
+> candidate findings only. It is not an active backlog: do not infer work
+> from it without an explicit operator task, and re-verify every finding
+> against current code first.
+
 Created 2026-09-05 for OpenClaw and its managed harnesses. The server adviser has
 not implemented these product fixes. This file defines work, not completion status;
 the control directory WORKFLOW.md owns ordering and status. On intake, recheck the

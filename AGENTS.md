@@ -1,107 +1,35 @@
-# Factory — Agent Context
+# Factory — Agent Instructions
 
-This is a **learning project** that evolves session by session.
-Read this file first. Then read `docs/sessions/` for recent decisions and open questions.
+Factory is an internal agentic SDLC platform for the FOLIO workspace
+(Java 21, Spring Boot, Maven multi-module). The project is currently in
+**architecture recovery**: a product/architecture review has completed, and
+its decisions are not yet documented or implemented.
 
----
+## Rules for coding agents
 
-## What This Project Is
+- Follow the explicit task given by the operator. Do not infer additional
+  work from old milestones, plans, backlogs, session notes, or TODO
+  documents.
+- Historical material is a record, not an instruction. Everything under
+  `docs/exec-plans/` and `docs/sessions/`, and any file marked historical,
+  is archived evidence — do not execute, resume, or extend it, and do not
+  treat it as architecture or implementation guidance.
+- Do not implement speculative infrastructure or abstractions without a
+  concrete requirement in the current task.
+- Tests are evidence of behavior; they do not override explicit task
+  requirements. Test count, documentation volume, generated receipts, and
+  milestone completion are not measures of product success.
+- Keep changes scoped to the task. Do not refactor production code or
+  change runtime behavior unless the task requires it.
 
-An internal **agentic SDLC platform** for the FOLIO multi-repo workspace.
-The long-term goal: give it a Jira ticket and have it research, plan, implement, test, and iterate — automatically, with human review gates.
+## Repository facts
 
-This is **not** a finished product. It is a growing codebase used to learn and experiment with Spring AI, agentic architectures, and LLM tool-calling patterns.
-
----
-
-## Architecture in One Paragraph
-
-**Factory** is the orchestrator — it owns workflow stages, persistent state, retries, timeouts, HITL gates, and recovery. **Spring AI** is only the LLM integration layer: `ChatClient`, tool calling, structured output, advisors, MCP. These two roles must stay separated. Deterministic operations (git, file reads, search, build/test) are tools — the LLM selects them but never replaces them with guesses.
-
-```
-Jira ticket
-    ↓
-Factory flow (YAML descriptor + steps)
-    ↓
-AgentWorker (Spring AI ChatClient + @Tool methods)
-    ↓  tool loop
-Deterministic tools: Jira, GitHub, file read, ripgrep, JDT LS, sandbox
-    ↓
-Artifact stored → next step or HITL gate
-```
-
----
-
-## Module Layout
-
-```
-factory-parent
-├── factory-core          — engine, state machine, SPI, retry, HITL, sub-flows
-├── factory-connectors    — Jira, GitHub, TestRail REST clients + unconfigured fallbacks
-├── factory-agents        — AbstractLlmAgentWorker, PromptLoader, FrontmatterCodec
-├── factory-flow-test-factory — Flow A: 5 workers, YAML descriptor, prompts
-└── factory-app           — Spring Boot entry point, REST + Thymeleaf UI, Flyway
-```
-
-**Key engine classes:** `ExecutionEngine`, `StateManager`, `ArtifactStore`, `HitlDecisionService`, `SubFlowInvoker`, `FlowRegistry`.
-
----
-
-## Flows Implemented
-
-### Flow A — Test Factory (`factory-flow-test-factory`)
-
-Trigger: Jira webhook or manual POST with issue key.
-
-```
-triage → test-spec → [HITL: qa-plan-review] → test-automation → test-execution → [HITL: qa-signoff] → finalize
-```
-
-Workers: `TriageAgentWorker`, `TestSpecAgentWorker`, `TestAutomationAgentWorker`, `TestExecutionWorker` (runs Karate), `TestFactoryFinalizerWorker` (GitHub PR + TestRail + Jira comment).
-
----
-
-## What Is Being Built Now
-
-**Branch: `add-resercher-agents`**
-
-A researcher agent that investigates a Jira ticket before coding starts. It uses a tool loop (not a single LLM call) to gather facts from Jira, GitHub, Confluence, and the local workspace, then produces a structured investigation report.
-
-See: `docs/sessions/` for design decisions and open questions.
-
-## Dev Factory v1 Execution Policy
-
-The active remaining roadmap is plan `pi-minimal-v2` in `docs/exec-plans/dev-factory-v1-replanned-handoff/`. It uses the accepted HYBRID ownership: external Pi owns coding; Factory owns preparation, sandbox, candidate, verification, and outcome. Read that package's `README.md`, `EXECUTION_RULES.md`, working `STATUS.yaml`, and current milestone before implementation; execute only that milestone and keep its report/status current. The old `dev-factory-v1` M0/M1 status and reports remain historical acceptance evidence, while its M2–M5 implementation scope is superseded. Do not redesign the accepted architecture or implement explicit deferrals.
-
----
-
-## Key Architectural Rules
-
-1. **Factory orchestrates. Spring AI does LLM calls.** Do not use Spring AI as the workflow engine.
-2. **Deterministic tools stay deterministic.** Ripgrep, file reads, JDT LS, git — these are tools, not LLM guesses.
-3. **Tool results must be bounded.** Limit search hits, file ranges, command output. Never send whole repos into model context.
-4. **No internal identifiers unnecessarily exposed to the LLM.** Use server-side context where possible.
-5. **Commands as argument arrays**, not concatenated shell strings.
-6. **Sandbox must enforce** timeouts, CPU/memory limits, output limits, network policy, filesystem boundaries.
-7. **Provider switching is not free.** Common `ChatClient` usage is portable; provider-specific features (caching, thinking, grounding) are not.
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Language | Java 21 |
-| Framework | Spring Boot 4.0.7 |
-| LLM layer | Spring AI 2.0.0, Anthropic claude-sonnet-4-5 |
-| Database | PostgreSQL 16 (Flyway migrations) |
-| Tests | JUnit 5, Testcontainers, WireMock |
-| Sandbox (planned) | DockerSandbox (agent-sandbox, incubating) |
-| Observability (planned) | Langfuse or LangSmith |
-| Code intelligence (planned) | Eclipse JDT Language Server, ripgrep |
-
----
-
-## Session Notes
-
-See [`docs/sessions/`](docs/sessions/) for a chronological record of design decisions, open questions, and what was discussed in each session.
+- Build: `./mvnw` (pinned wrapper). Local operations helper: `./scripts/factory`
+  (see `README.md`).
+- Modules: `factory-core`, `factory-connectors`, `factory-agents`,
+  `factory-flow-test-factory`, `factory-flow-dev-factory`,
+  `factory-gateway`, `factory-sandbox`, `factory-app`.
+- Prompts under `src/main/resources/prompts/` are runtime product assets,
+  not instructions for coding agents.
+- This file is the single canonical agent-instruction file; `CLAUDE.md` is a
+  symlink to it.
