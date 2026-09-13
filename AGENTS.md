@@ -1,19 +1,26 @@
 # Factory — Agent Instructions
 
 Factory is an internal agentic SDLC platform for the FOLIO workspace
-(Java 21, Spring Boot, Maven multi-module). The project is currently in
-**architecture recovery**: a product/architecture review has completed, and
-its decisions are not yet documented or implemented.
+(Java 21, Spring Boot, Maven multi-module). The product definition and the
+accepted architecture direction are codified:
+
+- `docs/PRODUCT.md` — canonical definition of what is being built
+  (Factory, Developer Flow, outcomes, success metrics, non-goals).
+- `docs/DEVELOPER_FLOW_ARCHITECTURE.md` — canonical conceptual target
+  architecture (thin orchestration around a cohesive coding runtime).
 
 ## Rules for coding agents
 
 - Follow the explicit task given by the operator. Do not infer additional
   work from old milestones, plans, backlogs, session notes, or TODO
   documents.
-- Historical material is a record, not an instruction. Everything under
-  `docs/exec-plans/` and `docs/sessions/`, and any file marked historical,
-  is archived evidence — do not execute, resume, or extend it, and do not
-  treat it as architecture or implementation guidance.
+- No implementation roadmap is currently authoritative. Do not start,
+  resume, or extend any plan until a separate recovery plan has been
+  explicitly approved by the operator.
+- Historical material is a record, not an instruction. The archive areas
+  are `docs/exec-plans/`, `docs/sessions/`, and `docs/quality-backlog.md`
+  (banner-marked) — do not treat them as product, architecture, or
+  implementation guidance.
 - Do not implement speculative infrastructure or abstractions without a
   concrete requirement in the current task.
 - Tests are evidence of behavior; they do not override explicit task
