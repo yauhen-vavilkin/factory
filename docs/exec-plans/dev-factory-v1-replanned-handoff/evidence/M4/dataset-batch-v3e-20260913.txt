@@ -1,0 +1,51 @@
+# Dataset batch v3e — collected 2026-09-13 (factory-morning-report cron)
+
+Batch: v3e (runKeys *-007, modsched-70-008), sequential 2026-09-12 20:37:23Z – 23:45:19Z.
+Source of truth: /tmp/m4-dataset/v3e.log ("V3E-BATCH DONE 2026-09-12T23:45:20Z") and
+.factory/exports/<exec-id>/result.json (factory repo).
+DB check (factory-postgres-1): 7/7 pipeline_execution COMPLETED.
+
+NOTE: /tmp/m4-dataset/*-digest.json are STALE pre-batch artifacts of the aborted v3c/v3d
+attempts (mtime 2026-09-12 20:26, START_FAILED / ADMISSION_FAILED). Not v3e verdicts.
+
+## result.json per task
+
+| task               | exec     | outcome | failure                     | evidence |
+|--------------------|----------|---------|------------------------------|----------|
+| MGRENTITLE-172     | 514872cb | FAILED  | VERIFICATION_FAILED @ VERIFY | unit suite 732/0 green; IT suite 15 errors, all NoClassDefFound (testcontainers RootlessDockerClientProviderStrategy / JNA) -> STAND failure: no docker in sandbox |
+| MGRENTITLE-192     | 7e68da19 | FAILED  | VERIFICATION_FAILED @ VERIFY | maven verify-style: 2 Checkstyle violations -> model failure (style only, otherwise close to green) |
+| MODSCHED-76        | 0acc1733 | FAILED  | VERIFICATION_FAILED @ VERIFY | test-compile failure (org.assertj ThrowingCallable cannot find symbol) + 1 Checkstyle -> model failure |
+| MODROLESKC-424     | 74c2fc49 | FAILED  | PI_UNSETTLED @ coding        | process SIGKILL (137) at ~1800s hard timebox; last action mvn surefire grep incl. NestedCapabilitySetIT (docker IT loop); stdout 12.1 MB |
+| MODROLESKC-427     | f8685f85 | FAILED  | PI_UNSETTLED @ coding        | SIGKILL at ~1800s; stdout 10.9 MB; testcontainers mentions |
+| MODSCHED-70        | babb9c4e | FAILED  | PI_UNSETTLED @ coding        | SIGKILL at ~1800s; stdout 16.1 MB; 33 testcontainers mentions |
+| MGRENTITLE-161     | 06e00f72 | FAILED  | PI_UNSETTLED @ coding        | SIGKILL at ~1800s; stdout 14.9 MB |
+
+Score: v3e 0/7 solved. M4 dataset standing: 1/8 (low-004 MODSIDECAR-208, 2026-09-11, e53b166d).
+
+Baseline comparison: v3e exports carry baseline.json = NOT_REQUIRED ("generic Pi flow path"),
+so per-task baseline runs are not available in this flow. Stand-failure classification is by
+error signature (NoClassDefFound / RootlessDockerClientProviderStrategy / JNA UnsatisfiedLink)
+matching the known sandbox limitation: no docker environment, testcontainers cannot start.
+
+## Failure classes
+- Stand (infra): 1 — MGRENTITLE-172 (unit-green candidate; IT red only from missing docker).
+- Model: 2 — MGRENTITLE-192 (checkstyle), MODSCHED-76 (test compile).
+- Budget/timebox (mixed, aggravated by docker IT loops): 4 — all PI_UNSETTLED at the 1800s kill.
+
+## What to fix (proposals only — nothing executed)
+- Docker-dependent verification in sandbox: sibling service containers (postgres/kafka) on the
+  sandbox network, or dind. Do NOT mount the host docker socket (breaks the cell).
+- 30-min coding timebox: raise for java/maven tasks and/or gate IT behind a capability probe so
+  agents stop burning the budget in testcontainers loops.
+- Add a style gate (checkstyle) to the coding contract so agents self-verify before submit
+  (MGRENTITLE-192 was 2 violations away from green).
+
+## Leaked sandbox containers (cleanup candidates — NOT deleted, owner decision)
+- sleepy_panini      factory-pi:jdk21  started 2026-09-12T10:32Z (Up ~20h)
+- gracious_wu        factory-pi:jdk21  started 2026-09-11T11:20Z (Up ~44h)
+- relaxed_banzai     factory-pi:jdk21  started 2026-09-11T10:03Z (Up ~45h)
+- dazzling_thompson  factory-pi:jdk21  started 2026-09-10T23:17Z (Up ~2d)
+
+## Cost
+All runs UNPRICED (internal factory-zai; native cost 0 in every result.json).
+Totals: 426 provider calls, ~3h08m sequential wall time.

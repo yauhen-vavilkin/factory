@@ -44,9 +44,10 @@ milestones:
       M4-C3: evidence/M4/legacy-pgdata-import.txt
       M4-C4: evidence/M4/runbook-verification.txt
       M4-C5: evidence/M4/low-004-live-attempt.txt
+      M4-C6: evidence/M4/dataset-batch-v3e-20260913.txt
     workflowOperational: true
     benchmarkOutcome: SUCCESS
     firstLowSolved: true
 blockers:
   - "The pre-M3 named volume factory_factory-pgdata is retained as an archive after its execution history (3 executions, 8 artifacts) was imported into .factory/data/postgres during M4; it can be removed after owner confirmation."
-nextAction: "Dataset batch 2026-09-12 (7 tasks, owner-authorized) executed: 0/7 solved — all admitted runs FAILED on provider balance exhaustion (Z.AI 429 code 1113, evidence/M4/dataset-batch-20260912.txt); MGRENTITLE-192 admission rejected on Gherkin-style AC format, parser fixed post-batch. Rerun blocked on owner Z.AI recharge; afterwards: controlled PR delivery of the verified MODSIDECAR-208 candidate or the deferred T26 AutoDev VERIFY continuation."
+nextAction: "Dataset batch v3e (2026-09-12 20:37-23:45Z, 7 tasks, hands-off) completed: 0/7 solved - 1 stand failure (MGRENTITLE-172: units green, IT red on missing docker/testcontainers), 2 model failures (checkstyle, test-compile), 4 PI_UNSETTLED budget kills at the 1800s timebox burned on docker IT loops; evidence/M4/dataset-batch-v3e-20260913.txt. Pending owner decisions: sandbox docker strategy (sibling service containers vs dind; never the host socket), coding timebox / IT gating for java tasks, cleanup of 4 leaked factory-pi:jdk21 containers, then a v3f rerun; afterwards the controlled PR delivery of the verified MODSIDECAR-208 candidate or the deferred T26 AutoDev VERIFY continuation."
