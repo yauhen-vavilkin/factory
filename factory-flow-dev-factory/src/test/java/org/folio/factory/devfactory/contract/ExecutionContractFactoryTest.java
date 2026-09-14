@@ -80,7 +80,9 @@ class ExecutionContractFactoryTest {
     assertThat(view.rawTaskText()).isEqualTo("original task text");
     assertThat(view.requiredChecks()).singleElement().satisfies(check -> {
       assertThat(check.id()).isEqualTo("maven-tests");
-      assertThat(check.command()).isEqualTo("./mvnw -B -ntp test");
+      // Plain mvn: the approved images ship Maven on the PATH and the
+      // approved repositories ship no wrapper, so ./mvnw is not executable.
+      assertThat(check.command()).isEqualTo("mvn -B -ntp test");
     });
     assertThat(view.directive()).contains("Original task text", "original task text");
   }

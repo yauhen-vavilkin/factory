@@ -14,6 +14,7 @@ public final class TrustedProfileCatalog {
   public static final String JAVA_MAVEN_PI = "java21-pi-unit";
   public static final String JAVA_MAVEN_PI_VERSION = "dev-factory-v1-m3";
   public static final String JAVA_MAVEN_VERIFY = "java-maven-verify";
+  public static final String JAVA_MAVEN_VERIFY_IT = "java-maven-verify-it";
   public static final String SCENARIO_README_VERIFY = "scenario-readme-verify";
 
   private final Map<String, ExecutionProfile> profiles;
@@ -40,18 +41,31 @@ public final class TrustedProfileCatalog {
     ExecutionProfile pi = withHash(piWithoutHash);
     profiles = Map.of(profile.id(), profile, pi.id(), pi);
 
+    // Plain `mvn`, not `./mvnw`: the approved sandbox images ship Maven on the
+    // PATH and the approved FOLIO repositories do not ship a wrapper, so a
+    // wrapper argv would make the authoritative unit gate unexecutable.
     VerificationPlan planWithoutHash = new VerificationPlan(JAVA_MAVEN_VERIFY, VERSION,
         List.of(new VerificationPlan.Check("maven-tests",
-            List.of("./mvnw", "-B", "-ntp", "test"), true, List.of(),
-            "**/target/surefire-reports/TEST-*.xml")), null);
+            List.of("mvn", "-B", "-ntp", "test"), true, List.of(),
+            "**/target/surefire-reports/TEST-*.xml", false)), null);
     VerificationPlan plan = withHash(planWithoutHash);
+    // Honest plan for tasks whose acceptance criteria demand the full build
+    // including the failsafe integration suite: `mvn clean verify` runs the
+    // Testcontainers-backed ITs of the approved FOLIO repositories, so the
+    // check declares the Docker capability it needs.
+    VerificationPlan itPlan = withHash(new VerificationPlan(JAVA_MAVEN_VERIFY_IT, VERSION,
+        List.of(new VerificationPlan.Check("maven-verify-it",
+            List.of("mvn", "-B", "-ntp", "clean", "verify"), true, List.of(),
+            "**/target/surefire-reports/TEST-*.xml", true)), null));
     VerificationPlan scenarioPlan = withHash(new VerificationPlan(SCENARIO_README_VERIFY, VERSION,
         List.of(new VerificationPlan.Check("readme-change",
-            List.of("cd repo && grep -n 'T16 scenario change.' README.md"), true, List.of(), null)), null));
+            List.of("cd repo && grep -n 'T16 scenario change.' README.md"), true, List.of(), null,
+            false)), null));
     VerificationPlan piPlan = withHash(new VerificationPlan("modsidecar-208-v1", JAVA_MAVEN_PI_VERSION,
         List.of(new VerificationPlan.Check("maven-tests", List.of("mvn", "-B", "-ntp", "test"),
-            true, List.of(), "**/target/surefire-reports/TEST-*.xml")), null));
-    plans = Map.of(plan.id(), plan, piPlan.id(), piPlan, scenarioPlan.id(), scenarioPlan);
+            true, List.of(), "**/target/surefire-reports/TEST-*.xml", false)), null));
+    plans = Map.of(plan.id(), plan, itPlan.id(), itPlan, piPlan.id(), piPlan, scenarioPlan.id(),
+        scenarioPlan);
   }
 
   public Optional<ExecutionProfile> profile(String id) {

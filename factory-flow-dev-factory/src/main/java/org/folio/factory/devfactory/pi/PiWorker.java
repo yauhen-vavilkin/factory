@@ -2,8 +2,10 @@ package org.folio.factory.devfactory.pi;
 
 import java.time.Duration;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
@@ -18,12 +20,16 @@ import org.folio.factory.sandbox.api.SandboxSpec;
 import org.folio.factory.sandbox.tools.Shell;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /** Flow-local workers keep Pi execution separate from the legacy harness. */
 public final class PiWorker implements AgentWorker {
   private static final long BASELINE_BUILD_TIMEOUT = 1_800L;
   private static final long VERIFY_BUILD_TIMEOUT = 1_800L;
+  private static final String DOCKER_PROBE_COMMAND =
+      "if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; "
+          + "then echo DOCKER=AVAILABLE; else echo DOCKER=UNAVAILABLE; fi";
   private static final String POLICY = "Factory owns the repository boundary. Edit only the prepared repository; "
       + "make no external writes; report completion after the requested checks.";
 
@@ -108,12 +114,7 @@ public final class PiWorker implements AgentWorker {
     contract.put("mode", "PRIVATE_FRESH_RESOLUTION");
 
     if (!isModsidecar208(payload)) {
-      contract.put("status", "READY");
-      ObjectNode baseline = contract.putObject("baseline");
-      baseline.put("status", "NOT_REQUIRED");
-      baseline.put("reason", "generic Pi flow path");
-      return new AgentResult(Map.of("contract.json", json.writeValueAsString(contract),
-          "baseline.json", json.writeValueAsString(baseline), "baseline.log", ""), Map.of());
+      return prepareGeneric(payload, resolved, profile, contract, context);
     }
 
     ObjectNode baseline = json.createObjectNode();
@@ -174,9 +175,183 @@ public final class PiWorker implements AgentWorker {
         "baseline.json", json.writeValueAsString(baseline), "baseline.log", log), metrics);
   }
 
+  /**
+   * Honest readiness for the generic Pi path. The resolved verification plan
+   * is the authority, so preparation proves the sandbox can actually run its
+   * required checks before any coding budget is spent: a check that declares
+   * a capability the sandbox cannot provide (Docker for Testcontainers
+   * integration suites) blocks the execution as {@code BLOCKED_ENVIRONMENT}
+   * with zero provider calls, and otherwise the required checks run once on
+   * the clean base as the baseline, proving the verification environment is
+   * usable for this repository. A runnable-but-red base is recorded as
+   * {@code BASE_NOT_GREEN}, not blocked — a bug fix may legitimately have to
+   * turn a red base green — while an output carrying the known
+   * Docker/Testcontainers environment-failure signature is an environment
+   * blocker, never a coding failure.
+   */
+  private AgentResult prepareGeneric(JsonNode payload, JsonNode resolved, JsonNode profile,
+                                     ObjectNode contract, AgentContext context) {
+    List<Check> checks = requiredChecks(resolved);
+    ObjectNode baseline = json.createObjectNode();
+    baseline.put("required", true);
+    baseline.put("planId", resolved.path("verificationPlan").path("id").asString(""));
+    if (checks.isEmpty()) {
+      // No authoritative gate means no honest readiness: fail loudly here
+      // instead of letting coding run against an unverifiable contract.
+      baseline.put("status", "BLOCKED_ENVIRONMENT");
+      baseline.put("reason", "VERIFICATION_PLAN_MISSING");
+      baseline.put("detail", "the resolved verification plan carries no required checks");
+      contract.put("status", "BLOCKED_ENVIRONMENT");
+      contract.set("baseline", baseline);
+      return new AgentResult(Map.of("contract.json", json.writeValueAsString(contract),
+          "baseline.json", json.writeValueAsString(baseline), "baseline.log", ""),
+          Map.of("baseline", "BLOCKED_ENVIRONMENT", "blocked_environment", true));
+    }
+    SandboxHandle handle = null;
+    StringBuilder log = new StringBuilder();
+    try {
+      handle = sandboxes.create(sourceSpec(payload, profile, context, "-baseline",
+          dependencyNetworkPolicy(profile)));
+      String blocked = probeRequiredCapabilities(sandboxes, handle, checks, log);
+      if (blocked != null) {
+        baseline.put("status", "BLOCKED_ENVIRONMENT");
+        baseline.put("reason", "REQUIRED_CAPABILITY_UNAVAILABLE");
+        baseline.put("detail", blocked);
+        contract.put("status", "BLOCKED_ENVIRONMENT");
+        contract.set("baseline", baseline);
+        Map<String, Object> metrics = new LinkedHashMap<>();
+        metrics.put("baseline", "BLOCKED_ENVIRONMENT");
+        metrics.put("blocked_environment", true);
+        return new AgentResult(Map.of("contract.json", json.writeValueAsString(contract),
+            "baseline.json", json.writeValueAsString(baseline), "baseline.log", log.toString()),
+            metrics);
+      }
+      boolean green = true;
+      boolean environmentFailure = false;
+      ArrayNode evidence = baseline.putArray("checks");
+      for (Check check : checks) {
+        CommandResult run = sandboxes.exec(handle, "cd repo && " + check.command(),
+            BASELINE_BUILD_TIMEOUT);
+        log.append(commandLog(check.id(), run));
+        ObjectNode entry = evidence.addObject();
+        entry.put("id", check.id());
+        entry.put("command", check.command());
+        entry.put("exitCode", run.exitCode());
+        entry.put("durationMs", run.durationMs());
+        if (!run.ok()) {
+          green = false;
+          if (environmentFailureSignature(run.stdout()) || environmentFailureSignature(run.stderr())) {
+            environmentFailure = true;
+            entry.put("environmentFailure", true);
+          }
+        }
+      }
+      if (environmentFailure) {
+        baseline.put("status", "BLOCKED_ENVIRONMENT");
+        baseline.put("reason", "REQUIRED_CHECK_CANNOT_RUN");
+        baseline.put("detail", "required check failed with the Docker/Testcontainers "
+            + "environment-failure signature in a sandbox without Docker");
+        contract.put("status", "BLOCKED_ENVIRONMENT");
+        contract.set("baseline", baseline);
+        Map<String, Object> metrics = new LinkedHashMap<>();
+        metrics.put("baseline", "BLOCKED_ENVIRONMENT");
+        metrics.put("blocked_environment", true);
+        return new AgentResult(Map.of("contract.json", json.writeValueAsString(contract),
+            "baseline.json", json.writeValueAsString(baseline), "baseline.log", log.toString()),
+            metrics);
+      }
+      baseline.put("status", green ? "PASS" : "FAIL");
+      if (!green) {
+        baseline.put("failure", "BASE_NOT_GREEN");
+      }
+      contract.put("status", "READY");
+      contract.set("baseline", baseline);
+      Map<String, Object> metrics = new LinkedHashMap<>();
+      metrics.put("baseline", green ? "PASS" : "FAIL");
+      return new AgentResult(Map.of("contract.json", json.writeValueAsString(contract),
+          "baseline.json", json.writeValueAsString(baseline), "baseline.log", log.toString()),
+          metrics);
+    } finally {
+      if (handle != null) {
+        sandboxes.teardown(handle);
+      }
+    }
+  }
+
+  /** One plan check as preparation and verification execute it: id plus exact argv. */
+  private record Check(String id, String command, boolean requiresDocker) {
+  }
+
+  /** The plan's required checks; an empty list means the plan carries no authority. */
+  private static List<Check> requiredChecks(JsonNode resolved) {
+    List<Check> checks = new ArrayList<>();
+    JsonNode plan = resolved == null ? null : resolved.path("verificationPlan");
+    JsonNode checkNodes = plan == null ? null : plan.path("checks");
+    if (checkNodes != null && checkNodes.isArray()) {
+      for (JsonNode node : checkNodes) {
+        if (!node.path("required").asBoolean(false)) {
+          continue;
+        }
+        JsonNode argv = node.path("argv");
+        if (!argv.isArray() || argv.isEmpty()) {
+          continue;
+        }
+        List<String> parts = new ArrayList<>();
+        argv.forEach(item -> parts.add(item.asString()));
+        checks.add(new Check(node.path("id").asString("check"),
+            String.join(" ", parts), node.path("requiresDocker").asBoolean(false)));
+      }
+    }
+    return checks;
+  }
+
+  /**
+   * Probes every capability a required check declares. Returns null when all
+   * capabilities are available, or a concise explanation of the first missing
+   * capability (which check needs it, what the probe showed).
+   */
+  private String probeRequiredCapabilities(SandboxService sandboxes, SandboxHandle handle,
+                                           List<Check> checks, StringBuilder log) {
+    if (checks.stream().noneMatch(Check::requiresDocker)) {
+      return null;
+    }
+    CommandResult probe = sandboxes.exec(handle, DOCKER_PROBE_COMMAND, 60L);
+    log.append(commandLog("docker-capability-probe", probe));
+    if (probe.stdout() != null && probe.stdout().contains("DOCKER=AVAILABLE")) {
+      return null;
+    }
+    Check needy = checks.stream().filter(Check::requiresDocker).findFirst().orElseThrow();
+    return "required check '" + needy.id() + "' (" + needy.command() + ") needs the Docker "
+        + "capability for its Testcontainers integration suite, but the sandbox has no usable "
+        + "Docker environment: probe output '" + bounded(probe.stdout()) + "' "
+        + bounded(probe.stderr());
+  }
+
+  /**
+   * Best-effort signature of the known environment failure this deployment
+   * cannot satisfy: Testcontainers unable to reach a Docker daemon. Used only
+   * to classify a failure as an environment blocker, never to pass a check.
+   */
+  private static boolean environmentFailureSignature(String output) {
+    if (output == null) {
+      return false;
+    }
+    String lower = output.toLowerCase(Locale.ROOT);
+    return lower.contains("could not find a valid docker environment")
+        || lower.contains("rootlessdockerclientproviderstrategy")
+        || (lower.contains("noclassdeffounderror")
+            && (lower.contains("testcontainers") || lower.contains("docker")));
+  }
+
   private AgentResult code(AgentContext context) {
     JsonNode payload = context.triggerPayload();
     JsonNode contract = json.readTree(context.requireInput("contract.json").content());
+    // A preparation-time environment blocker must not spend coding budget:
+    // return before any sandbox or provider call so the blocked classification
+    // flows to verification and finalization with provider_calls = 0.
+    if ("BLOCKED_ENVIRONMENT".equals(contract.path("status").asString(null))) {
+      return failedCoding("PREPARE", "BLOCKED_ENVIRONMENT", null, 0, false);
+    }
     if (!"READY".equals(contract.path("status").asText("READY"))) {
       return failedCoding("PREPARE", "BASELINE_NOT_READY", null, 0, false);
     }
@@ -387,10 +562,7 @@ public final class PiWorker implements AgentWorker {
             "stage", "VERIFY", "reason", "PATCH_REJECTED", "stderr", bounded(applied.stderr()))));
       }
       if (!task) {
-        CommandResult tests = sandboxes.exec(fresh, "cd repo && mvn -B -ntp verify", 900);
-        return AgentResult.of("verification.json", "{\"status\":\"" + (tests.ok() ? "PASS" : "FAIL")
-            + "\",\"independent\":true,\"freshCheckout\":true,\"mavenVerifyExit\":"
-            + tests.exitCode() + ",\"candidateBytes\":" + patch.length() + "}");
+        return verifyGeneric(context, fresh, patch);
       }
       CommandResult checker = modsidecar208.verifyCandidate(sandboxes, fresh,
           payload.path("baseRevision").asText(), 900L);
@@ -444,12 +616,82 @@ public final class PiWorker implements AgentWorker {
     }
   }
 
-  private AgentResult failedVerification(JsonNode candidate, JsonNode payload) {
+  /**
+   * Authoritative generic verification: the resolved verification plan's
+   * required checks are the task's gate, executed exactly as resolved — never
+   * silently replaced by a stronger or weaker hardcoded command such as a
+   * blanket {@code mvn verify}. A missing plan fails loudly instead of
+   * substituting a default. A failing check whose output carries the
+   * Docker/Testcontainers environment-failure signature is classified as
+   * BLOCKED_ENVIRONMENT, not as a coding failure.
+   */
+  private AgentResult verifyGeneric(AgentContext context, SandboxHandle fresh, String patch) {
+    JsonNode payload = context.triggerPayload();
+    JsonNode contractResolved = context.inputs().containsKey("contract.json")
+        ? json.readTree(context.requireInput("contract.json").content()).path("resolvedIntent")
+        : null;
+    List<Check> checks = contractResolved != null && contractResolved.isObject()
+        ? requiredChecks(contractResolved) : requiredChecks(payload.path("resolvedIntent"));
     ObjectNode result = json.createObjectNode();
-    result.put("status", "FAIL");
+    result.put("independent", true);
+    result.put("freshCheckout", true);
+    result.put("stage", "VERIFY");
+    result.put("base", payload.path("baseRevision").asText());
+    result.put("candidateBytes", patch.length());
+    result.put("planId", payload.path("resolvedIntent").path("verificationPlan").path("id")
+        .asText(""));
+    if (checks.isEmpty()) {
+      result.put("status", "FAIL");
+      result.put("reason", "VERIFICATION_PLAN_MISSING");
+      result.put("detail", "the resolved verification plan carries no required checks; "
+          + "refusing to substitute a hardcoded verification command");
+      return AgentResult.of("verification.json", json.writeValueAsString(result));
+    }
+    ArrayNode evidence = result.putArray("checks");
+    boolean passed = true;
+    boolean environmentFailure = false;
+    for (Check check : checks) {
+      CommandResult run = sandboxes.exec(fresh, "cd repo && " + check.command(),
+          VERIFY_BUILD_TIMEOUT);
+      ObjectNode entry = evidence.addObject();
+      entry.put("id", check.id());
+      entry.put("command", check.command());
+      entry.put("exitCode", run.exitCode());
+      entry.put("durationMs", run.durationMs());
+      if (!run.ok()) {
+        passed = false;
+        if (environmentFailureSignature(run.stdout())
+            || environmentFailureSignature(run.stderr())) {
+          environmentFailure = true;
+          entry.put("environmentFailure", true);
+        }
+        entry.put("outputTail", tail(run.stdout() + "\n" + run.stderr()));
+      }
+    }
+    if (environmentFailure) {
+      result.put("status", "BLOCKED_ENVIRONMENT");
+      result.put("reason", "REQUIRED_CHECK_CANNOT_RUN");
+      result.put("detail", "a required check failed with the Docker/Testcontainers "
+          + "environment-failure signature in a sandbox without Docker");
+    } else {
+      result.put("status", passed ? "PASS" : "FAIL");
+      if (!passed) {
+        result.put("reason", "VERIFICATION_FAILED");
+      }
+    }
+    return AgentResult.of("verification.json", json.writeValueAsString(result));
+  }
+
+  private AgentResult failedVerification(JsonNode candidate, JsonNode payload) {
+    String reason = candidate.path("reason").asText("PI_FAILED");
+    boolean blocked = "BLOCKED_ENVIRONMENT".equals(reason);
+    ObjectNode result = json.createObjectNode();
+    // An environment blocker from preparation is not a verification attempt
+    // and must not surface as a coding/benchmark failure.
+    result.put("status", blocked ? "BLOCKED_ENVIRONMENT" : "FAIL");
     result.put("independent", false);
     result.put("stage", candidate.path("stage").asText("PI_RUNTIME"));
-    result.put("reason", candidate.path("reason").asText("PI_FAILED"));
+    result.put("reason", reason);
     result.put("retained", candidate.path("retained").asBoolean(false));
     result.put("base", candidate.path("base").asText(payload.path("baseRevision").asText()));
     return AgentResult.of("verification.json", json.writeValueAsString(result));
@@ -463,6 +705,7 @@ public final class PiWorker implements AgentWorker {
       case "INCOMPLETE" -> "INCOMPLETE";
       case "CANCELLED" -> "CANCELLED";
       case "ERROR" -> "ERROR";
+      case "BLOCKED_ENVIRONMENT" -> "BLOCKED_ENVIRONMENT";
       default -> "FAILED";
     };
     ObjectNode result = json.createObjectNode();
@@ -652,6 +895,15 @@ public final class PiWorker implements AgentWorker {
     }
     int max = 256 * 1024;
     return value.length() <= max ? value : value.substring(0, max) + "\n[output truncated]\n";
+  }
+
+  /** Last 8 KiB of a failed check's combined output, as verification evidence. */
+  private static String tail(String value) {
+    if (value == null) {
+      return "";
+    }
+    int max = 8 * 1024;
+    return value.length() <= max ? value : "[...]\n" + value.substring(value.length() - max);
   }
 
   private static String failureMessage(Throwable error) {

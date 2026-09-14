@@ -317,10 +317,24 @@ start_factory() {
   fi
   # Whole-launcher advisory lock: the kernel releases it when this process
   # dies, so a hard-killed start cannot permanently block the next one.
-  exec 9>"$STATE_DIR/run/start.lock" || fail "cannot open the Factory start lock"
-  flock -n 9 || fail "another Factory start is in progress"
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"$STATE_DIR/run/start.lock" || fail "cannot open the Factory start lock"
+    flock -n 9 || fail "another Factory start is in progress"
+  else
+    # Hosts without util-linux flock (e.g. macOS): an atomic directory lock
+    # at a separate path.  Every exit path of start removes it, matching the
+    # fd-release semantics above; a hard-killed start leaves an empty
+    # directory which the next start reclaims.
+    START_DIRLOCK="$STATE_DIR/run/start.dirlock"
+    if ! mkdir "$START_DIRLOCK" 2>/dev/null; then
+      rmdir "$START_DIRLOCK" 2>/dev/null ||
+        fail "another Factory start is in progress"
+      mkdir "$START_DIRLOCK" 2>/dev/null ||
+        fail "another Factory start is in progress"
+    fi
+  fi
   local pi_gateways_started=false
-  trap 'if [[ "${pi_gateways_started:-}" == true ]]; then revoke_pi_gateways; fi' EXIT
+  trap 'if [[ "${pi_gateways_started:-}" == true ]]; then revoke_pi_gateways; fi; if [[ -n "${START_DIRLOCK:-}" ]]; then rmdir "$START_DIRLOCK" 2>/dev/null || true; fi' EXIT
 
   if [[ "$mode" == offline ]]; then
     doctor_offline
@@ -387,6 +401,7 @@ start_factory() {
   for attempt in $(seq 1 90); do
     if curl -fsS "http://127.0.0.1:${FACTORY_APP_PORT}/actuator/health" >/dev/null 2>&1; then
       pi_gateways_started=false
+      if [[ -n "${START_DIRLOCK:-}" ]]; then rmdir "$START_DIRLOCK" 2>/dev/null || true; fi
       trap - EXIT
       echo "Factory is ready in $mode mode at http://127.0.0.1:${FACTORY_APP_PORT} (PID $pid)"
       return 0
@@ -767,6 +782,12 @@ run_eval() {
   # Trusted curated mapping per task: repository + pinned base revision.
   # The MODSIDECAR-208 mapping is the frozen accepted benchmark (unchanged);
   # the seven dataset tasks use pinned origin/main SHAs captured 2026-09-11.
+  # Plan selection mirrors each task's own acceptance criteria: tasks whose ACs
+  # demand the full build incl. integration tests (mvn clean verify / "all
+  # unit/integration tests pass") use java-maven-verify-it, whose check
+  # requires the Docker capability; unit-gated tasks use java-maven-verify
+  # (mvn test). In a sandbox without Docker the IT tasks are honestly
+  # BLOCKED_ENVIRONMENT at preparation instead of burning coding budget.
   local repo base plan
   case "$task_id" in
     MODSIDECAR-208)
@@ -781,11 +802,11 @@ run_eval() {
     MGRENTITLE-161)
       repo="folio-org/mgr-tenant-entitlements"
       base="bebe335b1f86753a03ecbcbc14d3cd7811c22d42"
-      plan="java-maven-verify" ;;
+      plan="java-maven-verify-it" ;;
     MGRENTITLE-172)
       repo="folio-org/mgr-tenant-entitlements"
       base="dad5c4146bfb1761bb64f3df1054548dac9e6009"
-      plan="java-maven-verify" ;;
+      plan="java-maven-verify-it" ;;
     MGRENTITLE-192)
       repo="folio-org/mgr-tenant-entitlements"
       base="8c5a9a2b01cdc804bafe7176669e7ca64efc1270"
@@ -793,15 +814,15 @@ run_eval() {
     MODROLESKC-424)
       repo="folio-org/mod-roles-keycloak"
       base="d80e83f6281736e53b17064a79615609f7c21126"
-      plan="java-maven-verify" ;;
+      plan="java-maven-verify-it" ;;
     MODROLESKC-427)
       repo="folio-org/mod-roles-keycloak"
       base="cb76d7166affaae024bfbbeba98f1aad64496a62"
-      plan="java-maven-verify" ;;
+      plan="java-maven-verify-it" ;;
     MODSCHED-70)
       repo="folio-org/mod-scheduler"
       base="409150b6787c884b94f0f2de1115e67634d6abef"
-      plan="java-maven-verify" ;;
+      plan="java-maven-verify-it" ;;
     MODSCHED-76)
       repo="folio-org/mod-scheduler"
       base="a8ac6c8862e3692adfd0c03936df6c46fd5ecd3d"
