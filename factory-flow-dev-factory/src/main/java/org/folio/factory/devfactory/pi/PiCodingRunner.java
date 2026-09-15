@@ -213,5 +213,15 @@ public final class PiCodingRunner {
       rawExchange = rawExchange == null ? "" : rawExchange;
       events = events == null ? List.of() : List.copyOf(events);
     }
+
+    /** Pi can settle after exhausting provider retries; that is not a coding result. */
+    public boolean terminalProviderFailure() {
+      return events.stream().anyMatch(event ->
+          ("auto_retry_end".equals(event.path("type").asString())
+              && event.path("success").isBoolean() && !event.path("success").asBoolean())
+          || ("agent_end".equals(event.path("type").asString())
+              && event.path("willRetry").isBoolean() && !event.path("willRetry").asBoolean()
+              && event.path("messages").toString().contains("\"stopReason\":\"error\"")));
+    }
   }
 }

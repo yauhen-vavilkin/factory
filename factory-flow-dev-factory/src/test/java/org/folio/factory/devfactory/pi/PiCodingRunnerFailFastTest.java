@@ -18,8 +18,11 @@ import org.folio.factory.sandbox.api.ProcessSessionFactory;
 import org.folio.factory.sandbox.api.ProcessSessionRequest;
 import org.folio.factory.sandbox.api.SandboxHandle;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
 class PiCodingRunnerFailFastTest {
+  private static final JsonMapper JSON = JsonMapper.builder().build();
+
   @Test
   void failedPromptResponseFailsWithoutWaitingForSettlementTimeout() {
     FailingPromptSessions sessions = new FailingPromptSessions();
@@ -34,6 +37,22 @@ class PiCodingRunnerFailFastTest {
     assertTrue(error.getMessage().contains("prompt"));
     assertFalse(sessions.combinedRequests(), "model validation must precede the prompt RPC");
     assertTrue(elapsedMs < 1000, "failed RPC must not wait for the settlement deadline");
+  }
+
+  @Test
+  void settledPiWithExhaustedProviderRetriesIsNotACodingResult() {
+    var failed = new PiCodingRunner.CodingAttempt(0, true, "", List.of(
+        JSON.readTree("{\"type\":\"agent_end\",\"willRetry\":false,\"messages\":["
+            + "{\"stopReason\":\"error\",\"errorMessage\":\"429 run token expired\"}]}"),
+        JSON.readTree("{\"type\":\"auto_retry_end\",\"success\":false}"),
+        JSON.readTree("{\"type\":\"agent_settled\"}")), 0, 0);
+    var successful = new PiCodingRunner.CodingAttempt(0, true, "", List.of(
+        JSON.readTree("{\"type\":\"agent_end\",\"willRetry\":false,\"messages\":["
+            + "{\"stopReason\":\"stop\"}]}"),
+        JSON.readTree("{\"type\":\"agent_settled\"}")), 0, 0);
+
+    assertTrue(failed.terminalProviderFailure());
+    assertFalse(successful.terminalProviderFailure());
   }
 
   private static final class FailingPromptSessions implements ProcessSessionFactory {

@@ -85,6 +85,7 @@ class DevFactoryPiEndToEndScenarioTest {
   static void factoryRuntimeDirs(DynamicPropertyRegistry registry) {
     registry.add("factory.sandbox.mode", () -> "docker");
     registry.add("factory.sandbox.docker-network", () -> "host");
+    registry.add("factory.sandbox.dependency-docker-network", () -> "host");
     registry.add("factory.sandbox.workspace-root", () -> workspaceRoot.toString());
     registry.add("factory.inbox.dir", () -> inbox.toString());
     gateway = new WireMockServer(com.github.tomakehurst.wiremock.core.WireMockConfiguration.options()
@@ -103,6 +104,9 @@ class DevFactoryPiEndToEndScenarioTest {
   @Test
   void submittedTaskRunsThroughPostgresEngineAndPiFlow() throws Exception {
     try {
+      gateway.stubFor(get(urlPathMatching("/maven/repository/.*")).atPriority(10)
+          .willReturn(aResponse().proxiedFrom("https://repo.maven.apache.org/maven2")
+              .withProxyUrlPrefixToRemove("/maven/repository")));
       String read = "data: {\"id\":\"s\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"r\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"README.md\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n";
       String edit = "data: {\"id\":\"s\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"b\",\"type\":\"function\",\"function\":{\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"sed -i 's/return value;/return value.trim().toLowerCase();/' src/main/java/factory/Normalizer.java\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n";
       edit = edit.replace("sed -i 's/return", "git config --global --add safe.directory /workspace/repo && sed -i 's/return");

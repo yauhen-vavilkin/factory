@@ -353,7 +353,10 @@ start_factory() {
     esac
     guard_legacy_pgdata
     rotate_model_token
-    FACTORY_GATEWAY_EXPIRES_AT=$(( $(date +%s) + 7200 ))
+    # M2 can spend 30 minutes each in baseline, coding, initial verification,
+    # one repair, and full re-verification. Keep one bounded flow inside the
+    # credential window without creating a refresh/session subsystem.
+    FACTORY_GATEWAY_EXPIRES_AT=$(( $(date +%s) + 14400 ))
     export FACTORY_GATEWAY_EXPIRES_AT
     export FACTORY_PI_GATEWAY_URL="http://127.0.0.1:${FACTORY_GATEWAY_PORT}/v1"
     pi_gateways_started=true
@@ -976,7 +979,7 @@ import sys
 
 detail = json.load(open(sys.argv[1], encoding="utf-8"))
 execution = detail.get("execution", {})
-interesting = {"baseline.json", "candidate.json", "candidate.patch", "verification.json", "usage.json", "result.json", "manifest.json"}
+interesting = {"baseline.json", "candidate.json", "candidate.patch", "verification.json", "repair.json", "usage.json", "result.json", "manifest.json"}
 artifacts = []
 for item in detail.get("artifacts", []):
     content = item.get("content") or ""
@@ -1028,6 +1031,10 @@ out.mkdir(parents=True, exist_ok=True)
 if out == pathlib.Path("/"):
     raise SystemExit("refusing to export to filesystem root")
 manifest = {"execution": detail.get("execution"), "artifacts": []}
+artifacts = detail.get("artifacts", [])
+versions_by_name = {}
+for item in artifacts:
+    versions_by_name.setdefault(item.get("name", ""), []).append(item)
 
 def write_new(path, content):
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
@@ -1047,17 +1054,28 @@ def write_new(path, content):
             pass
         raise
 
-for item in detail.get("artifacts", []):
+for item in artifacts:
     name = item.get("name", "")
     if not re.fullmatch(r"[A-Za-z0-9._-]+", name):
         raise SystemExit(f"unsafe artifact name: {name!r}")
     if name == "execution.json":
         raise SystemExit("artifact name is reserved: execution.json")
     content = item.get("content") or ""
-    path = out / name
+    version = item.get("version")
+    if len(versions_by_name[name]) > 1:
+        artifact_path = pathlib.Path(name)
+        filename = f"{artifact_path.stem}.v{version}{artifact_path.suffix}"
+    else:
+        filename = name
+    path = out / filename
     write_new(path, content)
-    manifest["artifacts"].append({"name": name, "version": item.get("version"),
+    manifest["artifacts"].append({"name": name, "file": filename, "version": version,
         "sha256": hashlib.sha256(content.encode()).hexdigest(), "bytes": len(content.encode())})
+for name, versions in versions_by_name.items():
+    if len(versions) <= 1:
+        continue
+    latest = max(versions, key=lambda item: item.get("version", 0))
+    write_new(out / name, latest.get("content") or "")
 write_new(out / "execution.json", json.dumps(manifest, indent=2) + "\n")
 print(json.dumps({"execution": detail.get("execution", {}).get("id"), "out": str(out),
                   "artifacts": [a["name"] for a in manifest["artifacts"]]}))

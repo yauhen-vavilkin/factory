@@ -73,10 +73,34 @@ class DevFactoryFlowDescriptorTest {
                 .hasMessageContaining("worker_id");
     }
 
+    @Test
+    void piFlowDeclaresOneExplicitBoundedRepairAndFullReverification() {
+        FlowDescriptor flow = parser.parse(piDescriptorYaml(), "flows/dev-factory-pi.yaml");
+
+        assertThat(flow.agentChain()).extracting(StepDescriptor::stepId)
+                .containsExactly("prepare", "coding", "verify", "repair", "reverify", "finalize");
+        assertThat(flow.agentChain()).filteredOn(step -> step.workerId().equals("pi-repair-worker"))
+                .hasSize(1);
+        assertThat(flow.step(3).inputs()).contains("verification.json", "candidate.patch", "candidate.json");
+        assertThat(flow.step(3).outputs()).contains("repair.json", "candidate.patch", "candidate.json");
+        assertThat(flow.step(4).workerId()).isEqualTo("pi-reverify-worker");
+        assertThat(flow.step(4).inputs()).contains("contract.json", "baseline.json", "repair.json");
+    }
+
     private static String descriptorYaml() {
         try (InputStream in = DevFactoryFlowDescriptorTest.class.getClassLoader()
                 .getResourceAsStream("flows/dev-factory.yaml")) {
             assertThat(in).as("classpath resource flows/dev-factory.yaml").isNotNull();
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static String piDescriptorYaml() {
+        try (InputStream in = DevFactoryFlowDescriptorTest.class.getClassLoader()
+                .getResourceAsStream("flows/dev-factory-pi.yaml")) {
+            assertThat(in).as("classpath resource flows/dev-factory-pi.yaml").isNotNull();
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new UncheckedIOException(e);

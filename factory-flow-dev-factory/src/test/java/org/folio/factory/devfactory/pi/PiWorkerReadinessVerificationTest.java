@@ -17,6 +17,7 @@ import java.util.UUID;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.ArtifactContent;
+import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.devfactory.profile.TrustedProfileCatalog;
 import org.folio.factory.sandbox.api.CommandResult;
 import org.folio.factory.sandbox.api.SandboxHandle;
@@ -243,10 +244,13 @@ class PiWorkerReadinessVerificationTest {
   }
 
   private AgentResult verifyWorker(SandboxService sandboxes, ObjectNode payload, String patch) {
+    when(sandboxes.exec(org.mockito.ArgumentMatchers.any(), contains("git write-tree"), anyLong()))
+        .thenReturn(new CommandResult(0, "candidate-tree\n", "", 1));
     AgentContext context = new AgentContext(UUID.randomUUID(), "verify", Map.of(
         "candidate.patch", new ArtifactContent("candidate.patch", 1, "text/plain", patch),
         "candidate.json", new ArtifactContent("candidate.json", 1, "application/json",
-            "{\"status\":\"READY\",\"base\":\"b\",\"patchSha256\":\"x\"}")),
+            "{\"status\":\"READY\",\"base\":\"b\",\"candidateTree\":\"candidate-tree\","
+                + "\"patchSha256\":\"" + ArtifactStore.sha256(patch) + "\"}")),
         payload, Map.of(), List.of(), 1);
     return new PiWorker("pi-verify-worker", sandboxes, mock(PiCodingRunner.class), "", "gateway")
         .execute(context);

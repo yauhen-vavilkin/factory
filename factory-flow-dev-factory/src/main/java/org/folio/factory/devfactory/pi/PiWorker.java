@@ -27,6 +27,8 @@ import tools.jackson.databind.node.ObjectNode;
 public final class PiWorker implements AgentWorker {
   private static final long BASELINE_BUILD_TIMEOUT = 1_800L;
   private static final long VERIFY_BUILD_TIMEOUT = 1_800L;
+  private static final int MAX_REPAIR_EVIDENCE_CHARS = 16 * 1024;
+  private static final String REPAIR_POLICY = "ONE_AUTOMATIC_REPAIR";
   private static final String DOCKER_PROBE_COMMAND =
       "if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; "
           + "then echo DOCKER=AVAILABLE; else echo DOCKER=UNAVAILABLE; fi";
@@ -76,6 +78,12 @@ public final class PiWorker implements AgentWorker {
     }
     if ("pi-coding-worker".equals(id)) {
       return code(context);
+    }
+    if ("pi-repair-worker".equals(id)) {
+      return repair(context);
+    }
+    if ("pi-reverify-worker".equals(id)) {
+      return reverify(context);
     }
     if ("pi-verify-worker".equals(id)) {
       JsonNode candidate = context.inputs().containsKey("candidate.json")
@@ -381,6 +389,22 @@ public final class PiWorker implements AgentWorker {
       long durationMs = (System.nanoTime() - started) / 1_000_000L;
       String usage = usageJson(attempt, provider, model, durationMs);
       String baseRevision = payload.path("baseRevision").asText();
+      if (attempt.terminalProviderFailure()) {
+        Map<String, String> outputs = new LinkedHashMap<>();
+        outputs.put("candidate.patch", diff.stdout());
+        outputs.put("candidate.json", failureJson("PI_RUNTIME", "PROVIDER_ERROR", false,
+            diff.stdout().length(), baseRevision));
+        outputs.put("pi-session.jsonl", attempt.rawExchange());
+        outputs.put("usage.json", usage);
+        Map<String, Object> metrics = new LinkedHashMap<>();
+        metrics.put("provider_calls", providerCalls(attempt));
+        metrics.put("settled", false);
+        metrics.put("failure_stage", "PI_RUNTIME");
+        AgentResult result = publishResult(context, payload, outputs, metrics, true,
+            "PROVIDER_ERROR");
+        recoveryPublished = true;
+        return result;
+      }
       if (!attempt.settled()) {
         String failureStage = isModsidecar208(payload) ? "PI_RUNTIME" : "coding";
         Map<String, String> outputs = new LinkedHashMap<>();
@@ -494,6 +518,290 @@ public final class PiWorker implements AgentWorker {
         "usage.json", "{\"provider_calls\":0,\"settled\":false,\"costStatus\":\"UNPRICED\"}"),
         Map.of("provider_calls", 0, "settled", false, "failure_stage", stage,
             "retained", retained));
+  }
+
+  /**
+   * The single Milestone 2 repair boundary. It deterministically routes the
+   * first verification result and starts one fresh Pi process only for a
+   * candidate-caused failure. The previous frozen patch is applied before Pi
+   * starts, so the runtime repairs that candidate rather than starting over.
+   */
+  private AgentResult repair(AgentContext context) {
+    JsonNode payload = context.triggerPayload();
+    JsonNode verification = json.readTree(context.requireInput("verification.json").content());
+    JsonNode previousCandidate = json.readTree(context.requireInput("candidate.json").content());
+    String previousPatch = context.requireInput("candidate.patch").content();
+    VerificationFailureClassifier.Decision decision =
+        VerificationFailureClassifier.classify(verification);
+    ObjectNode repair = repairArtifact(decision, previousCandidate, verification);
+    if (decision.route() != VerificationFailureClassifier.Route.REPAIR) {
+      repair.put("attempted", false);
+      repair.put("attempt", 0);
+      repair.put("providerCalls", 0);
+      repair.put("result", "NOT_DISPATCHED");
+      return new AgentResult(Map.of(
+          "candidate.patch", previousPatch,
+          "candidate.json", context.requireInput("candidate.json").content(),
+          "repair.json", json.writeValueAsString(repair),
+          "usage.json", context.requireInput("usage.json").content(),
+          "pi-session.jsonl", context.requireInput("pi-session.jsonl").content()),
+          Map.of("repair_attempted", false, "repair_route", decision.route().name(),
+              "repair_provider_calls", 0));
+    }
+
+    JsonNode contract = json.readTree(context.requireInput("contract.json").content());
+    JsonNode profile = contract.path("profile");
+    String provider = required(profile, "modelProvider");
+    String model = required(profile, "modelId");
+    SandboxSpec source = sourceSpec(payload, profile, context, "-repair");
+    SandboxHandle handle = null;
+    SandboxHandle exporter = null;
+    PiCodingRunner.CodingAttempt attempt = null;
+    boolean recoveryPublished = recoveryStore == null;
+    long started = System.nanoTime();
+    repair.put("attempted", true);
+    repair.put("attempt", 1);
+    repair.put("runtimeContinuity", "FRESH_PI_INVOCATION_ON_FROZEN_CANDIDATE");
+    try {
+      handle = sandboxes.create(source);
+      CommandResult applied = sandboxes.exec(handle, "cd repo && printf '%s' "
+          + Shell.quote(previousPatch) + " | git apply --binary - && git add -A", 120);
+      if (!applied.ok()) {
+        AgentResult result = failedRepair(context, payload, previousPatch, repair, "PATCH_REJECTED",
+            bounded(applied.stderr()), null, provider, model, started);
+        recoveryPublished = true;
+        return result;
+      }
+      ObjectNode task = codingTask(payload);
+      task.put("mode", "REPAIR_EXISTING_CANDIDATE");
+      task.set("repair", compactRepairFeedback(previousCandidate, verification));
+      attempt = runner.run(handle, piArgv(provider, model), "/workspace/repo",
+          json.writeValueAsString(task), Duration.ofMinutes(30), 16L * 1024 * 1024,
+          Map.of("PI_OFFLINE", "1", "FACTORY_MODEL_TOKEN", modelToken,
+              "FACTORY_PI_GATEWAY_URL", gatewayUrl));
+      // Surface terminal Pi/provider failures before spending an export sandbox:
+      // a provider-failed repair produced no candidate, and export preparation
+      // (a fresh base fetch) must not mask the truthful failure reason.
+      int calls = providerCalls(attempt);
+      repair.put("providerCalls", calls);
+      if (attempt.terminalProviderFailure()) {
+        AgentResult result = failedRepair(context, payload, previousPatch, repair,
+            "REPAIR_PROVIDER_ERROR", "Provider retries were exhausted", attempt, provider,
+            model, started);
+        recoveryPublished = true;
+        return result;
+      }
+      if (!attempt.settled()) {
+        AgentResult result = failedRepair(context, payload, previousPatch, repair, "PI_UNSETTLED", "",
+            attempt, provider, model, started);
+        recoveryPublished = true;
+        return result;
+      }
+      exporter = sandboxes.freezeForExport(handle, source);
+      CommandResult diff = snapshotAllowEmpty(exporter, payload.path("baseRevision").asText());
+      CommandResult tree = sandboxes.exec(exporter, "cd repo && git write-tree", 30);
+      if (!tree.ok()) {
+        throw new IllegalStateException("Cannot identify repaired candidate tree: " + tree.stderr());
+      }
+      String patchHash = ArtifactStore.sha256(diff.stdout());
+      String candidateTree = tree.stdout().trim();
+      boolean changed = !candidateTree.equals(previousCandidate.path("candidateTree").asText())
+          || !patchHash.equals(previousCandidate.path("patchSha256").asText());
+      if (!changed) {
+        AgentResult result = failedRepair(context, payload, diff.stdout(), repair,
+            "REPAIR_DID_NOT_CHANGE_CANDIDATE", "Pi settled without changing the frozen candidate",
+            attempt, provider, model, started);
+        recoveryPublished = true;
+        return result;
+      }
+      long durationMs = (System.nanoTime() - started) / 1_000_000L;
+      ObjectNode metadata = json.createObjectNode();
+      metadata.put("status", "READY");
+      metadata.put("base", payload.path("baseRevision").asText());
+      metadata.put("candidateTree", candidateTree);
+      metadata.put("patchSha256", patchHash);
+      metadata.put("requestedProvider", provider);
+      metadata.put("requestedModel", model);
+      metadata.put("durationMs", durationMs);
+      metadata.put("repairAttempt", 1);
+      metadata.put("previousCandidateTree", previousCandidate.path("candidateTree").asText());
+      metadata.put("retained", false);
+      repair.put("result", "NEW_CANDIDATE");
+      repair.putObject("repairedCandidate")
+          .put("base", metadata.path("base").asText())
+          .put("candidateTree", candidateTree)
+          .put("patchSha256", patchHash);
+      String repairUsage = usageJson(attempt, provider, model, durationMs);
+      Map<String, String> outputs = new LinkedHashMap<>();
+      outputs.put("candidate.patch", diff.stdout());
+      outputs.put("candidate.json", json.writeValueAsString(metadata));
+      outputs.put("repair.json", json.writeValueAsString(repair));
+      outputs.put("usage.json", aggregateUsage(context, repairUsage, calls));
+      outputs.put("pi-session.jsonl", combinedSession(context, attempt.rawExchange()));
+      Map<String, Object> metrics = new LinkedHashMap<>();
+      metrics.put("repair_attempted", true);
+      metrics.put("repair_route", decision.route().name());
+      metrics.put("repair_provider_calls", calls);
+      metrics.put("candidate", candidateTree);
+      AgentResult result = publishResult(context, payload, outputs, metrics, true, null);
+      recoveryPublished = true;
+      return result;
+    } catch (RecoveryPublicationException error) {
+      throw new AgentExecutionException("Pi repair result durability failed; retaining repair sandbox "
+          + (handle == null ? "<none>" : handle.containerId()), error);
+    } catch (RuntimeException error) {
+      AgentResult result = failedRepair(context, payload, previousPatch, repair,
+          "REPAIR_RUNTIME_ERROR", failureMessage(error), attempt, provider, model, started);
+      recoveryPublished = true;
+      return result;
+    } finally {
+      if (recoveryPublished && exporter != null) {
+        sandboxes.teardown(exporter);
+      }
+      if (recoveryPublished && handle != null) {
+        sandboxes.teardown(handle);
+      }
+    }
+  }
+
+  private AgentResult failedRepair(AgentContext context, JsonNode payload, String patch,
+                                   ObjectNode repair, String reason, String detail,
+                                   PiCodingRunner.CodingAttempt attempt, String provider,
+                                   String model, long started) {
+    int calls = attempt == null ? 0 : providerCalls(attempt);
+    repair.put("providerCalls", calls);
+    repair.put("result", reason);
+    if (detail != null && !detail.isBlank()) {
+      repair.put("detail", bounded(detail));
+    }
+    long durationMs = (System.nanoTime() - started) / 1_000_000L;
+    String usage = usageJson(attempt, provider, model, durationMs);
+    Map<String, String> outputs = new LinkedHashMap<>();
+    outputs.put("candidate.patch", patch == null ? "" : patch);
+    outputs.put("candidate.json", failureJson("REPAIR", reason, false,
+        patch == null ? 0 : patch.length(), payload.path("baseRevision").asText()));
+    outputs.put("repair.json", json.writeValueAsString(repair));
+    outputs.put("usage.json", aggregateUsage(context, usage, calls));
+    outputs.put("pi-session.jsonl", combinedSession(context,
+        attempt == null ? "" : attempt.rawExchange()));
+    Map<String, Object> metrics = new LinkedHashMap<>();
+    metrics.put("repair_attempted", true);
+    metrics.put("repair_route", "REPAIR");
+    metrics.put("repair_provider_calls", calls);
+    metrics.put("failure_stage", "REPAIR");
+    return publishResult(context, payload, outputs, metrics, true, reason);
+  }
+
+  private ObjectNode repairArtifact(VerificationFailureClassifier.Decision decision,
+                                    JsonNode candidate, JsonNode verification) {
+    ObjectNode repair = json.createObjectNode();
+    repair.put("schema", "DevFlowRepair/v1");
+    repair.put("policy", REPAIR_POLICY);
+    repair.put("maxAttempts", 1);
+    repair.put("route", decision.route().name());
+    repair.put("failureClass", decision.failureClass());
+    repair.put("reason", decision.reason());
+    repair.putObject("previousCandidate")
+        .put("base", candidate.path("base").asText())
+        .put("candidateTree", candidate.path("candidateTree").asText())
+        .put("patchSha256", candidate.path("patchSha256").asText());
+    repair.set("feedback", compactRepairFeedback(candidate, verification));
+    return repair;
+  }
+
+  /** Only failed check identifiers, commands, exits and bounded output enter model context. */
+  private ObjectNode compactRepairFeedback(JsonNode candidate, JsonNode verification) {
+    ObjectNode feedback = json.createObjectNode();
+    feedback.put("instruction", "Repair the existing frozen candidate for the original task. "
+        + "Do not redesign unrelated code or change the acceptance criteria.");
+    feedback.putObject("candidate")
+        .put("base", candidate.path("base").asText())
+        .put("candidateTree", candidate.path("candidateTree").asText())
+        .put("patchSha256", candidate.path("patchSha256").asText());
+    feedback.put("verificationReason", verification.path("reason").asText("VERIFICATION_FAILED"));
+    ArrayNode failed = feedback.putArray("failedChecks");
+    int remaining = MAX_REPAIR_EVIDENCE_CHARS;
+    JsonNode checks = verification.path("checks");
+    if (checks.isArray()) {
+      for (JsonNode check : checks) {
+        if (check.path("exitCode").asInt(0) == 0) {
+          continue;
+        }
+        ObjectNode entry = failed.addObject();
+        entry.put("id", check.path("id").asText("check"));
+        entry.put("command", check.path("command").asText(""));
+        entry.put("exitCode", check.path("exitCode").asInt(-1));
+        String output = check.path("outputTail").asText("");
+        int take = Math.min(remaining, output.length());
+        entry.put("output", output.substring(Math.max(0, output.length() - take)));
+        remaining -= take;
+        if (remaining == 0) {
+          break;
+        }
+      }
+    }
+    if (failed.isEmpty()) {
+      String output = verification.path("checkerOutput").asText("") + "\n"
+          + verification.path("surefireSummary").asText("");
+      int take = Math.min(remaining, output.length());
+      feedback.put("output", output.substring(Math.max(0, output.length() - take)));
+    }
+    feedback.put("evidenceLimitChars", MAX_REPAIR_EVIDENCE_CHARS);
+    return feedback;
+  }
+
+  private String aggregateUsage(AgentContext context, String repairUsage, int repairCalls) {
+    JsonNode initial = json.readTree(context.requireInput("usage.json").content());
+    ObjectNode merged = (ObjectNode) json.readTree(repairUsage);
+    int initialCalls = initial.path("provider_calls").asInt(0);
+    merged.put("provider_calls", initialCalls + repairCalls);
+    merged.put("initial_provider_calls", initialCalls);
+    merged.put("repair_provider_calls", repairCalls);
+    merged.put("repair_attempts", 1);
+    return json.writeValueAsString(merged);
+  }
+
+  private String combinedSession(AgentContext context, String repairSession) {
+    String initial = context.requireInput("pi-session.jsonl").content();
+    return initial + (initial.endsWith("\n") || initial.isEmpty() ? "" : "\n")
+        + "{\"type\":\"factory_repair_boundary\",\"attempt\":1}\n" + repairSession;
+  }
+
+  private AgentResult reverify(AgentContext context) {
+    JsonNode repair = json.readTree(context.requireInput("repair.json").content());
+    if (!repair.path("attempted").asBoolean(false)) {
+      ObjectNode verification = (ObjectNode) json.readTree(
+          context.requireInput("verification.json").content());
+      String route = repair.path("route").asText("ERROR");
+      if (VerificationFailureClassifier.Route.ERROR.name().equals(route)) {
+        verification.put("status", "ERROR");
+      } else if (VerificationFailureClassifier.Route.BLOCKED_ENVIRONMENT.name().equals(route)) {
+        verification.put("status", "BLOCKED_ENVIRONMENT");
+      } else if (VerificationFailureClassifier.Route.CANCELLED.name().equals(route)) {
+        verification.put("status", "CANCELLED");
+      }
+      verification.put("failureClass", repair.path("failureClass").asText());
+      verification.put("repairAttempted", false);
+      return AgentResult.of("verification.json", json.writeValueAsString(verification));
+    }
+    JsonNode candidate = json.readTree(context.requireInput("candidate.json").content());
+    if ("FAILED".equals(candidate.path("status").asText())) {
+      ObjectNode result = (ObjectNode) json.readTree(
+          failedVerification(candidate, context.triggerPayload()).outputs().get("verification.json"));
+      if ("PATCH_REJECTED".equals(candidate.path("reason").asText())
+          || "REPAIR_RUNTIME_ERROR".equals(candidate.path("reason").asText())
+          || "REPAIR_PROVIDER_ERROR".equals(candidate.path("reason").asText())) {
+        result.put("status", "ERROR");
+      }
+      result.put("repairAttempted", true);
+      result.put("repairAttempt", 1);
+      return AgentResult.of("verification.json", json.writeValueAsString(result));
+    }
+    AgentResult verified = verify(context, context.requireInput("candidate.patch").content());
+    ObjectNode result = (ObjectNode) json.readTree(verified.outputs().get("verification.json"));
+    result.put("repairAttempted", true);
+    result.put("repairAttempt", 1);
+    return AgentResult.of("verification.json", json.writeValueAsString(result));
   }
 
   private AgentResult publishResult(AgentContext context, JsonNode payload,
@@ -627,6 +935,7 @@ public final class PiWorker implements AgentWorker {
    */
   private AgentResult verifyGeneric(AgentContext context, SandboxHandle fresh, String patch) {
     JsonNode payload = context.triggerPayload();
+    JsonNode candidate = json.readTree(context.requireInput("candidate.json").content());
     JsonNode contractResolved = context.inputs().containsKey("contract.json")
         ? json.readTree(context.requireInput("contract.json").content()).path("resolvedIntent")
         : null;
@@ -640,6 +949,21 @@ public final class PiWorker implements AgentWorker {
     result.put("candidateBytes", patch.length());
     result.put("planId", payload.path("resolvedIntent").path("verificationPlan").path("id")
         .asText(""));
+    CommandResult tree = sandboxes.exec(fresh, "cd repo && git write-tree", 30);
+    boolean identityPass = payload.path("baseRevision").asText()
+        .equalsIgnoreCase(candidate.path("base").asText())
+        && ArtifactStore.sha256(patch).equals(candidate.path("patchSha256").asText());
+    boolean treePass = tree.ok()
+        && candidate.path("candidateTree").asText().equals(tree.stdout().trim());
+    result.put("candidateTree", tree.ok() ? tree.stdout().trim() : "unknown");
+    result.put("candidateTreeMatches", treePass);
+    result.put("candidateIdentityMatches", identityPass);
+    if (!identityPass || !treePass) {
+      result.put("status", "ERROR");
+      result.put("reason", !identityPass ? "CANDIDATE_IDENTITY_FAILED" : "CANDIDATE_TREE_FAILED");
+      result.put("detail", "verification evidence cannot be attached to a different candidate");
+      return AgentResult.of("verification.json", json.writeValueAsString(result));
+    }
     if (checks.isEmpty()) {
       result.put("status", "FAIL");
       result.put("reason", "VERIFICATION_PLAN_MISSING");
@@ -732,6 +1056,16 @@ public final class PiWorker implements AgentWorker {
         ? "pi-session.jsonl" : "unknown");
     result.putObject("references").put("candidate", "candidate.patch")
         .put("verification", "verification.json").put("usage", "usage.json");
+    if (context.inputs().containsKey("repair.json")) {
+      JsonNode repair = json.readTree(context.requireInput("repair.json").content());
+      ObjectNode repairSummary = result.putObject("repair");
+      repairSummary.put("policy", repair.path("policy").asText(REPAIR_POLICY));
+      repairSummary.put("attempted", repair.path("attempted").asBoolean(false));
+      repairSummary.put("attempt", repair.path("attempt").asInt(0));
+      repairSummary.put("providerCalls", repair.path("providerCalls").asInt(0));
+      repairSummary.put("route", repair.path("route").asText("ERROR"));
+      repairSummary.put("result", repair.path("result").asText("UNKNOWN"));
+    }
     ObjectNode manifest = json.createObjectNode();
     manifest.put("candidate", "candidate.patch");
     manifest.put("verification", "verification.json");

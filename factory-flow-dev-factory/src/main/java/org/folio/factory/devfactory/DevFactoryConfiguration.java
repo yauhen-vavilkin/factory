@@ -54,6 +54,21 @@ public class DevFactoryConfiguration {
     return new PiWorker("pi-verify-worker", s, r, token, gateway, thinking);
   }
   @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
+  public PiWorker piRepairWorker(SandboxService s, PiCodingRunner r,
+      @Value("${factory.pi.model-token:}") String token,
+      @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway,
+      @Value("${factory.pi.thinking:high}") String thinking,
+      RecoveryBundleStore recoveryStore) {
+    return new PiWorker("pi-repair-worker", s, r, token, gateway, thinking, recoveryStore);
+  }
+  @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
+  public PiWorker piReverifyWorker(SandboxService s, PiCodingRunner r,
+      @Value("${factory.pi.model-token:}") String token,
+      @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway,
+      @Value("${factory.pi.thinking:high}") String thinking) {
+    return new PiWorker("pi-reverify-worker", s, r, token, gateway, thinking);
+  }
+  @Bean @ConditionalOnBean({SandboxService.class, PiCodingRunner.class})
   public PiWorker piFinalizeWorker(SandboxService s, PiCodingRunner r,
       @Value("${factory.pi.model-token:}") String token,
       @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway,

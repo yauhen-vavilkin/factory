@@ -1,12 +1,12 @@
 id: dev-factory-pi
 name: Dev Factory Pi
-version: 1.0.0
+version: 2.0.0
 triggers:
   - event_type: file.inbox.pi
 input_schema:
   required: [taskId, repoUrl, baseRevision, resolvedIntent, goal]
 output_schema:
-  artifacts: [baseline.json, candidate.patch, result.json, verification.json, manifest.json, usage.json]
+  artifacts: [baseline.json, candidate.patch, verification.json, repair.json, result.json, manifest.json, usage.json]
 retry_policy:
   max_attempts: 1
   backoff_seconds: []
@@ -26,8 +26,18 @@ agent_chain:
     worker_id: pi-verify-worker
     inputs: ["$trigger", contract.json, baseline.json, candidate.patch, candidate.json]
     outputs: [verification.json]
+  - step_id: repair
+    type: AGENT
+    worker_id: pi-repair-worker
+    inputs: ["$trigger", contract.json, candidate.patch, candidate.json, verification.json, usage.json, pi-session.jsonl]
+    outputs: [candidate.patch, candidate.json, repair.json, usage.json, pi-session.jsonl]
+  - step_id: reverify
+    type: AGENT
+    worker_id: pi-reverify-worker
+    inputs: ["$trigger", contract.json, baseline.json, candidate.patch, candidate.json, verification.json, repair.json]
+    outputs: [verification.json]
   - step_id: finalize
     type: AGENT
     worker_id: pi-finalize-worker
-    inputs: ["$trigger", candidate.patch, candidate.json, verification.json, usage.json, pi-session.jsonl]
+    inputs: ["$trigger", candidate.patch, candidate.json, verification.json, repair.json, usage.json, pi-session.jsonl]
     outputs: [result.json, manifest.json]
