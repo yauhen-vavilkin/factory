@@ -76,6 +76,19 @@ class PiWorkerRepairTest {
     // credential, never a GitHub/delivery credential.
     assertThat(environment.getValue()).containsOnlyKeys("PI_OFFLINE", "FACTORY_MODEL_TOKEN",
         "FACTORY_PI_GATEWAY_URL");
+    // The runtime gets an execution-scoped model credential, never the run token.
+    assertThat(environment.getValue().get("FACTORY_MODEL_TOKEN"))
+        .startsWith("fx1.").doesNotContain("token");
+  }
+
+  @Test
+  void executionModelTokenIsScopedPerExecutionAndMatchesTheGatewayDerivation() {
+    String execution = "11111111-2222-3333-4444-555555555555";
+    // Vector from factory-gateway/server.py execution_token("run-token", execution).
+    assertThat(PiWorker.executionModelToken("run-token", execution)).isEqualTo("fx1." + execution
+        + ".83f3a33cf28e4bba7c504380f836fd515ecf7f63f4ad7967811215741d050e81");
+    assertThat(PiWorker.executionModelToken("run-token", UUID.randomUUID().toString()))
+        .isNotEqualTo(PiWorker.executionModelToken("run-token", UUID.randomUUID().toString()));
   }
 
   @Test
@@ -86,9 +99,9 @@ class PiWorkerRepairTest {
         "{\"status\":\"FAIL\",\"stage\":\"PI_RUNTIME\",\"reason\":\"PROVIDER_ERROR\"}",
         "{\"status\":\"ERROR\",\"reason\":\"CANDIDATE_IDENTITY_FAILED\"}",
         "{\"status\":\"FAIL\",\"reason\":\"VERIFICATION_PLAN_MISSING\"}",
-        verification("FAIL", "VERIFICATION_FAILED",
-            "Could not transfer artifact from http://factory-gateway/maven/repository: "
-                + "Temporary failure in name resolution"))) {
+        // Genuine dependency infrastructure is recorded by verification only from
+        // a failed trusted mirror probe, never from check output text.
+        "{\"status\":\"ERROR\",\"stage\":\"VERIFY\",\"reason\":\"DEPENDENCY_MIRROR_UNAVAILABLE\"}")) {
       SandboxService sandboxes = mock(SandboxService.class);
       PiCodingRunner runner = mock(PiCodingRunner.class);
 
@@ -197,6 +210,8 @@ class PiWorkerRepairTest {
         .thenReturn(new CommandResult(0, "", "", 1));
     when(sandboxes.exec(eq(fresh), contains("git write-tree"), anyLong()))
         .thenReturn(new CommandResult(0, "new-tree\n", "", 1));
+    when(sandboxes.exec(eq(fresh), contains("--name-only"), anyLong()))
+        .thenReturn(new CommandResult(0, "src/main/java/A.java\n", "", 1));
     when(sandboxes.exec(eq(fresh), contains("mvn -B -ntp test"), anyLong()))
         .thenReturn(new CommandResult(0, "BUILD SUCCESS", "", 1));
 

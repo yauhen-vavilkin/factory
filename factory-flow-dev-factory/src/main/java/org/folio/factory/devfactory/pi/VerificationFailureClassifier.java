@@ -3,11 +3,19 @@ package org.folio.factory.devfactory.pi;
 import java.util.Set;
 import tools.jackson.databind.JsonNode;
 
-/** Deterministic routing for the single Developer Flow verification repair. */
+/**
+ * Deterministic routing for the single Developer Flow verification repair.
+ *
+ * <p>Routing reads only the status and reason Factory itself recorded. Check
+ * output inside the verification evidence is candidate-controlled and never
+ * changes the route: verification attributes a failure to the environment or
+ * to dependency infrastructure only from Factory-owned evidence (a check with
+ * no green baseline, or a failed trusted mirror probe).</p>
+ */
 final class VerificationFailureClassifier {
   private static final Set<String> REPAIRABLE = Set.of(
       "CANDIDATE_TESTS_FAILED", "TASK_CHECK_FAILED", "SUREFIRE_EVIDENCE_FAILED",
-      "VERIFICATION_FAILED");
+      "VERIFICATION_FAILED", PiWorker.PROTECTED_PATH_MODIFIED);
   private static final Set<String> FACTORY_ERRORS = Set.of(
       "VERIFICATION_PLAN_MISSING", "PATCH_REJECTED", "CANDIDATE_IDENTITY_FAILED",
       "CANDIDATE_TREE_FAILED");
@@ -40,11 +48,11 @@ final class VerificationFailureClassifier {
         || "CANCELLATION".equals(reason)) {
       return new Decision(Route.CANCELLED, "CANCELLATION", reason);
     }
+    if (PiWorker.DEPENDENCY_MIRROR_UNAVAILABLE.equals(reason)) {
+      return new Decision(Route.ERROR, "DEPENDENCY_INFRASTRUCTURE", reason);
+    }
     if ("ERROR".equals(status) || "INCOMPLETE".equals(status)) {
       return new Decision(Route.ERROR, "FACTORY_OR_INFRASTRUCTURE", reason);
-    }
-    if (infrastructureFailureSignature(verification)) {
-      return new Decision(Route.ERROR, "DEPENDENCY_INFRASTRUCTURE", reason);
     }
     if (REPAIRABLE.contains(reason)) {
       return new Decision(Route.REPAIR, "REPAIRABLE_DEFECT", reason);
@@ -63,18 +71,5 @@ final class VerificationFailureClassifier {
       return new Decision(Route.ERROR, "FACTORY_OR_INFRASTRUCTURE", reason);
     }
     return new Decision(Route.ERROR, "UNCLASSIFIED_VERIFICATION_FAILURE", reason);
-  }
-
-  private static boolean infrastructureFailureSignature(JsonNode verification) {
-    String evidence = verification.toString().toLowerCase(java.util.Locale.ROOT);
-    return evidence.contains("could not transfer artifact")
-        || evidence.contains("could not find artifact")
-        || evidence.contains("temporary failure in name resolution")
-        || evidence.contains("unknown host")
-        || evidence.contains("pkix path building failed")
-        || evidence.contains("status code: 401")
-        || evidence.contains("status code: 403")
-        || (evidence.contains("maven/repository")
-            && (evidence.contains("connection refused") || evidence.contains("timed out")));
   }
 }

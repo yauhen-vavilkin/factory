@@ -52,6 +52,10 @@ class DockerSandboxServiceTest {
   private static final SandboxSpec SPEC =
       new SandboxSpec("task1", "https://example.com/repo.git", "main", "feature/x");
   private static final String CLONE_COMMAND =
+      "cp /opt/pi/models.json /state/pi/models.json && "
+          + "mkdir /workspace/maven-repository && cp -a /maven-repository/. /workspace/maven-repository/ && "
+          + "git clone --depth 1 'https://example.com/repo.git' repo && cd repo && git checkout -b 'feature/x' 'main'";
+  private static final String WRITER_CLONE_COMMAND =
       "cp /opt/pi/models.json /state/pi/models.json && git clone --depth 1 'https://example.com/repo.git' repo && cd repo && git checkout -b 'feature/x' 'main'";
 
   @Mock
@@ -91,7 +95,8 @@ class DockerSandboxServiceTest {
   }
 
   @Test
-  void createSharesOnlyThePersistentMavenRepositoryAndHasNoCpuOrMemoryCaps() throws Exception {
+  void createMountsTheTrustedMavenRepositoryReadOnlyWithAPrivateCopyAndHasNoCpuOrMemoryCaps()
+      throws Exception {
     CreateContainerCmd createCmd = mock(CreateContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
     CreateContainerResponse createResponse = mock(CreateContainerResponse.class);
     when(createResponse.getId()).thenReturn(CONTAINER_ID);
@@ -110,16 +115,40 @@ class DockerSandboxServiceTest {
     HostConfig config = hostConfigCaptor.getValue();
     assertEquals(1, config.getBinds().length);
     assertEquals("/maven-repository", config.getBinds()[0].getVolume().getPath());
-    assertEquals(com.github.dockerjava.api.model.AccessMode.rw, config.getBinds()[0].getAccessMode());
+    // Candidate-controlled sandboxes can never write the shared trusted repository.
+    assertEquals(com.github.dockerjava.api.model.AccessMode.ro, config.getBinds()[0].getAccessMode());
     assertTrue(config.getNanoCPUs() == null || config.getNanoCPUs() == 0L, "no CPU cap");
     assertTrue(config.getMemory() == null || config.getMemory() == 0L, "no memory cap");
-    verify(createCmd).withEnv("MAVEN_ARGS=-Dmaven.repo.local=/maven-repository");
+    verify(createCmd).withEnv("MAVEN_ARGS=-Dmaven.repo.local=/workspace/maven-repository");
+    // The private copy is made before any candidate command can run.
+    verify(execCreateCmd).withCmd("/bin/sh", "-c", CLONE_COMMAND);
     assertEquals(512L, config.getPidsLimit());
     assertTrue(config.getReadonlyRootfs());
     assertTrue(config.getTmpFs().containsKey("/tmp"));
     assertTrue(!config.getTmpFs().containsKey("/workspace"),
         "candidate files must survive workload stop");
     verify(createCmd).withVolumes(new com.github.dockerjava.api.model.Volume("/workspace"));
+  }
+
+  @Test
+  void onlyATrustedCacheWriterMountsTheSharedMavenRepositoryReadWrite() throws Exception {
+    CreateContainerCmd createCmd = mock(CreateContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
+    CreateContainerResponse createResponse = mock(CreateContainerResponse.class);
+    when(createResponse.getId()).thenReturn(CONTAINER_ID);
+    when(dockerClient.createContainerCmd(IMAGE)).thenReturn(createCmd);
+    when(createCmd.exec()).thenReturn(createResponse);
+    when(dockerClient.startContainerCmd(CONTAINER_ID))
+        .thenReturn(mock(StartContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF)));
+    mockExecPipeline(WRITER_CLONE_COMMAND, 0, new byte[0], new byte[0]);
+
+    service.create(new SandboxSpec("task1", "https://example.com/repo.git", "main", "feature/x",
+        null, null, null, null, true));
+
+    ArgumentCaptor<HostConfig> hostConfig = ArgumentCaptor.forClass(HostConfig.class);
+    verify(createCmd).withHostConfig(hostConfig.capture());
+    assertEquals(com.github.dockerjava.api.model.AccessMode.rw,
+        hostConfig.getValue().getBinds()[0].getAccessMode());
+    verify(createCmd).withEnv("MAVEN_ARGS=-Dmaven.repo.local=/maven-repository");
   }
 
   @Test
@@ -327,10 +356,9 @@ class DockerSandboxServiceTest {
 
     ArgumentCaptor<String> cmdCaptor = ArgumentCaptor.forClass(String.class);
     verify(execCreateCmd, times(2)).withCmd(eq("/bin/sh"), eq("-c"), cmdCaptor.capture());
-    assertEquals("cp /opt/pi/models.json /state/pi/models.json && git clone --depth 1 'https://example.com/repo.git' repo && cd repo && git checkout -b "
-        + "'feature/x' 'main'", cmdCaptor.getAllValues().get(0));
-    assertEquals("cp /opt/pi/models.json /state/pi/models.json && git clone --depth 1 'https://example.com/repo.git' repo && cd repo && git checkout -b "
-        + "'feature/x; touch /pwned' 'main'", cmdCaptor.getAllValues().get(1));
+    assertEquals(CLONE_COMMAND, cmdCaptor.getAllValues().get(0));
+    assertEquals(CLONE_COMMAND.replace("'feature/x'", "'feature/x; touch /pwned'"),
+        cmdCaptor.getAllValues().get(1));
   }
 
   @Test

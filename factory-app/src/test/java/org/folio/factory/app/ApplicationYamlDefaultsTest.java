@@ -73,7 +73,7 @@ class ApplicationYamlDefaultsTest {
           .isEqualTo(System.getenv().getOrDefault("DOCKER_HOST", "unix:///var/run/docker.sock"));
       assertThat(sandbox.mavenRepository())
           .isEqualTo(Path.of(System.getenv().getOrDefault("FACTORY_SANDBOX_MAVEN_REPOSITORY",
-              ".factory/cache/maven-repository")));
+              ".factory/cache/sandbox-maven-repository")));
       assertThat(env.getProperty("factory.sandbox.mode"))
           .isEqualTo(System.getenv().getOrDefault("FACTORY_SANDBOX_MODE", "docker"));
       assertThat(env.getProperty("factory.sandbox.image"))
@@ -85,7 +85,23 @@ class ApplicationYamlDefaultsTest {
       assertThat(env.getProperty("factory.sandbox.workspace-retention")).isEqualTo("0s");
       assertThat(env.getProperty("factory.sandbox.maven-repository"))
           .isEqualTo(System.getenv().getOrDefault("FACTORY_SANDBOX_MAVEN_REPOSITORY",
-              ".factory/cache/maven-repository"));
+              ".factory/cache/sandbox-maven-repository"));
+    });
+  }
+
+  /**
+   * Factory's host build must never trust a Maven repository that sandboxes can
+   * populate: the host wrapper's local repository and the sandbox repository
+   * default are different directories.
+   */
+  @Test
+  void hostMavenRepositoryIsSeparateFromTheSandboxRepository() throws Exception {
+    String hostConfig = java.nio.file.Files.readString(Path.of("../.mvn/maven.config"));
+    assertThat(hostConfig).contains("-Dmaven.repo.local=.factory/cache/host-maven-repository");
+    runner.run(context -> {
+      Path sandbox = context.getBean(SandboxProperties.class).mavenRepository().normalize();
+      assertThat(sandbox).isNotEqualTo(Path.of(".factory/cache/host-maven-repository"));
+      assertThat(hostConfig).doesNotContain(sandbox.toString());
     });
   }
 

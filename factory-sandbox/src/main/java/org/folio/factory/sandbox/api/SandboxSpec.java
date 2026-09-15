@@ -15,9 +15,15 @@ package org.folio.factory.sandbox.api;
  *        create can never sweep another attempt's retained workspace.
  *        Callers without an execution identity may omit it and keep the
  *        legacy shared, task-named path (which is NOT an isolation boundary).
+ * @param trustedDependencyCacheWriter true only for trusted preparation on the
+ *        authoritative base revision: that sandbox may populate the shared
+ *        trusted Maven repository. Every other sandbox (coding, repair,
+ *        verification, export) sees the shared repository read-only and
+ *        resolves new dependencies into a private repository of its own.
  */
 public record SandboxSpec(String taskId, String repoUrl, String baseBranch, String branch, String ownerId,
-                          String image, String platform, String networkPolicy) {
+                          String image, String platform, String networkPolicy,
+                          boolean trustedDependencyCacheWriter) {
 
   public SandboxSpec(String taskId, String repoUrl, String baseBranch, String branch) {
     this(taskId, repoUrl, baseBranch, branch, null, null, null, null);
@@ -25,5 +31,10 @@ public record SandboxSpec(String taskId, String repoUrl, String baseBranch, Stri
 
   public SandboxSpec(String taskId, String repoUrl, String baseBranch, String branch, String ownerId) {
     this(taskId, repoUrl, baseBranch, branch, ownerId, null, null, null);
+  }
+
+  public SandboxSpec(String taskId, String repoUrl, String baseBranch, String branch, String ownerId,
+                     String image, String platform, String networkPolicy) {
+    this(taskId, repoUrl, baseBranch, branch, ownerId, image, platform, networkPolicy, false);
   }
 }

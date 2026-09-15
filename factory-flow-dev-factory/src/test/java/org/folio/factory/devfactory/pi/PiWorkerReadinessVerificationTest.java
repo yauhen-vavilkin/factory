@@ -246,6 +246,8 @@ class PiWorkerReadinessVerificationTest {
   private AgentResult verifyWorker(SandboxService sandboxes, ObjectNode payload, String patch) {
     when(sandboxes.exec(org.mockito.ArgumentMatchers.any(), contains("git write-tree"), anyLong()))
         .thenReturn(new CommandResult(0, "candidate-tree\n", "", 1));
+    when(sandboxes.exec(org.mockito.ArgumentMatchers.any(), contains("--name-only"), anyLong()))
+        .thenReturn(new CommandResult(0, "src/main/java/A.java\n", "", 1));
     AgentContext context = new AgentContext(UUID.randomUUID(), "verify", Map.of(
         "candidate.patch", new ArtifactContent("candidate.patch", 1, "text/plain", patch),
         "candidate.json", new ArtifactContent("candidate.json", 1, "application/json",

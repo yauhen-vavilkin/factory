@@ -31,6 +31,14 @@ public final class PiWorker implements AgentWorker {
   private static final int MAX_REPAIR_EVIDENCE_CHARS = 16 * 1024;
   private static final String REPAIR_POLICY = "ONE_AUTOMATIC_REPAIR";
   static final String CODING_BUDGET_EXHAUSTED = "CODING_BUDGET_EXHAUSTED";
+  static final String PROTECTED_PATH_MODIFIED = "PROTECTED_PATH_MODIFIED";
+  static final String DEPENDENCY_MIRROR_UNAVAILABLE = "DEPENDENCY_MIRROR_UNAVAILABLE";
+  /** Candidate changes under this prefix are rejected: it steers how Maven itself runs. */
+  private static final String PROTECTED_PATH_PREFIX = ".mvn/";
+  /** A stable Maven Central metadata file fetched through the approved mirror route. */
+  static final String MIRROR_PROBE_COMMAND = "curl -fsS -o /dev/null --max-time 30 "
+      + "http://factory-gateway:8080/maven/repository/org/apache/maven/plugins/"
+      + "maven-surefire-plugin/maven-metadata.xml";
   private static final String DOCKER_PROBE_COMMAND =
       "if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; "
           + "then echo DOCKER=AVAILABLE; else echo DOCKER=UNAVAILABLE; fi";
@@ -149,8 +157,7 @@ public final class PiWorker implements AgentWorker {
     String status = "INCOMPLETE";
     String failure = null;
     try {
-      handle = sandboxes.create(sourceSpec(payload, profile, context, "-baseline",
-          dependencyNetworkPolicy(profile)));
+      handle = sandboxes.create(baselineSpec(payload, profile, context));
       tests = modsidecar208.runUnitTests(sandboxes, handle, BASELINE_BUILD_TIMEOUT);
       redCheck = modsidecar208.verifyBaseIsRed(sandboxes, handle, 900L);
       reports = modsidecar208.summarizeReports(sandboxes, handle, 300L);
@@ -231,8 +238,7 @@ public final class PiWorker implements AgentWorker {
     SandboxHandle handle = null;
     StringBuilder log = new StringBuilder();
     try {
-      handle = sandboxes.create(sourceSpec(payload, profile, context, "-baseline",
-          dependencyNetworkPolicy(profile)));
+      handle = sandboxes.create(baselineSpec(payload, profile, context));
       String blocked = probeRequiredCapabilities(sandboxes, handle, checks, log);
       if (blocked != null) {
         baseline.put("status", "BLOCKED_ENVIRONMENT");
@@ -249,8 +255,12 @@ public final class PiWorker implements AgentWorker {
       }
       boolean green = true;
       boolean environmentFailure = false;
+      boolean reportEvidenceMissing = false;
       ArrayNode evidence = baseline.putArray("checks");
       for (Check check : checks) {
+        if (check.reportGlob() != null) {
+          modsidecar208.removeReports(sandboxes, handle, check.reportGlob(), 120L);
+        }
         CommandResult run = sandboxes.exec(handle, "cd repo && " + check.command(),
             BASELINE_BUILD_TIMEOUT);
         log.append(commandLog(check.id(), run));
@@ -259,6 +269,20 @@ public final class PiWorker implements AgentWorker {
         entry.put("command", check.command());
         entry.put("exitCode", run.exitCode());
         entry.put("durationMs", run.durationMs());
+        if (check.reportGlob() != null) {
+          // A check that declares test-report evidence records the executed
+          // suites of the clean base; verification requires the candidate to
+          // keep executing them.
+          CommandResult reports = modsidecar208.summarizeReports(sandboxes, handle,
+              check.reportGlob(), 300L);
+          log.append(commandLog(check.id() + "-reports", reports));
+          Modsidecar208Verifier.ReportSummary summary = modsidecar208.parseReportSummary(reports);
+          entry.put("reportGlob", check.reportGlob());
+          entry.set("surefire", json.valueToTree(summary.asMap()));
+          if (run.ok() && !hasTestEvidence(summary)) {
+            reportEvidenceMissing = true;
+          }
+        }
         if (!run.ok()) {
           green = false;
           if (environmentFailureSignature(run.stdout()) || environmentFailureSignature(run.stderr())) {
@@ -281,6 +305,20 @@ public final class PiWorker implements AgentWorker {
             "baseline.json", json.writeValueAsString(baseline), "baseline.log", log.toString()),
             metrics);
       }
+      if (green && reportEvidenceMissing) {
+        // The plan declares test-report evidence, but the green base produced
+        // none: verification could never prove the candidate kept the suite
+        // executing, so the execution is not ready and spends no coding budget.
+        baseline.put("status", "FAIL");
+        baseline.put("failure", "BASELINE_REPORT_MISSING");
+        baseline.put("detail", "a required check that declares test-report evidence passed on "
+            + "the clean base without any executed test in its reports");
+        contract.put("status", "FAIL");
+        contract.set("baseline", baseline);
+        return new AgentResult(Map.of("contract.json", json.writeValueAsString(contract),
+            "baseline.json", json.writeValueAsString(baseline), "baseline.log", log.toString()),
+            Map.of("baseline", "FAIL"));
+      }
       baseline.put("status", green ? "PASS" : "FAIL");
       if (!green) {
         baseline.put("failure", "BASE_NOT_GREEN");
@@ -299,8 +337,11 @@ public final class PiWorker implements AgentWorker {
     }
   }
 
-  /** One plan check as preparation and verification execute it: id plus exact argv. */
-  private record Check(String id, String command, boolean requiresDocker) {
+  /**
+   * One plan check as preparation and verification execute it: id plus exact
+   * argv. A non-null report glob declares test-report evidence for the check.
+   */
+  private record Check(String id, String command, boolean requiresDocker, String reportGlob) {
   }
 
   /** The plan's required checks; an empty list means the plan carries no authority. */
@@ -319,8 +360,10 @@ public final class PiWorker implements AgentWorker {
         }
         List<String> parts = new ArrayList<>();
         argv.forEach(item -> parts.add(item.asString()));
+        String reportGlob = node.path("reportGlob").asString("");
         checks.add(new Check(node.path("id").asString("check"),
-            String.join(" ", parts), node.path("requiresDocker").asBoolean(false)));
+            String.join(" ", parts), node.path("requiresDocker").asBoolean(false),
+            reportGlob.isBlank() ? null : reportGlob));
       }
     }
     return checks;
@@ -390,7 +433,8 @@ public final class PiWorker implements AgentWorker {
       ObjectNode task = codingTask(payload);
       attempt = runner.run(handle, piArgv(provider, model), "/workspace/repo",
           json.writeValueAsString(task), Duration.ofMinutes(30), 16L * 1024 * 1024,
-          Map.of("PI_OFFLINE", "1", "FACTORY_MODEL_TOKEN", modelToken,
+          Map.of("PI_OFFLINE", "1",
+              "FACTORY_MODEL_TOKEN", executionModelToken(modelToken, context.executionId().toString()),
               "FACTORY_PI_GATEWAY_URL", gatewayUrl));
       exporter = sandboxes.freezeForExport(handle, source);
       CommandResult diff = snapshotAllowEmpty(exporter, payload.path("baseRevision").asText());
@@ -592,7 +636,8 @@ public final class PiWorker implements AgentWorker {
       task.set("repair", compactRepairFeedback(previousCandidate, verification));
       attempt = runner.run(handle, piArgv(provider, model), "/workspace/repo",
           json.writeValueAsString(task), Duration.ofMinutes(30), 16L * 1024 * 1024,
-          Map.of("PI_OFFLINE", "1", "FACTORY_MODEL_TOKEN", modelToken,
+          Map.of("PI_OFFLINE", "1",
+              "FACTORY_MODEL_TOKEN", executionModelToken(modelToken, context.executionId().toString()),
               "FACTORY_PI_GATEWAY_URL", gatewayUrl));
       // Surface terminal Pi/provider failures before spending an export sandbox:
       // a provider-failed repair produced no candidate, and export preparation
@@ -736,6 +781,9 @@ public final class PiWorker implements AgentWorker {
         .put("candidateTree", candidate.path("candidateTree").asText())
         .put("patchSha256", candidate.path("patchSha256").asText());
     feedback.put("verificationReason", verification.path("reason").asText("VERIFICATION_FAILED"));
+    if (verification.hasNonNull("detail")) {
+      feedback.put("verificationDetail", tail(verification.path("detail").asString("")));
+    }
     ArrayNode failed = feedback.putArray("failedChecks");
     int remaining = MAX_REPAIR_EVIDENCE_CHARS;
     JsonNode checks = verification.path("checks");
@@ -934,6 +982,12 @@ public final class PiWorker implements AgentWorker {
             : !identityPass ? "CANDIDATE_IDENTITY_FAILED"
                 : !treePass ? "CANDIDATE_TREE_FAILED"
                     : !tests.ok() ? "CANDIDATE_TESTS_FAILED" : "SUREFIRE_EVIDENCE_FAILED");
+        if (identityPass && treePass && dependencyMirrorUnavailable(context,
+            checker.stdout() + "\n" + checker.stderr() + "\n" + tests.stdout() + "\n" + tests.stderr(),
+            result)) {
+          result.put("status", "ERROR");
+          result.put("reason", DEPENDENCY_MIRROR_UNAVAILABLE);
+        }
       }
       return AgentResult.of("verification.json", json.writeValueAsString(result));
     } finally {
@@ -988,10 +1042,32 @@ public final class PiWorker implements AgentWorker {
           + "refusing to substitute a hardcoded verification command");
       return AgentResult.of("verification.json", json.writeValueAsString(result));
     }
+    List<String> protectedChanges = protectedPathChanges(fresh, payload.path("baseRevision").asText());
+    if (protectedChanges == null) {
+      result.put("status", "ERROR");
+      result.put("reason", "PROTECTED_PATH_CHECK_FAILED");
+      result.put("detail", "Factory could not list the paths of the applied candidate");
+      return AgentResult.of("verification.json", json.writeValueAsString(result));
+    }
+    if (!protectedChanges.isEmpty()) {
+      result.put("status", "FAIL");
+      result.put("reason", PROTECTED_PATH_MODIFIED);
+      result.put("detail", "the candidate changes Factory-protected build configuration "
+          + PROTECTED_PATH_PREFIX + "** " + protectedChanges
+          + "; revert these files and keep the change inside the task scope");
+      return AgentResult.of("verification.json", json.writeValueAsString(result));
+    }
+    Map<String, JsonNode> baselineChecks = baselineChecks(context);
     ArrayNode evidence = result.putArray("checks");
     boolean passed = true;
     boolean environmentFailure = false;
+    List<String> testEvidenceFailures = new ArrayList<>();
+    StringBuilder failedOutput = new StringBuilder();
     for (Check check : checks) {
+      JsonNode baselineCheck = baselineChecks.get(check.id());
+      if (check.reportGlob() != null) {
+        modsidecar208.removeReports(sandboxes, fresh, check.reportGlob(), 120L);
+      }
       CommandResult run = sandboxes.exec(fresh, "cd repo && " + check.command(),
           VERIFY_BUILD_TIMEOUT);
       ObjectNode entry = evidence.addObject();
@@ -999,14 +1075,35 @@ public final class PiWorker implements AgentWorker {
       entry.put("command", check.command());
       entry.put("exitCode", run.exitCode());
       entry.put("durationMs", run.durationMs());
+      boolean greenBaseline = baselineCheck != null && baselineCheck.path("exitCode").asInt(-1) == 0;
+      entry.put("baselineGreen", greenBaseline);
       if (!run.ok()) {
         passed = false;
-        if (environmentFailureSignature(run.stdout())
-            || environmentFailureSignature(run.stderr())) {
+        // Check output is candidate-controlled. When the same check was green on
+        // the clean base in this environment, its failure is the candidate's,
+        // whatever the output claims; only a check without that anchor may be
+        // attributed to the known Docker/Testcontainers environment gap.
+        if (!greenBaseline && (environmentFailureSignature(run.stdout())
+            || environmentFailureSignature(run.stderr()))) {
           environmentFailure = true;
           entry.put("environmentFailure", true);
         }
         entry.put("outputTail", tail(run.stdout() + "\n" + run.stderr()));
+        failedOutput.append(run.stdout()).append('\n').append(run.stderr()).append('\n');
+      } else if (check.reportGlob() != null) {
+        CommandResult reports = modsidecar208.summarizeReports(sandboxes, fresh,
+            check.reportGlob(), 300L);
+        Modsidecar208Verifier.ReportSummary candidateSummary =
+            modsidecar208.parseReportSummary(reports);
+        Modsidecar208Verifier.ReportSummary baselineSummary = baselineCheck == null ? null
+            : Modsidecar208Verifier.ReportSummary.fromJson(baselineCheck.path("surefire"));
+        entry.set("candidateSurefire", json.valueToTree(candidateSummary.asMap()));
+        entry.set("baselineSurefire", json.valueToTree(
+            baselineSummary == null ? Map.of() : baselineSummary.asMap()));
+        String loss = testEvidenceLoss(candidateSummary, baselineSummary);
+        if (loss != null) {
+          testEvidenceFailures.add(check.id() + ": " + loss);
+        }
       }
     }
     if (environmentFailure) {
@@ -1014,13 +1111,147 @@ public final class PiWorker implements AgentWorker {
       result.put("reason", "REQUIRED_CHECK_CANNOT_RUN");
       result.put("detail", "a required check failed with the Docker/Testcontainers "
           + "environment-failure signature in a sandbox without Docker");
+    } else if (!passed && dependencyMirrorUnavailable(context, failedOutput.toString(), result)) {
+      result.put("status", "ERROR");
+      result.put("reason", DEPENDENCY_MIRROR_UNAVAILABLE);
+    } else if (!passed) {
+      result.put("status", "FAIL");
+      result.put("reason", "VERIFICATION_FAILED");
+    } else if (!testEvidenceFailures.isEmpty()) {
+      result.put("status", "FAIL");
+      result.put("reason", "SUREFIRE_EVIDENCE_FAILED");
+      result.put("detail", "the required checks passed but did not keep executing the baseline "
+          + "tests (deleted, disabled or skipped tests, or missing test reports): "
+          + String.join("; ", testEvidenceFailures)
+          + ". Restore the existing tests and let them run.");
     } else {
-      result.put("status", passed ? "PASS" : "FAIL");
-      if (!passed) {
-        result.put("reason", "VERIFICATION_FAILED");
-      }
+      result.put("status", "PASS");
     }
     return AgentResult.of("verification.json", json.writeValueAsString(result));
+  }
+
+  /** Baseline check evidence recorded by preparation for this execution, keyed by check id. */
+  private Map<String, JsonNode> baselineChecks(AgentContext context) {
+    Map<String, JsonNode> checks = new LinkedHashMap<>();
+    if (!context.inputs().containsKey("baseline.json")) {
+      return checks;
+    }
+    JsonNode nodes = json.readTree(context.requireInput("baseline.json").content()).path("checks");
+    if (nodes.isArray()) {
+      nodes.forEach(node -> checks.put(node.path("id").asString(""), node));
+    }
+    return checks;
+  }
+
+  /**
+   * Paths under the protected prefix that the applied candidate adds, changes or
+   * deletes; null when Factory cannot list the candidate's paths.
+   */
+  private List<String> protectedPathChanges(SandboxHandle fresh, String baseRevision) {
+    CommandResult changed = sandboxes.exec(fresh, "cd repo && git diff --cached --no-renames "
+        + "--name-only " + Shell.quote(baseRevision), 60);
+    if (!changed.ok()) {
+      // The candidate already applied and was staged in this fresh checkout, so
+      // listing its paths against the base failing is a Factory-side fault.
+      return null;
+    }
+    return changed.stdout().lines().filter(path -> path.startsWith(PROTECTED_PATH_PREFIX))
+        .limit(20).toList();
+  }
+
+  private static boolean hasTestEvidence(Modsidecar208Verifier.ReportSummary summary) {
+    return summary.valid() && summary.totalTests() > 0;
+  }
+
+  /**
+   * Null when the candidate reports prove real test execution that keeps the
+   * baseline suites, otherwise a short explanation of the lost evidence.
+   */
+  static String testEvidenceLoss(Modsidecar208Verifier.ReportSummary candidate,
+                                 Modsidecar208Verifier.ReportSummary baseline) {
+    if (!hasTestEvidence(candidate)) {
+      return "no executed tests in the test reports";
+    }
+    if (candidate.failures() > 0 || candidate.errors() > 0) {
+      return "test reports record " + candidate.failures() + " failures and "
+          + candidate.errors() + " errors";
+    }
+    if (baseline == null || !baseline.valid() || candidate.preserves(baseline)) {
+      return null;
+    }
+    List<String> lost = new ArrayList<>();
+    baseline.testsByReport().forEach((report, tests) -> {
+      Integer now = candidate.testsByReport().get(report);
+      if (now == null) {
+        lost.add(report + " missing");
+      } else if (now < tests) {
+        lost.add(report + " " + now + " < " + tests + " tests");
+      }
+    });
+    if (candidate.skipped() > baseline.skipped()) {
+      lost.add("skipped " + candidate.skipped() + " > baseline " + baseline.skipped());
+    }
+    return "baseline test execution reduced (" + String.join(", ", lost.stream().limit(10).toList())
+        + (lost.size() > 10 ? ", ..." : "") + ")";
+  }
+
+  /**
+   * Genuine dependency-infrastructure evidence must come from Factory, not from
+   * candidate output. Only when a failed check's output looks like a Maven
+   * transfer failure does Factory probe the approved mirror from a fresh sandbox
+   * that runs no candidate code; the failure is infrastructure only if that
+   * trusted probe also fails. A candidate that asks for a nonexistent artifact
+   * gets a working probe and stays a candidate defect.
+   */
+  private boolean dependencyMirrorUnavailable(AgentContext context, String failedOutput,
+                                              ObjectNode result) {
+    if (!transferFailureSignature(failedOutput)) {
+      return false;
+    }
+    JsonNode payload = payload(context);
+    JsonNode profile = context.inputs().containsKey("contract.json")
+        ? json.readTree(context.requireInput("contract.json").content()).path("profile") : null;
+    SandboxHandle probe = null;
+    ObjectNode evidence = result.putObject("dependencyMirrorProbe");
+    evidence.put("command", MIRROR_PROBE_COMMAND);
+    try {
+      SandboxSpec spec = profile == null || !profile.isObject()
+          ? new SandboxSpec(payload.path("taskId").asText(), payload.path("repoUrl").asText(),
+              payload.path("baseRevision").asText(), payload.path("branch").asText(), null)
+          : sourceSpec(payload, profile, context, "", dependencyNetworkPolicy(profile));
+      // Its own owner: the verifier sandbox is still alive while the probe runs.
+      probe = sandboxes.create(new SandboxSpec(spec.taskId(), spec.repoUrl(), spec.baseBranch(),
+          spec.branch() + "-mirror-probe", context.executionId() + "-mirror-probe", spec.image(),
+          spec.platform(), spec.networkPolicy()));
+      CommandResult run = sandboxes.exec(probe, MIRROR_PROBE_COMMAND, 60L);
+      evidence.put("exitCode", run.exitCode());
+      evidence.put("output", tail(run.stdout() + "\n" + run.stderr()));
+      if (run.ok()) {
+        return false;
+      }
+      result.put("detail", "a required check failed with a Maven transfer failure and a trusted "
+          + "Factory probe of the approved Maven mirror also failed");
+      return true;
+    } catch (RuntimeException error) {
+      evidence.put("exitCode", -1);
+      evidence.put("output", failureMessage(error));
+      result.put("detail", "a required check failed with a Maven transfer failure and Factory "
+          + "could not start a trusted probe of the approved Maven mirror");
+      return true;
+    } finally {
+      if (probe != null) {
+        sandboxes.teardown(probe);
+      }
+    }
+  }
+
+  /** Maven could not reach a repository (not a missing artifact, which is a candidate defect). */
+  private static boolean transferFailureSignature(String output) {
+    String lower = output == null ? "" : output.toLowerCase(Locale.ROOT);
+    return lower.contains("could not transfer")
+        || (lower.contains("maven/repository") && (lower.contains("connection refused")
+            || lower.contains("timed out") || lower.contains("temporary failure in name resolution")
+            || lower.contains("unknown host")));
   }
 
   private AgentResult failedVerification(JsonNode candidate, JsonNode payload) {
@@ -1157,6 +1388,18 @@ public final class PiWorker implements AgentWorker {
         networkPolicy);
   }
 
+  /**
+   * Trusted preparation runs the authoritative base revision, never candidate
+   * code, so it is the only sandbox allowed to populate the shared trusted
+   * Maven repository that later coding and verification sandboxes read.
+   */
+  private SandboxSpec baselineSpec(JsonNode payload, JsonNode profile, AgentContext context) {
+    SandboxSpec spec = sourceSpec(payload, profile, context, "-baseline",
+        dependencyNetworkPolicy(profile));
+    return new SandboxSpec(spec.taskId(), spec.repoUrl(), spec.baseBranch(), spec.branch(),
+        spec.ownerId(), spec.image(), spec.platform(), spec.networkPolicy(), true);
+  }
+
   private static String dependencyNetworkPolicy(JsonNode profile) {
     String execution = profile.path("networkPolicy").path("execution").asText(null);
     return "GATEWAY_ONLY".equals(execution) ? "DEPENDENCY_ONLY" : execution;
@@ -1180,6 +1423,29 @@ public final class PiWorker implements AgentWorker {
     }
     task.put("policy", POLICY);
     return task;
+  }
+
+  /**
+   * The model credential one Developer Flow execution hands to its coding
+   * runtime: {@code fx1.<executionId>.<HMAC-SHA256(runToken, "fx1.<executionId>")>}.
+   * The gateway keeps a separate attempt budget and lifetime per execution id,
+   * so coding and its bounded repair share one budget while other executions
+   * are unaffected. The run token itself never enters a sandbox.
+   */
+  static String executionModelToken(String runToken, String executionId) {
+    if (runToken == null || runToken.isBlank()) {
+      return "";
+    }
+    String message = "fx1." + executionId;
+    try {
+      javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+      mac.init(new javax.crypto.spec.SecretKeySpec(
+          runToken.getBytes(java.nio.charset.StandardCharsets.UTF_8), "HmacSHA256"));
+      return message + "." + java.util.HexFormat.of().formatHex(
+          mac.doFinal(message.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    } catch (java.security.GeneralSecurityException e) {
+      throw new IllegalStateException("cannot derive the execution model token", e);
+    }
   }
 
   private List<String> piArgv(String provider, String model) {

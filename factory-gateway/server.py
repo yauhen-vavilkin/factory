@@ -7,10 +7,12 @@ this container, and writes non-secret request evidence to the mounted run log.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import os
 import posixpath
+import re
 import threading
 import time
 import urllib.error
@@ -28,6 +30,9 @@ MAVEN_ROOTS = (
     "https://repository.folio.org/repository/maven-folio/",
     "https://maven.indexdata.com/",
 )
+EXECUTION_TOKEN_PREFIX = "fx1"
+EXECUTION_ID_PATTERN = re.compile(r"^[A-Za-z0-9-]{1,128}$")
+OPERATOR_BUCKET = "operator"
 ALLOWED_UPSTREAM_BASES = frozenset({
     "https://api.z.ai/api/paas/v4",
     "https://api.z.ai/api/coding/paas/v4",
@@ -39,6 +44,17 @@ def env_int(name: str, default: int) -> int:
         return int(os.environ.get(name, str(default)))
     except ValueError:
         return default
+
+
+def execution_token(run_token: str, execution_id: str) -> str:
+    """Execution-scoped model credential, as Factory derives it (PiWorker).
+
+    The sandbox receives only this derived token, never the run token, so it
+    cannot mint a token for another execution or reach another budget.
+    """
+    message = f"{EXECUTION_TOKEN_PREFIX}.{execution_id}"
+    mac = hmac.new(run_token.encode("utf-8"), message.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{message}.{mac}"
 
 
 def trusted_upstream_base(value: str) -> str:
@@ -59,12 +75,15 @@ class GatewayState:
             "FACTORY_UPSTREAM_BASE_URL", "https://api.z.ai/api/paas/v4"
         ))
         self.expected_model = os.environ.get("FACTORY_EXPECTED_MODEL", "glm-5.3-flash")
-        self.expiry = env_int("FACTORY_GATEWAY_EXPIRES_AT", 0)
+        # Attempt budget and lifetime apply per Developer Flow execution: each
+        # execution's budget starts with its own first model call, independent
+        # of other executions and of how long the gateway process has run.
         self.max_attempts = env_int("FACTORY_MAX_ATTEMPTS", 40)
+        self.execution_ttl = env_int("FACTORY_EXECUTION_TTL_SECONDS", 14400)
         self.max_output_tokens = env_int("FACTORY_MAX_OUTPUT_TOKENS", 16384)
-        self.started = time.time()
         self.lock = threading.Lock()
         self.attempts = 0
+        self.buckets: dict[str, dict] = {}
         self.log_lock = threading.Lock()
         self.log_path = os.path.join(
             os.environ.get("FACTORY_GATEWAY_EVIDENCE_DIR", "/evidence"),
@@ -72,14 +91,34 @@ class GatewayState:
         )
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
 
-    def allowed(self) -> tuple[bool, str]:
+    def bucket_for(self, supplied: str) -> str | None:
+        """The budget bucket an Authorization header authenticates, or None."""
+        if not self.token or not supplied.startswith("Bearer "):
+            return None
+        credential = supplied[len("Bearer "):]
+        # The run token itself stays on the Factory host (operator preflight).
+        if hmac.compare_digest(credential, self.token):
+            return OPERATOR_BUCKET
+        parts = credential.split(".")
+        if len(parts) != 3 or parts[0] != EXECUTION_TOKEN_PREFIX:
+            return None
+        if not EXECUTION_ID_PATTERN.match(parts[1]):
+            return None
+        if not hmac.compare_digest(credential, execution_token(self.token, parts[1])):
+            return None
+        return parts[1]
+
+    def allowed(self, bucket: str) -> tuple[bool, str]:
         if not self.token:
             return False, "run token is not configured"
-        if self.expiry and time.time() >= self.expiry:
-            return False, "run token expired"
+        now = time.time()
         with self.lock:
-            if self.attempts >= self.max_attempts:
+            state = self.buckets.setdefault(bucket, {"attempts": 0, "firstAt": now})
+            if self.execution_ttl and now - state["firstAt"] >= self.execution_ttl:
+                return False, "execution token expired"
+            if state["attempts"] >= self.max_attempts:
                 return False, "run attempt budget exhausted"
+            state["attempts"] += 1
             self.attempts += 1
         return True, ""
 
@@ -193,7 +232,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/health":
-            self.send_json(200, {"status": "UP", "attempts": STATE.attempts})
+            self.send_json(200, {"status": "UP", "attempts": STATE.attempts,
+                                 "executions": len(STATE.buckets)})
             return
         relative = safe_maven_path(self.path)
         if relative is not None:
@@ -240,16 +280,15 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("request body exceeds the gateway limit")
         return self.rfile.read(length)
 
-    def authorized(self) -> bool:
-        supplied = self.headers.get("Authorization", "")
-        expected = "Bearer " + STATE.token
-        if not hmac.compare_digest(supplied, expected):
+    def authorized(self) -> str | None:
+        bucket = STATE.bucket_for(self.headers.get("Authorization", ""))
+        if bucket is None:
             self.send_json(401, {"error": "invalid or missing run token"})
-            return False
-        return True
+        return bucket
 
     def serve_model(self) -> None:
-        if not self.authorized():
+        bucket = self.authorized()
+        if bucket is None:
             return
         try:
             raw = self.read_body()
@@ -272,7 +311,7 @@ class Handler(BaseHTTPRequestHandler):
         if max_tokens > STATE.max_output_tokens:
             self.send_json(400, {"error": "requested output exceeds the run cap"})
             return
-        allowed, reason = STATE.allowed()
+        allowed, reason = STATE.allowed(bucket)
         request_id = uuid.uuid4().hex
         if not allowed:
             self.send_json(429, {"error": reason})
@@ -280,7 +319,8 @@ class Handler(BaseHTTPRequestHandler):
 
         started = time.time()
         entry = summarize_request(payload, request_id)
-        entry.update({"kind": "model", "startedAt": started, "requestSent": False})
+        entry.update({"kind": "model", "execution": bucket, "startedAt": started,
+                      "requestSent": False})
         status = 502
         response_body = bytearray()
         response_bytes = 0

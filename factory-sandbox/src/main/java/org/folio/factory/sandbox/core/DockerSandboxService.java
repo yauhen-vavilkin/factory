@@ -36,8 +36,14 @@ public class DockerSandboxService implements SandboxService {
 
   private static final String DEFAULT_IMAGE = "factory-pi:jdk21";
   private static final String WORKSPACE_DIR = "/workspace";
-  /** Container path of the persistent Maven repository shared by every sandbox. */
+  /** Container path of the persistent trusted Maven repository shared by every sandbox. */
   static final String MAVEN_REPOSITORY_DIR = "/maven-repository";
+  /**
+   * Container path of the sandbox-private writable Maven repository: a full copy
+   * of the trusted repository on the private /workspace volume, outside the
+   * candidate checkout, removed with the container.
+   */
+  static final String PRIVATE_MAVEN_REPOSITORY_DIR = "/workspace/maven-repository";
   private static final long CLONE_TIMEOUT_SEC = 300L;
   private static final int GIT_OUTPUT_LIMIT = 64 * 1024;
   private static final int EXEC_OUTPUT_LIMIT = 16 * 1024 * 1024;
@@ -58,7 +64,7 @@ public class DockerSandboxService implements SandboxService {
     this.workspaceRoot = Path.of(System.getProperty("java.io.tmpdir", "/tmp"),
         "factory-sandboxes").toAbsolutePath().normalize();
     this.mavenRepository = Path.of(System.getProperty("java.io.tmpdir", "/tmp"),
-        "factory-maven-repository").toAbsolutePath().normalize();
+        "factory-sandbox-maven-repository").toAbsolutePath().normalize();
   }
 
   @Autowired
@@ -73,6 +79,11 @@ public class DockerSandboxService implements SandboxService {
 
   @Override
   public SandboxHandle create(SandboxSpec spec) {
+    return create(spec, true);
+  }
+
+  /** @param mavenWorkload false only for export sandboxes, which never run Maven */
+  private SandboxHandle create(SandboxSpec spec, boolean mavenWorkload) {
     String containerId = null;
     Path preparedSource = null;
     try {
@@ -122,8 +133,21 @@ public class DockerSandboxService implements SandboxService {
       }
       // Only downloaded Maven dependencies are shared between sandboxes; the
       // checkout, workspace, target/ and Pi state stay private to each container.
+      // Only trusted preparation on the authoritative base may write the shared
+      // repository. Candidate-controlled sandboxes get it as a read-only mount
+      // (enforced by Docker, not by Maven flags) and build against a private
+      // writable copy made before any candidate command runs. A copy, not a
+      // read-only Maven tail: FOLIO poms build paths such as
+      // -javaagent:${settings.localRepository}/org/mockito/... that must exist
+      // in the local repository itself.
       prepareMavenRepository();
-      Bind mavenBind = new Bind(mavenRepository.toString(), new Volume(MAVEN_REPOSITORY_DIR), AccessMode.rw);
+      boolean cacheWriter = spec.trustedDependencyCacheWriter();
+      Bind mavenBind = new Bind(mavenRepository.toString(), new Volume(MAVEN_REPOSITORY_DIR),
+          cacheWriter ? AccessMode.rw : AccessMode.ro);
+      String mavenArgs = "MAVEN_ARGS=-Dmaven.repo.local="
+          + (cacheWriter ? MAVEN_REPOSITORY_DIR : PRIVATE_MAVEN_REPOSITORY_DIR);
+      String mavenCopy = cacheWriter || !mavenWorkload ? "" : "mkdir " + PRIVATE_MAVEN_REPOSITORY_DIR + " && cp -a "
+          + MAVEN_REPOSITORY_DIR + "/. " + PRIVATE_MAVEN_REPOSITORY_DIR + "/ && ";
       if (source != null) {
         makeReadable(source);
         hostConfig.withBinds(new Bind(source, new Volume("/workspace/source"), AccessMode.ro), mavenBind);
@@ -133,7 +157,7 @@ public class DockerSandboxService implements SandboxService {
       CreateContainerResponse container = dockerClient.createContainerCmd(effectiveImage)
           .withCmd("sleep", "infinity")
           .withWorkingDir(WORKSPACE_DIR)
-          .withEnv("MAVEN_ARGS=-Dmaven.repo.local=" + MAVEN_REPOSITORY_DIR)
+          .withEnv(mavenArgs)
           // Unlike tmpfs, this private anonymous volume survives workload stop.
           // teardown removes it only after the caller has exported the candidate.
           .withVolumes(new Volume(WORKSPACE_DIR))
@@ -144,7 +168,8 @@ public class DockerSandboxService implements SandboxService {
       String settings = ("GATEWAY_ONLY".equals(policy) || "DEPENDENCY_ONLY".equals(policy))
           ? "mkdir -p /home/agent/.m2 && cp /opt/pi/maven-settings.xml /home/agent/.m2/settings.xml && "
           : "";
-      String cloneCommand = "cp /opt/pi/models.json /state/pi/models.json && " + settings + (source == null
+      String cloneCommand = "cp /opt/pi/models.json /state/pi/models.json && " + settings + mavenCopy
+          + (source == null
           ? "git clone --depth 1 " + Shell.quote(spec.repoUrl()) + " repo && cd repo && git checkout -b "
               + Shell.quote(spec.branch()) + " " + Shell.quote(spec.baseBranch())
           : "mkdir repo && cp -a /workspace/source/. repo/ && cd repo && git checkout -b "
@@ -375,7 +400,7 @@ public class DockerSandboxService implements SandboxService {
         ? "DEPENDENCY_ONLY" : source.networkPolicy();
     SandboxHandle exporter = create(new SandboxSpec(source.taskId() + "-export", source.repoUrl(),
         source.baseBranch(), source.branch() + "-export", source.ownerId() + "-export",
-        source.image(), source.platform(), exportNetwork));
+        source.image(), source.platform(), exportNetwork), false);
     try {
       CommandResult directory = exec(exporter, "mkdir /workspace/factory-frozen", 30);
       if (!directory.ok()) throw new SandboxException("Cannot create frozen-workspace directory");

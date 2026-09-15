@@ -35,7 +35,7 @@ public record SandboxProperties(String mode, String image, String dockerHost,
         : Path.of(System.getProperty("java.io.tmpdir", "/tmp"), "factory-sandboxes");
     workspaceRetention = workspaceRetention == null ? Duration.ZERO : workspaceRetention;
     mavenRepository = mavenRepository != null ? mavenRepository
-        : Path.of(".factory/cache/maven-repository");
+        : Path.of(".factory/cache/sandbox-maven-repository");
     dockerNetwork = dockerNetwork == null || dockerNetwork.isBlank() ? null : dockerNetwork;
     dependencyDockerNetwork = dependencyDockerNetwork == null || dependencyDockerNetwork.isBlank()
         ? null : dependencyDockerNetwork;

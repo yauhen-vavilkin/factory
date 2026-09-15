@@ -25,6 +25,7 @@ public final class Modsidecar208Verifier {
   public static final String BASE_REVISION = "c13e0383d9283ef554c195cf5357bb3c6eeb4e65";
   public static final String CHECKER_VERSION = "smallrye-config-core:3.17.2";
 
+  private static final String SUREFIRE_REPORT_GLOB = "**/target/surefire-reports/TEST-*.xml";
   private static final String CHECKER_DIR = "/tmp/factory-smallrye-checker";
   private static final String PROPERTY = "quarkus.thread-pool.max-threads";
   private static final String ENVIRONMENT = "QUARKUS_THREAD_POOL_MAX_THREADS";
@@ -69,8 +70,14 @@ public final class Modsidecar208Verifier {
   /** Require a fresh non-empty report with a positive test count. */
   public CommandResult summarizeReports(SandboxService sandboxes, SandboxHandle handle,
                                          long timeoutSec) {
-    String command = "cd repo && files=$(find . -path '*/target/surefire-reports/TEST-*.xml' "
-        + "-type f -size +0c | sort) && test -n \"$files\" && total=0 && "
+    return summarizeReports(sandboxes, handle, SUREFIRE_REPORT_GLOB, timeoutSec);
+  }
+
+  /** The same report summary for the report glob a verification plan check declares. */
+  public CommandResult summarizeReports(SandboxService sandboxes, SandboxHandle handle,
+                                         String reportGlob, long timeoutSec) {
+    String command = "cd repo && files=$(find . -path " + Shell.quote(findPattern(reportGlob))
+        + " -type f -size +0c | sort) && test -n \"$files\" && total=0 && "
         + "for file in $files; do tests=$(sed -n 's/.*tests=\"\\([0-9][0-9]*\\)\".*/\\1/p' \"$file\" | head -1); "
         + "failures=$(sed -n 's/.*failures=\"\\([0-9][0-9]*\\)\".*/\\1/p' \"$file\" | head -1); "
         + "errors=$(sed -n 's/.*errors=\"\\([0-9][0-9]*\\)\".*/\\1/p' \"$file\" | head -1); "
@@ -79,6 +86,22 @@ public final class Modsidecar208Verifier {
         + "total=$((total + tests)); printf 'REPORT\\t%s\\ttests=%s\\tfailures=%s\\terrors=%s\\tskipped=%s\\n' \"$file\" \"$tests\" \"$failures\" \"$errors\" \"$skipped\"; done; "
         + "test \"$total\" -gt 0";
     return sandboxes.exec(handle, command, timeoutSec);
+  }
+
+  /**
+   * Remove report files matching the glob before a check runs, so only reports
+   * the check itself writes count as evidence (a candidate cannot commit them).
+   */
+  public CommandResult removeReports(SandboxService sandboxes, SandboxHandle handle,
+                                     String reportGlob, long timeoutSec) {
+    return sandboxes.exec(handle, "cd repo && find . -path " + Shell.quote(findPattern(reportGlob))
+        + " -type f -delete", timeoutSec);
+  }
+
+  /** {@code find -path} pattern for a plan report glob; {@code *} there also matches '/'. */
+  static String findPattern(String reportGlob) {
+    String glob = reportGlob.replace("/**/", "/*/");
+    return glob.startsWith("**/") ? "*/" + glob.substring(3) : "./" + glob;
   }
 
   /** Parse the bounded report summary into identity and execution facts. */

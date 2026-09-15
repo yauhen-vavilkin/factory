@@ -20,7 +20,7 @@ class SandboxPropertiesTest {
     assertThat(properties.workspaceRoot()).isEqualTo(
         Path.of(System.getProperty("java.io.tmpdir", "/tmp"), "factory-sandboxes"));
     assertThat(properties.workspaceRetention()).isEqualTo(Duration.ZERO);
-    assertThat(properties.mavenRepository()).isEqualTo(Path.of(".factory/cache/maven-repository"));
+    assertThat(properties.mavenRepository()).isEqualTo(Path.of(".factory/cache/sandbox-maven-repository"));
   }
 
   @Test

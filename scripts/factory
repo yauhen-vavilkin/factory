@@ -114,7 +114,8 @@ init_factory() {
   mkdir -p "$STATE_DIR/config" "$STATE_DIR/secrets" "$STATE_DIR/data/postgres" \
     "$STATE_DIR/data/artifacts" "$STATE_DIR/data/recovery" "$STATE_DIR/data/inbox" \
     "$STATE_DIR/data/sandboxes" "$STATE_DIR/cache/maven-home" \
-    "$STATE_DIR/cache/maven-repository" "$STATE_DIR/cache/docker-config" \
+    "$STATE_DIR/cache/host-maven-repository" "$STATE_DIR/cache/sandbox-maven-repository" \
+    "$STATE_DIR/cache/docker-config" \
     "$STATE_DIR/logs/validation" \
     "$STATE_DIR/logs/runs" \
     "$STATE_DIR/run"
@@ -355,11 +356,9 @@ start_factory() {
     esac
     guard_legacy_pgdata
     rotate_model_token
-    # M2 can spend 30 minutes each in baseline, coding, initial verification,
-    # one repair, and full re-verification. Keep one bounded flow inside the
-    # credential window without creating a refresh/session subsystem.
-    FACTORY_GATEWAY_EXPIRES_AT=$(( $(date +%s) + 14400 ))
-    export FACTORY_GATEWAY_EXPIRES_AT
+    # The coding gateway budgets and times out each Developer Flow execution
+    # separately (FACTORY_MAX_ATTEMPTS, FACTORY_EXECUTION_TTL_SECONDS from the
+    # execution's first model call), so no process-wide expiry is set here.
     export FACTORY_PI_GATEWAY_URL="http://127.0.0.1:${FACTORY_GATEWAY_PORT}/v1"
     pi_gateways_started=true
     compose up -d --build --force-recreate --wait postgres factory-gateway factory-dependency-gateway
@@ -387,7 +386,7 @@ start_factory() {
     export FACTORY_MODE="$mode"
     export FACTORY_APP_PORT FACTORY_POSTGRES_PORT
     export FACTORY_DATA_DIR="$STATE_DIR/data"
-    export FACTORY_SANDBOX_MAVEN_REPOSITORY="$STATE_DIR/cache/maven-repository"
+    export FACTORY_SANDBOX_MAVEN_REPOSITORY="$STATE_DIR/cache/sandbox-maven-repository"
     export FACTORY_DB_URL="jdbc:postgresql://127.0.0.1:${FACTORY_POSTGRES_PORT}/factory"
     export FACTORY_DB_USER=factory
     export FACTORY_DB_PASSWORD="$db_password"

@@ -249,5 +249,132 @@ class GatewayCodingAuthTest(unittest.TestCase):
             server.trusted_upstream_base("https://attacker.example/api")
 
 
+class FakeUpstreamResponse:
+    status = 200
+    headers = {"Content-Type": "application/json"}
+
+    def __init__(self) -> None:
+        self.body = [b'{"model":"glm-5.3-flash","choices":[{"message":{"content":"ok"}}]}', b""]
+
+    def read(self, _size: int = -1) -> bytes:
+        return self.body.pop(0) if self.body else b""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args) -> None:
+        return None
+
+
+class FakeUpstreamOpener:
+    """Stands in for the provider so budget checks can be exercised without a network call."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.lock = threading.Lock()
+
+    def open(self, _request, timeout=None):
+        with self.lock:
+            self.calls += 1
+        return FakeUpstreamResponse()
+
+
+class GatewayExecutionBudgetTest(unittest.TestCase):
+    """Each Developer Flow execution has its own attempt budget and lifetime."""
+
+    RUN_TOKEN = "budget-run-token"
+    BODY = b'{"model": "glm-5.3-flash", "messages": [], "max_tokens": 8}'
+
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="factory-gateway-budget."))
+        state = make_state("coding", self.tmp / "evidence", self.RUN_TOKEN)
+        state.api_key = "provider-key-stays-in-gateway"
+        state.max_attempts = 2
+        self.state = state
+        self.saved_opener = server.UPSTREAM_OPENER
+        self.upstream = FakeUpstreamOpener()
+        server.UPSTREAM_OPENER = self.upstream
+        self.gateway = StatefulGateway(state)
+        self.gateway.start()
+
+    def tearDown(self) -> None:
+        self.gateway.stop()
+        server.UPSTREAM_OPENER = self.saved_opener
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def call(self, token: str):
+        return request(self.gateway.base + "/v1/chat/completions", token=token,
+                       method="POST", body=self.BODY)
+
+    def test_two_executions_do_not_share_the_attempt_counter(self) -> None:
+        first = server.execution_token(self.RUN_TOKEN, "execution-a")
+        second = server.execution_token(self.RUN_TOKEN, "execution-b")
+
+        self.assertEqual(self.call(first)[0], 200)
+        self.assertEqual(self.call(first)[0], 200)
+        status, body = self.call(first)
+        self.assertEqual(status, 429)
+        self.assertIn(b"run attempt budget exhausted", body)
+
+        # A later execution does not inherit the exhausted budget.
+        self.assertEqual(self.call(second)[0], 200)
+        self.assertEqual(self.call(second)[0], 200)
+        self.assertEqual(self.call(second)[0], 429)
+        self.assertEqual(self.upstream.calls, 4)
+
+    def test_parallel_executions_each_get_their_full_budget(self) -> None:
+        tokens = [server.execution_token(self.RUN_TOKEN, f"parallel-{i}") for i in range(4)]
+        results: dict[str, list[int]] = {token: [] for token in tokens}
+
+        def spend(token: str) -> None:
+            for _ in range(3):
+                results[token].append(self.call(token)[0])
+
+        threads = [threading.Thread(target=spend, args=(token,)) for token in tokens]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        for token in tokens:
+            self.assertEqual(sorted(results[token]), [200, 200, 429])
+
+    def test_forged_or_foreign_execution_tokens_are_rejected(self) -> None:
+        genuine = server.execution_token(self.RUN_TOKEN, "execution-a")
+        forged = genuine[:-1] + ("0" if genuine[-1] != "0" else "1")
+        for token in (
+            forged,
+            server.execution_token("another-run-token", "execution-a"),
+            "fx1.execution-a",
+            "fx1.bad id." + "0" * 64,
+        ):
+            status, body = self.call(token)
+            self.assertEqual(status, 401, token)
+            self.assertIn(b"invalid or missing run token", body)
+        self.assertEqual(self.upstream.calls, 0)
+
+    def test_lifetime_starts_at_the_executions_first_call_not_gateway_start(self) -> None:
+        self.state.execution_ttl = 3600
+        paused = server.execution_token(self.RUN_TOKEN, "resumed-after-decision")
+        old = server.execution_token(self.RUN_TOKEN, "old-execution")
+        self.assertEqual(self.call(old)[0], 200)
+        # Simulate a gateway that has run far longer than the lifetime and an
+        # execution whose own first call was more than the lifetime ago.
+        with self.state.lock:
+            self.state.buckets["old-execution"]["firstAt"] -= 7200
+
+        status, body = self.call(old)
+        self.assertEqual(status, 429)
+        self.assertIn(b"execution token expired", body)
+        # An execution resumed after a long pause starts its own lifetime now.
+        self.assertEqual(self.call(paused)[0], 200)
+
+    def test_run_token_is_accepted_only_as_the_operator_bucket(self) -> None:
+        self.assertEqual(self.call(self.RUN_TOKEN)[0], 200)
+        self.assertEqual(self.call(self.RUN_TOKEN)[0], 200)
+        self.assertEqual(self.call(self.RUN_TOKEN)[0], 429)
+        self.assertEqual(self.call(server.execution_token(self.RUN_TOKEN, "execution-a"))[0], 200)
+
+
 if __name__ == "__main__":
     unittest.main()
