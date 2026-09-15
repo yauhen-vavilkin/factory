@@ -1,0 +1,25 @@
+{
+  "id": "web-client-timeout-contract",
+  "category": "PRODUCT_SEMANTICS",
+  "question": "Which operator-facing configuration contract should make the sidecar's Vert.x ingress/egress web client timeouts configurable?",
+  "whyItMatters": "The reporter expected QUARKUS_REST_CLIENT_READ_TIMEOUT to work, but these clients are Vert.x WebClients configured by web-client.* properties with no documented environment variables. The chosen variable names and their semantics become a deployment contract that operators and Helm charts depend on.",
+  "options": [
+    {
+      "id": "dedicated-env-vars",
+      "label": "Add dedicated WEB_CLIENT_INGRESS_TIMEOUT_* and WEB_CLIENT_EGRESS_TIMEOUT_* variables (connect, keep-alive, idle, read-idle, write-idle) mapped with ${ENV:default} in application.properties",
+      "consequence": "Follows the existing sidecar convention (e.g. REQUEST_TIMEOUT); defaults stay unchanged; operators who already set QUARKUS_REST_CLIENT_* still see no effect and must switch to the new names."
+    },
+    {
+      "id": "honour-quarkus-rest-client",
+      "label": "Use QUARKUS_REST_CLIENT_CONNECT_TIMEOUT and QUARKUS_REST_CLIENT_READ_TIMEOUT as the ingress/egress web client connect and read-idle timeouts when they are set",
+      "consequence": "The reporter's existing configuration starts to work without new names, but Vert.x clients become coupled to Quarkus REST client properties with different units and meaning, and deployments that already set those variables change behaviour silently."
+    }
+  ],
+  "recommendedOptionId": "dedicated-env-vars",
+  "recommendationRationale": "application.properties already exposes sidecar settings as ${ENV:default} (REQUEST_TIMEOUT, TOKEN_CACHE_RETRIEVAL_TIMEOUT), and WebClientConfig timeouts are seconds-based idle timeouts, not the Quarkus REST client's millisecond read timeout.",
+  "evidence": [
+    {"path": "src/main/java/org/folio/sidecar/configuration/properties/WebClientConfig.java", "terms": ["@WithDefault", "keepAlive", "idle", "connect"]},
+    {"path": "src/main/resources/application.properties", "terms": ["timeout", "web-client.egress"]},
+    {"path": "README.md", "terms": ["REQUEST_TIMEOUT", "WEB_CLIENT"]}
+  ]
+}

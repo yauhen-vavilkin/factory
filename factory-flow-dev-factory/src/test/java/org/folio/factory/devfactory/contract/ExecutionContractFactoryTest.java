@@ -105,7 +105,7 @@ class ExecutionContractFactoryTest {
             List.of("pom.xml"), List.of()), profile, plan,
         List.of("IMAGE_DIGEST_PENDING_PREPARATION",
             "DEPENDENCY_SEED_PENDING_PREPARATION", "BASELINE_PENDING_PREPARATION"),
-        List.of(), false, hash('n'));
+        null, false, hash('n'));
   }
 
   private static String hash(char value) {

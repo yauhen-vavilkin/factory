@@ -1,0 +1,69 @@
+id: dev-factory-pi-decision
+name: Dev Factory Pi (decision first)
+version: 1.0.0
+# Admitted only for tasks whose deterministic resolution is NEEDS_DECISION
+# (FileInboxTrigger routes them to "<inbox event>.decision"). The request is
+# persisted, the execution pauses at the core HITL gate, and after the human
+# answer it continues through the same Pi steps as dev-factory-pi, reading the
+# effective task from task.json instead of the trigger payload.
+triggers:
+  - event_type: file.inbox.pi.decision
+input_schema:
+  required: [taskId, resolvedIntent, goal]
+output_schema:
+  artifacts: [decision-request.json, decision-answer.json, decision-resolution.json, task.json, baseline.json, candidate.patch, verification.json, repair.json, result.json, manifest.json, usage.json]
+retry_policy:
+  max_attempts: 1
+  backoff_seconds: []
+agent_chain:
+  - step_id: decision-request
+    type: AGENT
+    worker_id: dev-decision-request-worker
+    inputs: ["$trigger"]
+    outputs: [decision-request.json, decision-answer.json]
+  - step_id: decision
+    type: HITL_GATE
+    gate:
+      gate_id: developer-decision
+      title: "Developer Flow needs a decision"
+      review_instructions: >-
+        Read decision-request.json (facts, question, options, consequences).
+        Answer with ./scripts/factory decide (records decision-answer.json as an
+        attributed AMEND). APPROVE alone accepts the recommendation when one
+        exists. REJECT cancels the task. No coding runs until this is answered.
+      reviewed_artifacts: [decision-request.json, decision-answer.json]
+  - step_id: decision-resume
+    type: AGENT
+    worker_id: dev-decision-resume-worker
+    inputs: ["$trigger", decision-request.json, decision-answer.json]
+    outputs: [task.json, decision-resolution.json]
+  - step_id: prepare
+    type: AGENT
+    worker_id: pi-prepare-worker
+    inputs: ["$trigger", task.json]
+    outputs: [contract.json, baseline.json, baseline.log]
+  - step_id: coding
+    type: AGENT
+    worker_id: pi-coding-worker
+    inputs: ["$trigger", task.json, contract.json, baseline.json]
+    outputs: [candidate.patch, candidate.json, pi-session.jsonl, usage.json]
+  - step_id: verify
+    type: AGENT
+    worker_id: pi-verify-worker
+    inputs: ["$trigger", task.json, contract.json, baseline.json, candidate.patch, candidate.json]
+    outputs: [verification.json]
+  - step_id: repair
+    type: AGENT
+    worker_id: pi-repair-worker
+    inputs: ["$trigger", task.json, contract.json, candidate.patch, candidate.json, verification.json, usage.json, pi-session.jsonl]
+    outputs: [candidate.patch, candidate.json, repair.json, usage.json, pi-session.jsonl]
+  - step_id: reverify
+    type: AGENT
+    worker_id: pi-reverify-worker
+    inputs: ["$trigger", task.json, contract.json, baseline.json, candidate.patch, candidate.json, verification.json, repair.json]
+    outputs: [verification.json]
+  - step_id: finalize
+    type: AGENT
+    worker_id: pi-finalize-worker
+    inputs: ["$trigger", task.json, decision-resolution.json, candidate.patch, candidate.json, verification.json, repair.json, usage.json, pi-session.jsonl]
+    outputs: [result.json, manifest.json]

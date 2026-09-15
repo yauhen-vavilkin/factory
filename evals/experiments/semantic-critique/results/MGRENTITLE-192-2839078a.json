@@ -1,0 +1,43 @@
+{
+  "schema": "DevFlowAdvisoryCritique/v1",
+  "advisory": true,
+  "model": "glm-5.3-flash",
+  "task": "evals/tasks/MGRENTITLE-192.md",
+  "candidatePatchSha256": "e272831fd1b7bc41484223c46c9fc65e956aa595c0ff38f79913ea9504588fbf",
+  "durationMs": 94665,
+  "usage": {
+    "completion_tokens": 3079,
+    "completion_tokens_details": {
+      "reasoning_tokens": 2564
+    },
+    "prompt_tokens": 3480,
+    "prompt_tokens_details": {
+      "cached_tokens": 3456
+    },
+    "total_tokens": 6559
+  },
+  "review": {
+    "verdict": "ACCEPT",
+    "summary": "The patch adds a String moduleId field to SystemUserEvent, populates it from moduleDescriptor.getId() in SystemUserEventProvider at the single event construction point (thereby covering create, update new/old, and delete/deprecation lifecycles), preserves existing fields and the name semantics via SemverUtils.getName, and updates unit tests and JSON test fixtures accordingly.",
+    "findings": [
+      {
+        "class": "NOTE",
+        "blocking": false,
+        "criterion": "AC1",
+        "file": "src/main/java/org/folio/entitlement/utils/SystemUserEventProvider.java",
+        "claim": "AC1 is satisfied: moduleId is set to moduleDescriptor.getId() (full ID with version) and this is asserted in SystemUserEventProviderTest with the value 'test-module-0.0.1'; name remains the version-less name, preserving backward compatibility (requirement 4).",
+        "evidence": "+    var moduleId = moduleDescriptor.getId();\n+    var moduleName = SemverUtils.getName(moduleId);\n+    return SystemUserEvent.of(moduleId, moduleName, systemUser.getType(), systemUser.getPermissions()); and test assertion .contains(SystemUserEvent.of(\"test-module-0.0.1\", \"test-module\", ...))",
+        "confidence": "HIGH"
+      },
+      {
+        "class": "NOTE",
+        "blocking": false,
+        "criterion": "AC2",
+        "file": "src/test/resources/json/events/folio-app6",
+        "claim": "AC2 lifecycle coverage is addressed: the moduleId population occurs in the single provider construction site used by all lifecycles, and fixtures were updated for create (system-user.json for module2/3/4), update with both new and old values (system-user-update.json), and deprecation old value (system-user-deprecated.json). The patch alone cannot prove no other SystemUserEvent construction sites exist in unseen files, but any missed caller would fail compilation/tests under AC3.",
+        "evidence": "Fixture diffs add \"moduleId\": \"folio-module2-2.1.0\" / \"folio-module2-2.0.0\" to new/old of system-user-update.json, \"folio-module3-3.0.0\" to old of system-user-deprecated.json, and moduleId to the three create fixtures.",
+        "confidence": "MEDIUM"
+      }
+    ]
+  }
+}

@@ -53,6 +53,18 @@ class PiCodingRunnerFailFastTest {
 
     assertTrue(failed.terminalProviderFailure());
     assertFalse(successful.terminalProviderFailure());
+    assertFalse(failed.attemptBudgetExhausted());
+  }
+
+  @Test
+  void gatewayAttemptBudgetRefusalIsABudgetBoundaryNotAProviderFault() {
+    var exhausted = new PiCodingRunner.CodingAttempt(-1, true, "", List.of(
+        JSON.readTree("{\"type\":\"agent_end\",\"willRetry\":false,\"messages\":["
+            + "{\"stopReason\":\"error\",\"errorMessage\":\"429 \\\"run attempt budget exhausted\\\"\"}]}"),
+        JSON.readTree("{\"type\":\"agent_settled\"}")), 0, 0);
+
+    assertTrue(exhausted.terminalProviderFailure());
+    assertTrue(exhausted.attemptBudgetExhausted());
   }
 
   private static final class FailingPromptSessions implements ProcessSessionFactory {

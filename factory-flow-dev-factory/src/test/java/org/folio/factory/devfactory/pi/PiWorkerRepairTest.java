@@ -97,6 +97,38 @@ class PiWorkerRepairTest {
   }
 
   @Test
+  void exhaustedCodingBudgetIsAFinalFailedOutcomeNotAProviderErrorOrRepair() {
+    String verification = "{\"status\":\"FAIL\",\"stage\":\"coding\",\"reason\":\"CODING_BUDGET_EXHAUSTED\"}";
+    SandboxService sandboxes = mock(SandboxService.class);
+    PiCodingRunner runner = mock(PiCodingRunner.class);
+
+    AgentResult repaired = repairWorker(sandboxes, runner, verification);
+    JsonNode repair = json.readTree(repaired.outputs().get("repair.json"));
+    assertThat(repair.path("attempted").asBoolean()).isFalse();
+    assertThat(repair.path("route").asText()).isEqualTo("FINAL_FAILURE");
+    verify(runner, never()).run(any(), any(), anyString(), anyString(), any(), anyLong(), any());
+
+    AgentContext reverify = new AgentContext(UUID.randomUUID(), "reverify", Map.of(
+        "contract.json", artifact("contract.json", contract()),
+        "baseline.json", artifact("baseline.json", "{\"status\":\"PASS\"}"),
+        "candidate.patch", artifact("candidate.patch", OLD_PATCH),
+        "candidate.json", artifact("candidate.json", "{\"status\":\"FAILED\",\"stage\":\"coding\","
+            + "\"reason\":\"CODING_BUDGET_EXHAUSTED\"}"),
+        "verification.json", artifact("verification.json", verification),
+        "repair.json", artifact("repair.json", repaired.outputs().get("repair.json"))),
+        payload(), Map.of(), List.of(), 1);
+    String reverified = new PiWorker("pi-reverify-worker", sandboxes, runner, "", "gateway")
+        .execute(reverify).outputs().get("verification.json");
+    AgentContext finalize = new AgentContext(UUID.randomUUID(), "finalize", Map.of(
+        "verification.json", artifact("verification.json", reverified)), payload(), Map.of(), List.of(), 1);
+    JsonNode result = json.readTree(new PiWorker("pi-finalize-worker", sandboxes, runner, "", "gateway")
+        .execute(finalize).outputs().get("result.json"));
+
+    assertThat(result.path("outcome").asText()).isEqualTo("FAILED");
+    assertThat(result.path("failure").path("reason").asText()).isEqualTo("CODING_BUDGET_EXHAUSTED");
+  }
+
+  @Test
   void aSettledRepairThatDoesNotChangeIdentityStopsAfterTheSingleAttempt() {
     SandboxService sandboxes = mock(SandboxService.class);
     PiCodingRunner runner = mock(PiCodingRunner.class);

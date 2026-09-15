@@ -133,6 +133,43 @@ class InboxTaskFileParserTest {
         .isInstanceOf(InboxTaskFileException.class).hasMessageContaining("Trailing token");
   }
 
+  @Test
+  void declaredDecisionIsParsedStrictlyAndEngineeringChoicesAreNotADecisionCategory(@TempDir Path dir)
+      throws IOException {
+    String decision = """
+        decisions:
+          - id: limit
+            category: PRODUCT_SEMANTICS
+            question: Raise the limit or remove it?
+            whyItMatters: External API contract
+            options:
+              - {id: raise, label: Raise to 100, consequence: Bounded}
+              - {id: remove, label: Remove the limit, consequence: Unbounded}
+            evidence:
+              - {path: src/schema.json, terms: [maxItems]}
+        """;
+    TaskRequest task = parser.parse(write(dir, "decision.yaml", v1("baseRef: master") + decision));
+    assertThat(task.decisions()).singleElement().satisfies(declared -> {
+      assertThat(declared.options()).extracting(TaskRequest.Option::id).containsExactly("raise", "remove");
+      assertThat(declared.recommendedOptionId()).isNull();
+      assertThat(declared.evidence()).singleElement().extracting(TaskRequest.Evidence::path)
+          .isEqualTo("src/schema.json");
+    });
+
+    assertThatThrownBy(() -> parser.parse(write(dir, "debug.yaml", v1("baseRef: master")
+        + decision.replace("PRODUCT_SEMANTICS", "IMPLEMENTATION_DEBUGGING"))))
+        .hasMessageContaining("decision category");
+    assertThatThrownBy(() -> parser.parse(write(dir, "one-option.yaml", v1("baseRef: master")
+        + decision.replace("      - {id: remove, label: Remove the limit, consequence: Unbounded}\n", ""))))
+        .hasMessageContaining("between 2 and 5 options");
+    assertThatThrownBy(() -> parser.parse(write(dir, "bad-recommendation.yaml", v1("baseRef: master")
+        + decision.replace("    options:", "    recommendedOptionId: other\n    recommendationRationale: why\n    options:"))))
+        .hasMessageContaining("recommendedOptionId");
+    assertThatThrownBy(() -> parser.parse(write(dir, "unsafe.yaml", v1("baseRef: master")
+        + decision.replace("src/schema.json", "../secrets"))))
+        .hasMessageContaining("unsafe");
+  }
+
   private static String v1(String revision) {
     return """
         schemaVersion: 1

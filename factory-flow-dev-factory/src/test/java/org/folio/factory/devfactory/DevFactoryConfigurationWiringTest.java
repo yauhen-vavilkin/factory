@@ -3,6 +3,7 @@ package org.folio.factory.devfactory;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.folio.factory.agents.artifact.FrontmatterCodec;
+import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.trigger.PipelineRouter;
 import org.folio.factory.devfactory.inbox.FileInboxTrigger;
@@ -21,7 +22,8 @@ class DevFactoryConfigurationWiringTest {
                     .withBean(SandboxService.class, () -> Mockito.mock(SandboxService.class))
                     .withBean(CodingHarness.class, () -> Mockito.mock(CodingHarness.class))
                     .withBean(FrontmatterCodec.class, FrontmatterCodec::new)
-                    .withBean(ArtifactStore.class, () -> Mockito.mock(ArtifactStore.class));
+                    .withBean(ArtifactStore.class, () -> Mockito.mock(ArtifactStore.class))
+                    .withBean(HitlReviewRepository.class, () -> Mockito.mock(HitlReviewRepository.class));
 
     @Test
     void exposesInboxTaskFileParserAsBean() {

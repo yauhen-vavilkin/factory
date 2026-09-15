@@ -20,7 +20,13 @@ import java.nio.charset.StandardCharsets;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.stubbing.Scenario;
 
+import java.util.Map;
+import org.folio.factory.app.web.DevDecisionController;
+import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
+import org.folio.factory.core.hitl.HitlDecision;
+import org.folio.factory.core.hitl.HitlDecisionService;
+import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.core.service.ArtifactStore;
@@ -97,6 +103,9 @@ class DevFactoryPiEndToEndScenarioTest {
   @Autowired StateManager stateManager;
   @Autowired PipelineExecutionRepository executions;
   @Autowired ArtifactStore artifactStore;
+  @Autowired DevDecisionController decisionController;
+  @Autowired HitlDecisionService hitlDecisions;
+  @Autowired HitlReviewRepository reviews;
 
   @MockitoBean RepositoryCatalog repositoryCatalog;
   @MockitoBean RepositoryAccess repositoryAccess;
@@ -104,53 +113,7 @@ class DevFactoryPiEndToEndScenarioTest {
   @Test
   void submittedTaskRunsThroughPostgresEngineAndPiFlow() throws Exception {
     try {
-      gateway.stubFor(get(urlPathMatching("/maven/repository/.*")).atPriority(10)
-          .willReturn(aResponse().proxiedFrom("https://repo.maven.apache.org/maven2")
-              .withProxyUrlPrefixToRemove("/maven/repository")));
-      String read = "data: {\"id\":\"s\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"r\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"README.md\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n";
-      String edit = "data: {\"id\":\"s\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"b\",\"type\":\"function\",\"function\":{\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"sed -i 's/return value;/return value.trim().toLowerCase();/' src/main/java/factory/Normalizer.java\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n";
-      edit = edit.replace("sed -i 's/return", "git config --global --add safe.directory /workspace/repo && sed -i 's/return");
-      edit = edit.replace("git config --global --add safe.directory /workspace/repo && sed -i 's/return value;/return value.trim().toLowerCase();/' src/main/java/factory/Normalizer.java",
-          "git config --global --add safe.directory /workspace/repo && printf '%s' 'package factory; public final class Normalizer { public static String normalize(String value) { return value.trim().toLowerCase(); } }' > src/main/java/factory/Normalizer.java && git add . && git commit -m pi-normalization-candidate");
-      edit = edit.replace("pi-normalization-candidate\"}",
-          "pi-normalization-candidate" + "\\" + "\"}");
-      String done = "data: {\"id\":\"s\",\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
-      gateway.stubFor(post(urlPathEqualTo("/v1/chat/completions")).inScenario("pi")
-          .whenScenarioStateIs(Scenario.STARTED).willReturn(aResponse().withHeader("Content-Type", "text/event-stream").withBody(read))
-          .willSetStateTo("edited"));
-      gateway.stubFor(post(urlPathEqualTo("/v1/chat/completions")).inScenario("pi")
-          .whenScenarioStateIs("edited").willReturn(aResponse().withHeader("Content-Type", "text/event-stream").withBody(edit))
-          .willSetStateTo("done"));
-      gateway.stubFor(post(urlPathEqualTo("/v1/chat/completions")).inScenario("pi")
-          .whenScenarioStateIs("done").willReturn(aResponse().withHeader("Content-Type", "text/event-stream").withBody(done)));
-    Path sourceRepo = sourceRoot.resolve("source-repo");
-    Files.createDirectories(sourceRepo);
-    Files.writeString(sourceRepo.resolve("README.md"), "# Normalization\n");
-    Files.createDirectories(sourceRepo.resolve("src/main/java/factory"));
-    Files.createDirectories(sourceRepo.resolve("src/test/java/factory"));
-    Files.writeString(sourceRepo.resolve("src/main/java/factory/Normalizer.java"),
-        "package factory; public final class Normalizer { public static String normalize(String value) { return value; } }");
-    Files.writeString(sourceRepo.resolve("src/test/java/factory/NormalizerTest.java"),
-        "package factory; import org.junit.jupiter.api.Test; import static org.junit.jupiter.api.Assertions.*; class NormalizerTest { @Test void works() { assertEquals(\"folio\", Normalizer.normalize(\"  FOLIO  \")); } }");
-    Files.writeString(sourceRepo.resolve("pom.xml"), "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"><modelVersion>4.0.0</modelVersion><groupId>factory</groupId><artifactId>fixture</artifactId><version>1</version><properties><maven.compiler.release>21</maven.compiler.release><maven.compiler.source>21</maven.compiler.source><maven.compiler.target>21</maven.compiler.target></properties><dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.11.0</version><scope>test</scope></dependency></dependencies><build><plugins><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.14.1</version></plugin><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.2</version></plugin></plugins></build></project>");
-    run(sourceRepo, "git", "init", "-q", "-b", "main"); run(sourceRepo, "git", "config", "user.name", "test"); run(sourceRepo, "git", "config", "user.email", "test@example.invalid"); run(sourceRepo, "git", "add", "."); run(sourceRepo, "git", "commit", "-qm", "base");
-    String base = run(sourceRepo, "git", "rev-parse", "HEAD").trim();
-    when(repositoryCatalog.candidates(any(), any(), any()))
-        .thenReturn(Set.of("folio-org/folio-module-sidecar"));
-    when(repositoryCatalog.origin("folio-org/folio-module-sidecar"))
-        .thenReturn(sourceRepo.toUri().toString());
-    when(repositoryAccess.resolveBranch(anyString(), anyString())).thenReturn(base);
-    when(repositoryAccess.readFile(anyString(), anyString(), anyString(), anyInt()))
-        .thenAnswer(invocation -> {
-          String path = invocation.getArgument(2, String.class);
-          if (path.equals("pom.xml")) {
-            return Optional.of(("<project><properties><maven.compiler.release>21</maven.compiler.release>"
-                + "</properties></project>").getBytes(StandardCharsets.UTF_8));
-          }
-          return Optional.empty();
-        });
-
-
+      scriptedPiFixture();
     Files.writeString(inbox.resolve(TASK_ID + ".yaml"), """
         schemaVersion: 1
         source:
@@ -209,11 +172,143 @@ class DevFactoryPiEndToEndScenarioTest {
   }
 
   @Test
+  void declaredDecisionPausesWithoutProviderCallsRejectsStaleAnswerAndResumesFromDurableState() throws Exception {
+    try {
+      scriptedPiFixture();
+      Files.writeString(inbox.resolve("TASK-PI-DECISION-1.yaml"), """
+          schemaVersion: 1
+          source:
+            type: TEST
+            id: TASK-PI-DECISION-1
+            project: factory
+          repository: local-fixture
+          baseRef: main
+          profileId: java21-pi-unit
+          verificationPlanId: modsidecar-208-v1
+          runKey: pi-decision-e2e
+          deliveryMode: LOCAL_ONLY
+          goal: Normalize the value by trimming whitespace and lowercasing it.
+          acceptanceCriteria:
+            - id: patch
+              text: patch.diff modifies Normalizer.java
+          constraints:
+            allow_paths:
+              - src/main/java/factory/Normalizer.java
+          decisions:
+            - id: case-rule
+              category: PRODUCT_SEMANTICS
+              question: Should normalization lowercase the value or keep its case?
+              whyItMatters: Stored identifiers change for every existing caller.
+              options:
+                - {id: lowercase, label: Trim and lowercase, consequence: Case-insensitive identifiers}
+                - {id: keep-case, label: Trim only, consequence: Existing mixed-case identifiers stay distinct}
+              evidence:
+                - {path: pom.xml, terms: [release]}
+          """);
+
+      UUID executionId = await().atMost(Duration.ofSeconds(30)).until(() ->
+          executions.findAllByOrderByCreatedAtDesc().stream()
+              .filter(execution -> execution.getFlowId().equals("dev-factory-pi-decision"))
+              .map(PipelineExecution::getId).findFirst().orElse(null), id -> id != null);
+      await().atMost(Duration.ofSeconds(30)).until(() ->
+          stateManager.get(executionId).getStatus() == ExecutionStatus.AWAITING_HITL);
+
+      Artifact request = artifactStore.getLatest(executionId, "decision-request.json").orElseThrow();
+      assertThat(request.getContent()).contains("\"outcome\":\"NEEDS_DECISION\"", "keep-case",
+          "maven.compiler.release");
+      Thread.sleep(2_000);
+      assertThat(stateManager.get(executionId).getStatus()).isEqualTo(ExecutionStatus.AWAITING_HITL);
+      assertThat(artifactStore.getLatest(executionId, "contract.json")).isEmpty();
+      assertThat(artifactStore.getLatest(executionId, "candidate.patch")).isEmpty();
+      assertThat(gateway.findAll(postRequestedFor(urlPathEqualTo("/v1/chat/completions")))).isEmpty();
+
+      String decisionId = executionId + "/case-rule";
+      assertThatThrownBy(() -> decisionController.answer(executionId, new DevDecisionController.AnswerRequest(
+          executionId + "/older", "lowercase", null, "operator", null)))
+          .isInstanceOf(IllegalStateException.class);
+      String foreign = artifactStore.getLatest(executionId, "decision-answer.json").orElseThrow().getContent()
+          .replace(executionId.toString(), UUID.randomUUID().toString());
+      UUID reviewId = reviews.findByExecutionIdOrderByCreatedAtAsc(executionId).getFirst().getId();
+      assertThatThrownBy(() -> hitlDecisions.decide(reviewId, HitlDecision.AMEND, "operator", null,
+          Map.of("decision-answer.json", foreign))).isInstanceOf(IllegalArgumentException.class);
+      assertThat(stateManager.get(executionId).getStatus()).isEqualTo(ExecutionStatus.AWAITING_HITL);
+
+      decisionController.answer(executionId, new DevDecisionController.AnswerRequest(
+          decisionId, "lowercase", null, "operator", "lowercase matches the login rules"));
+
+      await().atMost(Duration.ofMinutes(5)).until(() -> stateManager.get(executionId).getStatus().isTerminal());
+      assertThat(stateManager.get(executionId).getStatus()).isEqualTo(COMPLETED);
+      Artifact answer = artifactStore.getLatest(executionId, "decision-answer.json").orElseThrow();
+      assertThat(answer.getCreatedBy()).isEqualTo("hitl:operator");
+      assertThat(artifactStore.getLatest(executionId, "decision-request.json").orElseThrow().getVersion()).isEqualTo(1);
+      assertThat(artifactStore.getLatest(executionId, "decision-resolution.json").orElseThrow().getContent())
+          .contains("SELECTED_OPTION", "\"answeredBy\":\"operator\"");
+      assertThat(artifactStore.getLatest(executionId, "result.json").orElseThrow().getContent())
+          .contains("\"outcome\":\"SUCCESS\"", "\"resolutionMode\":\"SELECTED_OPTION\"");
+      var chats = gateway.findAll(postRequestedFor(urlPathEqualTo("/v1/chat/completions")));
+      assertThat(chats).hasSize(3);
+      assertThat(chats.getFirst().getBodyAsString()).contains("Human decision", "Trim and lowercase");
+    } finally {
+      gateway.resetAll();
+    }
+  }
+
+  @Test
   void acceptanceNegativeControlRejectsFailedEscalated() {
     assertThatThrownBy(() -> assertThat(
         org.folio.factory.core.domain.ExecutionStatus.FAILED_ESCALATED).isEqualTo(COMPLETED))
         .isInstanceOf(AssertionError.class);
     System.out.println("PI_E2E_NEGATIVE_CONTROL FAILED_ESCALATED_REJECTED=true");
+  }
+
+  /** Local source repository plus a three-turn scripted Pi upstream that makes one candidate edit. */
+  private String scriptedPiFixture() throws Exception {
+      gateway.stubFor(get(urlPathMatching("/maven/repository/.*")).atPriority(10)
+          .willReturn(aResponse().proxiedFrom("https://repo.maven.apache.org/maven2")
+              .withProxyUrlPrefixToRemove("/maven/repository")));
+      String read = "data: {\"id\":\"s\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"r\",\"type\":\"function\",\"function\":{\"name\":\"read\",\"arguments\":\"{\\\"path\\\":\\\"README.md\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n";
+      String edit = "data: {\"id\":\"s\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"b\",\"type\":\"function\",\"function\":{\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"sed -i 's/return value;/return value.trim().toLowerCase();/' src/main/java/factory/Normalizer.java\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n";
+      edit = edit.replace("sed -i 's/return", "git config --global --add safe.directory /workspace/repo && sed -i 's/return");
+      edit = edit.replace("git config --global --add safe.directory /workspace/repo && sed -i 's/return value;/return value.trim().toLowerCase();/' src/main/java/factory/Normalizer.java",
+          "git config --global --add safe.directory /workspace/repo && printf '%s' 'package factory; public final class Normalizer { public static String normalize(String value) { return value.trim().toLowerCase(); } }' > src/main/java/factory/Normalizer.java && git add . && git commit -m pi-normalization-candidate");
+      edit = edit.replace("pi-normalization-candidate\"}",
+          "pi-normalization-candidate" + "\\" + "\"}");
+      String done = "data: {\"id\":\"s\",\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+      gateway.stubFor(post(urlPathEqualTo("/v1/chat/completions")).inScenario("pi")
+          .whenScenarioStateIs(Scenario.STARTED).willReturn(aResponse().withHeader("Content-Type", "text/event-stream").withBody(read))
+          .willSetStateTo("edited"));
+      gateway.stubFor(post(urlPathEqualTo("/v1/chat/completions")).inScenario("pi")
+          .whenScenarioStateIs("edited").willReturn(aResponse().withHeader("Content-Type", "text/event-stream").withBody(edit))
+          .willSetStateTo("done"));
+      gateway.stubFor(post(urlPathEqualTo("/v1/chat/completions")).inScenario("pi")
+          .whenScenarioStateIs("done").willReturn(aResponse().withHeader("Content-Type", "text/event-stream").withBody(done)));
+    Path sourceRepo = sourceRoot.resolve("source-repo");
+    Files.createDirectories(sourceRepo);
+    Files.writeString(sourceRepo.resolve("README.md"), "# Normalization\n");
+    Files.createDirectories(sourceRepo.resolve("src/main/java/factory"));
+    Files.createDirectories(sourceRepo.resolve("src/test/java/factory"));
+    Files.writeString(sourceRepo.resolve("src/main/java/factory/Normalizer.java"),
+        "package factory; public final class Normalizer { public static String normalize(String value) { return value; } }");
+    Files.writeString(sourceRepo.resolve("src/test/java/factory/NormalizerTest.java"),
+        "package factory; import org.junit.jupiter.api.Test; import static org.junit.jupiter.api.Assertions.*; class NormalizerTest { @Test void works() { assertEquals(\"folio\", Normalizer.normalize(\"  FOLIO  \")); } }");
+    Files.writeString(sourceRepo.resolve("pom.xml"), "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"><modelVersion>4.0.0</modelVersion><groupId>factory</groupId><artifactId>fixture</artifactId><version>1</version><properties><maven.compiler.release>21</maven.compiler.release><maven.compiler.source>21</maven.compiler.source><maven.compiler.target>21</maven.compiler.target></properties><dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.11.0</version><scope>test</scope></dependency></dependencies><build><plugins><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.14.1</version></plugin><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.2</version></plugin></plugins></build></project>");
+    run(sourceRepo, "git", "init", "-q", "-b", "main"); run(sourceRepo, "git", "config", "user.name", "test"); run(sourceRepo, "git", "config", "user.email", "test@example.invalid"); run(sourceRepo, "git", "add", "."); run(sourceRepo, "git", "commit", "-qm", "base");
+    String base = run(sourceRepo, "git", "rev-parse", "HEAD").trim();
+    when(repositoryCatalog.candidates(any(), any(), any()))
+        .thenReturn(Set.of("folio-org/folio-module-sidecar"));
+    when(repositoryCatalog.origin("folio-org/folio-module-sidecar"))
+        .thenReturn(sourceRepo.toUri().toString());
+    when(repositoryAccess.resolveBranch(anyString(), anyString())).thenReturn(base);
+    when(repositoryAccess.readFile(anyString(), anyString(), anyString(), anyInt()))
+        .thenAnswer(invocation -> {
+          String path = invocation.getArgument(2, String.class);
+          if (path.equals("pom.xml")) {
+            return Optional.of(("<project><properties><maven.compiler.release>21</maven.compiler.release>"
+                + "</properties></project>").getBytes(StandardCharsets.UTF_8));
+          }
+          return Optional.empty();
+        });
+    return base;
   }
 
   private static String run(Path dir, String... command) throws Exception {

@@ -140,14 +140,48 @@ class FileInboxTriggerTest {
   }
 
   @Test
-  void conflictingRepositoryEvidenceProducesStructuredBlockerAndNoModelPath() throws IOException {
+  void conflictingRepositoryEvidenceIsAdmittedOnlyThroughTheDecisionEvent() throws IOException {
+    UUID id = UUID.randomUUID();
+    when(router.routeAdmitted(any(), any())).thenReturn(List.of(id));
     write("conflict.yaml", valid("default", "repository: folio-org/mgr-tenant-entitlements\n"));
+
     trigger.poll();
-    verify(router, never()).routeAdmitted(any(), any());
+
+    ArgumentCaptor<TriggerEvent> event = ArgumentCaptor.forClass(TriggerEvent.class);
+    verify(router).routeAdmitted(event.capture(), any());
+    assertThat(event.getValue().type()).isEqualTo("file.inbox" + FileInboxTrigger.DECISION_EVENT_SUFFIX);
+    assertThat(event.getValue().payload().path("resolvedIntent").path("decision").path("options")).hasSize(2);
+    assertThat(event.getValue().payload().path("repoUrl").isNull()).isTrue();
+    JsonNode receipt = new JsonMapper().readTree(
+        Files.readAllBytes(inbox.resolve("processed/conflict.yaml.receipt.json")));
+    assertThat(receipt.path("status").asString()).isEqualTo("ADMITTED");
+    assertThat(receipt.path("code").asString()).isEqualTo("ADMITTED_NEEDS_DECISION");
+    assertThat(receipt.path("executionId").asString()).isEqualTo(id.toString());
+  }
+
+  @Test
+  void decisionTaskWithoutDecisionFlowKeepsStructuredBlockedReceipt() throws IOException {
+    when(router.routeAdmitted(any(), any())).thenReturn(List.of());
+    write("conflict.yaml", valid("default", "repository: folio-org/mgr-tenant-entitlements\n"));
+
+    trigger.poll();
+
     JsonNode receipt = new JsonMapper().readTree(
         Files.readAllBytes(inbox.resolve("blocked/conflict.yaml.receipt.json")));
-    assertThat(receipt.path("code").asString()).isEqualTo("REPOSITORY_EVIDENCE_CONFLICT");
+    assertThat(receipt.path("code").asString()).isEqualTo("REPOSITORY_SELECTION");
     assertThat(receipt.path("resolution").path("repository").path("candidates")).hasSize(2);
+  }
+
+  @Test
+  void resolvedTaskNeverUsesTheDecisionEvent() throws IOException {
+    when(router.routeAdmitted(any(), any())).thenReturn(List.of(UUID.randomUUID()));
+    write("task.yaml", valid("default", "repository: folio-org/folio-module-sidecar\n"));
+
+    trigger.poll();
+
+    ArgumentCaptor<TriggerEvent> event = ArgumentCaptor.forClass(TriggerEvent.class);
+    verify(router).routeAdmitted(event.capture(), any());
+    assertThat(event.getValue().type()).isEqualTo("file.inbox");
   }
 
   @Test

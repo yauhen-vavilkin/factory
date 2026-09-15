@@ -87,6 +87,43 @@ class DevFactoryFlowDescriptorTest {
         assertThat(flow.step(4).inputs()).contains("contract.json", "baseline.json", "repair.json");
     }
 
+    @Test
+    void routineFlowHasNoHumanGateSoFailuresAndBlockersNeverWaitForAHuman() {
+        FlowDescriptor flow = parser.parse(resource("flows/dev-factory-pi.yaml"), "flows/dev-factory-pi.yaml");
+
+        assertThat(flow.agentChain()).noneMatch(step -> step.type() == StepType.HITL_GATE);
+    }
+
+    @Test
+    void decisionFlowPausesBeforeAnyPiWorkerAndResumesIntoTheSamePiSteps() {
+        FlowDescriptor routine = parser.parse(resource("flows/dev-factory-pi.yaml"), "flows/dev-factory-pi.yaml");
+        FlowDescriptor flow = parser.parse(resource("flows/dev-factory-pi-decision.yaml"),
+                "flows/dev-factory-pi-decision.yaml");
+
+        assertThat(flow.triggers().getFirst().eventType()).isEqualTo("file.inbox.pi.decision");
+        assertThat(flow.agentChain()).extracting(StepDescriptor::stepId).containsExactly(
+                "decision-request", "decision", "decision-resume",
+                "prepare", "coding", "verify", "repair", "reverify", "finalize");
+        assertThat(flow.step(1).type()).isEqualTo(StepType.HITL_GATE);
+        assertThat(flow.step(1).gate().gateId()).isEqualTo("developer-decision");
+        assertThat(flow.step(1).gate().reviewedArtifacts()).contains("decision-request.json");
+        assertThat(flow.agentChain().subList(0, 3))
+                .noneMatch(step -> step.workerId() != null && step.workerId().startsWith("pi-"));
+        assertThat(flow.agentChain().subList(3, 9)).extracting(StepDescriptor::workerId)
+                .containsExactlyElementsOf(routine.agentChain().stream().map(StepDescriptor::workerId).toList());
+        assertThat(flow.agentChain().subList(3, 9)).allSatisfy(step ->
+                assertThat(step.inputs()).contains("task.json"));
+    }
+
+    private static String resource(String name) {
+        try (InputStream in = DevFactoryFlowDescriptorTest.class.getClassLoader().getResourceAsStream(name)) {
+            assertThat(in).as("classpath resource " + name).isNotNull();
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
     private static String descriptorYaml() {
         try (InputStream in = DevFactoryFlowDescriptorTest.class.getClassLoader()
                 .getResourceAsStream("flows/dev-factory.yaml")) {

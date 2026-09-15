@@ -94,6 +94,10 @@ Submit through an atomic `.partial` to final rename:
 
 The same semantic task and `runKey` reuses the database admission. Change
 `runKey` for an intentional new experiment. Invalid files receive a reject
-receipt; ambiguous tasks receive a structured blocker. M1 resolves and stores
+receipt. A task with a material open decision (a declared `decisions` entry, or
+repository evidence naming more than one repository) is admitted into the
+`dev-factory-pi-decision` flow, which persists `decision-request.json` and pauses
+at the `developer-decision` HITL gate before any coding; answer it with
+`./scripts/factory decide`, and the execution resumes from stored state. M1 resolves and stores
 intent but does not run it: coding remains blocked until later preparation has
 produced real source, image, dependency-seed, and baseline references.

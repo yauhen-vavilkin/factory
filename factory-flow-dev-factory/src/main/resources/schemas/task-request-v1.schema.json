@@ -41,7 +41,53 @@
       }
     },
     "constraints": { "type": "object" },
-    "notes": { "type": "string" }
+    "notes": { "type": "string" },
+    "decisions": {
+      "description": "At most one material open decision the task author knows must not be guessed; an execution carrying it pauses for a human answer before coding.",
+      "type": "array",
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "category", "question", "whyItMatters", "options"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+          "category": { "enum": ["REQUIREMENTS_CONFLICT", "PRODUCT_SEMANTICS", "ARCHITECTURE_CHOICE", "SCOPE"] },
+          "question": { "type": "string", "minLength": 1 },
+          "whyItMatters": { "type": "string", "minLength": 1 },
+          "options": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 5,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "label", "consequence"],
+              "properties": {
+                "id": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" },
+                "label": { "type": "string", "minLength": 1 },
+                "consequence": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          "recommendedOptionId": { "type": "string" },
+          "recommendationRationale": { "type": "string" },
+          "evidence": {
+            "type": "array",
+            "maxItems": 5,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path", "terms"],
+              "properties": {
+                "path": { "type": "string", "minLength": 1, "maxLength": 256 },
+                "terms": { "type": "array", "minItems": 1, "maxItems": 5, "items": { "type": "string", "minLength": 1, "maxLength": 80 } }
+              }
+            }
+          }
+        }
+      }
+    }
   },
   "oneOf": [
     { "required": ["baseRevision"], "not": { "required": ["baseRef"] } },

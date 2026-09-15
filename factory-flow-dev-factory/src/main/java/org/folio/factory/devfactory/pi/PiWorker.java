@@ -29,6 +29,7 @@ public final class PiWorker implements AgentWorker {
   private static final long VERIFY_BUILD_TIMEOUT = 1_800L;
   private static final int MAX_REPAIR_EVIDENCE_CHARS = 16 * 1024;
   private static final String REPAIR_POLICY = "ONE_AUTOMATIC_REPAIR";
+  static final String CODING_BUDGET_EXHAUSTED = "CODING_BUDGET_EXHAUSTED";
   private static final String DOCKER_PROBE_COMMAND =
       "if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; "
           + "then echo DOCKER=AVAILABLE; else echo DOCKER=UNAVAILABLE; fi";
@@ -89,7 +90,7 @@ public final class PiWorker implements AgentWorker {
       JsonNode candidate = context.inputs().containsKey("candidate.json")
           ? json.readTree(context.requireInput("candidate.json").content()) : null;
       if (candidate != null && "FAILED".equals(candidate.path("status").asText())) {
-        return failedVerification(candidate, context.triggerPayload());
+        return failedVerification(candidate, payload(context));
       }
       String patch = context.inputs().containsKey("candidate.patch")
           ? context.requireInput("candidate.patch").content() : "";
@@ -99,7 +100,7 @@ public final class PiWorker implements AgentWorker {
         result.put("independent", false);
         result.put("stage", "VERIFY");
         result.put("reason", "EMPTY_CANDIDATE");
-        result.put("base", context.triggerPayload().path("baseRevision").asText());
+        result.put("base", payload(context).path("baseRevision").asText());
         return AgentResult.of("verification.json", json.writeValueAsString(result));
       }
       return verify(context, patch);
@@ -107,8 +108,19 @@ public final class PiWorker implements AgentWorker {
     return finalizeResult(context);
   }
 
+  /**
+   * The effective task: after a human decision the decision flow supplies it
+   * as {@code task.json} (the admitted payload plus the bound answer, or a
+   * re-resolved payload for a repository selection); otherwise it is the
+   * trigger payload unchanged.
+   */
+  private JsonNode payload(AgentContext context) {
+    return context.inputs().containsKey("task.json")
+        ? json.readTree(context.requireInput("task.json").content()) : context.triggerPayload();
+  }
+
   private AgentResult prepare(AgentContext context) {
-    JsonNode payload = context.triggerPayload();
+    JsonNode payload = payload(context);
     JsonNode resolved = payload.path("resolvedIntent");
     if (!resolved.path("profile").isObject()) {
       throw new AgentExecutionException("resolved trusted profile is required");
@@ -352,7 +364,7 @@ public final class PiWorker implements AgentWorker {
   }
 
   private AgentResult code(AgentContext context) {
-    JsonNode payload = context.triggerPayload();
+    JsonNode payload = payload(context);
     JsonNode contract = json.readTree(context.requireInput("contract.json").content());
     // A preparation-time environment blocker must not spend coding budget:
     // return before any sandbox or provider call so the blocked classification
@@ -390,18 +402,20 @@ public final class PiWorker implements AgentWorker {
       String usage = usageJson(attempt, provider, model, durationMs);
       String baseRevision = payload.path("baseRevision").asText();
       if (attempt.terminalProviderFailure()) {
+        boolean budget = attempt.attemptBudgetExhausted();
+        String stage = budget ? "coding" : "PI_RUNTIME";
+        String reason = budget ? CODING_BUDGET_EXHAUSTED : "PROVIDER_ERROR";
         Map<String, String> outputs = new LinkedHashMap<>();
         outputs.put("candidate.patch", diff.stdout());
-        outputs.put("candidate.json", failureJson("PI_RUNTIME", "PROVIDER_ERROR", false,
+        outputs.put("candidate.json", failureJson(stage, reason, false,
             diff.stdout().length(), baseRevision));
         outputs.put("pi-session.jsonl", attempt.rawExchange());
         outputs.put("usage.json", usage);
         Map<String, Object> metrics = new LinkedHashMap<>();
         metrics.put("provider_calls", providerCalls(attempt));
         metrics.put("settled", false);
-        metrics.put("failure_stage", "PI_RUNTIME");
-        AgentResult result = publishResult(context, payload, outputs, metrics, true,
-            "PROVIDER_ERROR");
+        metrics.put("failure_stage", stage);
+        AgentResult result = publishResult(context, payload, outputs, metrics, true, reason);
         recoveryPublished = true;
         return result;
       }
@@ -527,7 +541,7 @@ public final class PiWorker implements AgentWorker {
    * starts, so the runtime repairs that candidate rather than starting over.
    */
   private AgentResult repair(AgentContext context) {
-    JsonNode payload = context.triggerPayload();
+    JsonNode payload = payload(context);
     JsonNode verification = json.readTree(context.requireInput("verification.json").content());
     JsonNode previousCandidate = json.readTree(context.requireInput("candidate.json").content());
     String previousPatch = context.requireInput("candidate.patch").content();
@@ -585,9 +599,11 @@ public final class PiWorker implements AgentWorker {
       int calls = providerCalls(attempt);
       repair.put("providerCalls", calls);
       if (attempt.terminalProviderFailure()) {
+        boolean budget = attempt.attemptBudgetExhausted();
         AgentResult result = failedRepair(context, payload, previousPatch, repair,
-            "REPAIR_PROVIDER_ERROR", "Provider retries were exhausted", attempt, provider,
-            model, started);
+            budget ? CODING_BUDGET_EXHAUSTED : "REPAIR_PROVIDER_ERROR",
+            budget ? "The coding gateway attempt budget is spent" : "Provider retries were exhausted",
+            attempt, provider, model, started);
         recoveryPublished = true;
         return result;
       }
@@ -787,7 +803,7 @@ public final class PiWorker implements AgentWorker {
     JsonNode candidate = json.readTree(context.requireInput("candidate.json").content());
     if ("FAILED".equals(candidate.path("status").asText())) {
       ObjectNode result = (ObjectNode) json.readTree(
-          failedVerification(candidate, context.triggerPayload()).outputs().get("verification.json"));
+          failedVerification(candidate, payload(context)).outputs().get("verification.json"));
       if ("PATCH_REJECTED".equals(candidate.path("reason").asText())
           || "REPAIR_RUNTIME_ERROR".equals(candidate.path("reason").asText())
           || "REPAIR_PROVIDER_ERROR".equals(candidate.path("reason").asText())) {
@@ -844,7 +860,7 @@ public final class PiWorker implements AgentWorker {
   }
 
   private AgentResult verify(AgentContext context, String patch) {
-    JsonNode payload = context.triggerPayload();
+    JsonNode payload = payload(context);
     JsonNode candidate = json.readTree(context.requireInput("candidate.json").content());
     if ("FAILED".equals(candidate.path("status").asText())) {
       return failedVerification(candidate, payload);
@@ -934,7 +950,7 @@ public final class PiWorker implements AgentWorker {
    * BLOCKED_ENVIRONMENT, not as a coding failure.
    */
   private AgentResult verifyGeneric(AgentContext context, SandboxHandle fresh, String patch) {
-    JsonNode payload = context.triggerPayload();
+    JsonNode payload = payload(context);
     JsonNode candidate = json.readTree(context.requireInput("candidate.json").content());
     JsonNode contractResolved = context.inputs().containsKey("contract.json")
         ? json.readTree(context.requireInput("contract.json").content()).path("resolvedIntent")
@@ -1066,6 +1082,16 @@ public final class PiWorker implements AgentWorker {
       repairSummary.put("route", repair.path("route").asText("ERROR"));
       repairSummary.put("result", repair.path("result").asText("UNKNOWN"));
     }
+    if (context.inputs().containsKey("decision-resolution.json")) {
+      JsonNode decision = json.readTree(context.requireInput("decision-resolution.json").content());
+      ObjectNode decisionSummary = result.putObject("decision");
+      decisionSummary.put("decisionId", decision.path("decisionId").asString(""));
+      decisionSummary.put("category", decision.path("category").asString(""));
+      decisionSummary.put("resolutionMode", decision.path("resolutionMode").asString(""));
+      decisionSummary.set("selectedOptionId", decision.path("selectedOptionId").deepCopy());
+      decisionSummary.put("answeredBy", decision.path("answeredBy").asString(""));
+      ((ObjectNode) result.get("references")).put("decision", "decision-resolution.json");
+    }
     ObjectNode manifest = json.createObjectNode();
     manifest.put("candidate", "candidate.patch");
     manifest.put("verification", "verification.json");
@@ -1114,6 +1140,12 @@ public final class PiWorker implements AgentWorker {
     task.set("acceptanceCriteria", payload.path("acceptanceCriteria").deepCopy());
     task.set("constraints", payload.path("constraints").deepCopy());
     task.put("rawTaskText", payload.path("rawTaskText").asText());
+    if (payload.path("decisionAnswers").isArray()) {
+      // Answered human decisions are binding task input, not suggestions; they
+      // are also mirrored into acceptanceCriteria. Open (unanswered) decisions
+      // never reach the coding runtime.
+      task.set("decisionAnswers", payload.path("decisionAnswers").deepCopy());
+    }
     task.put("policy", POLICY);
     return task;
   }

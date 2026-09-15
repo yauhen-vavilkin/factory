@@ -1,0 +1,182 @@
+diff --git a/src/main/java/org/folio/entitlement/integration/kafka/model/SystemUserEvent.java b/src/main/java/org/folio/entitlement/integration/kafka/model/SystemUserEvent.java
+index 36b7d6e..84c9d01 100644
+--- a/src/main/java/org/folio/entitlement/integration/kafka/model/SystemUserEvent.java
++++ b/src/main/java/org/folio/entitlement/integration/kafka/model/SystemUserEvent.java
+@@ -10,6 +10,7 @@ import lombok.Data;
+ @AllArgsConstructor(staticName = "of")
+ public class SystemUserEvent {
+ 
++  private String moduleId;
+   private String name;
+   private String type;
+   private List<String> permissions;
+diff --git a/src/main/java/org/folio/entitlement/utils/SystemUserEventProvider.java b/src/main/java/org/folio/entitlement/utils/SystemUserEventProvider.java
+index b7e1325..ceedeec 100644
+--- a/src/main/java/org/folio/entitlement/utils/SystemUserEventProvider.java
++++ b/src/main/java/org/folio/entitlement/utils/SystemUserEventProvider.java
+@@ -29,8 +29,9 @@ public class SystemUserEventProvider {
+   }
+ 
+   private static SystemUserEvent getSystemUserEvent(ModuleDescriptor moduleDescriptor, UserDescriptor systemUser) {
+-    var moduleName = SemverUtils.getName(moduleDescriptor.getId());
+-    return SystemUserEvent.of(moduleName, systemUser.getType(), systemUser.getPermissions());
++    var moduleName = SemverUtils.getName(moduleDescriptor.getId());
++    var moduleId = moduleName;
++    return SystemUserEvent.of(moduleId, moduleName, systemUser.getType(), systemUser.getPermissions());
+   }
+ 
+   public Optional<UserDescriptor> findSystemUser(ModuleDescriptor moduleDescriptor) {
+diff --git a/src/test/java/org/folio/entitlement/integration/kafka/SystemUserModuleEventPublisherTest.java b/src/test/java/org/folio/entitlement/integration/kafka/SystemUserModuleEventPublisherTest.java
+index 9230419..10cee40 100644
+--- a/src/test/java/org/folio/entitlement/integration/kafka/SystemUserModuleEventPublisherTest.java
++++ b/src/test/java/org/folio/entitlement/integration/kafka/SystemUserModuleEventPublisherTest.java
+@@ -85,7 +85,7 @@ class SystemUserModuleEventPublisherTest {
+     var flowParameters = moduleFlowParameters(request, moduleDescriptor);
+     var contextData = Map.of(PARAM_TENANT_NAME, TENANT_NAME);
+ 
+-    var systemUserEvent = SystemUserEvent.of(MODULE_NAME, SYS_USER_TYPE, List.of("foo.entities.post"));
++    var systemUserEvent = SystemUserEvent.of(MODULE_ID, MODULE_NAME, SYS_USER_TYPE, List.of("foo.entities.post"));
+     when(systemUserEventProvider.getSystemUserEvent(moduleDescriptor)).thenReturn(of(systemUserEvent));
+     when(systemUserEventProvider.getSystemUserEvent(null)).thenReturn(empty());
+     when(tenantEntitlementKafkaProperties.isProducerTenantCollection()).thenReturn(false);
+@@ -105,7 +105,7 @@ class SystemUserModuleEventPublisherTest {
+     var flowParameters = moduleFlowParameters(request, moduleDescriptor);
+     var contextData = Map.of(PARAM_TENANT_NAME, TENANT_NAME);
+ 
+-    var systemUserEvent = SystemUserEvent.of(MODULE_NAME, SYS_USER_TYPE, List.of("foo.entities.post"));
++    var systemUserEvent = SystemUserEvent.of(MODULE_ID, MODULE_NAME, SYS_USER_TYPE, List.of("foo.entities.post"));
+     when(systemUserEventProvider.getSystemUserEvent(moduleDescriptor)).thenReturn(of(systemUserEvent));
+     when(systemUserEventProvider.getSystemUserEvent(null)).thenReturn(empty());
+     when(tenantEntitlementKafkaProperties.isProducerTenantCollection()).thenReturn(true);
+@@ -145,8 +145,8 @@ class SystemUserModuleEventPublisherTest {
+       PARAM_APPLICATION_ID, APPLICATION_ID,
+       PARAM_ENTITLED_APPLICATION_ID, ENTITLED_APPLICATION_ID,
+       PARAM_APPLICATION_FLOW_ID, APPLICATION_FLOW_ID);
+-    var v1UserEvent = SystemUserEvent.of(MODULE_NAME, SYS_USER_TYPE, List.of("foo.entities.post"));
+-    var v2UserEvent = SystemUserEvent.of(MODULE_NAME, SYS_USER_TYPE, List.of("foo.v2.entities.post"));
++    var v1UserEvent = SystemUserEvent.of(MODULE_ID, MODULE_NAME, SYS_USER_TYPE, List.of("foo.entities.post"));
++    var v2UserEvent = SystemUserEvent.of(MODULE_ID_V2, MODULE_NAME, SYS_USER_TYPE, List.of("foo.v2.entities.post"));
+ 
+     when(systemUserEventProvider.getSystemUserEvent(v1ModuleDescriptor)).thenReturn(of(v1UserEvent));
+     when(systemUserEventProvider.getSystemUserEvent(v2ModuleDescriptor)).thenReturn(of(v2UserEvent));
+@@ -157,8 +157,8 @@ class SystemUserModuleEventPublisherTest {
+ 
+     var expectedResourceEvent = ResourceEvent.<SystemUserEvent>baseBuilder()
+       .type(UPDATE).tenant(TENANT_NAME).resourceName("System user")
+-      .newValue(SystemUserEvent.of(MODULE_NAME, SYS_USER_TYPE, List.of("foo.v2.entities.post")))
+-      .oldValue(SystemUserEvent.of(MODULE_NAME, SYS_USER_TYPE, List.of("foo.entities.post")))
++      .newValue(SystemUserEvent.of(MODULE_ID_V2, MODULE_NAME, SYS_USER_TYPE, List.of("foo.v2.entities.post")))
++      .oldValue(SystemUserEvent.of(MODULE_ID, MODULE_NAME, SYS_USER_TYPE, List.of("foo.entities.post")))
+       .build();
+ 
+     verify(kafkaEventPublisher).send(systemUserTenantTopic(), TENANT_NAME,
+@@ -191,7 +191,7 @@ class SystemUserModuleEventPublisherTest {
+       PARAM_ENTITLED_APPLICATION_ID, ENTITLED_APPLICATION_ID,
+       PARAM_APPLICATION_FLOW_ID, APPLICATION_FLOW_ID);
+ 
+-    var systemUserEvent = SystemUserEvent.of(MODULE_NAME, SYS_USER_TYPE, List.of("foo.entities.post"));
++    var systemUserEvent = SystemUserEvent.of(MODULE_ID, MODULE_NAME, SYS_USER_TYPE, List.of("foo.entities.post"));
+     when(systemUserEventProvider.getSystemUserEvent(moduleDescriptor)).thenReturn(of(systemUserEvent));
+     when(systemUserEventProvider.getSystemUserEvent(null)).thenReturn(empty());
+     when(tenantEntitlementKafkaProperties.isProducerTenantCollection()).thenReturn(false);
+@@ -201,7 +201,7 @@ class SystemUserModuleEventPublisherTest {
+ 
+     var expectedResourceEvent = ResourceEvent.<SystemUserEvent>baseBuilder()
+       .type(DELETE).tenant(TENANT_NAME).resourceName("System user")
+-      .oldValue(SystemUserEvent.of(MODULE_NAME, SYS_USER_TYPE, List.of("foo.entities.post")))
++      .oldValue(SystemUserEvent.of(MODULE_ID, MODULE_NAME, SYS_USER_TYPE, List.of("foo.entities.post")))
+       .build();
+ 
+     verify(kafkaEventPublisher).send(systemUserTenantTopic(), TENANT_NAME,
+diff --git a/src/test/java/org/folio/entitlement/utils/SystemUserEventProviderTest.java b/src/test/java/org/folio/entitlement/utils/SystemUserEventProviderTest.java
+index cb86f6a..ae674f3 100644
+--- a/src/test/java/org/folio/entitlement/utils/SystemUserEventProviderTest.java
++++ b/src/test/java/org/folio/entitlement/utils/SystemUserEventProviderTest.java
+@@ -44,7 +44,8 @@ class SystemUserEventProviderTest {
+     var moduleDescriptor = new ModuleDescriptor().id("test-module-0.0.1").user(userDescriptor);
+ 
+     var result = systemUserEventProvider.getSystemUserEvent(moduleDescriptor);
+-    assertThat(result).contains(SystemUserEvent.of("test-module", "module", List.of("test.permission")));
++    assertThat(result)
++      .contains(SystemUserEvent.of("test-module", "test-module", "module", List.of("test.permission")));
+     verifyNoInteractions(objectMapper);
+   }
+ 
+@@ -62,7 +63,8 @@ class SystemUserEventProviderTest {
+     var moduleDescriptor = JACKSON3_OBJECT_MAPPER.readValue(moduleDescriptorJson, ModuleDescriptor.class);
+     var result = systemUserEventProvider.getSystemUserEvent(moduleDescriptor);
+ 
+-    assertThat(result).contains(SystemUserEvent.of("test-module", "system", List.of("test.permission")));
++    assertThat(result)
++      .contains(SystemUserEvent.of("test-module", "test-module", "system", List.of("test.permission")));
+     verify(objectMapper).convertValue(anyMap(), eq(UserDescriptor.class));
+   }
+ 
+diff --git a/src/test/resources/json/events/folio-app6/folio-module2/system-user-update.json b/src/test/resources/json/events/folio-app6/folio-module2/system-user-update.json
+index 8aba58e..8294bf0 100644
+--- a/src/test/resources/json/events/folio-app6/folio-module2/system-user-update.json
++++ b/src/test/resources/json/events/folio-app6/folio-module2/system-user-update.json
+@@ -3,6 +3,7 @@
+   "tenant": "test",
+   "resourceName": "System user",
+   "new": {
++    "moduleId": "folio-module2-2.1.0",
+     "name": "folio-module2",
+     "type": "module",
+     "permissions": [
+@@ -12,6 +13,7 @@
+     ]
+   },
+   "old": {
++    "moduleId": "folio-module2-2.0.0",
+     "name": "folio-module2",
+     "type": "module",
+     "permissions": [
+diff --git a/src/test/resources/json/events/folio-app6/folio-module2/system-user.json b/src/test/resources/json/events/folio-app6/folio-module2/system-user.json
+index 9cd5930..6745f4f 100644
+--- a/src/test/resources/json/events/folio-app6/folio-module2/system-user.json
++++ b/src/test/resources/json/events/folio-app6/folio-module2/system-user.json
+@@ -3,6 +3,7 @@
+   "tenant": "test",
+   "resourceName": "System user",
+   "new": {
++    "moduleId": "folio-module2-2.0.0",
+     "name": "folio-module2",
+     "type": "module",
+     "permissions": [
+diff --git a/src/test/resources/json/events/folio-app6/folio-module3/system-user-deprecated.json b/src/test/resources/json/events/folio-app6/folio-module3/system-user-deprecated.json
+index 289c91b..c80ea1c 100644
+--- a/src/test/resources/json/events/folio-app6/folio-module3/system-user-deprecated.json
++++ b/src/test/resources/json/events/folio-app6/folio-module3/system-user-deprecated.json
+@@ -3,6 +3,7 @@
+   "tenant": "test",
+   "resourceName": "System user",
+   "old": {
++    "moduleId": "folio-module3-3.0.0",
+     "name": "folio-module3",
+     "type": "module",
+     "permissions": [
+diff --git a/src/test/resources/json/events/folio-app6/folio-module3/system-user.json b/src/test/resources/json/events/folio-app6/folio-module3/system-user.json
+index f5cbd6f..26d86bb 100644
+--- a/src/test/resources/json/events/folio-app6/folio-module3/system-user.json
++++ b/src/test/resources/json/events/folio-app6/folio-module3/system-user.json
+@@ -3,6 +3,7 @@
+   "tenant": "test",
+   "resourceName": "System user",
+   "new": {
++    "moduleId": "folio-module3-3.0.0",
+     "name": "folio-module3",
+     "type": "module",
+     "permissions": [
+diff --git a/src/test/resources/json/events/folio-app6/folio-module4/system-user.json b/src/test/resources/json/events/folio-app6/folio-module4/system-user.json
+index b96907a..66063b1 100644
+--- a/src/test/resources/json/events/folio-app6/folio-module4/system-user.json
++++ b/src/test/resources/json/events/folio-app6/folio-module4/system-user.json
+@@ -3,6 +3,7 @@
+   "tenant": "test",
+   "resourceName": "System user",
+   "new": {
++    "moduleId": "folio-module4-4.0.0",
+     "name": "folio-module4",
+     "type": "module",
+     "permissions": [

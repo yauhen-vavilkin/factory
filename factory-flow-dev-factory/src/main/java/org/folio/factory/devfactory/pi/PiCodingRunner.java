@@ -223,5 +223,15 @@ public final class PiCodingRunner {
               && event.path("willRetry").isBoolean() && !event.path("willRetry").asBoolean()
               && event.path("messages").toString().contains("\"stopReason\":\"error\"")));
     }
+
+    /**
+     * The Factory coding gateway refused further model calls because the run's
+     * attempt budget is spent. That is the intended coding budget boundary, not
+     * a provider or infrastructure fault.
+     */
+    public boolean attemptBudgetExhausted() {
+      return terminalProviderFailure() && events.stream()
+          .anyMatch(event -> event.toString().contains("run attempt budget exhausted"));
+    }
   }
 }

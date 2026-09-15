@@ -2,7 +2,10 @@ package org.folio.factory.devfactory;
 
 import java.nio.file.Path;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
+import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.service.ArtifactStore;
+import org.folio.factory.devfactory.decision.DecisionAnswerValidator;
+import org.folio.factory.devfactory.decision.DecisionWorker;
 import org.folio.factory.devfactory.inbox.InboxProperties;
 import org.folio.factory.devfactory.inbox.InboxTaskFileParser;
 import org.folio.factory.devfactory.profile.TrustedProfileCatalog;
@@ -74,6 +77,24 @@ public class DevFactoryConfiguration {
       @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway,
       @Value("${factory.pi.thinking:high}") String thinking) {
     return new PiWorker("pi-finalize-worker", s, r, token, gateway, thinking);
+  }
+
+  /** NEEDS_DECISION request end: persists the decision request before the flow's HITL gate. */
+  @Bean
+  public DecisionWorker decisionRequestWorker(TaskResolutionService resolver, HitlReviewRepository reviews) {
+    return new DecisionWorker(DecisionWorker.REQUEST_WORKER, resolver, reviews);
+  }
+
+  /** NEEDS_DECISION resume end: binds the human answer into the effective task after the gate. */
+  @Bean
+  public DecisionWorker decisionResumeWorker(TaskResolutionService resolver, HitlReviewRepository reviews) {
+    return new DecisionWorker(DecisionWorker.RESUME_WORKER, resolver, reviews);
+  }
+
+  @Bean
+  public DecisionAnswerValidator decisionAnswerValidator(ArtifactStore artifactStore,
+                                                         HitlReviewRepository reviews) {
+    return new DecisionAnswerValidator(artifactStore, reviews);
   }
 
   @Bean

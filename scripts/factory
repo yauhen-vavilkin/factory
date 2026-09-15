@@ -28,8 +28,9 @@ Usage:
   ./scripts/factory validate --unit|--integration|--eval-pack|--gateway
   ./scripts/factory resolve-task TASK.yaml
   ./scripts/factory submit TASK.yaml
-  ./scripts/factory run-eval TASK_ID --run-key RUN_KEY    # curated: MODSIDECAR-208, MGRENTITLE-161/172/192, MODROLESKC-424/427, MODSCHED-70/76
+  ./scripts/factory run-eval TASK_ID --run-key RUN_KEY    # curated: MODSIDECAR-208, MGRENTITLE-161/172/192, MODROLESKC-424/427, MODSCHED-70/76; derived: MODSIDECAR-207
   ./scripts/factory show EXECUTION_ID [--watch]
+  ./scripts/factory decide EXECUTION_ID --decision-id ID (--option OPTION_ID | --free-text TEXT) --reviewer NAME [--comment TEXT]
   ./scripts/factory export EXECUTION_ID --out DIRECTORY
 EOF
 }
@@ -781,7 +782,13 @@ run_eval() {
     fail "runKey must be a fresh non-default value matching [A-Za-z0-9._-] and at most 128 characters"
   load_config
   local task_file="$ROOT_DIR/evals/tasks/${task_id}.md"
+  [[ -f "$task_file" ]] || task_file="$ROOT_DIR/evals/derived/${task_id}.md"
   require_task_file "$task_file"
+  # Task-declared open decisions are curated data (evals/decisions/<TASK>.json),
+  # never code branches: a task with one is admitted into the decision flow and
+  # pauses for a human answer before any coding budget is spent.
+  local decision_file="$ROOT_DIR/evals/decisions/${task_id}.json"
+  [[ -f "$decision_file" ]] || decision_file=""
   # Trusted curated mapping per task: repository + pinned base revision.
   # The MODSIDECAR-208 mapping is the frozen accepted benchmark (unchanged);
   # the seven dataset tasks use pinned origin/main SHAs captured 2026-09-11.
@@ -830,17 +837,23 @@ run_eval() {
       repo="folio-org/mod-scheduler"
       base="a8ac6c8862e3692adfd0c03936df6c46fd5ecd3d"
       plan="java-maven-verify" ;;
+    # Derived (not benchmark): open issue MODSIDECAR-207 at origin/master of
+    # 2026-09-15; its derived ACs are unit-gated, so the unit plan applies.
+    MODSIDECAR-207)
+      repo="folio-org/folio-module-sidecar"
+      base="4e7947e48f029977c9c42ffed4230f9e0f177f73"
+      plan="java-maven-verify" ;;
     *) fail "no trusted curated mapping for task: $task_id" ;;
   esac
   local generated="$STATE_DIR/run/${task_id}-${run_key}.json"
   [[ ! -e "$generated" && ! -L "$generated" ]] || fail "run-eval mapping already exists: $generated"
-  python3 - "$task_file" "$run_key" "$generated" "$task_id" "$repo" "$base" "$plan" <<'PY'
+  python3 - "$task_file" "$run_key" "$generated" "$task_id" "$repo" "$base" "$plan" "$decision_file" <<'PY'
 import json
 import pathlib
 import re
 import sys
 
-task_file, run_key, output, task_id, repo, base, plan = sys.argv[1:8]
+task_file, run_key, output, task_id, repo, base, plan, decision_file = sys.argv[1:9]
 raw = pathlib.Path(task_file).read_text(encoding="utf-8")
 if task_id == "MODSIDECAR-208":
     payload = {
@@ -904,6 +917,8 @@ else:
         "constraints": {"allow_paths": ["src/**", "README.md", "NEWS.md"]},
         "notes": "Use only the prepared repository. Factory performs independent verification after coding.",
     }
+if decision_file:
+    payload["decisions"] = [json.loads(pathlib.Path(decision_file).read_text(encoding="utf-8"))]
 pathlib.Path(output).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 PY
   chmod 600 "$generated"
@@ -979,7 +994,7 @@ import sys
 
 detail = json.load(open(sys.argv[1], encoding="utf-8"))
 execution = detail.get("execution", {})
-interesting = {"baseline.json", "candidate.json", "candidate.patch", "verification.json", "repair.json", "usage.json", "result.json", "manifest.json"}
+interesting = {"baseline.json", "candidate.json", "candidate.patch", "verification.json", "repair.json", "usage.json", "result.json", "manifest.json", "decision-request.json", "decision-answer.json", "decision-resolution.json"}
 artifacts = []
 for item in detail.get("artifacts", []):
     content = item.get("content") or ""
@@ -988,7 +1003,7 @@ for item in detail.get("artifacts", []):
     if item.get("name") in interesting:
         try:
             parsed = json.loads(content)
-            entry["summary"] = {k: parsed[k] for k in parsed if k in {"status", "outcome", "benchmarkOutcome", "stage", "reason", "provider_calls", "settled", "cost_status", "candidateTree", "patchSha256"}}
+            entry["summary"] = {k: parsed[k] for k in parsed if k in {"status", "outcome", "benchmarkOutcome", "stage", "reason", "provider_calls", "settled", "cost_status", "candidateTree", "patchSha256", "decisionId", "question", "resolutionMode", "selectedOptionId", "answeredBy"}}
         except json.JSONDecodeError:
             pass
     artifacts.append(entry)
@@ -997,7 +1012,7 @@ print(execution.get("status", ""), file=sys.stderr)
 PY
 )
     printf '%s\n' "${status%%$'\n'*}"
-    if [[ "$watch" != true || "$status" == *COMPLETED* || "$status" == *FAILED_ESCALATED* || "$status" == *REJECTED* || "$status" == *CANCELLED* ]]; then
+    if [[ "$watch" != true || "$status" == *COMPLETED* || "$status" == *FAILED_ESCALATED* || "$status" == *REJECTED* || "$status" == *CANCELLED* || "$status" == *AWAITING_HITL* ]]; then
       return 0
     fi
     sleep 2
@@ -1082,6 +1097,43 @@ print(json.dumps({"execution": detail.get("execution", {}).get("id"), "out": str
 PY
 }
 
+decide_execution() {
+  [[ $# -ge 1 ]] || fail "decide requires EXECUTION_ID --decision-id ID (--option OPTION_ID | --free-text TEXT) --reviewer NAME [--comment TEXT]"
+  local execution_id="$1" decision_id="" option="" free_text="" reviewer="" comment=""
+  shift
+  [[ "$execution_id" =~ ^[0-9a-fA-F-]{36}$ ]] || fail "execution id must be a UUID"
+  while [[ $# -gt 0 ]]; do
+    [[ $# -ge 2 ]] || fail "decide option $1 requires a value"
+    case "$1" in
+      --decision-id) decision_id="$2" ;;
+      --option) option="$2" ;;
+      --free-text) free_text="$2" ;;
+      --reviewer) reviewer="$2" ;;
+      --comment) comment="$2" ;;
+      *) fail "unknown decide option: $1" ;;
+    esac
+    shift 2
+  done
+  [[ -n "$decision_id" && -n "$reviewer" ]] || fail "decide requires --decision-id and --reviewer"
+  if [[ ( -n "$option" && -n "$free_text" ) || ( -z "$option" && -z "$free_text" ) ]]; then
+    fail "decide requires exactly one of --option or --free-text"
+  fi
+  load_config
+  local body="$STATE_DIR/run/decide-${execution_id}.json"
+  python3 - "$body" "$decision_id" "$option" "$free_text" "$reviewer" "$comment" <<'PY'
+import json
+import sys
+
+path, decision_id, option, free_text, reviewer, comment = sys.argv[1:7]
+json.dump({"decisionId": decision_id, "selectedOptionId": option or None, "freeText": free_text or None,
+           "reviewer": reviewer, "comment": comment or None}, open(path, "w", encoding="utf-8"))
+PY
+  chmod 600 "$body"
+  curl --fail-with-body -sS -H 'Content-Type: application/json' --data-binary "@$body" \
+    "http://127.0.0.1:${FACTORY_APP_PORT}/api/dev/executions/${execution_id}/decision"
+  printf '\n'
+}
+
 command="${1:-}"
 shift || true
 case "$command" in
@@ -1104,5 +1156,6 @@ case "$command" in
   run-eval) run_eval "$@" ;;
   show) show_execution "$@" ;;
   export) export_execution "$@" ;;
+  decide) decide_execution "$@" ;;
   *) usage; exit 1 ;;
 esac

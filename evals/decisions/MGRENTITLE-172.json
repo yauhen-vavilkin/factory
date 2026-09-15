@@ -1,0 +1,22 @@
+{
+  "id": "reinstall-app-limit",
+  "category": "PRODUCT_SEMANTICS",
+  "question": "Should POST /reinstall/applications keep an upper bound of 100 application ids (maxItems 100), or have no upper bound (maxItems removed)?",
+  "whyItMatters": "The task text allows both: requirement 2 says update maxItems from 25 to 100 'or removed if unbounded'. The choice changes the public API contract: a bound of 100 fails again when installations grow past 100 applications, while no bound accepts arbitrarily large reinstall requests.",
+  "options": [
+    {
+      "id": "raise-to-100",
+      "label": "Set maxItems to 100 in appReinstallRequestBody.json",
+      "consequence": "Requests with 1..100 application ids pass; 101+ still get a 400 validation error, so the limit must be raised again for larger installations."
+    },
+    {
+      "id": "remove-limit",
+      "label": "Remove maxItems from appReinstallRequestBody.json (keep minItems 1)",
+      "consequence": "Any non-empty list is accepted; no future limit changes are needed, but the service no longer rejects very large reinstall requests at validation time."
+    }
+  ],
+  "evidence": [
+    {"path": "src/main/resources/swagger.api/schemas/appReinstallRequestBody.json", "terms": ["maxItems", "minItems"]},
+    {"path": "src/main/resources/swagger.api/schemas/moduleReinstallRequestBody.json", "terms": ["maxItems", "minItems", "application ids"]}
+  ]
+}

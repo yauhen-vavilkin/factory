@@ -68,14 +68,27 @@ class TaskResolutionServiceTest {
   }
 
   @Test
-  void conflictingMissingAndUnsupportedMultiRepositoryEvidenceBlock() {
+  void conflictingRepositoryEvidenceNeedsDecisionAndMissingEvidenceBlocks() {
     ResolvedIntent conflict = resolver.resolve(task("X-1", "folio-org/folio-module-sidecar",
         "MGRENTITLE", null, SHA, null, null, null, "default"));
-    assertThat(conflict.status()).isEqualTo("BLOCKED");
-    assertThat(conflict.code()).isEqualTo("REPOSITORY_EVIDENCE_CONFLICT");
+    assertThat(conflict.status()).isEqualTo(ResolvedIntent.NEEDS_DECISION);
+    assertThat(conflict.code()).isEqualTo("REPOSITORY_SELECTION");
     assertThat(conflict.repository().candidates()).containsExactlyInAnyOrder(
         "folio-org/folio-module-sidecar", "folio-org/mgr-tenant-entitlements");
-    assertThat(conflict.repository().clarificationNeeds()).isNotEmpty();
+    assertThat(conflict.decision().options()).extracting(TaskRequest.Option::id)
+        .containsExactly("folio-org/folio-module-sidecar", "folio-org/mgr-tenant-entitlements");
+    assertThat(conflict.decision().facts()).extracting(ResolvedIntent.Fact::statement)
+        .anyMatch(fact -> fact.contains("MGRENTITLE maps to folio-org/mgr-tenant-entitlements"));
+    assertThat(conflict.decision().recommendedOptionId()).isNull();
+    assertThat(access.commitCalls).isZero();
+
+    ResolvedIntent selected = resolver.resolveSelectedRepository(conflict.task(),
+        "folio-org/mgr-tenant-entitlements");
+    assertThat(selected.status()).isEqualTo("RESOLVED");
+    assertThat(selected.repository().canonicalSlug()).isEqualTo("folio-org/mgr-tenant-entitlements");
+    assertThat(selected.repository().exactRevision()).isEqualTo(SHA);
+    assertThatThrownBy(() -> resolver.resolveSelectedRepository(conflict.task(), "folio-org/mod-scheduler"))
+        .isInstanceOf(RepositorySecurityException.class);
 
     ResolvedIntent missing = resolver.resolve(task("X-1", null, null, "unknown-component",
         SHA, null, null, null, "default"));
@@ -108,19 +121,40 @@ class TaskResolutionServiceTest {
   }
 
   @Test
-  void mgreentitle172PreservesBothMaxItemsAlternatives() {
-    TaskRequest request = task("MGRENTITLE-172", null, "MGRENTITLE", null, SHA, null,
-        null, null, "default");
-    request = new TaskRequest(request.schemaVersion(), request.source(), request.repository(),
-        request.baseRevision(), request.baseRef(), request.profileId(), request.verificationPlanId(),
-        request.runKey(), request.deliveryMode(), request.metadata(), "Define maxItems behavior",
-        request.acceptanceCriteria(), request.constraints(), request.notes(), request.rawTaskText(), false);
+  void declaredDecisionPausesAfterDeterministicResolutionWithRepositoryFacts() {
+    access.files.put("src/schema.json", "{\n  \"minItems\": 1,\n  \"maxItems\": 25\n}".getBytes(StandardCharsets.UTF_8));
+    TaskRequest.DeclaredDecision declared = new TaskRequest.DeclaredDecision("limit", "PRODUCT_SEMANTICS",
+        "Raise the limit or remove it?", "External API contract", List.of(
+            new TaskRequest.Option("raise", "Raise to 100", "Bounded"),
+            new TaskRequest.Option("remove", "Remove", "Unbounded")), null, null,
+        List.of(new TaskRequest.Evidence("src/schema.json", List.of("maxItems")),
+            new TaskRequest.Evidence("src/missing.json", List.of("maxItems"))));
+    TaskRequest request = withDecisions(task("ANY-1", null, "MGRENTITLE", null, SHA, null, null, null,
+        "default"), List.of(declared));
+
     ResolvedIntent result = resolver.resolve(request);
 
-    assertThat(result.code()).isEqualTo("MATERIAL_AMBIGUITY");
-    assertThat(result.ambiguities()).singleElement().satisfies(ambiguity ->
-        assertThat(ambiguity.permittedAlternatives()).containsExactly(
-            "set maxItems to 100", "remove maxItems for an unbounded array"));
+    assertThat(result.status()).isEqualTo(ResolvedIntent.NEEDS_DECISION);
+    assertThat(result.code()).isEqualTo("PRODUCT_SEMANTICS");
+    assertThat(result.repository().exactRevision()).isEqualTo(SHA);
+    assertThat(result.verificationPlan()).isNotNull();
+    assertThat(result.decision().options()).extracting(TaskRequest.Option::id).containsExactly("raise", "remove");
+    assertThat(result.decision().facts()).extracting(ResolvedIntent.Fact::statement)
+        .anyMatch(fact -> fact.contains("L3: \"maxItems\": 25"))
+        .anyMatch(fact -> fact.contains("src/missing.json does not exist"));
+    assertThat(result.semanticTaskHash()).isNotEqualTo(resolver.resolve(task("ANY-1", null, "MGRENTITLE",
+        null, SHA, null, null, null, "default")).semanticTaskHash());
+  }
+
+  @Test
+  void taskWithoutDeclaredDecisionNeverNeedsDecisionEvenIfTextMentionsAlternatives() {
+    TaskRequest request = task("MGRENTITLE-172", null, "MGRENTITLE", null, SHA, null, null, null, "default");
+    request = new TaskRequest(request.schemaVersion(), request.source(), request.repository(),
+        request.baseRevision(), request.baseRef(), request.profileId(), request.verificationPlanId(),
+        request.runKey(), request.deliveryMode(), request.metadata(), "Set maxItems to 100 (or remove it)",
+        request.acceptanceCriteria(), request.constraints(), request.notes(), request.rawTaskText(), false);
+
+    assertThat(resolver.resolve(request).status()).isEqualTo("RESOLVED");
   }
 
   @Test
@@ -181,6 +215,13 @@ class TaskResolutionServiceTest {
         task.baseRef(), task.profileId(), task.verificationPlanId(), task.runKey(), task.deliveryMode(),
         metadata, task.goal(), task.acceptanceCriteria(), task.constraints(), task.notes(),
         task.rawTaskText(), task.legacyAdapted());
+  }
+
+  private static TaskRequest withDecisions(TaskRequest task, List<TaskRequest.DeclaredDecision> decisions) {
+    return new TaskRequest(task.schemaVersion(), task.source(), task.repository(), task.baseRevision(),
+        task.baseRef(), task.profileId(), task.verificationPlanId(), task.runKey(), task.deliveryMode(),
+        task.metadata(), task.goal(), task.acceptanceCriteria(), task.constraints(), task.notes(),
+        task.rawTaskText(), task.legacyAdapted(), decisions);
   }
 
   private static final class FakeAccess implements RepositoryAccess {

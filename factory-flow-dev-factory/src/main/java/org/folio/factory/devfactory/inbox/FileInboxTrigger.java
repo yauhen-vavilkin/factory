@@ -30,12 +30,20 @@ import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
-/** Atomic file-inbox admission with durable reject/block receipts. */
+/**
+ * Atomic file-inbox admission with durable reject/block receipts. A task that
+ * resolves to NEEDS_DECISION is admitted (so there is an execution to pause and
+ * resume) through the decision variant of the inbox event,
+ * {@code <eventType>.decision}; when no flow subscribes to it the task keeps the
+ * earlier blocked-receipt behaviour.
+ */
 @Component
 @ConditionalOnProperty(prefix = "factory.inbox", name = "enabled",
     havingValue = "true", matchIfMissing = true)
 public class FileInboxTrigger {
   private static final Logger log = LoggerFactory.getLogger(FileInboxTrigger.class);
+  public static final String DECISION_EVENT_SUFFIX = ".decision";
+  private static final JsonMapper PAYLOAD_JSON = JsonMapper.builder().build();
 
   private final InboxProperties properties;
   private final InboxTaskFileParser parser;
@@ -96,15 +104,23 @@ public class FileInboxTrigger {
       return;
     }
 
+    boolean needsDecision = ResolvedIntent.NEEDS_DECISION.equals(intent.status());
     try {
-      JsonNode payload = payload(intent);
-      TriggerEvent event = TriggerEvent.of(properties.eventType(), "file-inbox:" + fileName, payload);
+      JsonNode payload = payloadFor(intent);
+      String eventType = needsDecision ? properties.eventType() + DECISION_EVENT_SUFFIX : properties.eventType();
+      TriggerEvent event = TriggerEvent.of(eventType, "file-inbox:" + fileName, payload);
       List<UUID> admitted = router.routeAdmitted(event, intent.admissionKey());
       if (admitted == null || admitted.isEmpty()) {
+        if (needsDecision) {
+          receiptAndClaim(file, "blocked", intent.code(), intent.message(), intent, null);
+          return;
+        }
         reject(file, "NO_MATCHING_FLOW", "No flow accepted the resolved task");
         return;
       }
-      receiptAndClaim(file, "processed", "ADMITTED", "Task admitted", intent, admitted.getFirst());
+      receiptAndClaim(file, "processed", needsDecision ? "ADMITTED_NEEDS_DECISION" : "ADMITTED",
+          needsDecision ? "Task admitted; a human decision is required before coding" : "Task admitted",
+          intent, admitted.getFirst());
     } catch (TransientDataAccessException e) {
       log.warn("Transient database admission failure for {}: {}", fileName, e.getMessage());
     } catch (RuntimeException e) {
@@ -113,13 +129,15 @@ public class FileInboxTrigger {
     }
   }
 
-  private JsonNode payload(ResolvedIntent intent) {
+  /** Trigger payload of a resolved intent; also rebuilt after a repository decision. */
+  public static ObjectNode payloadFor(ResolvedIntent intent) {
+    JsonMapper json = PAYLOAD_JSON;
     TaskRequest task = intent.task();
     ObjectNode payload = json.createObjectNode();
     payload.put("taskId", task.source().id());
-    payload.put("repoUrl", intent.repository().origin());
-    payload.put("baseBranch", intent.repository().exactRevision());
-    payload.put("baseRevision", intent.repository().exactRevision());
+    putNullable(payload, "repoUrl", intent.repository().origin());
+    putNullable(payload, "baseBranch", intent.repository().exactRevision());
+    putNullable(payload, "baseRevision", intent.repository().exactRevision());
     payload.put("branch", deliveryBranch(task));
     payload.put("goal", task.goal());
     ArrayNode acceptance = payload.putArray("acceptance");
@@ -148,6 +166,14 @@ public class FileInboxTrigger {
     payload.put("runKey", task.runKey());
     payload.set("resolvedIntent", json.valueToTree(intent));
     return payload;
+  }
+
+  private static void putNullable(ObjectNode node, String field, String value) {
+    if (value == null) {
+      node.putNull(field);
+    } else {
+      node.put(field, value);
+    }
   }
 
   private static String deliveryBranch(TaskRequest task) {

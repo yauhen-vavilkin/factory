@@ -53,7 +53,8 @@ final class VerificationFailureClassifier {
       return new Decision(Route.ERROR, "FACTORY_OR_PROTOCOL", reason);
     }
     if ("PI_UNSETTLED".equals(reason) || "EMPTY_CANDIDATE".equals(reason)
-        || "REPAIR_DID_NOT_CHANGE_CANDIDATE".equals(reason)) {
+        || "REPAIR_DID_NOT_CHANGE_CANDIDATE".equals(reason)
+        || PiWorker.CODING_BUDGET_EXHAUSTED.equals(reason)) {
       return new Decision(Route.FINAL_FAILURE, "CODING_BUDGET_OR_RESULT", reason);
     }
     String stage = verification.path("stage").asText("");
