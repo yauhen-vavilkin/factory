@@ -6,7 +6,7 @@ triggers:
 input_schema:
   required: [taskId, repoUrl, baseRevision, resolvedIntent, goal]
 output_schema:
-  artifacts: [baseline.json, candidate.patch, verification.json, repair.json, result.json, manifest.json, usage.json]
+  artifacts: [baseline.json, candidate.patch, verification.json, repair.json, delivery.json, result.json, manifest.json, usage.json]
 retry_policy:
   max_attempts: 1
   backoff_seconds: []
@@ -36,8 +36,16 @@ agent_chain:
     worker_id: pi-reverify-worker
     inputs: ["$trigger", contract.json, baseline.json, candidate.patch, candidate.json, verification.json, repair.json]
     outputs: [verification.json]
+  # Trusted delivery runs in the Factory process, never in a sandbox: DELIVER_PR
+  # tasks with a passed candidate are reproduced and delivered as a pull request;
+  # LOCAL_ONLY tasks record NOT_REQUESTED without any Git or GitHub call.
+  - step_id: deliver
+    type: AGENT
+    worker_id: pi-deliver-worker
+    inputs: ["$trigger", candidate.patch, candidate.json, verification.json]
+    outputs: [delivery.json]
   - step_id: finalize
     type: AGENT
     worker_id: pi-finalize-worker
-    inputs: ["$trigger", candidate.patch, candidate.json, verification.json, repair.json, usage.json, pi-session.jsonl]
+    inputs: ["$trigger", candidate.patch, candidate.json, verification.json, repair.json, delivery.json, usage.json, pi-session.jsonl]
     outputs: [result.json, manifest.json]

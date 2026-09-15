@@ -259,8 +259,8 @@ public final class TaskResolutionService {
         || !task.runKey().matches("[A-Za-z0-9._-]+")) {
       throw new IllegalArgumentException("runKey must match [A-Za-z0-9._-]+ and be at most 128 characters");
     }
-    if (!"LOCAL_ONLY".equals(task.deliveryMode())) {
-      throw new IllegalArgumentException("only LOCAL_ONLY deliveryMode is accepted in M1");
+    if (!"LOCAL_ONLY".equals(task.deliveryMode()) && !"DELIVER_PR".equals(task.deliveryMode())) {
+      throw new IllegalArgumentException("deliveryMode must be LOCAL_ONLY or DELIVER_PR");
     }
   }
 

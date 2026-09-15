@@ -72,6 +72,12 @@ factory:
     model-token: ${FACTORY_MODEL_TOKEN:}
     gateway-url: ${FACTORY_PI_GATEWAY_URL:http://factory-gateway:8080/v1}
     thinking: ${FACTORY_MODEL_THINKING:high}
+  # Trusted Developer Flow delivery (branch / push / PR). The token is used only
+  # by the Factory process and is never passed to sandboxes or the coding runtime.
+  delivery:
+    github:
+      token: ${FACTORY_DELIVERY_GITHUB_TOKEN:}
+      fork-owner: ${FACTORY_DELIVERY_GITHUB_FORK_OWNER:}
   inbox:
     dir: ${FACTORY_INBOX_DIR:.factory/data/inbox}
     enabled: ${FACTORY_INBOX_ENABLED:true}

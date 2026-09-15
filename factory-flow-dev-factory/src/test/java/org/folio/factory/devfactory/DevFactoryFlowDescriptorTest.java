@@ -78,13 +78,19 @@ class DevFactoryFlowDescriptorTest {
         FlowDescriptor flow = parser.parse(piDescriptorYaml(), "flows/dev-factory-pi.yaml");
 
         assertThat(flow.agentChain()).extracting(StepDescriptor::stepId)
-                .containsExactly("prepare", "coding", "verify", "repair", "reverify", "finalize");
+                .containsExactly("prepare", "coding", "verify", "repair", "reverify", "deliver", "finalize");
         assertThat(flow.agentChain()).filteredOn(step -> step.workerId().equals("pi-repair-worker"))
                 .hasSize(1);
         assertThat(flow.step(3).inputs()).contains("verification.json", "candidate.patch", "candidate.json");
         assertThat(flow.step(3).outputs()).contains("repair.json", "candidate.patch", "candidate.json");
         assertThat(flow.step(4).workerId()).isEqualTo("pi-reverify-worker");
         assertThat(flow.step(4).inputs()).contains("contract.json", "baseline.json", "repair.json");
+        // Delivery sees only the final frozen candidate and its verification, after reverify.
+        assertThat(flow.step(5).workerId()).isEqualTo("pi-deliver-worker");
+        assertThat(flow.step(5).inputs())
+                .containsExactly("$trigger", "candidate.patch", "candidate.json", "verification.json");
+        assertThat(flow.step(5).outputs()).containsExactly("delivery.json");
+        assertThat(flow.step(6).inputs()).contains("delivery.json");
     }
 
     @Test
@@ -103,15 +109,15 @@ class DevFactoryFlowDescriptorTest {
         assertThat(flow.triggers().getFirst().eventType()).isEqualTo("file.inbox.pi.decision");
         assertThat(flow.agentChain()).extracting(StepDescriptor::stepId).containsExactly(
                 "decision-request", "decision", "decision-resume",
-                "prepare", "coding", "verify", "repair", "reverify", "finalize");
+                "prepare", "coding", "verify", "repair", "reverify", "deliver", "finalize");
         assertThat(flow.step(1).type()).isEqualTo(StepType.HITL_GATE);
         assertThat(flow.step(1).gate().gateId()).isEqualTo("developer-decision");
         assertThat(flow.step(1).gate().reviewedArtifacts()).contains("decision-request.json");
         assertThat(flow.agentChain().subList(0, 3))
                 .noneMatch(step -> step.workerId() != null && step.workerId().startsWith("pi-"));
-        assertThat(flow.agentChain().subList(3, 9)).extracting(StepDescriptor::workerId)
+        assertThat(flow.agentChain().subList(3, 10)).extracting(StepDescriptor::workerId)
                 .containsExactlyElementsOf(routine.agentChain().stream().map(StepDescriptor::workerId).toList());
-        assertThat(flow.agentChain().subList(3, 9)).allSatisfy(step ->
+        assertThat(flow.agentChain().subList(3, 10)).allSatisfy(step ->
                 assertThat(step.inputs()).contains("task.json"));
     }
 

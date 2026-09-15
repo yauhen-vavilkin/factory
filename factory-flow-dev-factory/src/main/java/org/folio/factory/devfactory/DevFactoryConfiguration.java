@@ -6,6 +6,9 @@ import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.devfactory.decision.DecisionAnswerValidator;
 import org.folio.factory.devfactory.decision.DecisionWorker;
+import org.folio.factory.devfactory.delivery.DeliveryWorker;
+import org.folio.factory.devfactory.delivery.GitHubDeliveryClient;
+import org.folio.factory.devfactory.delivery.TrustedDeliveryService;
 import org.folio.factory.devfactory.inbox.InboxProperties;
 import org.folio.factory.devfactory.inbox.InboxTaskFileParser;
 import org.folio.factory.devfactory.profile.TrustedProfileCatalog;
@@ -77,6 +80,30 @@ public class DevFactoryConfiguration {
       @Value("${factory.pi.gateway-url:http://factory-gateway:8080/v1}") String gateway,
       @Value("${factory.pi.thinking:high}") String thinking) {
     return new PiWorker("pi-finalize-worker", s, r, token, gateway, thinking);
+  }
+
+  /**
+   * Trusted delivery holds the only GitHub write credential, scoped to delivery
+   * ({@code factory.delivery.github.token}). It lives in the Factory process;
+   * sandboxes and the coding runtime never receive it. Blank token: every
+   * delivery is refused before any remote call. A non-blank fork owner delivers
+   * to that owner's fork of the authoritative repository instead of the
+   * repository itself.
+   */
+  @Bean
+  public TrustedDeliveryService trustedDeliveryService(
+      @Value("${factory.delivery.github.token:}") String token,
+      @Value("${factory.delivery.github.fork-owner:}") String forkOwner,
+      @Value("${factory.delivery.commit-author-name:Factory Developer Flow}") String authorName,
+      @Value("${factory.delivery.commit-author-email:factory-developer-flow@users.noreply.github.com}")
+      String authorEmail) {
+    return new TrustedDeliveryService(new GitHubDeliveryClient(token), token, forkOwner, authorName,
+        authorEmail);
+  }
+
+  @Bean
+  public DeliveryWorker piDeliverWorker(TrustedDeliveryService delivery) {
+    return new DeliveryWorker(delivery);
   }
 
   /** NEEDS_DECISION request end: persists the decision request before the flow's HITL gate. */

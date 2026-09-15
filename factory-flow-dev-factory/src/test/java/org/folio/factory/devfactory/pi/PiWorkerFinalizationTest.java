@@ -190,6 +190,43 @@ class PiWorkerFinalizationTest {
     assertThat(verification.path("retained").asBoolean()).isTrue();
   }
 
+  @Test
+  void deliverPrSuccessRequiresADeliveredCandidate() {
+    var delivered = json.readTree(finalizeWithDelivery("{\"schema\":\"DevFlowDelivery/v1\",\"mode\":\"DELIVER_PR\","
+        + "\"status\":\"DELIVERED\",\"targetRepository\":\"operator/mod-x\",\"branch\":\"factory/X-1-abc\","
+        + "\"commitSha\":\"c0ffee\",\"pullRequest\":{\"url\":\"https://github.com/operator/mod-x/pull/1\"}}")
+        .outputs().get("result.json"));
+    assertThat(delivered.path("outcome").asString()).isEqualTo("SUCCESS");
+    assertThat(delivered.path("delivery").path("pullRequest").asString())
+        .isEqualTo("https://github.com/operator/mod-x/pull/1");
+
+    var failed = json.readTree(finalizeWithDelivery("{\"mode\":\"DELIVER_PR\",\"status\":\"REFUSED\","
+        + "\"reason\":\"CANDIDATE_IDENTITY_MISMATCH\"}").outputs().get("result.json"));
+    assertThat(failed.path("outcome").asString()).isEqualTo("ERROR");
+    assertThat(failed.path("failure").path("stage").asString()).isEqualTo("DELIVERY");
+    assertThat(failed.path("failure").path("reason").asString()).isEqualTo("CANDIDATE_IDENTITY_MISMATCH");
+
+    var noCredential = json.readTree(finalizeWithDelivery("{\"mode\":\"DELIVER_PR\",\"status\":\"REFUSED\","
+        + "\"reason\":\"DELIVERY_CREDENTIALS_NOT_CONFIGURED\"}").outputs().get("result.json"));
+    assertThat(noCredential.path("outcome").asString()).isEqualTo("BLOCKED_ENVIRONMENT");
+
+    var local = json.readTree(finalizeWithDelivery("{\"mode\":\"LOCAL_ONLY\",\"status\":\"NOT_REQUESTED\"}")
+        .outputs().get("result.json"));
+    assertThat(local.path("outcome").asString()).isEqualTo("SUCCESS");
+    assertThat(local.has("failure")).isFalse();
+  }
+
+  private AgentResult finalizeWithDelivery(String delivery) {
+    AgentContext context = new AgentContext(java.util.UUID.randomUUID(), "finalize",
+        Map.of("candidate.patch", new ArtifactContent("candidate.patch", 1, "text/plain", "patch"),
+            "verification.json", new ArtifactContent("verification.json", 1, "application/json",
+                "{\"status\":\"PASS\"}"),
+            "delivery.json", new ArtifactContent("delivery.json", 1, "application/json", delivery)),
+        json.createObjectNode(), Map.of(), java.util.List.of());
+    return new PiWorker("pi-finalize-worker", mock(SandboxService.class), mock(PiCodingRunner.class),
+        "", "http://factory-gateway:8080/v1").execute(context);
+  }
+
   private AgentResult finalizeWorker(String status, String verification, String candidate,
       String usage, String session) {
     AgentContext context = new AgentContext(java.util.UUID.randomUUID(), "finalize",

@@ -28,10 +28,11 @@ Usage:
   ./scripts/factory validate --unit|--integration|--eval-pack|--gateway
   ./scripts/factory resolve-task TASK.yaml
   ./scripts/factory submit TASK.yaml
-  ./scripts/factory run-eval TASK_ID --run-key RUN_KEY    # curated: MODSIDECAR-208, MGRENTITLE-161/172/192, MODROLESKC-424/427, MODSCHED-70/76; derived: MODSIDECAR-207
+  ./scripts/factory run-eval TASK_ID --run-key RUN_KEY [--delivery-mode LOCAL_ONLY|DELIVER_PR]    # curated: MODSIDECAR-208, MGRENTITLE-161/172/192, MODROLESKC-424/427, MODSCHED-70/76; derived: MODSIDECAR-207
   ./scripts/factory show EXECUTION_ID [--watch]
   ./scripts/factory decide EXECUTION_ID --decision-id ID (--option OPTION_ID | --free-text TEXT) --reviewer NAME [--comment TEXT]
   ./scripts/factory export EXECUTION_ID --out DIRECTORY
+  ./scripts/factory deliver EXECUTION_ID    # trusted branch/push/PR of a completed SUCCESS execution
 EOF
 }
 
@@ -776,9 +777,11 @@ submit_task() {
 }
 
 run_eval() {
-  [[ $# == 3 && "$2" == --run-key ]] ||
-    fail "run-eval requires TASK_ID --run-key RUN_KEY"
-  local task_id="$1" run_key="$3"
+  [[ ( $# == 3 || ( $# == 5 && "$4" == --delivery-mode ) ) && "$2" == --run-key ]] ||
+    fail "run-eval requires TASK_ID --run-key RUN_KEY [--delivery-mode LOCAL_ONLY|DELIVER_PR]"
+  local task_id="$1" run_key="$3" delivery_mode="${5:-LOCAL_ONLY}"
+  [[ "$delivery_mode" == LOCAL_ONLY || "$delivery_mode" == DELIVER_PR ]] ||
+    fail "delivery mode must be LOCAL_ONLY or DELIVER_PR"
   [[ "$run_key" =~ ^[A-Za-z0-9._-]+$ && "$run_key" != default && ${#run_key} -le 128 ]] ||
     fail "runKey must be a fresh non-default value matching [A-Za-z0-9._-] and at most 128 characters"
   load_config
@@ -848,13 +851,13 @@ run_eval() {
   esac
   local generated="$STATE_DIR/run/${task_id}-${run_key}.json"
   [[ ! -e "$generated" && ! -L "$generated" ]] || fail "run-eval mapping already exists: $generated"
-  python3 - "$task_file" "$run_key" "$generated" "$task_id" "$repo" "$base" "$plan" "$decision_file" <<'PY'
+  python3 - "$task_file" "$run_key" "$generated" "$task_id" "$repo" "$base" "$plan" "$decision_file" "$delivery_mode" <<'PY'
 import json
 import pathlib
 import re
 import sys
 
-task_file, run_key, output, task_id, repo, base, plan, decision_file = sys.argv[1:9]
+task_file, run_key, output, task_id, repo, base, plan, decision_file, delivery_mode = sys.argv[1:10]
 raw = pathlib.Path(task_file).read_text(encoding="utf-8")
 if task_id == "MODSIDECAR-208":
     payload = {
@@ -865,7 +868,7 @@ if task_id == "MODSIDECAR-208":
         "profileId": "java21-pi-unit",
         "verificationPlanId": "modsidecar-208-v1",
         "runKey": run_key,
-        "deliveryMode": "LOCAL_ONLY",
+        "deliveryMode": delivery_mode,
         "metadata": {"evalId": "MODSIDECAR-208", "mappingVersion": "modsidecar-208-v1",
                   "sourceTaskText": raw},
         "goal": "Implement the complete MODSIDECAR-208 task and satisfy its acceptance criteria.",
@@ -910,7 +913,7 @@ else:
         "profileId": "java21-pi-unit",
         "verificationPlanId": plan,
         "runKey": run_key,
-        "deliveryMode": "LOCAL_ONLY",
+        "deliveryMode": delivery_mode,
         "metadata": {"evalId": task_id, "mappingVersion": "dataset-2026-09-11-v1",
                   "sourceTaskText": raw},
         "goal": goal + " Implement the complete task and satisfy its acceptance criteria.",
@@ -1098,6 +1101,19 @@ print(json.dumps({"execution": detail.get("execution", {}).get("id"), "out": str
 PY
 }
 
+deliver_execution() {
+  [[ $# == 1 ]] || fail "deliver requires EXECUTION_ID"
+  local execution_id="$1"
+  [[ "$execution_id" =~ ^[0-9a-fA-F-]{36}$ ]] || fail "execution id must be a UUID"
+  load_config
+  # Trusted delivery of a completed SUCCESS execution: Factory reproduces the
+  # verified candidate and pushes/opens the PR with its own delivery credential
+  # (FACTORY_DELIVERY_GITHUB_TOKEN of the running Factory process).
+  curl --fail-with-body -sS -X POST \
+    "http://127.0.0.1:${FACTORY_APP_PORT}/api/dev/executions/${execution_id}/delivery"
+  printf '\n'
+}
+
 decide_execution() {
   [[ $# -ge 1 ]] || fail "decide requires EXECUTION_ID --decision-id ID (--option OPTION_ID | --free-text TEXT) --reviewer NAME [--comment TEXT]"
   local execution_id="$1" decision_id="" option="" free_text="" reviewer="" comment=""
@@ -1158,5 +1174,6 @@ case "$command" in
   show) show_execution "$@" ;;
   export) export_execution "$@" ;;
   decide) decide_execution "$@" ;;
+  deliver) deliver_execution "$@" ;;
   *) usage; exit 1 ;;
 esac

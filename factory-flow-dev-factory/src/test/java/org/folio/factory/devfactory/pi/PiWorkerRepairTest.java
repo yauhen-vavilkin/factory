@@ -65,11 +65,17 @@ class PiWorkerRepairTest {
     assertThat(json.readTree(result.outputs().get("usage.json")).path("provider_calls").asInt())
         .isEqualTo(3);
     ArgumentCaptor<String> task = ArgumentCaptor.forClass(String.class);
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, String>> environment = ArgumentCaptor.forClass(Map.class);
     verify(runner).run(eq(repair), any(), anyString(), task.capture(), any(Duration.class),
-        anyLong(), any());
+        anyLong(), environment.capture());
     assertThat(task.getValue()).contains("REPAIR_EXISTING_CANDIDATE", "useful-tail",
         "Repair the existing frozen candidate", "original goal");
     assertThat(task.getValue()).doesNotContain("discard-me-").hasSizeLessThan(20_000);
+    // Credential isolation: the coding runtime receives only its model gateway
+    // credential, never a GitHub/delivery credential.
+    assertThat(environment.getValue()).containsOnlyKeys("PI_OFFLINE", "FACTORY_MODEL_TOKEN",
+        "FACTORY_PI_GATEWAY_URL");
   }
 
   @Test

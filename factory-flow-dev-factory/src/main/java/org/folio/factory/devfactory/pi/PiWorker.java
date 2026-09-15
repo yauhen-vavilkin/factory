@@ -12,6 +12,7 @@ import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.service.ArtifactStore;
+import org.folio.factory.devfactory.delivery.TrustedDeliveryService;
 import org.folio.factory.devfactory.worker.recovery.RecoveryBundleStore;
 import org.folio.factory.sandbox.api.CommandResult;
 import org.folio.factory.sandbox.api.SandboxHandle;
@@ -1048,11 +1049,27 @@ public final class PiWorker implements AgentWorker {
       case "BLOCKED_ENVIRONMENT" -> "BLOCKED_ENVIRONMENT";
       default -> "FAILED";
     };
+    JsonNode delivery = context.inputs().containsKey("delivery.json")
+        ? json.readTree(context.requireInput("delivery.json").content()) : null;
+    // Under DELIVER_PR, SUCCESS means the verified candidate was delivered. An
+    // undelivered verified candidate is a Factory-side fault (ERROR), or an
+    // environment blocker when no delivery credential is configured.
+    boolean undelivered = "SUCCESS".equals(outcome) && delivery != null
+        && TrustedDeliveryService.DELIVER_PR.equals(delivery.path("mode").asString(""))
+        && !"DELIVERED".equals(delivery.path("status").asString(""));
+    if (undelivered) {
+      outcome = TrustedDeliveryService.CREDENTIALS_NOT_CONFIGURED.equals(delivery.path("reason").asString(""))
+          ? "BLOCKED_ENVIRONMENT" : "ERROR";
+    }
     ObjectNode result = json.createObjectNode();
     result.put("outcome", outcome);
     result.put("workflowOperational", true);
     result.put("benchmarkOutcome", outcome);
-    if (!"SUCCESS".equals(outcome)) {
+    if (undelivered) {
+      ObjectNode failure = result.putObject("failure");
+      failure.put("reason", delivery.path("reason").asString("DELIVERY_FAILED"));
+      failure.put("stage", "DELIVERY");
+    } else if (!"SUCCESS".equals(outcome)) {
       ObjectNode failure = result.putObject("failure");
       failure.put("reason", verification.path("reason").asText("VERIFICATION_FAILED"));
       failure.put("stage", verification.path("stage").asText("VERIFY"));
@@ -1091,6 +1108,21 @@ public final class PiWorker implements AgentWorker {
       decisionSummary.set("selectedOptionId", decision.path("selectedOptionId").deepCopy());
       decisionSummary.put("answeredBy", decision.path("answeredBy").asString(""));
       ((ObjectNode) result.get("references")).put("decision", "decision-resolution.json");
+    }
+    if (delivery != null) {
+      ObjectNode deliverySummary = result.putObject("delivery");
+      deliverySummary.put("mode", delivery.path("mode").asString(""));
+      deliverySummary.put("status", delivery.path("status").asString(""));
+      if (delivery.has("reason")) {
+        deliverySummary.put("reason", delivery.path("reason").asString(""));
+      }
+      if ("DELIVERED".equals(delivery.path("status").asString(""))) {
+        deliverySummary.put("repository", delivery.path("targetRepository").asString(""));
+        deliverySummary.put("branch", delivery.path("branch").asString(""));
+        deliverySummary.put("commitSha", delivery.path("commitSha").asString(""));
+        deliverySummary.put("pullRequest", delivery.path("pullRequest").path("url").asString(""));
+      }
+      ((ObjectNode) result.get("references")).put("delivery", "delivery.json");
     }
     ObjectNode manifest = json.createObjectNode();
     manifest.put("candidate", "candidate.patch");

@@ -11,7 +11,7 @@ triggers:
 input_schema:
   required: [taskId, resolvedIntent, goal]
 output_schema:
-  artifacts: [decision-request.json, decision-answer.json, decision-resolution.json, task.json, baseline.json, candidate.patch, verification.json, repair.json, result.json, manifest.json, usage.json]
+  artifacts: [decision-request.json, decision-answer.json, decision-resolution.json, task.json, baseline.json, candidate.patch, verification.json, repair.json, delivery.json, result.json, manifest.json, usage.json]
 retry_policy:
   max_attempts: 1
   backoff_seconds: []
@@ -62,8 +62,13 @@ agent_chain:
     worker_id: pi-reverify-worker
     inputs: ["$trigger", task.json, contract.json, baseline.json, candidate.patch, candidate.json, verification.json, repair.json]
     outputs: [verification.json]
+  - step_id: deliver
+    type: AGENT
+    worker_id: pi-deliver-worker
+    inputs: ["$trigger", task.json, candidate.patch, candidate.json, verification.json]
+    outputs: [delivery.json]
   - step_id: finalize
     type: AGENT
     worker_id: pi-finalize-worker
-    inputs: ["$trigger", task.json, decision-resolution.json, candidate.patch, candidate.json, verification.json, repair.json, usage.json, pi-session.jsonl]
+    inputs: ["$trigger", task.json, decision-resolution.json, candidate.patch, candidate.json, verification.json, repair.json, delivery.json, usage.json, pi-session.jsonl]
     outputs: [result.json, manifest.json]

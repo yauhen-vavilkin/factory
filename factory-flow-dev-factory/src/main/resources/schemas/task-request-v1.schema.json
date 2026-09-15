@@ -24,7 +24,7 @@
     "profileId": { "type": "string", "minLength": 1 },
     "verificationPlanId": { "type": "string", "minLength": 1 },
     "runKey": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$", "maxLength": 128 },
-    "deliveryMode": { "const": "LOCAL_ONLY" },
+    "deliveryMode": { "enum": ["LOCAL_ONLY", "DELIVER_PR"] },
     "metadata": { "type": "object" },
     "goal": { "type": "string", "minLength": 1 },
     "acceptanceCriteria": {

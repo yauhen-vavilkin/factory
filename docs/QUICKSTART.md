@@ -102,3 +102,36 @@ at the `developer-decision` HITL gate before any coding; answer it with
 `./scripts/factory decide`, and the execution resumes from stored state. M1 resolves and stores
 intent but does not run it: coding remains blocked until later preparation has
 produced real source, image, dependency-seed, and baseline references.
+
+## Trusted delivery (branch / push / PR)
+
+Delivery runs only in the Factory process, never in a coding sandbox, and only
+for an independently verified candidate. Factory re-checks the candidate
+identity (patch SHA-256, verified tree, base, repository), re-applies the frozen
+patch to the exact base in a private temporary checkout, refuses unless the
+reproduced tree equals the verified tree, then pushes the deterministic branch
+`factory/<TASK>-<patchSha256[0:12]>` and opens one pull request against the
+target repository's default branch. A repeated request reuses the same branch
+and pull request; a different existing branch with that name is never
+overwritten. Every attempt is recorded as `delivery.json`.
+
+The delivery credential is separate from every other credential and is read only
+by the Factory JVM:
+
+```bash
+export FACTORY_DELIVERY_GITHUB_TOKEN="$(gh auth token)"   # delivery scope only
+export FACTORY_DELIVERY_GITHUB_FORK_OWNER=my-github-user  # optional: deliver to my fork
+./scripts/factory start --mode pi
+```
+
+Without a fork owner the target is the authoritative repository itself; with
+one, the target must be a GitHub fork of it whose default branch contains the
+base revision. Without a token every delivery is refused before any remote call.
+
+- Deliver a completed `SUCCESS` execution (no rebuild; uses stored evidence):
+  `./scripts/factory deliver EXECUTION_ID`
+- Deliver as part of the flow: submit with `deliveryMode: DELIVER_PR` (or
+  `run-eval ... --delivery-mode DELIVER_PR`); the `deliver` step runs after the
+  final verification, and `SUCCESS` then requires `DELIVERED`. Executions that
+  are FAILED, BLOCKED_ENVIRONMENT, ERROR, CANCELLED or waiting for a decision
+  are never delivered.
