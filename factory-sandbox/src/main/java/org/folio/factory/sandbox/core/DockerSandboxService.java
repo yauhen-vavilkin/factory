@@ -36,6 +36,8 @@ public class DockerSandboxService implements SandboxService {
 
   private static final String DEFAULT_IMAGE = "factory-pi:jdk21";
   private static final String WORKSPACE_DIR = "/workspace";
+  /** Container path of the persistent Maven repository shared by every sandbox. */
+  static final String MAVEN_REPOSITORY_DIR = "/maven-repository";
   private static final long CLONE_TIMEOUT_SEC = 300L;
   private static final int GIT_OUTPUT_LIMIT = 64 * 1024;
   private static final int EXEC_OUTPUT_LIMIT = 16 * 1024 * 1024;
@@ -45,6 +47,7 @@ public class DockerSandboxService implements SandboxService {
   private final String dockerNetwork;
   private final String dependencyDockerNetwork;
   private final Path workspaceRoot;
+  private final Path mavenRepository;
   private final Map<String, Path> preparedSources = new ConcurrentHashMap<>();
 
   public DockerSandboxService(DockerClient dockerClient) {
@@ -54,6 +57,8 @@ public class DockerSandboxService implements SandboxService {
     this.dependencyDockerNetwork = null;
     this.workspaceRoot = Path.of(System.getProperty("java.io.tmpdir", "/tmp"),
         "factory-sandboxes").toAbsolutePath().normalize();
+    this.mavenRepository = Path.of(System.getProperty("java.io.tmpdir", "/tmp"),
+        "factory-maven-repository").toAbsolutePath().normalize();
   }
 
   @Autowired
@@ -63,6 +68,7 @@ public class DockerSandboxService implements SandboxService {
     this.dockerNetwork = properties.dockerNetwork();
     this.dependencyDockerNetwork = properties.dependencyDockerNetwork();
     this.workspaceRoot = properties.workspaceRoot().toAbsolutePath().normalize();
+    this.mavenRepository = properties.mavenRepository().toAbsolutePath().normalize();
   }
 
   @Override
@@ -102,8 +108,6 @@ public class DockerSandboxService implements SandboxService {
                   "/state/pi", "rw,nosuid,nodev,mode=1777,size=1g",
                   "/state/tmp", "rw,nosuid,nodev,mode=1777,size=256m",
                   "/home/agent", "rw,nosuid,nodev,mode=1777,size=1g"))
-              .withNanoCPUs(2_000_000_000L)
-              .withMemory(4L * 1024 * 1024 * 1024)
               .withPidsLimit(512L)
               .withCapDrop(Capability.ALL)
               .withSecurityOpts(java.util.List.of("no-new-privileges:true"));
@@ -116,13 +120,20 @@ public class DockerSandboxService implements SandboxService {
         preparedSource = prepareRemoteSource(spec);
         source = preparedSource.toString();
       }
+      // Only downloaded Maven dependencies are shared between sandboxes; the
+      // checkout, workspace, target/ and Pi state stay private to each container.
+      prepareMavenRepository();
+      Bind mavenBind = new Bind(mavenRepository.toString(), new Volume(MAVEN_REPOSITORY_DIR), AccessMode.rw);
       if (source != null) {
         makeReadable(source);
-        hostConfig.withBinds(new Bind(source, new Volume("/workspace/source"), AccessMode.ro));
+        hostConfig.withBinds(new Bind(source, new Volume("/workspace/source"), AccessMode.ro), mavenBind);
+      } else {
+        hostConfig.withBinds(mavenBind);
       }
       CreateContainerResponse container = dockerClient.createContainerCmd(effectiveImage)
           .withCmd("sleep", "infinity")
           .withWorkingDir(WORKSPACE_DIR)
+          .withEnv("MAVEN_ARGS=-Dmaven.repo.local=" + MAVEN_REPOSITORY_DIR)
           // Unlike tmpfs, this private anonymous volume survives workload stop.
           // teardown removes it only after the caller has exported the candidate.
           .withVolumes(new Volume(WORKSPACE_DIR))
@@ -161,6 +172,19 @@ public class DockerSandboxService implements SandboxService {
         throw sandboxEx;
       }
       throw new SandboxException("Failed to create sandbox for task " + spec.taskId(), e);
+    }
+  }
+
+  /** The sandbox user (uid 10001) must be able to write the host-owned repository directory. */
+  private void prepareMavenRepository() {
+    try {
+      Files.createDirectories(mavenRepository);
+      Files.setPosixFilePermissions(mavenRepository,
+          java.nio.file.attribute.PosixFilePermissions.fromString("rwxrwxrwx"));
+    } catch (UnsupportedOperationException ignored) {
+      // Non-POSIX host file systems keep their default permissions.
+    } catch (java.io.IOException e) {
+      throw new SandboxException("cannot prepare the persistent Maven repository " + mavenRepository, e);
     }
   }
 

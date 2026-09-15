@@ -386,6 +386,7 @@ start_factory() {
     export FACTORY_MODE="$mode"
     export FACTORY_APP_PORT FACTORY_POSTGRES_PORT
     export FACTORY_DATA_DIR="$STATE_DIR/data"
+    export FACTORY_SANDBOX_MAVEN_REPOSITORY="$STATE_DIR/cache/maven-repository"
     export FACTORY_DB_URL="jdbc:postgresql://127.0.0.1:${FACTORY_POSTGRES_PORT}/factory"
     export FACTORY_DB_USER=factory
     export FACTORY_DB_PASSWORD="$db_password"

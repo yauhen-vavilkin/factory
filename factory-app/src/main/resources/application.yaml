@@ -65,7 +65,7 @@ factory:
     docker-host: ${DOCKER_HOST:unix:///var/run/docker.sock}
     workspace-root: ${FACTORY_DATA_DIR:.factory/data}/sandboxes
     workspace-retention: 0s
-    maven-cache-volume: ${FACTORY_SANDBOX_MAVEN_CACHE_VOLUME:factory-m2-cache}
+    maven-repository: ${FACTORY_SANDBOX_MAVEN_REPOSITORY:.factory/cache/maven-repository}
     docker-network: ${FACTORY_SANDBOX_DOCKER_NETWORK:factory-pi-network}
     dependency-docker-network: ${FACTORY_SANDBOX_DEPENDENCY_DOCKER_NETWORK:factory-pi-dependency-network}
   pi:

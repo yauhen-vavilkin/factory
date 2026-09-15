@@ -7,17 +7,17 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 @ConfigurationProperties(prefix = "factory.sandbox")
 public record SandboxProperties(String mode, String image, String dockerHost,
-    Path workspaceRoot, Duration workspaceRetention, String mavenCacheVolume,
+    Path workspaceRoot, Duration workspaceRetention, Path mavenRepository,
     String dockerNetwork, String dependencyDockerNetwork) {
 
   public SandboxProperties(String mode, String image, String dockerHost, Path workspaceRoot,
-      Duration workspaceRetention, String mavenCacheVolume) {
-    this(mode, image, dockerHost, workspaceRoot, workspaceRetention, mavenCacheVolume, null, null);
+      Duration workspaceRetention, Path mavenRepository) {
+    this(mode, image, dockerHost, workspaceRoot, workspaceRetention, mavenRepository, null, null);
   }
 
   public SandboxProperties(String mode, String image, String dockerHost, Path workspaceRoot,
-      Duration workspaceRetention, String mavenCacheVolume, String dockerNetwork) {
-    this(mode, image, dockerHost, workspaceRoot, workspaceRetention, mavenCacheVolume,
+      Duration workspaceRetention, Path mavenRepository, String dockerNetwork) {
+    this(mode, image, dockerHost, workspaceRoot, workspaceRetention, mavenRepository,
         dockerNetwork, null);
   }
 
@@ -34,8 +34,8 @@ public record SandboxProperties(String mode, String image, String dockerHost,
     workspaceRoot = workspaceRoot != null ? workspaceRoot
         : Path.of(System.getProperty("java.io.tmpdir", "/tmp"), "factory-sandboxes");
     workspaceRetention = workspaceRetention == null ? Duration.ZERO : workspaceRetention;
-    mavenCacheVolume = mavenCacheVolume == null || mavenCacheVolume.isBlank()
-        ? "factory-m2-cache" : mavenCacheVolume;
+    mavenRepository = mavenRepository != null ? mavenRepository
+        : Path.of(".factory/cache/maven-repository");
     dockerNetwork = dockerNetwork == null || dockerNetwork.isBlank() ? null : dockerNetwork;
     dependencyDockerNetwork = dependencyDockerNetwork == null || dependencyDockerNetwork.isBlank()
         ? null : dependencyDockerNetwork;

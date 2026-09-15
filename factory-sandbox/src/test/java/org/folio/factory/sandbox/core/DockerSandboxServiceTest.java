@@ -91,7 +91,7 @@ class DockerSandboxServiceTest {
   }
 
   @Test
-  void createUsesPrivateBoundedResourcesWithoutSharedMavenCache() throws Exception {
+  void createSharesOnlyThePersistentMavenRepositoryAndHasNoCpuOrMemoryCaps() throws Exception {
     CreateContainerCmd createCmd = mock(CreateContainerCmd.class, withSettings().defaultAnswer(RETURNS_SELF));
     CreateContainerResponse createResponse = mock(CreateContainerResponse.class);
     when(createResponse.getId()).thenReturn(CONTAINER_ID);
@@ -108,9 +108,12 @@ class DockerSandboxServiceTest {
     ArgumentCaptor<HostConfig> hostConfigCaptor = ArgumentCaptor.forClass(HostConfig.class);
     verify(createCmd).withHostConfig(hostConfigCaptor.capture());
     HostConfig config = hostConfigCaptor.getValue();
-    assertTrue(config.getBinds() == null || config.getBinds().length == 0);
-    assertEquals(2_000_000_000L, config.getNanoCPUs());
-    assertEquals(4L * 1024 * 1024 * 1024, config.getMemory());
+    assertEquals(1, config.getBinds().length);
+    assertEquals("/maven-repository", config.getBinds()[0].getVolume().getPath());
+    assertEquals(com.github.dockerjava.api.model.AccessMode.rw, config.getBinds()[0].getAccessMode());
+    assertTrue(config.getNanoCPUs() == null || config.getNanoCPUs() == 0L, "no CPU cap");
+    assertTrue(config.getMemory() == null || config.getMemory() == 0L, "no memory cap");
+    verify(createCmd).withEnv("MAVEN_ARGS=-Dmaven.repo.local=/maven-repository");
     assertEquals(512L, config.getPidsLimit());
     assertTrue(config.getReadonlyRootfs());
     assertTrue(config.getTmpFs().containsKey("/tmp"));

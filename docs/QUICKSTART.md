@@ -37,6 +37,7 @@ commands makes a provider call.
 
 - **Z.ai endpoint selection:** Z.ai Coding Plan credentials require the Coding Plan endpoint (`FACTORY_MODEL_BASE_URL=https://api.z.ai/api/coding/paas/v4`), while General API credentials use `https://api.z.ai/api/paas/v4`. The system does not silently convert between them.
 - **Gateway attempt budget lifecycle:** The gateway enforces a per-process attempt budget (`FACTORY_MAX_ATTEMPTS`, default 40). Between sequential real coding runs, restart Factory (`./scripts/factory stop && ./scripts/factory start ...`) so the gateway attempt counter resets.
+- **Sandbox Maven cache:** every sandbox (prepare, coding, verify, repair, reverify) mounts `.factory/cache/maven-repository` at `/maven-repository` and Maven uses it as its local repository (`MAVEN_ARGS=-Dmaven.repo.local=/maven-repository`). Only downloaded dependencies are shared; checkout, workspace, `target/` and Pi state stay private to each sandbox. The same directory is the local repository of Factory's own `./mvnw` build (`.mvn/maven.config`). To clear it, stop Factory and run `rm -rf .factory/cache/maven-repository`; the next build downloads dependencies again. Sandboxes have no CPU or memory cap of their own and use what the Docker daemon provides.
 
 
 Run the classified test suites separately:
