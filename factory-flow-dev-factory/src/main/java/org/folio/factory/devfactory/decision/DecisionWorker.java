@@ -130,6 +130,7 @@ public final class DecisionWorker implements AgentWorker {
     String selectedId = answer.path("selectedOptionId").asString("");
     JsonNode option = selectedId.isBlank() ? null : DecisionArtifacts.option(request, selectedId);
     boolean repositorySelection = DecisionArtifacts.REPOSITORY_SELECTION.equals(request.path("category").asString());
+    boolean planSelection = DecisionArtifacts.VERIFICATION_PLAN.equals(request.path("category").asString());
     ObjectNode task;
     ArrayNode retained = json.createArrayNode();
     ArrayNode invalidated = json.createArrayNode();
@@ -147,7 +148,31 @@ public final class DecisionWorker implements AgentWorker {
           .path("repositoryCandidates") + ": replaced by the selected repository");
       invalidated.add("admission-time unresolved revision, profile and verification plan: re-resolved for "
           + selectedId + "@" + selected.repository().exactRevision());
+    } else if (planSelection) {
+      JsonNode admitted = payload.path("resolvedIntent");
+      TaskRequest original = json.treeToValue(admitted.path("task"), TaskRequest.class);
+      ResolvedIntent.RepositoryDecision repository = json.treeToValue(admitted.path("repository"),
+          ResolvedIntent.RepositoryDecision.class);
+      ResolvedIntent selected;
+      try {
+        selected = resolver.resolveSelectedPlan(original, repository, selectedId);
+      } catch (RuntimeException e) {
+        throw new AgentExecutionException("RESOLUTION_BLOCKED: verification plan " + selectedId
+            + " cannot be used for this task: " + e.getMessage());
+      }
+      if (!"RESOLVED".equals(selected.status())) {
+        throw new AgentExecutionException("RESOLUTION_BLOCKED: verification plan " + selectedId
+            + " cannot run this task: " + selected.code() + " " + selected.message());
+      }
+      task = FileInboxTrigger.payloadFor(selected);
+      invalidated.add("admission-time unresolved verification plan: resolved to " + selectedId + " for "
+          + repository.canonicalSlug() + "@" + repository.exactRevision() + " (repository and revision kept)");
     } else {
+      if (!payload.path("resolvedIntent").path("verificationPlan").isObject()) {
+        // One execution pauses at most once: the answer cannot also choose the plan.
+        throw new AgentExecutionException("VERIFICATION_PLAN_UNRESOLVED: the task names no verification "
+            + "plan; submit it again with an explicit verificationPlanId");
+      }
       task = (ObjectNode) payload.deepCopy();
       ((ObjectNode) task.path("resolvedIntent")).put("status", "RESOLVED");
       retained.add("admission resolution: repository " + request.path("references").path("repository").asString()
@@ -192,7 +217,8 @@ public final class DecisionWorker implements AgentWorker {
     resolution.put("resumedAt", Instant.now().toString());
     resolution.put("resumesAt", "prepare");
     resolution.put("investigationRepeated", repositorySelection
-        ? "deterministic resolution re-run for the selected repository only" : "no");
+        ? "deterministic resolution re-run for the selected repository only"
+        : planSelection ? "deterministic resolution re-run for the selected plan at the admitted revision" : "no");
     ObjectNode effective = resolution.putObject("effectiveTask");
     effective.put("repository", task.path("resolvedIntent").path("repository").path("canonicalSlug").asString());
     effective.put("exactRevision", task.path("baseRevision").asString());

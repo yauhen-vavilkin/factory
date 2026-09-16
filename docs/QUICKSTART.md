@@ -20,8 +20,9 @@ writable global Maven cache. `stop` and `infra down` preserve data.
 
 The launcher rejects a duplicate process recorded by `.factory/run/factory.pid`
 and also refuses to start if another healthy Factory instance owns the configured
-port. Local offline and live profiles disable Jira, GitHub, and TestRail connector
-writes even if connector credentials exist in the shell.
+port. External connector writes (Jira, GitHub, TestRail) are off by default, even
+if connector credentials exist in the shell; only an explicit
+`FACTORY_EXTERNAL_WRITES_ENABLED=true` enables them. Jira reads do not need it.
 
 Live mode is explicit and is not part of the offline baseline:
 
@@ -130,7 +131,7 @@ Start a task:
 
 ```bash
 ./scripts/factory run-jira MODSIDECAR-207
-./scripts/factory run-jira MODSIDECAR-207 --delivery-mode DELIVER_PR
+./scripts/factory run-jira MODSIDECAR-207 --delivery-mode DELIVER_PR --verification-plan java-maven-verify-it
 ./scripts/factory run-jira MODSIDECAR-207 --base-ref master --run-key retry-2
 ```
 
@@ -145,11 +146,25 @@ and the outcome (`ADMITTED`, `ADMITTED_NEEDS_DECISION`, `BLOCKED`,
   component). Conflicting evidence pauses for a repository decision; no
   approved match is `BLOCKED`. Without `--base-ref` the repository's own
   default branch is used.
+- Jira never selects the verification plan. Name one with
+  `--verification-plan java-maven-verify` (`mvn test`) or `java-maven-verify-it`
+  (`mvn clean verify`); without it the execution pauses for a
+  `VERIFICATION_PLAN` decision before coding. An execution pauses at most once:
+  a task that pauses for another reason must name its plan.
+- The root issue must state the task: a meaningful description or an explicit
+  acceptance-criteria field. A summary-only or placeholder issue pauses for a
+  `TASK_REQUIREMENTS_MISSING` decision; linked issues and comments do not count.
+- Jira's returned key is the task identity; an old key of a moved issue is kept
+  only as `requestedKey`.
 - The task goal is the issue summary. Acceptance criteria are added only from an
   explicit Jira acceptance-criteria field; otherwise the list is empty and the
   coding runtime works from the bounded issue text (at most 32 KB).
-- Running the same unchanged issue with the same run key returns the existing
-  execution. A changed issue or a new `--run-key` starts a new execution.
+- Running the same requirements (summary, description, acceptance-criteria
+  field) on the same exact revision with the same plan and run key returns the
+  existing execution, and the response reports that execution's repository,
+  revision and snapshot. Status, labels, links, comments and history do not
+  start a new execution; changed requirements, an advanced base revision, a
+  different plan or a new `--run-key` do.
 - Jira access is read-only. Factory never comments on, transitions, assigns or
   edits Jira issues; with external writes disabled every Jira write call is
   refused. There is no Jira write-back yet.

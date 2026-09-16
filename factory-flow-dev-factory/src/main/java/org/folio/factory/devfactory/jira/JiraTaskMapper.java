@@ -1,9 +1,12 @@
 package org.folio.factory.devfactory.jira;
 
 import java.util.List;
+import org.folio.factory.devfactory.contract.CanonicalJson;
 import org.folio.factory.devfactory.contract.TaskRequest;
 import org.folio.factory.devfactory.profile.TrustedProfileCatalog;
+import org.folio.factory.devfactory.resolution.TaskResolutionService;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
@@ -12,7 +15,14 @@ import tools.jackson.databind.node.ObjectNode;
  * exist only when Jira has an explicit acceptance-criteria field, and the
  * complete bounded issue context travels as the task text the coding runtime
  * reads. Repository selection is left to the trusted catalog through the
- * issue's project and (single) component.
+ * issue's project and (single) component, and the verification plan to the
+ * operator or the trusted resolution: Jira never selects one.
+ *
+ * <p>Task identity is the canonical issue key plus a digest of the root
+ * requirement fields (summary, description, explicit acceptance criteria).
+ * The full snapshot digest, the requested key and the source URL are
+ * provenance: Jira status, labels, links, comments and history do not make a
+ * new task.
  */
 public final class JiraTaskMapper {
   public static final String SOURCE_TYPE = "JIRA";
@@ -29,17 +39,19 @@ public final class JiraTaskMapper {
       + "Do not add requirements the issue does not state. Factory performs independent verification "
       + "after coding.";
 
-  private final JsonMapper json = JsonMapper.builder().build();
+  private static final JsonMapper JSON = JsonMapper.builder().build();
+  private final JsonMapper json = JSON;
 
   public TaskRequest toTaskRequest(JiraTaskSnapshot snapshot, String snapshotLocator, String deliveryMode,
-                                   String baseRef, String runKey) {
+                                   String baseRef, String runKey, String verificationPlanId) {
     ObjectNode metadata = json.createObjectNode();
     metadata.put("jiraIssueKey", snapshot.issueKey());
-    putNullable(metadata, "jiraSourceUrl", snapshot.sourceUrl());
-    metadata.put("jiraSnapshotSchema", snapshot.schema());
-    metadata.put("jiraSnapshotSha256", snapshot.contentSha256());
-    // fetchedAt and the snapshot file path stay out of the task identity: an
-    // unchanged issue fetched again must replay the same admission.
+    metadata.put("jiraRequirementSha256", requirementSha256(snapshot));
+    ObjectNode provenance = metadata.putObject(TaskResolutionService.PROVENANCE);
+    provenance.put("jiraRequestedKey", snapshot.requestedKey());
+    putNullable(provenance, "jiraSourceUrl", snapshot.sourceUrl());
+    provenance.put("jiraSnapshotSchema", snapshot.schema());
+    provenance.put("jiraSnapshotSha256", snapshot.contentSha256());
     List<TaskRequest.AcceptanceCriterion> criteria = snapshot.acceptanceCriteriaFields().stream()
         .map(field -> new TaskRequest.AcceptanceCriterion("JIRA-" + field.id(), field.value(), "JIRA_FIELD"))
         .toList();
@@ -47,11 +59,25 @@ public final class JiraTaskMapper {
     return new TaskRequest(TaskRequest.CURRENT_SCHEMA_VERSION,
         new TaskRequest.SourceIdentity(SOURCE_TYPE, snapshot.issueKey(), blankToNull(snapshot.project()), component),
         null, null, blankToNull(baseRef),
-        TrustedProfileCatalog.JAVA_MAVEN_PI, TrustedProfileCatalog.JAVA_MAVEN_VERIFY,
+        TrustedProfileCatalog.JAVA_MAVEN_PI, blankToNull(verificationPlanId),
         runKey == null || runKey.isBlank() ? DEFAULT_RUN_KEY : runKey.trim(),
         deliveryMode == null || deliveryMode.isBlank() ? "LOCAL_ONLY" : deliveryMode.trim(),
         metadata, snapshot.issueKey() + ": " + snapshot.summary(), criteria, json.createObjectNode(),
-        NOTES, renderContext(snapshot, snapshotLocator), false);
+        NOTES, renderContext(snapshot, snapshotLocator), false,
+        JiraTaskSufficiency.missingRequirements(snapshot).stream().toList());
+  }
+
+  /** Digest of what the root issue requires; operational Jira state is deliberately not part of it. */
+  static String requirementSha256(JiraTaskSnapshot snapshot) {
+    ObjectNode requirement = JSON.createObjectNode();
+    requirement.put("schema", "JiraRequirement/v1");
+    requirement.put("issueKey", snapshot.issueKey());
+    requirement.put("summary", snapshot.summary());
+    putNullable(requirement, "description", snapshot.description());
+    ArrayNode criteria = requirement.putArray("acceptanceCriteriaFields");
+    snapshot.acceptanceCriteriaFields().forEach(field ->
+        criteria.addObject().put("id", field.id()).put("value", field.value()));
+    return CanonicalJson.sha256(requirement);
   }
 
   /** Bounded, readable Jira context for the coding runtime; the full snapshot stays separate. */

@@ -40,6 +40,12 @@
         <option value="LOCAL_ONLY" th:selected="${deliveryMode == null or deliveryMode == 'LOCAL_ONLY'}">LOCAL_ONLY</option>
         <option value="DELIVER_PR" th:selected="${deliveryMode == 'DELIVER_PR'}">DELIVER_PR</option>
     </select>
+    <label for="verificationPlanId">Verification plan <span class="hint">(optional; without one Factory asks for a decision before coding)</span></label>
+    <select id="verificationPlanId" name="verificationPlanId">
+        <option value="" th:selected="${verificationPlanId == null or verificationPlanId == ''}">(decide later)</option>
+        <option value="java-maven-verify" th:selected="${verificationPlanId == 'java-maven-verify'}">java-maven-verify (mvn test)</option>
+        <option value="java-maven-verify-it" th:selected="${verificationPlanId == 'java-maven-verify-it'}">java-maven-verify-it (mvn clean verify)</option>
+    </select>
     <label for="baseRef">Base branch <span class="hint">(optional; default: the repository's default branch)</span></label>
     <input id="baseRef" name="baseRef" th:value="${baseRef}">
     <label for="runKey">Run key <span class="hint">(optional; change it to start a new run of an unchanged issue)</span></label>

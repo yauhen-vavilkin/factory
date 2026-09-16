@@ -87,6 +87,7 @@ class FileInboxTriggerTest {
         metadata: {}
         deliveryMode: LOCAL_ONLY
         runKey: same-run
+        verificationPlanId: java-maven-verify
         baseRevision: %s
         repository: folio-org/folio-module-sidecar
         source: {project: MODSIDECAR, id: MODSIDECAR-208, type: JIRA}
@@ -186,6 +187,21 @@ class FileInboxTriggerTest {
   }
 
   @Test
+  void inboxTaskWithoutAPlanUsesTheDecisionEventInsteadOfAnImplicitUnitPlan() throws IOException {
+    when(router.routeAdmitted(any(), any())).thenReturn(List.of(UUID.randomUUID()));
+    write("task.yaml", valid("default", "repository: folio-org/folio-module-sidecar\n")
+        .replace("verificationPlanId: java-maven-verify\n", ""));
+
+    trigger.poll();
+
+    ArgumentCaptor<TriggerEvent> event = ArgumentCaptor.forClass(TriggerEvent.class);
+    verify(router).routeAdmitted(event.capture(), any());
+    assertThat(event.getValue().type()).isEqualTo("file.inbox.decision");
+    assertThat(event.getValue().payload().path("resolvedIntent").path("code").asString())
+        .isEqualTo("VERIFICATION_PLAN");
+  }
+
+  @Test
   void transientRepositoryOrDatabaseFailureLeavesValidInputRetryable() throws IOException {
     access.failure = new RepositoryAccessException("temporary lookup failure");
     Path lookup = write("lookup.yaml", valid("default", "repository: folio-org/folio-module-sidecar\n"));
@@ -225,6 +241,7 @@ class FileInboxTriggerTest {
           id: MODSIDECAR-208
           project: MODSIDECAR
         %sbaseRevision: %s
+        verificationPlanId: java-maven-verify
         runKey: %s
         deliveryMode: LOCAL_ONLY
         metadata: {}

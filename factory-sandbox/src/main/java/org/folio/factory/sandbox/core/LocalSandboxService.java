@@ -164,9 +164,9 @@ public class LocalSandboxService implements SandboxService {
 
   private ProcessOutput runCommand(Path workspace, String command, long timeoutSec)
       throws IOException, InterruptedException {
-    Process process = new ProcessBuilder("/bin/sh", "-c", command)
-        .directory(workspace.toFile())
-        .start();
+    ProcessBuilder builder = new ProcessBuilder("/bin/sh", "-c", command).directory(workspace.toFile());
+    LocalProcessEnvironment.apply(builder);
+    Process process = builder.start();
     StringBuilder stdout = new StringBuilder();
     StringBuilder stderr = new StringBuilder();
     Thread stdoutReader = startDrainer(process.getInputStream(), stdout);

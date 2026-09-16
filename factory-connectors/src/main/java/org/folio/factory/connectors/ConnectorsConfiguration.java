@@ -33,7 +33,7 @@ public class ConnectorsConfiguration {
      */
     @Bean
     public JiraConnector jiraConnector(JiraProperties properties, RestClient.Builder builder,
-                                       @Value("${factory.connectors.external-writes-enabled:true}")
+                                       @Value("${factory.connectors.external-writes-enabled:false}")
                                        boolean externalWritesEnabled) {
         if (!properties.isConfigured()) {
             return new UnconfiguredConnectors.Jira();
@@ -44,7 +44,7 @@ public class ConnectorsConfiguration {
 
     @Bean
     public GitHubConnector gitHubConnector(GitHubProperties properties, RestClient.Builder builder,
-                                           @Value("${factory.connectors.external-writes-enabled:true}")
+                                           @Value("${factory.connectors.external-writes-enabled:false}")
                                            boolean externalWritesEnabled) {
         return externalWritesEnabled && properties.isConfigured()
                 ? new GitHubRestConnector(properties, builder.clone())
@@ -53,7 +53,7 @@ public class ConnectorsConfiguration {
 
     @Bean
     public TestRailConnector testRailConnector(TestRailProperties properties, RestClient.Builder builder,
-                                               @Value("${factory.connectors.external-writes-enabled:true}")
+                                               @Value("${factory.connectors.external-writes-enabled:false}")
                                                boolean externalWritesEnabled) {
         return externalWritesEnabled && properties.isConfigured()
                 ? new TestRailRestConnector(properties, builder.clone())

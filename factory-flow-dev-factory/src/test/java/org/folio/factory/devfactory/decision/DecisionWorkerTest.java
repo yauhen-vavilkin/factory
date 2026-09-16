@@ -143,6 +143,43 @@ class DecisionWorkerTest {
         "re-resolved for folio-org/mgr-tenant-entitlements");
   }
 
+  @Test
+  void verificationPlanSelectionResolvesTheChosenTrustedPlanAtTheAdmittedRevision() {
+    ResolvedIntent intent = resolver.resolve(task(null, "MGRENTITLE", List.of(), null));
+    assertThat(intent.code()).isEqualTo(DecisionArtifacts.VERIFICATION_PLAN);
+    JsonNode payload = FileInboxTrigger.payloadFor(intent);
+    assertThat(payload.path("constraints").path("checks")).isEmpty();
+    String request = request(payload).outputs().get(DecisionArtifacts.REQUEST);
+    assertThatThrownBy(() -> resume(payload, request, answer(request, null, "unit tests are enough")))
+        .hasMessageContaining("must choose one of the trusted plans");
+
+    AgentResult resumed = resume(payload, request, answer(request, TrustedProfileCatalog.JAVA_MAVEN_VERIFY_IT, null));
+
+    JsonNode task = json.readTree(resumed.outputs().get(DecisionArtifacts.TASK));
+    assertThat(task.path("baseRevision").asString()).isEqualTo(SHA);
+    assertThat(task.path("resolvedIntent").path("status").asString()).isEqualTo("RESOLVED");
+    assertThat(task.path("resolvedIntent").path("verificationPlan").path("id").asString())
+        .isEqualTo(TrustedProfileCatalog.JAVA_MAVEN_VERIFY_IT);
+    assertThat(task.path("constraints").path("checks").get(0).path("command").asString())
+        .isEqualTo("mvn -B -ntp clean verify");
+    assertThat(json.readTree(resumed.outputs().get(DecisionArtifacts.RESOLUTION))
+        .path("effectiveTask").path("verificationPlanId").asString())
+        .isEqualTo(TrustedProfileCatalog.JAVA_MAVEN_VERIFY_IT);
+  }
+
+  @Test
+  void anotherDecisionCannotResumeATaskWhosePlanIsUnresolved() {
+    TaskRequest.DeclaredDecision missing = new TaskRequest.DeclaredDecision("jira-task-requirements",
+        "TASK_REQUIREMENTS_MISSING", "What must the change do?", "No requirements", List.of(), null, null,
+        List.of());
+    JsonNode payload = FileInboxTrigger.payloadFor(resolver.resolve(task(null, "MGRENTITLE", List.of(missing),
+        null)));
+    String request = request(payload).outputs().get(DecisionArtifacts.REQUEST);
+
+    assertThatThrownBy(() -> resume(payload, request, answer(request, null, "Raise the limit to 100")))
+        .hasMessageContaining("VERIFICATION_PLAN_UNRESOLVED");
+  }
+
   private AgentResult request(JsonNode payload) {
     return requestWorker.execute(new AgentContext(executionId, "decision-request", Map.of(), payload, Map.of(),
         List.of(DecisionArtifacts.REQUEST, DecisionArtifacts.ANSWER)));
@@ -174,8 +211,13 @@ class DecisionWorkerTest {
   }
 
   private TaskRequest task(String repository, String project, List<TaskRequest.DeclaredDecision> decisions) {
+    return task(repository, project, decisions, TrustedProfileCatalog.JAVA_MAVEN_VERIFY);
+  }
+
+  private TaskRequest task(String repository, String project, List<TaskRequest.DeclaredDecision> decisions,
+                           String plan) {
     return new TaskRequest(1, new TaskRequest.SourceIdentity("JIRA", "ANY-1", project, null), repository, SHA,
-        null, null, null, "default", "LOCAL_ONLY", json.createObjectNode(), "Change the limit",
+        null, null, plan, "default", "LOCAL_ONLY", json.createObjectNode(), "Change the limit",
         List.of(new TaskRequest.AcceptanceCriterion("AC-1", "Limit changed", "TASK")), json.createObjectNode(),
         null, "raw", false, decisions);
   }

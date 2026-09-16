@@ -66,9 +66,12 @@ public final class JiraSnapshotCollector {
   }
 
   public JiraTaskSnapshot collect(String issueKey) {
-    String key = normalizeKey(issueKey);
-    JiraIssue issue = read(key, () -> jira.getIssue(key));
+    String requestedKey = normalizeKey(issueKey);
+    JiraIssue issue = read(requestedKey, () -> jira.getIssue(requestedKey));
     JsonNode raw = issue.raw();
+    // A moved or renamed issue answers under its new key: that key is the
+    // canonical identity, the requested one is only an alias.
+    String key = canonicalKey(issue, raw, requestedKey);
     JsonNode fields = raw.path("fields");
     String description = text(fields.path("description"));
 
@@ -146,7 +149,7 @@ public final class JiraSnapshotCollector {
     List<String> components = new ArrayList<>();
     fields.path("components").forEach(component -> components.add(component.path("name").asString("")));
 
-    JiraTaskSnapshot draft = new JiraTaskSnapshot(JiraTaskSnapshot.SCHEMA, key,
+    JiraTaskSnapshot draft = new JiraTaskSnapshot(JiraTaskSnapshot.SCHEMA, key, requestedKey,
         raw.path("id").asString(""), browseUrl(raw, key), null, issue.summary(),
         bounded(description, MAX_DESCRIPTION_CHARS), description.length() > MAX_DESCRIPTION_CHARS,
         issue.status(), issue.issueType(), fields.path("project").path("key").asString(""),
@@ -154,9 +157,22 @@ public final class JiraSnapshotCollector {
         linkNodes.size() > MAX_LINKS, comments, commentPage.path("total").asInt(comments.size()),
         history, relevant.size(), historyIncomplete, null, null);
     ObjectNode identity = json.valueToTree(draft);
-    identity.remove(List.of("fetchedAt", "contentSha256", "raw"));
+    identity.remove(List.of("requestedKey", "fetchedAt", "contentSha256", "raw"));
     return draft.withIdentity(Instant.now(clock).toString(), CanonicalJson.sha256(identity),
         boundedRaw(raw));
+  }
+
+  private static String canonicalKey(JiraIssue issue, JsonNode raw, String requestedKey) {
+    String returned = issue.key() == null || issue.key().isBlank() ? raw.path("key").asString("") : issue.key();
+    if (returned.isBlank()) {
+      return requestedKey;
+    }
+    String canonical = returned.trim().toUpperCase(Locale.ROOT);
+    if (!ISSUE_KEY.matcher(canonical).matches()) {
+      throw new JiraIntakeException(JiraIntakeException.JIRA_UNAVAILABLE,
+          "Jira returned an invalid issue key for " + requestedKey);
+    }
+    return canonical;
   }
 
   private JiraTaskSnapshot.Link link(JsonNode link, boolean fetch) {

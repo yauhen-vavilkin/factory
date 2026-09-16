@@ -23,6 +23,7 @@ public final class DecisionArtifacts {
   public static final String REQUEST_SCHEMA = "DevFlowDecisionRequest/v1";
   public static final String ANSWER_SCHEMA = "DevFlowDecisionAnswer/v1";
   public static final String REPOSITORY_SELECTION = "REPOSITORY_SELECTION";
+  public static final String VERIFICATION_PLAN = "VERIFICATION_PLAN";
   private static final int MAX_FREE_TEXT = 2000;
 
   private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -104,6 +105,9 @@ public final class DecisionArtifacts {
     if (!freeText.isBlank()) {
       if (REPOSITORY_SELECTION.equals(request.path("category").asString(""))) {
         throw new IllegalArgumentException("a repository selection must choose one of the candidate options");
+      }
+      if (VERIFICATION_PLAN.equals(request.path("category").asString(""))) {
+        throw new IllegalArgumentException("a verification plan selection must choose one of the trusted plans");
       }
       if (freeText.length() > MAX_FREE_TEXT) {
         throw new IllegalArgumentException("freeText answer must be at most " + MAX_FREE_TEXT + " characters");

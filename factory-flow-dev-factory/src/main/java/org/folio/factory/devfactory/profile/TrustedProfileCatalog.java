@@ -16,6 +16,8 @@ public final class TrustedProfileCatalog {
   public static final String JAVA_MAVEN_VERIFY = "java-maven-verify";
   public static final String JAVA_MAVEN_VERIFY_IT = "java-maven-verify-it";
   public static final String SCENARIO_README_VERIFY = "scenario-readme-verify";
+  /** General plans an operator may select for any Java/Maven task, weakest first. */
+  public static final List<String> GENERAL_JAVA_MAVEN_PLANS = List.of(JAVA_MAVEN_VERIFY, JAVA_MAVEN_VERIFY_IT);
 
   private final Map<String, ExecutionProfile> profiles;
   private final Map<String, VerificationPlan> plans;
@@ -103,11 +105,26 @@ public final class TrustedProfileCatalog {
     return profile;
   }
 
+  /** An explicitly selected trusted plan. There is no implicit default plan. */
   public VerificationPlan resolvePlan(String requestedId) {
-    String selected = requestedId == null ? JAVA_MAVEN_VERIFY : requestedId;
-    return verificationPlan(selected).orElseThrow(() ->
+    if (requestedId == null || requestedId.isBlank()) {
+      throw new IllegalArgumentException("a verification plan id is required");
+    }
+    return verificationPlan(requestedId).orElseThrow(() ->
         new UnsupportedProfileException("UNKNOWN_VERIFICATION_PLAN",
-            "unknown trusted verification plan id: " + selected));
+            "unknown trusted verification plan id: " + requestedId));
+  }
+
+  /**
+   * The general trusted plans that can prove a task on the given profile when
+   * the task does not name one, weakest first. When more than one remains,
+   * the plans are materially different and Factory must not pick one itself.
+   */
+  public List<VerificationPlan> planCandidates(ExecutionProfile profile) {
+    if (!"JAVA".equals(profile.language()) || !"MAVEN".equals(profile.buildTool())) {
+      return List.of();
+    }
+    return GENERAL_JAVA_MAVEN_PLANS.stream().map(plans::get).toList();
   }
 
   private static String normalizeJava(String value) {

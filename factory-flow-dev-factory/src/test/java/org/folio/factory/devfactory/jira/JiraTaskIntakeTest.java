@@ -65,6 +65,8 @@ import tools.jackson.databind.node.ObjectNode;
 class JiraTaskIntakeTest {
   private static final String SHA = "0123456789abcdef0123456789abcdef01234567";
   private static final JsonMapper JSON = JsonMapper.builder().build();
+  private static final String DESCRIPTION =
+      "Make the sidecar read timeout configurable through an environment variable.";
 
   @TempDir Path snapshots;
   private FakeJira jira;
@@ -72,6 +74,7 @@ class JiraTaskIntakeTest {
   private ArtifactStore artifacts;
   private FakeAccess access;
   private JiraTaskService service;
+  private final Map<UUID, JsonNode> storedPayloads = new ConcurrentHashMap<>();
 
   @BeforeEach
   void setUp() {
@@ -91,7 +94,7 @@ class JiraTaskIntakeTest {
 
     JiraTaskSnapshot snapshot = new JiraSnapshotCollector(jira).collect("modsidecar-207");
     TaskRequest task = new JiraTaskMapper().toTaskRequest(snapshot, "jira-snapshot.json", "LOCAL_ONLY",
-        null, null);
+        null, null, null);
 
     assertThat(task.source()).isEqualTo(new TaskRequest.SourceIdentity("JIRA", "MODSIDECAR-207",
         "MODSIDECAR", null));
@@ -101,9 +104,13 @@ class JiraTaskIntakeTest {
     assertThat(task.baseRevision()).isNull();
     assertThat(task.baseRef()).isNull();
     assertThat(task.profileId()).isEqualTo(TrustedProfileCatalog.JAVA_MAVEN_PI);
-    assertThat(task.verificationPlanId()).isEqualTo(TrustedProfileCatalog.JAVA_MAVEN_VERIFY);
+    // Jira never chooses a verification plan.
+    assertThat(task.verificationPlanId()).isNull();
+    assertThat(task.decisions()).isEmpty();
     assertThat(task.runKey()).isEqualTo("default");
-    assertThat(task.metadata().path("jiraSnapshotSha256").asString()).isEqualTo(snapshot.contentSha256());
+    assertThat(task.metadata().path("provenance").path("jiraSnapshotSha256").asString())
+        .isEqualTo(snapshot.contentSha256());
+    assertThat(task.metadata().path("jiraRequirementSha256").asString()).hasSize(64);
     assertThat(task.metadata().has("fetchedAt")).isFalse();
     assertThat(task.rawTaskText())
         .contains("# Jira issue MODSIDECAR-207: Timeout not configurable")
@@ -124,7 +131,7 @@ class JiraTaskIntakeTest {
     jira.put(root);
 
     JiraTaskSnapshot snapshot = new JiraSnapshotCollector(jira).collect("MODSIDECAR-1");
-    TaskRequest task = new JiraTaskMapper().toTaskRequest(snapshot, null, "LOCAL_ONLY", null, null);
+    TaskRequest task = new JiraTaskMapper().toTaskRequest(snapshot, null, "LOCAL_ONLY", null, null, null);
 
     assertThat(snapshot.storyPoints()).isEqualTo(3.0);
     assertThat(task.acceptanceCriteria()).containsExactly(new TaskRequest.AcceptanceCriterion(
@@ -176,13 +183,14 @@ class JiraTaskIntakeTest {
 
   @Test
   void admittedJiraTaskResolvesCatalogRepositoryAtDefaultBranchAndStoresSnapshot() throws Exception {
-    jira.put(issue("MODSIDECAR-207", "Timeout", "Body", "MODSIDECAR", List.of(), List.of()));
+    jira.put(issue("MODSIDECAR-207", "Timeout", DESCRIPTION, "MODSIDECAR", List.of(), List.of()));
     UUID execution = UUID.randomUUID();
     when(router.routeAdmitted(any(), anyString())).thenReturn(List.of(execution));
     when(artifacts.getLatest(execution, JiraTaskService.SNAPSHOT_ARTIFACT)).thenReturn(Optional.empty());
 
     JiraTaskService.RunResult result = service.start(
-        new JiraTaskService.RunRequest("MODSIDECAR-207", "DELIVER_PR", null, null));
+        new JiraTaskService.RunRequest("MODSIDECAR-207", "DELIVER_PR", null, null,
+            TrustedProfileCatalog.JAVA_MAVEN_VERIFY));
 
     assertThat(result.outcome()).isEqualTo("ADMITTED");
     assertThat(result.executionId()).isEqualTo(execution);
@@ -199,7 +207,7 @@ class JiraTaskIntakeTest {
     JsonNode payload = event.getValue().payload();
     assertThat(payload.path("taskId").asString()).isEqualTo("MODSIDECAR-207");
     assertThat(payload.path("repoUrl").asString()).isEqualTo("https://github.com/folio-org/folio-module-sidecar.git");
-    assertThat(payload.path("rawTaskText").asString()).contains("# Jira issue MODSIDECAR-207", "Body");
+    assertThat(payload.path("rawTaskText").asString()).contains("# Jira issue MODSIDECAR-207", DESCRIPTION);
     assertThat(payload.path("resolvedIntent").path("profile").path("id").asString())
         .isEqualTo(TrustedProfileCatalog.JAVA_MAVEN_PI);
     assertThat(payload.path("resolvedIntent").path("task").path("deliveryMode").asString()).isEqualTo("DELIVER_PR");
@@ -212,48 +220,228 @@ class JiraTaskIntakeTest {
     assertThat(jira.writes).isEmpty();
   }
 
+  // --- Admission identity -------------------------------------------------
+
   @Test
-  void repeatedIdenticalIntakeReplaysTheSameAdmissionAndSnapshot() {
-    jira.put(issue("MODSIDECAR-207", "Timeout", "Body", "MODSIDECAR", List.of(), List.of()));
-    UUID execution = UUID.randomUUID();
-    when(router.routeAdmitted(any(), anyString())).thenReturn(List.of(execution));
-    Artifact attached = mock(Artifact.class);
-    when(artifacts.getLatest(execution, JiraTaskService.SNAPSHOT_ARTIFACT))
-        .thenReturn(Optional.empty(), Optional.of(attached));
+  void identicalRequirementsAtTheSameShaReplayTheOriginalExecution() {
+    idempotentAdmission();
+    jira.put(issue("MODSIDECAR-207", "Timeout", DESCRIPTION, "MODSIDECAR", List.of(), List.of()));
     JiraTaskService later = service(jira, new JiraSnapshotCollector(jira,
         Clock.fixed(Instant.parse("2030-01-01T00:00:00Z"), ZoneOffset.UTC)));
-    JiraTaskService.RunRequest request = new JiraTaskService.RunRequest("MODSIDECAR-207", null, null, null);
 
-    JiraTaskService.RunResult first = service.start(request);
-    JiraTaskService.RunResult second = later.start(request);
+    JiraTaskService.RunResult first = service.start(verified("MODSIDECAR-207"));
+    JiraTaskService.RunResult second = later.start(verified("MODSIDECAR-207"));
 
-    ArgumentCaptor<String> keys = ArgumentCaptor.forClass(String.class);
-    verify(router, times(2)).routeAdmitted(any(), keys.capture());
-    assertThat(keys.getAllValues().get(0)).isEqualTo(keys.getAllValues().get(1));
+    assertThat(first.existingExecution()).isFalse();
+    assertThat(second.existingExecution()).isTrue();
+    assertThat(second.executionId()).isEqualTo(first.executionId());
     assertThat(second.snapshotSha256()).isEqualTo(first.snapshotSha256());
     assertThat(second.snapshotPath()).isEqualTo(first.snapshotPath());
-    assertThat(second.existingExecution()).isTrue();
+    assertThat(second.baseRevision()).isEqualTo(SHA);
     verify(artifacts, times(1)).put(any(), any(), any(), any(), any());
+  }
 
-    // A changed Jira issue or an explicit new runKey is a new admission revision.
-    jira.put(issue("MODSIDECAR-207", "Timeout", "Body, clarified", "MODSIDECAR", List.of(), List.of()));
-    service.start(request);
-    service.start(new JiraTaskService.RunRequest("MODSIDECAR-207", null, null, "second-run"));
-    ArgumentCaptor<String> allKeys = ArgumentCaptor.forClass(String.class);
-    verify(router, times(4)).routeAdmitted(any(), allKeys.capture());
-    List<String> revisions = allKeys.getAllValues().subList(2, 4);
-    assertThat(revisions).doesNotHaveDuplicates().doesNotContain(keys.getAllValues().getFirst());
+  @Test
+  void advancedDefaultBranchStartsANewExecutionAndAReplayReportsTheStoredRevision() {
+    idempotentAdmission();
+    jira.put(issue("MODSIDECAR-207", "Timeout", DESCRIPTION, "MODSIDECAR", List.of(), List.of()));
+    JiraTaskService.RunResult first = service.start(verified("MODSIDECAR-207"));
+
+    access.sha = "fedcba9876543210fedcba9876543210fedcba98";
+    JiraTaskService.RunResult advanced = service.start(verified("MODSIDECAR-207"));
+
+    assertThat(advanced.existingExecution()).isFalse();
+    assertThat(advanced.executionId()).isNotEqualTo(first.executionId());
+    assertThat(advanced.baseRevision()).isEqualTo("fedcba9876543210fedcba9876543210fedcba98");
+    assertThat(storedPayloads.get(advanced.executionId()).path("baseRevision").asString())
+        .isEqualTo("fedcba9876543210fedcba9876543210fedcba98");
+    assertThat(storedPayloads.get(first.executionId()).path("baseRevision").asString()).isEqualTo(SHA);
+    assertThat(advanced.semanticTaskHash()).isEqualTo(first.semanticTaskHash());
+  }
+
+  @Test
+  void operationalJiraChangesDoNotStartANewExecution() {
+    idempotentAdmission();
+    jira.put(issue("MODSIDECAR-207", "Timeout", DESCRIPTION, "MODSIDECAR", List.of(), List.of()));
+    JiraTaskService.RunResult first = service.start(verified("MODSIDECAR-207"));
+
+    ObjectNode changed = issue("MODSIDECAR-207", "Timeout", DESCRIPTION, "MODSIDECAR", List.of(),
+        List.of(link("Relates", "OTHER-1", true)));
+    ObjectNode fields = (ObjectNode) changed.path("fields");
+    fields.putObject("status").put("name", "In Progress");
+    fields.putArray("labels").add("back-end").add("sprint-42");
+    jira.comments.put("MODSIDECAR-207", comments(3));
+    JiraTaskService.RunResult replay = service.start(verified("MODSIDECAR-207"));
+
+    assertThat(replay.executionId()).isEqualTo(first.executionId());
+    assertThat(replay.existingExecution()).isTrue();
+    // The execution keeps the snapshot it was admitted with; the new fetch is stored as provenance only.
+    assertThat(replay.snapshotSha256()).isEqualTo(first.snapshotSha256());
+    assertThat(snapshots.resolve("MODSIDECAR-207")).isDirectoryContaining(path ->
+        !path.getFileName().toString().equals(first.snapshotSha256() + ".json"));
+  }
+
+  @Test
+  void requirementChangesAndAnExplicitRunKeyStartNewExecutions() {
+    idempotentAdmission();
+    jira.put(issue("MODSIDECAR-207", "Timeout", DESCRIPTION, "MODSIDECAR", List.of(), List.of()));
+    UUID first = service.start(verified("MODSIDECAR-207")).executionId();
+
+    jira.put(issue("MODSIDECAR-207", "Timeout", DESCRIPTION + " Document the default value.", "MODSIDECAR",
+        List.of(), List.of()));
+    UUID description = service.start(verified("MODSIDECAR-207")).executionId();
+
+    ObjectNode withCriteria = issue("MODSIDECAR-207", "Timeout", DESCRIPTION + " Document the default value.",
+        "MODSIDECAR", List.of(), List.of());
+    ((ObjectNode) withCriteria.path("fields")).put("customfield_20000", "Given no variable, the timeout is 30s");
+    jira.put(withCriteria);
+    UUID criteria = service.start(verified("MODSIDECAR-207")).executionId();
+    UUID rerun = service.start(new JiraTaskService.RunRequest("MODSIDECAR-207", null, null, "second-run",
+        TrustedProfileCatalog.JAVA_MAVEN_VERIFY)).executionId();
+
+    assertThat(List.of(first, description, criteria, rerun)).doesNotHaveDuplicates();
+  }
+
+  // --- Canonical key -------------------------------------------------------
+
+  @Test
+  void movedIssueUsesTheCanonicalJiraKeyAndKeepsTheRequestedAlias() {
+    idempotentAdmission();
+    jira.put(issue("MODSIDECAR-456", "Timeout", DESCRIPTION, "MODSIDECAR", List.of(), List.of()));
+    jira.aliases.put("OLDKEY-123", "MODSIDECAR-456");
+
+    JiraTaskService.RunResult viaAlias = service.start(verified("OLDKEY-123"));
+    JiraTaskService.RunResult viaCanonical = service.start(verified("MODSIDECAR-456"));
+
+    assertThat(viaAlias.issueKey()).isEqualTo("MODSIDECAR-456");
+    assertThat(viaAlias.requestedKey()).isEqualTo("OLDKEY-123");
+    assertThat(viaAlias.snapshotPath()).startsWith(snapshots.resolve("MODSIDECAR-456").toString());
+    JsonNode payload = storedPayloads.get(viaAlias.executionId());
+    assertThat(payload.path("taskId").asString()).isEqualTo("MODSIDECAR-456");
+    JsonNode task = payload.path("resolvedIntent").path("task");
+    assertThat(task.path("source").path("id").asString()).isEqualTo("MODSIDECAR-456");
+    assertThat(task.path("metadata").path("provenance").path("jiraRequestedKey").asString())
+        .isEqualTo("OLDKEY-123");
+    assertThat(payload.path("rawTaskText").asString()).contains("# Jira issue MODSIDECAR-456")
+        .doesNotContain("OLDKEY-123");
+    ArgumentCaptor<TriggerEvent> events = ArgumentCaptor.forClass(TriggerEvent.class);
+    verify(router, times(2)).routeAdmitted(events.capture(), anyString());
+    assertThat(events.getAllValues()).extracting(TriggerEvent::source).containsOnly("jira:MODSIDECAR-456");
+    // The old and the new key are one task: one execution.
+    assertThat(viaCanonical.executionId()).isEqualTo(viaAlias.executionId());
+    assertThat(viaCanonical.existingExecution()).isTrue();
+    assertThat(viaCanonical.snapshotSha256()).isEqualTo(viaAlias.snapshotSha256());
+  }
+
+  // --- Verification plan ---------------------------------------------------
+
+  @Test
+  void withoutAnExplicitPlanJiraIntakeAsksForTheVerificationPlanInsteadOfChoosingOne() {
+    idempotentAdmission();
+    jira.put(issue("MODSIDECAR-207", "Timeout", DESCRIPTION, "MODSIDECAR", List.of(), List.of()));
+
+    JiraTaskService.RunResult result = service.start(
+        new JiraTaskService.RunRequest("MODSIDECAR-207", "DELIVER_PR", null, null, null));
+
+    assertThat(result.outcome()).isEqualTo("ADMITTED_NEEDS_DECISION");
+    assertThat(result.code()).isEqualTo("VERIFICATION_PLAN");
+    assertThat(result.verificationPlanId()).isNull();
+    assertThat(result.baseRevision()).isEqualTo(SHA);
+    JsonNode payload = storedPayloads.get(result.executionId());
+    assertThat(payload.path("resolvedIntent").path("verificationPlan").isNull()).isTrue();
+    assertThat(payload.path("constraints").path("checks")).isEmpty();
+    assertThat(payload.path("resolvedIntent").path("decision").path("options"))
+        .extracting(option -> option.path("id").asString())
+        .containsExactly(TrustedProfileCatalog.JAVA_MAVEN_VERIFY, TrustedProfileCatalog.JAVA_MAVEN_VERIFY_IT);
+    ArgumentCaptor<TriggerEvent> event = ArgumentCaptor.forClass(TriggerEvent.class);
+    verify(router).routeAdmitted(event.capture(), anyString());
+    assertThat(event.getValue().type()).isEqualTo("file.inbox.pi.decision");
+  }
+
+  @Test
+  void anExplicitTrustedPlanIsUsedAndAnUntrustedOneIsRejected() {
+    idempotentAdmission();
+    jira.put(issue("MODSIDECAR-207", "Timeout", DESCRIPTION, "MODSIDECAR", List.of(), List.of()));
+
+    JiraTaskService.RunResult full = service.start(new JiraTaskService.RunRequest("MODSIDECAR-207", null, null,
+        null, TrustedProfileCatalog.JAVA_MAVEN_VERIFY_IT));
+
+    assertThat(full.outcome()).isEqualTo("ADMITTED");
+    assertThat(full.verificationPlanId()).isEqualTo(TrustedProfileCatalog.JAVA_MAVEN_VERIFY_IT);
+    assertThat(storedPayloads.get(full.executionId()).path("constraints").path("checks").get(0)
+        .path("command").asString()).isEqualTo("mvn -B -ntp clean verify");
+    for (String untrusted : List.of(TrustedProfileCatalog.SCENARIO_README_VERIFY, "mvn-compile")) {
+      assertThatThrownBy(() -> service.start(new JiraTaskService.RunRequest("MODSIDECAR-207", null, null, null,
+          untrusted))).isInstanceOfSatisfying(JiraIntakeException.class,
+          e -> assertThat(e.code()).isEqualTo(JiraIntakeException.INVALID_REQUEST));
+    }
+  }
+
+  // --- Task sufficiency ----------------------------------------------------
+
+  @Test
+  void meaningfulDescriptionIsAdmissible() {
+    idempotentAdmission();
+    jira.put(issue("MODSIDECAR-207", "Timeout", DESCRIPTION, "MODSIDECAR", List.of(), List.of()));
+
+    assertThat(service.start(verified("MODSIDECAR-207")).outcome()).isEqualTo("ADMITTED");
+  }
+
+  @Test
+  void explicitAcceptanceCriteriaWithASparseDescriptionIsAdmissible() {
+    idempotentAdmission();
+    ObjectNode root = issue("MODSIDECAR-207", "Timeout", "", "MODSIDECAR", List.of(), List.of());
+    ((ObjectNode) root.path("fields")).put("customfield_20000", "Given READ_TIMEOUT=5s the sidecar times out after 5s");
+    jira.put(root);
+
+    JiraTaskService.RunResult result = service.start(verified("MODSIDECAR-207"));
+
+    assertThat(result.outcome()).isEqualTo("ADMITTED");
+  }
+
+  @Test
+  void summaryOnlyPlaceholderIssueNeedsADecisionBeforeCoding() {
+    idempotentAdmission();
+    for (String placeholder : List.of("", "TBD", "h3. Description\n\n", "Timeout", "{code}{code}")) {
+      jira.put(issue("MODSIDECAR-207", "Timeout", placeholder, "MODSIDECAR", List.of(), List.of()));
+
+      JiraTaskService.RunResult result = service.start(verified("MODSIDECAR-207"));
+
+      assertThat(result.outcome()).as(placeholder).isEqualTo("ADMITTED_NEEDS_DECISION");
+      assertThat(result.code()).isEqualTo(JiraTaskSufficiency.CATEGORY);
+      assertThat(result.message()).contains("states no actionable requirement");
+      JsonNode payload = storedPayloads.get(result.executionId());
+      assertThat(payload.path("acceptanceCriteria")).isEmpty();
+      assertThat(payload.path("resolvedIntent").path("decision").path("options")).isEmpty();
+    }
+  }
+
+  @Test
+  void linkedIssueRequirementsDoNotMakeAnEmptyRootIssueExecutable() {
+    idempotentAdmission();
+    jira.put(issue("MODSIDECAR-207", "Timeout", "", "MODSIDECAR", List.of(),
+        List.of(link("Defines", "UXPROD-5894", true))));
+    jira.linked.put("UXPROD-5894", "The sidecar must read READ_TIMEOUT and apply it to every egress call. "
+        + "Acceptance criteria: given READ_TIMEOUT=5s a slow module call fails after 5 seconds.");
+    jira.comments.put("MODSIDECAR-207", comments(2));
+
+    JiraTaskService.RunResult result = service.start(verified("MODSIDECAR-207"));
+
+    assertThat(result.outcome()).isEqualTo("ADMITTED_NEEDS_DECISION");
+    assertThat(result.code()).isEqualTo(JiraTaskSufficiency.CATEGORY);
+    assertThat(storedPayloads.get(result.executionId()).path("rawTaskText").asString())
+        .contains("UXPROD-5894");
   }
 
   @Test
   void conflictingProjectAndComponentUseTheExistingDecisionFlow() {
-    jira.put(issue("MODSIDECAR-5", "Cross-cutting", "Body", "MODSIDECAR", List.of("scheduler"), List.of()));
+    jira.put(issue("MODSIDECAR-5", "Cross-cutting", DESCRIPTION, "MODSIDECAR", List.of("scheduler"), List.of()));
     UUID execution = UUID.randomUUID();
     when(router.routeAdmitted(any(), anyString())).thenReturn(List.of(execution));
     when(artifacts.getLatest(any(), any())).thenReturn(Optional.empty());
 
     JiraTaskService.RunResult result = service.start(
-        new JiraTaskService.RunRequest("MODSIDECAR-5", null, null, null));
+        new JiraTaskService.RunRequest("MODSIDECAR-5", null, null, null, null));
 
     assertThat(result.outcome()).isEqualTo("ADMITTED_NEEDS_DECISION");
     assertThat(result.code()).isEqualTo("REPOSITORY_SELECTION");
@@ -270,7 +458,7 @@ class JiraTaskIntakeTest {
   void unknownProjectIsBlockedWithoutCreatingAnExecution() {
     jira.put(issue("UIU-1", "UI work", "Body", "UIU", List.of(), List.of()));
 
-    JiraTaskService.RunResult result = service.start(new JiraTaskService.RunRequest("UIU-1", null, null, null));
+    JiraTaskService.RunResult result = service.start(new JiraTaskService.RunRequest("UIU-1", null, null, null, null));
 
     assertThat(result.outcome()).isEqualTo("BLOCKED");
     assertThat(result.code()).isEqualTo("REPOSITORY_NOT_RESOLVED");
@@ -288,7 +476,7 @@ class JiraTaskIntakeTest {
     assertIntakeFails("MODSIDECAR-404", JiraIntakeException.ISSUE_NOT_FOUND);
     jira.failure = null;
     assertIntakeFails("not a key", JiraIntakeException.INVALID_REQUEST);
-    assertThatThrownBy(() -> service.start(new JiraTaskService.RunRequest("MODSIDECAR-1", "PUSH", null, null)))
+    assertThatThrownBy(() -> service.start(new JiraTaskService.RunRequest("MODSIDECAR-1", "PUSH", null, null, null)))
         .isInstanceOfSatisfying(JiraIntakeException.class,
             e -> assertThat(e.code()).isEqualTo(JiraIntakeException.INVALID_REQUEST));
     verify(router, never()).routeAdmitted(any(), any());
@@ -303,7 +491,7 @@ class JiraTaskIntakeTest {
   void jiraCredentialsNeverReachTheTaskPayloadOrSnapshot() throws Exception {
     RestClient.Builder builder = RestClient.builder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).ignoreExpectOrder(true).build();
-    String issueJson = JSON.writeValueAsString(issue("MODSIDECAR-207", "Timeout", "Body", "MODSIDECAR",
+    String issueJson = JSON.writeValueAsString(issue("MODSIDECAR-207", "Timeout", DESCRIPTION, "MODSIDECAR",
         List.of(), List.of()));
     server.expect(ExpectedCount.once(), requestTo("https://jira.example.org/rest/api/2/issue/MODSIDECAR-207?expand=changelog"))
         .andRespond(withSuccess(issueJson, MediaType.APPLICATION_JSON));
@@ -321,7 +509,7 @@ class JiraTaskIntakeTest {
     when(artifacts.getLatest(any(), any())).thenReturn(Optional.empty());
 
     JiraTaskService.RunResult result = service(rest, new JiraSnapshotCollector(rest))
-        .start(new JiraTaskService.RunRequest("MODSIDECAR-207", null, null, null));
+        .start(new JiraTaskService.RunRequest("MODSIDECAR-207", null, null, null, null));
 
     server.verify();
     ArgumentCaptor<TriggerEvent> event = ArgumentCaptor.forClass(TriggerEvent.class);
@@ -335,8 +523,40 @@ class JiraTaskIntakeTest {
   }
 
   private void assertIntakeFails(String key, String code) {
-    assertThatThrownBy(() -> service.start(new JiraTaskService.RunRequest(key, null, null, null)))
+    assertThatThrownBy(() -> service.start(new JiraTaskService.RunRequest(key, null, null, null, null)))
         .isInstanceOfSatisfying(JiraIntakeException.class, e -> assertThat(e.code()).isEqualTo(code));
+  }
+
+  private static JiraTaskService.RunRequest verified(String key) {
+    return new JiraTaskService.RunRequest(key, null, null, null, TrustedProfileCatalog.JAVA_MAVEN_VERIFY);
+  }
+
+  /**
+   * Router and artifact store with the real admission semantics: one execution
+   * per admission key, storing the payload it was admitted with, and one
+   * snapshot artifact per execution.
+   */
+  private void idempotentAdmission() {
+    Map<String, UUID> byKey = new ConcurrentHashMap<>();
+    when(router.routeAdmitted(any(), anyString())).thenAnswer(invocation -> {
+      TriggerEvent event = invocation.getArgument(0);
+      UUID id = byKey.computeIfAbsent(invocation.getArgument(1), key -> {
+        UUID created = UUID.randomUUID();
+        storedPayloads.put(created, event.payload().deepCopy());
+        return created;
+      });
+      return List.of(id);
+    });
+    Map<UUID, Artifact> attached = new ConcurrentHashMap<>();
+    when(artifacts.getLatest(any(), eq(JiraTaskService.SNAPSHOT_ARTIFACT)))
+        .thenAnswer(invocation -> Optional.ofNullable(attached.get((UUID) invocation.getArgument(0))));
+    when(artifacts.put(any(), eq(JiraTaskService.SNAPSHOT_ARTIFACT), anyString(), anyString(), anyString()))
+        .thenAnswer(invocation -> {
+          Artifact artifact = new Artifact(invocation.getArgument(0), JiraTaskService.SNAPSHOT_ARTIFACT, 1,
+              "application/json", invocation.getArgument(2), "sha", "jira-intake");
+          attached.put(invocation.getArgument(0), artifact);
+          return artifact;
+        });
   }
 
   private JiraTaskService service(JiraConnector connector, JiraSnapshotCollector collector) {
@@ -344,7 +564,8 @@ class JiraTaskIntakeTest {
         new TrustedProfileCatalog());
     InboxProperties inbox = new InboxProperties(true, snapshots.resolve("inbox"), 5000L, "file.inbox.pi");
     return new JiraTaskService(collector, new JiraSnapshotStore(snapshots), new JiraTaskMapper(),
-        new TaskAdmissionService(resolver, router, inbox), artifacts);
+        new TaskAdmissionService(resolver, router, inbox), artifacts,
+        id -> Optional.ofNullable(storedPayloads.get(id)));
   }
 
   private static ObjectNode issue(String key, String summary, String description, String project,
@@ -413,17 +634,20 @@ class JiraTaskIntakeTest {
     private final List<String> writes = new ArrayList<>();
     private RuntimeException failure;
 
+    private final Map<String, String> aliases = new ConcurrentHashMap<>();
+
     void put(ObjectNode issue) {
       issues.put(issue.path("key").asString(), issue);
     }
 
+    /** Jira answers a moved issue's old key with the issue under its new key. */
     @Override public JiraIssue getIssue(String issueKey) {
       if (failure != null) throw failure;
-      JsonNode raw = issues.get(issueKey);
+      JsonNode raw = issues.get(aliases.getOrDefault(issueKey, issueKey));
       JsonNode fields = raw.path("fields");
       List<String> labels = new ArrayList<>();
       fields.path("labels").forEach(label -> labels.add(label.asString()));
-      return new JiraIssue(issueKey, fields.path("summary").asString(), fields.path("description").asString(),
+      return new JiraIssue(raw.path("key").asString(), fields.path("summary").asString(), fields.path("description").asString(),
           fields.path("status").path("name").asString(), fields.path("issuetype").path("name").asString(),
           labels, raw);
     }
@@ -461,6 +685,7 @@ class JiraTaskIntakeTest {
     private static final byte[] POM = "<project><properties><java.version>21</java.version></properties></project>"
         .getBytes(StandardCharsets.UTF_8);
     private final List<String> defaultBranchLookups = new ArrayList<>();
+    private String sha = SHA;
 
     @Override public String defaultBranch(String slug) {
       defaultBranchLookups.add(slug);
@@ -469,7 +694,7 @@ class JiraTaskIntakeTest {
 
     @Override public String resolveBranch(String slug, String branch) {
       assertThat(branch).isEqualTo("master");
-      return SHA;
+      return sha;
     }
 
     @Override public String verifyCommit(String slug, String sha) {

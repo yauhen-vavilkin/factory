@@ -26,9 +26,13 @@ public final class JiraSnapshotStore {
   public record Stored(Path path, String content) {
   }
 
+  public Path path(String issueKey, String contentSha256) {
+    return root.resolve(issueKey).resolve(contentSha256 + ".json");
+  }
+
   public Stored store(JiraTaskSnapshot snapshot) {
-    Path directory = root.resolve(snapshot.issueKey());
-    Path target = directory.resolve(snapshot.contentSha256() + ".json");
+    Path target = path(snapshot.issueKey(), snapshot.contentSha256());
+    Path directory = target.getParent();
     try {
       if (Files.isRegularFile(target)) {
         return new Stored(target, Files.readString(target));

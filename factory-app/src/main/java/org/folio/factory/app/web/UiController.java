@@ -139,14 +139,17 @@ public class UiController {
                           @RequestParam(name = "deliveryMode", required = false) String deliveryMode,
                           @RequestParam(name = "baseRef", required = false) String baseRef,
                           @RequestParam(name = "runKey", required = false) String runKey,
+                          @RequestParam(name = "verificationPlanId", required = false) String verificationPlanId,
                           Model model) {
         model.addAttribute("issueKey", issueKey);
         model.addAttribute("deliveryMode", deliveryMode);
         model.addAttribute("baseRef", baseRef);
         model.addAttribute("runKey", runKey);
+        model.addAttribute("verificationPlanId", verificationPlanId);
         try {
             JiraTaskService.RunResult result = jiraTasks.start(
-                    new JiraTaskService.RunRequest(issueKey, deliveryMode, baseRef, runKey));
+                    new JiraTaskService.RunRequest(issueKey, deliveryMode, baseRef, runKey,
+                            verificationPlanId));
             if (result.admitted()) {
                 return "redirect:/executions/" + result.executionId();
             }

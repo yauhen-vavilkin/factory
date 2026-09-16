@@ -29,7 +29,7 @@ Usage:
   ./scripts/factory resolve-task TASK.yaml
   ./scripts/factory submit TASK.yaml
   ./scripts/factory run-eval TASK_ID --run-key RUN_KEY [--delivery-mode LOCAL_ONLY|DELIVER_PR]    # curated: MODSIDECAR-208, MGRENTITLE-161/172/192, MODROLESKC-424/427, MODSCHED-70/76; derived: MODSIDECAR-207
-  ./scripts/factory run-jira ISSUE_KEY [--delivery-mode LOCAL_ONLY|DELIVER_PR] [--base-ref BRANCH] [--run-key RUN_KEY]    # read-only Jira intake
+  ./scripts/factory run-jira ISSUE_KEY [--delivery-mode LOCAL_ONLY|DELIVER_PR] [--base-ref BRANCH] [--run-key RUN_KEY] [--verification-plan PLAN_ID]    # read-only Jira intake
   ./scripts/factory show EXECUTION_ID [--watch]
   ./scripts/factory decide EXECUTION_ID --decision-id ID (--option OPTION_ID | --free-text TEXT) --reviewer NAME [--comment TEXT]
   ./scripts/factory export EXECUTION_ID --out DIRECTORY
@@ -979,8 +979,8 @@ PY
 
 run_jira() {
   [[ $# -ge 1 && "$1" != --* ]] ||
-    fail "run-jira requires ISSUE_KEY [--delivery-mode LOCAL_ONLY|DELIVER_PR] [--base-ref BRANCH] [--run-key RUN_KEY]"
-  local issue_key="$1" delivery_mode="LOCAL_ONLY" base_ref="" run_key=""
+    fail "run-jira requires ISSUE_KEY [--delivery-mode LOCAL_ONLY|DELIVER_PR] [--base-ref BRANCH] [--run-key RUN_KEY] [--verification-plan PLAN_ID]"
+  local issue_key="$1" delivery_mode="LOCAL_ONLY" base_ref="" run_key="" plan_id=""
   shift
   while [[ $# -gt 0 ]]; do
     [[ $# -ge 2 ]] || fail "run-jira option $1 requires a value"
@@ -988,6 +988,7 @@ run_jira() {
       --delivery-mode) delivery_mode="$2" ;;
       --base-ref) base_ref="$2" ;;
       --run-key) run_key="$2" ;;
+      --verification-plan) plan_id="$2" ;;
       *) fail "unknown run-jira option: $1" ;;
     esac
     shift 2
@@ -996,13 +997,14 @@ run_jira() {
   # All intake policy (Jira reads, snapshot, mapping, resolution, admission)
   # lives in Factory; the script only forwards the request to the API.
   local body="$STATE_DIR/run/run-jira-request.json" response="$STATE_DIR/run/run-jira-response.json" code
-  python3 - "$body" "$issue_key" "$delivery_mode" "$base_ref" "$run_key" <<'PY'
+  python3 - "$body" "$issue_key" "$delivery_mode" "$base_ref" "$run_key" "$plan_id" <<'PY'
 import json
 import sys
 
-path, issue_key, delivery_mode, base_ref, run_key = sys.argv[1:6]
+path, issue_key, delivery_mode, base_ref, run_key, plan_id = sys.argv[1:7]
 json.dump({"issueKey": issue_key, "deliveryMode": delivery_mode, "baseRef": base_ref or None,
-           "runKey": run_key or None}, open(path, "w", encoding="utf-8"))
+           "runKey": run_key or None, "verificationPlanId": plan_id or None},
+          open(path, "w", encoding="utf-8"))
 PY
   chmod 600 "$body"
   code=$(curl -sS -o "$response" -w '%{http_code}' -H 'Content-Type: application/json' \
@@ -1016,9 +1018,10 @@ import json
 import sys
 
 result = json.load(open(sys.argv[1], encoding="utf-8"))
-print("Jira task admitted: issue=%s outcome=%s execution-id=%s repository=%s@%s existing=%s" % (
-    result["issueKey"], result["outcome"], result["executionId"], result.get("repository"),
-    result.get("baseRevision"), str(result.get("existingExecution")).lower()))
+print("Jira task admitted: issue=%s (requested %s) outcome=%s execution-id=%s repository=%s@%s plan=%s existing=%s" % (
+    result["issueKey"], result.get("requestedKey"), result["outcome"], result["executionId"],
+    result.get("repository"), result.get("baseRevision"), result.get("verificationPlanId"),
+    str(result.get("existingExecution")).lower()))
 PY
 }
 

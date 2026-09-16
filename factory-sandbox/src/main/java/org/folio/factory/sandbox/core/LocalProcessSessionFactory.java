@@ -24,6 +24,7 @@ public final class LocalProcessSessionFactory implements ProcessSessionFactory {
     try {
       ProcessBuilder builder = new ProcessBuilder(request.argv()).directory(Path.of(request.cwd()).toFile())
           .redirectErrorStream(false);
+      LocalProcessEnvironment.apply(builder);
       request.environment().forEach((key, value) -> builder.environment().put(key, value));
       Process process = builder.start();
       LocalSession session = new LocalSession(process, request, sink);

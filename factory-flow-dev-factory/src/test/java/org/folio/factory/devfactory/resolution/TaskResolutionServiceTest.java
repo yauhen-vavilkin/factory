@@ -180,6 +180,80 @@ class TaskResolutionServiceTest {
   }
 
   @Test
+  void taskWithoutAPlanNeedsAPlanDecisionAndTheSelectionKeepsTheAdmittedRevision() {
+    TaskRequest request = withPlan(task("MODSIDECAR-208", null, "MODSIDECAR", null, null, "master", null, null,
+        "default"), null);
+
+    ResolvedIntent pending = resolver.resolve(request);
+
+    assertThat(pending.status()).isEqualTo(ResolvedIntent.NEEDS_DECISION);
+    assertThat(pending.code()).isEqualTo(TaskResolutionService.VERIFICATION_PLAN);
+    assertThat(pending.verificationPlan()).isNull();
+    assertThat(pending.unknowns()).contains("VERIFICATION_PLAN_UNRESOLVED");
+    assertThat(pending.repository().exactRevision()).isEqualTo(SHA);
+    assertThat(pending.decision().options()).extracting(TaskRequest.Option::id)
+        .containsExactly(TrustedProfileCatalog.JAVA_MAVEN_VERIFY, TrustedProfileCatalog.JAVA_MAVEN_VERIFY_IT);
+    assertThat(pending.decision().recommendedOptionId()).isEqualTo(TrustedProfileCatalog.JAVA_MAVEN_VERIFY_IT);
+
+    // The branch advances before the human answers: the selection keeps the admitted revision.
+    access.branchSha = "fedcba9876543210fedcba9876543210fedcba98";
+    ResolvedIntent selected = resolver.resolveSelectedPlan(pending.task(), pending.repository(),
+        TrustedProfileCatalog.JAVA_MAVEN_VERIFY_IT);
+    assertThat(selected.status()).isEqualTo("RESOLVED");
+    assertThat(selected.verificationPlan().id()).isEqualTo(TrustedProfileCatalog.JAVA_MAVEN_VERIFY_IT);
+    assertThat(selected.repository().exactRevision()).isEqualTo(SHA);
+    assertThatThrownBy(() -> resolver.resolveSelectedPlan(pending.task(), pending.repository(),
+        TrustedProfileCatalog.SCENARIO_README_VERIFY)).isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void declaredDecisionWithoutAPlanStaysPendingWithTheUnresolvedPlanVisible() {
+    TaskRequest.DeclaredDecision declared = new TaskRequest.DeclaredDecision("scope", "SCOPE",
+        "Which scope?", "Scope", List.of(), null, null, List.of());
+    TaskRequest request = withPlan(withDecisions(task("ANY-1", null, "MGRENTITLE", null, SHA, null, null, null,
+        "default"), List.of(declared)), null);
+
+    ResolvedIntent result = resolver.resolve(request);
+
+    assertThat(result.status()).isEqualTo(ResolvedIntent.NEEDS_DECISION);
+    assertThat(result.code()).isEqualTo("SCOPE");
+    assertThat(result.verificationPlan()).isNull();
+    assertThat(result.unknowns()).contains("VERIFICATION_PLAN_UNRESOLVED");
+    assertThat(result.decision().facts()).extracting(ResolvedIntent.Fact::statement)
+        .anyMatch(fact -> fact.contains("no verification plan is selected"));
+  }
+
+  @Test
+  void admissionKeyBindsTheExactRevisionAndIgnoresProvenanceMetadata() {
+    var provenanceA = json.createObjectNode();
+    provenanceA.put("requirement", "r1");
+    provenanceA.putObject(TaskResolutionService.PROVENANCE).put("snapshot", "a");
+    var provenanceB = json.createObjectNode();
+    provenanceB.put("requirement", "r1");
+    provenanceB.putObject(TaskResolutionService.PROVENANCE).put("snapshot", "b");
+    TaskRequest onBranch = task("MODSIDECAR-208", null, "MODSIDECAR", null, null, "master", null, null,
+        "default");
+
+    ResolvedIntent a = resolver.resolve(withMetadata(onBranch, provenanceA));
+    ResolvedIntent b = resolver.resolve(withMetadata(onBranch, provenanceB));
+    assertThat(b.semanticTaskHash()).isEqualTo(a.semanticTaskHash());
+    assertThat(b.admissionKey()).isEqualTo(a.admissionKey());
+
+    access.branchSha = "fedcba9876543210fedcba9876543210fedcba98";
+    ResolvedIntent advanced = resolver.resolve(withMetadata(onBranch, provenanceA));
+    assertThat(advanced.semanticTaskHash()).isEqualTo(a.semanticTaskHash());
+    assertThat(advanced.admissionKey()).isNotEqualTo(a.admissionKey());
+
+    var requirementChanged = provenanceA.deepCopy();
+    requirementChanged.put("requirement", "r2");
+    access.branchSha = SHA;
+    assertThat(resolver.resolve(withMetadata(onBranch, requirementChanged)).admissionKey())
+        .isNotEqualTo(a.admissionKey());
+    assertThat(resolver.resolve(withPlan(withMetadata(onBranch, provenanceA),
+        TrustedProfileCatalog.JAVA_MAVEN_VERIFY_IT)).admissionKey()).isNotEqualTo(a.admissionKey());
+  }
+
+  @Test
   void hostileOriginsPathsProtocolsAndCredentialsAreRejected() {
     RepositoryCatalog catalog = new RepositoryCatalog();
     for (String value : List.of("/tmp/repo", "file:///tmp/repo", "ssh://github.com/folio-org/mod-scheduler",
@@ -204,10 +278,18 @@ class TaskResolutionServiceTest {
   private TaskRequest task(String id, String repository, String project, String component,
                            String revision, String ref, String profile, String plan, String runKey) {
     return new TaskRequest(1, new TaskRequest.SourceIdentity("JIRA", id, project, component),
-        repository, revision, ref, profile, plan, runKey, "LOCAL_ONLY", json.createObjectNode(),
+        repository, revision, ref, profile, plan == null ? TrustedProfileCatalog.JAVA_MAVEN_VERIFY : plan,
+        runKey, "LOCAL_ONLY", json.createObjectNode(),
         "Implement requested behavior", List.of(new TaskRequest.AcceptanceCriterion(
         "AC-1", "Behavior works", "TICKET")), json.createObjectNode(), null,
         "full original task text", false);
+  }
+
+  private static TaskRequest withPlan(TaskRequest task, String plan) {
+    return new TaskRequest(task.schemaVersion(), task.source(), task.repository(), task.baseRevision(),
+        task.baseRef(), task.profileId(), plan, task.runKey(), task.deliveryMode(),
+        task.metadata(), task.goal(), task.acceptanceCriteria(), task.constraints(), task.notes(),
+        task.rawTaskText(), task.legacyAdapted(), task.decisions());
   }
 
   private static TaskRequest withMetadata(TaskRequest task, tools.jackson.databind.JsonNode metadata) {
@@ -228,6 +310,7 @@ class TaskResolutionServiceTest {
     private final Map<String, byte[]> files = new LinkedHashMap<>();
     private int branchCalls;
     private int commitCalls;
+    private String branchSha = SHA;
 
     private FakeAccess() {
       files.put("pom.xml", JAVA_POM);
@@ -238,7 +321,7 @@ class TaskResolutionServiceTest {
     @Override
     public String resolveBranch(String slug, String branch) {
       branchCalls++;
-      return SHA;
+      return branchSha;
     }
 
     @Override

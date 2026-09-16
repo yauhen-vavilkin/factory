@@ -280,6 +280,11 @@ public final class TrustedDeliveryService {
       return new Refusal("CANDIDATE_IDENTITY_MISMATCH", "verified tree "
           + verification.path("candidateTree").asString("missing") + " is not the candidate tree " + tree);
     }
+    String planId = task.path("resolvedIntent").path("verificationPlan").path("id").asString("");
+    if (planId.isBlank() || !planId.equals(verification.path("planId").asString(""))) {
+      return new Refusal("VERIFICATION_PLAN_MISSING", "the candidate was not verified with the task's "
+          + "authoritative resolved verification plan");
+    }
     String base = task.path("baseRevision").asString("");
     JsonNode repository = task.path("resolvedIntent").path("repository");
     String exact = repository.path("exactRevision").asString(base);

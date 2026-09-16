@@ -31,7 +31,7 @@ factory:
     # margin, so the reaper never re-queues a live coding step (T14 R7).
     lease-timeout-seconds: 2700
   connectors:
-    external-writes-enabled: ${FACTORY_EXTERNAL_WRITES_ENABLED:true}
+    external-writes-enabled: ${FACTORY_EXTERNAL_WRITES_ENABLED:false}
     jira:
       base-url: ${FACTORY_CONNECTORS_JIRA_BASE_URL:}
       email: ${FACTORY_CONNECTORS_JIRA_EMAIL:}

@@ -6,6 +6,7 @@ import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.service.ArtifactStore;
+import org.folio.factory.core.service.StateManager;
 import org.folio.factory.core.trigger.PipelineRouter;
 import org.folio.factory.devfactory.admission.TaskAdmissionService;
 import org.folio.factory.devfactory.inbox.FileInboxTrigger;
@@ -26,6 +27,7 @@ class DevFactoryConfigurationWiringTest {
                     .withBean(CodingHarness.class, () -> Mockito.mock(CodingHarness.class))
                     .withBean(FrontmatterCodec.class, FrontmatterCodec::new)
                     .withBean(ArtifactStore.class, () -> Mockito.mock(ArtifactStore.class))
+                    .withBean(StateManager.class, () -> Mockito.mock(StateManager.class))
                     .withBean(HitlReviewRepository.class, () -> Mockito.mock(HitlReviewRepository.class))
                     .withBean(PipelineRouter.class, () -> Mockito.mock(PipelineRouter.class))
                     .withBean(JiraConnector.class, () -> Mockito.mock(JiraConnector.class));

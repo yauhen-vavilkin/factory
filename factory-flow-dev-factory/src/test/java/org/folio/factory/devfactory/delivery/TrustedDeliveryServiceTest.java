@@ -146,6 +146,13 @@ class TrustedDeliveryServiceTest {
     assertThat(flowStep(service, notIndependent).path("reason").asString())
         .isEqualTo("VERIFICATION_NOT_INDEPENDENT");
     assertThat(flowStep(service, staleTree).path("reason").asString()).isEqualTo("CANDIDATE_IDENTITY_MISMATCH");
+    ObjectNode otherPlan = verification(tree).put("planId", "scenario-readme-verify");
+    assertThat(flowStep(service, otherPlan).path("reason").asString()).isEqualTo("VERIFICATION_PLAN_MISSING");
+    ObjectNode task = task();
+    ((ObjectNode) task.path("resolvedIntent")).putNull("verificationPlan");
+    assertThat(service.deliver(new TrustedDeliveryService.Evidence(TrustedDeliveryService.Source.FLOW_STEP,
+        "exec-1", null, task, candidate(patch, tree), patch, verification(tree), null))
+        .path("reason").asString()).isEqualTo("VERIFICATION_PLAN_MISSING");
     ObjectNode otherBase = verification(tree).put("base", "f".repeat(40));
     assertThat(flowStep(service, otherBase).path("reason").asString()).isEqualTo("BASE_MISMATCH");
 

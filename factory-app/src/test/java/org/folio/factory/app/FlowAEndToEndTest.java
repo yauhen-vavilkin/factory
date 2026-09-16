@@ -76,6 +76,8 @@ class FlowAEndToEndTest {
         jira.start();
         gitHub.start();
         testRail.start();
+        // Flow A syncs results to all three connectors: an explicit write opt-in.
+        registry.add("factory.connectors.external-writes-enabled", () -> "true");
         registry.add("factory.connectors.jira.base-url", jira::baseUrl);
         registry.add("factory.connectors.jira.email", () -> "bot@example.org");
         registry.add("factory.connectors.jira.api-token", () -> "token");

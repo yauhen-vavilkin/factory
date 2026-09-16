@@ -115,6 +115,17 @@ class ApplicationYamlDefaultsTest {
     });
   }
 
+  /**
+   * A direct start (no Spring profile, no FACTORY_EXTERNAL_WRITES_ENABLED)
+   * must never enable external connector writes.
+   */
+  @Test
+  void externalWritesAreOffWithoutAnExplicitOptIn() {
+    runner.run(context -> assertThat(context.getEnvironment()
+        .getProperty("factory.connectors.external-writes-enabled"))
+        .isEqualTo(System.getenv().getOrDefault("FACTORY_EXTERNAL_WRITES_ENABLED", "false")));
+  }
+
   // DELTA 2: the fourth test, appended after freezesSandboxProperties:
   @Test
   void freezesInboxProperties() {

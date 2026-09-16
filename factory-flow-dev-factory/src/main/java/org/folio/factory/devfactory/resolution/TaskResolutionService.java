@@ -13,13 +13,16 @@ import org.folio.factory.devfactory.profile.StaticProfileDetector;
 import org.folio.factory.devfactory.profile.TrustedProfileCatalog;
 import org.folio.factory.devfactory.profile.UnsupportedProfileException;
 import org.folio.factory.devfactory.profile.VerificationPlan;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /** Pure decision pipeline apart from bounded read-only repository lookups. */
 public final class TaskResolutionService {
   private static final String SCHEMA = "ResolvedIntent/v1";
+  public static final String VERIFICATION_PLAN = "VERIFICATION_PLAN";
+  /** Task metadata subtree that records where a task came from; it is not task semantics. */
+  public static final String PROVENANCE = "provenance";
   private final RepositoryCatalog repositories;
   private final RepositoryAccess access;
   private final StaticProfileDetector detector;
@@ -80,6 +83,31 @@ public final class TaskResolutionService {
     return resolveRepository(selected, selectedSlug);
   }
 
+  /**
+   * Resolution after a human selected the verification plan for a
+   * VERIFICATION_PLAN decision. The selection must be one of the trusted
+   * candidate plans, and the task stays bound to the repository and exact
+   * revision it was admitted with.
+   */
+  public ResolvedIntent resolveSelectedPlan(TaskRequest task, ResolvedIntent.RepositoryDecision admitted,
+                                            String selectedPlanId) {
+    validateTaskControls(task);
+    if (admitted == null || !"RESOLVED".equals(admitted.status()) || admitted.exactRevision() == null) {
+      throw new IllegalArgumentException("a verification plan can only be selected for a resolved repository");
+    }
+    TaskRequest selected = new TaskRequest(task.schemaVersion(), task.source(), task.repository(),
+        task.baseRevision(), task.baseRef(), task.profileId(), selectedPlanId, task.runKey(),
+        task.deliveryMode(), task.metadata(), task.goal(), task.acceptanceCriteria(), task.constraints(),
+        task.notes(), task.rawTaskText(), task.legacyAdapted(), task.decisions());
+    ProfileEvidence evidence = detector.detect(admitted.canonicalSlug(), admitted.exactRevision());
+    ExecutionProfile profile = profiles.resolveProfile(evidence, task.profileId());
+    if (profiles.planCandidates(profile).stream().noneMatch(plan -> plan.id().equals(selectedPlanId))) {
+      throw new IllegalArgumentException("selected verification plan is not a trusted candidate: "
+          + selectedPlanId);
+    }
+    return resolveAt(selected, admitted);
+  }
+
   private ResolvedIntent resolveRepository(TaskRequest task, String slug) {
     // A task that names neither revision nor ref (a Jira issue carries neither)
     // starts from the resolved repository's own default branch, never a guessed name.
@@ -91,38 +119,55 @@ public final class TaskResolutionService {
     if (task.baseRevision() != null && !exactSha.equalsIgnoreCase(task.baseRevision())) {
       throw new RepositorySecurityException("verified commit does not match requested baseRevision");
     }
-    ResolvedIntent.RepositoryDecision repository = new ResolvedIntent.RepositoryDecision(
+    return resolveAt(task, new ResolvedIntent.RepositoryDecision(
         "RESOLVED", slug, repositories.origin(slug), ref, exactSha,
-        List.of(slug), List.of());
+        List.of(slug), List.of()));
+  }
 
-    ProfileEvidence evidence = detector.detect(slug, exactSha);
+  private ResolvedIntent resolveAt(TaskRequest task, ResolvedIntent.RepositoryDecision repository) {
+    ProfileEvidence evidence = detector.detect(repository.canonicalSlug(), repository.exactRevision());
     try {
       ExecutionProfile profile = profiles.resolveProfile(evidence, task.profileId());
-      VerificationPlan plan = profiles.resolvePlan(task.verificationPlanId());
-      String semanticHash = semanticHash(task, repository, profile.id(), plan.id());
-      String admissionKey = "file.inbox:" + CanonicalJson.sha256(
-          (semanticHash + "\n" + task.runKey()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
-      List<String> unknowns = new ArrayList<>(evidence.unknowns());
-      if (profile.imageDigest() == null) {
-        unknowns.add("IMAGE_DIGEST_PENDING_PREPARATION");
+      VerificationPlan plan = null;
+      List<VerificationPlan> planCandidates = List.of();
+      if (task.verificationPlanId() != null) {
+        plan = profiles.resolvePlan(task.verificationPlanId());
+      } else {
+        planCandidates = profiles.planCandidates(profile);
+        if (planCandidates.size() == 1) {
+          plan = planCandidates.getFirst();
+        } else if (planCandidates.isEmpty()) {
+          throw new UnsupportedProfileException("VERIFICATION_PLAN_UNKNOWN",
+              "no trusted verification plan applies to profile " + profile.id());
+        }
       }
-      unknowns.add("DEPENDENCY_SEED_PENDING_PREPARATION");
-      unknowns.add("BASELINE_PENDING_PREPARATION");
       if (!task.decisions().isEmpty()) {
         // Everything deterministic is resolved first, so the human sees the
         // exact repository, revision and verification plan the answer applies to.
         return needsDecision(task, repository, evidence, profile, plan,
             declaredDecision(task.decisions().getFirst(), repository, profile, plan));
       }
+      if (plan == null) {
+        return needsDecision(task, repository, evidence, profile, null,
+            planDecision(task, repository, profile, planCandidates));
+      }
+      String semanticHash = semanticHash(task, repository, profile.id(), plan.id());
+      List<String> unknowns = new ArrayList<>(evidence.unknowns());
+      if (profile.imageDigest() == null) {
+        unknowns.add("IMAGE_DIGEST_PENDING_PREPARATION");
+      }
+      unknowns.add("DEPENDENCY_SEED_PENDING_PREPARATION");
+      unknowns.add("BASELINE_PENDING_PREPARATION");
       ResolvedIntent draft = new ResolvedIntent(SCHEMA, "RESOLVED", null,
           "Repository, revision, profile and verification plan resolved", task, semanticHash,
-          admissionKey, repository, evidence, profile, plan, List.copyOf(unknowns), null, false, null);
+          admissionKey(semanticHash, repository, profile, plan, task.runKey()), repository, evidence, profile,
+          plan, List.copyOf(unknowns), null, false, null);
       return withHash(draft);
     } catch (UnsupportedProfileException e) {
       String semanticHash = semanticHash(task, repository, task.profileId(), task.verificationPlanId());
       ResolvedIntent draft = new ResolvedIntent(SCHEMA, "BLOCKED", e.code(), e.getMessage(), task,
-          semanticHash, admissionKey(semanticHash, task.runKey()), repository, evidence, null, null,
-          evidence.unknowns(), null, false, null);
+          semanticHash, admissionKey(semanticHash, repository, null, null, task.runKey()), repository,
+          evidence, null, null, evidence.unknowns(), null, false, null);
       return withHash(draft);
     }
   }
@@ -131,7 +176,7 @@ public final class TaskResolutionService {
                                  ResolvedIntent.RepositoryDecision repository) {
     String semanticHash = semanticHash(task, repository, task.profileId(), task.verificationPlanId());
     return withHash(new ResolvedIntent(SCHEMA, "BLOCKED", code, message, task, semanticHash,
-        admissionKey(semanticHash, task.runKey()), repository, null, null, null,
+        admissionKey(semanticHash, repository, null, null, task.runKey()), repository, null, null, null,
         List.of(), null, false, null));
   }
 
@@ -142,8 +187,10 @@ public final class TaskResolutionService {
         plan == null ? task.verificationPlanId() : plan.id());
     return withHash(new ResolvedIntent(SCHEMA, ResolvedIntent.NEEDS_DECISION, decision.category(),
         "Task has a material open decision that must not be guessed", task, semanticHash,
-        admissionKey(semanticHash, task.runKey()), repository, evidence, profile, plan,
-        List.of("HUMAN_DECISION_PENDING:" + decision.id()), decision, false, null));
+        admissionKey(semanticHash, repository, profile, plan, task.runKey()), repository, evidence, profile,
+        plan, plan == null
+            ? List.of("HUMAN_DECISION_PENDING:" + decision.id(), "VERIFICATION_PLAN_UNRESOLVED")
+            : List.of("HUMAN_DECISION_PENDING:" + decision.id()), decision, false, null));
   }
 
   /** General rule: independent evidence names more than one approved repository. */
@@ -179,9 +226,11 @@ public final class TaskResolutionService {
     List<ResolvedIntent.Fact> facts = new ArrayList<>();
     facts.add(new ResolvedIntent.Fact("Implementation repository " + repository.canonicalSlug()
         + " at exact revision " + repository.exactRevision(), "deterministic resolution"));
-    facts.add(new ResolvedIntent.Fact("Execution profile " + profile.id() + "; verification plan " + plan.id()
-        + " runs " + plan.checks().stream().filter(VerificationPlan.Check::required)
-        .map(check -> String.join(" ", check.argv())).toList(), "trusted profile catalog"));
+    facts.add(new ResolvedIntent.Fact(plan == null
+        ? "Execution profile " + profile.id() + "; no verification plan is selected, so the task cannot "
+            + "resume to coding until it is submitted again with an explicit verificationPlanId"
+        : "Execution profile " + profile.id() + "; verification plan " + plan.id() + " runs "
+            + requiredCommands(plan), "trusted profile catalog"));
     for (TaskRequest.Evidence item : declared.evidence()) {
       facts.add(repositoryEvidence(repository, item));
     }
@@ -191,6 +240,38 @@ public final class TaskResolutionService {
         "selectedOptionId: one of " + declared.options().stream().map(TaskRequest.Option::id).toList()
             + " (or a short freeText answer when no option fits)",
         "task-declared decision");
+  }
+
+  /**
+   * General rule: the task names no verification plan and more than one
+   * materially different trusted plan applies. The strongest plan is
+   * recommended because it never weakens what "verified" means.
+   */
+  private ResolvedIntent.Decision planDecision(TaskRequest task, ResolvedIntent.RepositoryDecision repository,
+                                               ExecutionProfile profile, List<VerificationPlan> candidates) {
+    List<ResolvedIntent.Fact> facts = List.of(
+        new ResolvedIntent.Fact("Implementation repository " + repository.canonicalSlug()
+            + " at exact revision " + repository.exactRevision(), "deterministic resolution"),
+        new ResolvedIntent.Fact("Execution profile " + profile.id() + "; the task names no verification plan",
+            "trusted profile catalog"));
+    List<TaskRequest.Option> options = candidates.stream().map(plan -> new TaskRequest.Option(plan.id(),
+        "Verify with " + plan.id() + " (" + requiredCommands(plan) + ")",
+        "Only a candidate that passes " + requiredCommands(plan)
+            + " in a fresh checkout counts as verified and can be delivered")).toList();
+    VerificationPlan strongest = candidates.getLast();
+    return new ResolvedIntent.Decision("verification-plan", VERIFICATION_PLAN,
+        "Which trusted verification plan must prove the change for " + task.source().id() + "?",
+        "Factory treats a candidate as verified, and can deliver it, only after this plan passes; a plan "
+            + "weaker than the task needs (for example unit tests only for a change in integration "
+            + "behaviour) would accept a broken change as verified.",
+        options, strongest.id(), "The strongest trusted plan never weakens verification.",
+        facts, "selectedOptionId: one of " + candidates.stream().map(VerificationPlan::id).toList(),
+        "deterministic rule: no verification plan selected");
+  }
+
+  private static List<String> requiredCommands(VerificationPlan plan) {
+    return plan.checks().stream().filter(VerificationPlan.Check::required)
+        .map(check -> String.join(" ", check.argv())).toList();
   }
 
   /** Bounded read-only lookup: matching lines of one file at the exact revision. */
@@ -242,7 +323,13 @@ public final class TaskResolutionService {
     putNullable(node, "profileId", profileId);
     putNullable(node, "verificationPlanId", planId);
     node.put("deliveryMode", task.deliveryMode());
-    node.set("metadata", task.metadata());
+    JsonNode metadata = task.metadata();
+    if (metadata instanceof ObjectNode object && object.has(PROVENANCE)) {
+      ObjectNode semantic = object.deepCopy();
+      semantic.remove(PROVENANCE);
+      metadata = semantic;
+    }
+    node.set("metadata", metadata);
     node.put("goal", task.goal());
     node.set("acceptanceCriteria", json.valueToTree(task.acceptanceCriteria()));
     node.set("constraints", task.constraints());
@@ -253,9 +340,19 @@ public final class TaskResolutionService {
     return CanonicalJson.sha256(node);
   }
 
-  private static String admissionKey(String semanticHash, String runKey) {
-    return "file.inbox:" + CanonicalJson.sha256((semanticHash + "\n" + runKey)
-        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+  /**
+   * Execution identity: the task semantics plus what the execution is bound to
+   * (exact revision, trusted profile and plan configuration) and the runKey.
+   * The same requirements on an advanced default branch are a new execution.
+   */
+  private static String admissionKey(String semanticHash, ResolvedIntent.RepositoryDecision repository,
+                                     ExecutionProfile profile, VerificationPlan plan, String runKey) {
+    String identity = String.join("\n", semanticHash,
+        repository == null || repository.exactRevision() == null ? "" : repository.exactRevision(),
+        profile == null ? "" : profile.id() + "@" + profile.configurationHash(),
+        plan == null ? "" : plan.id() + "@" + plan.configurationHash(),
+        runKey);
+    return "file.inbox:" + CanonicalJson.sha256(identity.getBytes(java.nio.charset.StandardCharsets.UTF_8));
   }
 
   private static void validateTaskControls(TaskRequest task) {

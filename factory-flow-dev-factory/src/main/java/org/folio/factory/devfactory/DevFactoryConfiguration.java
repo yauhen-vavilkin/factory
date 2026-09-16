@@ -1,9 +1,11 @@
 package org.folio.factory.devfactory;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.service.ArtifactStore;
+import org.folio.factory.core.service.StateManager;
 import org.folio.factory.core.trigger.PipelineRouter;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.devfactory.admission.TaskAdmissionService;
@@ -36,6 +38,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import tools.jackson.databind.json.JsonMapper;
 
 /** Dev Factory plugin wiring: inbox properties and the coding worker bean. */
 @Configuration(proxyBeanMethods = false)
@@ -172,11 +175,13 @@ public class DevFactoryConfiguration {
    */
   @Bean
   public JiraTaskService jiraTaskService(JiraConnector jiraConnector, TaskAdmissionService taskAdmissionService,
-      ArtifactStore artifactStore,
+      ArtifactStore artifactStore, StateManager stateManager,
       @Value("${factory.jira-intake.snapshot-dir:.factory/data/jira-snapshots}") String snapshotDir) {
+    JsonMapper json = JsonMapper.builder().build();
     return new JiraTaskService(new JiraSnapshotCollector(jiraConnector),
         new JiraSnapshotStore(Path.of(snapshotDir.trim())), new JiraTaskMapper(), taskAdmissionService,
-        artifactStore);
+        artifactStore, executionId -> Optional.ofNullable(stateManager.get(executionId).getTriggerPayload())
+            .map(json::readTree));
   }
 
   /**

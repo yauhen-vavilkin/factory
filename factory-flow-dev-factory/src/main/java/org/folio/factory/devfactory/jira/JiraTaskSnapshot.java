@@ -7,13 +7,16 @@ import tools.jackson.databind.JsonNode;
  * Immutable, normalized first-order Jira context of one task: the root issue,
  * its newest comments, requirement/scope/status history, parent, subtasks and
  * direct links. No link is followed beyond one hop. Every list is bounded and
- * says when it was truncated. {@code contentSha256} covers everything except
- * {@code fetchedAt} and {@code raw}, so an unchanged issue fetched twice has the
- * same identity.
+ * says when it was truncated. {@code issueKey} is the canonical key Jira
+ * returned; {@code requestedKey} is the key (or old alias) the operator asked
+ * for. {@code contentSha256} covers everything except {@code requestedKey},
+ * {@code fetchedAt} and {@code raw}, so an unchanged issue fetched twice, or
+ * through an old key, has the same identity.
  */
 public record JiraTaskSnapshot(
     String schema,
     String issueKey,
+    String requestedKey,
     String issueId,
     String sourceUrl,
     String fetchedAt,
@@ -52,7 +55,7 @@ public record JiraTaskSnapshot(
   }
 
   public JiraTaskSnapshot withIdentity(String fetchedAt, String contentSha256, JsonNode raw) {
-    return new JiraTaskSnapshot(schema, issueKey, issueId, sourceUrl, fetchedAt, summary, description,
+    return new JiraTaskSnapshot(schema, issueKey, requestedKey, issueId, sourceUrl, fetchedAt, summary, description,
         descriptionTruncated, status, issueType, project, components, labels, storyPoints,
         acceptanceCriteriaFields, parent, subtasks, links, linksTruncated, comments, commentsTotal,
         history, historyTotal, historyIncomplete, contentSha256, raw);
