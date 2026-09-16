@@ -81,14 +81,18 @@ public final class TaskResolutionService {
   }
 
   private ResolvedIntent resolveRepository(TaskRequest task, String slug) {
+    // A task that names neither revision nor ref (a Jira issue carries neither)
+    // starts from the resolved repository's own default branch, never a guessed name.
+    String ref = task.baseRevision() == null && task.baseRef() == null
+        ? access.defaultBranch(slug) : task.baseRef();
     String exactSha = task.baseRevision() == null
-        ? access.resolveBranch(slug, task.baseRef())
+        ? access.resolveBranch(slug, ref)
         : access.verifyCommit(slug, task.baseRevision());
     if (task.baseRevision() != null && !exactSha.equalsIgnoreCase(task.baseRevision())) {
       throw new RepositorySecurityException("verified commit does not match requested baseRevision");
     }
     ResolvedIntent.RepositoryDecision repository = new ResolvedIntent.RepositoryDecision(
-        "RESOLVED", slug, repositories.origin(slug), task.baseRef(), exactSha,
+        "RESOLVED", slug, repositories.origin(slug), ref, exactSha,
         List.of(slug), List.of());
 
     ProfileEvidence evidence = detector.detect(slug, exactSha);

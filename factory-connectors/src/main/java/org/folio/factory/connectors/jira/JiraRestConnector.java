@@ -19,20 +19,66 @@ public class JiraRestConnector implements JiraConnector, ConnectorHealth {
     private final RestClient restClient;
 
     public JiraRestConnector(JiraProperties properties, RestClient.Builder builder) {
-        this.restClient = builder
-                .baseUrl(properties.baseUrl())
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Basic " + HttpHeaders.encodeBasicAuth(
-                        properties.email(), properties.apiToken(), StandardCharsets.UTF_8))
-                .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
-                .build();
+        builder.baseUrl(properties.baseUrl())
+                .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
+        // Without credentials the client reads anonymously (public Jira instances
+        // such as folio-org.atlassian.net); a blank Basic header would be rejected.
+        if (properties.hasCredentials()) {
+            builder.defaultHeader(HttpHeaders.AUTHORIZATION, "Basic " + HttpHeaders.encodeBasicAuth(
+                    properties.email(), properties.apiToken(), StandardCharsets.UTF_8));
+        }
+        this.restClient = builder.build();
     }
 
     @Override
     public JiraIssue getIssue(String issueKey) {
         JsonNode body = restClient.get()
-                .uri("/rest/api/2/issue/{key}", issueKey)
+                .uri("/rest/api/2/issue/{key}?expand=changelog", issueKey)
                 .retrieve()
                 .body(JsonNode.class);
+        return toIssue(body);
+    }
+
+    @Override
+    public JsonNode getComments(String issueKey, int limit) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("comment limit must be positive");
+        }
+        // Two bounded calls instead of orderBy (not portable across Server and
+        // Cloud): the first learns the total, the second reads only the newest
+        // page. A task with thousands of comments never floods the snapshot.
+        JsonNode probe = restClient.get()
+                .uri(builder -> builder.path("/rest/api/2/issue/{key}/comment")
+                        .queryParam("maxResults", 0).build(issueKey))
+                .retrieve()
+                .body(JsonNode.class);
+        int total = probe.path("total").asInt(0);
+        int startAt = Math.max(0, total - limit);
+        return restClient.get()
+                .uri(builder -> builder.path("/rest/api/2/issue/{key}/comment")
+                        .queryParam("startAt", startAt).queryParam("maxResults", limit)
+                        .build(issueKey))
+                .retrieve()
+                .body(JsonNode.class);
+    }
+
+    @Override
+    public JiraIssue getLinkedIssue(String issueKey) {
+        JsonNode body = restClient.get()
+                .uri(builder -> builder.path("/rest/api/2/issue/{key}")
+                        .queryParam("fields", "summary,status,description,issuetype")
+                        .build(issueKey))
+                .retrieve()
+                .body(JsonNode.class);
+        return toIssue(body);
+    }
+
+    @Override
+    public JsonNode getFields() {
+        return restClient.get().uri("/rest/api/2/field").retrieve().body(JsonNode.class);
+    }
+
+    private static JiraIssue toIssue(JsonNode body) {
         JsonNode fields = body.path("fields");
         List<String> labels = new ArrayList<>();
         fields.path("labels").forEach(label -> labels.add(label.asString("")));

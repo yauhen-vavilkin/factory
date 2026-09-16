@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -32,7 +33,7 @@ class JiraRestConnectorTest {
 
     @Test
     void getIssueMapsFields() {
-        server.expect(requestTo("https://jira.example.org/rest/api/2/issue/ERM-42"))
+        server.expect(requestTo("https://jira.example.org/rest/api/2/issue/ERM-42?expand=changelog"))
                 .andExpect(method(GET))
                 .andExpect(header("Authorization", org.hamcrest.Matchers.startsWith("Basic ")))
                 .andRespond(withSuccess("""
@@ -52,6 +53,34 @@ class JiraRestConnectorTest {
         assertThat(issue.status()).isEqualTo("Ready for QA");
         assertThat(issue.issueType()).isEqualTo("Story");
         assertThat(issue.labels()).containsExactly("ai-factory");
+        server.verify();
+    }
+
+    @Test
+    void readsAnonymouslyWithoutCredentials() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer anonymousServer = MockRestServiceServer.bindTo(builder).build();
+        JiraRestConnector anonymous = new JiraRestConnector(
+                new JiraProperties("https://jira.example.org", "", ""), builder);
+        anonymousServer.expect(requestTo("https://jira.example.org/rest/api/2/issue/ERM-42?fields=summary,status,description,issuetype"))
+                .andExpect(method(GET))
+                .andExpect(headerDoesNotExist("Authorization"))
+                .andRespond(withSuccess("{\"key\": \"ERM-42\", \"fields\": {\"summary\": \"Linked\"}}",
+                        MediaType.APPLICATION_JSON));
+
+        assertThat(anonymous.getLinkedIssue("ERM-42").summary()).isEqualTo("Linked");
+        anonymousServer.verify();
+    }
+
+    @Test
+    void getCommentsReadsOnlyTheNewestBoundedPage() {
+        server.expect(requestTo("https://jira.example.org/rest/api/2/issue/ERM-42/comment?maxResults=0"))
+                .andRespond(withSuccess("{\"total\": 57, \"comments\": []}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://jira.example.org/rest/api/2/issue/ERM-42/comment?startAt=37&maxResults=20"))
+                .andRespond(withSuccess("{\"total\": 57, \"comments\": [{\"id\": \"57\"}]}",
+                        MediaType.APPLICATION_JSON));
+
+        assertThat(connector.getComments("ERM-42", 20).path("comments")).hasSize(1);
         server.verify();
     }
 

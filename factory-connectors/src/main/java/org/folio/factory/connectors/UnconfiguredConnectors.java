@@ -22,12 +22,27 @@ public final class UnconfiguredConnectors {
 
         private static ConnectorNotConfiguredException notConfigured() {
             return new ConnectorNotConfiguredException("Jira connector not configured: set "
-                    + "FACTORY_CONNECTORS_JIRA_BASE_URL, FACTORY_CONNECTORS_JIRA_EMAIL and "
-                    + "FACTORY_CONNECTORS_JIRA_API_TOKEN");
+                    + "FACTORY_CONNECTORS_JIRA_BASE_URL (plus FACTORY_CONNECTORS_JIRA_EMAIL and "
+                    + "FACTORY_CONNECTORS_JIRA_API_TOKEN for non-public issues)");
         }
 
         @Override
         public JiraIssue getIssue(String issueKey) {
+            throw notConfigured();
+        }
+
+        @Override
+        public tools.jackson.databind.JsonNode getComments(String issueKey, int limit) {
+            throw notConfigured();
+        }
+
+        @Override
+        public JiraIssue getLinkedIssue(String issueKey) {
+            throw notConfigured();
+        }
+
+        @Override
+        public tools.jackson.databind.JsonNode getFields() {
             throw notConfigured();
         }
 

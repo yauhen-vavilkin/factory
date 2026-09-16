@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Factory — Run Jira Task</title>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 70rem; color: #1a1a1a; }
+        nav a { margin-right: 1rem; }
+        form { margin-top: 1rem; }
+        label { display: block; margin-top: .75rem; font-weight: 600; }
+        input, select { font: inherit; padding: .35rem .5rem; min-width: 18rem; }
+        button { margin-top: 1rem; font: inherit; padding: .4rem 1.2rem; }
+        .hint { color: #555; font-size: .9rem; }
+        .error { color: #b3261e; border: 1px solid #b3261e; padding: .75rem; margin-top: 1rem; }
+        table { border-collapse: collapse; margin-top: .5rem; }
+        th, td { text-align: left; padding: .25rem .75rem; border-bottom: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+<nav><a href="/reviews">Reviews</a> <a href="/executions">Executions</a> <a href="/jira"><strong>Run Jira Task</strong></a> <a href="/api/status">Status</a></nav>
+<h1>Run Jira Task</h1>
+<p class="hint">Factory reads the issue, its comments, history, parent, subtasks and direct links (read-only),
+    stores a snapshot and starts the Developer Flow. Nothing is written back to Jira.</p>
+
+<div class="error" th:if="${error}">
+    <strong th:text="${errorCode}">CODE</strong>: <span th:text="${error}">message</span>
+    <table th:if="${result}">
+        <tr><th>Outcome</th><td th:text="${result.outcome}"></td></tr>
+        <tr><th>Code</th><td th:text="${result.code}"></td></tr>
+        <tr><th>Repository candidates</th><td th:text="${result.repositoryCandidates}"></td></tr>
+        <tr><th>Snapshot</th><td th:text="${result.snapshotPath}"></td></tr>
+    </table>
+</div>
+
+<form method="post" action="/jira">
+    <label for="issueKey">Jira issue</label>
+    <input id="issueKey" name="issueKey" placeholder="MODSIDECAR-207" required th:value="${issueKey}">
+    <label for="deliveryMode">Delivery</label>
+    <select id="deliveryMode" name="deliveryMode">
+        <option value="LOCAL_ONLY" th:selected="${deliveryMode == null or deliveryMode == 'LOCAL_ONLY'}">LOCAL_ONLY</option>
+        <option value="DELIVER_PR" th:selected="${deliveryMode == 'DELIVER_PR'}">DELIVER_PR</option>
+    </select>
+    <label for="baseRef">Base branch <span class="hint">(optional; default: the repository's default branch)</span></label>
+    <input id="baseRef" name="baseRef" th:value="${baseRef}">
+    <label for="runKey">Run key <span class="hint">(optional; change it to start a new run of an unchanged issue)</span></label>
+    <input id="runKey" name="runKey" placeholder="default" th:value="${runKey}">
+    <div><button type="submit">Run</button></div>
+</form>
+</body>
+</html>

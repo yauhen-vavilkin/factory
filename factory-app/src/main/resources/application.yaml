@@ -78,6 +78,9 @@ factory:
     github:
       token: ${FACTORY_DELIVERY_GITHUB_TOKEN:}
       fork-owner: ${FACTORY_DELIVERY_GITHUB_FORK_OWNER:}
+  # Read-only Jira task intake (POST /api/dev/tasks/jira, ./scripts/factory run-jira).
+  jira-intake:
+    snapshot-dir: ${FACTORY_DATA_DIR:.factory/data}/jira-snapshots
   inbox:
     dir: ${FACTORY_INBOX_DIR:.factory/data/inbox}
     enabled: ${FACTORY_INBOX_ENABLED:true}

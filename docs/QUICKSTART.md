@@ -103,6 +103,57 @@ at the `developer-decision` HITL gate before any coding; answer it with
 intent but does not run it: coding remains blocked until later preparation has
 produced real source, image, dependency-seed, and baseline references.
 
+## Run a task from a Jira issue key
+
+Factory can start the Developer Flow from a Jira issue key. It reads the issue
+(description, status, type, project, components, labels, story points, an
+explicit acceptance-criteria field when one exists), the 20 newest comments,
+the requirement/scope/status history, the parent, subtasks and direct links
+(one hop only; up to 20 links, of which 10 are read for their description).
+It stores the result as an immutable snapshot under
+`.factory/data/jira-snapshots/<ISSUE>/<sha256>.json`, attaches it to the
+execution as `jira-snapshot.json`, and admits the task through the same
+resolution and admission path as `submit`.
+
+Configuration (read by the Factory JVM only; never passed to sandboxes or the
+coding runtime):
+
+```bash
+export FACTORY_CONNECTORS_JIRA_BASE_URL=https://folio-org.atlassian.net
+# Optional: only needed for issues that are not publicly readable.
+export FACTORY_CONNECTORS_JIRA_EMAIL=me@example.org
+export FACTORY_CONNECTORS_JIRA_API_TOKEN=...
+./scripts/factory start --mode pi
+```
+
+Start a task:
+
+```bash
+./scripts/factory run-jira MODSIDECAR-207
+./scripts/factory run-jira MODSIDECAR-207 --delivery-mode DELIVER_PR
+./scripts/factory run-jira MODSIDECAR-207 --base-ref master --run-key retry-2
+```
+
+or open `http://127.0.0.1:18080/jira` ("Run Jira Task") in the UI, or call
+`POST /api/dev/tasks/jira` with `{"issueKey": "MODSIDECAR-207", "deliveryMode": "LOCAL_ONLY"}`.
+The response names the issue, execution id, resolved repository and revision,
+and the outcome (`ADMITTED`, `ADMITTED_NEEDS_DECISION`, `BLOCKED`,
+`NO_MATCHING_FLOW`). Jira or request errors (`JIRA_NOT_CONFIGURED`,
+`ISSUE_NOT_FOUND`, `JIRA_ACCESS_DENIED`, ...) create no execution.
+
+- The repository comes from the trusted catalog (Jira project and a single
+  component). Conflicting evidence pauses for a repository decision; no
+  approved match is `BLOCKED`. Without `--base-ref` the repository's own
+  default branch is used.
+- The task goal is the issue summary. Acceptance criteria are added only from an
+  explicit Jira acceptance-criteria field; otherwise the list is empty and the
+  coding runtime works from the bounded issue text (at most 32 KB).
+- Running the same unchanged issue with the same run key returns the existing
+  execution. A changed issue or a new `--run-key` starts a new execution.
+- Jira access is read-only. Factory never comments on, transitions, assigns or
+  edits Jira issues; with external writes disabled every Jira write call is
+  refused. There is no Jira write-back yet.
+
 ## Trusted delivery (branch / push / PR)
 
 Delivery runs only in the Factory process, never in a coding sandbox, and only

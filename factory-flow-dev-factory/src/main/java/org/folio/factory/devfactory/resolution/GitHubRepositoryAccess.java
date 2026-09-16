@@ -51,6 +51,15 @@ public final class GitHubRepositoryAccess implements RepositoryAccess {
   }
 
   @Override
+  public String defaultBranch(String slug) {
+    String branch = getJson(apiBase + "/repos/" + slug).path("default_branch").asString("");
+    if (!GitRefs.isValidBranchName(branch) || GitRefs.isRawCommitId(branch)) {
+      throw new RepositoryAccessException("repository " + slug + " reported no usable default branch");
+    }
+    return branch;
+  }
+
+  @Override
   public Optional<byte[]> readFile(String slug, String fullSha, String path, int maxBytes) {
     if (path.startsWith("/") || path.contains("..") || path.contains("\\")) {
       throw new RepositorySecurityException("unsafe repository file path: " + path);

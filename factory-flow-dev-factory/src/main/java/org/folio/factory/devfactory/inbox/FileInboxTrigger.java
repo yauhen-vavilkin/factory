@@ -13,12 +13,10 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import org.folio.factory.core.trigger.PipelineRouter;
-import org.folio.factory.core.trigger.TriggerEvent;
+import org.folio.factory.devfactory.admission.TaskAdmissionService;
 import org.folio.factory.devfactory.contract.ResolvedIntent;
 import org.folio.factory.devfactory.contract.TaskRequest;
 import org.folio.factory.devfactory.resolution.RepositoryAccessException;
-import org.folio.factory.devfactory.resolution.TaskResolutionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -31,10 +29,10 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
- * Atomic file-inbox admission with durable reject/block receipts. A task that
- * resolves to NEEDS_DECISION is admitted (so there is an execution to pause and
- * resume) through the decision variant of the inbox event,
- * {@code <eventType>.decision}; when no flow subscribes to it the task keeps the
+ * Atomic file-inbox admission with durable reject/block receipts. Resolution,
+ * idempotent admission and flow selection are delegated to the shared
+ * {@link TaskAdmissionService}; this trigger owns only the file claim and its
+ * receipts. A NEEDS_DECISION task that no decision flow accepts keeps the
  * earlier blocked-receipt behaviour.
  */
 @Component
@@ -42,21 +40,19 @@ import tools.jackson.databind.node.ObjectNode;
     havingValue = "true", matchIfMissing = true)
 public class FileInboxTrigger {
   private static final Logger log = LoggerFactory.getLogger(FileInboxTrigger.class);
-  public static final String DECISION_EVENT_SUFFIX = ".decision";
+  public static final String DECISION_EVENT_SUFFIX = TaskAdmissionService.DECISION_EVENT_SUFFIX;
   private static final JsonMapper PAYLOAD_JSON = JsonMapper.builder().build();
 
   private final InboxProperties properties;
   private final InboxTaskFileParser parser;
-  private final TaskResolutionService resolver;
-  private final PipelineRouter router;
+  private final TaskAdmissionService admission;
   private final JsonMapper json = JsonMapper.builder().build();
 
   public FileInboxTrigger(InboxProperties properties, InboxTaskFileParser parser,
-                          TaskResolutionService resolver, PipelineRouter router) {
+                          TaskAdmissionService admission) {
     this.properties = properties;
     this.parser = parser;
-    this.resolver = resolver;
-    this.router = router;
+    this.admission = admission;
   }
 
   @Scheduled(fixedDelayString = "${factory.inbox.poll-interval-ms:5000}")
@@ -88,9 +84,9 @@ public class FileInboxTrigger {
       return;
     }
 
-    ResolvedIntent intent;
+    TaskAdmissionService.Admission admission;
     try {
-      intent = resolver.resolve(task);
+      admission = this.admission.admit(task, "file-inbox:" + fileName);
     } catch (RepositoryAccessException | TransientDataAccessException e) {
       // A valid task remains in the inbox. A later poll can safely retry it.
       log.warn("Transient resolution/admission failure for {}: {}", fileName, e.getMessage());
@@ -99,28 +95,24 @@ public class FileInboxTrigger {
       reject(file, "INVALID_TASK", e.getMessage());
       return;
     }
+    ResolvedIntent intent = admission.intent();
     if ("BLOCKED".equals(intent.status())) {
       receiptAndClaim(file, "blocked", intent.code(), intent.message(), intent, null);
       return;
     }
-
-    boolean needsDecision = ResolvedIntent.NEEDS_DECISION.equals(intent.status());
-    try {
-      JsonNode payload = payloadFor(intent);
-      String eventType = needsDecision ? properties.eventType() + DECISION_EVENT_SUFFIX : properties.eventType();
-      TriggerEvent event = TriggerEvent.of(eventType, "file-inbox:" + fileName, payload);
-      List<UUID> admitted = router.routeAdmitted(event, intent.admissionKey());
-      if (admitted == null || admitted.isEmpty()) {
-        if (needsDecision) {
-          receiptAndClaim(file, "blocked", intent.code(), intent.message(), intent, null);
-          return;
-        }
-        reject(file, "NO_MATCHING_FLOW", "No flow accepted the resolved task");
+    boolean needsDecision = admission.needsDecision();
+    if (admission.executionIds().isEmpty()) {
+      if (needsDecision) {
+        receiptAndClaim(file, "blocked", intent.code(), intent.message(), intent, null);
         return;
       }
+      reject(file, "NO_MATCHING_FLOW", "No flow accepted the resolved task");
+      return;
+    }
+    try {
       receiptAndClaim(file, "processed", needsDecision ? "ADMITTED_NEEDS_DECISION" : "ADMITTED",
           needsDecision ? "Task admitted; a human decision is required before coding" : "Task admitted",
-          intent, admitted.getFirst());
+          intent, admission.executionIds().getFirst());
     } catch (TransientDataAccessException e) {
       log.warn("Transient database admission failure for {}: {}", fileName, e.getMessage());
     } catch (RuntimeException e) {

@@ -8,6 +8,8 @@ import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
+import org.folio.factory.devfactory.jira.JiraIntakeException;
+import org.folio.factory.devfactory.jira.JiraTaskService;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -41,16 +43,18 @@ public class UiController {
     private final ArtifactStore artifactStore;
     private final AuditLog auditLog;
     private final JsonMapper jsonMapper;
+    private final JiraTaskService jiraTasks;
 
     public UiController(HitlReviewRepository reviews, HitlDecisionService decisionService,
                         PipelineExecutionRepository executions, ArtifactStore artifactStore,
-                        AuditLog auditLog, JsonMapper jsonMapper) {
+                        AuditLog auditLog, JsonMapper jsonMapper, JiraTaskService jiraTasks) {
         this.reviews = reviews;
         this.decisionService = decisionService;
         this.executions = executions;
         this.artifactStore = artifactStore;
         this.auditLog = auditLog;
         this.jsonMapper = jsonMapper;
+        this.jiraTasks = jiraTasks;
     }
 
     @GetMapping("/")
@@ -122,6 +126,38 @@ public class UiController {
         model.addAttribute("artifacts", artifactStore.allForExecution(id));
         model.addAttribute("events", auditLog.forExecution(id));
         return "execution";
+    }
+
+    @GetMapping("/jira")
+    public String jiraForm() {
+        return "jira-run";
+    }
+
+    /** Same application service as POST /api/dev/tasks/jira and ./scripts/factory run-jira. */
+    @PostMapping("/jira")
+    public String runJira(@RequestParam("issueKey") String issueKey,
+                          @RequestParam(name = "deliveryMode", required = false) String deliveryMode,
+                          @RequestParam(name = "baseRef", required = false) String baseRef,
+                          @RequestParam(name = "runKey", required = false) String runKey,
+                          Model model) {
+        model.addAttribute("issueKey", issueKey);
+        model.addAttribute("deliveryMode", deliveryMode);
+        model.addAttribute("baseRef", baseRef);
+        model.addAttribute("runKey", runKey);
+        try {
+            JiraTaskService.RunResult result = jiraTasks.start(
+                    new JiraTaskService.RunRequest(issueKey, deliveryMode, baseRef, runKey));
+            if (result.admitted()) {
+                return "redirect:/executions/" + result.executionId();
+            }
+            model.addAttribute("result", result);
+            model.addAttribute("errorCode", result.outcome() + (result.code() == null ? "" : " " + result.code()));
+            model.addAttribute("error", result.message());
+        } catch (JiraIntakeException e) {
+            model.addAttribute("errorCode", e.code());
+            model.addAttribute("error", e.getMessage());
+        }
+        return "jira-run";
     }
 
     private Map<String, Object> reviewRow(HitlReview review) {

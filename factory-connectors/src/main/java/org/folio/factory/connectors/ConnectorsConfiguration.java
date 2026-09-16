@@ -6,6 +6,7 @@ import org.folio.factory.connectors.github.GitHubRestConnector;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.jira.JiraProperties;
 import org.folio.factory.connectors.jira.JiraRestConnector;
+import org.folio.factory.connectors.jira.JiraWriteGuard;
 import org.folio.factory.connectors.testrail.TestRailConnector;
 import org.folio.factory.connectors.testrail.TestRailProperties;
 import org.folio.factory.connectors.testrail.TestRailRestConnector;
@@ -24,13 +25,21 @@ import org.springframework.web.client.RestClient;
 @EnableConfigurationProperties({JiraProperties.class, GitHubProperties.class, TestRailProperties.class})
 public class ConnectorsConfiguration {
 
+    /**
+     * Jira read access and write access are separate concerns: the REST
+     * connector is bound whenever credentials are present, so read-only task
+     * intake works with external writes disabled; the write guard then refuses
+     * every mutating call instead of unbinding the connector entirely.
+     */
     @Bean
     public JiraConnector jiraConnector(JiraProperties properties, RestClient.Builder builder,
                                        @Value("${factory.connectors.external-writes-enabled:true}")
                                        boolean externalWritesEnabled) {
-        return externalWritesEnabled && properties.isConfigured()
-                ? new JiraRestConnector(properties, builder.clone())
-                : new UnconfiguredConnectors.Jira();
+        if (!properties.isConfigured()) {
+            return new UnconfiguredConnectors.Jira();
+        }
+        JiraRestConnector rest = new JiraRestConnector(properties, builder.clone());
+        return externalWritesEnabled ? rest : new JiraWriteGuard(rest);
     }
 
     @Bean

@@ -13,7 +13,7 @@
     </style>
 </head>
 <body>
-<nav><a href="/reviews"><strong>Reviews</strong></a> <a href="/executions">Executions</a> <a href="/api/status">Status</a></nav>
+<nav><a href="/reviews"><strong>Reviews</strong></a> <a href="/executions">Executions</a> <a href="/jira">Run Jira Task</a> <a href="/api/status">Status</a></nav>
 <h1>Pending human reviews</h1>
 <p class="message" th:if="${message}" th:text="${message}"></p>
 <table th:unless="${#lists.isEmpty(reviews)}">

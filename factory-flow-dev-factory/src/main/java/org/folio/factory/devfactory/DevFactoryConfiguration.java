@@ -4,6 +4,13 @@ import java.nio.file.Path;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.service.ArtifactStore;
+import org.folio.factory.core.trigger.PipelineRouter;
+import org.folio.factory.connectors.jira.JiraConnector;
+import org.folio.factory.devfactory.admission.TaskAdmissionService;
+import org.folio.factory.devfactory.jira.JiraSnapshotCollector;
+import org.folio.factory.devfactory.jira.JiraSnapshotStore;
+import org.folio.factory.devfactory.jira.JiraTaskMapper;
+import org.folio.factory.devfactory.jira.JiraTaskService;
 import org.folio.factory.devfactory.decision.DecisionAnswerValidator;
 import org.folio.factory.devfactory.decision.DecisionWorker;
 import org.folio.factory.devfactory.delivery.DeliveryWorker;
@@ -148,6 +155,28 @@ public class DevFactoryConfiguration {
   public TaskResolutionService taskResolutionService(RepositoryCatalog repositoryCatalog,
       RepositoryAccess repositoryAccess, TrustedProfileCatalog trustedProfileCatalog) {
     return new TaskResolutionService(repositoryCatalog, repositoryAccess, trustedProfileCatalog);
+  }
+
+  /** The single Developer Flow admission boundary shared by the file inbox and Jira intake. */
+  @Bean
+  public TaskAdmissionService taskAdmissionService(TaskResolutionService taskResolutionService,
+      PipelineRouter pipelineRouter, InboxProperties inboxProperties) {
+    return new TaskAdmissionService(taskResolutionService, pipelineRouter, inboxProperties);
+  }
+
+  /**
+   * Read-only Jira intake: Factory gathers and stores the first-order Jira
+   * context and admits it through the shared admission boundary. The Jira
+   * connector (and its credentials) stays in the Factory process; sandboxes and
+   * the coding runtime only receive the rendered task text.
+   */
+  @Bean
+  public JiraTaskService jiraTaskService(JiraConnector jiraConnector, TaskAdmissionService taskAdmissionService,
+      ArtifactStore artifactStore,
+      @Value("${factory.jira-intake.snapshot-dir:.factory/data/jira-snapshots}") String snapshotDir) {
+    return new JiraTaskService(new JiraSnapshotCollector(jiraConnector),
+        new JiraSnapshotStore(Path.of(snapshotDir.trim())), new JiraTaskMapper(), taskAdmissionService,
+        artifactStore);
   }
 
   /**

@@ -19,6 +19,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.folio.factory.core.trigger.PipelineRouter;
 import org.folio.factory.core.trigger.TriggerEvent;
+import org.folio.factory.devfactory.admission.TaskAdmissionService;
 import org.folio.factory.devfactory.profile.TrustedProfileCatalog;
 import org.folio.factory.devfactory.resolution.RepositoryAccess;
 import org.folio.factory.devfactory.resolution.RepositoryAccessException;
@@ -211,8 +212,9 @@ class FileInboxTriggerTest {
   private FileInboxTrigger trigger(RepositoryAccess repositoryAccess) {
     TaskResolutionService resolver = new TaskResolutionService(new RepositoryCatalog(), repositoryAccess,
         new TrustedProfileCatalog());
-    return new FileInboxTrigger(new InboxProperties(true, inbox, 5000L),
-        new InboxTaskFileParser(), resolver, router);
+    InboxProperties properties = new InboxProperties(true, inbox, 5000L);
+    return new FileInboxTrigger(properties, new InboxTaskFileParser(),
+        new TaskAdmissionService(resolver, router, properties));
   }
 
   private static String valid(String runKey, String repositoryLine) {

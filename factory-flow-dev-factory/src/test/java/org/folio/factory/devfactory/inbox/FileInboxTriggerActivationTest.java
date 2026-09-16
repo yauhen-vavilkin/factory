@@ -2,8 +2,7 @@ package org.folio.factory.devfactory.inbox;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.folio.factory.core.trigger.PipelineRouter;
-import org.folio.factory.devfactory.resolution.TaskResolutionService;
+import org.folio.factory.devfactory.admission.TaskAdmissionService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -18,9 +17,8 @@ class FileInboxTriggerActivationTest {
   private final ApplicationContextRunner runner =
       new ApplicationContextRunner()
           .withUserConfiguration(InboxTriggerPropsConfig.class, FileInboxTrigger.class)
-          .withBean(PipelineRouter.class, () -> org.mockito.Mockito.mock(PipelineRouter.class))
-          .withBean(TaskResolutionService.class,
-              () -> org.mockito.Mockito.mock(TaskResolutionService.class))
+          .withBean(TaskAdmissionService.class,
+              () -> org.mockito.Mockito.mock(TaskAdmissionService.class))
           .withBean(InboxTaskFileParser.class, InboxTaskFileParser::new);
 
   @Test
