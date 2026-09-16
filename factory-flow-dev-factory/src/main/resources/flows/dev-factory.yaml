@@ -1,12 +1,12 @@
 id: dev-factory
 name: Developer Flow
-version: 0.3.0
+version: 0.5.0
 triggers:
   - event_type: manual
 input_schema:
   required: [issueKey]
 output_schema:
-  artifacts: [dev_candidate.json, dev_readiness.json]
+  artifacts: [dev_candidate.json, dev_readiness.json, dev_verification.json, dev_delivery.json, dev_result.json]
 retry_policy:
   max_attempts: 3
   backoff_seconds: [30, 120, 300]
@@ -34,3 +34,15 @@ agent_chain:
     worker_id: dev-develop
     inputs: [dev_task_brief.md]
     outputs: [dev_candidate.json, dev_readiness.json]
+
+  - step_id: verify
+    type: AGENT
+    worker_id: dev-verify
+    inputs: [dev_candidate.json]
+    outputs: [dev_verification.json, dev_result.json]
+
+  - step_id: deliver
+    type: AGENT
+    worker_id: dev-deliver
+    inputs: [dev_task_brief.md, dev_candidate.json, dev_verification.json, dev_result.json]
+    outputs: [dev_delivery.json, dev_result.json]

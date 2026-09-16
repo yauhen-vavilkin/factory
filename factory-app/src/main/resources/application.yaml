@@ -4,7 +4,7 @@ spring:
   lifecycle:
     # OPS-2: grace-period budget for each SmartLifecycle shutdown phase — chiefly the
     # web server draining in-flight HTTP (HITL console, REST, webhooks) before exit.
-    # Bounded well under the 1800s engine lease so a rollout never hangs.
+    # Bounded well under the engine lease so a rollout never hangs.
     timeout-per-shutdown-phase: ${FACTORY_SHUTDOWN_PHASE_TIMEOUT:60s}
   datasource:
     url: ${FACTORY_DB_URL:jdbc:postgresql://localhost:5432/factory}
@@ -67,9 +67,10 @@ factory:
     poll-interval-ms: ${FACTORY_ENGINE_POLL_INTERVAL_MS:2000}
     batch-size: ${FACTORY_ENGINE_BATCH_SIZE:5}
     worker-threads: ${FACTORY_ENGINE_WORKER_THREADS:4}
-    # Must exceed the longest legitimate single step (Karate runs are capped at 15
-    # min) or the reaper re-queues live executions. Raise if your steps run longer.
-    lease-timeout-seconds: ${FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS:1800}
+    # Must exceed the longest legitimate single step or the reaper re-queues a live
+    # execution. Developer Flow can run baseline + Pi sequentially, so keep this
+    # above 2 * FACTORY_DEV_FACTORY_TIMEOUT_SECONDS plus setup/freezing margin.
+    lease-timeout-seconds: ${FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS:7200}
     # Cadence of the lease reaper + sub-flow reconciliation sweep. Read by the
     # @Scheduled placeholder in ExecutionPoller, not by EngineProperties.
     reap-interval-ms: ${FACTORY_ENGINE_REAP_INTERVAL_MS:30000}
@@ -117,6 +118,33 @@ factory:
       username: ${FACTORY_CONNECTORS_TESTRAIL_USERNAME:}
       api-key: ${FACTORY_CONNECTORS_TESTRAIL_API_KEY:}
       project-id: ${FACTORY_CONNECTORS_TESTRAIL_PROJECT_ID:0}
+  dev-factory:
+    git-base-url: ${FACTORY_DEV_FACTORY_GIT_BASE_URL:https://github.com}
+    repositories:
+      sidecar:
+        source-repo: folio-org/folio-module-sidecar
+        base-branch: master
+        build-image: maven:3.9-eclipse-temurin-21
+        verification-plan: modsidecar-java21-unit
+        jira-projects: [MODSIDECAR]
+    runtime:
+      timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
+      plans:
+        modsidecar-java21-unit: [mvn, -B, -ntp, clean, test]
+      coding:
+        image: ${FACTORY_DEV_FACTORY_CODING_IMAGE:factory-dev-pi:0.85.1-java21}
+        provider: ${FACTORY_MODEL_PROVIDER:}
+        model: ${FACTORY_MODEL_ID:}
+        base-url: ${FACTORY_MODEL_BASE_URL:}
+        api: ${FACTORY_MODEL_API:openai-completions}
+        api-key: ${FACTORY_MODEL_API_KEY:}
+    delivery:
+      create-pull-request: ${FACTORY_DEV_FACTORY_CREATE_PR:false}
+      targets:
+        sidecar:
+          repository: ${FACTORY_DEV_FACTORY_DELIVERY_REPOSITORY:}
+          base-branch: ${FACTORY_DEV_FACTORY_DELIVERY_BASE_BRANCH:master}
+          authorized: ${FACTORY_DEV_FACTORY_DELIVERY_AUTHORIZED:false}
   test-factory:
     execution:
       base-url: ${FACTORY_TEST_FACTORY_EXECUTION_BASE_URL:}

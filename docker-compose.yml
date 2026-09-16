@@ -1,4 +1,11 @@
 services:
+  pi-runtime:
+    build:
+      context: .
+      dockerfile: factory-flow-dev-factory/docker/Dockerfile
+    image: ${FACTORY_DEV_FACTORY_CODING_IMAGE:-factory-dev-pi:0.85.1-java21}
+    command: ["pi", "--version"]
+
   postgres:
     image: postgres:16
     environment:
@@ -6,7 +13,7 @@ services:
       POSTGRES_USER: factory
       POSTGRES_PASSWORD: factory
     ports:
-      - "5432:5432"
+      - "${FACTORY_DB_PORT:-5432}:5432"
     volumes:
       - factory-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -14,6 +21,39 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  factory:
+    build: .
+    image: folio-factory-app:local
+    # Docker Desktop exposes the daemon socket to root in this single-user MVP.
+    user: "0:0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pi-runtime:
+        condition: service_completed_successfully
+    environment:
+      FACTORY_DB_URL: jdbc:postgresql://postgres:5432/factory
+      FACTORY_DB_USER: factory
+      FACTORY_DB_PASSWORD: factory
+      FACTORY_CONNECTORS_JIRA_BASE_URL: ${FACTORY_CONNECTORS_JIRA_BASE_URL:-}
+      FACTORY_CONNECTORS_GITHUB_TOKEN: ${FACTORY_CONNECTORS_GITHUB_TOKEN:-}
+      FACTORY_MODEL_API_KEY: ${FACTORY_MODEL_API_KEY:-}
+      FACTORY_MODEL_BASE_URL: ${FACTORY_MODEL_BASE_URL:-}
+      FACTORY_MODEL_PROVIDER: ${FACTORY_MODEL_PROVIDER:-}
+      FACTORY_MODEL_ID: ${FACTORY_MODEL_ID:-}
+      FACTORY_MODEL_API: ${FACTORY_MODEL_API:-openai-completions}
+      FACTORY_DEV_FACTORY_CODING_IMAGE: ${FACTORY_DEV_FACTORY_CODING_IMAGE:-factory-dev-pi:0.85.1-java21}
+      FACTORY_DEV_FACTORY_TIMEOUT_SECONDS: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:-1800}
+      FACTORY_DEV_FACTORY_DELIVERY_REPOSITORY: ${FACTORY_DEV_FACTORY_DELIVERY_REPOSITORY:-}
+      FACTORY_DEV_FACTORY_DELIVERY_BASE_BRANCH: ${FACTORY_DEV_FACTORY_DELIVERY_BASE_BRANCH:-master}
+      FACTORY_DEV_FACTORY_DELIVERY_AUTHORIZED: ${FACTORY_DEV_FACTORY_DELIVERY_AUTHORIZED:-false}
+      FACTORY_DEV_FACTORY_CREATE_PR: ${FACTORY_DEV_FACTORY_CREATE_PR:-false}
+      FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS: ${FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS:-7200}
+    ports:
+      - "${FACTORY_APP_PORT:-8080}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
 volumes:
   factory-pgdata:

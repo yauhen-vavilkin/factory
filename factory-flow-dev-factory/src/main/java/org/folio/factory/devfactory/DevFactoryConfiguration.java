@@ -23,7 +23,9 @@ import org.springframework.context.annotation.Configuration;
  * this class only assembles the worker beans the descriptor references.
  */
 @Configuration
-@EnableConfigurationProperties({DevFactoryProperties.class, org.folio.factory.devfactory.runtime.DevRuntimeProperties.class})
+@EnableConfigurationProperties({DevFactoryProperties.class,
+        org.folio.factory.devfactory.runtime.DevRuntimeProperties.class,
+        org.folio.factory.devfactory.delivery.DevDeliveryProperties.class})
 public class DevFactoryConfiguration {
 
     @Bean
@@ -48,6 +50,39 @@ public class DevFactoryConfiguration {
             org.folio.factory.devfactory.candidate.CandidateFreezer freezer,
             org.folio.factory.devfactory.runtime.CodingRuntime coding, FrontmatterCodec codec) {
         return new org.folio.factory.devfactory.worker.DevelopWorker(properties, runtime, docker, freezer, coding, codec);
+    }
+
+    @Bean
+    public org.folio.factory.devfactory.verification.CandidateVerifier devCandidateVerifier(
+            DevFactoryProperties properties, org.folio.factory.devfactory.runtime.DevRuntimeProperties runtime,
+            org.folio.factory.devfactory.candidate.CandidateFreezer freezer,
+            org.folio.factory.devfactory.runtime.DockerWorkloads docker) {
+        return new org.folio.factory.devfactory.verification.CandidateVerifier(properties, runtime, freezer, docker);
+    }
+
+    @Bean
+    public org.folio.factory.devfactory.worker.VerifyWorker devVerifyWorker(
+            org.folio.factory.devfactory.verification.CandidateVerifier verifier) {
+        return new org.folio.factory.devfactory.worker.VerifyWorker(verifier);
+    }
+
+    @Bean
+    public org.folio.factory.devfactory.delivery.CandidateDelivery devCandidateDelivery(
+            org.folio.factory.devfactory.candidate.CandidateFreezer freezer) {
+        return new org.folio.factory.devfactory.delivery.CandidateDelivery(freezer);
+    }
+
+    @Bean
+    public org.folio.factory.devfactory.worker.DeliveryWorker devDeliveryWorker(
+            DevFactoryProperties repositories,
+            org.folio.factory.devfactory.delivery.DevDeliveryProperties properties,
+            org.folio.factory.devfactory.delivery.CandidateDelivery delivery,
+            org.folio.factory.connectors.github.GitHubProperties githubProperties,
+            @org.springframework.beans.factory.annotation.Qualifier("gitHubConnector")
+            org.folio.factory.connectors.github.GitHubConnector github,
+            FrontmatterCodec frontmatter) {
+        return new org.folio.factory.devfactory.worker.DeliveryWorker(repositories, properties, delivery,
+                githubProperties, github, frontmatter);
     }
 
     @Bean

@@ -70,6 +70,28 @@ public class GitHubRestConnector implements GitHubConnector, ConnectorHealth {
         return response.path("html_url").asString("");
     }
 
+    @Override
+    public java.util.Optional<String> findOpenPullRequest(String repo, String headBranch, String baseBranch) {
+        String owner = repo.substring(0, repo.indexOf('/'));
+        JsonNode response = restClient.get()
+                .uri(builder -> builder.path("/repos/" + repo + "/pulls")
+                        .queryParam("state", "open").queryParam("head", owner + ":" + headBranch)
+                        .queryParam("base", baseBranch).build())
+                .retrieve().body(JsonNode.class);
+        if (response != null && response.isArray()) {
+            for (JsonNode pr : response) {
+                if (repo.equalsIgnoreCase(pr.path("head").path("repo").path("full_name").asString(""))
+                        && repo.equalsIgnoreCase(pr.path("base").path("repo").path("full_name").asString(""))
+                        && headBranch.equals(pr.path("head").path("ref").asString(""))
+                        && baseBranch.equals(pr.path("base").path("ref").asString(""))) {
+                    String url = pr.path("html_url").asString("");
+                    if (!url.isBlank()) return java.util.Optional.of(url);
+                }
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
     private java.util.Optional<String> existingFileSha(String repo, String branch, String path) {
         try {
             JsonNode existing = restClient.get()

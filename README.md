@@ -61,8 +61,8 @@ Key invariants, enforced by the framework:
 Prerequisites: Java 21, Maven 3.9+, Docker.
 
 ```bash
-# 1. Database
-docker compose up -d
+# 1. Database only (the full Compose stack is the Developer Flow demo below)
+docker compose up -d postgres
 
 # 2. LLM provider (Spring AI — Anthropic by default, swappable via config)
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -112,7 +112,7 @@ against `/actuator/health`.
 ```bash
 docker build -t folio-factory-app:local .
 
-# needs a reachable PostgreSQL — start one with `docker compose up -d`
+# needs a reachable PostgreSQL — start one with `docker compose up -d postgres`
 # (on Linux add: --add-host=host.docker.internal:host-gateway — the name is
 #  only auto-provided by Docker Desktop)
 docker run --rm -p 8080:8080 \
@@ -126,6 +126,24 @@ CI (`.github/workflows/ci.yml`) builds on JDK 21, runs `mvn verify`
 SBOM, and builds the Docker image. A weekly `dependency-check.yml` runs an
 opt-in OWASP scan (`mvn -Powasp verify`); Dependabot keeps Maven and Actions
 dependencies current.
+
+### Developer Flow demo
+
+Developer Flow needs the Pi provider values and an explicitly authorized user-owned
+fork in `.env`; see the Developer Flow block in `.env.example`. Then build both
+runtime images and start the complete local control plane:
+
+```bash
+docker compose up -d --build
+curl -s -X POST localhost:8080/api/triggers/manual \
+  -H 'Content-Type: application/json' \
+  -d '{"flowId":"dev-factory","payload":{"issueKey":"MODSIDECAR-196"}}'
+```
+
+The Factory container owns the Docker socket only for this trusted single-user MVP.
+Pi runs in a separate container without that socket or Jira/GitHub credentials;
+verification reconstructs the frozen patch in another fresh container. Delivery is
+blocked unless the exact candidate has a matching successful verification receipt.
 
 ## Operations
 
@@ -167,7 +185,7 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_LIMITS_MAX_ARTIFACT_BYTES` / `_MAX_TRIGGER_PAYLOAD_BYTES` | Write-time size caps (defaults `5000000` / `262144`) |
 | `FACTORY_RETENTION_ENABLED` / `_TTL_DAYS` / `_RUN_CRON` | Purge of old terminal runs (**off** by default; audit is never purged) |
 | `FACTORY_LOG_FORMAT` | Structured logging: `ecs`/`logstash`/`gelf` (empty = human-readable) |
-| `FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS` / `_SHUTDOWN_AWAIT_SECONDS` | Crash-recovery lease / graceful-drain budget (defaults `1800` / `30`) |
+| `FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS` / `_SHUTDOWN_AWAIT_SECONDS` | Crash-recovery lease / graceful-drain budget (defaults `7200` / `30`); for Developer Flow, keep the lease above twice its stage timeout plus setup/freezing margin |
 | `FACTORY_ENGINE_POLL_INTERVAL_MS` / `_BATCH_SIZE` / `_WORKER_THREADS` | Poller cadence / claims per poll / engine pool size (defaults `2000` / `5` / `4`) |
 | `FACTORY_ENGINE_REAP_INTERVAL_MS` | Lease-reaper and sub-flow reconciliation cadence (default `30000`) |
 | `FACTORY_ENGINE_RECLAIM_RUNNING_ON_STARTUP` | Requeue orphaned RUNNING rows at boot (default `true`; **must be `false` for multi-instance** — see `doc/runbook.md`) |

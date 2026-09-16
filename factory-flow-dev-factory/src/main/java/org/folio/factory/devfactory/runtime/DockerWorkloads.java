@@ -19,6 +19,11 @@ public class DockerWorkloads {
         try {
             Processes.run(null, List.of("docker", "start", name), 60).requireSuccess();
             workload.copy(source.resolve(".").toString(), "/workspace");
+            // Docker creates WORKDIR as root even when the workload runs as the
+            // trusted checkout UID/GID. Allow that user to create build output and
+            // new source files at the workspace root; the container remains private.
+            Processes.run(null, List.of("docker", "exec", "--user", "0:0", name,
+                    "chmod", "0777", "/workspace"), 30).requireSuccess();
             return workload;
         } catch (RuntimeException e) { workload.close(); throw e; }
     }
