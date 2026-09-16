@@ -9,16 +9,28 @@ import java.util.UUID;
 public class DockerWorkloads {
     public Workload create(String image, Path source) {
         String name = "factory-dev-" + UUID.randomUUID();
+        String user = workloadUser(source);
         Processes.run(null, List.of("docker", "create", "--name", name, "--label", "factory.dev-owned=true",
                 "--cpus", "4", "--memory", "6g", "--pids-limit", "512", "--cap-drop", "ALL",
-                "--security-opt", "no-new-privileges", "--workdir", "/workspace", "--entrypoint", "/bin/sh",
-                image, "-c", "mkdir -p /workspace; exec sleep infinity"), 120).requireSuccess();
+                "--security-opt", "no-new-privileges", "--user", user, "--env", "HOME=/tmp/factory-home",
+                "--workdir", "/workspace", "--entrypoint", "/bin/sh", image,
+                "-c", "mkdir -p /tmp/factory-home; exec sleep infinity"), 120).requireSuccess();
         var workload = new Workload(name);
         try {
             Processes.run(null, List.of("docker", "start", name), 60).requireSuccess();
             workload.copy(source.resolve(".").toString(), "/workspace");
             return workload;
         } catch (RuntimeException e) { workload.close(); throw e; }
+    }
+
+    private static String workloadUser(Path source) {
+        try {
+            Number uid = (Number) java.nio.file.Files.getAttribute(source, "unix:uid");
+            Number gid = (Number) java.nio.file.Files.getAttribute(source, "unix:gid");
+            return uid + ":" + gid;
+        } catch (java.io.IOException | UnsupportedOperationException e) {
+            throw new IllegalStateException("Cannot resolve trusted workspace ownership", e);
+        }
     }
     public static final class Workload implements AutoCloseable {
         private final String name;
