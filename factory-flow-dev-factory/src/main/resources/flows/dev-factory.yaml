@@ -1,0 +1,18 @@
+id: dev-factory
+name: Developer Flow
+version: 0.1.0
+triggers:
+  - event_type: manual
+input_schema:
+  required: [issueKey]
+output_schema:
+  artifacts: [dev_smoke.md]
+retry_policy:
+  max_attempts: 3
+  backoff_seconds: [30, 120, 300]
+agent_chain:
+  - step_id: smoke
+    type: AGENT
+    worker_id: dev-smoke-worker
+    inputs: ["$trigger"]
+    outputs: [dev_smoke.md]

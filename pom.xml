@@ -23,6 +23,7 @@
     <module>factory-connectors</module>
     <module>factory-agents</module>
     <module>factory-flow-test-factory</module>
+    <module>factory-flow-dev-factory</module>
     <module>factory-app</module>
   </modules>
 
@@ -60,6 +61,11 @@
       <dependency>
         <groupId>org.folio.factory</groupId>
         <artifactId>factory-flow-test-factory</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.folio.factory</groupId>
+        <artifactId>factory-flow-dev-factory</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
