@@ -34,7 +34,7 @@ public class PiCodingRuntime implements CodingRuntime {
             if (execution.exitCode() != 0) throw new IllegalStateException("Pi failed (exit " + execution.exitCode() + "); candidate not accepted");
             return parse(execution.output(), config.provider(), config.model());
         } catch (java.io.IOException e) { throw new IllegalStateException("Cannot prepare Pi input", e); }
-        finally { CandidateFreezer.delete(temporary); }
+        finally { CandidateFreezer.cleanup(temporary); }
     }
     static Result parse(String output, String provider, String model) {
         var mapper = JsonMapper.builder().build();

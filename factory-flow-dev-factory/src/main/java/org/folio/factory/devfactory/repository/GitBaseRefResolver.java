@@ -1,15 +1,10 @@
 package org.folio.factory.devfactory.repository;
 
 import org.folio.factory.core.agent.AgentExecutionException;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.folio.factory.devfactory.runtime.Processes;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
 /**
@@ -18,7 +13,6 @@ import java.util.regex.Pattern;
  */
 public class GitBaseRefResolver implements BaseRefResolver {
 
-    private static final Logger log = LoggerFactory.getLogger(GitBaseRefResolver.class);
     private static final Pattern SHA = Pattern.compile("[0-9a-f]{40}|[0-9a-f]{64}");
     private static final long TIMEOUT_SECONDS = 60;
     private static final int MAX_ERROR_CHARS = 500;
@@ -36,13 +30,13 @@ public class GitBaseRefResolver implements BaseRefResolver {
             throw new AgentExecutionException("Configured base branch is not a valid Git ref: " + branch);
         }
         String url = gitBaseUrl + "/" + sourceRepo + ".git";
-        Result result = run(List.of("git", "-c", "credential.helper=", "ls-remote", "--exit-code", url, ref));
+        Processes.Result result = run(List.of("git", "-c", "credential.helper=", "ls-remote", "--exit-code", url, ref));
         if (result.exitCode() == 2) {
             return Optional.empty();
         }
         if (result.exitCode() != 0) {
             throw new AgentExecutionException("git ls-remote failed for " + sourceRepo + " (exit "
-                    + result.exitCode() + "): " + bounded(result.output()));
+                    + result.exitCode() + "): " + bounded(result.error()));
         }
         for (String line : result.output().split("\n")) {
             String[] parts = line.strip().split("\t");
@@ -53,43 +47,16 @@ public class GitBaseRefResolver implements BaseRefResolver {
         throw new AgentExecutionException("git ls-remote returned no usable SHA for " + sourceRepo + " " + ref);
     }
 
-    private Result run(List<String> command) {
-        Path output = null;
+    private Processes.Result run(List<String> command) {
         try {
-            output = Files.createTempFile("factory-dev-git", ".out");
-            ProcessBuilder builder = new ProcessBuilder(command)
-                    .redirectErrorStream(true)
-                    .redirectOutput(output.toFile());
-            builder.environment().put("GIT_TERMINAL_PROMPT", "0");
-            builder.environment().remove("GIT_ASKPASS");
-            builder.environment().remove("SSH_ASKPASS");
-            Process process = builder.start();
-            if (!process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                throw new AgentExecutionException("git timed out after " + TIMEOUT_SECONDS + "s");
-            }
-            return new Result(process.exitValue(), Files.readString(output));
-        } catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
+            return Processes.run(null, command, (int) TIMEOUT_SECONDS);
+        } catch (RuntimeException e) {
             throw new AgentExecutionException("Could not run git: " + e.getMessage(), e);
-        } finally {
-            if (output != null) {
-                try {
-                    Files.deleteIfExists(output);
-                } catch (IOException e) {
-                    log.warn("Could not delete {}: {}", output, e.getMessage());
-                }
-            }
         }
     }
 
     private static String bounded(String text) {
         String stripped = text.strip();
         return stripped.length() <= MAX_ERROR_CHARS ? stripped : stripped.substring(0, MAX_ERROR_CHARS) + "...";
-    }
-
-    private record Result(int exitCode, String output) {
     }
 }

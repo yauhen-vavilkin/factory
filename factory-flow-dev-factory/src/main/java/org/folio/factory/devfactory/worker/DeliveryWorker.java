@@ -10,7 +10,9 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
+import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
+import org.springframework.web.client.HttpClientErrorException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.LinkedHashMap;
@@ -58,26 +60,36 @@ public class DeliveryWorker implements AgentWorker {
         String summary = brief.path("issue").path("summary").asString("");
         var repository = repositories.repositories().get(candidate.repository());
         if (repository == null) throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
-        var target = properties.requireTarget(candidate.repository());
-        if (!githubProperties.isConfigured()) {
-            return blocked(previous, candidate, "FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
+        try {
+            var target = properties.requireTarget(candidate.repository());
+            if (!githubProperties.isConfigured()) {
+                return blocked(previous, candidate, "FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
+            }
+            String sourceUrl = repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
+            var receipt = delivery.deliver(context.executionId().toString(), issueKey, summary, sourceUrl,
+                    candidate, verification, target, githubProperties.token());
+            String prUrl = "";
+            if (properties.createPullRequest()) {
+                prUrl = github.findOpenPullRequest(target.repository(), receipt.branch(), target.baseBranch())
+                        .orElseGet(() -> github.createPullRequest(target.repository(), receipt.branch(), target.baseBranch(),
+                                issueKey + ": " + summary, pullRequestBody(candidate, receipt.commitSha())));
+            }
+            Map<String, Object> result = identity("DELIVERED", candidate);
+            result.put("deliveryRepository", receipt.repository());
+            result.put("deliveryBranch", receipt.branch());
+            result.put("deliveryCommitSha", receipt.commitSha());
+            result.put("pullRequestUrl", prUrl);
+            return new AgentResult(Map.of(DELIVERY, json.writeValueAsString(result),
+                    VerifyWorker.RESULT, json.writeValueAsString(result)), Map.of());
+        } catch (DeliveryBlockedException e) {
+            return blocked(previous, candidate, e.getMessage());
+        } catch (HttpClientErrorException e) {
+            int status = e.getStatusCode().value();
+            if (status != 408 && status != 429) {
+                return blocked(previous, candidate, "GitHub rejected delivery configuration or destination (HTTP " + status + ")");
+            }
+            throw e;
         }
-        String sourceUrl = repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
-        var receipt = delivery.deliver(context.executionId().toString(), issueKey, summary, sourceUrl,
-                candidate, verification, target, githubProperties.token());
-        String prUrl = "";
-        if (properties.createPullRequest()) {
-            prUrl = github.findOpenPullRequest(target.repository(), receipt.branch(), target.baseBranch())
-                    .orElseGet(() -> github.createPullRequest(target.repository(), receipt.branch(), target.baseBranch(),
-                            issueKey + ": " + summary, pullRequestBody(candidate, receipt.commitSha())));
-        }
-        Map<String, Object> result = identity("DELIVERED", candidate);
-        result.put("deliveryRepository", receipt.repository());
-        result.put("deliveryBranch", receipt.branch());
-        result.put("deliveryCommitSha", receipt.commitSha());
-        result.put("pullRequestUrl", prUrl);
-        return new AgentResult(Map.of(DELIVERY, json.writeValueAsString(result),
-                VerifyWorker.RESULT, json.writeValueAsString(result)), Map.of());
     }
 
     private AgentResult blocked(tools.jackson.databind.JsonNode previous, Candidate candidate, String reason) {

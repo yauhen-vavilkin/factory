@@ -52,6 +52,7 @@ public class VerifyWorker implements AgentWorker {
         outcome.put("patchSha256", candidate.patchSha256());
         outcome.put("verificationPlan", receipt.planId());
         outcome.put("exitCode", receipt.exitCode());
+        outcome.put("testCount", receipt.testCount());
         return new AgentResult(Map.of(
                 RECEIPT, json.writeValueAsString(receipt),
                 RESULT, json.writeValueAsString(outcome)), Map.of());

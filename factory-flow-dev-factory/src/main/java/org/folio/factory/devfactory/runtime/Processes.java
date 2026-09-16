@@ -6,16 +6,30 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.TimeUnit;
 
 /** Bounded subprocess transport with an explicit environment allowlist. */
 public final class Processes {
     public static final int OUTPUT_LIMIT = 2 * 1024 * 1024;
     private Processes() { }
-    public record Result(int exitCode, String output) {
+    public record Result(int exitCode, String output, String error) {
+        public Result(int exitCode, String output) {
+            this(exitCode, output, "");
+        }
         public Result requireSuccess() {
-            if (exitCode != 0) throw new IllegalStateException("Command failed (exit " + exitCode + "): " + output.substring(Math.max(0, output.length() - 4000)));
+            if (exitCode != 0) {
+                String diagnostics = error.isBlank() ? output : error;
+                throw new IllegalStateException("Command failed (exit " + exitCode + "): "
+                        + diagnostics.substring(Math.max(0, diagnostics.length() - 4000)));
+            }
             return this;
+        }
+        public String diagnostics() {
+            if (error.isBlank()) return output;
+            if (output.isBlank()) return error;
+            return output + System.lineSeparator() + error;
         }
     }
     public static Result run(Path directory, List<String> argv, int seconds) {
@@ -28,7 +42,7 @@ public final class Processes {
                              int outputLimit) {
         if (outputLimit < 1) throw new IllegalArgumentException("Output limit must be positive");
         try {
-            var builder = new ProcessBuilder(argv).redirectErrorStream(true);
+            var builder = new ProcessBuilder(argv);
             if (directory != null) builder.directory(directory.toFile());
             builder.environment().clear();
             for (String key : List.of("PATH", "HOME", "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "TMPDIR")) {
@@ -40,29 +54,45 @@ public final class Processes {
             builder.environment().put("GIT_CONFIG_GLOBAL", "/dev/null");
             var process = builder.start();
             process.getOutputStream().close();
-            var bytes = new ByteArrayOutputStream();
-            boolean[] overflow = {false};
-            Thread reader = Thread.ofVirtual().start(() -> {
-                try (var stream = process.getInputStream()) {
-                    byte[] buffer = new byte[8192];
-                    int count;
-                    while ((count = stream.read(buffer)) != -1) {
-                        if (bytes.size() + count > outputLimit) { overflow[0] = true; process.destroyForcibly(); break; }
-                        bytes.write(buffer, 0, count);
-                    }
-                } catch (IOException ignored) { /* Exit and size checks below remain authoritative. */ }
-            });
+            var stdout = new ByteArrayOutputStream();
+            var stderr = new ByteArrayOutputStream();
+            var total = new AtomicInteger();
+            var overflow = new AtomicBoolean();
+            Thread stdoutReader = reader(process, process.getInputStream(), stdout, outputLimit, total, overflow);
+            Thread stderrReader = reader(process, process.getErrorStream(), stderr, outputLimit, total, overflow);
             if (!process.waitFor(seconds, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
                 process.waitFor(5, TimeUnit.SECONDS);
                 throw new IllegalStateException("Command exceeded " + seconds + " seconds");
             }
-            reader.join(5000);
-            if (reader.isAlive() || overflow[0]) throw new IllegalStateException("Command exceeded output limit");
-            return new Result(process.exitValue(), bytes.toString(StandardCharsets.UTF_8));
+            stdoutReader.join(5000);
+            stderrReader.join(5000);
+            if (stdoutReader.isAlive() || stderrReader.isAlive() || overflow.get()) {
+                throw new IllegalStateException("Command exceeded output limit");
+            }
+            return new Result(process.exitValue(), stdout.toString(StandardCharsets.UTF_8),
+                    stderr.toString(StandardCharsets.UTF_8));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Command interrupted", e);
         } catch (IOException e) { throw new IllegalStateException("Could not start command", e); }
+    }
+
+    private static Thread reader(Process process, java.io.InputStream stream, ByteArrayOutputStream destination,
+                                 int outputLimit, AtomicInteger total, AtomicBoolean overflow) {
+        return Thread.ofVirtual().start(() -> {
+                try (stream) {
+                    byte[] buffer = new byte[8192];
+                    int count;
+                    while ((count = stream.read(buffer)) != -1) {
+                        if (total.addAndGet(count) > outputLimit) {
+                            overflow.set(true);
+                            process.destroyForcibly();
+                            break;
+                        }
+                        destination.write(buffer, 0, count);
+                    }
+                } catch (IOException ignored) { /* Exit and size checks below remain authoritative. */ }
+            });
     }
 }

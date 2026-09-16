@@ -73,8 +73,8 @@ public class DevelopWorker implements AgentWorker {
             if (secret != null && !secret.isBlank()) reason = reason.replace(secret, "[REDACTED]");
             return blocked("DEVELOPMENT_FAILED", "Development stopped: " + reason.substring(0, Math.min(2000, reason.length())), readiness);
         } finally {
-            CandidateFreezer.delete(pristine);
-            CandidateFreezer.delete(exported);
+            CandidateFreezer.cleanup(pristine);
+            CandidateFreezer.cleanup(exported);
         }
     }
     private AgentResult blocked(String state, String reason, Map<String, Object> readiness) {

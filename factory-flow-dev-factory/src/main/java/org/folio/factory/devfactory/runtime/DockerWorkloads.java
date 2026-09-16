@@ -4,9 +4,12 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Only owned containers, with private writable storage and no host mounts. */
 public class DockerWorkloads {
+    private static final Logger log = LoggerFactory.getLogger(DockerWorkloads.class);
     public Workload create(String image, Path source) {
         String name = "factory-dev-" + UUID.randomUUID();
         String user = workloadUser(source);
@@ -63,7 +66,11 @@ public class DockerWorkloads {
             Processes.run(null, List.of("docker", "cp", name + ":/workspace/.", destination.toString()), 120).requireSuccess();
         }
         @Override public void close() {
-            Processes.run(null, List.of("docker", "rm", "--force", name), 30).requireSuccess();
+            try {
+                Processes.run(null, List.of("docker", "rm", "--force", name), 30).requireSuccess();
+            } catch (RuntimeException e) {
+                log.warn("Could not remove owned workload {}: {}", name, e.getMessage());
+            }
         }
     }
 }

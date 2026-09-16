@@ -10,18 +10,24 @@ import java.util.Objects;
 public record VerificationReceipt(String executionId, String repository, String baseSha, String treeSha,
                                   String patchSha256, String planId, String image, List<String> argv,
                                   String workload, Instant startedAt, Instant finishedAt, int exitCode,
+                                  int surefireReportCount, int testCount, int failureCount, int errorCount,
                                   String result, String output) {
     public VerificationReceipt {
         Objects.requireNonNull(executionId);
         argv = List.copyOf(argv);
-        if (!Objects.equals(result, exitCode == 0 ? "PASS" : "FAIL")) {
-            throw new IllegalArgumentException("Verification result must reflect actual exit code");
+        if (surefireReportCount < 0 || testCount < 0 || failureCount < 0 || errorCount < 0) {
+            throw new IllegalArgumentException("Invalid test evidence count");
+        }
+        if (!Objects.equals(result, exitCode == 0 && surefireReportCount > 0 && testCount > 0
+                && failureCount == 0 && errorCount == 0 ? "PASS" : "FAIL")) {
+            throw new IllegalArgumentException("Verification result must reflect exit code and fresh executed tests");
         }
     }
 
     /** Delivery must call this against its current execution and frozen candidate. */
     public void requireVerified(String currentExecutionId, Candidate candidate) {
-        if (!"PASS".equals(result) || exitCode != 0
+        if (!"PASS".equals(result) || exitCode != 0 || surefireReportCount < 1 || testCount < 1
+                || failureCount != 0 || errorCount != 0
                 || !Objects.equals(executionId, currentExecutionId)
                 || !Objects.equals(repository, candidate.repository())
                 || !Objects.equals(baseSha, candidate.baseSha())

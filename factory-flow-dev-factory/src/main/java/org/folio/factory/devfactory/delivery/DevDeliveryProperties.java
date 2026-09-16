@@ -13,7 +13,7 @@ public record DevDeliveryProperties(Map<String, DeliveryTarget> targets, boolean
 
     public DeliveryTarget requireTarget(String repositoryKey) {
         DeliveryTarget target = targets.get(repositoryKey);
-        if (target == null) throw new IllegalStateException(
+        if (target == null) throw new DeliveryBlockedException(
                 "Missing factory.dev-factory.delivery.targets." + repositoryKey + " configuration");
         target.requireAuthorized();
         return target;

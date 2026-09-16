@@ -10,6 +10,7 @@ import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
+import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
@@ -21,8 +22,8 @@ import java.util.TreeMap;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 
 class DeliveryWorkerTest {
     private final JsonMapper json = JsonMapper.builder().build();
@@ -51,7 +52,7 @@ class DeliveryWorkerTest {
                 Candidate.sha256(patch), patch, "CANDIDATE_UNVERIFIED");
         var receipt = new VerificationReceipt("execution", "sidecar", candidate.baseSha(), candidate.treeSha(),
                 candidate.patchSha256(), "unit", "image", List.of("mvn", "test"), "fresh", Instant.EPOCH,
-                Instant.EPOCH.plusSeconds(1), 0, "PASS", "ok");
+                Instant.EPOCH.plusSeconds(1), 0, 1, 1, 0, 0, "PASS", "ok");
         String brief = new FrontmatterCodec().render(Map.of("issue", Map.of(
                 "key", "MODSIDECAR-196", "summary", "Task")), "Task");
         var result = worker.execute(contextWithId("execution", Map.of(
@@ -63,6 +64,34 @@ class DeliveryWorkerTest {
         assertThat(result.outputs().get(DeliveryWorker.DELIVERY))
                 .contains("DELIVERY_BLOCKED", "FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
         verifyNoInteractions(delivery, github);
+    }
+
+    @Test
+    void permanentDeliveryFailureReturnsBlockedWithoutEngineRetry() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        DeliveryWorker worker = worker(delivery, github, new GitHubProperties(null, "token"));
+        String patch = "diff --git a/a b/a\n";
+        var candidate = new Candidate("sidecar", "a".repeat(40), "b".repeat(40),
+                Candidate.sha256(patch), patch, "CANDIDATE_UNVERIFIED");
+        var receipt = new VerificationReceipt("00000000-0000-0000-0000-000000000001", "sidecar",
+                candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "unit", "image",
+                List.of("mvn", "test"), "fresh", Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
+                0, 1, 1, 0, 0, "PASS", "ok");
+        String brief = new FrontmatterCodec().render(Map.of("issue", Map.of(
+                "key", "MODSIDECAR-196", "summary", "Task")), "Task");
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString()))
+                .thenThrow(new DeliveryBlockedException("Destination base no longer contains the candidate base"));
+
+        var result = worker.execute(contextWithId("execution", Map.of(
+                VerifyWorker.RESULT, "{\"state\":\"VERIFIED\",\"verificationPlan\":\"unit\"}",
+                DevelopWorker.CANDIDATE, json.writeValueAsString(candidate),
+                VerifyWorker.RECEIPT, json.writeValueAsString(receipt),
+                IntakeResolveWorker.TASK_BRIEF, brief)));
+
+        assertThat(result.outputs().get(DeliveryWorker.DELIVERY))
+                .contains("DELIVERY_BLOCKED", "no longer contains");
+        verifyNoInteractions(github);
     }
 
     private static DeliveryWorker worker(CandidateDelivery delivery, GitHubConnector github,

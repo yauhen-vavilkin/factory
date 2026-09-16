@@ -31,6 +31,7 @@ public class CandidateVerifier {
         String sourceUrl = repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
         // reconstruct checks the Git tree before any command can execute.
         Path source = candidates.reconstruct(sourceUrl, candidate);
+        Path exported = null;
         try {
             // New container storage; DockerWorkloads supplies no model/Jira/GitHub environment.
             // The checkout contains source only, without the coding workspace's target output.
@@ -38,15 +39,31 @@ public class CandidateVerifier {
                 Instant started = Instant.now();
                 var observation = workload.execute(command, runtime.timeoutSeconds());
                 Instant finished = Instant.now();
-                String output = observation.output();
+                SurefireEvidence evidence = new SurefireEvidence(0, 0, 0, 0);
+                String output = observation.diagnostics();
+                if (observation.exitCode() == 0) {
+                    exported = CandidateFreezer.temporary("factory-dev-verification-");
+                    workload.stop();
+                    workload.export(exported);
+                    evidence = SurefireEvidence.inspect(exported, started);
+                    if (evidence.testCount() == 0) {
+                        output = output + System.lineSeparator()
+                                + "Trusted verification produced no fresh executed Surefire tests";
+                    }
+                }
+                String result = observation.exitCode() == 0 && evidence.reportCount() > 0
+                        && evidence.testCount() > 0 && evidence.failureCount() == 0
+                        && evidence.errorCount() == 0 ? "PASS" : "FAIL";
                 return new VerificationReceipt(executionId, candidate.repository(), candidate.baseSha(),
                         candidate.treeSha(), candidate.patchSha256(), repository.verificationPlan(),
                         repository.buildImage(), command, workload.name(), started, finished,
-                        observation.exitCode(), observation.exitCode() == 0 ? "PASS" : "FAIL",
+                        observation.exitCode(), evidence.reportCount(), evidence.testCount(),
+                        evidence.failureCount(), evidence.errorCount(), result,
                         output.substring(Math.max(0, output.length() - 16000)));
             }
         } finally {
-            CandidateFreezer.delete(source);
+            CandidateFreezer.cleanup(source);
+            CandidateFreezer.cleanup(exported);
         }
     }
 }

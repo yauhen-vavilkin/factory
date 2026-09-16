@@ -58,6 +58,9 @@ spring:
           max-tokens: 8192
 
 server:
+  # Safe local default. Compose overrides the container listener while publishing
+  # its host port on loopback only.
+  address: ${FACTORY_SERVER_ADDRESS:127.0.0.1}
   # OPS-2: finish in-flight HTTP requests before exit instead of dropping them on
   # SIGTERM. Runs in the SmartLifecycle stop phase, bounded by timeout-per-shutdown-phase.
   shutdown: graceful

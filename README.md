@@ -144,6 +144,11 @@ The Factory container owns the Docker socket only for this trusted single-user M
 Pi runs in a separate container without that socket or Jira/GitHub credentials;
 verification reconstructs the frozen patch in another fresh container. Delivery is
 blocked unless the exact candidate has a matching successful verification receipt.
+Compose publishes Factory and PostgreSQL on `127.0.0.1` by default. The MVP still
+runs the trusted Factory container as root with the Docker socket, makes its private
+workload root writable for the checkout UID/GID, and uses a 7200-second global engine
+lease to cover baseline plus coding. Tightening those local-only controls is deferred;
+no additional security or lease framework is part of this stabilization.
 
 ## Operations
 

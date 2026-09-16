@@ -1,6 +1,8 @@
 package org.folio.factory.devfactory.candidate;
 
 import org.folio.factory.devfactory.runtime.Processes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -13,6 +15,7 @@ import java.util.Set;
 
 /** Ignores coding Git metadata and derives every hash in a fresh trusted checkout. */
 public class CandidateFreezer {
+    private static final Logger log = LoggerFactory.getLogger(CandidateFreezer.class);
     private static final Set<String> GENERATED = Set.of("target", "node_modules", ".pi");
     public Path checkout(String sourceUrl, String baseSha) {
         if (!baseSha.matches("[a-f0-9]{40}")) throw new IllegalArgumentException("Invalid base SHA");
@@ -25,7 +28,7 @@ public class CandidateFreezer {
             if (!git(directory, "ls-files", "--stage").lines().noneMatch(line -> line.startsWith("160000")))
                 throw new IllegalStateException("Submodules unsupported for MVP");
             return directory;
-        } catch (RuntimeException e) { delete(directory); throw e; }
+        } catch (RuntimeException e) { cleanup(directory); throw e; }
     }
     public Candidate freeze(String repository, String sourceUrl, String baseSha, Path exported) {
         Path trusted = checkout(sourceUrl, baseSha);
@@ -35,15 +38,18 @@ public class CandidateFreezer {
                 entries.filter(path -> !path.getFileName().toString().equals(".git")).forEach(CandidateFreezer::delete);
             }
             mirror(exported, trusted, tracked);
-            git(trusted, "add", "--all", "--force", "--", ".");
+            git(trusted, "add", "--all", "--", ".");
             String tree = git(trusted, "write-tree").strip();
+            String baseTree = git(trusted, "rev-parse", baseSha + "^{tree}").strip();
+            if (tree.equals(baseTree)) throw new IllegalStateException("Candidate contains no changes");
             String patch = git(trusted, "diff", "--cached", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", baseSha, "--");
+            if (patch.isEmpty()) throw new IllegalStateException("Candidate contains no patch");
             Candidate candidate = new Candidate(repository, baseSha, tree, Candidate.sha256(patch), patch, "CANDIDATE_UNVERIFIED");
             Path roundTrip = reconstruct(sourceUrl, candidate);
-            delete(roundTrip);
+            cleanup(roundTrip);
             return candidate;
         } catch (IOException e) { throw new IllegalStateException("Cannot freeze candidate", e); }
-        finally { delete(trusted); }
+        finally { cleanup(trusted); }
     }
     public Path reconstruct(String sourceUrl, Candidate candidate) {
         Path directory = checkout(sourceUrl, candidate.baseSha());
@@ -53,8 +59,8 @@ public class CandidateFreezer {
             if (!candidate.patch().isEmpty()) git(directory, "apply", "--index", "--binary", "--", patch.toString());
             if (!git(directory, "write-tree").strip().equals(candidate.treeSha())) throw new IllegalStateException("Reconstructed candidate tree mismatch");
             return directory;
-        } catch (IOException | RuntimeException e) { delete(directory); throw new IllegalStateException("Candidate reconstruction failed", e); }
-        finally { delete(patch.getParent()); }
+        } catch (IOException | RuntimeException e) { cleanup(directory); throw new IllegalStateException("Candidate reconstruction failed", e); }
+        finally { cleanup(patch.getParent()); }
     }
     private void mirror(Path source, Path destination, Set<Path> tracked) throws IOException {
         try (var paths = Files.walk(source)) {
@@ -102,5 +108,14 @@ public class CandidateFreezer {
         try (var paths = Files.walk(directory)) {
             for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.delete(path);
         } catch (IOException e) { throw new IllegalStateException("Cannot remove owned temporary path " + directory, e); }
+    }
+
+    /** Cleanup is never allowed to invalidate an already produced candidate or receipt. */
+    public static void cleanup(Path directory) {
+        try {
+            delete(directory);
+        } catch (RuntimeException e) {
+            log.warn("Could not clean owned temporary path {}: {}", directory, e.getMessage());
+        }
     }
 }

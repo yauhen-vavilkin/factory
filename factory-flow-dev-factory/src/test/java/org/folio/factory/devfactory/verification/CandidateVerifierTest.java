@@ -62,6 +62,7 @@ class CandidateVerifierTest {
             assertThat(fresh.resolve("target")).doesNotExist();
             return workload;
         });
+        exportReport("<testsuite name=\"example\" tests=\"3\" skipped=\"0\" failures=\"0\" errors=\"0\"></testsuite>");
         verifier = new CandidateVerifier(properties, runtime, new CandidateFreezer(), docker);
     }
 
@@ -75,11 +76,50 @@ class CandidateVerifierTest {
         assertThat(receipt.planId()).isEqualTo("unit");
         assertThat(receipt.image()).isEqualTo("trusted-java21");
         assertThat(receipt.argv()).isEqualTo(command);
+        assertThat(receipt.testCount()).isEqualTo(exit == 0 ? 3 : 0);
         assertThat(receipt.finishedAt()).isAfterOrEqualTo(receipt.startedAt());
         if (exit == 0) receipt.requireVerified("execution", candidate);
         else assertThatThrownBy(() -> receipt.requireVerified("execution", candidate)).isInstanceOf(IllegalStateException.class);
         verify(workload).execute(command, 60);
         verify(workload).close();
+    }
+
+    @Test
+    void zeroExitWithoutFreshExecutedTestsIsNotPass() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "Tests are skipped."));
+        doNothing().when(workload).export(any());
+
+        var receipt = verifier.verify("execution", candidate);
+
+        assertThat(receipt.exitCode()).isZero();
+        assertThat(receipt.testCount()).isZero();
+        assertThat(receipt.result()).isEqualTo("FAIL");
+        assertThat(receipt.output()).contains("no fresh executed Surefire tests");
+        assertThatThrownBy(() -> receipt.requireVerified("execution", candidate))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void allSkippedSurefireSuiteIsNotPass() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "BUILD SUCCESS"));
+        exportReport("<testsuite tests=\"3\" skipped=\"3\" failures=\"0\" errors=\"0\"></testsuite>");
+
+        var receipt = verifier.verify("execution", candidate);
+
+        assertThat(receipt.testCount()).isZero();
+        assertThat(receipt.result()).isEqualTo("FAIL");
+    }
+
+    @Test
+    void ignoredSurefireFailureIsNotPassEvenWithZeroExit() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "BUILD SUCCESS"));
+        exportReport("<testsuite tests=\"3\" skipped=\"0\" failures=\"1\" errors=\"0\"></testsuite>");
+
+        var receipt = verifier.verify("execution", candidate);
+
+        assertThat(receipt.testCount()).isEqualTo(3);
+        assertThat(receipt.failureCount()).isEqualTo(1);
+        assertThat(receipt.result()).isEqualTo("FAIL");
     }
 
     @Test
@@ -98,5 +138,14 @@ class CandidateVerifierTest {
                 candidate.patchSha256(), candidate.patch(), candidate.state());
         assertThatThrownBy(() -> receipt.requireVerified("execution", other)).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> receipt.requireVerified("other-execution", candidate)).isInstanceOf(IllegalStateException.class);
+    }
+
+    private void exportReport(String xml) {
+        doAnswer(invocation -> {
+            Path exported = invocation.getArgument(0);
+            Path reports = Files.createDirectories(exported.resolve("module/target/surefire-reports"));
+            Files.writeString(reports.resolve("TEST-example.xml"), xml);
+            return null;
+        }).when(workload).export(any());
     }
 }

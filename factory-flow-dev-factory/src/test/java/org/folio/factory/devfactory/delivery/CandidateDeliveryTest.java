@@ -41,7 +41,9 @@ class CandidateDeliveryTest {
 
     private VerificationReceipt receipt(String execution, int exit) {
         return new VerificationReceipt(execution, candidate.repository(), candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(),
-                "focused", "fixture", List.of("true"), "fixture", Instant.EPOCH, Instant.EPOCH, exit, exit == 0 ? "PASS" : "FAIL", "");
+                "focused", "fixture", List.of("true"), "fixture", Instant.EPOCH, Instant.EPOCH, exit,
+                exit == 0 ? 1 : 0, exit == 0 ? 1 : 0, 0, 0,
+                exit == 0 ? "PASS" : "FAIL", "");
     }
 
     private DeliveryReceipt deliver(VerificationReceipt receipt, DeliveryTarget destination, String token) {
@@ -85,7 +87,8 @@ class CandidateDeliveryTest {
         String unrelated = CandidateFreezer.git(remote, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.org",
                 "commit-tree", candidate.baseSha() + "^{tree}", "-m", "unrelated root").strip();
         CandidateFreezer.git(remote, "update-ref", "refs/heads/master", unrelated);
-        assertThatThrownBy(() -> deliver(receipt("execution", 0), target, "token")).hasMessageContaining("merge-base failed");
+        assertThatThrownBy(() -> deliver(receipt("execution", 0), target, "token"))
+                .isInstanceOf(DeliveryBlockedException.class).hasMessageContaining("no longer contains");
         assertThat(CandidateFreezer.git(remote, "branch", "--list", "factory/*")).isBlank();
     }
 }

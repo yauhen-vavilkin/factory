@@ -13,7 +13,7 @@ services:
       POSTGRES_USER: factory
       POSTGRES_PASSWORD: factory
     ports:
-      - "${FACTORY_DB_PORT:-5432}:5432"
+      - "${FACTORY_BIND_ADDRESS:-127.0.0.1}:${FACTORY_DB_PORT:-5432}:5432"
     volumes:
       - factory-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -36,6 +36,9 @@ services:
       FACTORY_DB_URL: jdbc:postgresql://postgres:5432/factory
       FACTORY_DB_USER: factory
       FACTORY_DB_PASSWORD: factory
+      # The app listens on the container interface; the published host port below
+      # remains loopback-only by default.
+      FACTORY_SERVER_ADDRESS: 0.0.0.0
       FACTORY_CONNECTORS_JIRA_BASE_URL: ${FACTORY_CONNECTORS_JIRA_BASE_URL:-}
       FACTORY_CONNECTORS_GITHUB_TOKEN: ${FACTORY_CONNECTORS_GITHUB_TOKEN:-}
       FACTORY_MODEL_API_KEY: ${FACTORY_MODEL_API_KEY:-}
@@ -51,7 +54,7 @@ services:
       FACTORY_DEV_FACTORY_CREATE_PR: ${FACTORY_DEV_FACTORY_CREATE_PR:-false}
       FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS: ${FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS:-7200}
     ports:
-      - "${FACTORY_APP_PORT:-8080}:8080"
+      - "${FACTORY_BIND_ADDRESS:-127.0.0.1}:${FACTORY_APP_PORT:-8080}:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
 
