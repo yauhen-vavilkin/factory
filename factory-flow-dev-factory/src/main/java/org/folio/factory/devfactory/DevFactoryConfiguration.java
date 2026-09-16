@@ -23,8 +23,32 @@ import org.springframework.context.annotation.Configuration;
  * this class only assembles the worker beans the descriptor references.
  */
 @Configuration
-@EnableConfigurationProperties(DevFactoryProperties.class)
+@EnableConfigurationProperties({DevFactoryProperties.class, org.folio.factory.devfactory.runtime.DevRuntimeProperties.class})
 public class DevFactoryConfiguration {
+
+    @Bean
+    public org.folio.factory.devfactory.runtime.DockerWorkloads devDockerWorkloads() {
+        return new org.folio.factory.devfactory.runtime.DockerWorkloads();
+    }
+
+    @Bean
+    public org.folio.factory.devfactory.candidate.CandidateFreezer devCandidateFreezer() {
+        return new org.folio.factory.devfactory.candidate.CandidateFreezer();
+    }
+
+    @Bean
+    public org.folio.factory.devfactory.runtime.CodingRuntime devCodingRuntime(org.folio.factory.devfactory.runtime.DevRuntimeProperties runtime) {
+        return new org.folio.factory.devfactory.runtime.PiCodingRuntime(runtime.coding());
+    }
+
+    @Bean
+    public org.folio.factory.devfactory.worker.DevelopWorker devDevelopWorker(DevFactoryProperties properties,
+            org.folio.factory.devfactory.runtime.DevRuntimeProperties runtime,
+            org.folio.factory.devfactory.runtime.DockerWorkloads docker,
+            org.folio.factory.devfactory.candidate.CandidateFreezer freezer,
+            org.folio.factory.devfactory.runtime.CodingRuntime coding, FrontmatterCodec codec) {
+        return new org.folio.factory.devfactory.worker.DevelopWorker(properties, runtime, docker, freezer, coding, codec);
+    }
 
     @Bean
     public RepositoryPolicy devRepositoryPolicy(DevFactoryProperties properties) {

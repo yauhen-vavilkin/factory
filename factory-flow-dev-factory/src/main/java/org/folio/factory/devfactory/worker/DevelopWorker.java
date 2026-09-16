@@ -1,0 +1,85 @@
+package org.folio.factory.devfactory.worker;
+
+import org.folio.factory.agents.artifact.FrontmatterCodec;
+import org.folio.factory.core.agent.AgentContext;
+import org.folio.factory.core.agent.AgentResult;
+import org.folio.factory.core.agent.AgentWorker;
+import org.folio.factory.devfactory.DevFactoryProperties;
+import org.folio.factory.devfactory.candidate.CandidateFreezer;
+import org.folio.factory.devfactory.runtime.CodingRuntime;
+import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.DockerWorkloads;
+import tools.jackson.databind.json.JsonMapper;
+import java.nio.file.Path;
+import java.util.Map;
+
+/** Baseline first, one coding attempt, then trusted freeze. No provider retry in the flow. */
+public class DevelopWorker implements AgentWorker {
+    public static final String CANDIDATE = "dev_candidate.json";
+    public static final String READINESS = "dev_readiness.json";
+    private final DevFactoryProperties properties;
+    private final DevRuntimeProperties runtime;
+    private final DockerWorkloads docker;
+    private final CandidateFreezer freezer;
+    private final CodingRuntime coding;
+    private final FrontmatterCodec codec;
+    private final JsonMapper json = JsonMapper.builder().build();
+    public DevelopWorker(DevFactoryProperties properties, DevRuntimeProperties runtime, DockerWorkloads docker,
+                         CandidateFreezer freezer, CodingRuntime coding, FrontmatterCodec codec) {
+        this.properties = properties; this.runtime = runtime; this.docker = docker;
+        this.freezer = freezer; this.coding = coding; this.codec = codec;
+    }
+    @Override public String id() { return "dev-develop"; }
+    @Override public AgentResult execute(AgentContext context) {
+        String task = context.requireInput(IntakeResolveWorker.TASK_BRIEF).content();
+        var brief = codec.parse(task).metadata();
+        String state = brief.path("state").asString("");
+        if (!state.equals("INTAKE_READY")) return blocked(state, "Intake is not ready", Map.of());
+        String key = brief.path("repository").path("key").asString("");
+        var repo = properties.repositories().get(key);
+        if (repo == null) return blocked("BLOCKED_ENVIRONMENT", "Repository is no longer configured", Map.of());
+        String base = brief.path("repository").path("base_sha").asString("");
+        String url = properties.gitBaseUrl() + "/" + repo.sourceRepo() + ".git";
+        Path pristine = null;
+        Path exported = null;
+        Map<String, Object> readiness = Map.of();
+        try {
+            var command = runtime.command(repo.verificationPlan());
+            pristine = freezer.checkout(url, base);
+            try (var baseline = docker.create(repo.buildImage(), pristine)) {
+                var result = baseline.execute(command, runtime.timeoutSeconds());
+                readiness = Map.of("state", result.exitCode() == 0 ? "BASELINE_PASSED" : "BASELINE_FAILED",
+                        "baseSha", base, "image", repo.buildImage(), "plan", repo.verificationPlan(),
+                        "command", command, "exitCode", result.exitCode(), "output", tail(result.output()));
+                if (result.exitCode() != 0) return blocked("BLOCKED_ENVIRONMENT", "Pinned baseline failed before model spend", readiness);
+            }
+            runtime.coding().requireConfigured();
+            exported = CandidateFreezer.temporary("factory-dev-export-");
+            try (var workload = docker.create(runtime.coding().image(), pristine)) {
+                coding.code(workload, "Implement this task in /workspace. Inspect, understand, plan, edit, run targeted checks, debug and self-review. "
+                        + "Keep changes focused. Do not push or access Jira/GitHub writes. Do not alter .git or generate final verification receipts. "
+                        + "Trusted intake has already approved this task for implementation; its Jira status is not an unresolved requirement. "
+                        + "For this first demo, do not add or run integration checks that require nested Docker/Testcontainers; add focused unit coverage where useful. "
+                        + "If a material requirement is unresolved, stop and return FACTORY_DECISION_REQUIRED with one concrete question and 2-4 options. "
+                        + "Your self-checks are diagnostic; Factory independently verifies the final frozen tree.\n\n" + task, runtime.timeoutSeconds());
+                workload.stop();
+                workload.export(exported);
+            }
+            var candidate = freezer.freeze(key, url, base, exported);
+            return new AgentResult(Map.of(CANDIDATE, json.writeValueAsString(candidate), READINESS, json.writeValueAsString(readiness)), Map.of());
+        } catch (RuntimeException e) {
+            String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            String secret = runtime.coding().apiKey();
+            if (secret != null && !secret.isBlank()) reason = reason.replace(secret, "[REDACTED]");
+            return blocked("DEVELOPMENT_FAILED", "Development stopped: " + reason.substring(0, Math.min(2000, reason.length())), readiness);
+        } finally {
+            CandidateFreezer.delete(pristine);
+            CandidateFreezer.delete(exported);
+        }
+    }
+    private AgentResult blocked(String state, String reason, Map<String, Object> readiness) {
+        return new AgentResult(Map.of(CANDIDATE, json.writeValueAsString(Map.of("state", state, "reason", reason)),
+                READINESS, json.writeValueAsString(readiness)), Map.of());
+    }
+    private static String tail(String value) { return value.substring(Math.max(0, value.length() - 16000)); }
+}
