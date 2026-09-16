@@ -22,7 +22,7 @@ class AnthropicApiKeyGuardTest {
         .run(context -> {
           assertThat(context).hasFailed();
           assertThat(context.getStartupFailure()).hasMessageContaining("ANTHROPIC_API_KEY")
-              .hasMessageContaining("1001");
+              .hasMessageContaining("401");
         });
   }
 

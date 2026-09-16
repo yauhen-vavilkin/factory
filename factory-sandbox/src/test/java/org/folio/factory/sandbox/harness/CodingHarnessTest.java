@@ -111,7 +111,7 @@ class CodingHarnessTest {
 
   @Test
   void threeStepRunCompletesWithTrajectory(@TempDir Path workDir) throws Exception {
-    CodingHarness harness = harness(new HarnessConfig(40, 3, 30L, "glm-5.3-flash"));
+    CodingHarness harness = harness(new HarnessConfig(40, 3, 30L, "claude-sonnet-4-5"));
     String diffBody = "diff --git a/pom.xml b/pom.xml\n--- a/pom.xml\n";
     when(adapter.reply(anyString(), eq("fix NPE"), anyList()))
         .thenReturn(ModelReply.toolCall(new ToolCall("t1", "read", "{\"path\":\"repo/pom.xml\"}")))
@@ -249,7 +249,7 @@ class CodingHarnessTest {
   @Test
   void repeatedMalformedThenValidBatchesTripTotalFormatErrorLimit(@TempDir Path workDir)
       throws Exception {
-    CodingHarness harness = harness(new HarnessConfig(40, 3, 30L, "glm-5.3-flash"));
+    CodingHarness harness = harness(new HarnessConfig(40, 3, 30L, "claude-sonnet-4-5"));
     when(adapter.reply(anyString(), anyString(), anyList()))
         .thenReturn(ModelReply.toolCalls(List.of(
             new ToolCall("g1", "grep", "{}"),
@@ -282,7 +282,7 @@ class CodingHarnessTest {
   @Test
   void singleBatchAtFormatErrorLimitStopsBeforeNextModelReply(@TempDir Path workDir)
       throws Exception {
-    CodingHarness harness = harness(new HarnessConfig(40, 3, 30L, "glm-5.3-flash"));
+    CodingHarness harness = harness(new HarnessConfig(40, 3, 30L, "claude-sonnet-4-5"));
     when(adapter.reply(anyString(), anyString(), anyList()))
         .thenReturn(ModelReply.toolCalls(List.of(
             new ToolCall("g1", "grep", "{}"),
@@ -301,7 +301,7 @@ class CodingHarnessTest {
 
   @Test
   void maxStepsExceededFails(@TempDir Path workDir) throws Exception {
-    CodingHarness harness = harness(new HarnessConfig(3, 3, 30L, "glm-5.3-flash"));
+    CodingHarness harness = harness(new HarnessConfig(3, 3, 30L, "claude-sonnet-4-5"));
     when(adapter.reply(anyString(), anyString(), anyList()))
         .thenReturn(ModelReply.toolCall(new ToolCall("t1", "read", "{\"path\":\"repo/pom.xml\"}")));
     when(readTool.read(HANDLE, "repo/pom.xml", null, null)).thenReturn(ToolResult.success("<project/>"));
@@ -319,7 +319,7 @@ class CodingHarnessTest {
 
   @Test
   void consecutiveInvalidToolCallsExceedLimitAndModelSeesHints(@TempDir Path workDir) throws Exception {
-    CodingHarness harness = harness(new HarnessConfig(40, 3, 30L, "glm-5.3-flash"));
+    CodingHarness harness = harness(new HarnessConfig(40, 3, 30L, "claude-sonnet-4-5"));
     when(adapter.reply(anyString(), anyString(), anyList()))
         .thenReturn(ModelReply.toolCall(new ToolCall("f1", "grep", "{}")))
         .thenReturn(ModelReply.toolCall(new ToolCall("f2", "grep", "{}")))
@@ -344,7 +344,7 @@ class CodingHarnessTest {
 
   @Test
   void toolFailureIsReturnedToModelAndDoesNotCountAsFormatError(@TempDir Path workDir) throws Exception {
-    CodingHarness harness = harness(new HarnessConfig(40, 3, 30L, "glm-5.3-flash"));
+    CodingHarness harness = harness(new HarnessConfig(40, 3, 30L, "claude-sonnet-4-5"));
     when(adapter.reply(anyString(), anyString(), anyList()))
         .thenReturn(ModelReply.toolCall(new ToolCall("t1", "read", "{\"path\":\"repo/nope\"}")))
         .thenReturn(ModelReply.toolCall(new ToolCall("t2", "read", "{\"path\":\"repo/pom.xml\"}")))
@@ -368,7 +368,7 @@ class CodingHarnessTest {
 
   @Test
   void wallClockTimeoutFails(@TempDir Path workDir) {
-    CodingHarness harness = harness(new HarnessConfig(40, 3, 1L, "glm-5.3-flash"));
+    CodingHarness harness = harness(new HarnessConfig(40, 3, 1L, "claude-sonnet-4-5"));
     when(adapter.reply(anyString(), anyString(), anyList())).thenAnswer(invocation -> {
       clock.advance(Duration.ofMinutes(5));
       return ModelReply.toolCall(new ToolCall("t1", "read", "{\"path\":\"repo/pom.xml\"}"));
@@ -386,7 +386,7 @@ class CodingHarnessTest {
 
   @Test
   void adapterExceptionFailsWithModelError(@TempDir Path workDir) throws Exception {
-    CodingHarness harness = harness(new HarnessConfig(40, 3, 30L, "glm-5.3-flash"));
+    CodingHarness harness = harness(new HarnessConfig(40, 3, 30L, "claude-sonnet-4-5"));
     when(adapter.reply(anyString(), anyString(), anyList()))
         .thenThrow(new RuntimeException("provider 500"));
     when(gitDiffTool.diff(HANDLE)).thenReturn(ToolResult.success("[status]\n\n[diff]\n(no changes)"));
@@ -606,7 +606,7 @@ class CodingHarnessTest {
 
   @Test
   void failedModelRunFailsTaskOutcomeRegardlessOfDiff(@TempDir Path workDir) throws Exception {
-    CodingHarness harness = harness(new HarnessConfig(3, 3, 30L, "glm-5.3-flash"));
+    CodingHarness harness = harness(new HarnessConfig(3, 3, 30L, "claude-sonnet-4-5"));
     when(adapter.reply(anyString(), anyString(), anyList()))
         .thenReturn(ModelReply.toolCall(new ToolCall("t1", "apply_patch", "{\"diff\":\"update pom\"}")));
     when(applyPatchTool.apply(HANDLE, "update pom")).thenReturn(ToolResult.success("patch applied"));
@@ -660,7 +660,7 @@ class CodingHarnessTest {
 
   @Test
   void failedRunWithoutFinalReplyCarriesEmptyFinalText(@TempDir Path workDir) throws Exception {
-    CodingHarness harness = harness(new HarnessConfig(3, 3, 30L, "glm-5.3-flash"));
+    CodingHarness harness = harness(new HarnessConfig(3, 3, 30L, "claude-sonnet-4-5"));
     when(adapter.reply(anyString(), anyString(), anyList()))
         .thenReturn(ModelReply.toolCall(new ToolCall("t1", "read", "{\"path\":\"repo/pom.xml\"}")));
     when(readTool.read(HANDLE, "repo/pom.xml", null, null)).thenReturn(ToolResult.success("<project/>"));

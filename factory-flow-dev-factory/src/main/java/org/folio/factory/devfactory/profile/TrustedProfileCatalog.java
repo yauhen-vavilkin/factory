@@ -9,6 +9,10 @@ import tools.jackson.databind.node.ObjectNode;
 
 /** Code-owned initial profile and verification-plan catalog. */
 public final class TrustedProfileCatalog {
+  /** Protocol-level model provider; the upstream vendor is known only to the gateway. */
+  public static final String MODEL_PROVIDER = "openai-compatible";
+  /** Stable model alias the coding runtime requests; the gateway maps it upstream. */
+  public static final String MODEL_ALIAS = "factory-coding";
   public static final String VERSION = "dev-factory-v1-m1";
   public static final String JAVA_MAVEN_21 = "java-maven-21";
   public static final String JAVA_MAVEN_PI = "java21-pi-unit";
@@ -26,7 +30,7 @@ public final class TrustedProfileCatalog {
     ExecutionProfile.Budgets budgets = new ExecutionProfile.Budgets(3600, 300, 900, 40, 32768);
     ExecutionProfile profileWithoutHash = new ExecutionProfile(JAVA_MAVEN_21, VERSION, "JAVA",
         "MAVEN", "21", null, "maven:3.9-eclipse-temurin-21", null, "linux/arm64",
-        "factory-zai", "java-maven-21",
+        MODEL_PROVIDER, "java-maven-21",
         "/workspace/repo", List.of(List.of("./mvnw", "-B", "-ntp", "test")),
         Map.of("surefire", "**/target/surefire-reports/TEST-*.xml"),
         new ExecutionProfile.NetworkPolicy("APPROVED_DEPENDENCY_PROXY_ONLY", "NONE"),
@@ -34,7 +38,7 @@ public final class TrustedProfileCatalog {
     ExecutionProfile profile = withHash(profileWithoutHash);
     ExecutionProfile piWithoutHash = new ExecutionProfile(JAVA_MAVEN_PI, JAVA_MAVEN_PI_VERSION, "JAVA",
         "MAVEN", "21", null, "factory-pi:jdk21", null, "linux/arm64",
-        "factory-zai", "glm-5.3-flash", "/workspace/repo",
+        MODEL_PROVIDER, MODEL_ALIAS, "/workspace/repo",
         List.of(List.of("mvn", "-B", "-ntp", "test")),
         Map.of("surefire", "**/target/surefire-reports/TEST-*.xml"),
         new ExecutionProfile.NetworkPolicy("APPROVED_DEPENDENCY_PROXY_ONLY", "GATEWAY_ONLY"),

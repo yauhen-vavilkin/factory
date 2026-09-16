@@ -81,9 +81,11 @@ validation details.
 
 ### Pi mode (Dev Factory — MODSIDECAR-208)
 
-One-time setup: `cp .env.example .env` and set `FACTORY_MODEL_API_KEY` (Z.AI
-General API key). The key is passed only to the loopback-bound fixed-route
-coding gateway, never to the sandbox. Every `start --mode pi` rotates the
+One-time setup: `cp .env.example .env` and set the upstream values
+`FACTORY_MODEL_BASE_URL`, `FACTORY_MODEL_ID`, and `FACTORY_MODEL_API_KEY` for any
+OpenAI-compatible chat-completions endpoint. These values are passed only to the
+loopback-bound fixed-route coding gateway, never to the sandbox; Pi sees only the
+`openai-compatible` provider, the gateway URL, and the `factory-coding` alias. Every `start --mode pi` rotates the
 gateway run token; `stop` revokes both gateways. PostgreSQL data lives in
 `.factory/data/postgres` (a pre-M3 named volume is import-guarded — see the
 M4 report in `docs/exec-plans/dev-factory-v1-replanned-handoff/`).

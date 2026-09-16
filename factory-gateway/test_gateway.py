@@ -2,7 +2,7 @@
 
 No network access and no provider key are required: the approved Maven roots are
 repointed at a loopback-only file server inside this process, and the model
-upstream is never contacted (authentication and mode checks reject earlier).
+upstream is replaced by an in-process fake opener that records what would be sent.
 
 Regression origin (M3 evidence, run key low-002): the dependency gateway's
 artifact limit rejected required 10-23 MiB FOLIO Maven artifacts, burning a live
@@ -13,9 +13,11 @@ route separation.
 from __future__ import annotations
 
 import http.server
+import json
 import os
 import pathlib
 import shutil
+import socket
 import sys
 import tempfile
 import threading
@@ -30,6 +32,11 @@ sys.path.insert(0, str(REPO_ROOT / "factory-gateway"))
 # production default (/evidence) exists only inside the gateway container.
 _TEST_EVIDENCE = pathlib.Path(tempfile.mkdtemp(prefix="factory-gateway-import."))
 os.environ.setdefault("FACTORY_GATEWAY_EVIDENCE_DIR", str(_TEST_EVIDENCE))
+# The coding gateway refuses to start without trusted upstream configuration.
+TRUSTED_UPSTREAM = "https://upstream.example.test/api/v1"
+UPSTREAM_MODEL = "upstream-model-x"
+os.environ.setdefault("FACTORY_UPSTREAM_BASE_URL", TRUSTED_UPSTREAM)
+os.environ.setdefault("FACTORY_UPSTREAM_MODEL", UPSTREAM_MODEL)
 
 import server  # noqa: E402  (module under test, path set above)
 
@@ -85,14 +92,21 @@ class StatefulGateway:
         server.STATE = self._previous
 
 
-def make_state(mode: str, evidence_dir: pathlib.Path, token: str) -> server.GatewayState:
-    previous = {
-        name: os.environ.get(name)
-        for name in ("FACTORY_GATEWAY_MODE", "FACTORY_RUN_TOKEN")
-    }
+UPSTREAM_ENV = ("FACTORY_UPSTREAM_BASE_URL", "FACTORY_UPSTREAM_MODEL", "FACTORY_MODEL_ALIAS")
+
+
+def make_state(mode: str, evidence_dir: pathlib.Path, token: str,
+               upstream: dict[str, str] | None = None) -> server.GatewayState:
+    """Build a GatewayState; ``upstream`` replaces the whole upstream environment."""
+    names = ("FACTORY_GATEWAY_MODE", "FACTORY_RUN_TOKEN") + UPSTREAM_ENV
+    previous = {name: os.environ.get(name) for name in names}
     try:
         os.environ["FACTORY_GATEWAY_MODE"] = mode
         os.environ["FACTORY_RUN_TOKEN"] = token
+        if upstream is not None:
+            for name in UPSTREAM_ENV:
+                os.environ.pop(name, None)
+            os.environ.update(upstream)
         state = server.GatewayState()
     finally:
         for name, value in previous.items():
@@ -184,7 +198,7 @@ class GatewayArtifactLimitTest(unittest.TestCase):
             self.gateway.base + "/v1/chat/completions",
             token=self.RUN_TOKEN,
             method="POST",
-            body=b'{"model": "glm-5.3-flash", "messages": [], "max_tokens": 8}',
+            body=b'{"model": "factory-coding", "messages": [], "max_tokens": 8}',
         )
         self.assertEqual(status, 404)
         self.assertIn(b"model route is disabled", body)
@@ -228,7 +242,7 @@ class GatewayCodingAuthTest(unittest.TestCase):
         status, body = request(
             self.gateway.base + "/v1/chat/completions",
             method="POST",
-            body=b'{"model": "glm-5.3-flash", "messages": [], "max_tokens": 8}',
+            body=b'{"model": "factory-coding", "messages": [], "max_tokens": 8}',
         )
         self.assertEqual(status, 401)
         self.assertIn(b"invalid or missing run token", body)
@@ -239,14 +253,50 @@ class GatewayCodingAuthTest(unittest.TestCase):
             self.gateway.base + "/v1/chat/completions",
             token="revoked-or-stale-token",
             method="POST",
-            body=b'{"model": "glm-5.3-flash", "messages": [], "max_tokens": 8}',
+            body=b'{"model": "factory-coding", "messages": [], "max_tokens": 8}',
         )
         self.assertEqual(status, 401)
         self.assertIn(b"invalid or missing run token", body)
 
-    def test_unapproved_upstream_base_is_refused_at_startup(self) -> None:
+    def test_untrusted_upstream_configuration_is_refused_at_startup(self) -> None:
+        for base in (
+            "",
+            "http://upstream.example.test/v1",
+            "https://user:secret@upstream.example.test/v1",
+            "https://token@upstream.example.test/v1",
+            "https://upstream.example.test/v1?target=https://attacker.example",
+            "https://upstream.example.test/v1#fragment",
+            "file:///etc/passwd",
+            "https:///v1",
+        ):
+            with self.subTest(base=base), self.assertRaises(ValueError):
+                make_state("coding", self.tmp / "evidence", self.RUN_TOKEN,
+                           {"FACTORY_UPSTREAM_BASE_URL": base,
+                            "FACTORY_UPSTREAM_MODEL": UPSTREAM_MODEL})
         with self.assertRaises(ValueError):
-            server.trusted_upstream_base("https://attacker.example/api")
+            make_state("coding", self.tmp / "evidence", self.RUN_TOKEN,
+                       {"FACTORY_UPSTREAM_BASE_URL": TRUSTED_UPSTREAM})
+
+    def test_trusted_upstream_configuration_is_accepted(self) -> None:
+        state = make_state("coding", self.tmp / "evidence", self.RUN_TOKEN,
+                           {"FACTORY_UPSTREAM_BASE_URL": "https://llm.example.test:8443/v4/",
+                            "FACTORY_UPSTREAM_MODEL": UPSTREAM_MODEL})
+        self.assertEqual(state.upstream_base, "https://llm.example.test:8443/v4")
+        self.assertEqual(state.model_alias, "factory-coding")
+        self.assertEqual(state.upstream_model, UPSTREAM_MODEL)
+
+    def test_dependency_gateway_needs_no_upstream_configuration(self) -> None:
+        state = make_state("dependencies", self.tmp / "evidence", self.RUN_TOKEN, {})
+        self.assertEqual(state.upstream_base, "")
+        self.assertEqual(state.upstream_model, "")
+
+    def test_upstream_opener_does_not_follow_redirects(self) -> None:
+        self.assertTrue(any(isinstance(handler, server.NoRedirect)
+                            for handler in server.UPSTREAM_OPENER.handlers))
+        redirect = server.NoRedirect().redirect_request(
+            urllib.request.Request(TRUSTED_UPSTREAM + "/chat/completions"), None, 302,
+            "Found", {}, "https://attacker.example/steal")
+        self.assertIsNone(redirect)
 
 
 class FakeUpstreamResponse:
@@ -254,7 +304,7 @@ class FakeUpstreamResponse:
     headers = {"Content-Type": "application/json"}
 
     def __init__(self) -> None:
-        self.body = [b'{"model":"glm-5.3-flash","choices":[{"message":{"content":"ok"}}]}', b""]
+        self.body = [b'{"model":"upstream-model-x","choices":[{"message":{"content":"ok"}}]}', b""]
 
     def read(self, _size: int = -1) -> bytes:
         return self.body.pop(0) if self.body else b""
@@ -271,11 +321,13 @@ class FakeUpstreamOpener:
 
     def __init__(self) -> None:
         self.calls = 0
+        self.requests: list[urllib.request.Request] = []
         self.lock = threading.Lock()
 
-    def open(self, _request, timeout=None):
+    def open(self, request, timeout=None):
         with self.lock:
             self.calls += 1
+            self.requests.append(request)
         return FakeUpstreamResponse()
 
 
@@ -283,7 +335,7 @@ class GatewayExecutionBudgetTest(unittest.TestCase):
     """Each Developer Flow execution has its own attempt budget and lifetime."""
 
     RUN_TOKEN = "budget-run-token"
-    BODY = b'{"model": "glm-5.3-flash", "messages": [], "max_tokens": 8}'
+    BODY = b'{"model": "factory-coding", "messages": [], "max_tokens": 8}'
 
     def setUp(self) -> None:
         self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="factory-gateway-budget."))
@@ -374,6 +426,115 @@ class GatewayExecutionBudgetTest(unittest.TestCase):
         self.assertEqual(self.call(self.RUN_TOKEN)[0], 200)
         self.assertEqual(self.call(self.RUN_TOKEN)[0], 429)
         self.assertEqual(self.call(server.execution_token(self.RUN_TOKEN, "execution-a"))[0], 200)
+
+
+class GatewayModelAliasTest(unittest.TestCase):
+    """The sandbox names only the alias; the gateway owns the upstream model and URL."""
+
+    RUN_TOKEN = "alias-run-token"
+
+    def setUp(self) -> None:
+        self.tmp = pathlib.Path(tempfile.mkdtemp(prefix="factory-gateway-alias."))
+        (self.tmp / "evidence").mkdir()
+        state = make_state("coding", self.tmp / "evidence", self.RUN_TOKEN,
+                           {"FACTORY_UPSTREAM_BASE_URL": TRUSTED_UPSTREAM,
+                            "FACTORY_UPSTREAM_MODEL": UPSTREAM_MODEL})
+        state.api_key = "provider-key-stays-in-gateway"
+        self.state = state
+        self.saved_opener = server.UPSTREAM_OPENER
+        self.upstream = FakeUpstreamOpener()
+        server.UPSTREAM_OPENER = self.upstream
+        self.gateway = StatefulGateway(state)
+        self.gateway.start()
+        self.token = server.execution_token(self.RUN_TOKEN, "alias-execution")
+
+    def tearDown(self) -> None:
+        self.gateway.stop()
+        server.UPSTREAM_OPENER = self.saved_opener
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def post(self, payload: dict, path: str = "/v1/chat/completions",
+             headers: dict[str, str] | None = None):
+        req = urllib.request.Request(self.gateway.base + path,
+                                     data=json.dumps(payload).encode("utf-8"), method="POST")
+        req.add_header("Authorization", f"Bearer {self.token}")
+        for name, value in (headers or {}).items():
+            req.add_header(name, value)
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as error:
+            return error.code, error.read()
+
+    def evidence(self) -> list[dict]:
+        with open(self.state.log_path, encoding="utf-8") as stream:
+            return [json.loads(line) for line in stream]
+
+    def test_alias_is_rewritten_to_the_configured_upstream_model(self) -> None:
+        status, _ = self.post({"model": "factory-coding", "max_tokens": 8, "stream": False,
+                               "messages": [{"role": "user", "content": "hi"}]})
+        self.assertEqual(status, 200)
+        self.assertEqual(self.upstream.calls, 1)
+        sent = self.upstream.requests[0]
+        self.assertEqual(sent.full_url, TRUSTED_UPSTREAM + "/chat/completions")
+        body = json.loads(sent.data)
+        self.assertEqual(body["model"], UPSTREAM_MODEL)
+        self.assertEqual(body["messages"], [{"role": "user", "content": "hi"}])
+        self.assertEqual(sent.get_header("Authorization"), "Bearer provider-key-stays-in-gateway")
+        [entry] = self.evidence()
+        self.assertEqual(entry["requestedModel"], "factory-coding")
+        self.assertEqual(entry["upstreamModel"], UPSTREAM_MODEL)
+        self.assertEqual(entry["reportedModel"], UPSTREAM_MODEL)
+        self.assertTrue(entry["requestSent"])
+
+    def test_arbitrary_model_names_are_rejected_without_an_upstream_call(self) -> None:
+        for model in (UPSTREAM_MODEL, "gpt-4o", "Factory-Coding", "factory-coding ", "", None, 7):
+            with self.subTest(model=model):
+                status, body = self.post({"model": model, "max_tokens": 8, "messages": []})
+                self.assertEqual(status, 400)
+                self.assertIn(b"not the configured model alias", body)
+        status, _ = self.post({"max_tokens": 8, "messages": []})
+        self.assertEqual(status, 400)
+        self.assertEqual(self.upstream.calls, 0)
+        self.assertEqual(self.state.attempts, 0)
+
+    def test_request_supplied_upstream_urls_cannot_change_the_trusted_upstream(self) -> None:
+        payload = {
+            "model": "factory-coding", "max_tokens": 8, "messages": [],
+            "base_url": "https://attacker.example/v1",
+            "api_base": "https://attacker.example/v1",
+            "baseUrl": "https://attacker.example/v1",
+            "url": "https://attacker.example/v1/chat/completions",
+        }
+        status, _ = self.post(payload, headers={
+            "Host": "attacker.example",
+            "X-Forwarded-Host": "attacker.example",
+            "X-Upstream-Base-Url": "https://attacker.example/v1",
+        })
+        self.assertEqual(status, 200)
+        status, _ = self.post({"model": "factory-coding", "max_tokens": 8, "messages": []},
+                              path="/v1/chat/completions?base_url=https://attacker.example")
+        self.assertEqual(status, 404)
+        self.assertEqual(self.upstream.calls, 1)
+        sent = self.upstream.requests[0]
+        self.assertEqual(sent.full_url, TRUSTED_UPSTREAM + "/chat/completions")
+        self.assertEqual(sent.host, "upstream.example.test")
+        self.assertNotIn("attacker", " ".join(f"{k}: {v}" for k, v in sent.header_items()))
+        self.assertEqual(json.loads(sent.data)["model"], UPSTREAM_MODEL)
+
+    def test_absolute_form_request_target_is_not_proxied(self) -> None:
+        with socket.create_connection(self.gateway.httpd.server_address, timeout=10) as conn:
+            body = json.dumps({"model": "factory-coding", "max_tokens": 8, "messages": []})
+            conn.sendall((
+                "POST https://attacker.example/v1/chat/completions HTTP/1.1\r\n"
+                "Host: attacker.example\r\n"
+                f"Authorization: Bearer {self.token}\r\n"
+                "Content-Type: application/json\r\n"
+                f"Content-Length: {len(body)}\r\n\r\n{body}"
+            ).encode("utf-8"))
+            status_line = conn.recv(64).split(b"\r\n", 1)[0]
+        self.assertIn(b" 404 ", status_line)
+        self.assertEqual(self.upstream.calls, 0)
 
 
 if __name__ == "__main__":

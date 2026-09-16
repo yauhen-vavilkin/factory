@@ -17,7 +17,7 @@ class HarnessPropertiesBindingTest {
     runner.run(context -> {
       assertThat(context).hasSingleBean(HarnessProperties.class);
       assertThat(context.getBean(HarnessProperties.class))
-          .isEqualTo(new HarnessProperties(40, 3, 30L, "glm-5.3-flash"));
+          .isEqualTo(new HarnessProperties(40, 3, 30L, "claude-sonnet-4-5"));
     });
   }
 

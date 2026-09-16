@@ -48,13 +48,14 @@ class ApplicationYamlDefaultsTest {
     runner.run(context -> {
       assertThat(context).hasSingleBean(HarnessProperties.class);
       assertThat(context.getBean(HarnessProperties.class))
-          .isEqualTo(new HarnessProperties(40, 3, 30L, "glm-5.3-flash"));
+          .isEqualTo(new HarnessProperties(40, 3, 30L,
+              System.getenv().getOrDefault("FACTORY_HARNESS_MODEL", "claude-sonnet-4-5")));
       Environment env = context.getEnvironment();
       assertThat(env.getProperty("factory.harness.max-steps")).isEqualTo("40");
       assertThat(env.getProperty("factory.harness.max-format-errors")).isEqualTo("3");
       assertThat(env.getProperty("factory.harness.job-timeout-min")).isEqualTo("30");
       assertThat(env.getProperty("factory.harness.model-id"))
-          .isEqualTo(System.getenv().getOrDefault("FACTORY_HARNESS_MODEL", "glm-5.3-flash"));
+          .isEqualTo(System.getenv().getOrDefault("FACTORY_HARNESS_MODEL", "claude-sonnet-4-5"));
     });
   }
 
@@ -111,7 +112,7 @@ class ApplicationYamlDefaultsTest {
       Environment env = context.getEnvironment();
       assertThat(env.getProperty("spring.ai.anthropic.base-url"))
           .isEqualTo(System.getenv().getOrDefault("FACTORY_LLM_BASE_URL",
-              "https://api.z.ai/api/anthropic"));
+              "https://api.anthropic.com"));
     });
   }
 

@@ -13,7 +13,7 @@ class HarnessConfigTest {
     assertEquals(40, config.maxSteps());
     assertEquals(3, config.maxFormatErrors());
     assertEquals(30L, config.jobTimeoutMin());
-    assertEquals("glm-5.3-flash", config.modelId());
+    assertEquals("claude-sonnet-4-5", config.modelId());
   }
 
   @Test

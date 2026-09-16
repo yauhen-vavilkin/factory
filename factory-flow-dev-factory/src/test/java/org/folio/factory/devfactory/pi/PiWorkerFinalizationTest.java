@@ -71,7 +71,7 @@ class PiWorkerFinalizationTest {
     payload.put("branch", "task/T"); payload.put("goal", "edit"); payload.putObject("acceptance");
     AgentContext context = new AgentContext(java.util.UUID.randomUUID(), "coding", Map.of(
         "contract.json", new ArtifactContent("contract.json", 1, "application/json",
-            "{\"profile\":{\"imageReference\":\"factory-pi:jdk21\",\"platform\":\"linux/arm64\",\"modelProvider\":\"factory-zai\",\"modelId\":\"glm-5.3-flash\",\"networkPolicy\":{\"execution\":\"GATEWAY_ONLY\"}}}")), payload,
+            "{\"profile\":{\"imageReference\":\"factory-pi:jdk21\",\"platform\":\"linux/arm64\",\"modelProvider\":\"openai-compatible\",\"modelId\":\"factory-coding\",\"networkPolicy\":{\"execution\":\"GATEWAY_ONLY\"}}}")), payload,
         Map.of(), List.of(), 1);
     AgentResult result = new PiWorker("pi-coding-worker", sandboxes, runner, "", "gateway")
         .execute(context);
@@ -155,8 +155,8 @@ class PiWorkerFinalizationTest {
     AgentContext context = new AgentContext(java.util.UUID.randomUUID(), "coding", Map.of(
         "contract.json", new ArtifactContent("contract.json", 1, "application/json",
             "{\"status\":\"READY\",\"profile\":{\"imageReference\":\"factory-pi:jdk21\","
-                + "\"platform\":\"linux/arm64\",\"modelProvider\":\"factory-zai\","
-                + "\"modelId\":\"glm-5.3-flash\",\"networkPolicy\":{\"execution\":\"NONE\"}}}")),
+                + "\"platform\":\"linux/arm64\",\"modelProvider\":\"openai-compatible\","
+                + "\"modelId\":\"factory-coding\",\"networkPolicy\":{\"execution\":\"NONE\"}}}")),
         payload, Map.of(), List.of(), 1);
     RecoveryBundleStore recovery = new RecoveryBundleStore(tempDir.resolve("recovery"));
 

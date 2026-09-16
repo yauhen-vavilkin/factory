@@ -9,9 +9,12 @@ services:
     user: "${FACTORY_GATEWAY_UID:-1000}:${FACTORY_GATEWAY_GID:-1000}"
     environment:
       FACTORY_GATEWAY_MODE: coding
-      FACTORY_UPSTREAM_BASE_URL: ${FACTORY_MODEL_BASE_URL:-https://api.z.ai/api/paas/v4}
+      # Upstream endpoint and model are trusted host configuration; the
+      # sandbox only ever sees the gateway URL and the model alias.
+      FACTORY_UPSTREAM_BASE_URL: ${FACTORY_MODEL_BASE_URL:-}
       FACTORY_UPSTREAM_API_KEY: ${FACTORY_MODEL_API_KEY:-}
-      FACTORY_EXPECTED_MODEL: ${FACTORY_MODEL_ID:-glm-5.3-flash}
+      FACTORY_UPSTREAM_MODEL: ${FACTORY_MODEL_ID:-}
+      FACTORY_MODEL_ALIAS: ${FACTORY_MODEL_ALIAS:-factory-coding}
       FACTORY_RUN_TOKEN: ${FACTORY_MODEL_TOKEN:-}
       FACTORY_EXECUTION_TTL_SECONDS: ${FACTORY_EXECUTION_TTL_SECONDS:-14400}
       FACTORY_MAX_ATTEMPTS: ${FACTORY_MODEL_MAX_ATTEMPTS:-40}

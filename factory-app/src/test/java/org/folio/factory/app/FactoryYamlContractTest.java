@@ -53,7 +53,8 @@ class FactoryYamlContractTest {
         assertEquals(Integer.valueOf(40), harnessProperties.maxSteps());
         assertEquals(Integer.valueOf(3), harnessProperties.maxFormatErrors());
         assertEquals(Long.valueOf(30L), harnessProperties.jobTimeoutMin());
-        assertEquals("glm-5.3-flash", harnessProperties.modelId());
+        assertEquals(System.getenv().getOrDefault("FACTORY_HARNESS_MODEL", "claude-sonnet-4-5"),
+            harnessProperties.modelId());
     }
 
     @Test

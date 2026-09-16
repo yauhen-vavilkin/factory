@@ -206,8 +206,8 @@ class PiWorkerReadinessVerificationTest {
     AgentContext context = new AgentContext(UUID.randomUUID(), "coding", Map.of(
         "contract.json", new ArtifactContent("contract.json", 1, "application/json",
             "{\"status\":\"BLOCKED_ENVIRONMENT\",\"profile\":{\"imageReference\":\"factory-pi:jdk21\","
-                + "\"platform\":\"linux/arm64\",\"modelProvider\":\"factory-zai\","
-                + "\"modelId\":\"glm-5.3-flash\",\"networkPolicy\":{\"execution\":\"GATEWAY_ONLY\"}}}")),
+                + "\"platform\":\"linux/arm64\",\"modelProvider\":\"openai-compatible\","
+                + "\"modelId\":\"factory-coding\",\"networkPolicy\":{\"execution\":\"GATEWAY_ONLY\"}}}")),
         payload, Map.of(), List.of(), 1);
 
     AgentResult result = new PiWorker("pi-coding-worker", sandboxes, runner, "", "gateway")
@@ -274,8 +274,8 @@ class PiWorkerReadinessVerificationTest {
     ObjectNode profile = resolved.putObject("profile");
     profile.put("imageReference", "factory-pi:jdk21");
     profile.put("platform", "linux/arm64");
-    profile.put("modelProvider", "factory-zai");
-    profile.put("modelId", "glm-5.3-flash");
+    profile.put("modelProvider", "openai-compatible");
+    profile.put("modelId", "factory-coding");
     profile.putObject("networkPolicy").put("execution", "GATEWAY_ONLY");
     resolved.set("verificationPlan", json.readTree(planJson));
     return payload;

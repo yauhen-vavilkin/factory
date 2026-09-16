@@ -14,7 +14,7 @@ spring:
   ai:
     anthropic:
       api-key: ${ANTHROPIC_API_KEY:}
-      base-url: ${FACTORY_LLM_BASE_URL:https://api.z.ai/api/anthropic}
+      base-url: ${FACTORY_LLM_BASE_URL:https://api.anthropic.com}
       chat:
         options:
           model: ${FACTORY_LLM_MODEL:claude-sonnet-4-5}
@@ -58,7 +58,7 @@ factory:
     max-steps: 40
     max-format-errors: 3
     job-timeout-min: 30
-    model-id: ${FACTORY_HARNESS_MODEL:glm-5.3-flash}
+    model-id: ${FACTORY_HARNESS_MODEL:claude-sonnet-4-5}
   sandbox:
     mode: ${FACTORY_SANDBOX_MODE:docker}
     image: ${FACTORY_SANDBOX_IMAGE:factory-pi:jdk21}

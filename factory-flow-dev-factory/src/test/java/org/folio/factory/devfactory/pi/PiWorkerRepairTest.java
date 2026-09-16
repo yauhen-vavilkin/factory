@@ -294,8 +294,8 @@ class PiWorkerRepairTest {
 
   private String contract() {
     return "{\"status\":\"READY\",\"profile\":{\"imageReference\":\"factory-pi:jdk21\","
-        + "\"platform\":\"linux/arm64\",\"modelProvider\":\"factory-zai\","
-        + "\"modelId\":\"glm-5.3-flash\",\"networkPolicy\":{\"execution\":\"GATEWAY_ONLY\"}},"
+        + "\"platform\":\"linux/arm64\",\"modelProvider\":\"openai-compatible\","
+        + "\"modelId\":\"factory-coding\",\"networkPolicy\":{\"execution\":\"GATEWAY_ONLY\"}},"
         + "\"resolvedIntent\":{\"verificationPlan\":" + unitPlan() + "}}";
   }
 

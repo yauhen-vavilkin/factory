@@ -3,6 +3,11 @@
 The gateway deliberately has no generic proxy behavior.  It exposes one model
 route and one read-only Maven mirror route, keeps the upstream provider key in
 this container, and writes non-secret request evidence to the mounted run log.
+
+The model route speaks the OpenAI-compatible chat-completions protocol.  The
+sandbox may request only the stable model alias; the gateway rewrites it to the
+upstream model and sends it to the one upstream base URL configured on the host.
+Neither the upstream model nor the upstream URL can be chosen by a request.
 """
 
 from __future__ import annotations
@@ -33,10 +38,7 @@ MAVEN_ROOTS = (
 EXECUTION_TOKEN_PREFIX = "fx1"
 EXECUTION_ID_PATTERN = re.compile(r"^[A-Za-z0-9-]{1,128}$")
 OPERATOR_BUCKET = "operator"
-ALLOWED_UPSTREAM_BASES = frozenset({
-    "https://api.z.ai/api/paas/v4",
-    "https://api.z.ai/api/coding/paas/v4",
-})
+DEFAULT_MODEL_ALIAS = "factory-coding"
 
 
 def env_int(name: str, default: int) -> int:
@@ -58,9 +60,30 @@ def execution_token(run_token: str, execution_id: str) -> str:
 
 
 def trusted_upstream_base(value: str) -> str:
-    normalized = (value or "").rstrip("/")
-    if normalized not in ALLOWED_UPSTREAM_BASES:
-        raise ValueError("upstream base URL is not an approved Z.AI endpoint")
+    """Validate the host-configured upstream base URL (HTTPS, no credentials)."""
+    normalized = (value or "").strip().rstrip("/")
+    if not normalized:
+        raise ValueError("FACTORY_UPSTREAM_BASE_URL is required on the coding gateway")
+    parsed = urllib.parse.urlsplit(normalized)
+    if parsed.scheme != "https":
+        raise ValueError("upstream base URL must use https")
+    if "@" in parsed.netloc or parsed.username is not None or parsed.password is not None:
+        raise ValueError("upstream base URL must not contain credentials")
+    if not parsed.hostname:
+        raise ValueError("upstream base URL must name a host")
+    if parsed.query or parsed.fragment or any(ch.isspace() for ch in normalized):
+        raise ValueError("upstream base URL must not contain a query, fragment, or whitespace")
+    try:
+        parsed.port
+    except ValueError as error:
+        raise ValueError("upstream base URL has an invalid port") from error
+    return normalized
+
+
+def trusted_model_name(name: str, value: str) -> str:
+    normalized = (value or "").strip()
+    if not normalized:
+        raise ValueError(f"{name} is required on the coding gateway")
     return normalized
 
 
@@ -71,10 +94,17 @@ class GatewayState:
             raise ValueError("FACTORY_GATEWAY_MODE must be coding or dependencies")
         self.token = os.environ.get("FACTORY_RUN_TOKEN", "")
         self.api_key = os.environ.get("FACTORY_UPSTREAM_API_KEY", "")
-        self.upstream_base = trusted_upstream_base(os.environ.get(
-            "FACTORY_UPSTREAM_BASE_URL", "https://api.z.ai/api/paas/v4"
-        ))
-        self.expected_model = os.environ.get("FACTORY_EXPECTED_MODEL", "glm-5.3-flash")
+        # Only the coding gateway talks to the model upstream; the dependency
+        # gateway has no upstream configuration at all.
+        self.upstream_base = ""
+        self.model_alias = ""
+        self.upstream_model = ""
+        if self.mode == "coding":
+            self.upstream_base = trusted_upstream_base(os.environ.get("FACTORY_UPSTREAM_BASE_URL", ""))
+            self.model_alias = trusted_model_name(
+                "FACTORY_MODEL_ALIAS", os.environ.get("FACTORY_MODEL_ALIAS", DEFAULT_MODEL_ALIAS))
+            self.upstream_model = trusted_model_name(
+                "FACTORY_UPSTREAM_MODEL", os.environ.get("FACTORY_UPSTREAM_MODEL", ""))
         # Attempt budget and lifetime apply per Developer Flow execution: each
         # execution's budget starts with its own first model call, independent
         # of other executions and of how long the gateway process has run.
@@ -298,8 +328,8 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as error:
             self.send_json(400, {"error": str(error)})
             return
-        if payload.get("model") != STATE.expected_model:
-            self.send_json(400, {"error": "requested model is not the configured model"})
+        if payload.get("model") != STATE.model_alias:
+            self.send_json(400, {"error": "requested model is not the configured model alias"})
             return
         if not STATE.api_key:
             self.send_json(503, {"error": "provider key is not configured in the gateway"})
@@ -320,7 +350,11 @@ class Handler(BaseHTTPRequestHandler):
         started = time.time()
         entry = summarize_request(payload, request_id)
         entry.update({"kind": "model", "execution": bucket, "startedAt": started,
-                      "requestSent": False})
+                      "upstreamModel": STATE.upstream_model, "requestSent": False})
+        # The alias is the only model a request may name; the upstream model
+        # and URL always come from the gateway's own configuration.
+        payload["model"] = STATE.upstream_model
+        upstream_body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         status = 502
         response_body = bytearray()
         response_bytes = 0
@@ -330,7 +364,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             request = urllib.request.Request(
                 STATE.upstream_base + "/chat/completions",
-                data=raw,
+                data=upstream_body,
                 method="POST",
                 headers={
                     "Authorization": "Bearer " + STATE.api_key,

@@ -123,7 +123,7 @@ class SpringAiChatModelAdapterTest {
     assertEquals("<project/>", replayedResult.getResponses().get(0).responseData());
     assertTrue(prompt.getOptions() instanceof AnthropicChatOptions);
     AnthropicChatOptions options = (AnthropicChatOptions) prompt.getOptions();
-    assertEquals("glm-5.3-flash", options.getModel());
+    assertEquals("claude-sonnet-4-5", options.getModel());
     assertEquals(8192, options.getMaxTokens().intValue());
     assertEquals(1, options.getToolCallbacks().size());
     assertSame(toolCallback, options.getToolCallbacks().get(0));

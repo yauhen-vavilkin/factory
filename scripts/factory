@@ -49,22 +49,23 @@ load_config() {
   : "${FACTORY_POSTGRES_PORT:=55432}"
   : "${FACTORY_APP_PORT:=18080}"
   : "${FACTORY_GATEWAY_PORT:=18081}"
-  : "${FACTORY_MODEL_PROVIDER:=factory-zai}"
-  : "${FACTORY_MODEL_BASE_URL:=https://api.z.ai/api/paas/v4}"
-  : "${FACTORY_MODEL_ID:=glm-5.3-flash}"
+  # The coding sandbox sees only the generic protocol and the model alias.
+  # FACTORY_MODEL_BASE_URL and FACTORY_MODEL_ID name the real upstream and stay
+  # on the host and in the coding gateway; they have no built-in defaults.
+  : "${FACTORY_MODEL_PROVIDER:=openai-compatible}"
+  : "${FACTORY_MODEL_ALIAS:=factory-coding}"
+  : "${FACTORY_MODEL_BASE_URL:=}"
+  : "${FACTORY_MODEL_ID:=}"
   : "${FACTORY_MODEL_THINKING:=high}"
   : "${FACTORY_MODEL_CONTEXT_TOKENS:=65536}"
   : "${FACTORY_MODEL_MAX_OUTPUT_TOKENS:=16384}"
   : "${FACTORY_ALLOW_UNPRICED:=true}"
-  if [[ -z "${FACTORY_MODEL_API_KEY:-}" && -n "${GLM_API_KEY:-}" ]]; then
-    FACTORY_MODEL_API_KEY="$GLM_API_KEY"
-  fi
   # This is a Factory-owned per-run credential.  Always use the current
   # protected file so a stale caller environment cannot keep doctor or
   # teardown pointed at a revoked token after rotation.
   FACTORY_MODEL_TOKEN=$(<"$MODEL_TOKEN_FILE")
   export FACTORY_POSTGRES_PORT FACTORY_APP_PORT FACTORY_GATEWAY_PORT
-  export FACTORY_MODEL_PROVIDER FACTORY_MODEL_BASE_URL FACTORY_MODEL_ID
+  export FACTORY_MODEL_PROVIDER FACTORY_MODEL_ALIAS FACTORY_MODEL_BASE_URL FACTORY_MODEL_ID
   export FACTORY_MODEL_THINKING FACTORY_MODEL_CONTEXT_TOKENS FACTORY_MODEL_MAX_OUTPUT_TOKENS FACTORY_ALLOW_UNPRICED
   export FACTORY_MODEL_API_KEY FACTORY_MODEL_TOKEN
   export DOCKER_CONFIG="${DOCKER_CONFIG:-$STATE_DIR/cache/docker-config}"
@@ -201,19 +202,33 @@ doctor_offline() {
 effective_config() {
   local key_state=missing
   [[ -n "${FACTORY_MODEL_API_KEY:-}" ]] && key_state=configured
-  echo "Effective Pi config: provider=$FACTORY_MODEL_PROVIDER model=$FACTORY_MODEL_ID thinking=$FACTORY_MODEL_THINKING"
+  echo "Effective Pi config: provider=$FACTORY_MODEL_PROVIDER model=$FACTORY_MODEL_ALIAS thinking=$FACTORY_MODEL_THINKING"
   echo "Effective Pi limits: context=${FACTORY_MODEL_CONTEXT_TOKENS:-65536} max_output=$FACTORY_MODEL_MAX_OUTPUT_TOKENS allow_unpriced=$FACTORY_ALLOW_UNPRICED"
-  echo "Effective upstream: base_url=$FACTORY_MODEL_BASE_URL api_key=$key_state gateway=http://127.0.0.1:${FACTORY_GATEWAY_PORT}"
+  echo "Effective upstream (gateway only): base_url=$FACTORY_MODEL_BASE_URL model=$FACTORY_MODEL_ID api_key=$key_state gateway=http://127.0.0.1:${FACTORY_GATEWAY_PORT}"
   if [[ -n "${FACTORY_LLM_BASE_URL:-}" || -n "${FACTORY_LLM_MODEL:-}" ]]; then
     echo "Inactive legacy settings detected: FACTORY_LLM_* are not used by Pi mode"
   fi
 }
 
+# The sandbox-facing identifiers are fixed by the Pi image and the trusted
+# profile catalog; the upstream URL and model are host-only trusted values.
+require_trusted_model_config() {
+  [[ "$FACTORY_MODEL_PROVIDER" == openai-compatible ]] ||
+    fail "FACTORY_MODEL_PROVIDER must be openai-compatible"
+  [[ "$FACTORY_MODEL_ALIAS" == factory-coding ]] ||
+    fail "FACTORY_MODEL_ALIAS must be factory-coding"
+  [[ -n "$FACTORY_MODEL_ID" && "$FACTORY_MODEL_ID" != *[[:space:]]* ]] ||
+    fail "FACTORY_MODEL_ID (the upstream model) must be set in .env; no provider request was made"
+  [[ "$FACTORY_MODEL_BASE_URL" =~ ^https://[^/@[:space:]?#]+(/[^@[:space:]?#]*)?$ ]] ||
+    fail "FACTORY_MODEL_BASE_URL must be an https URL without credentials, query, or fragment; no provider request was made"
+}
+
 doctor_live() {
   load_config
   [[ -n "${FACTORY_MODEL_API_KEY:-}" ]] ||
-    fail "live preflight requires FACTORY_MODEL_API_KEY or GLM_API_KEY; no provider request was made"
+    fail "live preflight requires FACTORY_MODEL_API_KEY; no provider request was made"
   [[ -n "${FACTORY_MODEL_TOKEN:-}" ]] || fail "Pi run token is missing; run ./scripts/factory init"
+  require_trusted_model_config
   effective_config
   local gateway="http://127.0.0.1:${FACTORY_GATEWAY_PORT}"
   curl -fsS "$gateway/health" >/dev/null ||
@@ -222,17 +237,17 @@ doctor_live() {
   stamp=$(date -u +%Y%m%dT%H%M%SZ)
   out="$STATE_DIR/logs/runs/preflight-${stamp}.jsonl"
   : > "$out"
-  text_request=$(python3 - "$FACTORY_MODEL_ID" <<'PY'
+  text_request=$(python3 - "$FACTORY_MODEL_ALIAS" <<'PY'
 import json, sys
 print(json.dumps({"model": sys.argv[1], "messages": [{"role": "user", "content": "Reply with exactly READY."}], "max_tokens": 64, "stream": False}))
 PY
 )
-  tool_request=$(python3 - "$FACTORY_MODEL_ID" <<'PY'
+  tool_request=$(python3 - "$FACTORY_MODEL_ALIAS" <<'PY'
 import json, sys
 print(json.dumps({"model": sys.argv[1], "messages": [{"role": "user", "content": "Use the probe tool once."}], "tools": [{"type": "function", "function": {"name": "probe", "description": "Return a fixed readiness value", "parameters": {"type": "object", "properties": {}}}}], "tool_choice": {"type": "function", "function": {"name": "probe"}}, "max_tokens": 128, "stream": False}))
 PY
 )
-  final_request=$(python3 - "$FACTORY_MODEL_ID" <<'PY'
+  final_request=$(python3 - "$FACTORY_MODEL_ALIAS" <<'PY'
 import json, sys
 print(json.dumps({"model": sys.argv[1], "messages": [{"role": "user", "content": "Use the probe tool once."}, {"role": "assistant", "tool_calls": [{"id": "preflight-probe", "type": "function", "function": {"name": "probe", "arguments": "{}"}}]}, {"role": "tool", "tool_call_id": "preflight-probe", "content": "READY"}, {"role": "user", "content": "Now reply with exactly READY."}], "max_tokens": 128, "stream": False}))
 PY
@@ -345,16 +360,9 @@ start_factory() {
   elif [[ "$mode" == live && -z "${ANTHROPIC_API_KEY:-}" ]]; then
     fail "live mode requires ANTHROPIC_API_KEY; no provider request was made"
   elif [[ "$mode" == pi && -z "${FACTORY_MODEL_API_KEY:-}" ]]; then
-    fail "pi mode requires FACTORY_MODEL_API_KEY or GLM_API_KEY; no provider request was made"
+    fail "pi mode requires FACTORY_MODEL_API_KEY; no provider request was made"
   elif [[ "$mode" == pi ]]; then
-    [[ "$FACTORY_MODEL_PROVIDER" == factory-zai ]] ||
-      fail "pi mode only permits the trusted provider factory-zai"
-    # Trusted z.ai models on the coding endpoint: glm-5.3-flash (default)
-    # and glm-5.3 (dataset v3 upgrade for Medium/High, 2026-09-12).
-    case "$FACTORY_MODEL_ID" in
-      glm-5.3|glm-5.3-flash) ;;
-      *) fail "pi mode only permits trusted models glm-5.3 / glm-5.3-flash" ;;
-    esac
+    require_trusted_model_config
     guard_legacy_pgdata
     rotate_model_token
     # The coding gateway budgets and times out each Developer Flow execution
@@ -532,7 +540,7 @@ EOF
     -e GIT_AUTHOR_DATE="$fixed_git_date" -e GIT_COMMITTER_DATE="$fixed_git_date" \
     factory-pi:jdk21 --mode rpc --no-approve --no-extensions --no-skills \
     --no-prompt-templates --no-themes --no-context-files --tools read,bash,edit,write,grep,find,ls \
-    --provider factory-zai --model glm-5.3-flash --session-dir /state/pi/sessions > "$raw" 2> "$STATE_DIR/logs/validation/pi-stderr.log"
+    --provider openai-compatible --model factory-coding --session-dir /state/pi/sessions > "$raw" 2> "$STATE_DIR/logs/validation/pi-stderr.log"
   docker rm -f "$gateway" >/dev/null 2>&1 || true
   grep -q '"command":"get_state"' "$raw" || fail "Pi did not return a correlated get_state response"
   grep -q '"command":"prompt"' "$raw" || fail "Pi did not acknowledge a prompt"
