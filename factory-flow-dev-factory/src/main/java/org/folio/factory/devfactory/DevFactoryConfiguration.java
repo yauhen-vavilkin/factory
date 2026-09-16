@@ -1,7 +1,20 @@
 package org.folio.factory.devfactory;
 
 import org.folio.factory.agents.artifact.FrontmatterCodec;
-import org.folio.factory.devfactory.worker.DevSmokeWorker;
+import org.folio.factory.connectors.jira.JiraConnector;
+import org.folio.factory.core.engine.HitlGateOpener;
+import org.folio.factory.core.registry.FlowRegistry;
+import org.folio.factory.core.repository.HitlReviewRepository;
+import org.folio.factory.core.service.StateManager;
+import org.folio.factory.devfactory.decision.ConditionalDecisionGate;
+import org.folio.factory.devfactory.decision.DevArtifactAmendmentValidator;
+import org.folio.factory.devfactory.repository.BaseRefResolver;
+import org.folio.factory.devfactory.repository.GitBaseRefResolver;
+import org.folio.factory.devfactory.repository.RepositoryPolicy;
+import org.folio.factory.devfactory.worker.DecisionGateWorker;
+import org.folio.factory.devfactory.worker.IntakeResolveWorker;
+import org.folio.factory.devfactory.worker.IntakeWorker;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -10,10 +23,43 @@ import org.springframework.context.annotation.Configuration;
  * this class only assembles the worker beans the descriptor references.
  */
 @Configuration
+@EnableConfigurationProperties(DevFactoryProperties.class)
 public class DevFactoryConfiguration {
 
     @Bean
-    public DevSmokeWorker devSmokeWorker(FrontmatterCodec frontmatterCodec) {
-        return new DevSmokeWorker(frontmatterCodec);
+    public RepositoryPolicy devRepositoryPolicy(DevFactoryProperties properties) {
+        return new RepositoryPolicy(properties);
+    }
+
+    @Bean
+    public BaseRefResolver devBaseRefResolver(DevFactoryProperties properties) {
+        return new GitBaseRefResolver(properties.gitBaseUrl());
+    }
+
+    @Bean
+    public ConditionalDecisionGate devConditionalDecisionGate(StateManager stateManager, FlowRegistry flowRegistry,
+                                                              HitlGateOpener gateOpener, HitlReviewRepository reviews) {
+        return new ConditionalDecisionGate(stateManager, flowRegistry, gateOpener, reviews);
+    }
+
+    @Bean
+    public DevArtifactAmendmentValidator devArtifactAmendmentValidator(FrontmatterCodec codec, RepositoryPolicy policy) {
+        return new DevArtifactAmendmentValidator(codec, policy);
+    }
+
+    @Bean
+    public IntakeWorker devIntakeWorker(JiraConnector jiraConnector, RepositoryPolicy policy, FrontmatterCodec codec) {
+        return new IntakeWorker(jiraConnector, policy, codec);
+    }
+
+    @Bean
+    public DecisionGateWorker devDecisionGateWorker(ConditionalDecisionGate gate, FrontmatterCodec codec) {
+        return new DecisionGateWorker(gate, codec);
+    }
+
+    @Bean
+    public IntakeResolveWorker devIntakeResolveWorker(RepositoryPolicy policy, BaseRefResolver baseRefResolver,
+                                                      FrontmatterCodec codec) {
+        return new IntakeResolveWorker(policy, baseRefResolver, codec);
     }
 }

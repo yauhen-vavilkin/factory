@@ -1,6 +1,7 @@
 package org.folio.factory.connectors.jira;
 
 import org.folio.factory.connectors.ConnectorHealth;
+import org.folio.factory.connectors.ConnectorNotConfiguredException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
@@ -12,19 +13,23 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Jira REST API v2 client (works with both Data Center and Cloud).
+ * Jira REST API v2 client (works with both Data Center and Cloud). Without
+ * email/token it reads public issues anonymously and refuses every write.
  */
 public class JiraRestConnector implements JiraConnector, ConnectorHealth {
 
     private final RestClient restClient;
+    private final boolean authenticated;
 
     public JiraRestConnector(JiraProperties properties, RestClient.Builder builder) {
-        this.restClient = builder
-                .baseUrl(properties.baseUrl())
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Basic " + HttpHeaders.encodeBasicAuth(
-                        properties.email(), properties.apiToken(), StandardCharsets.UTF_8))
-                .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE)
-                .build();
+        this.authenticated = properties.isConfigured();
+        builder.baseUrl(properties.baseUrl())
+                .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
+        if (authenticated) {
+            builder.defaultHeader(HttpHeaders.AUTHORIZATION, "Basic " + HttpHeaders.encodeBasicAuth(
+                    properties.email(), properties.apiToken(), StandardCharsets.UTF_8));
+        }
+        this.restClient = builder.build();
     }
 
     @Override
@@ -49,6 +54,7 @@ public class JiraRestConnector implements JiraConnector, ConnectorHealth {
 
     @Override
     public void addComment(String issueKey, String body) {
+        requireWriteAccess();
         restClient.post()
                 .uri("/rest/api/2/issue/{key}/comment", issueKey)
                 .contentType(MediaType.APPLICATION_JSON)
@@ -59,6 +65,7 @@ public class JiraRestConnector implements JiraConnector, ConnectorHealth {
 
     @Override
     public void transitionIssue(String issueKey, String transitionName) {
+        requireWriteAccess();
         JsonNode transitions = restClient.get()
                 .uri("/rest/api/2/issue/{key}/transitions", issueKey)
                 .retrieve()
@@ -82,6 +89,13 @@ public class JiraRestConnector implements JiraConnector, ConnectorHealth {
                 .toBodilessEntity();
     }
 
+    private void requireWriteAccess() {
+        if (!authenticated) {
+            throw new ConnectorNotConfiguredException("Jira connector is read-only: set "
+                    + "FACTORY_CONNECTORS_JIRA_EMAIL and FACTORY_CONNECTORS_JIRA_API_TOKEN to enable writes");
+        }
+    }
+
     @Override
     public String connectorName() {
         return "jira";
@@ -89,6 +103,6 @@ public class JiraRestConnector implements JiraConnector, ConnectorHealth {
 
     @Override
     public boolean isConfigured() {
-        return true;
+        return authenticated;
     }
 }

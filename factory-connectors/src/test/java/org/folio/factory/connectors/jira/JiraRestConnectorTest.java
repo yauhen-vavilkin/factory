@@ -1,5 +1,6 @@
 package org.folio.factory.connectors.jira;
 
+import org.folio.factory.connectors.ConnectorNotConfiguredException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -10,6 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -114,5 +116,26 @@ class JiraRestConnectorTest {
 
         connector.addComment("ERM-42", "Test factory finished");
         server.verify();
+    }
+
+    @Test
+    void baseUrlOnlyReadsAnonymouslyAndRefusesWrites() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer anonymousServer = MockRestServiceServer.bindTo(builder).build();
+        JiraRestConnector anonymous = new JiraRestConnector(
+                new JiraProperties("https://jira.example.org", null, null), builder);
+        anonymousServer.expect(requestTo("https://jira.example.org/rest/api/2/issue/ERM-42"))
+                .andExpect(method(GET))
+                .andExpect(headerDoesNotExist("Authorization"))
+                .andRespond(withSuccess("{\"key\": \"ERM-42\", \"fields\": {\"summary\": \"Public\"}}",
+                        MediaType.APPLICATION_JSON));
+
+        assertThat(anonymous.getIssue("ERM-42").summary()).isEqualTo("Public");
+        assertThat(anonymous.isConfigured()).isFalse();
+        assertThatThrownBy(() -> anonymous.addComment("ERM-42", "x"))
+                .isInstanceOf(ConnectorNotConfiguredException.class);
+        assertThatThrownBy(() -> anonymous.transitionIssue("ERM-42", "Done"))
+                .isInstanceOf(ConnectorNotConfiguredException.class);
+        anonymousServer.verify();
     }
 }

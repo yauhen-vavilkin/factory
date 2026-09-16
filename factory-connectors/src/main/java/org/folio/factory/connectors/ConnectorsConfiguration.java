@@ -25,7 +25,7 @@ public class ConnectorsConfiguration {
 
     @Bean
     public JiraConnector jiraConnector(JiraProperties properties, RestClient.Builder builder) {
-        return properties.isConfigured()
+        return properties.isReadable()
                 ? new JiraRestConnector(properties, builder.clone())
                 : new UnconfiguredConnectors.Jira();
     }

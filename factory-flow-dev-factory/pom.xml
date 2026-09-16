@@ -19,5 +19,9 @@
       <groupId>org.folio.factory</groupId>
       <artifactId>factory-agents</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.folio.factory</groupId>
+      <artifactId>factory-connectors</artifactId>
+    </dependency>
   </dependencies>
 </project>

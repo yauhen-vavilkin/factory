@@ -15,6 +15,8 @@ class JiraPropertiesTest {
     void baseUrlAloneIsNotConfigured() {
         assertThat(new JiraProperties("https://jira", "", "").isConfigured()).isFalse();
         assertThat(new JiraProperties("https://jira", null, null).isConfigured()).isFalse();
+        assertThat(new JiraProperties("https://jira", null, null).isReadable()).isTrue();
+        assertThat(new JiraProperties(" ", null, null).isReadable()).isFalse();
     }
 
     @Test
