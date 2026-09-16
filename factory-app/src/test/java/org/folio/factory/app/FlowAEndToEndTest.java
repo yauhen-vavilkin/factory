@@ -125,7 +125,7 @@ class FlowAEndToEndTest {
         gitHub.resetAll();
         testRail.resetAll();
 
-        jira.stubFor(get(urlEqualTo("/rest/api/2/issue/ERM-1001")).willReturn(aResponse()
+        jira.stubFor(get(urlEqualTo("/rest/api/2/issue/ERM-1001?expand=changelog")).willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
                 .withBody("""
                         {"key": "ERM-1001",
@@ -249,7 +249,7 @@ class FlowAEndToEndTest {
                 AuditEventType.EXECUTION_COMPLETED);
 
         // 7. External systems really were called.
-        jira.verify(getRequestedFor(urlEqualTo("/rest/api/2/issue/ERM-1001")));
+        jira.verify(getRequestedFor(urlEqualTo("/rest/api/2/issue/ERM-1001?expand=changelog")));
         jira.verify(postRequestedFor(urlEqualTo("/rest/api/2/issue/ERM-1001/comment")));
         jira.verify(postRequestedFor(urlEqualTo("/rest/api/2/issue/ERM-1001/transitions")));
         gitHub.verify(postRequestedFor(urlEqualTo("/repos/folio-org/mod-agreements/git/refs")));

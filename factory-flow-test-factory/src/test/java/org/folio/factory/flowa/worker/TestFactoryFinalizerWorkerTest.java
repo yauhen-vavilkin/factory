@@ -18,6 +18,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
+import tools.jackson.databind.JsonNode;
 
 import java.util.List;
 import java.util.Map;
@@ -77,6 +78,21 @@ class TestFactoryFinalizerWorkerTest {
 
         @Override
         public JiraIssue getIssue(String issueKey) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public JsonNode getComments(String issueKey, int limit) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public JiraIssue getLinkedIssue(String issueKey) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public JsonNode getFields() {
             throw new UnsupportedOperationException();
         }
 

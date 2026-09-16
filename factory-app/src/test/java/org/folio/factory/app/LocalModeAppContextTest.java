@@ -1,10 +1,13 @@
 package org.folio.factory.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.github.dockerjava.api.DockerClient;
 import org.folio.factory.app.OfflineLlmConfiguration.OfflineScriptedChatModel;
 import org.folio.factory.connectors.ConnectorHealth;
+import org.folio.factory.connectors.jira.JiraConnector;
+import org.folio.factory.connectors.jira.JiraWriteGuard;
 import org.folio.factory.sandbox.api.SandboxService;
 import org.folio.factory.sandbox.core.DockerSandboxService;
 import org.folio.factory.sandbox.tools.ApplyPatchTool;
@@ -22,6 +25,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.util.Map;
+import java.util.stream.Collectors;
 
 @SpringBootTest(properties = {"factory.engine.enabled=false",
         "factory.connectors.jira.base-url=https://jira.invalid",
@@ -53,7 +59,22 @@ class LocalModeAppContextTest {
         assertThat(context.getBeansOfType(DockerClient.class)).hasSize(1);
         assertThat(context.getBeansOfType(OfflineScriptedChatModel.class)).hasSize(1);
         assertThat(context.getBean(OfflineScriptedChatModel.class).callCount()).isZero();
-        assertThat(context.getBeansOfType(ConnectorHealth.class).values())
-                .allMatch(connector -> !connector.isConfigured());
+        // External writes are disabled: Jira keeps read access configured (base
+        // URL is enough) but only behind the write guard; GitHub and TestRail,
+        // whose whole purpose is writing, stay unconfigured.
+        Map<String, Boolean> configured = context.getBeansOfType(ConnectorHealth.class).values().stream()
+                .collect(Collectors.toMap(ConnectorHealth::connectorName,
+                        ConnectorHealth::isConfigured, (a, b) -> a));
+        assertThat(configured)
+                .containsEntry("jira", true)
+                .containsEntry("github", false)
+                .containsEntry("testrail", false);
+        ConnectorHealth jira = context.getBeansOfType(ConnectorHealth.class).values().stream()
+                .filter(connector -> "jira".equals(connector.connectorName()))
+                .findFirst().orElseThrow();
+        assertThat(jira).isInstanceOf(JiraWriteGuard.class);
+        assertThatThrownBy(() -> ((JiraConnector) jira).addComment("ERM-0", "must not write"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(JiraWriteGuard.WRITES_DISABLED_MESSAGE);
     }
 }
