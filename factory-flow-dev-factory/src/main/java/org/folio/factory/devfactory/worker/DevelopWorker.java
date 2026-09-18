@@ -23,11 +23,18 @@ public class DevelopWorker implements AgentWorker {
     private final CandidateFreezer freezer;
     private final CodingRuntime coding;
     private final FrontmatterCodec codec;
+    private final org.folio.factory.core.service.AuditLog audit;
     private final JsonMapper json = JsonMapper.builder().build();
     public DevelopWorker(DevFactoryProperties properties, DevRuntimeProperties runtime, DockerWorkloads docker,
                          CandidateFreezer freezer, CodingRuntime coding, FrontmatterCodec codec) {
+        this(properties, runtime, docker, freezer, coding, codec, null);
+    }
+    public DevelopWorker(DevFactoryProperties properties, DevRuntimeProperties runtime, DockerWorkloads docker,
+                         CandidateFreezer freezer, CodingRuntime coding, FrontmatterCodec codec,
+                         org.folio.factory.core.service.AuditLog audit) {
         this.properties = properties; this.runtime = runtime; this.docker = docker;
         this.freezer = freezer; this.coding = coding; this.codec = codec;
+        this.audit = audit;
     }
     @Override public String id() { return "dev-develop"; }
     @Override public AgentResult execute(AgentContext context) {
@@ -43,39 +50,59 @@ public class DevelopWorker implements AgentWorker {
         Path pristine = null;
         Path exported = null;
         Map<String, Object> readiness = Map.of();
+        Map<String, Object> metrics = Map.of();
         try {
             var command = runtime.command(repo.verificationPlan());
+            progress(context, Map.of("activity", "baseline_started", "command", String.join(" ", command), "image", repo.buildImage()));
             pristine = freezer.checkout(url, base);
             try (var baseline = docker.create(repo.buildImage(), pristine)) {
                 var result = baseline.execute(command, runtime.timeoutSeconds());
                 readiness = Map.of("state", result.exitCode() == 0 ? "BASELINE_PASSED" : "BASELINE_FAILED",
                         "baseSha", base, "image", repo.buildImage(), "plan", repo.verificationPlan(),
                         "command", command, "exitCode", result.exitCode(), "output", tail(result.output()));
+                progress(context, Map.of("activity", "baseline_completed", "exitCode", result.exitCode()));
                 if (result.exitCode() != 0) return blocked("BLOCKED_ENVIRONMENT", "Pinned baseline failed before model spend", readiness);
             }
             runtime.coding().requireConfigured();
             exported = CandidateFreezer.temporary("factory-dev-export-");
             try (var workload = docker.create(runtime.coding().image(), pristine)) {
-                coding.code(workload, "Implement this task in /workspace. Inspect, understand, plan, edit, run targeted checks, debug and self-review. "
+                progress(context, Map.of("activity", "pi_starting", "image", runtime.coding().image(),
+                        "provider", runtime.coding().provider(), "model", runtime.coding().model()));
+                var codingResult = coding.code(workload, "Implement this task in /workspace. Inspect, understand, plan, edit, run targeted checks, debug and self-review. "
                         + "Keep changes focused. Do not push or access Jira/GitHub writes. Do not alter .git or generate final verification receipts. "
                         + "Trusted intake has already approved this task for implementation; its Jira status is not an unresolved requirement. "
                         + "For this first demo, do not add or run integration checks that require nested Docker/Testcontainers; add focused unit coverage where useful. "
                         + "If a material requirement is unresolved, stop and return FACTORY_DECISION_REQUIRED with one concrete question and 2-4 options. "
-                        + "Your self-checks are diagnostic; Factory independently verifies the final frozen tree.\n\n" + task, runtime.timeoutSeconds());
+                        + "Your self-checks are diagnostic; Factory independently verifies the final frozen tree.\n\n" + task,
+                        runtime.timeoutSeconds(), event -> progress(context, event));
+                metrics = codingResult.metrics();
                 workload.stop();
                 workload.export(exported);
             }
             var candidate = freezer.freeze(key, url, base, exported);
-            return new AgentResult(Map.of(CANDIDATE, json.writeValueAsString(candidate), READINESS, json.writeValueAsString(readiness)), Map.of());
+            return new AgentResult(Map.of(CANDIDATE, json.writeValueAsString(candidate), READINESS, json.writeValueAsString(readiness)), metrics);
         } catch (RuntimeException e) {
             String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             String secret = runtime.coding().apiKey();
             if (secret != null && !secret.isBlank()) reason = reason.replace(secret, "[REDACTED]");
-            return blocked("DEVELOPMENT_FAILED", "Development stopped: " + reason.substring(0, Math.min(2000, reason.length())), readiness);
+            return new AgentResult(blocked("DEVELOPMENT_FAILED", "Development stopped: " + reason.substring(0, Math.min(2000, reason.length())), readiness).outputs(), metrics);
         } finally {
             CandidateFreezer.cleanup(pristine);
             CandidateFreezer.cleanup(exported);
         }
+    }
+    private void progress(AgentContext context, Map<String, Object> event) {
+        if (audit == null) return;
+        Map<String, Object> safe = new java.util.LinkedHashMap<>();
+        event.forEach((key, value) -> {
+            if (value instanceof String text) {
+                String secret = runtime.coding().apiKey();
+                if (secret != null && !secret.isBlank()) text = text.replace(secret, "[REDACTED]");
+                safe.put(key, text.substring(0, Math.min(240, text.length())));
+            } else safe.put(key, value);
+        });
+        try { audit.record(context.executionId(), org.folio.factory.core.domain.AuditEventType.RUNTIME_PROGRESS, context.stepId(), safe); }
+        catch (RuntimeException ignored) { /* Progress does not authorize or reject a candidate. */ }
     }
     private AgentResult blocked(String state, String reason, Map<String, Object> readiness) {
         return new AgentResult(Map.of(CANDIDATE, json.writeValueAsString(Map.of("state", state, "reason", reason)),

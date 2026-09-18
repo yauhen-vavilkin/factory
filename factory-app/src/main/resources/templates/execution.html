@@ -5,8 +5,8 @@
 <section class="page-body">
     <div class="page-header"
          th:attr="data-poll-url=${pollUrl},
-                  data-poll-fields=${pollUrl != null} ? 'execution.status,execution.currentStepIndex' : null,
-                  data-poll-baseline=${pollUrl != null} ? (${execution.status} + ',' + ${execution.currentStepIndex}) : null">
+                  data-poll-fields=${pollUrl != null} ? 'execution.status,execution.currentStepIndex,auditTrail.length,artifacts.length' : null,
+                  data-poll-baseline=${pollUrl != null} ? (${execution.status} + ',' + ${execution.currentStepIndex} + ',' + ${auditCount} + ',' + ${artifactCount}) : null">
         <h1 th:text="'Execution ' + ${#strings.abbreviate(execution.id.toString(), 13)}">Execution</h1>
         <div class="page-header-meta">
             <span th:text="${execution.flowId + ' v' + execution.flowVersion}">flow</span>
@@ -27,6 +27,25 @@
     </div>
 
     <div class="stack">
+        <section class="card" th:if="${developer != null}">
+            <div class="card-header"><h2 class="card-title">Developer Flow</h2>
+                <p>Elapsed: <span th:attr="data-elapsed-start=${developer['elapsedStart']}" th:text="${developer['elapsed']}"></span></p>
+            </div>
+            <div class="card-content">
+                <div class="alert alert-error" role="alert" th:if="${!#strings.isEmpty(developer['reason'])}"
+                     th:text="'Stop reason: ' + ${developer['reason']}"></div>
+                <div class="developer-facts">
+                    <dl th:each="field : ${developer['fields']}">
+                        <dt th:text="${field['label']}"></dt><dd th:text="${field['value']}"></dd>
+                    </dl>
+                </div>
+                <a th:if="${!#strings.isEmpty(developer['pullRequestUrl'])}" th:href="${developer['pullRequestUrl']}">Open pull request</a>
+                <h3 class="card-title">Recent runtime activity</h3>
+                <p th:if="${#lists.isEmpty(developer['activity'])}">No runtime activity yet.</p>
+                <ul><li th:each="activity : ${developer['activity']}"
+                        th:text="${activity['time']} + ' · ' + ${activity['text']}"></li></ul>
+            </div>
+        </section>
         <section th:unless="${#lists.isEmpty(steps)}">
             <div class="page-header">
                 <h2 class="card-title">Progress</h2>
@@ -36,6 +55,7 @@
                 </p>
             </div>
             <ol th:replace="~{fragments/components :: stepper(${steps})}"></ol>
+            <p th:if="${reportedCost != null}" th:text="'Pi-reported cost: $' + ${reportedCost} + ' USD'"></p>
         </section>
 
         <section th:unless="${#lists.isEmpty(children)}">

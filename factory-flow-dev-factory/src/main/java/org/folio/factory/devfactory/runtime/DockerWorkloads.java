@@ -52,10 +52,14 @@ public class DockerWorkloads {
             return execute(argv, timeout, Processes.OUTPUT_LIMIT);
         }
         public Processes.Result execute(List<String> argv, int timeout, int outputLimit) {
+            return execute(argv, timeout, outputLimit, null);
+        }
+        public Processes.Result execute(List<String> argv, int timeout, int outputLimit,
+                                        java.util.function.Consumer<String> stdoutLine) {
             if (stopped) throw new IllegalStateException("Workload is stopped");
             var command = new ArrayList<>(List.of("docker", "exec", "--workdir", "/workspace", name));
             command.addAll(argv);
-            return Processes.run(null, command, timeout, java.util.Map.of(), outputLimit);
+            return Processes.run(null, command, timeout, java.util.Map.of(), outputLimit, stdoutLine);
         }
         public void stop() {
             if (!stopped) Processes.run(null, List.of("docker", "stop", "--time", "2", name), 30).requireSuccess();

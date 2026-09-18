@@ -560,6 +560,10 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 }
 .def-list dt { color: hsl(var(--muted-foreground)); }
 .def-list dd { margin: 0; font-variant-numeric: tabular-nums; }
+.developer-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: 1rem; margin-bottom: 1rem; }
+.developer-facts dl { margin: 0; min-width: 0; }
+.developer-facts dt { color: hsl(var(--muted-foreground)); font-size: 0.8125rem; }
+.developer-facts dd { margin: 0.25rem 0 0; overflow-wrap: anywhere; }
 
 /* ---------- card grid ---------- */
 .card-grid {

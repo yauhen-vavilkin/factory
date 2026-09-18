@@ -40,6 +40,10 @@ public final class Processes {
     }
     public static Result run(Path directory, List<String> argv, int seconds, Map<String, String> extraEnvironment,
                              int outputLimit) {
+        return run(directory, argv, seconds, extraEnvironment, outputLimit, null);
+    }
+    public static Result run(Path directory, List<String> argv, int seconds, Map<String, String> extraEnvironment,
+                             int outputLimit, java.util.function.Consumer<String> stdoutLine) {
         if (outputLimit < 1) throw new IllegalArgumentException("Output limit must be positive");
         try {
             var builder = new ProcessBuilder(argv);
@@ -58,8 +62,8 @@ public final class Processes {
             var stderr = new ByteArrayOutputStream();
             var total = new AtomicInteger();
             var overflow = new AtomicBoolean();
-            Thread stdoutReader = reader(process, process.getInputStream(), stdout, outputLimit, total, overflow);
-            Thread stderrReader = reader(process, process.getErrorStream(), stderr, outputLimit, total, overflow);
+            Thread stdoutReader = reader(process, process.getInputStream(), stdout, outputLimit, total, overflow, stdoutLine);
+            Thread stderrReader = reader(process, process.getErrorStream(), stderr, outputLimit, total, overflow, null);
             if (!process.waitFor(seconds, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
                 process.waitFor(5, TimeUnit.SECONDS);
@@ -79,8 +83,11 @@ public final class Processes {
     }
 
     private static Thread reader(Process process, java.io.InputStream stream, ByteArrayOutputStream destination,
-                                 int outputLimit, AtomicInteger total, AtomicBoolean overflow) {
+                                 int outputLimit, AtomicInteger total, AtomicBoolean overflow,
+                                 java.util.function.Consumer<String> observer) {
         return Thread.ofVirtual().start(() -> {
+                var line = new ByteArrayOutputStream();
+                boolean oversized = false;
                 try (stream) {
                     byte[] buffer = new byte[8192];
                     int count;
@@ -91,8 +98,22 @@ public final class Processes {
                             break;
                         }
                         destination.write(buffer, 0, count);
+                        if (observer != null) for (int i = 0; i < count; i++) {
+                            if (buffer[i] == '\n') {
+                                if (!oversized) observe(observer, line);
+                                line.reset();
+                                oversized = false;
+                            } else if (line.size() < 512 * 1024) {
+                                line.write(buffer[i]);
+                            } else oversized = true;
+                        }
                     }
+                    if (observer != null && !oversized && line.size() > 0) observe(observer, line);
                 } catch (IOException ignored) { /* Exit and size checks below remain authoritative. */ }
             });
+    }
+    private static void observe(java.util.function.Consumer<String> observer, ByteArrayOutputStream line) {
+        try { observer.accept(line.toString(StandardCharsets.UTF_8)); }
+        catch (RuntimeException ignored) { /* Observations cannot change command acceptance. */ }
     }
 }

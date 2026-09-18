@@ -77,7 +77,7 @@
         <div class="step-body">
             <span class="step-label" th:text="${s['label']}"></span>
             <span class="sr-only" th:text="${s['state']}"></span>
-            <span class="step-sublabel" th:if="${s['sublabel']}" th:text="${s['sublabel']}"></span>
+            <span class="step-sublabel" th:if="${s['sublabel']}" th:attr="data-elapsed-start=${s['elapsedStart']}" th:text="${s['sublabel']}"></span>
             <span class="badge badge-destructive badge-sm"
                   th:if="${s['attempts'] != null and s['attempts'] > 0}"
                   th:text="'retry ×' + ${s['attempts']}"></span>

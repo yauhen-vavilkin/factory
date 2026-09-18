@@ -96,11 +96,34 @@ public class ExecutionUiController {
 
         List<AuditEvent> events = auditLog.forExecution(id);
         Map<String, long[]> tokensByStep = tokensByStep(events);
+        List<Artifact> artifacts = artifactStore.allForExecution(id);
+        var steps = stepStates(execution, tokensByStep);
+        if ("dev-factory".equals(execution.getFlowId())) {
+            model.addAttribute("developer", new DeveloperExecutionView(jsonMapper).build(execution, artifacts, events, java.time.Instant.now()));
+            var flow = flowRegistry.find(execution.getFlowId()).orElse(null);
+            if (flow != null) for (int i = 0; i < steps.size(); i++) {
+                String stepId = flow.agentChain().get(i).stepId();
+                steps.get(i).put("label", DeveloperExecutionView.stageLabel(stepId));
+                var now = java.time.Instant.now();
+                String duration = DeveloperExecutionView.stageDuration(stepId, events, execution, now);
+                steps.get(i).put("sublabel", duration);
+                if (i == execution.getCurrentStepIndex() && execution.getStatus() == ExecutionStatus.RUNNING && duration.endsWith("s"))
+                    steps.get(i).put("elapsedStart", now.minusSeconds(Long.parseLong(duration.substring(0, duration.length() - 1))));
+            }
+        }
+        java.math.BigDecimal cost = null;
+        for (var event : events) if (event.getEventType() == AuditEventType.STEP_COMPLETED) {
+            var value = jsonMapper.readTree(event.getDetail() == null ? "{}" : event.getDetail()).path("costUsd");
+            if (value.isNumber()) cost = (cost == null ? java.math.BigDecimal.ZERO : cost).add(value.decimalValue());
+        }
+        model.addAttribute("reportedCost", cost == null ? null : cost.toPlainString());
+        model.addAttribute("auditCount", events.size());
+        model.addAttribute("artifactCount", artifacts.size());
 
         model.addAttribute("execution", execution);
-        model.addAttribute("steps", stepStates(execution, tokensByStep));
+        model.addAttribute("steps", steps);
         model.addAttribute("tokenTotals", tokenTotals(tokensByStep));
-        model.addAttribute("artifactGroups", artifactGroups(id));
+        model.addAttribute("artifactGroups", artifactGroups(artifacts));
         model.addAttribute("children", childRows(execution, id));
         model.addAttribute("pendingReview", pendingReview(execution, id));
         model.addAttribute("events", events.stream()
@@ -193,10 +216,10 @@ public class ExecutionUiController {
         return execution.getStatus() == ExecutionStatus.FAILED_ESCALATED ? "failed" : "current";
     }
 
-    private List<Map<String, Object>> artifactGroups(UUID executionId) {
+    private List<Map<String, Object>> artifactGroups(List<Artifact> artifacts) {
         Map<String, List<Map<String, Object>>> byName = new LinkedHashMap<>();
         int panel = 0;
-        for (Artifact artifact : artifactStore.allForExecution(executionId)) {
+        for (Artifact artifact : artifacts) {
             Map<String, Object> version = new LinkedHashMap<>();
             version.put("version", artifact.getVersion());
             version.put("content", artifact.getContent());

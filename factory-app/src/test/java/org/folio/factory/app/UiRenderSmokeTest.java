@@ -201,6 +201,22 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void developerExecutionShowsLiveActivityAndHonestDeliveryOutcome() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.5.0", "{\"issueKey\":\"MODSIDECAR-196\"}"));
+        artifactStore.putMarkdown(execution.getId(), "dev_verification.json",
+                "{\"result\":\"PASS\",\"testCount\":17,\"exitCode\":0,\"argv\":[\"mvn\",\"test\"]}", "verify");
+        artifactStore.putMarkdown(execution.getId(), "dev_delivery.json",
+                "{\"state\":\"DELIVERY_BLOCKED\",\"reason\":\"Safe destination missing\"}", "deliver");
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "develop",
+                Map.of("activity", "tool_execution_start", "tool", "bash", "command", "mvn test"));
+        auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "develop", Map.of("costUsd", 0.125));
+        String body = assertRendered("/executions/" + execution.getId(), "Developer Flow");
+        assertThat(body).contains("MODSIDECAR-196", "Executed tests", ">17<", "mvn test", "DELIVERY_BLOCKED",
+                "Safe destination missing", "Pi-reported cost: $0.125 USD",
+                "auditTrail.length,artifacts.length", "Pin source revision", "Artifacts", "Audit timeline");
+    }
+
+    @Test
     void artifactsListAndDetailRender() {
         PipelineExecution execution = executions.save(new PipelineExecution("test-factory", "1", "{}"));
         var artifact = artifactStore.putMarkdown(execution.getId(), "coverage_report.md",

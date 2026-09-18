@@ -20,6 +20,13 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+    var clocks = document.querySelectorAll('[data-elapsed-start]');
+    if (clocks.length) setInterval(function () {
+      clocks.forEach(function (clock) {
+        var start = Date.parse(clock.getAttribute('data-elapsed-start'));
+        if (Number.isFinite(start)) clock.textContent = Math.max(0, Math.floor((Date.now() - start) / 1000)) + 's';
+      });
+    }, 1000);
     var el = document.querySelector('[data-poll-url]');
     if (!el) return;
     var url = el.getAttribute('data-poll-url');

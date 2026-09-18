@@ -48,8 +48,9 @@ public class DevFactoryConfiguration {
             org.folio.factory.devfactory.runtime.DevRuntimeProperties runtime,
             org.folio.factory.devfactory.runtime.DockerWorkloads docker,
             org.folio.factory.devfactory.candidate.CandidateFreezer freezer,
-            org.folio.factory.devfactory.runtime.CodingRuntime coding, FrontmatterCodec codec) {
-        return new org.folio.factory.devfactory.worker.DevelopWorker(properties, runtime, docker, freezer, coding, codec);
+            org.folio.factory.devfactory.runtime.CodingRuntime coding, FrontmatterCodec codec,
+            org.folio.factory.core.service.AuditLog audit) {
+        return new org.folio.factory.devfactory.worker.DevelopWorker(properties, runtime, docker, freezer, coding, codec, audit);
     }
 
     @Bean
