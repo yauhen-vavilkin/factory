@@ -19,3 +19,4 @@ target/
 # local AI agent tooling state (never shared)
 /.claude/
 /.superpowers/
+/.tasks/

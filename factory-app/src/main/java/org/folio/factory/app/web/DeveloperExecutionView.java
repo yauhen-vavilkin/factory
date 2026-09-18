@@ -63,7 +63,7 @@ final class DeveloperExecutionView {
             if (action.equals("agent_start")) started = true;
             if (action.equals("pi_starting")) config = detail;
             StringBuilder text = new StringBuilder(action.replace('_', ' '));
-            for (String key : List.of("tool", "path", "command", "exitCode", "error", "notice")) {
+            for (String key : List.of("tool", "path", "command", "message", "exitCode", "error", "notice", "summary")) {
                 if (detail.has(key)) text.append(" · ").append(detail.path(key).asString());
             }
             activity.add(Map.of("time", UiFormat.format(event.getOccurredAt()), "text", text.toString()));
@@ -88,6 +88,7 @@ final class DeveloperExecutionView {
         view.put("reason", reason);
         view.put("pullRequestUrl", pr);
         view.put("activity", activity.subList(Math.max(0, activity.size() - 12), activity.size()));
+        view.put("baselineOutput", readiness.path("output").asString(""));
         view.put("elapsed", duration(execution.getCreatedAt(), execution.getCompletedAt() == null ? now : execution.getCompletedAt()));
         view.put("elapsedStart", execution.getStatus().isTerminal() ? null : execution.getCreatedAt());
         return view;

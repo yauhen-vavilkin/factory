@@ -6,11 +6,17 @@ import java.util.Map;
 
 /** Operator-owned commands; task text never supplies executable configuration. */
 @ConfigurationProperties(prefix = "factory.dev-factory.runtime")
-public record DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds) {
+public record DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
+                                   String mavenCacheVolume) {
+    public static final String DEFAULT_MAVEN_CACHE_VOLUME = "factory-dev-m2-cache";
     public DevRuntimeProperties {
         plans = plans == null ? Map.of() : Map.copyOf(plans);
         coding = coding == null ? new Coding(null, null, null, null, null, null) : coding;
         timeoutSeconds = timeoutSeconds <= 0 ? 1800 : timeoutSeconds;
+        mavenCacheVolume = mavenCacheVolume == null || mavenCacheVolume.isBlank()
+                ? DEFAULT_MAVEN_CACHE_VOLUME : mavenCacheVolume;
+        if (!mavenCacheVolume.matches("[A-Za-z0-9][A-Za-z0-9_.-]*"))
+            throw new IllegalArgumentException("Invalid Maven cache volume name");
     }
     public List<String> command(String id) {
         var command = plans.get(id);

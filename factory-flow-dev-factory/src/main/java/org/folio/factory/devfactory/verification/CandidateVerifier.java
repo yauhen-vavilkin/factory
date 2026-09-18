@@ -35,7 +35,7 @@ public class CandidateVerifier {
         try {
             // New container storage; DockerWorkloads supplies no model/Jira/GitHub environment.
             // The checkout contains source only, without the coding workspace's target output.
-            try (var workload = docker.create(repository.buildImage(), source)) {
+            try (var workload = docker.createSeeded(repository.buildImage(), source, runtime.mavenCacheVolume())) {
                 Instant started = Instant.now();
                 var observation = workload.execute(command, runtime.timeoutSeconds());
                 Instant finished = Instant.now();

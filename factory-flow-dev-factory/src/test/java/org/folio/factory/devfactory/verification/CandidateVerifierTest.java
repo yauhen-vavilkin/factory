@@ -50,11 +50,11 @@ class CandidateVerifierTest {
         var repository = new DevFactoryProperties.Repository("owner/source", "master", "trusted-java21",
                 "unit", List.of("TASK"), List.of());
         var properties = new DevFactoryProperties(root.toString(), new TreeMap<>(Map.of("source", repository)));
-        var runtime = new DevRuntimeProperties(Map.of("unit", command), null, 60);
+        var runtime = new DevRuntimeProperties(Map.of("unit", command), null, 60, null);
         docker = mock(DockerWorkloads.class);
         workload = mock(DockerWorkloads.Workload.class);
         when(workload.name()).thenReturn("fresh-verifier");
-        when(docker.create(eq("trusted-java21"), any())).thenAnswer(invocation -> {
+        when(docker.createSeeded(eq("trusted-java21"), any(), eq("factory-dev-m2-cache"))).thenAnswer(invocation -> {
             Path fresh = invocation.getArgument(1);
             assertThat(fresh).isNotEqualTo(original);
             assertThat(git(fresh, "write-tree").strip()).isEqualTo(candidate.treeSha());

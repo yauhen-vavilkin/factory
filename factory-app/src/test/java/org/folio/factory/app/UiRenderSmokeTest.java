@@ -205,6 +205,8 @@ class UiRenderSmokeTest {
         var execution = executions.save(new PipelineExecution("dev-factory", "0.5.0", "{\"issueKey\":\"MODSIDECAR-196\"}"));
         artifactStore.putMarkdown(execution.getId(), "dev_verification.json",
                 "{\"result\":\"PASS\",\"testCount\":17,\"exitCode\":0,\"argv\":[\"mvn\",\"test\"]}", "verify");
+        artifactStore.putMarkdown(execution.getId(), "dev_readiness.json",
+                "{\"state\":\"BASELINE_FAILED\",\"output\":\"[INFO] Compiling 42 source files\\n[ERROR] transfer failed\"}", "develop");
         artifactStore.putMarkdown(execution.getId(), "dev_delivery.json",
                 "{\"state\":\"DELIVERY_BLOCKED\",\"reason\":\"Safe destination missing\"}", "deliver");
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "develop",
@@ -213,7 +215,8 @@ class UiRenderSmokeTest {
         String body = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(body).contains("MODSIDECAR-196", "Executed tests", ">17<", "mvn test", "DELIVERY_BLOCKED",
                 "Safe destination missing", "Pi-reported cost: $0.125 USD",
-                "auditTrail.length,artifacts.length", "Pin source revision", "Artifacts", "Audit timeline");
+                "auditTrail.length,artifacts.length", "Pin source revision", "Baseline output tail",
+                "Compiling 42 source files", "transfer failed", "Artifacts", "Audit timeline");
     }
 
     @Test

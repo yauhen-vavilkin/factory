@@ -144,6 +144,10 @@ The Factory container owns the Docker socket only for this trusted single-user M
 Pi runs in a separate container without that socket or Jira/GitHub credentials;
 verification reconstructs the frozen patch in another fresh container. Delivery is
 blocked unless the exact candidate has a matching successful verification receipt.
+The trusted baseline reuses the `factory-dev-m2-cache` Docker volume. Pi and independent
+verification mount it read-only and copy dependencies into private writable repositories.
+The cache survives `docker compose down`; to reset only it, stop the stack and run
+`docker volume rm factory-dev-m2-cache` before starting Compose again.
 Compose publishes Factory and PostgreSQL on `127.0.0.1` by default. The MVP still
 runs the trusted Factory container as root with the Docker socket, makes its private
 workload root writable for the checkout UID/GID, and uses a 7200-second global engine
@@ -175,6 +179,7 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_LLM_API_KEY` | API key for the OpenAI-compatible provider |
 | `FACTORY_LLM_BASE_URL` / `_COMPLETIONS_PATH` | OpenAI-compatible endpoint (defaults target Groq: `https://api.groq.com/openai/v1` + `/chat/completions`) |
 | `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (default `jdbc:postgresql://localhost:5432/factory`) |
+| `FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME` | Persistent trusted Developer Flow Maven cache volume (default `factory-dev-m2-cache`) |
 | `FACTORY_DB_POOL_MAX` / `_MIN_IDLE` | HikariCP pool sizing (defaults `16` / `4`; see `doc/performance.md`) |
 | `FACTORY_DB_POOL_CONNECTION_TIMEOUT_MS` / `_MAX_LIFETIME_MS` / `_IDLE_TIMEOUT_MS` / `_LEAK_DETECTION_MS` | HikariCP tuning (defaults `30000` / `1800000` / `600000` / `60000`) |
 | `FACTORY_HTTP_CONNECT_TIMEOUT` / `_READ_TIMEOUT` | Connector HTTP timeouts (Duration; defaults `5s` / `30s`) |

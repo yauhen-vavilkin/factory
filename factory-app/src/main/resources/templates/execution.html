@@ -44,6 +44,10 @@
                 <p th:if="${#lists.isEmpty(developer['activity'])}">No runtime activity yet.</p>
                 <ul><li th:each="activity : ${developer['activity']}"
                         th:text="${activity['time']} + ' · ' + ${activity['text']}"></li></ul>
+                <details th:if="${!#strings.isEmpty(developer['baselineOutput'])}">
+                    <summary>Baseline output tail</summary>
+                    <pre class="code-block" th:text="${developer['baselineOutput']}"></pre>
+                </details>
             </div>
         </section>
         <section th:unless="${#lists.isEmpty(steps)}">

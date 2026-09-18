@@ -132,8 +132,9 @@ factory:
         jira-projects: [MODSIDECAR]
     runtime:
       timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
+      maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
       plans:
-        modsidecar-java21-unit: [mvn, -B, -ntp, clean, test]
+        modsidecar-java21-unit: [mvn, -B, -ntp, test]
       coding:
         image: ${FACTORY_DEV_FACTORY_CODING_IMAGE:factory-dev-pi:0.85.1-java21}
         provider: ${FACTORY_MODEL_PROVIDER:}

@@ -11,16 +11,23 @@ import org.slf4j.LoggerFactory;
 public class DockerWorkloads {
     private static final Logger log = LoggerFactory.getLogger(DockerWorkloads.class);
     public Workload create(String image, Path source) {
+        return create(image, source, MavenCache.NONE, null);
+    }
+    public Workload createTrusted(String image, Path source, String mavenCacheVolume) {
+        ensureWritableCache(image, mavenCacheVolume);
+        return create(image, source, MavenCache.TRUSTED_WRITABLE, mavenCacheVolume);
+    }
+    public Workload createSeeded(String image, Path source, String mavenCacheVolume) {
+        return create(image, source, MavenCache.READ_ONLY_SEED, mavenCacheVolume);
+    }
+    private Workload create(String image, Path source, MavenCache cache, String mavenCacheVolume) {
         String name = "factory-dev-" + UUID.randomUUID();
         String user = workloadUser(source);
-        Processes.run(null, List.of("docker", "create", "--name", name, "--label", "factory.dev-owned=true",
-                "--cpus", "4", "--memory", "6g", "--pids-limit", "512", "--cap-drop", "ALL",
-                "--security-opt", "no-new-privileges", "--user", user, "--env", "HOME=/tmp/factory-home",
-                "--workdir", "/workspace", "--entrypoint", "/bin/sh", image,
-                "-c", "mkdir -p /tmp/factory-home; exec sleep infinity"), 120).requireSuccess();
+        Processes.run(null, createCommand(image, name, user, cache, mavenCacheVolume), 120).requireSuccess();
         var workload = new Workload(name);
         try {
             Processes.run(null, List.of("docker", "start", name), 60).requireSuccess();
+            if (cache == MavenCache.READ_ONLY_SEED) seedMavenRepository(name);
             workload.copy(source.resolve(".").toString(), "/workspace");
             // Docker creates WORKDIR as root even when the workload runs as the
             // trusted checkout UID/GID. Allow that user to create build output and
@@ -29,6 +36,44 @@ public class DockerWorkloads {
                     "chmod", "0777", "/workspace"), 30).requireSuccess();
             return workload;
         } catch (RuntimeException e) { workload.close(); throw e; }
+    }
+
+    private static void ensureWritableCache(String image, String volume) {
+        Processes.run(null, List.of("docker", "run", "--rm", "--user", "0:0", "--entrypoint", "/bin/sh",
+                "--mount", "type=volume,source=" + volume + ",target=/cache", image,
+                "-c", "chmod 0777 /cache"), 120).requireSuccess();
+    }
+
+    private static void seedMavenRepository(String name) {
+        Processes.run(null, List.of("docker", "exec", name, "/bin/sh", "-c",
+                "mkdir -p /tmp/factory-home/.m2/repository "
+                        + "&& cp -a /tmp/factory-m2-seed/. /tmp/factory-home/.m2/repository/"), 120)
+                .requireSuccess();
+    }
+
+    static List<String> createCommand(String image, String name, String user, MavenCache cache, String volume) {
+        var command = new ArrayList<>(List.of("docker", "create", "--name", name,
+                "--label", "factory.dev-owned=true", "--cpus", "4", "--memory", "6g",
+                "--pids-limit", "512", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+                "--user", user, "--env", "HOME=/tmp/factory-home", "--workdir", "/workspace"));
+        if (cache == MavenCache.TRUSTED_WRITABLE) {
+            command.addAll(List.of("--mount", "type=volume,source=" + volume
+                    + ",target=/tmp/factory-home/.m2/repository"));
+        } else if (cache == MavenCache.READ_ONLY_SEED) {
+            command.addAll(List.of("--mount", "type=volume,source=" + volume
+                    + ",target=/tmp/factory-m2-seed,readonly"));
+        }
+        command.addAll(List.of("--entrypoint", "/bin/sh", image, "-c", cache.startupCommand()));
+        return List.copyOf(command);
+    }
+
+    enum MavenCache {
+        NONE("mkdir -p /tmp/factory-home; exec sleep infinity"),
+        TRUSTED_WRITABLE("mkdir -p /tmp/factory-home/.m2/repository; exec sleep infinity"),
+        READ_ONLY_SEED("mkdir -p /tmp/factory-home; exec sleep infinity");
+        private final String startupCommand;
+        MavenCache(String startupCommand) { this.startupCommand = startupCommand; }
+        String startupCommand() { return startupCommand; }
     }
 
     private static String workloadUser(Path source) {

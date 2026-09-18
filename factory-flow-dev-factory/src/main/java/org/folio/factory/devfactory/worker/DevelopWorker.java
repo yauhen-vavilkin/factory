@@ -9,6 +9,8 @@ import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
+import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
+import org.folio.factory.devfactory.runtime.Processes;
 import tools.jackson.databind.json.JsonMapper;
 import java.nio.file.Path;
 import java.util.Map;
@@ -55,17 +57,29 @@ public class DevelopWorker implements AgentWorker {
             var command = runtime.command(repo.verificationPlan());
             progress(context, Map.of("activity", "baseline_started", "command", String.join(" ", command), "image", repo.buildImage()));
             pristine = freezer.checkout(url, base);
-            try (var baseline = docker.create(repo.buildImage(), pristine)) {
-                var result = baseline.execute(command, runtime.timeoutSeconds());
-                readiness = Map.of("state", result.exitCode() == 0 ? "BASELINE_PASSED" : "BASELINE_FAILED",
-                        "baseSha", base, "image", repo.buildImage(), "plan", repo.verificationPlan(),
-                        "command", command, "exitCode", result.exitCode(), "output", tail(result.output()));
-                progress(context, Map.of("activity", "baseline_completed", "exitCode", result.exitCode()));
-                if (result.exitCode() != 0) return blocked("BLOCKED_ENVIRONMENT", "Pinned baseline failed before model spend", readiness);
+            try (var baseline = docker.createTrusted(repo.buildImage(), pristine, runtime.mavenCacheVolume())) {
+                var observer = new MavenBaselineOutput(line -> progress(context,
+                        Map.of("activity", "baseline_progress", "message", line)));
+                var result = baseline.execute(command, runtime.timeoutSeconds(), Processes.OUTPUT_LIMIT, observer);
+                String summary = MavenBaselineOutput.failureSummary(result.diagnostics()).orElse("");
+                var readinessDetails = new java.util.LinkedHashMap<String, Object>();
+                readinessDetails.put("state", result.exitCode() == 0 ? "BASELINE_PASSED" : "BASELINE_FAILED");
+                readinessDetails.put("baseSha", base);
+                readinessDetails.put("image", repo.buildImage());
+                readinessDetails.put("plan", repo.verificationPlan());
+                readinessDetails.put("command", command);
+                readinessDetails.put("exitCode", result.exitCode());
+                if (!summary.isBlank()) readinessDetails.put("summary", summary);
+                readinessDetails.put("output", tail(MavenBaselineOutput.sanitize(result.output())));
+                readiness = Map.copyOf(readinessDetails);
+                progress(context, Map.of("activity", "baseline_completed", "exitCode", result.exitCode(),
+                        "summary", summary));
+                if (result.exitCode() != 0) return blocked("BLOCKED_ENVIRONMENT",
+                        summary.isBlank() ? "Pinned baseline failed before model spend" : summary, readiness);
             }
             runtime.coding().requireConfigured();
             exported = CandidateFreezer.temporary("factory-dev-export-");
-            try (var workload = docker.create(runtime.coding().image(), pristine)) {
+            try (var workload = docker.createSeeded(runtime.coding().image(), pristine, runtime.mavenCacheVolume())) {
                 progress(context, Map.of("activity", "pi_starting", "image", runtime.coding().image(),
                         "provider", runtime.coding().provider(), "model", runtime.coding().model()));
                 var codingResult = coding.code(workload, "Implement this task in /workspace. Inspect, understand, plan, edit, run targeted checks, debug and self-review. "
