@@ -78,8 +78,9 @@ public class PiCodingRuntime implements CodingRuntime {
             }
         }
         if (!ended || summary.isBlank()) throw new IllegalStateException("Pi did not return a completed coding result");
-        if (summary.contains("FACTORY_DECISION_REQUIRED")) {
-            String detail = summary.substring(0, Math.min(1600, summary.length())).replaceAll("[\\r\\n]+", " ").strip();
+        String normalized = summary.stripLeading();
+        if (normalized.startsWith("FACTORY_DECISION_REQUIRED:")) {
+            String detail = normalized.substring(0, Math.min(1600, normalized.length())).replaceAll("[\\r\\n]+", " ").strip();
             throw new IllegalStateException("CODING_DECISION_REQUIRED: " + detail);
         }
         Map<String, Object> metrics = new java.util.LinkedHashMap<>();

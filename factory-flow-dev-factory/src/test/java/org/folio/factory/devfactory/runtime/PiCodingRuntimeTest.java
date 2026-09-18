@@ -45,6 +45,15 @@ class PiCodingRuntimeTest {
     @Test void materialDecisionKeepsTheConcreteQuestion() {
         String output = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"provider\":\"provider\",\"model\":\"model\",\"content\":[{\"type\":\"text\",\"text\":\"FACTORY_DECISION_REQUIRED: Which public API should change?\"}]}}\n{\"type\":\"agent_end\"}";
         assertThatThrownBy(() -> PiCodingRuntime.parse(output, "provider", "model"))
+                .hasMessageContaining("CODING_DECISION_REQUIRED")
                 .hasMessageContaining("Which public API should change?");
+    }
+
+    @Test void markerMentionedLaterInSuccessfulSummaryCompletesNormally() {
+        String text = "All checks pass. Here's a summary of the completed work: tests green. "
+                + "No FACTORY_DECISION_REQUIRED was needed for this task.";
+        String output = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"provider\":\"provider\","
+                + "\"model\":\"model\",\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}]}}\n{\"type\":\"agent_end\"}";
+        assertThat(PiCodingRuntime.parse(output, "provider", "model").summary()).isEqualTo(text);
     }
 }
