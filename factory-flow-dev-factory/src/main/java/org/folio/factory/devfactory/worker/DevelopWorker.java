@@ -108,7 +108,7 @@ public class DevelopWorker implements AgentWorker {
                         + "If a material requirement is unresolved, stop and return FACTORY_DECISION_REQUIRED with one concrete question and 2-4 options. "
                         + "Your self-checks are diagnostic; Factory independently verifies the final frozen tree.\n\n" + task,
                         runtime.timeoutSeconds(), event -> progress(context, event));
-                metrics = codingResult.metrics();
+                metrics = withFactoryTokenMetrics(codingResult.metrics());
                 workload.stop();
                 workload.export(exported);
             }
@@ -142,6 +142,21 @@ public class DevelopWorker implements AgentWorker {
     private AgentResult blocked(String state, String reason, Map<String, Object> readiness) {
         return new AgentResult(Map.of(CANDIDATE, json.writeValueAsString(Map.of("state", state, "reason", reason)),
                 READINESS, json.writeValueAsString(readiness)), Map.of());
+    }
+    private static Map<String, Object> withFactoryTokenMetrics(Map<String, Object> runtimeMetrics) {
+        var metrics = new java.util.LinkedHashMap<>(runtimeMetrics);
+        long prompt = 0;
+        boolean promptPresent = false;
+        for (String key : java.util.List.of("inputTokens", "cacheReadTokens", "cacheWriteTokens")) {
+            if (runtimeMetrics.get(key) instanceof Number value) {
+                prompt += Math.max(0, value.longValue());
+                promptPresent = true;
+            }
+        }
+        if (promptPresent) metrics.putIfAbsent("promptTokens", prompt);
+        if (runtimeMetrics.get("outputTokens") instanceof Number value)
+            metrics.putIfAbsent("completionTokens", Math.max(0, value.longValue()));
+        return Map.copyOf(metrics);
     }
     private static String tail(String value) { return value.substring(Math.max(0, value.length() - 16000)); }
     /** Only a failed pre-Pi build may consume the engine retry budget. */

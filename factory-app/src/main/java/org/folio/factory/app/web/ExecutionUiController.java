@@ -126,7 +126,7 @@ public class ExecutionUiController {
 
         model.addAttribute("execution", execution);
         model.addAttribute("steps", steps);
-        model.addAttribute("tokenTotals", tokenTotals(usageByStep));
+        model.addAttribute("tokenTotals", tokenTotals(usageByStep, developerFlow));
         model.addAttribute("artifactGroups", artifactGroups(artifacts));
         model.addAttribute("children", childRows(execution, id));
         model.addAttribute("pendingReview", pendingReview(execution, id));
@@ -137,38 +137,47 @@ public class ExecutionUiController {
     }
 
     /**
-     * Usage per step from completed metrics, with the latest streamed Pi snapshot
-     * as a Developer Flow failure fallback. Completed metrics always win, so a
-     * successful run never counts its streamed snapshots again.
+     * Usage per step from completed metrics, with the latest streamed coding-runtime
+     * snapshot as a Developer Flow failure fallback. Completed metrics always win,
+     * so a successful run never counts its streamed snapshots again.
      */
-    private Map<String, ReportedUsage> usageByStep(List<AuditEvent> events, boolean includePiProgress) {
+    private Map<String, ReportedUsage> usageByStep(List<AuditEvent> events, boolean includeCodingProgress) {
         Map<String, ReportedUsage> completed = new LinkedHashMap<>();
         Map<String, ReportedUsage> progress = new LinkedHashMap<>();
         for (AuditEvent event : events) {
             if (event.getStepId() == null) continue;
             JsonNode detail = jsonMapper.readTree(event.getDetail() == null ? "{}" : event.getDetail());
             boolean completedEvent = event.getEventType() == AuditEventType.STEP_COMPLETED;
-            boolean piProgress = includePiProgress && event.getEventType() == AuditEventType.RUNTIME_PROGRESS
-                    && "pi_usage".equals(detail.path("activity").asString(""));
-            if (!completedEvent && !piProgress) continue;
-            long prompt = detail.path("promptTokens").asLong(0);
-            long completion = detail.path("completionTokens").asLong(0);
-            boolean tokensPresent = detail.has("promptTokens") || detail.has("completionTokens");
+            String activity = detail.path("activity").asString("");
+            boolean codingProgress = includeCodingProgress && event.getEventType() == AuditEventType.RUNTIME_PROGRESS
+                    && "pi_usage".equals(activity);
+            if (!completedEvent && !codingProgress) continue;
+            Long prompt = token(detail, "promptTokens");
+            Long completion = token(detail, "completionTokens");
+            Long input = token(detail, "inputTokens");
+            Long cacheRead = token(detail, "cacheReadTokens");
+            Long cacheWrite = token(detail, "cacheWriteTokens");
+            Long output = token(detail, "outputTokens");
             JsonNode costNode = detail.path("costUsd");
             java.math.BigDecimal cost = costNode.isNumber() ? costNode.decimalValue() : null;
-            if (!tokensPresent && cost == null) continue;
-            var usage = new ReportedUsage(tokensPresent, prompt, completion, cost);
-            (piProgress ? progress : completed).put(event.getStepId(), usage);
+            if (prompt == null && completion == null && input == null && cacheRead == null
+                    && cacheWrite == null && output == null && cost == null) continue;
+            var usage = new ReportedUsage(prompt, completion, input, cacheRead, cacheWrite, output, cost);
+            (codingProgress ? progress : completed).put(event.getStepId(), usage);
         }
         progress.forEach(completed::putIfAbsent);
         return completed;
     }
 
-    private static Map<String, Object> tokenTotals(Map<String, ReportedUsage> usageByStep) {
-        long prompt = usageByStep.values().stream().filter(ReportedUsage::tokensPresent)
-                .mapToLong(ReportedUsage::prompt).sum();
-        long completion = usageByStep.values().stream().filter(ReportedUsage::tokensPresent)
-                .mapToLong(ReportedUsage::completion).sum();
+    private static Long token(JsonNode detail, String key) {
+        return detail.path(key).isNumber() ? Math.max(0, detail.path(key).asLong(0)) : null;
+    }
+
+    private static Map<String, Object> tokenTotals(Map<String, ReportedUsage> usageByStep, boolean developerFlow) {
+        if (developerFlow && usageByStep.values().stream().anyMatch(ReportedUsage::codingTokensPresent))
+            return codingTokenTotals(usageByStep);
+        long prompt = usageByStep.values().stream().mapToLong(usage -> value(usage.prompt())).sum();
+        long completion = usageByStep.values().stream().mapToLong(usage -> value(usage.completion())).sum();
         Map<String, Object> totals = new LinkedHashMap<>();
         // A run with no LLM step renders nothing rather than a row of zeroes.
         totals.put("present", prompt + completion > 0);
@@ -176,6 +185,39 @@ public class ExecutionUiController {
         totals.put("completion", UiFormat.count(completion));
         totals.put("total", UiFormat.count(prompt + completion));
         return totals;
+    }
+
+    private static Map<String, Object> codingTokenTotals(Map<String, ReportedUsage> usageByStep) {
+        boolean inputPresent = usageByStep.values().stream().anyMatch(usage -> usage.input() != null);
+        boolean cacheReadPresent = usageByStep.values().stream().anyMatch(usage -> usage.cacheRead() != null);
+        boolean cacheWritePresent = usageByStep.values().stream().anyMatch(usage -> usage.cacheWrite() != null);
+        boolean outputPresent = usageByStep.values().stream().anyMatch(usage -> usage.output() != null);
+        long input = usageByStep.values().stream().mapToLong(usage -> value(usage.input())).sum();
+        long cacheRead = usageByStep.values().stream().mapToLong(usage -> value(usage.cacheRead())).sum();
+        long cacheWrite = usageByStep.values().stream().mapToLong(usage -> value(usage.cacheWrite())).sum();
+        long output = usageByStep.values().stream().mapToLong(usage -> value(usage.output())).sum();
+        long total = usageByStep.values().stream()
+                .mapToLong(usage -> usage.inputTotal() + usage.outputTotal()).sum();
+        Map<String, Object> totals = new LinkedHashMap<>();
+        totals.put("present", total > 0);
+        totals.put("coding", true);
+        totals.put("total", compactTokenCount(total));
+        if (inputPresent) totals.put("input", compactTokenCount(input));
+        if (cacheReadPresent) totals.put("cacheRead", compactTokenCount(cacheRead));
+        if (cacheWritePresent) totals.put("cacheWrite", compactTokenCount(cacheWrite));
+        if (outputPresent) totals.put("output", compactTokenCount(output));
+        return totals;
+    }
+
+    private static long value(Long value) { return value == null ? 0 : value; }
+
+    private static String compactTokenCount(long value) {
+        long divisor = value >= 1_000_000 ? 1_000_000 : value >= 1_000 ? 1_000 : 1;
+        if (divisor == 1) return UiFormat.count(value);
+        String suffix = divisor == 1_000_000 ? "m" : "k";
+        return java.math.BigDecimal.valueOf(value)
+                .divide(java.math.BigDecimal.valueOf(divisor), 1, java.math.RoundingMode.HALF_UP)
+                .stripTrailingZeros().toPlainString() + suffix;
     }
 
     private Map<String, Object> executionRow(PipelineExecution execution) {
@@ -213,9 +255,17 @@ public class ExecutionUiController {
             row.put("state", stepState(i, execution));
             row.put("attempts", retryCounts.path(step.stepId()).asInt(0));
             ReportedUsage usage = usageByStep.get(step.stepId());
-            row.put("tokens", usage == null || !usage.tokensPresent() ? null
-                    : UiFormat.count(usage.prompt() + usage.completion()) + " tokens ("
-                            + UiFormat.count(usage.prompt()) + " in / " + UiFormat.count(usage.completion()) + " out)");
+            if (usage == null) row.put("tokens", null);
+            else if (usage.codingTokensPresent()) {
+                long input = usage.inputTotal();
+                long output = usage.outputTotal();
+                row.put("tokens", UiFormat.count(input + output) + " tokens ("
+                        + UiFormat.count(input) + " in / " + UiFormat.count(output) + " out)");
+            } else if (usage.factoryTokensPresent())
+                row.put("tokens", UiFormat.count(value(usage.prompt()) + value(usage.completion())) + " tokens ("
+                        + UiFormat.count(value(usage.prompt())) + " in / "
+                        + UiFormat.count(value(usage.completion())) + " out)");
+            else row.put("tokens", null);
             steps.add(row);
         }
         return steps;
@@ -280,8 +330,17 @@ public class ExecutionUiController {
         return "step " + parentStepIndex + " · " + UiFormat.stepLabel(flow.step(parentStepIndex));
     }
 
-    private record ReportedUsage(boolean tokensPresent, long prompt, long completion,
-                                 java.math.BigDecimal cost) { }
+    private record ReportedUsage(Long prompt, Long completion, Long input, Long cacheRead,
+                                 Long cacheWrite, Long output, java.math.BigDecimal cost) {
+        boolean factoryTokensPresent() { return prompt != null || completion != null; }
+        boolean codingTokensPresent() {
+            return input != null || cacheRead != null || cacheWrite != null || output != null;
+        }
+        long inputTotal() {
+            return prompt != null ? prompt : value(input) + value(cacheRead) + value(cacheWrite);
+        }
+        long outputTotal() { return completion != null ? completion : value(output); }
+    }
 
     private HitlReview pendingReview(PipelineExecution execution, UUID id) {
         // Both an awaiting-gate run and an escalated run carry a decidable pending

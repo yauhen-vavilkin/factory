@@ -246,7 +246,7 @@ class UiRenderSmokeTest {
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of("costUsd", 0.125));
         String body = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(body).contains("MODSIDECAR-196", "Executed tests", ">17<", "mvn test", "DELIVERY_BLOCKED",
-                "Safe destination missing", "Pi-reported cost: $0.125 USD",
+                "Safe destination missing", "Coding runtime cost: $0.125 USD",
                 "auditTrail.length,artifacts.length", "Prepare task", "Implement changes", "Verify changes",
                 "Create pull request", "Technical step details", "Prepare task checkout", "Starting build output",
                 "Compiling 42 source files", "transfer failed", "Artifacts", "Audit timeline");
@@ -266,8 +266,9 @@ class UiRenderSmokeTest {
                     "{\"state\":\"" + outcome + "\"}", "publish");
             if (outcome.equals("DEVELOPMENT_FAILED")) {
                 auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
-                        Map.of("activity", "pi_usage", "promptTokens", 13,
-                                "completionTokens", 3, "costUsd", 0.125));
+                        Map.of("activity", "pi_usage", "inputTokens", 10,
+                                "cacheReadTokens", 2, "cacheWriteTokens", 1,
+                                "outputTokens", 3, "costUsd", 0.125));
                 auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of());
             }
             String detail = assertRendered("/executions/" + execution.getId(), "Developer Flow");
@@ -275,7 +276,8 @@ class UiRenderSmokeTest {
                             "Workflow engine status: COMPLETED")
                     .doesNotContain("badge-status-COMPLETED");
             if (outcome.equals("DEVELOPMENT_FAILED"))
-                assertThat(detail).contains("LLM tokens: 16 total", "Pi-reported cost: $0.125 USD")
+                assertThat(detail).contains("LLM tokens: 16 total", "Input: 10", "Cached read: 2",
+                                "Cache write: 1", "Output: 3", "Coding runtime cost: $0.125 USD")
                         .doesNotContain("pi usage");
             String list = assertRendered("/executions?flow=dev-factory", "Executions");
             assertThat(list).contains("badge-status-" + outcome, ">" + outcome + "</span>")

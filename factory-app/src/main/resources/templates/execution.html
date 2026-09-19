@@ -54,9 +54,22 @@
         <section th:unless="${#lists.isEmpty(steps)}">
             <div class="page-header">
                 <h2 class="card-title">Progress</h2>
-                <p class="page-description" th:if="${tokenTotals['present']}"
-                   th:text="'LLM tokens: ' + ${tokenTotals['total']} + ' total · '
-                            + ${tokenTotals['prompt']} + ' prompt · ' + ${tokenTotals['completion']} + ' completion'">
+                <p class="page-description" th:if="${tokenTotals['present']}">
+                    <span th:text="'LLM tokens: ' + ${tokenTotals['total']} + ' total'"></span>
+                    <th:block th:if="${tokenTotals['coding'] == true}">
+                        <span th:if="${tokenTotals['input'] != null}"
+                              th:text="' · Input: ' + ${tokenTotals['input']}"></span>
+                        <span th:if="${tokenTotals['cacheRead'] != null}"
+                              th:text="' · Cached read: ' + ${tokenTotals['cacheRead']}"></span>
+                        <span th:if="${tokenTotals['cacheWrite'] != null}"
+                              th:text="' · Cache write: ' + ${tokenTotals['cacheWrite']}"></span>
+                        <span th:if="${tokenTotals['output'] != null}"
+                              th:text="' · Output: ' + ${tokenTotals['output']}"></span>
+                    </th:block>
+                    <th:block th:unless="${tokenTotals['coding'] == true}">
+                        <span th:text="' · ' + ${tokenTotals['prompt']} + ' prompt · '
+                                      + ${tokenTotals['completion']} + ' completion'"></span>
+                    </th:block>
                 </p>
             </div>
             <ol th:replace="~{fragments/components :: stepper(${progressSteps})}"></ol>
@@ -82,7 +95,8 @@
                     </table>
                 </div>
             </details>
-            <p th:if="${reportedCost != null}" th:text="'Pi-reported cost: $' + ${reportedCost} + ' USD'"></p>
+            <p th:if="${reportedCost != null}"
+               th:text="${developer != null ? 'Coding runtime cost: $' : 'Pi-reported cost: $'} + ${reportedCost} + ' USD'"></p>
         </section>
 
         <section th:unless="${#lists.isEmpty(children)}">

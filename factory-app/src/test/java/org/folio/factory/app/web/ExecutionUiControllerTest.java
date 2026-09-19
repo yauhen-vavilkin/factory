@@ -215,20 +215,23 @@ class ExecutionUiControllerTest {
     }
 
     @Test
-    void execution_detail_failedDeveloperRunUsesLatestStreamedPiUsage() throws Exception {
+    void execution_detail_failedDeveloperRunUsesLatestStreamedCodingUsage() throws Exception {
         PipelineExecution execution = developerExecution();
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
         when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
                 new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
-                        "{\"activity\":\"pi_usage\",\"promptTokens\":12,\"completionTokens\":3,\"costUsd\":0.1}"),
+                        "{\"activity\":\"pi_usage\",\"inputTokens\":40,\"cacheReadTokens\":10,"
+                                + "\"outputTokens\":3,\"costUsd\":0.1}"),
                 new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
-                        "{\"activity\":\"pi_usage\",\"promptTokens\":27,\"completionTokens\":8,\"costUsd\":0.3}"),
+                        "{\"activity\":\"pi_usage\",\"inputTokens\":80000,\"cacheReadTokens\":35000,"
+                                + "\"cacheWriteTokens\":5000,\"outputTokens\":10000,\"costUsd\":0.3}"),
                 new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine", "{}")));
 
         mvc.perform(get("/executions/{id}", EXECUTION_ID))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("tokenTotals", Map.of(
-                        "present", true, "prompt", "27", "completion", "8", "total", "35")))
+                        "present", true, "coding", true, "total", "130k", "input", "80k",
+                        "cacheRead", "35k", "cacheWrite", "5k", "output", "10k")))
                 .andExpect(model().attribute("reportedCost", "0.3"));
     }
 
@@ -238,15 +241,67 @@ class ExecutionUiControllerTest {
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
         when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
                 new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
-                        "{\"activity\":\"pi_usage\",\"promptTokens\":27,\"completionTokens\":8,\"costUsd\":0.3}"),
+                        "{\"activity\":\"pi_usage\",\"inputTokens\":27,\"outputTokens\":8,\"costUsd\":0.3}"),
                 new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
-                        "{\"promptTokens\":27,\"completionTokens\":8,\"costUsd\":0.3}")));
+                        "{\"inputTokens\":30,\"cacheReadTokens\":10,\"outputTokens\":9,"
+                                + "\"promptTokens\":40,\"completionTokens\":9,\"costUsd\":0.4}")));
 
         mvc.perform(get("/executions/{id}", EXECUTION_ID))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("tokenTotals", Map.of(
-                        "present", true, "prompt", "27", "completion", "8", "total", "35")))
-                .andExpect(model().attribute("reportedCost", "0.3"));
+                        "present", true, "coding", true, "total", "49", "input", "30",
+                        "cacheRead", "10", "output", "9")))
+                .andExpect(model().attribute("reportedCost", "0.4"));
+    }
+
+    @Test
+    void execution_detail_developerUsageKeepsMissingCacheMetricsOptional() throws Exception {
+        PipelineExecution execution = developerExecution();
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
+                        "{\"inputTokens\":20,\"outputTokens\":5,\"promptTokens\":20,"
+                                + "\"completionTokens\":5}")));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "coding", true, "total", "25", "input", "20", "output", "5")));
+    }
+
+    @Test
+    void execution_detail_developerUsageDoesNotDoubleCountPartialNormalizedMetrics() throws Exception {
+        PipelineExecution execution = developerExecution();
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(flowRegistry.find("dev-factory")).thenReturn(Optional.of(developerDescriptor()));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
+                        "{\"promptTokens\":100,\"completionTokens\":20,\"cacheReadTokens\":40}")));
+
+        var result = mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "coding", true, "total", "120", "cacheRead", "40")))
+                .andReturn();
+
+        assertThat(steps(result).get(3)).containsEntry("tokens", "120 tokens (100 in / 20 out)");
+    }
+
+    @Test
+    void execution_detail_developerUsageIncludesLegacyOnlyStepsInTotal() throws Exception {
+        PipelineExecution execution = developerExecution();
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "read-task", "engine",
+                        "{\"promptTokens\":100,\"completionTokens\":20}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
+                        "{\"inputTokens\":30,\"outputTokens\":9,"
+                                + "\"promptTokens\":30,\"completionTokens\":9}")));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "coding", true, "total", "159", "input", "30", "output", "9")));
     }
 
     @Test
@@ -458,5 +513,12 @@ class ExecutionUiControllerTest {
                 null, null, null, null, null);
         return new FlowDescriptor("test-factory", "Test Factory", "1", null, null, null,
                 List.of(triage, gate, finalizer), null);
+    }
+
+    private static FlowDescriptor developerDescriptor() {
+        return new FlowDescriptor("dev-factory", "Developer Flow", "0.6.0", null, null, null,
+                List.of("read-task", "select-repository", "prepare-task", "implement", "verify", "publish")
+                        .stream().map(stepId -> new StepDescriptor(stepId, StepType.AGENT, "worker",
+                                null, null, null, null, null)).toList(), null);
     }
 }

@@ -80,25 +80,47 @@ public class PiCodingRuntime implements CodingRuntime {
     }
 
     private static final class Usage {
-        private long prompt, completion;
+        private long input, cacheRead, cacheWrite, output;
         private java.math.BigDecimal cost;
-        private boolean present;
+        private boolean inputPresent, cacheReadPresent, cacheWritePresent, outputPresent;
 
         boolean add(tools.jackson.databind.JsonNode usage) {
             if (!usage.isObject()) return false;
-            present = true;
-            prompt += Math.max(0, usage.path("input").asLong(0))
-                    + Math.max(0, usage.path("cacheRead").asLong(0)) + Math.max(0, usage.path("cacheWrite").asLong(0));
-            completion += Math.max(0, usage.path("output").asLong(0));
+            boolean found = false;
+            if (usage.path("input").isNumber()) {
+                inputPresent = true;
+                input += Math.max(0, usage.path("input").asLong(0));
+                found = true;
+            }
+            if (usage.path("cacheRead").isNumber()) {
+                cacheReadPresent = true;
+                cacheRead += Math.max(0, usage.path("cacheRead").asLong(0));
+                found = true;
+            }
+            if (usage.path("cacheWrite").isNumber()) {
+                cacheWritePresent = true;
+                cacheWrite += Math.max(0, usage.path("cacheWrite").asLong(0));
+                found = true;
+            }
+            if (usage.path("output").isNumber()) {
+                outputPresent = true;
+                output += Math.max(0, usage.path("output").asLong(0));
+                found = true;
+            }
             var total = usage.path("cost").path("total");
-            if (total.isNumber() && total.asDouble() >= 0 && Double.isFinite(total.asDouble()))
+            if (total.isNumber() && total.asDouble() >= 0 && Double.isFinite(total.asDouble())) {
                 cost = (cost == null ? java.math.BigDecimal.ZERO : cost).add(total.decimalValue());
-            return true;
+                found = true;
+            }
+            return found;
         }
 
         Map<String, Object> snapshot() {
             Map<String, Object> metrics = new java.util.LinkedHashMap<>();
-            if (present) { metrics.put("promptTokens", prompt); metrics.put("completionTokens", completion); }
+            if (inputPresent) metrics.put("inputTokens", input);
+            if (cacheReadPresent) metrics.put("cacheReadTokens", cacheRead);
+            if (cacheWritePresent) metrics.put("cacheWriteTokens", cacheWrite);
+            if (outputPresent) metrics.put("outputTokens", output);
             if (cost != null) metrics.put("costUsd", cost);
             return metrics;
         }

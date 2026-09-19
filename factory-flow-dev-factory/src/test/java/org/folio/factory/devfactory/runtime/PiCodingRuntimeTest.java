@@ -20,14 +20,21 @@ class PiCodingRuntimeTest {
         progress.accept(USAGE_FRAME);
         assertThat(events).hasSize(2);
         assertThat(events.getFirst()).containsEntry("activity", "pi_usage")
-                .containsEntry("promptTokens", 13L).containsEntry("completionTokens", 3L);
+                .containsEntry("inputTokens", 10L)
+                .containsEntry("cacheReadTokens", 2L)
+                .containsEntry("cacheWriteTokens", 1L)
+                .containsEntry("outputTokens", 3L);
         var result = PiCodingRuntime.parse(USAGE_FRAME + USAGE_FRAME + "{\"type\":\"agent_end\"}", "p", "m");
         var totals = new java.util.LinkedHashMap<>(result.metrics());
         totals.remove("provider");
         totals.remove("model");
         totals.put("activity", "pi_usage");
         assertThat(events.getLast()).isEqualTo(totals)
-                .containsEntry("promptTokens", 26L).containsEntry("completionTokens", 6L);
+                .containsEntry("inputTokens", 20L)
+                .containsEntry("cacheReadTokens", 4L)
+                .containsEntry("cacheWriteTokens", 2L)
+                .containsEntry("outputTokens", 6L)
+                .doesNotContainKeys("promptTokens", "completionTokens");
         assertThat((java.math.BigDecimal) events.getLast().get("costUsd")).isEqualByComparingTo("0.25");
         assertThat(events.toString()).doesNotContain("private", "secret-key", "content", "provider", "model");
     }
@@ -43,7 +50,10 @@ class PiCodingRuntimeTest {
         progress.accept(USAGE_FRAME.replace("\"input\":10", "\"input\":-1").replace("\"output\":3", "\"output\":-5"));
         assertThat(events).hasSize(202);
         assertThat(events.get(200)).doesNotContainKey("costUsd");
-        assertThat(events.getLast()).containsEntry("promptTokens", 16L).containsEntry("completionTokens", 3L);
+        assertThat(events.getLast()).containsEntry("inputTokens", 10L)
+                .containsEntry("cacheReadTokens", 4L)
+                .containsEntry("cacheWriteTokens", 2L)
+                .containsEntry("outputTokens", 3L);
         assertThat((java.math.BigDecimal) events.getLast().get("costUsd")).isEqualByComparingTo("0.125");
     }
 
@@ -68,11 +78,17 @@ class PiCodingRuntimeTest {
         var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding("pi:image", "p", "m", null, null, "secret-key"));
         if (outcome.equals("success")) {
             assertThat(runtime.code(workload, "private task", 60, events::add).metrics())
-                    .containsEntry("promptTokens", 26L).containsEntry("completionTokens", 6L);
+                    .containsEntry("inputTokens", 20L)
+                    .containsEntry("cacheReadTokens", 4L)
+                    .containsEntry("cacheWriteTokens", 2L)
+                    .containsEntry("outputTokens", 6L);
         } else assertThatThrownBy(() -> runtime.code(workload, "private task", 60, events::add))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(events).hasSize(2);
-        assertThat(events.getLast()).containsEntry("promptTokens", 26L).containsEntry("completionTokens", 6L);
+        assertThat(events.getLast()).containsEntry("inputTokens", 20L)
+                .containsEntry("cacheReadTokens", 4L)
+                .containsEntry("cacheWriteTokens", 2L)
+                .containsEntry("outputTokens", 6L);
         assertThat((java.math.BigDecimal) events.getLast().get("costUsd")).isEqualByComparingTo("0.25");
         assertThat(events.toString()).doesNotContain("private", "secret-key", "content");
     }
@@ -82,10 +98,18 @@ class PiCodingRuntimeTest {
                 {"type":"message_end","message":{"role":"assistant","provider":"p","model":"m","content":[{"type":"text","text":"Done"}],"usage":{"input":10,"output":3,"cacheRead":2,"cacheWrite":1,"cost":{"total":0.125}}}}
                 """;
         var metrics = PiCodingRuntime.parse(message + message + "{\"type\":\"agent_end\"}", "p", "m").metrics();
-        assertThat(metrics).containsEntry("promptTokens", 26L).containsEntry("completionTokens", 6L);
+        assertThat(metrics).containsEntry("inputTokens", 20L)
+                .containsEntry("cacheReadTokens", 4L)
+                .containsEntry("cacheWriteTokens", 2L)
+                .containsEntry("outputTokens", 6L)
+                .doesNotContainKeys("promptTokens", "completionTokens");
         assertThat((java.math.BigDecimal) metrics.get("costUsd")).isEqualByComparingTo("0.25");
         assertThat(PiCodingRuntime.parse(message.replace(",\"cost\":{\"total\":0.125}", "")
                 + "{\"type\":\"agent_end\"}", "p", "m").metrics()).doesNotContainKey("costUsd");
+        var withoutCache = PiCodingRuntime.parse(message.replace(",\"cacheRead\":2,\"cacheWrite\":1", "")
+                + "{\"type\":\"agent_end\"}", "p", "m").metrics();
+        assertThat(withoutCache).containsEntry("inputTokens", 10L).containsEntry("outputTokens", 3L)
+                .doesNotContainKeys("cacheReadTokens", "cacheWriteTokens");
     }
 
     @Test void progressOmitsTextOutputAndSecretsAndIsBounded() {

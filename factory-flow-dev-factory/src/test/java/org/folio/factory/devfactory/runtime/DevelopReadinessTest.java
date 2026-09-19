@@ -51,7 +51,9 @@ class DevelopReadinessTest {
                     throw new AgentExecutionException("Provider failed");
                 });
         else {
-            when(coding.code(eq(pi), anyString(), eq(60), any())).thenReturn(new CodingRuntime.Result("Done"));
+            when(coding.code(eq(pi), anyString(), eq(60), any())).thenReturn(new CodingRuntime.Result("Done", Map.of(
+                    "inputTokens", 10L, "cacheReadTokens", 2L, "cacheWriteTokens", 1L,
+                    "outputTokens", 3L, "costUsd", new java.math.BigDecimal("0.125"))));
             when(freezer.freeze(eq("repo"), anyString(), anyString(), any()))
                     .thenReturn(new org.folio.factory.devfactory.candidate.Candidate("repo", "a".repeat(40),
                             "b".repeat(40), org.folio.factory.devfactory.candidate.Candidate.sha256("patch"), "patch", "CANDIDATE_UNVERIFIED"));
@@ -72,8 +74,16 @@ class DevelopReadinessTest {
         assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_PASSED");
         if (piFails) verify(audit).record(eq(context.executionId()),
                 eq(org.folio.factory.core.domain.AuditEventType.RUNTIME_PROGRESS), eq("implement"),
-                eq(Map.of("activity", "pi_usage", "promptTokens", 13L, "completionTokens", 3L,
+                eq(Map.of("activity", "pi_usage", "inputTokens", 10L, "cacheReadTokens", 2L,
+                        "cacheWriteTokens", 1L, "outputTokens", 3L,
                         "costUsd", new java.math.BigDecimal("0.125"))));
+        else assertThat(result.metrics())
+                .containsEntry("inputTokens", 10L)
+                .containsEntry("cacheReadTokens", 2L)
+                .containsEntry("cacheWriteTokens", 1L)
+                .containsEntry("outputTokens", 3L)
+                .containsEntry("promptTokens", 13L)
+                .containsEntry("completionTokens", 3L);
         verify(coding).code(eq(pi), anyString(), eq(60), any());
         verify(docker, times(2)).createTrusted("build:image", workspace, "factory-dev-m2-cache");
         verify(baseline, times(2)).close();
