@@ -84,8 +84,9 @@ class DeveloperFlowRegistrationTest {
     }
 
     @Test
-    void configuresBothDeveloperRepositoriesForVerificationAndDelivery() {
-        assertThat(devFactoryProperties.repositories()).containsOnlyKeys("sidecar", "mod-roles-keycloak");
+    void configuresDeveloperRepositoriesForVerificationAndDelivery() {
+        assertThat(devFactoryProperties.repositories())
+                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements");
         assertThat(devFactoryProperties.repositories().get("sidecar"))
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "yauhen-vavilkin/folio-module-sidecar", "master", "maven:3.9-eclipse-temurin-21",
@@ -94,11 +95,17 @@ class DeveloperFlowRegistrationTest {
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "yauhen-vavilkin/mod-roles-keycloak", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-unit", List.of("MODROLESKC"), List.of()));
+        assertThat(devFactoryProperties.repositories().get("mgr-tenant-entitlements"))
+                .isEqualTo(new DevFactoryProperties.Repository(
+                        "yauhen-vavilkin/mgr-tenant-entitlements", "master", "maven:3.9-eclipse-temurin-21",
+                        "java21-unit", List.of("MGRENTITLE"), List.of()));
         assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
         assertThat(devDeliveryProperties.createPullRequest()).isTrue();
         assertThat(devDeliveryProperties.targets()).containsOnly(
                 entry("sidecar", new DeliveryTarget("yauhen-vavilkin/folio-module-sidecar", "master", true)),
                 entry("mod-roles-keycloak", new DeliveryTarget(
-                        "yauhen-vavilkin/mod-roles-keycloak", "master", true)));
+                        "yauhen-vavilkin/mod-roles-keycloak", "master", true)),
+                entry("mgr-tenant-entitlements", new DeliveryTarget(
+                        "yauhen-vavilkin/mgr-tenant-entitlements", "master", true)));
     }
 }

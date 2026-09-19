@@ -136,6 +136,12 @@ factory:
         build-image: maven:3.9-eclipse-temurin-21
         verification-plan: java21-unit
         jira-projects: [MODROLESKC]
+      mgr-tenant-entitlements:
+        source-repo: yauhen-vavilkin/mgr-tenant-entitlements
+        base-branch: master
+        build-image: maven:3.9-eclipse-temurin-21
+        verification-plan: java21-unit
+        jira-projects: [MGRENTITLE]
     runtime:
       timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
@@ -157,6 +163,10 @@ factory:
           authorized: true
         mod-roles-keycloak:
           repository: yauhen-vavilkin/mod-roles-keycloak
+          base-branch: master
+          authorized: true
+        mgr-tenant-entitlements:
+          repository: yauhen-vavilkin/mgr-tenant-entitlements
           base-branch: master
           authorized: true
   test-factory:
