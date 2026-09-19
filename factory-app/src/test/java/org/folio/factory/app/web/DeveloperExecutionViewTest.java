@@ -74,17 +74,16 @@ class DeveloperExecutionViewTest {
 
         assertThat(view.build(execution, List.of(), List.of(), Instant.now()))
                 .containsEntry("reasonLabel", "Previous attempt")
-                .containsEntry("showExecutionError", true)
                 .containsEntry("reason", execution.getErrorMessage());
 
         var piRunning = view.build(execution, List.of(),
                 List.of(runtime("pi_starting", "Pi is starting", Instant.now())), Instant.now());
-        assertThat(piRunning).containsEntry("reason", "").containsEntry("showExecutionError", false);
+        assertThat(piRunning).containsEntry("reason", "");
 
         execution.setCurrentStepIndex(6);
         execution.setStatus(ExecutionStatus.COMPLETED);
         assertThat(view.build(execution, List.of(), List.of(), Instant.now()))
-                .containsEntry("reason", "").containsEntry("showExecutionError", false);
+                .containsEntry("reason", "");
     }
 
     @Test void compactsOnlyConsecutiveIdenticalHeartbeatsAndKeepsPiStartHonest() {
@@ -112,12 +111,12 @@ class DeveloperExecutionViewTest {
                 "Starting build completed · Build passed");
         assertThat(activity.get(1)).containsEntry("time", "2026-09-18 10:00:20");
         assertThat(events).hasSize(25);
-        assertThat(fields(model)).contains(Map.of("label", "Pi", "value", "Not started"));
+        assertThat(model.get("latestActivity").toString()).contains("Starting build completed");
         assertThat(DeveloperExecutionView.technicalStepLabel("implement")).isEqualTo("Implementation");
 
         events.add(runtime("agent_start", "Pi started", start.plusSeconds(26)));
-        assertThat(fields(view.build(execution, List.of(), events, start.plusSeconds(27))))
-                .contains(Map.of("label", "Pi", "value", "Started"));
+        assertThat(view.build(execution, List.of(), events, start.plusSeconds(27)).get("latestActivity").toString())
+                .contains("Pi started");
     }
 
     @Test void hiddenAuditEventsDoNotSplitHeartbeatsButMeaningfulRuntimeEventsDo() {
@@ -156,9 +155,6 @@ class DeveloperExecutionViewTest {
                 start.plusSeconds(9)).get("activity");
 
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "Editing KeycloakAuthorizationService.java",
-                "edit completed",
-                "Writing AdvisoryLockService.java",
                 "write completed",
                 "Reading Foo.java",
                 "Running mvn test",
@@ -211,13 +207,48 @@ class DeveloperExecutionViewTest {
 
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
                 "Pi started",
-                "Pi working",
                 "Pi retrying request",
                 "Pi retry finished",
                 "Pi compacting context",
                 "Pi compaction finished",
                 "Pi finished");
         assertThat(activity.toString()).doesNotContain("hidden message", "hidden reasoning", "reasoning");
+    }
+
+    @Test void activityLimitNoticeSurvivesRecentActivityWindow() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setCurrentStepIndex(3);
+        execution.setStatus(ExecutionStatus.RUNNING);
+        Instant start = Instant.parse("2026-09-18T10:00:00Z");
+        var events = new java.util.ArrayList<AuditEvent>();
+        events.add(runtime(Map.of("activity", "tool_execution_start", "tool", "bash", "command", "mvn test",
+                "notice", "Runtime activity limit reached; usage reporting continues"), start));
+        for (int i = 1; i <= 8; i++)
+            events.add(runtime(Map.of("activity", "tool_execution_start", "tool", "read",
+                    "path", "/workspace/Foo" + i + ".java"), start.plusSeconds(i)));
+
+        var model = view.build(execution, List.of(), events, start.plusSeconds(9));
+
+        assertThat(model).containsEntry("activityNotice", "Runtime activity limit reached; usage reporting continues")
+                .containsEntry("currentPhase", "Implement changes");
+        assertThat((List<?>) model.get("activity")).hasSize(6);
+        assertThat(model.get("latestActivity").toString()).contains("Reading Foo8.java");
+    }
+
+    @Test void terminalExecutionKeepsPiEventHistoricalAndUsesProductStage() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setCurrentStepIndex(6);
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        var result = artifact("dev_result.json", 1, "{\"state\":\"DELIVERED\"}");
+        var latest = runtime(Map.of("activity", "tool_execution_start", "tool", "edit",
+                "path", "/workspace/Foo.java"), Instant.parse("2026-09-18T10:00:00Z"));
+
+        var model = view.build(execution, List.of(result), List.of(latest), Instant.now());
+
+        assertThat(model).containsEntry("currentPhase", "Complete");
+        assertThat(model.get("latestActivity").toString()).contains("Editing Foo.java");
+        assertThat(phases(model)).extracting(phase -> phase.get("stateLabel"))
+                .containsExactly("Done", "Done", "Done", "Done");
     }
 
     @Test void verificationFailureIsMoreUsefulThanSkippedDelivery() {
@@ -238,7 +269,7 @@ class DeveloperExecutionViewTest {
         var failed = artifact("dev_result.json", 2, "{\"state\":\"DELIVERY_BLOCKED\",\"reason\":\"Destination unavailable\"}");
         var model = view.build(execution, List.of(failed, old), List.of(), Instant.now());
         assertThat(model).containsEntry("reason", "Destination unavailable").containsEntry("elapsedStart", null);
-        assertThat(model.get("fields").toString()).contains("TASK-1", "DELIVERY_BLOCKED", "Not started");
+        assertThat(model).containsEntry("taskKey", "TASK-1").containsEntry("outcome", "DELIVERY_BLOCKED");
     }
 
     @Test void mapsPinnedBriefVerificationAndDeliveryAndRejectsUnsafeLinks() {
@@ -249,8 +280,17 @@ class DeveloperExecutionViewTest {
         var delivery = artifact("dev_delivery.json", 1,
                 "{\"state\":\"DELIVERED\",\"deliveryRepository\":\"user/repo\",\"deliveryBranch\":\"dev/task\",\"deliveryCommitSha\":\"def456\",\"pullRequestUrl\":\"https://github.com/user/repo/pull/1\"}");
         var model = view.build(execution, List.of(brief, verification, delivery), List.of(), Instant.now());
-        assertThat(model.get("fields").toString()).contains("Fix route", "folio/sidecar", "master", "abc123", "PASS", "mvn test", "8", "user/repo", "dev/task", "def456");
-        assertThat(model).containsEntry("pullRequestUrl", "https://github.com/user/repo/pull/1");
+        assertThat(model).containsEntry("summary", "Fix route")
+                .containsEntry("repository", "folio/sidecar")
+                .containsEntry("branch", "master")
+                .containsEntry("commit", "abc123")
+                .containsEntry("verification", "PASS")
+                .containsEntry("testCount", "8")
+                .containsEntry("deliveryRepository", "user/repo")
+                .containsEntry("deliveryBranch", "dev/task")
+                .containsEntry("deliveryCommit", "def456")
+                .containsEntry("pullRequestUrl", "https://github.com/user/repo/pull/1");
+        assertThat(model.get("technicalFields").toString()).contains("mvn test");
         var unsafe = artifact("dev_delivery.json", 2, "{\"pullRequestUrl\":\"javascript:alert(1)\"}");
         assertThat(view.build(execution, List.of(delivery, unsafe), List.of(), Instant.now())).containsEntry("pullRequestUrl", "");
     }
@@ -322,9 +362,10 @@ class DeveloperExecutionViewTest {
                 List.of(event(AuditEventType.STEP_STARTED, "implement", start)), start.plusSeconds(90));
 
         assertThat(phases(model).get(1)).containsEntry("state", "failed").containsEntry("sublabel", "10s");
-        assertThat(model.get("fields").toString()).contains("Starting build", "Passed", "Current phase", "Implement changes")
-                .doesNotContain("Pinned base SHA", "Baseline command");
-        assertThat(model).containsEntry("startingBuildOutput", "ok");
+        assertThat(model).containsEntry("startingBuild", "Passed")
+                .containsEntry("currentPhase", "Implement changes")
+                .containsEntry("startingBuildOutput", "ok");
+        assertThat(model.get("technicalFields").toString()).doesNotContain("Pinned base SHA", "Baseline command");
     }
 
     @Test void pendingRetryPreservesCompletedPhasesAndCurrentCursor() {
@@ -344,7 +385,10 @@ class DeveloperExecutionViewTest {
 
         assertThat(phases(model)).extracting(p -> p.get("state"))
                 .containsExactly("done", "done", "current", "pending");
-        assertThat(model.get("fields").toString()).contains("Current phase", "Verify changes");
+        assertThat(phases(model).get(2)).containsEntry("stateLabel", "Retry pending")
+                .containsEntry("sublabel", "7s")
+                .doesNotContainKey("elapsedStart");
+        assertThat(model).containsEntry("currentPhase", "Verify changes");
     }
 
     @Test void resumedExecutionIgnoresStaleTerminalTimestamp() {
@@ -371,10 +415,6 @@ class DeveloperExecutionViewTest {
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> phases(Map<String, Object> model) {
         return (List<Map<String, Object>>) model.get("phases");
-    }
-    @SuppressWarnings("unchecked")
-    private static List<Map<String, String>> fields(Map<String, Object> model) {
-        return (List<Map<String, String>>) model.get("fields");
     }
     private static AuditEvent event(AuditEventType type, String stepId, Instant when) {
         var event = new AuditEvent(java.util.UUID.randomUUID(), type, stepId, "system", "{}");

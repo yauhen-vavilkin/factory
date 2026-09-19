@@ -11,6 +11,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -65,54 +66,50 @@ final class DeveloperExecutionView {
         var verification = artifact(latest, "dev_verification.json");
         var result = artifact(latest, "dev_result.json");
         var delivery = artifact(latest, "dev_delivery.json");
-        List<Map<String, String>> fields = new ArrayList<>();
-        add(fields, "Jira task", first(brief.path("issue_key"), parse(execution.getTriggerPayload()).path("issueKey")));
-        add(fields, "Summary", brief.path("issue").path("summary"));
         var repo = brief.path("repository");
-        add(fields, "Selected repository", first(repo.path("key"), candidate.path("repository")));
-        add(fields, "Source repository", repo.path("source_repo"));
-        add(fields, "Base branch", repo.path("base_branch"));
-        add(fields, "Starting commit", first(repo.path("base_sha"), candidate.path("baseSha")));
-        add(fields, "Expected verification plan", repo.path("verification_plan"));
-        add(fields, "Starting build", startingBuildState(readiness.path("state").asString("")));
-        add(fields, "Starting build command", readiness.path("command"));
-        add(fields, "Verification plan", verification.path("planId"));
-        add(fields, "Verification command", verification.path("argv"));
-        add(fields, "Verification", first(verification.path("result"), verification.path("state")));
-        add(fields, "Verification exit code", verification.path("exitCode"));
-        add(fields, "Executed tests", verification.path("testCount"));
-        add(fields, "Outcome", result.path("state"));
-        add(fields, "Delivery", delivery.path("state"));
-        add(fields, "Delivery repository", delivery.path("deliveryRepository"));
-        add(fields, "Delivery branch", delivery.path("deliveryBranch"));
-        add(fields, "Delivered commit", delivery.path("deliveryCommitSha"));
+        List<Map<String, String>> technicalFields = new ArrayList<>();
+        add(technicalFields, "Repository key", first(repo.path("key"), candidate.path("repository")));
+        add(technicalFields, "Expected verification plan", repo.path("verification_plan"));
+        add(technicalFields, "Starting build command", readiness.path("command"));
+        add(technicalFields, "Verification plan", verification.path("planId"));
+        add(technicalFields, "Verification command", verification.path("argv"));
+        add(technicalFields, "Verification exit code", verification.path("exitCode"));
 
-        List<Map<String, String>> activity = new ArrayList<>();
-        boolean started = false;
+        List<Map<String, String>> recentActivity = new ArrayList<>();
+        Map<String, String> latestActivity = null;
+        String activityNotice = "";
         boolean piObserved = false;
         JsonNode config = json.createObjectNode();
         String previousHeartbeat = null;
         var bashActivity = new BashActivity();
-        for (var event : events) {
+        var orderedEvents = events.stream()
+                .sorted(Comparator.comparing(AuditEvent::getOccurredAt))
+                .toList();
+        for (var event : orderedEvents) {
             if (event.getEventType() != AuditEventType.RUNTIME_PROGRESS) continue;
             var detail = parse(event.getDetail());
             String action = detail.path("activity").asString("");
             if (action.equals("pi_usage")) continue;
-            if (action.equals("agent_start")) { started = true; piObserved = true; }
+            if (action.equals("agent_start")) piObserved = true;
             if (action.equals("pi_starting")) { config = detail; piObserved = true; }
             String text = runtimeActivityText(detail, bashActivity);
+            var row = Map.of("time", UiFormat.format(event.getOccurredAt()), "text", text);
+            latestActivity = row;
+            if (detail.has("notice")) activityNotice = detail.path("notice").asString("");
+            if (action.equals("turn_start")) {
+                previousHeartbeat = null;
+                continue;
+            }
             boolean heartbeat = action.equals("baseline_progress")
                     && detail.path("message").asString("").equals("Starting build is still running");
-            var row = Map.of("time", UiFormat.format(event.getOccurredAt()), "text", text);
             // Keep the latest timestamp for a consecutive heartbeat run, without changing the audit trail.
-            if (heartbeat && text.equals(previousHeartbeat)) activity.set(activity.size() - 1, row);
-            else activity.add(row);
+            if (heartbeat && text.equals(previousHeartbeat)) recentActivity.set(recentActivity.size() - 1, row);
+            else recentActivity.add(row);
             previousHeartbeat = heartbeat ? text : null;
         }
-        add(fields, "Pi", started ? "Started" : "Not started");
-        add(fields, "Coding image", config.path("image"));
-        add(fields, "Provider", config.path("provider"));
-        add(fields, "Model", config.path("model"));
+        add(technicalFields, "Coding image", config.path("image"));
+        add(technicalFields, "Provider", config.path("provider"));
+        add(technicalFields, "Model", config.path("model"));
         String executionError = execution.getErrorMessage();
         boolean retryErrorSuperseded = executionError != null
                 && executionError.startsWith(STARTING_BUILD_NETWORK_FAILURE)
@@ -130,24 +127,72 @@ final class DeveloperExecutionView {
         String pr = delivery.path("pullRequestUrl").asString("");
         if (!pr.matches("https://[^\\s]+")) pr = "";
         var phases = phases(execution, events, now, brief, readiness, candidate, verification, result, delivery);
-        add(fields, "Current phase", currentPhase(phases));
         Map<String, Object> view = new LinkedHashMap<>();
-        view.put("fields", fields);
+        view.put("taskKey", first(brief.path("issue_key"), parse(execution.getTriggerPayload()).path("issueKey")));
+        view.put("summary", brief.path("issue").path("summary").asString("Developer Flow execution"));
+        view.put("repository", first(repo.path("source_repo"), repo.path("key"), candidate.path("repository")));
+        view.put("branch", repo.path("base_branch").asString(""));
+        view.put("commit", first(repo.path("base_sha"), candidate.path("baseSha")));
+        view.put("technicalFields", technicalFields);
         view.put("reason", reason);
         String reasonLabel = execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.PENDING
                 && !reason.isBlank() ? "Retry pending" : execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.RUNNING
                 && executionError != null && !retryErrorSuperseded ? "Previous attempt" : "Stop reason";
         view.put("reasonLabel", reasonLabel);
-        view.put("showExecutionError", executionError != null && !retryErrorSuperseded);
         view.put("pullRequestUrl", pr);
-        view.put("activity", activity.subList(Math.max(0, activity.size() - 12), activity.size()));
+        view.put("latestActivity", latestActivity);
+        view.put("activityNotice", activityNotice);
+        view.put("activity", recentActivity.subList(Math.max(0, recentActivity.size() - 6), recentActivity.size()));
+        view.put("auditEvents", developerAuditRows(events));
         view.put("startingBuildOutput", readiness.path("output").asString(""));
         view.put("phases", phases);
+        view.put("currentPhase", currentPhase(phases));
+        view.put("startingBuild", outcomeState(startingBuildState(readiness.path("state").asString("")), phases, 1));
+        view.put("verification", outcomeState(first(verification.path("result"), verification.path("state")), phases, 2));
+        view.put("testCount", verification.path("testCount").asString(""));
+        view.put("delivery", outcomeState(delivery.path("state").asString(""), phases, 3));
+        view.put("deliveryRepository", delivery.path("deliveryRepository").asString(""));
+        view.put("deliveryBranch", delivery.path("deliveryBranch").asString(""));
+        view.put("deliveryCommit", delivery.path("deliveryCommitSha").asString(""));
+        view.put("outcome", result.path("state").asString(""));
         Instant elapsedEnd = execution.getStatus().isTerminal() && execution.getCompletedAt() != null
                 ? execution.getCompletedAt() : now;
         view.put("elapsed", duration(execution.getCreatedAt(), elapsedEnd));
         view.put("elapsedStart", execution.getStatus().isTerminal() ? null : execution.getCreatedAt());
         return view;
+    }
+
+    private List<Map<String, Object>> developerAuditRows(List<AuditEvent> events) {
+        return events.stream().map(event -> {
+            var row = UiFormat.auditRow(event, json);
+            if (event.getEventType() == AuditEventType.RUNTIME_PROGRESS)
+                row.put("detail", safeRuntimeDetail(event.getDetail()));
+            return row;
+        }).toList();
+    }
+
+    private String safeRuntimeDetail(String value) {
+        var detail = parse(value);
+        var safe = json.createObjectNode();
+        copy(safe, detail, "activity");
+        String activity = detail.path("activity").asString("");
+        switch (activity) {
+            case "baseline_started" -> copy(safe, detail, "command", "image");
+            case "baseline_progress", "baseline_retryable_failure" -> copy(safe, detail, "message");
+            case "baseline_completed" -> copy(safe, detail, "exitCode", "summary");
+            case "pi_starting" -> copy(safe, detail, "image", "provider", "model");
+            case "tool_execution_start" -> copy(safe, detail, "tool", "path", "command");
+            case "tool_execution_end" -> copy(safe, detail, "tool", "error");
+            case "pi_usage" -> copy(safe, detail, "inputTokens", "cacheReadTokens", "cacheWriteTokens",
+                    "outputTokens", "promptTokens", "completionTokens", "costUsd");
+            default -> { /* Activity name and optional notice are sufficient for debugging lifecycle events. */ }
+        }
+        copy(safe, detail, "notice");
+        return safe.size() == 0 ? null : json.writerWithDefaultPrettyPrinter().writeValueAsString(safe);
+    }
+
+    private static void copy(tools.jackson.databind.node.ObjectNode target, JsonNode source, String... keys) {
+        for (String key : keys) if (source.has(key)) target.set(key, source.get(key));
     }
 
     static String technicalStepLabel(String id) { return TECHNICAL_STEPS.getOrDefault(id, id); }
@@ -178,6 +223,7 @@ final class DeveloperExecutionView {
             row.put("label", phase.label());
             row.put("sublabel", duration);
             row.put("state", state);
+            row.put("stateLabel", phaseStateLabel(state, execution));
             row.put("attempts", null);
             row.put("tokens", null);
             if ("current".equals(state) && timing.running())
@@ -243,6 +289,24 @@ final class DeveloperExecutionView {
         return "Complete";
     }
 
+    private static String phaseStateLabel(String state, PipelineExecution execution) {
+        return switch (state) {
+            case "done" -> "Done";
+            case "failed" -> "Failed";
+            case "pending" -> "Pending";
+            case "current" -> switch (execution.getStatus()) {
+                case RUNNING -> "Running";
+                case PENDING -> "Retry pending";
+                default -> "Current";
+            };
+            default -> state;
+        };
+    }
+
+    private static String outcomeState(String evidence, List<Map<String, Object>> phases, int phase) {
+        return evidence.isBlank() ? phases.get(phase).get("stateLabel").toString() : evidence;
+    }
+
     private static String startingBuildState(String state) {
         return switch (state) {
             case "BASELINE_PASSED" -> "Passed";
@@ -263,7 +327,7 @@ final class DeveloperExecutionView {
 
     private static String runtimeActivityText(JsonNode detail, BashActivity bashActivity) {
         String action = detail.path("activity").asString("");
-        String text = switch (action) {
+        return switch (action) {
             case "agent_start" -> "Pi started";
             case "agent_end" -> "Pi finished";
             case "turn_start" -> "Pi working";
@@ -275,7 +339,6 @@ final class DeveloperExecutionView {
             case "tool_execution_end" -> toolEndText(detail, bashActivity);
             default -> genericActivityText(detail, action);
         };
-        return detail.has("notice") ? text + " · " + detail.path("notice").asString() : text;
     }
 
     private static String toolStartText(JsonNode detail, BashActivity bashActivity) {

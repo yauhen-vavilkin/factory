@@ -241,18 +241,44 @@ class UiRenderSmokeTest {
                 "{\"state\":\"BASELINE_FAILED\",\"output\":\"[INFO] Compiling 42 source files\\n[ERROR] transfer failed\"}", "implement");
         artifactStore.putMarkdown(execution.getId(), "dev_delivery.json",
                 "{\"state\":\"DELIVERY_BLOCKED\",\"reason\":\"Safe destination missing\"}", "publish");
+        artifactStore.putMarkdown(execution.getId(), "dev_candidate.json",
+                "{\"state\":\"CANDIDATE_UNVERIFIED\",\"patch\":\"SOURCE_CONTENT_SENTINEL\"}", "implement");
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "tool_execution_start", "tool", "bash", "command", "mvn test"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "turn_start", "message", "HIDDEN_MESSAGE_SENTINEL",
+                        "reasoning", "HIDDEN_REASONING_SENTINEL"));
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of("costUsd", 0.125));
         String body = assertRendered("/executions/" + execution.getId(), "Developer Flow");
-        assertThat(body).contains("MODSIDECAR-196", "Executed tests", ">17<", "mvn test", "DELIVERY_BLOCKED",
-                "Safe destination missing", "Coding runtime cost: $0.125 USD",
+        assertThat(body).contains("MODSIDECAR-196", "17 tests executed", "mvn test", "DELIVERY_BLOCKED",
+                "Safe destination missing", "$0.125 USD",
                 "auditTrail.length,artifacts.length", "Prepare task", "Implement changes", "Verify changes",
-                "Create pull request", "Technical step details", "Prepare task checkout", "Starting build output",
-                "Compiling 42 source files", "transfer failed", "Artifacts", "Audit timeline");
-        assertThat(body).containsOnlyOnce("class=\"stepper\"")
+                "Create pull request", "Technical details", "Prepare task checkout", "Starting build output",
+                "Compiling 42 source files", "transfer failed", "Artifacts", "Raw audit history");
+        assertThat(body).containsOnlyOnce("class=\"developer-stages\"")
                 .contains("aria-label=\"Technical steps\"", "Implementation", "Not started")
-                .doesNotContain(">Baseline<", "Baseline output tail", "Pinned base SHA", "Run starting build and Pi");
+                .doesNotContain("class=\"stepper\"", "SOURCE_CONTENT_SENTINEL", "HIDDEN_MESSAGE_SENTINEL",
+                        "HIDDEN_REASONING_SENTINEL", ">Baseline<",
+                        "Baseline output tail", "Pinned base SHA", "Run starting build and Pi");
+    }
+
+    @Test
+    void developerAuditVolumeStaysBehindClosedDebugDisclosure() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setCurrentStepIndex(3);
+        execution.setStatus(ExecutionStatus.RUNNING);
+        execution = executions.save(execution);
+        for (int i = 0; i < 240; i++)
+            auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                    Map.of("activity", "turn_start"));
+
+        String body = assertRendered("/executions/" + execution.getId(), "Raw audit history (240)");
+
+        assertThat(body)
+                .containsOnlyOnce("data-developer-audit")
+                .containsOnlyOnce("Latest reported activity")
+                .contains("Pi working", "No meaningful activity reported yet.")
+                .doesNotContain("<details data-developer-audit open");
     }
 
     @Test
@@ -276,8 +302,8 @@ class UiRenderSmokeTest {
                             "Workflow engine status: COMPLETED")
                     .doesNotContain("badge-status-COMPLETED");
             if (outcome.equals("DEVELOPMENT_FAILED"))
-                assertThat(detail).contains("LLM tokens: 16 total", "Input: 10", "Cached read: 2",
-                                "Cache write: 1", "Output: 3", "Coding runtime cost: $0.125 USD")
+                assertThat(detail).contains(">16</strong>", "total tokens", "Input", "Cached read",
+                                "Cache write", "Output", "$0.125 USD")
                         .doesNotContain("pi usage");
             String list = assertRendered("/executions?flow=dev-factory", "Executions");
             assertThat(list).contains("badge-status-" + outcome, ">" + outcome + "</span>")

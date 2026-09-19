@@ -287,6 +287,7 @@ public class ExecutionUiController {
         int panel = 0;
         for (Artifact artifact : artifacts) {
             Map<String, Object> version = new LinkedHashMap<>();
+            version.put("id", artifact.getId());
             version.put("version", artifact.getVersion());
             version.put("content", artifact.getContent());
             version.put("createdBy", artifact.getCreatedBy());

@@ -23,35 +23,206 @@
     </div>
 
     <div class="alert alert-error" role="alert"
-         th:if="${!#strings.isEmpty(execution.errorMessage) and (developer == null or developer['showExecutionError'])}">
+         th:if="${developer == null and !#strings.isEmpty(execution.errorMessage)}">
         <span th:text="'Last error: ' + ${execution.errorMessage}"></span>
     </div>
 
     <div class="stack">
-        <section class="card" th:if="${developer != null}">
-            <div class="card-header"><h2 class="card-title">Developer Flow</h2>
-                <p>Elapsed: <span th:attr="data-elapsed-start=${developer['elapsedStart']}" th:text="${developer['elapsed']}"></span></p>
+        <section class="card developer-execution" th:if="${developer != null}">
+            <div class="developer-header">
+                <div>
+                    <p class="developer-flow-label">
+                        <span>Developer Flow</span>
+                        <span th:if="${!#strings.isEmpty(developer['taskKey'])}"
+                              th:text="${developer['taskKey']}"></span>
+                    </p>
+                    <h2 class="developer-title" th:text="${developer['summary']}">Developer task</h2>
+                </div>
+                <p class="developer-elapsed">Elapsed
+                    <span th:attr="data-elapsed-start=${developer['elapsedStart']}"
+                          th:text="${developer['elapsed']}"></span>
+                </p>
             </div>
-            <div class="card-content">
+            <div class="developer-content">
                 <div class="alert alert-error" role="alert" th:if="${!#strings.isEmpty(developer['reason'])}"
                      th:text="${developer['reasonLabel']} + ': ' + ${developer['reason']}"></div>
-                <div class="developer-facts">
-                    <dl th:each="field : ${developer['fields']}">
-                        <dt th:text="${field['label']}"></dt><dd th:text="${field['value']}"></dd>
+
+                <div class="developer-repository">
+                    <dl>
+                        <dt>Repository</dt>
+                        <dd th:text="${#strings.isEmpty(developer['repository']) ? 'Not selected' : developer['repository']}"></dd>
+                    </dl>
+                    <dl>
+                        <dt>Base branch</dt>
+                        <dd th:text="${#strings.isEmpty(developer['branch']) ? 'Not selected' : developer['branch']}"></dd>
+                    </dl>
+                    <dl>
+                        <dt>Starting commit</dt>
+                        <dd class="developer-sha" th:text="${#strings.isEmpty(developer['commit']) ? 'Not pinned' : developer['commit']}"></dd>
                     </dl>
                 </div>
-                <a th:if="${!#strings.isEmpty(developer['pullRequestUrl'])}" th:href="${developer['pullRequestUrl']}">Open pull request</a>
-                <h3 class="card-title">Recent runtime activity</h3>
-                <p th:if="${#lists.isEmpty(developer['activity'])}">No runtime activity yet.</p>
-                <ul><li th:each="activity : ${developer['activity']}"
-                        th:text="${activity['time']} + ' · ' + ${activity['text']}"></li></ul>
-                <details th:if="${!#strings.isEmpty(developer['startingBuildOutput'])}">
-                    <summary>Starting build output</summary>
-                    <pre class="code-block" th:text="${developer['startingBuildOutput']}"></pre>
-                </details>
+
+                <ol class="developer-stages" aria-label="Developer Flow stages">
+                    <li th:each="phase, phaseStat : ${developer['phases']}"
+                        th:attr="data-state=${phase['state']}">
+                        <span class="developer-stage-marker" aria-hidden="true"
+                              th:text="${phaseStat.count}"></span>
+                        <div class="developer-stage-copy">
+                            <span class="developer-stage-label" th:text="${phase['label']}"></span>
+                            <span class="developer-stage-meta">
+                                <strong th:text="${phase['stateLabel']}"></strong>
+                                <span aria-hidden="true">·</span>
+                                <span th:attr="data-elapsed-start=${phase['elapsedStart']}"
+                                      th:text="${phase['sublabel']}"></span>
+                            </span>
+                        </div>
+                    </li>
+                </ol>
+
+                <div class="developer-live-grid">
+                    <section class="developer-panel developer-current" aria-labelledby="developer-current-stage">
+                        <h3 id="developer-current-stage">Current stage</h3>
+                        <strong class="developer-current-stage" th:text="${developer['currentPhase']}"></strong>
+                        <div class="developer-latest">
+                            <span>Latest reported activity</span>
+                            <p th:if="${developer['latestActivity'] != null}">
+                                <time th:text="${developer['latestActivity']['time']}"></time>
+                                <span th:text="${developer['latestActivity']['text']}"></span>
+                            </p>
+                            <p class="muted" th:if="${developer['latestActivity'] == null}">No runtime activity reported yet.</p>
+                        </div>
+                        <p class="developer-notice" th:if="${!#strings.isEmpty(developer['activityNotice'])}"
+                           th:text="${developer['activityNotice']}"></p>
+                    </section>
+
+                    <section class="developer-panel developer-usage" aria-labelledby="developer-usage-heading">
+                        <h3 id="developer-usage-heading">Usage</h3>
+                        <div class="developer-usage-total" th:if="${tokenTotals['present']}">
+                            <strong th:text="${tokenTotals['total']}"></strong>
+                            <span>total tokens</span>
+                        </div>
+                        <p class="muted" th:unless="${tokenTotals['present']}">No token usage reported yet.</p>
+                        <dl class="developer-usage-breakdown" th:if="${tokenTotals['present']}">
+                            <th:block th:if="${tokenTotals['coding'] == true}">
+                                <div th:if="${tokenTotals['input'] != null}"><dt>Input</dt><dd th:text="${tokenTotals['input']}"></dd></div>
+                                <div th:if="${tokenTotals['cacheRead'] != null}"><dt>Cached read</dt><dd th:text="${tokenTotals['cacheRead']}"></dd></div>
+                                <div th:if="${tokenTotals['cacheWrite'] != null}"><dt>Cache write</dt><dd th:text="${tokenTotals['cacheWrite']}"></dd></div>
+                                <div th:if="${tokenTotals['output'] != null}"><dt>Output</dt><dd th:text="${tokenTotals['output']}"></dd></div>
+                            </th:block>
+                            <th:block th:unless="${tokenTotals['coding'] == true}">
+                                <div><dt>Prompt</dt><dd th:text="${tokenTotals['prompt']}"></dd></div>
+                                <div><dt>Completion</dt><dd th:text="${tokenTotals['completion']}"></dd></div>
+                            </th:block>
+                            <div th:if="${reportedCost != null}"><dt>Cost</dt><dd th:text="'$' + ${reportedCost} + ' USD'"></dd></div>
+                        </dl>
+                        <p th:if="${!tokenTotals['present'] and reportedCost != null}"
+                           th:text="'Reported cost: $' + ${reportedCost} + ' USD'"></p>
+                    </section>
+                </div>
+
+                <section class="developer-recent" aria-labelledby="developer-recent-heading">
+                    <h3 id="developer-recent-heading">Recent meaningful activity</h3>
+                    <p class="muted" th:if="${#lists.isEmpty(developer['activity'])}">No meaningful activity reported yet.</p>
+                    <ol th:unless="${#lists.isEmpty(developer['activity'])}">
+                        <li th:each="activity : ${developer['activity']}">
+                            <time th:text="${activity['time']}"></time>
+                            <span th:text="${activity['text']}"></span>
+                        </li>
+                    </ol>
+                </section>
+
+                <section class="developer-outcomes" aria-label="Verification and delivery results">
+                    <div>
+                        <span>Starting build</span>
+                        <strong th:text="${developer['startingBuild']}"></strong>
+                    </div>
+                    <div>
+                        <span>Verification</span>
+                        <strong th:text="${developer['verification']}"></strong>
+                        <small th:if="${!#strings.isEmpty(developer['testCount'])}"
+                               th:text="${developer['testCount']} + ' tests executed'"></small>
+                    </div>
+                    <div>
+                        <span>Delivery</span>
+                        <strong th:text="${developer['delivery']}"></strong>
+                        <a th:if="${!#strings.isEmpty(developer['pullRequestUrl'])}"
+                           th:href="${developer['pullRequestUrl']}">Open pull request</a>
+                    </div>
+                </section>
+
+                <dl class="developer-delivery-facts"
+                    th:if="${!#strings.isEmpty(developer['deliveryRepository']) or !#strings.isEmpty(developer['deliveryBranch']) or !#strings.isEmpty(developer['deliveryCommit'])}">
+                    <div th:if="${!#strings.isEmpty(developer['deliveryRepository'])}"><dt>Delivery repository</dt><dd th:text="${developer['deliveryRepository']}"></dd></div>
+                    <div th:if="${!#strings.isEmpty(developer['deliveryBranch'])}"><dt>Delivery branch</dt><dd th:text="${developer['deliveryBranch']}"></dd></div>
+                    <div th:if="${!#strings.isEmpty(developer['deliveryCommit'])}"><dt>Delivered commit</dt><dd class="developer-sha" th:text="${developer['deliveryCommit']}"></dd></div>
+                </dl>
+
+                <div class="developer-debug">
+                    <details>
+                        <summary>Technical details</summary>
+                        <div class="developer-debug-content">
+                            <div class="developer-facts">
+                                <dl th:each="field : ${developer['technicalFields']}">
+                                    <dt th:text="${field['label']}"></dt><dd th:text="${field['value']}"></dd>
+                                </dl>
+                            </div>
+                            <p th:text="'Workflow engine status: ' + ${execution.status}"></p>
+                            <div class="table-wrap">
+                                <table aria-label="Technical steps">
+                                    <thead><tr><th scope="col">Step</th><th scope="col">State</th><th scope="col">Duration</th></tr></thead>
+                                    <tbody>
+                                    <tr th:each="s : ${steps}" th:attr="data-state=${s['state']}">
+                                        <td><span th:text="${s['label']}"></span>
+                                            <span class="badge badge-destructive badge-sm"
+                                                  th:if="${s['attempts'] != null and s['attempts'] > 0}"
+                                                  th:text="'retry ×' + ${s['attempts']}"></span>
+                                            <span class="step-sublabel" th:if="${s['tokens']}" th:text="${s['tokens']}"></span>
+                                        </td>
+                                        <td th:text="${s['state']}"></td>
+                                        <td th:attr="data-elapsed-start=${s['elapsedStart']}" th:text="${s['sublabel']}"></td>
+                                    </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div th:if="${!#strings.isEmpty(developer['startingBuildOutput'])}">
+                                <h4>Starting build output</h4>
+                                <pre class="code-block" th:text="${developer['startingBuildOutput']}"></pre>
+                            </div>
+                        </div>
+                    </details>
+
+                    <details>
+                        <summary th:text="'Artifacts (' + ${artifactCount} + ')'">Artifacts</summary>
+                        <div class="developer-debug-content">
+                            <p class="muted" th:if="${#lists.isEmpty(artifactGroups)}">No artifacts produced.</p>
+                            <div class="table-wrap" th:unless="${#lists.isEmpty(artifactGroups)}">
+                                <table aria-label="Developer Flow artifacts">
+                                    <thead><tr><th scope="col">Artifact</th><th scope="col">Versions</th></tr></thead>
+                                    <tbody>
+                                    <tr th:each="group : ${artifactGroups}">
+                                        <td th:text="${group['name']}"></td>
+                                        <td class="developer-artifact-links">
+                                            <a th:each="v : ${group['versions']}"
+                                               th:href="@{'/artifacts/' + ${v['id']}}"
+                                               th:text="'v' + ${v['version']}"></a>
+                                        </td>
+                                    </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </details>
+
+                    <details data-developer-audit>
+                        <summary th:text="'Raw audit history (' + ${auditCount} + ')'">Raw audit history</summary>
+                        <div class="developer-debug-content">
+                            <div th:replace="~{fragments/components :: auditTable(${developer['auditEvents']}, false)}"></div>
+                        </div>
+                    </details>
+                </div>
             </div>
         </section>
-        <section th:unless="${#lists.isEmpty(steps)}">
+        <section th:if="${developer == null and !#lists.isEmpty(steps)}">
             <div class="page-header">
                 <h2 class="card-title">Progress</h2>
                 <p class="page-description" th:if="${tokenTotals['present']}">
@@ -73,30 +244,8 @@
                 </p>
             </div>
             <ol th:replace="~{fragments/components :: stepper(${progressSteps})}"></ol>
-            <details th:if="${developer != null}">
-                <summary>Technical step details</summary>
-                <p th:text="'Workflow engine status: ' + ${execution.status}"></p>
-                <div class="table-wrap">
-                    <table aria-label="Technical steps">
-                        <thead><tr><th scope="col">Step</th><th scope="col">State</th><th scope="col">Duration</th></tr></thead>
-                        <tbody>
-                        <tr th:each="s : ${steps}" th:attr="data-state=${s['state']}">
-                            <td>
-                                <span th:text="${s['label']}"></span>
-                                <span class="badge badge-destructive badge-sm"
-                                      th:if="${s['attempts'] != null and s['attempts'] > 0}"
-                                      th:text="'retry ×' + ${s['attempts']}"></span>
-                                <span class="step-sublabel" th:if="${s['tokens']}" th:text="${s['tokens']}"></span>
-                            </td>
-                            <td th:text="${s['state']}"></td>
-                            <td th:attr="data-elapsed-start=${s['elapsedStart']}" th:text="${s['sublabel']}"></td>
-                        </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </details>
             <p th:if="${reportedCost != null}"
-               th:text="${developer != null ? 'Coding runtime cost: $' : 'Pi-reported cost: $'} + ${reportedCost} + ' USD'"></p>
+               th:text="'Pi-reported cost: $' + ${reportedCost} + ' USD'"></p>
         </section>
 
         <section th:unless="${#lists.isEmpty(children)}">
@@ -120,7 +269,7 @@
             </div>
         </section>
 
-        <section>
+        <section th:if="${developer == null}">
             <div class="page-header">
                 <h2 class="card-title">Artifacts</h2>
             </div>
@@ -149,7 +298,7 @@
             </div>
         </section>
 
-        <section>
+        <section th:if="${developer == null}">
             <div class="page-header">
                 <h2 class="card-title">Audit timeline</h2>
             </div>

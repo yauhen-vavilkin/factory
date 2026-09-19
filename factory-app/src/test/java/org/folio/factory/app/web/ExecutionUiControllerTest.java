@@ -377,6 +377,7 @@ class ExecutionUiControllerTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> planVersions = (List<Map<String, Object>>) groups.get(1).get("versions");
         assertThat(planVersions).hasSize(2);
+        assertThat(planVersions).allSatisfy(version -> assertThat(version.get("id")).isInstanceOf(UUID.class));
         assertThat(planVersions.get(0)).containsEntry("version", 1).containsEntry("latest", false);
         assertThat(planVersions.get(1)).containsEntry("version", 2).containsEntry("latest", true);
         assertThat(planVersions.get(1).get("label").toString()).contains("v2").contains("qa");
