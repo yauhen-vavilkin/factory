@@ -48,6 +48,17 @@ class MavenBaselineOutputTest {
     }
 
     @Test
+    void heartbeatsShareTheBoundedProgressBudget() {
+        var events = new ArrayList<String>();
+        var output = new MavenBaselineOutput(events::add);
+
+        for (int i = 0; i < 1000; i++) output.heartbeat();
+
+        assertThat(events).hasSize(MavenBaselineOutput.EVENT_LIMIT)
+                .allMatch("Maven baseline is still running"::equals);
+    }
+
+    @Test
     void extractsObservedIncompleteCentralTransfer() {
         String failure = "[ERROR] Could not transfer artifact net.sf.saxon:Saxon-HE:jar:12.9 "
                 + "from/to central (https://repo.maven.apache.org/maven2): "

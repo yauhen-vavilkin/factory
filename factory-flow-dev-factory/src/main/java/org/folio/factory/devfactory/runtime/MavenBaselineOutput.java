@@ -24,7 +24,7 @@ public final class MavenBaselineOutput implements Consumer<String> {
 
     public MavenBaselineOutput(Consumer<String> observer) { this.observer = observer; }
 
-    @Override public void accept(String rawLine) {
+    @Override public synchronized void accept(String rawLine) {
         if (emitted >= EVENT_LIMIT || rawLine == null) return;
         String line = ANSI.matcher(rawLine).replaceAll("").strip();
         Category category = category(line);
@@ -32,6 +32,12 @@ public final class MavenBaselineOutput implements Consumer<String> {
         emitted++;
         String safe = sanitize(line);
         observer.accept(safe.substring(0, Math.min(240, safe.length())));
+    }
+
+    public synchronized void heartbeat() {
+        if (emitted >= EVENT_LIMIT) return;
+        emitted++;
+        observer.accept("Maven baseline is still running");
     }
 
     public static Optional<String> failureSummary(String output) {

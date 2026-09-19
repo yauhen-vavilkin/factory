@@ -18,6 +18,7 @@ class DockerWorkloadsTest {
 
         assertThat(command).containsSubsequence("--mount",
                 "type=volume,source=factory-dev-m2-cache,target=/tmp/factory-home/.m2/repository");
+        assertThat(command).contains("MAVEN_OPTS=-Dmaven.repo.local=/tmp/factory-home/.m2/repository");
         assertThat(command).noneMatch(argument -> argument.contains("readonly"));
     }
 
@@ -28,6 +29,7 @@ class DockerWorkloadsTest {
 
         assertThat(command).containsSubsequence("--mount",
                 "type=volume,source=factory-dev-m2-cache,target=/tmp/factory-m2-seed,readonly");
+        assertThat(command).contains("MAVEN_OPTS=-Dmaven.repo.local=/tmp/factory-home/.m2/repository");
         assertThat(command.get(command.size() - 1))
                 .contains("/tmp/factory-home")
                 .doesNotContain("cp -a");
@@ -53,10 +55,18 @@ class DockerWorkloadsTest {
     @Test @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
     void trustedCachePersistsButSeededWorkloadCannotModifyIt() throws Exception {
         Files.writeString(source.resolve("source.txt"), "source");
+        Files.writeString(source.resolve("pom.xml"), """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>test</groupId><artifactId>cache-path</artifactId><version>1</version>
+                </project>
+                """);
         String volume = "factory-dev-cache-test-" + java.util.UUID.randomUUID();
         try {
             try (var baseline = new DockerWorkloads().createTrusted(
                     "maven:3.9-eclipse-temurin-21", source, volume)) {
+                assertThat(baseline.execute(List.of("mvn", "-B", "-ntp", "-X", "validate"), 30).output())
+                        .contains("Using local repository at /tmp/factory-home/.m2/repository");
                 assertThat(baseline.execute(List.of("sh", "-c",
                         "printf cached > $HOME/.m2/repository/cached.txt"), 30).exitCode()).isZero();
             }
@@ -68,6 +78,8 @@ class DockerWorkloadsTest {
             try (var seeded = new DockerWorkloads().createSeeded(
                     "maven:3.9-eclipse-temurin-21", source, volume)) {
                 // createSeeded returns only after the private copy is complete.
+                assertThat(seeded.execute(List.of("mvn", "-B", "-ntp", "-X", "validate"), 30).output())
+                        .contains("Using local repository at /tmp/factory-home/.m2/repository");
                 assertThat(seeded.execute(List.of("sh", "-c",
                         "test -f $HOME/.m2/repository/cached.txt "
                                 + "&& printf private > $HOME/.m2/repository/private.txt "

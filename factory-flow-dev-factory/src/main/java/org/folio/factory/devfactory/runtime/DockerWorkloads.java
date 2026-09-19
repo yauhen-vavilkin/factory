@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 /** Only owned containers, with private writable storage and no host mounts. */
 public class DockerWorkloads {
     private static final Logger log = LoggerFactory.getLogger(DockerWorkloads.class);
+    private static final String MAVEN_REPOSITORY = "/tmp/factory-home/.m2/repository";
     public Workload create(String image, Path source) {
         return create(image, source, MavenCache.NONE, null);
     }
@@ -55,7 +56,8 @@ public class DockerWorkloads {
         var command = new ArrayList<>(List.of("docker", "create", "--name", name,
                 "--label", "factory.dev-owned=true", "--cpus", "4", "--memory", "6g",
                 "--pids-limit", "512", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-                "--user", user, "--env", "HOME=/tmp/factory-home", "--workdir", "/workspace"));
+                "--user", user, "--env", "HOME=/tmp/factory-home", "--env",
+                "MAVEN_OPTS=-Dmaven.repo.local=" + MAVEN_REPOSITORY, "--workdir", "/workspace"));
         if (cache == MavenCache.TRUSTED_WRITABLE) {
             command.addAll(List.of("--mount", "type=volume,source=" + volume
                     + ",target=/tmp/factory-home/.m2/repository"));

@@ -60,7 +60,16 @@ public class DevelopWorker implements AgentWorker {
             try (var baseline = docker.createTrusted(repo.buildImage(), pristine, runtime.mavenCacheVolume())) {
                 var observer = new MavenBaselineOutput(line -> progress(context,
                         Map.of("activity", "baseline_progress", "message", line)));
-                var result = baseline.execute(command, runtime.timeoutSeconds(), Processes.OUTPUT_LIMIT, observer);
+                var heartbeat = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(
+                        Thread.ofVirtual().name("factory-maven-progress-", 0).factory());
+                Processes.Result result;
+                try {
+                    heartbeat.scheduleAtFixedRate(observer::heartbeat, 15, 30,
+                            java.util.concurrent.TimeUnit.SECONDS);
+                    result = baseline.execute(command, runtime.timeoutSeconds(), Processes.OUTPUT_LIMIT, observer);
+                } finally {
+                    heartbeat.shutdownNow();
+                }
                 String summary = MavenBaselineOutput.failureSummary(result.diagnostics()).orElse("");
                 var readinessDetails = new java.util.LinkedHashMap<String, Object>();
                 readinessDetails.put("state", result.exitCode() == 0 ? "BASELINE_PASSED" : "BASELINE_FAILED");
