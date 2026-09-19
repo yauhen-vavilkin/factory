@@ -1,6 +1,10 @@
 package org.folio.factory.app;
 
 import org.folio.factory.core.registry.FlowRegistry;
+import org.folio.factory.devfactory.DevFactoryProperties;
+import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
+import org.folio.factory.devfactory.delivery.DeliveryTarget;
+import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,7 +18,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 
 /**
  * Developer Flow is an ordinary plugin: registered next to Test Factory, visible
@@ -38,6 +45,15 @@ class DeveloperFlowRegistrationTest {
 
     @Autowired
     FlowRegistry flowRegistry;
+
+    @Autowired
+    DevFactoryProperties devFactoryProperties;
+
+    @Autowired
+    DevRuntimeProperties devRuntimeProperties;
+
+    @Autowired
+    DevDeliveryProperties devDeliveryProperties;
 
     private RestClient rest;
 
@@ -65,5 +81,24 @@ class DeveloperFlowRegistrationTest {
                 .contains("Developer Flow").contains("Test Factory");
         assertThat(rest.get().uri("/flows/dev-factory").retrieve().body(String.class))
                 .contains("Developer Flow").contains("dev-intake");
+    }
+
+    @Test
+    void configuresBothDeveloperRepositoriesForVerificationAndDelivery() {
+        assertThat(devFactoryProperties.repositories()).containsOnlyKeys("sidecar", "mod-roles-keycloak");
+        assertThat(devFactoryProperties.repositories().get("sidecar"))
+                .isEqualTo(new DevFactoryProperties.Repository(
+                        "yauhen-vavilkin/folio-module-sidecar", "master", "maven:3.9-eclipse-temurin-21",
+                        "java21-unit", List.of("MODSIDECAR"), List.of()));
+        assertThat(devFactoryProperties.repositories().get("mod-roles-keycloak"))
+                .isEqualTo(new DevFactoryProperties.Repository(
+                        "yauhen-vavilkin/mod-roles-keycloak", "master", "maven:3.9-eclipse-temurin-21",
+                        "java21-unit", List.of("MODROLESKC"), List.of()));
+        assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
+        assertThat(devDeliveryProperties.createPullRequest()).isTrue();
+        assertThat(devDeliveryProperties.targets()).containsOnly(
+                entry("sidecar", new DeliveryTarget("yauhen-vavilkin/folio-module-sidecar", "master", true)),
+                entry("mod-roles-keycloak", new DeliveryTarget(
+                        "yauhen-vavilkin/mod-roles-keycloak", "master", true)));
     }
 }

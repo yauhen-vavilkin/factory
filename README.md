@@ -129,9 +129,10 @@ dependencies current.
 
 ### Developer Flow demo
 
-Developer Flow needs the Pi provider values and an explicitly authorized user-owned
-fork in `.env`; see the Developer Flow block in `.env.example`. Then build both
-runtime images and start the complete local control plane:
+Developer Flow needs the Pi provider values and GitHub token in `.env`; see the
+Developer Flow block in `.env.example`. Source repositories and their matching,
+authorized delivery targets are declared together in `application.yaml`. Then build
+both runtime images and start the complete local control plane:
 
 ```bash
 docker compose up -d --build

@@ -128,19 +128,19 @@ factory:
         source-repo: yauhen-vavilkin/folio-module-sidecar
         base-branch: master
         build-image: maven:3.9-eclipse-temurin-21
-        verification-plan: modsidecar-java21-unit
+        verification-plan: java21-unit
         jira-projects: [MODSIDECAR]
       mod-roles-keycloak:
         source-repo: yauhen-vavilkin/mod-roles-keycloak
         base-branch: master
         build-image: maven:3.9-eclipse-temurin-21
-        verification-plan: modsidecar-java21-unit
+        verification-plan: java21-unit
         jira-projects: [MODROLESKC]
     runtime:
       timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
       plans:
-        modsidecar-java21-unit: [mvn, -B, -ntp, test]
+        java21-unit: [mvn, -B, -ntp, test]
       coding:
         image: ${FACTORY_DEV_FACTORY_CODING_IMAGE:factory-dev-pi:0.85.1-java21}
         provider: ${FACTORY_MODEL_PROVIDER:}
@@ -149,12 +149,16 @@ factory:
         api: ${FACTORY_MODEL_API:openai-completions}
         api-key: ${FACTORY_MODEL_API_KEY:}
     delivery:
-      create-pull-request: ${FACTORY_DEV_FACTORY_CREATE_PR:false}
+      create-pull-request: true
       targets:
         sidecar:
-          repository: ${FACTORY_DEV_FACTORY_DELIVERY_REPOSITORY:}
-          base-branch: ${FACTORY_DEV_FACTORY_DELIVERY_BASE_BRANCH:master}
-          authorized: ${FACTORY_DEV_FACTORY_DELIVERY_AUTHORIZED:false}
+          repository: yauhen-vavilkin/folio-module-sidecar
+          base-branch: master
+          authorized: true
+        mod-roles-keycloak:
+          repository: yauhen-vavilkin/mod-roles-keycloak
+          base-branch: master
+          authorized: true
   test-factory:
     execution:
       base-url: ${FACTORY_TEST_FACTORY_EXECUTION_BASE_URL:}
