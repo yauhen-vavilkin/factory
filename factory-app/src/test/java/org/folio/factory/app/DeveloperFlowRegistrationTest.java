@@ -56,6 +56,9 @@ class DeveloperFlowRegistrationTest {
 
         JsonNode detail = rest.get().uri("/api/flows/dev-factory").retrieve().body(JsonNode.class);
         assertThat(detail.path("name").asString()).isEqualTo("Developer Flow");
+        assertThat(detail.path("version").asString()).isEqualTo("0.6.0");
+        assertThat(detail.path("steps").findValuesAsString("stepId"))
+                .containsExactly("read-task", "select-repository", "prepare-task", "implement", "verify", "publish");
         assertThat(detail.path("steps").get(0).path("workerId").asString()).isEqualTo("dev-intake");
 
         assertThat(rest.get().uri("/flows").retrieve().body(String.class))

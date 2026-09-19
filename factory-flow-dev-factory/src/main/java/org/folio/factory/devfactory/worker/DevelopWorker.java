@@ -68,6 +68,7 @@ public class DevelopWorker implements AgentWorker {
                             java.util.concurrent.TimeUnit.SECONDS);
                     result = baseline.execute(command, runtime.timeoutSeconds(), Processes.OUTPUT_LIMIT, observer);
                 } finally {
+                    observer.close();
                     heartbeat.shutdownNow();
                 }
                 String summary = MavenBaselineOutput.failureSummary(result.diagnostics()).orElse("");
@@ -84,7 +85,7 @@ public class DevelopWorker implements AgentWorker {
                 progress(context, Map.of("activity", "baseline_completed", "exitCode", result.exitCode(),
                         "summary", summary));
                 if (result.exitCode() != 0) return blocked("BLOCKED_ENVIRONMENT",
-                        summary.isBlank() ? "Pinned baseline failed before model spend" : summary, readiness);
+                        summary.isBlank() ? "Starting build failed before model spend" : summary, readiness);
             }
             runtime.coding().requireConfigured();
             exported = CandidateFreezer.temporary("factory-dev-export-");

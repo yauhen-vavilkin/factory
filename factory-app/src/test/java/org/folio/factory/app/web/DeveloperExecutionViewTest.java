@@ -6,6 +6,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.json.JsonMapper;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class DeveloperExecutionViewTest {
@@ -46,20 +47,125 @@ class DeveloperExecutionViewTest {
         assertThat(view.build(execution, List.of(delivery, unsafe), List.of(), Instant.now())).containsEntry("pullRequestUrl", "");
     }
 
-    @Test void stageDurationsUseAttemptBoundariesAndTerminalTime() {
+    @Test void technicalStepDurationsUseAttemptBoundariesAndTerminalTime() {
         var execution = new PipelineExecution("dev-factory", "1", "{}");
         Instant start = Instant.parse("2026-09-18T10:00:00Z");
-        var began = event(AuditEventType.STEP_STARTED, start);
-        var ended = event(AuditEventType.STEP_COMPLETED, start.plusSeconds(12));
-        assertThat(DeveloperExecutionView.stageDuration("develop", List.of(began, ended), execution, start.plusSeconds(90))).isEqualTo("12s");
-        assertThat(DeveloperExecutionView.stageDuration("develop", List.of(began), execution, start.plusSeconds(30))).isEqualTo("30s");
-        assertThat(DeveloperExecutionView.stageDuration("verify", List.of(began), execution, start.plusSeconds(30))).isEqualTo("Not started");
+        var began = event(AuditEventType.STEP_STARTED, "implement", start);
+        var ended = event(AuditEventType.STEP_COMPLETED, "implement", start.plusSeconds(12));
+        var executionEvent = event(AuditEventType.EXECUTION_STARTED, null, start);
+        assertThat(DeveloperExecutionView.technicalStepDuration("implement", List.of(executionEvent, began, ended), execution, start.plusSeconds(90))).isEqualTo("12s");
+        assertThat(DeveloperExecutionView.technicalStepDuration("implement", List.of(began), execution, start.plusSeconds(30))).isEqualTo("30s");
+        assertThat(DeveloperExecutionView.technicalStepDuration("verify", List.of(began), execution, start.plusSeconds(30))).isEqualTo("Not started");
+    }
+
+    @Test void derivesFourProductPhasesAndCombinesPreparationDuration() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setStatus(ExecutionStatus.RUNNING);
+        execution.setCurrentStepIndex(2);
+        Instant start = Instant.parse("2026-09-18T10:00:00Z");
+        var events = List.of(
+                event(AuditEventType.STEP_STARTED, "read-task", start),
+                event(AuditEventType.STEP_COMPLETED, "read-task", start.plusMillis(1600)),
+                event(AuditEventType.STEP_STARTED, "select-repository", start.plusSeconds(2)),
+                event(AuditEventType.STEP_COMPLETED, "select-repository", start.plusMillis(4600)),
+                event(AuditEventType.STEP_STARTED, "prepare-task", start.plusSeconds(5)));
+
+        var phases = phases(view.build(execution, List.of(), events, start.plusMillis(10500)));
+
+        assertThat(phases).extracting(p -> p.get("label"))
+                .containsExactly("Prepare task", "Implement changes", "Verify changes", "Create pull request");
+        assertThat(phases).extracting(p -> p.get("state"))
+                .containsExactly("current", "pending", "pending", "pending");
+        assertThat(phases.getFirst()).containsEntry("sublabel", "9s").containsKey("elapsedStart");
+    }
+
+    @Test void domainOutcomesMarkTheOriginFailedAndLaterPhasesPending() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setCurrentStepIndex(6);
+        execution.setStatus(ExecutionStatus.COMPLETED);
+
+        var startingBuild = phases(view.build(execution, List.of(
+                artifact("dev_readiness.json", 1, "{\"state\":\"BASELINE_FAILED\"}")), List.of(), Instant.now()));
+        assertThat(startingBuild).extracting(p -> p.get("state"))
+                .containsExactly("done", "failed", "pending", "pending");
+
+        var verification = phases(view.build(execution, List.of(
+                artifact("dev_verification.json", 1, "{\"result\":\"FAIL\"}"),
+                artifact("dev_result.json", 1, "{\"state\":\"VERIFICATION_FAILED\"}")), List.of(), Instant.now()));
+        assertThat(verification).extracting(p -> p.get("state"))
+                .containsExactly("done", "done", "failed", "pending");
+
+        var delivery = phases(view.build(execution, List.of(
+                artifact("dev_delivery.json", 1, "{\"state\":\"DELIVERY_BLOCKED\"}")), List.of(), Instant.now()));
+        assertThat(delivery).extracting(p -> p.get("state"))
+                .containsExactly("done", "done", "done", "failed");
+    }
+
+    @Test void terminalFailureStopsAnOpenPhaseClockAndUsesProductTerminology() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setCurrentStepIndex(3);
+        execution.setStatus(ExecutionStatus.FAILED_ESCALATED);
+        Instant start = Instant.parse("2026-09-18T10:00:00Z");
+        ReflectionTestUtils.setField(execution, "completedAt", start.plusSeconds(10));
+        var readiness = artifact("dev_readiness.json", 1,
+                "{\"state\":\"BASELINE_PASSED\",\"command\":[\"mvn\",\"test\"],\"output\":\"ok\"}");
+
+        var model = view.build(execution, List.of(readiness),
+                List.of(event(AuditEventType.STEP_STARTED, "implement", start)), start.plusSeconds(90));
+
+        assertThat(phases(model).get(1)).containsEntry("state", "failed").containsEntry("sublabel", "10s");
+        assertThat(model.get("fields").toString()).contains("Starting build", "Passed", "Current phase", "Implement changes")
+                .doesNotContain("Pinned base SHA", "Baseline command");
+        assertThat(model).containsEntry("startingBuildOutput", "ok");
+    }
+
+    @Test void pendingRetryPreservesCompletedPhasesAndCurrentCursor() {
+        var fresh = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        assertThat(phases(view.build(fresh, List.of(), List.of(), Instant.now())))
+                .extracting(p -> p.get("state"))
+                .containsExactly("pending", "pending", "pending", "pending");
+
+        var retry = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        retry.setCurrentStepIndex(4);
+        Instant start = Instant.parse("2026-09-18T10:00:00Z");
+        var events = List.of(
+                event(AuditEventType.STEP_STARTED, "verify", start),
+                event(AuditEventType.STEP_FAILED, "verify", start.plusSeconds(7)));
+
+        var model = view.build(retry, List.of(), events, start.plusSeconds(20));
+
+        assertThat(phases(model)).extracting(p -> p.get("state"))
+                .containsExactly("done", "done", "current", "pending");
+        assertThat(model.get("fields").toString()).contains("Current phase", "Verify changes");
+    }
+
+    @Test void resumedExecutionIgnoresStaleTerminalTimestamp() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        Instant start = Instant.parse("2026-09-18T10:00:00Z");
+        ReflectionTestUtils.setField(execution, "createdAt", start);
+        execution.setCurrentStepIndex(3);
+        execution.setStatus(ExecutionStatus.FAILED_ESCALATED);
+        ReflectionTestUtils.setField(execution, "completedAt", start.plusSeconds(10));
+        execution.setStatus(ExecutionStatus.RUNNING);
+        var events = List.of(
+                event(AuditEventType.STEP_STARTED, "implement", start),
+                event(AuditEventType.STEP_FAILED, "implement", start.plusSeconds(10)),
+                event(AuditEventType.STEP_STARTED, "implement", start.plusSeconds(20)));
+
+        var model = view.build(execution, List.of(), events, start.plusSeconds(50));
+
+        assertThat(phases(model).get(1)).containsEntry("state", "current").containsEntry("sublabel", "40s");
+        assertThat(model).containsEntry("elapsed", "50s");
     }
     private static Artifact artifact(String name, int version, String content) {
         return new Artifact(java.util.UUID.randomUUID(), name, version, "text/markdown", content, "hash", "worker");
     }
-    private static AuditEvent event(AuditEventType type, Instant when) {
-        var event = new AuditEvent(java.util.UUID.randomUUID(), type, "develop", "system", "{}");
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> phases(Map<String, Object> model) {
+        return (List<Map<String, Object>>) model.get("phases");
+    }
+    private static AuditEvent event(AuditEventType type, String stepId, Instant when) {
+        var event = new AuditEvent(java.util.UUID.randomUUID(), type, stepId, "system", "{}");
         ReflectionTestUtils.setField(event, "occurredAt", when);
         return event;
     }

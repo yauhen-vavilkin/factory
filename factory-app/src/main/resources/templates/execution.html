@@ -44,9 +44,9 @@
                 <p th:if="${#lists.isEmpty(developer['activity'])}">No runtime activity yet.</p>
                 <ul><li th:each="activity : ${developer['activity']}"
                         th:text="${activity['time']} + ' · ' + ${activity['text']}"></li></ul>
-                <details th:if="${!#strings.isEmpty(developer['baselineOutput'])}">
-                    <summary>Baseline output tail</summary>
-                    <pre class="code-block" th:text="${developer['baselineOutput']}"></pre>
+                <details th:if="${!#strings.isEmpty(developer['startingBuildOutput'])}">
+                    <summary>Starting build output</summary>
+                    <pre class="code-block" th:text="${developer['startingBuildOutput']}"></pre>
                 </details>
             </div>
         </section>
@@ -58,7 +58,11 @@
                             + ${tokenTotals['prompt']} + ' prompt · ' + ${tokenTotals['completion']} + ' completion'">
                 </p>
             </div>
-            <ol th:replace="~{fragments/components :: stepper(${steps})}"></ol>
+            <ol th:replace="~{fragments/components :: stepper(${progressSteps})}"></ol>
+            <details th:if="${developer != null}">
+                <summary>Technical step details</summary>
+                <ol th:replace="~{fragments/components :: stepper(${steps})}"></ol>
+            </details>
             <p th:if="${reportedCost != null}" th:text="'Pi-reported cost: $' + ${reportedCost} + ' USD'"></p>
         </section>
 

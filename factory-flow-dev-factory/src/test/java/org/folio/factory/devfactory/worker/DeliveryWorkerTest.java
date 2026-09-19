@@ -114,6 +114,6 @@ class DeliveryWorkerTest {
         inputs.forEach((name, content) -> artifacts.put(name, new ArtifactContent(name, 1,
                 name.endsWith(".json") ? "application/json" : "text/markdown", content)));
         return new AgentContext(UUID.fromString(id.equals("execution")
-                ? "00000000-0000-0000-0000-000000000001" : id), "deliver", artifacts, null, Map.of(), List.of());
+                ? "00000000-0000-0000-0000-000000000001" : id), "publish", artifacts, null, Map.of(), List.of());
     }
 }

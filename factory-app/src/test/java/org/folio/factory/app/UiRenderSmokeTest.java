@@ -1,6 +1,7 @@
 package org.folio.factory.app;
 
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.domain.PipelineExecution;
@@ -202,21 +203,26 @@ class UiRenderSmokeTest {
 
     @Test
     void developerExecutionShowsLiveActivityAndHonestDeliveryOutcome() {
-        var execution = executions.save(new PipelineExecution("dev-factory", "0.5.0", "{\"issueKey\":\"MODSIDECAR-196\"}"));
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{\"issueKey\":\"MODSIDECAR-196\"}"));
+        execution.setCurrentStepIndex(6);
+        execution.setStatus(ExecutionStatus.RUNNING);
+        executions.save(execution);
         artifactStore.putMarkdown(execution.getId(), "dev_verification.json",
                 "{\"result\":\"PASS\",\"testCount\":17,\"exitCode\":0,\"argv\":[\"mvn\",\"test\"]}", "verify");
         artifactStore.putMarkdown(execution.getId(), "dev_readiness.json",
-                "{\"state\":\"BASELINE_FAILED\",\"output\":\"[INFO] Compiling 42 source files\\n[ERROR] transfer failed\"}", "develop");
+                "{\"state\":\"BASELINE_FAILED\",\"output\":\"[INFO] Compiling 42 source files\\n[ERROR] transfer failed\"}", "implement");
         artifactStore.putMarkdown(execution.getId(), "dev_delivery.json",
-                "{\"state\":\"DELIVERY_BLOCKED\",\"reason\":\"Safe destination missing\"}", "deliver");
-        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "develop",
+                "{\"state\":\"DELIVERY_BLOCKED\",\"reason\":\"Safe destination missing\"}", "publish");
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "tool_execution_start", "tool", "bash", "command", "mvn test"));
-        auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "develop", Map.of("costUsd", 0.125));
+        auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of("costUsd", 0.125));
         String body = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(body).contains("MODSIDECAR-196", "Executed tests", ">17<", "mvn test", "DELIVERY_BLOCKED",
                 "Safe destination missing", "Pi-reported cost: $0.125 USD",
-                "auditTrail.length,artifacts.length", "Pin source revision", "Baseline output tail",
+                "auditTrail.length,artifacts.length", "Prepare task", "Implement changes", "Verify changes",
+                "Create pull request", "Technical step details", "Prepare task checkout", "Starting build output",
                 "Compiling 42 source files", "transfer failed", "Artifacts", "Audit timeline");
+        assertThat(body).doesNotContain(">Baseline<", "Baseline output tail", "Pinned base SHA");
     }
 
     @Test

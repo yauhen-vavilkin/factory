@@ -98,14 +98,17 @@ public class ExecutionUiController {
         Map<String, long[]> tokensByStep = tokensByStep(events);
         List<Artifact> artifacts = artifactStore.allForExecution(id);
         var steps = stepStates(execution, tokensByStep);
+        model.addAttribute("progressSteps", steps);
         if ("dev-factory".equals(execution.getFlowId())) {
-            model.addAttribute("developer", new DeveloperExecutionView(jsonMapper).build(execution, artifacts, events, java.time.Instant.now()));
+            var now = java.time.Instant.now();
+            var developer = new DeveloperExecutionView(jsonMapper).build(execution, artifacts, events, now);
+            model.addAttribute("developer", developer);
+            model.addAttribute("progressSteps", developer.get("phases"));
             var flow = flowRegistry.find(execution.getFlowId()).orElse(null);
             if (flow != null) for (int i = 0; i < steps.size(); i++) {
                 String stepId = flow.agentChain().get(i).stepId();
-                steps.get(i).put("label", DeveloperExecutionView.stageLabel(stepId));
-                var now = java.time.Instant.now();
-                String duration = DeveloperExecutionView.stageDuration(stepId, events, execution, now);
+                steps.get(i).put("label", DeveloperExecutionView.technicalStepLabel(stepId));
+                String duration = DeveloperExecutionView.technicalStepDuration(stepId, events, execution, now);
                 steps.get(i).put("sublabel", duration);
                 if (i == execution.getCurrentStepIndex() && execution.getStatus() == ExecutionStatus.RUNNING && duration.endsWith("s"))
                     steps.get(i).put("elapsedStart", now.minusSeconds(Long.parseLong(duration.substring(0, duration.length() - 1))));

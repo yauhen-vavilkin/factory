@@ -9,6 +9,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.*;
 
 class DockerWorkloadsTest {
+    private static final List<String> OFFLINE_REUSE = List.of("mvn", "-o", "-B", "-ntp",
+            "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get",
+            "-Dartifact=org.apache.commons:commons-lang3:3.17.0");
     @TempDir Path source;
     @TempDir Path exported;
     @Test
@@ -67,6 +70,9 @@ class DockerWorkloadsTest {
                     "maven:3.9-eclipse-temurin-21", source, volume)) {
                 assertThat(baseline.execute(List.of("mvn", "-B", "-ntp", "-X", "validate"), 30).output())
                         .contains("Using local repository at /tmp/factory-home/.m2/repository");
+                assertThat(baseline.execute(List.of("mvn", "-B", "-ntp",
+                        "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get",
+                        "-Dartifact=org.apache.commons:commons-lang3:3.17.0"), 120).exitCode()).isZero();
                 assertThat(baseline.execute(List.of("sh", "-c",
                         "printf cached > $HOME/.m2/repository/cached.txt"), 30).exitCode()).isZero();
             }
@@ -74,12 +80,14 @@ class DockerWorkloadsTest {
                     "maven:3.9-eclipse-temurin-21", source, volume)) {
                 assertThat(repeatedBaseline.execute(List.of("sh", "-c",
                         "test \"$(cat $HOME/.m2/repository/cached.txt)\" = cached"), 30).exitCode()).isZero();
+                assertThat(repeatedBaseline.execute(OFFLINE_REUSE, 120).exitCode()).isZero();
             }
             try (var seeded = new DockerWorkloads().createSeeded(
                     "maven:3.9-eclipse-temurin-21", source, volume)) {
                 // createSeeded returns only after the private copy is complete.
                 assertThat(seeded.execute(List.of("mvn", "-B", "-ntp", "-X", "validate"), 30).output())
                         .contains("Using local repository at /tmp/factory-home/.m2/repository");
+                assertThat(seeded.execute(OFFLINE_REUSE, 120).exitCode()).isZero();
                 assertThat(seeded.execute(List.of("sh", "-c",
                         "test -f $HOME/.m2/repository/cached.txt "
                                 + "&& printf private > $HOME/.m2/repository/private.txt "

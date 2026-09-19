@@ -315,7 +315,7 @@ class DeveloperIntakeDecisionTest {
         UUID executionId = start("MODFOO-4");
         HitlReview review = awaitPendingReview(executionId);
 
-        AgentContext repeat = new AgentContext(executionId, "intake-decision",
+        AgentContext repeat = new AgentContext(executionId, "select-repository",
                 Map.of("dev_decision_request.md", new ArtifactContent(
                         "dev_decision_request.md", 1, "text/markdown", latest(executionId, "dev_decision_request.md"))),
                 null, Map.of(), List.of());
@@ -334,7 +334,7 @@ class DeveloperIntakeDecisionTest {
         assertThat(auditLog.forExecution(executionId).stream()
                 .filter(e -> e.getEventType() == AuditEventType.STEP_COMPLETED)
                 .map(e -> e.getStepId()))
-                .containsExactly("intake", "intake-decision", "intake-resolve", "develop", "verify", "deliver");
+                .containsExactly("read-task", "select-repository", "prepare-task", "implement", "verify", "publish");
     }
 
     @Test

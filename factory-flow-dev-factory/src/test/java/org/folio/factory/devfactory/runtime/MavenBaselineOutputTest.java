@@ -55,7 +55,19 @@ class MavenBaselineOutputTest {
         for (int i = 0; i < 1000; i++) output.heartbeat();
 
         assertThat(events).hasSize(MavenBaselineOutput.EVENT_LIMIT)
-                .allMatch("Maven baseline is still running"::equals);
+                .allMatch("Starting build is still running"::equals);
+    }
+
+    @Test
+    void closeSuppressesLateOutputAndHeartbeats() {
+        var events = new ArrayList<String>();
+        var output = new MavenBaselineOutput(events::add);
+
+        output.close();
+        output.heartbeat();
+        output.accept("[INFO] BUILD SUCCESS");
+
+        assertThat(events).isEmpty();
     }
 
     @Test

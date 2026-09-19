@@ -41,7 +41,7 @@ class DevelopReadinessTest {
                 });
         var codec = new FrontmatterCodec();
         var brief = codec.render(Map.of("state", "INTAKE_READY", "repository", Map.of("key", "repo", "base_sha", "a".repeat(40))), "Task");
-        var context = new AgentContext(UUID.randomUUID(), "develop", Map.of(IntakeResolveWorker.TASK_BRIEF,
+        var context = new AgentContext(UUID.randomUUID(), "implement", Map.of(IntakeResolveWorker.TASK_BRIEF,
                 new ArtifactContent(IntakeResolveWorker.TASK_BRIEF, 1, "text/markdown", brief)), null, Map.of(), List.of());
         var audit = mock(AuditLog.class);
         var result = new DevelopWorker(properties, runtime, docker, freezer, coding, codec, audit).execute(context);
@@ -50,7 +50,7 @@ class DevelopReadinessTest {
         assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_FAILED", "Saxon-HE", "output");
         verifyNoInteractions(coding);
         verify(audit, atLeastOnce()).record(eq(context.executionId()),
-                eq(org.folio.factory.core.domain.AuditEventType.RUNTIME_PROGRESS), eq("develop"), anyMap());
+                eq(org.folio.factory.core.domain.AuditEventType.RUNTIME_PROGRESS), eq("implement"), anyMap());
         verify(workload).close();
     }
 }

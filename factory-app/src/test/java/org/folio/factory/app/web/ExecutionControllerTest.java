@@ -168,19 +168,20 @@ class ExecutionControllerTest {
 
     @Test
     void get_detail_mapsExecutionArtifactsAndAuditTrail() throws Exception {
-        PipelineExecution execution = new PipelineExecution("test-factory", "1.0.0", "{}");
+        PipelineExecution execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
         execution.setErrorMessage("worker exploded");
         UUID id = execution.getId();
         when(executions.findById(id)).thenReturn(Optional.of(execution));
         when(artifactStore.allForExecution(id)).thenReturn(List.of(
                 new Artifact(id, "test_plan.md", 2, "text/markdown", "# Plan", "cafebabe", "reviewer:qa")));
         when(auditLog.forExecution(id)).thenReturn(List.of(
-                new AuditEvent(id, AuditEventType.ARTIFACT_WRITTEN, "test-spec", "engine", null)));
+                new AuditEvent(id, AuditEventType.ARTIFACT_WRITTEN, "implement", "engine", null)));
 
         mvc.perform(get("/api/executions/{id}", id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.execution.id").value(id.toString()))
-                .andExpect(jsonPath("$.execution.flowId").value("test-factory"))
+                .andExpect(jsonPath("$.execution.flowId").value("dev-factory"))
+                .andExpect(jsonPath("$.execution.flowVersion").value("0.6.0"))
                 .andExpect(jsonPath("$.execution.status").value("PENDING"))
                 .andExpect(jsonPath("$.errorMessage").value("worker exploded"))
                 .andExpect(jsonPath("$.artifacts[0].name").value("test_plan.md"))
@@ -188,6 +189,6 @@ class ExecutionControllerTest {
                 .andExpect(jsonPath("$.artifacts[0].content").value("# Plan"))
                 .andExpect(jsonPath("$.artifacts[0].createdBy").value("reviewer:qa"))
                 .andExpect(jsonPath("$.auditTrail[0].eventType").value("ARTIFACT_WRITTEN"))
-                .andExpect(jsonPath("$.auditTrail[0].stepId").value("test-spec"));
+                .andExpect(jsonPath("$.auditTrail[0].stepId").value("implement"));
     }
 }
