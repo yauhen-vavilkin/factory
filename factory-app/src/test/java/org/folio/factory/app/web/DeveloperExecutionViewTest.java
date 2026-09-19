@@ -134,6 +134,92 @@ class DeveloperExecutionViewTest {
                 .hasSize(4);
     }
 
+    @Test void rendersPiToolActivityWithoutRawBooleans() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        Instant start = Instant.parse("2026-09-18T10:00:00Z");
+        var events = List.of(
+                runtime(Map.of("activity", "tool_execution_start", "tool", "edit",
+                        "path", "/workspace/src/KeycloakAuthorizationService.java"), start),
+                runtime(Map.of("activity", "tool_execution_end", "tool", "edit", "error", false), start.plusSeconds(1)),
+                runtime(Map.of("activity", "tool_execution_start", "tool", "write",
+                        "path", "/workspace/src/AdvisoryLockService.java"), start.plusSeconds(2)),
+                runtime(Map.of("activity", "tool_execution_end", "tool", "write", "error", false), start.plusSeconds(3)),
+                runtime(Map.of("activity", "tool_execution_start", "tool", "read",
+                        "path", "/workspace/src/Foo.java"), start.plusSeconds(4)),
+                runtime(Map.of("activity", "tool_execution_start", "tool", "bash", "command", "mvn test"), start.plusSeconds(5)),
+                runtime(Map.of("activity", "tool_execution_end", "tool", "bash", "error", false), start.plusSeconds(6)),
+                runtime(Map.of("activity", "tool_execution_start", "tool", "bash", "command", "mvn test"), start.plusSeconds(7)),
+                runtime(Map.of("activity", "tool_execution_end", "tool", "bash", "error", true), start.plusSeconds(8)));
+
+        @SuppressWarnings("unchecked")
+        var activity = (List<Map<String, String>>) view.build(execution, List.of(), events,
+                start.plusSeconds(9)).get("activity");
+
+        assertThat(activity).extracting(row -> row.get("text")).containsExactly(
+                "Editing KeycloakAuthorizationService.java",
+                "edit completed",
+                "Writing AdvisoryLockService.java",
+                "write completed",
+                "Reading Foo.java",
+                "Running mvn test",
+                "mvn test completed",
+                "Running mvn test",
+                "mvn test failed");
+        assertThat(activity.toString()).doesNotContain("false", "true", "error=");
+    }
+
+    @Test void parallelBashCompletionsUseNeutralLabelsInsteadOfGuessing() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        Instant start = Instant.parse("2026-09-18T10:00:00Z");
+        var events = List.of(
+                runtime(Map.of("activity", "tool_execution_start", "tool", "bash", "command", "mvn test"), start),
+                runtime(Map.of("activity", "tool_execution_start", "tool", "bash", "command", "npm test"), start.plusSeconds(1)),
+                runtime(Map.of("activity", "tool_execution_end", "tool", "bash", "error", true), start.plusSeconds(2)),
+                runtime(Map.of("activity", "tool_execution_start", "tool", "bash", "command", "go test"), start.plusSeconds(3)),
+                runtime(Map.of("activity", "tool_execution_end", "tool", "bash", "error", false), start.plusSeconds(4)),
+                runtime(Map.of("activity", "tool_execution_end", "tool", "bash", "error", false), start.plusSeconds(5)));
+
+        @SuppressWarnings("unchecked")
+        var activity = (List<Map<String, String>>) view.build(execution, List.of(), events,
+                start.plusSeconds(6)).get("activity");
+
+        assertThat(activity).extracting(row -> row.get("text")).containsExactly(
+                "Running mvn test",
+                "Running npm test",
+                "Shell command failed",
+                "Running go test",
+                "Shell command completed",
+                "Shell command completed");
+    }
+
+    @Test void rendersConservativePiLifecycleLabelsWithoutMessageOrReasoningContent() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        Instant start = Instant.parse("2026-09-18T10:00:00Z");
+        var events = List.of(
+                runtime(Map.of("activity", "agent_start"), start),
+                runtime(Map.of("activity", "turn_start", "message", "hidden message",
+                        "summary", "hidden reasoning"), start.plusSeconds(1)),
+                runtime(Map.of("activity", "auto_retry_start"), start.plusSeconds(2)),
+                runtime(Map.of("activity", "auto_retry_end"), start.plusSeconds(3)),
+                runtime(Map.of("activity", "compaction_start"), start.plusSeconds(4)),
+                runtime(Map.of("activity", "compaction_end"), start.plusSeconds(5)),
+                runtime(Map.of("activity", "agent_end"), start.plusSeconds(6)));
+
+        @SuppressWarnings("unchecked")
+        var activity = (List<Map<String, String>>) view.build(execution, List.of(), events,
+                start.plusSeconds(7)).get("activity");
+
+        assertThat(activity).extracting(row -> row.get("text")).containsExactly(
+                "Pi started",
+                "Pi working",
+                "Pi retrying request",
+                "Pi retry finished",
+                "Pi compacting context",
+                "Pi compaction finished",
+                "Pi finished");
+        assertThat(activity.toString()).doesNotContain("hidden message", "hidden reasoning", "reasoning");
+    }
+
     @Test void verificationFailureIsMoreUsefulThanSkippedDelivery() {
         var execution = new PipelineExecution("dev-factory", "1", "{}");
         execution.setStatus(ExecutionStatus.COMPLETED);
@@ -298,6 +384,12 @@ class DeveloperExecutionViewTest {
     private static AuditEvent runtime(String activity, String message, Instant when) {
         var event = new AuditEvent(java.util.UUID.randomUUID(), AuditEventType.RUNTIME_PROGRESS, "implement", "system",
                 JsonMapper.builder().build().writeValueAsString(Map.of("activity", activity, "message", message)));
+        ReflectionTestUtils.setField(event, "occurredAt", when);
+        return event;
+    }
+    private static AuditEvent runtime(Map<String, ?> detail, Instant when) {
+        var event = new AuditEvent(java.util.UUID.randomUUID(), AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                JsonMapper.builder().build().writeValueAsString(detail));
         ReflectionTestUtils.setField(event, "occurredAt", when);
         return event;
     }

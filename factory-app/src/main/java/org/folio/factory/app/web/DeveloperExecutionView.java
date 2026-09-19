@@ -92,6 +92,7 @@ final class DeveloperExecutionView {
         boolean piObserved = false;
         JsonNode config = json.createObjectNode();
         String previousHeartbeat = null;
+        var bashActivity = new BashActivity();
         for (var event : events) {
             if (event.getEventType() != AuditEventType.RUNTIME_PROGRESS) continue;
             var detail = parse(event.getDetail());
@@ -99,17 +100,14 @@ final class DeveloperExecutionView {
             if (action.equals("pi_usage")) continue;
             if (action.equals("agent_start")) { started = true; piObserved = true; }
             if (action.equals("pi_starting")) { config = detail; piObserved = true; }
-            StringBuilder text = new StringBuilder(activityLabel(action));
-            for (String key : List.of("tool", "path", "command", "message", "exitCode", "error", "notice", "summary")) {
-                if (detail.has(key)) text.append(" · ").append(detail.path(key).asString());
-            }
+            String text = runtimeActivityText(detail, bashActivity);
             boolean heartbeat = action.equals("baseline_progress")
                     && detail.path("message").asString("").equals("Starting build is still running");
-            var row = Map.of("time", UiFormat.format(event.getOccurredAt()), "text", text.toString());
+            var row = Map.of("time", UiFormat.format(event.getOccurredAt()), "text", text);
             // Keep the latest timestamp for a consecutive heartbeat run, without changing the audit trail.
-            if (heartbeat && text.toString().equals(previousHeartbeat)) activity.set(activity.size() - 1, row);
+            if (heartbeat && text.equals(previousHeartbeat)) activity.set(activity.size() - 1, row);
             else activity.add(row);
-            previousHeartbeat = heartbeat ? text.toString() : null;
+            previousHeartbeat = heartbeat ? text : null;
         }
         add(fields, "Pi", started ? "Started" : "Not started");
         add(fields, "Coding image", config.path("image"));
@@ -261,6 +259,93 @@ final class DeveloperExecutionView {
             case "baseline_retryable_failure" -> "Starting build network failure";
             default -> action.replace('_', ' ');
         };
+    }
+
+    private static String runtimeActivityText(JsonNode detail, BashActivity bashActivity) {
+        String action = detail.path("activity").asString("");
+        String text = switch (action) {
+            case "agent_start" -> "Pi started";
+            case "agent_end" -> "Pi finished";
+            case "turn_start" -> "Pi working";
+            case "auto_retry_start" -> "Pi retrying request";
+            case "auto_retry_end" -> "Pi retry finished";
+            case "compaction_start" -> "Pi compacting context";
+            case "compaction_end" -> "Pi compaction finished";
+            case "tool_execution_start" -> toolStartText(detail, bashActivity);
+            case "tool_execution_end" -> toolEndText(detail, bashActivity);
+            default -> genericActivityText(detail, action);
+        };
+        return detail.has("notice") ? text + " · " + detail.path("notice").asString() : text;
+    }
+
+    private static String toolStartText(JsonNode detail, BashActivity bashActivity) {
+        String tool = detail.path("tool").asString("").strip();
+        String path = fileName(detail.path("path").asString(""));
+        if (tool.equals("bash")) {
+            String command = detail.path("command").asString("Shell command").strip();
+            if (command.isBlank()) command = "Shell command";
+            bashActivity.started(command);
+            return "Running " + command;
+        }
+        return switch (tool) {
+            case "read" -> "Reading " + fileOrFallback(path);
+            case "write" -> "Writing " + fileOrFallback(path);
+            case "edit" -> "Editing " + fileOrFallback(path);
+            case "find" -> path.isBlank() ? "Finding files" : "Finding files in " + path;
+            case "ls" -> path.isBlank() ? "Listing files" : "Listing " + path;
+            case "grep" -> path.isBlank() ? "Searching files" : "Searching " + path;
+            default -> tool.isBlank() ? "Running tool" : "Running " + tool;
+        };
+    }
+
+    private static String toolEndText(JsonNode detail, BashActivity bashActivity) {
+        String tool = detail.path("tool").asString("").strip();
+        String subject = tool;
+        if (tool.equals("bash")) subject = bashActivity.finishedSubject();
+        if (subject == null || subject.isBlank()) subject = tool.isBlank() ? "Tool" : tool;
+        return subject + (detail.path("error").asBoolean(false) ? " failed" : " completed");
+    }
+
+    private static String genericActivityText(JsonNode detail, String action) {
+        StringBuilder text = new StringBuilder(activityLabel(action));
+        for (String key : List.of("tool", "path", "command", "message", "exitCode", "error", "summary")) {
+            if (detail.has(key)) text.append(" · ").append(detail.path(key).asString());
+        }
+        return text.toString();
+    }
+
+    private static String fileName(String path) {
+        String normalized = path.replace('\\', '/');
+        while (normalized.endsWith("/") && normalized.length() > 1)
+            normalized = normalized.substring(0, normalized.length() - 1);
+        int separator = normalized.lastIndexOf('/');
+        return separator < 0 ? normalized : normalized.substring(separator + 1);
+    }
+
+    private static String fileOrFallback(String path) {
+        return path.isBlank() ? "file" : path;
+    }
+
+    private static final class BashActivity {
+        private int active;
+        private String command;
+        private boolean ambiguous;
+
+        void started(String nextCommand) {
+            if (active == 0) command = nextCommand;
+            else ambiguous = true;
+            active++;
+        }
+
+        String finishedSubject() {
+            String subject = active == 1 && !ambiguous ? command : "Shell command";
+            if (active > 0) active--;
+            if (active == 0) {
+                command = null;
+                ambiguous = false;
+            }
+            return subject;
+        }
     }
 
     private JsonNode artifact(Map<String, Artifact> artifacts, String name) {
