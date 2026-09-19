@@ -57,8 +57,10 @@
                         <dd th:text="${#strings.isEmpty(developer['branch']) ? 'Not selected' : developer['branch']}"></dd>
                     </dl>
                     <dl>
-                        <dt>Starting commit</dt>
-                        <dd class="developer-sha" th:text="${#strings.isEmpty(developer['commit']) ? 'Not pinned' : developer['commit']}"></dd>
+                        <dt>Pull request</dt>
+                        <dd><a th:if="${!#strings.isEmpty(developer['pullRequestUrl'])}"
+                               th:href="${developer['pullRequestUrl']}">Open pull request</a>
+                            <span class="muted" th:if="${#strings.isEmpty(developer['pullRequestUrl'])}">Not created yet</span></dd>
                     </dl>
                 </div>
 
@@ -113,10 +115,11 @@
                                 <div><dt>Prompt</dt><dd th:text="${tokenTotals['prompt']}"></dd></div>
                                 <div><dt>Completion</dt><dd th:text="${tokenTotals['completion']}"></dd></div>
                             </th:block>
-                            <div th:if="${reportedCost != null}"><dt>Cost</dt><dd th:text="'$' + ${reportedCost} + ' USD'"></dd></div>
+                            <div th:if="${estimatedCost != null}"><dt>Estimated Pi API cost</dt><dd th:text="${estimatedCost.amount} + ' ' + ${estimatedCost.currency}"></dd></div>
                         </dl>
-                        <p th:if="${!tokenTotals['present'] and reportedCost != null}"
-                           th:text="'Reported cost: $' + ${reportedCost} + ' USD'"></p>
+                        <p class="developer-estimate-note" th:if="${estimatedCost != null}"
+                           th:text="'Configured rate card · ' + ${estimatedCost.asOf}"></p>
+                        <p class="muted" th:if="${tokenTotals['present'] and estimatedCost == null}">No matching configured rate card.</p>
                     </section>
                 </div>
 
@@ -131,40 +134,35 @@
                     </ol>
                 </section>
 
-                <section class="developer-outcomes" aria-label="Verification and delivery results">
-                    <div>
-                        <span>Starting build</span>
-                        <strong th:text="${developer['startingBuild']}"></strong>
-                    </div>
-                    <div>
-                        <span>Verification</span>
-                        <strong th:text="${developer['verification']}"></strong>
-                        <small th:if="${!#strings.isEmpty(developer['testCount'])}"
-                               th:text="${developer['testCount']} + ' tests executed'"></small>
-                    </div>
-                    <div>
-                        <span>Delivery</span>
-                        <strong th:text="${developer['delivery']}"></strong>
-                        <a th:if="${!#strings.isEmpty(developer['pullRequestUrl'])}"
-                           th:href="${developer['pullRequestUrl']}">Open pull request</a>
-                    </div>
-                </section>
-
-                <dl class="developer-delivery-facts"
-                    th:if="${!#strings.isEmpty(developer['deliveryRepository']) or !#strings.isEmpty(developer['deliveryBranch']) or !#strings.isEmpty(developer['deliveryCommit'])}">
-                    <div th:if="${!#strings.isEmpty(developer['deliveryRepository'])}"><dt>Delivery repository</dt><dd th:text="${developer['deliveryRepository']}"></dd></div>
-                    <div th:if="${!#strings.isEmpty(developer['deliveryBranch'])}"><dt>Delivery branch</dt><dd th:text="${developer['deliveryBranch']}"></dd></div>
-                    <div th:if="${!#strings.isEmpty(developer['deliveryCommit'])}"><dt>Delivered commit</dt><dd class="developer-sha" th:text="${developer['deliveryCommit']}"></dd></div>
-                </dl>
-
                 <div class="developer-debug">
                     <details>
                         <summary>Technical details</summary>
                         <div class="developer-debug-content">
+                            <section class="developer-outcomes" aria-label="Verification and delivery evidence">
+                                <div><span>Starting build</span><strong th:text="${developer['startingBuild']}"></strong></div>
+                                <div><span>Verification</span><strong th:text="${developer['verification']}"></strong>
+                                    <small th:if="${!#strings.isEmpty(developer['testCount'])}" th:text="${developer['testCount']} + ' tests executed'"></small></div>
+                                <div><span>Delivery</span><strong th:text="${developer['delivery']}"></strong></div>
+                            </section>
+                            <dl class="developer-delivery-facts"
+                                th:if="${!#strings.isEmpty(developer['deliveryRepository']) or !#strings.isEmpty(developer['deliveryBranch']) or !#strings.isEmpty(developer['deliveryCommit'])}">
+                                <div th:if="${!#strings.isEmpty(developer['deliveryRepository'])}"><dt>Delivery repository</dt><dd th:text="${developer['deliveryRepository']}"></dd></div>
+                                <div th:if="${!#strings.isEmpty(developer['deliveryBranch'])}"><dt>Delivery branch</dt><dd th:text="${developer['deliveryBranch']}"></dd></div>
+                                <div th:if="${!#strings.isEmpty(developer['deliveryCommit'])}"><dt>Delivered commit</dt><dd class="developer-sha" th:text="${developer['deliveryCommit']}"></dd></div>
+                            </dl>
                             <div class="developer-facts">
                                 <dl th:each="field : ${developer['technicalFields']}">
                                     <dt th:text="${field['label']}"></dt><dd th:text="${field['value']}"></dd>
                                 </dl>
+                            </div>
+                            <div class="developer-pricing-evidence" th:if="${estimatedCost != null or reportedCost != null}">
+                                <h4>Cost evidence</h4>
+                                <p th:if="${estimatedCost != null}">Estimated Pi API cost:
+                                    <strong th:text="${estimatedCost.amount} + ' ' + ${estimatedCost.currency}"></strong>
+                                    <span th:text="' using rates dated ' + ${estimatedCost.asOf}"></span>
+                                    · <a th:href="${estimatedCost.source}">rate source</a>
+                                </p>
+                                <p th:if="${reportedCost != null}" th:text="'Pi-reported cost: $' + ${reportedCost} + ' USD'"></p>
                             </div>
                             <p th:text="'Workflow engine status: ' + ${execution.status}"></p>
                             <div class="table-wrap">
@@ -213,10 +211,16 @@
                         </div>
                     </details>
 
-                    <details data-developer-audit>
-                        <summary th:text="'Raw audit history (' + ${auditCount} + ')'">Raw audit history</summary>
+                    <details data-developer-history>
+                        <summary th:text="'Execution history (' + ${developer['historyCount']} + ')'">Execution history</summary>
                         <div class="developer-debug-content">
-                            <div th:replace="~{fragments/components :: auditTable(${developer['auditEvents']}, false)}"></div>
+                            <p class="muted">Lifecycle events only. Runtime activity and artifacts are summarized above.</p>
+                            <ol class="developer-history">
+                                <li th:each="item : ${developer['history']}" th:attr="data-tone=${item['tone']}">
+                                    <time th:text="${item['time']}"></time><span th:text="${item['text']}"></span>
+                                </li>
+                            </ol>
+                            <p><a th:href="@{/audit(executionId=${execution.id})}">Open full append-only audit log</a></p>
                         </div>
                     </details>
                 </div>

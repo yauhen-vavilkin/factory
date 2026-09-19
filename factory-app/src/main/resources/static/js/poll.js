@@ -20,11 +20,21 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+    function formatDuration(seconds) {
+      var safe = Math.max(0, seconds);
+      if (safe < 60) return safe + 's';
+      var minutes = Math.floor(safe / 60);
+      var remainingSeconds = safe % 60;
+      if (minutes < 60) return minutes + 'm' + (remainingSeconds ? ' ' + remainingSeconds + 's' : '');
+      var hours = Math.floor(minutes / 60);
+      var remainingMinutes = minutes % 60;
+      return hours + 'h' + (remainingMinutes ? ' ' + remainingMinutes + 'm' : '');
+    }
     var clocks = document.querySelectorAll('[data-elapsed-start]');
     if (clocks.length) setInterval(function () {
       clocks.forEach(function (clock) {
         var start = Date.parse(clock.getAttribute('data-elapsed-start'));
-        if (Number.isFinite(start)) clock.textContent = Math.max(0, Math.floor((Date.now() - start) / 1000)) + 's';
+        if (Number.isFinite(start)) clock.textContent = formatDuration(Math.floor((Date.now() - start) / 1000));
       });
     }, 1000);
     var el = document.querySelector('[data-poll-url]');

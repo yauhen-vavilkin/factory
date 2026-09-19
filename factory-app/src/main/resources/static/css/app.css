@@ -724,6 +724,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .developer-usage-breakdown div { display: flex; gap: 0.25rem; font-size: 0.75rem; }
 .developer-usage-breakdown dt { color: hsl(var(--muted-foreground)); }
 .developer-usage-breakdown dd { font-variant-numeric: tabular-nums; }
+.developer-estimate-note { margin-top: 0.375rem; color: hsl(var(--muted-foreground)); font-size: 0.6875rem; }
 .developer-recent { margin-top: 1rem; }
 .developer-recent ol { display: grid; gap: 0.25rem; margin-top: 0.375rem; padding: 0; list-style: none; }
 .developer-recent li {
@@ -736,7 +737,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .developer-outcomes {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  margin-top: 1rem;
+  margin-top: 0;
   border-block: 1px solid hsl(var(--border));
 }
 .developer-outcomes > div { display: flex; min-width: 0; flex-direction: column; gap: 0.125rem; padding: 0.75rem 1rem; }
@@ -765,8 +766,13 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .developer-debug-content { padding: 0.25rem 0 1rem; }
 .developer-debug-content > * + * { margin-top: 1rem; }
 .developer-debug-content h4 { font-size: 0.875rem; }
+.developer-pricing-evidence p { margin-top: 0.25rem; font-size: 0.8125rem; }
 .developer-artifact-links { display: flex; flex-wrap: wrap; gap: 0.375rem 0.75rem; }
 .developer-artifact-links a { font-variant-numeric: tabular-nums; }
+.developer-history { display: grid; gap: 0.375rem; padding: 0; list-style: none; }
+.developer-history li { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.75rem; font-size: 0.8125rem; }
+.developer-history li[data-tone="failed"] span { color: hsl(var(--destructive)); }
+.developer-history time { color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
 
 /* ---------- card grid ---------- */
 .card-grid {
@@ -820,7 +826,8 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   .developer-stages li + li { border-top: 1px solid hsl(var(--border)); border-left: 0; }
   .developer-live-grid { grid-template-columns: 1fr; }
   .developer-latest p,
-  .developer-recent li { grid-template-columns: 1fr; gap: 0.0625rem; }
+  .developer-recent li,
+  .developer-history li { grid-template-columns: 1fr; gap: 0.0625rem; }
   .developer-outcomes,
   .developer-delivery-facts { grid-template-columns: 1fr; }
   .developer-outcomes > div + div { border-top: 1px solid hsl(var(--border)); border-left: 0; }

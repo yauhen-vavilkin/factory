@@ -149,6 +149,12 @@ The trusted starting build reuses the `factory-dev-m2-cache` Docker volume. Pi a
 verification mount it read-only and copy dependencies into private writable repositories.
 The cache survives `docker compose down`; to reset only it, stop the stack and run
 `docker volume rm factory-dev-m2-cache` before starting Compose again.
+Developer execution pages estimate API cost from the operator-owned
+`config/developer-pricing.yaml` rate card, mounted read-only by Compose. Rates match
+the exact stored provider/model pair and are deliberately separate from any cost
+reported by Pi; update the YAML when provider pricing changes. A positive token
+category without a configured rate makes the estimate unavailable rather than
+silently undercounting it.
 Compose publishes Factory and PostgreSQL on `127.0.0.1` by default. The MVP still
 runs the trusted Factory container as root with the Docker socket, makes its private
 workload root writable for the checkout UID/GID, and uses a 7200-second global engine

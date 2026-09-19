@@ -283,14 +283,13 @@ class DeveloperExecutionViewTest {
         assertThat(model).containsEntry("summary", "Fix route")
                 .containsEntry("repository", "folio/sidecar")
                 .containsEntry("branch", "master")
-                .containsEntry("commit", "abc123")
                 .containsEntry("verification", "PASS")
                 .containsEntry("testCount", "8")
                 .containsEntry("deliveryRepository", "user/repo")
                 .containsEntry("deliveryBranch", "dev/task")
                 .containsEntry("deliveryCommit", "def456")
                 .containsEntry("pullRequestUrl", "https://github.com/user/repo/pull/1");
-        assertThat(model.get("technicalFields").toString()).contains("mvn test");
+        assertThat(model.get("technicalFields").toString()).contains("Starting commit", "abc123", "mvn test");
         var unsafe = artifact("dev_delivery.json", 2, "{\"pullRequestUrl\":\"javascript:alert(1)\"}");
         assertThat(view.build(execution, List.of(delivery, unsafe), List.of(), Instant.now())).containsEntry("pullRequestUrl", "");
     }
@@ -304,6 +303,12 @@ class DeveloperExecutionViewTest {
         assertThat(DeveloperExecutionView.technicalStepDuration("implement", List.of(executionEvent, began, ended), execution, start.plusSeconds(90))).isEqualTo("12s");
         assertThat(DeveloperExecutionView.technicalStepDuration("implement", List.of(began), execution, start.plusSeconds(30))).isEqualTo("30s");
         assertThat(DeveloperExecutionView.technicalStepDuration("verify", List.of(began), execution, start.plusSeconds(30))).isEqualTo("Not started");
+    }
+
+    @Test void durationsUseCompactHumanUnits() {
+        assertThat(UiFormat.duration(59)).isEqualTo("59s");
+        assertThat(UiFormat.duration(1_209)).isEqualTo("20m 9s");
+        assertThat(UiFormat.duration(7_205)).isEqualTo("2h");
     }
 
     @Test void derivesFourProductPhasesAndCombinesPreparationDuration() {

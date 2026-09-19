@@ -49,16 +49,18 @@ public class ExecutionUiController {
     private final FlowRegistry flowRegistry;
     private final HitlReviewRepository reviews;
     private final JsonMapper jsonMapper;
+    private final DeveloperCostEstimator costEstimator;
 
     public ExecutionUiController(PipelineExecutionRepository executions, ArtifactStore artifactStore,
                                  AuditLog auditLog, FlowRegistry flowRegistry, HitlReviewRepository reviews,
-                                 JsonMapper jsonMapper) {
+                                 JsonMapper jsonMapper, DeveloperCostEstimator costEstimator) {
         this.executions = executions;
         this.artifactStore = artifactStore;
         this.auditLog = auditLog;
         this.flowRegistry = flowRegistry;
         this.reviews = reviews;
         this.jsonMapper = jsonMapper;
+        this.costEstimator = costEstimator;
     }
 
     @GetMapping("/executions")
@@ -113,14 +115,26 @@ public class ExecutionUiController {
                 steps.get(i).put("label", DeveloperExecutionView.technicalStepLabel(stepId));
                 String duration = DeveloperExecutionView.technicalStepDuration(stepId, events, execution, now);
                 steps.get(i).put("sublabel", duration);
-                if (i == execution.getCurrentStepIndex() && execution.getStatus() == ExecutionStatus.RUNNING && duration.endsWith("s"))
-                    steps.get(i).put("elapsedStart", now.minusSeconds(Long.parseLong(duration.substring(0, duration.length() - 1))));
+                Long durationSeconds = DeveloperExecutionView.technicalStepDurationSeconds(
+                        stepId, events, execution, now);
+                if (i == execution.getCurrentStepIndex() && execution.getStatus() == ExecutionStatus.RUNNING
+                        && durationSeconds != null)
+                    steps.get(i).put("elapsedStart", now.minusSeconds(durationSeconds));
             }
         }
         java.math.BigDecimal cost = usageByStep.values().stream()
                 .map(ReportedUsage::cost).filter(java.util.Objects::nonNull)
                 .reduce(java.math.BigDecimal::add).orElse(null);
         model.addAttribute("reportedCost", cost == null ? null : cost.toPlainString());
+        boolean hasLegacyOnlyUsage = usageByStep.values().stream()
+                .anyMatch(usage -> usage.factoryTokensPresent() && !usage.codingTokensPresent());
+        DeveloperCostEstimator.Estimate estimate = developerFlow && !hasLegacyOnlyUsage
+                ? costEstimator.estimate(usageByStep.values().stream()
+                .filter(ReportedUsage::codingTokensPresent)
+                .map(usage -> new DeveloperCostEstimator.Usage(usage.provider(), usage.model(), usage.input(),
+                        usage.cacheRead(), usage.cacheWrite(), usage.output()))
+                .toList()) : null;
+        model.addAttribute("estimatedCost", estimate);
         model.addAttribute("auditCount", events.size());
         model.addAttribute("artifactCount", artifacts.size());
 
@@ -144,11 +158,18 @@ public class ExecutionUiController {
     private Map<String, ReportedUsage> usageByStep(List<AuditEvent> events, boolean includeCodingProgress) {
         Map<String, ReportedUsage> completed = new LinkedHashMap<>();
         Map<String, ReportedUsage> progress = new LinkedHashMap<>();
+        Map<String, RuntimeIdentity> runtimeIdentity = new LinkedHashMap<>();
         for (AuditEvent event : events) {
             if (event.getStepId() == null) continue;
             JsonNode detail = jsonMapper.readTree(event.getDetail() == null ? "{}" : event.getDetail());
             boolean completedEvent = event.getEventType() == AuditEventType.STEP_COMPLETED;
             String activity = detail.path("activity").asString("");
+            if (includeCodingProgress && event.getEventType() == AuditEventType.RUNTIME_PROGRESS
+                    && "pi_starting".equals(activity)) {
+                runtimeIdentity.put(event.getStepId(), new RuntimeIdentity(
+                        text(detail, "provider"), text(detail, "model")));
+                continue;
+            }
             boolean codingProgress = includeCodingProgress && event.getEventType() == AuditEventType.RUNTIME_PROGRESS
                     && "pi_usage".equals(activity);
             if (!completedEvent && !codingProgress) continue;
@@ -162,7 +183,13 @@ public class ExecutionUiController {
             java.math.BigDecimal cost = costNode.isNumber() ? costNode.decimalValue() : null;
             if (prompt == null && completion == null && input == null && cacheRead == null
                     && cacheWrite == null && output == null && cost == null) continue;
-            var usage = new ReportedUsage(prompt, completion, input, cacheRead, cacheWrite, output, cost);
+            RuntimeIdentity identity = codingProgress ? runtimeIdentity.get(event.getStepId()) : null;
+            String provider = text(detail, "provider");
+            String model = text(detail, "model");
+            if (provider == null && identity != null) provider = identity.provider();
+            if (model == null && identity != null) model = identity.model();
+            var usage = new ReportedUsage(prompt, completion, input, cacheRead, cacheWrite, output, cost,
+                    provider, model);
             (codingProgress ? progress : completed).put(event.getStepId(), usage);
         }
         progress.forEach(completed::putIfAbsent);
@@ -171,6 +198,11 @@ public class ExecutionUiController {
 
     private static Long token(JsonNode detail, String key) {
         return detail.path(key).isNumber() ? Math.max(0, detail.path(key).asLong(0)) : null;
+    }
+
+    private static String text(JsonNode detail, String key) {
+        String value = detail.path(key).asString("").strip();
+        return value.isEmpty() ? null : value;
     }
 
     private static Map<String, Object> tokenTotals(Map<String, ReportedUsage> usageByStep, boolean developerFlow) {
@@ -332,7 +364,8 @@ public class ExecutionUiController {
     }
 
     private record ReportedUsage(Long prompt, Long completion, Long input, Long cacheRead,
-                                 Long cacheWrite, Long output, java.math.BigDecimal cost) {
+                                 Long cacheWrite, Long output, java.math.BigDecimal cost,
+                                 String provider, String model) {
         boolean factoryTokensPresent() { return prompt != null || completion != null; }
         boolean codingTokensPresent() {
             return input != null || cacheRead != null || cacheWrite != null || output != null;
@@ -342,6 +375,8 @@ public class ExecutionUiController {
         }
         long outputTotal() { return completion != null ? completion : value(output); }
     }
+
+    private record RuntimeIdentity(String provider, String model) { }
 
     private HitlReview pendingReview(PipelineExecution execution, UUID id) {
         // Both an awaiting-gate run and an escalated run carry a decidable pending

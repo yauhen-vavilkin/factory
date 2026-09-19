@@ -9,6 +9,8 @@
     </div>
 
     <form class="filter-bar" method="get" th:action="@{/audit}">
+        <input type="hidden" name="executionId" th:if="${!#strings.isEmpty(selectedExecutionId)}"
+               th:value="${selectedExecutionId}">
         <div class="filter-field">
             <label class="label" for="filter-event-type">Event type</label>
             <select class="select" id="filter-event-type" name="eventType">
@@ -18,7 +20,11 @@
             </select>
         </div>
         <button class="btn btn-outline" type="submit">Apply</button>
+        <a class="btn btn-ghost" href="/audit" th:if="${!#strings.isEmpty(selectedExecutionId)}">Clear execution filter</a>
     </form>
+
+    <p class="page-description" th:if="${!#strings.isEmpty(selectedExecutionId)}"
+       th:text="'Showing only execution ' + ${selectedExecutionId}"></p>
 
     <div th:if="${#lists.isEmpty(events)}" class="empty-state">No audit events match this filter.</div>
     <div th:unless="${#lists.isEmpty(events)}">

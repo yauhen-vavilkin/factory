@@ -35,6 +35,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.math.BigDecimal;
+import java.net.URI;
+import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -77,7 +80,12 @@ class ExecutionUiControllerTest {
     void setUp() {
         mvc = MockMvcBuilders
                 .standaloneSetup(new ExecutionUiController(executions, artifactStore, auditLog,
-                        flowRegistry, reviews, json))
+                        flowRegistry, reviews, json,
+                        new DeveloperCostEstimator(new DeveloperPricingProperties(Map.of("flash",
+                                new DeveloperPricingProperties.Rate("openai-compatible", "glm-5.3-flash", "USD",
+                                        LocalDate.parse("2026-09-19"), URI.create("https://example.test/pricing"),
+                                        new BigDecimal("0.15"), new BigDecimal("0.03"), null,
+                                        new BigDecimal("0.50")))))))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
@@ -255,6 +263,24 @@ class ExecutionUiControllerTest {
     }
 
     @Test
+    void execution_detail_estimatesDeveloperCostFromStoredRuntimeIdentity() throws Exception {
+        PipelineExecution execution = developerExecution();
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"pi_starting\",\"provider\":\"openai-compatible\",\"model\":\"glm-5.3-flash\"}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"pi_usage\",\"inputTokens\":71200,\"cacheReadTokens\":2500000,"
+                                + "\"cacheWriteTokens\":0,\"outputTokens\":35100,\"costUsd\":0}")));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("estimatedCost", new DeveloperCostEstimator.Estimate(
+                        "0.10323", "USD", LocalDate.parse("2026-09-19"), "https://example.test/pricing")))
+                .andExpect(model().attribute("reportedCost", "0"));
+    }
+
+    @Test
     void execution_detail_developerUsageKeepsMissingCacheMetricsOptional() throws Exception {
         PipelineExecution execution = developerExecution();
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
@@ -295,13 +321,16 @@ class ExecutionUiControllerTest {
                 new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "read-task", "engine",
                         "{\"promptTokens\":100,\"completionTokens\":20}"),
                 new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
-                        "{\"inputTokens\":30,\"outputTokens\":9,"
-                                + "\"promptTokens\":30,\"completionTokens\":9}")));
+                        "{\"inputTokens\":30,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"outputTokens\":9,"
+                                + "\"promptTokens\":30,\"completionTokens\":9,\"provider\":\"openai-compatible\","
+                                + "\"model\":\"glm-5.3-flash\"}")));
 
         mvc.perform(get("/executions/{id}", EXECUTION_ID))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("tokenTotals", Map.of(
-                        "present", true, "coding", true, "total", "159", "input", "30", "output", "9")));
+                        "present", true, "coding", true, "total", "159", "input", "30",
+                        "cacheRead", "0", "cacheWrite", "0", "output", "9")))
+                .andExpect(model().attribute("estimatedCost", (Object) null));
     }
 
     @Test

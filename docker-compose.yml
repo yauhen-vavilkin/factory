@@ -52,11 +52,13 @@ services:
       FACTORY_DEV_FACTORY_TIMEOUT_SECONDS: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:-1800}
       FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:-factory-dev-m2-cache}
       FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS: ${FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS:-7200}
+      SPRING_CONFIG_IMPORT: optional:file:/application/config/developer-pricing.yaml
     ports:
       - "${FACTORY_BIND_ADDRESS:-127.0.0.1}:${FACTORY_APP_PORT:-8080}:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - factory-dev-m2-cache:/var/lib/factory-dev-m2-cache:ro
+      - ./config/developer-pricing.yaml:/application/config/developer-pricing.yaml:ro
 
 volumes:
   factory-pgdata:

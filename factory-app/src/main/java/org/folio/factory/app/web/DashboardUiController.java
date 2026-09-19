@@ -19,6 +19,7 @@ import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
+import org.springframework.data.domain.SliceImpl;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,12 +28,14 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.UUID;
 
 /**
  * Server-rendered operational views: the Dashboard home ({@code /}) with KPI
@@ -144,6 +147,7 @@ public class DashboardUiController {
 
     @GetMapping("/audit")
     public String audit(@RequestParam(name = "eventType", required = false) String eventType,
+                        @RequestParam(name = "executionId", required = false) UUID executionId,
                         @RequestParam(name = "page", defaultValue = "0") int page,
                         @RequestParam(name = "size", defaultValue = "50") int size,
                         Model model) {
@@ -153,9 +157,18 @@ public class DashboardUiController {
 
         // Slice, not Page: the audit table is append-only and unbounded, so a total
         // count(*) per page view would degrade without limit.
-        Slice<AuditEvent> result = type == null
+        Slice<AuditEvent> result;
+        if (executionId == null) result = type == null
                 ? audit.findAllByOrderByIdDesc(pageable)
                 : audit.findByEventTypeOrderByIdDesc(type, pageable);
+        else {
+            List<AuditEvent> filtered = new ArrayList<>(audit.findByExecutionIdOrderByIdAsc(executionId));
+            Collections.reverse(filtered);
+            if (type != null) filtered.removeIf(event -> event.getEventType() != type);
+            int start = (int) Math.min(pageable.getOffset(), filtered.size());
+            int end = Math.min(start + pageable.getPageSize(), filtered.size());
+            result = new SliceImpl<>(filtered.subList(start, end), pageable, end < filtered.size());
+        }
 
         model.addAttribute("events", result.getContent().stream()
                 .map(event -> UiFormat.auditRow(event, jsonMapper)).toList());
@@ -163,8 +176,10 @@ public class DashboardUiController {
         model.addAttribute("eventTypes", Arrays.stream(AuditEventType.values())
                 .map(t -> Map.of("value", t.name(), "label", UiFormat.eventLabel(t))).toList());
         model.addAttribute("selectedEventType", type == null ? "" : type.name());
+        model.addAttribute("selectedExecutionId", executionId == null ? "" : executionId.toString());
         model.addAttribute("baseUrl", "/audit?eventType="
-                + (type == null ? "" : type.name()) + "&size=" + clampedSize);
+                + (type == null ? "" : type.name()) + "&executionId="
+                + (executionId == null ? "" : executionId) + "&size=" + clampedSize);
         return "audit";
     }
 

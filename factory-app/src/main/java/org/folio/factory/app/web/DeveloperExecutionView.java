@@ -69,6 +69,7 @@ final class DeveloperExecutionView {
         var repo = brief.path("repository");
         List<Map<String, String>> technicalFields = new ArrayList<>();
         add(technicalFields, "Repository key", first(repo.path("key"), candidate.path("repository")));
+        add(technicalFields, "Starting commit", first(repo.path("base_sha"), candidate.path("baseSha")));
         add(technicalFields, "Expected verification plan", repo.path("verification_plan"));
         add(technicalFields, "Starting build command", readiness.path("command"));
         add(technicalFields, "Verification plan", verification.path("planId"));
@@ -132,7 +133,6 @@ final class DeveloperExecutionView {
         view.put("summary", brief.path("issue").path("summary").asString("Developer Flow execution"));
         view.put("repository", first(repo.path("source_repo"), repo.path("key"), candidate.path("repository")));
         view.put("branch", repo.path("base_branch").asString(""));
-        view.put("commit", first(repo.path("base_sha"), candidate.path("baseSha")));
         view.put("technicalFields", technicalFields);
         view.put("reason", reason);
         String reasonLabel = execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.PENDING
@@ -143,7 +143,9 @@ final class DeveloperExecutionView {
         view.put("latestActivity", latestActivity);
         view.put("activityNotice", activityNotice);
         view.put("activity", recentActivity.subList(Math.max(0, recentActivity.size() - 6), recentActivity.size()));
-        view.put("auditEvents", developerAuditRows(events));
+        var history = executionHistory(events);
+        view.put("history", history);
+        view.put("historyCount", history.size());
         view.put("startingBuildOutput", readiness.path("output").asString(""));
         view.put("phases", phases);
         view.put("currentPhase", currentPhase(phases));
@@ -162,44 +164,33 @@ final class DeveloperExecutionView {
         return view;
     }
 
-    private List<Map<String, Object>> developerAuditRows(List<AuditEvent> events) {
-        return events.stream().map(event -> {
-            var row = UiFormat.auditRow(event, json);
-            if (event.getEventType() == AuditEventType.RUNTIME_PROGRESS)
-                row.put("detail", safeRuntimeDetail(event.getDetail()));
-            return row;
-        }).toList();
-    }
-
-    private String safeRuntimeDetail(String value) {
-        var detail = parse(value);
-        var safe = json.createObjectNode();
-        copy(safe, detail, "activity");
-        String activity = detail.path("activity").asString("");
-        switch (activity) {
-            case "baseline_started" -> copy(safe, detail, "command", "image");
-            case "baseline_progress", "baseline_retryable_failure" -> copy(safe, detail, "message");
-            case "baseline_completed" -> copy(safe, detail, "exitCode", "summary");
-            case "pi_starting" -> copy(safe, detail, "image", "provider", "model");
-            case "tool_execution_start" -> copy(safe, detail, "tool", "path", "command");
-            case "tool_execution_end" -> copy(safe, detail, "tool", "error");
-            case "pi_usage" -> copy(safe, detail, "inputTokens", "cacheReadTokens", "cacheWriteTokens",
-                    "outputTokens", "promptTokens", "completionTokens", "costUsd");
-            default -> { /* Activity name and optional notice are sufficient for debugging lifecycle events. */ }
-        }
-        copy(safe, detail, "notice");
-        return safe.size() == 0 ? null : json.writerWithDefaultPrettyPrinter().writeValueAsString(safe);
-    }
-
-    private static void copy(tools.jackson.databind.node.ObjectNode target, JsonNode source, String... keys) {
-        for (String key : keys) if (source.has(key)) target.set(key, source.get(key));
+    private static List<Map<String, String>> executionHistory(List<AuditEvent> events) {
+        return events.stream()
+                .filter(event -> event.getEventType() != AuditEventType.RUNTIME_PROGRESS
+                        && event.getEventType() != AuditEventType.ARTIFACT_WRITTEN)
+                .sorted(Comparator.comparing(AuditEvent::getOccurredAt).reversed())
+                .map(event -> {
+                    String step = event.getStepId() == null ? "" : technicalStepLabel(event.getStepId());
+                    String text = UiFormat.eventLabel(event.getEventType());
+                    if (!step.isBlank()) text += " · " + step;
+                    return Map.of("time", UiFormat.format(event.getOccurredAt()), "text", text,
+                            "tone", event.getEventType() == AuditEventType.STEP_FAILED ? "failed" : "normal");
+                })
+                .limit(24)
+                .toList();
     }
 
     static String technicalStepLabel(String id) { return TECHNICAL_STEPS.getOrDefault(id, id); }
 
     static String technicalStepDuration(String id, List<AuditEvent> events, PipelineExecution execution, Instant now) {
         var timing = timing(Set.of(id), events, execution, now);
-        return timing.seen() ? timing.seconds() + "s" : "Not started";
+        return timing.seen() ? UiFormat.duration(timing.seconds()) : "Not started";
+    }
+
+    static Long technicalStepDurationSeconds(String id, List<AuditEvent> events,
+                                             PipelineExecution execution, Instant now) {
+        var timing = timing(Set.of(id), events, execution, now);
+        return timing.seen() ? timing.seconds() : null;
     }
 
     private List<Map<String, Object>> phases(PipelineExecution execution, List<AuditEvent> events, Instant now,
@@ -217,7 +208,7 @@ final class DeveloperExecutionView {
                 else state = "done";
             }
             String duration = i > failedPhase && failedPhase >= 0 ? "Not started"
-                    : timing.seen() ? timing.seconds() + "s" : "Not started";
+                    : timing.seen() ? UiFormat.duration(timing.seconds()) : "Not started";
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("type", "PHASE");
             row.put("label", phase.label());
@@ -436,7 +427,7 @@ final class DeveloperExecutionView {
         if (!value.isBlank()) fields.add(Map.of("label", label, "value", value));
     }
     private static String duration(Instant start, Instant end) {
-        return start == null ? "—" : Math.max(0, Duration.between(start, end).toSeconds()) + "s";
+        return start == null ? "—" : UiFormat.duration(Duration.between(start, end).toSeconds());
     }
 
     private record Phase(String label, int firstStep, int lastStep, List<String> stepIds) { }

@@ -42,6 +42,18 @@ final class UiFormat {
         return NumberFormat.getIntegerInstance(Locale.US).format(value);
     }
 
+    /** Compact elapsed time for live UI clocks: seconds, then minutes, then hours. */
+    static String duration(long seconds) {
+        long safe = Math.max(0, seconds);
+        if (safe < 60) return safe + "s";
+        long minutes = safe / 60;
+        long remainingSeconds = safe % 60;
+        if (minutes < 60) return minutes + "m" + (remainingSeconds == 0 ? "" : " " + remainingSeconds + "s");
+        long hours = minutes / 60;
+        long remainingMinutes = minutes % 60;
+        return hours + "h" + (remainingMinutes == 0 ? "" : " " + remainingMinutes + "m");
+    }
+
     static String stepLabel(StepDescriptor step) {
         return switch (step.type()) {
             case AGENT -> step.workerId();

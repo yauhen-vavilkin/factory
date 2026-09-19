@@ -254,7 +254,8 @@ class UiRenderSmokeTest {
                 "Safe destination missing", "$0.125 USD",
                 "auditTrail.length,artifacts.length", "Prepare task", "Implement changes", "Verify changes",
                 "Create pull request", "Technical details", "Prepare task checkout", "Starting build output",
-                "Compiling 42 source files", "transfer failed", "Artifacts", "Raw audit history");
+                "Compiling 42 source files", "transfer failed", "Artifacts", "Execution history",
+                "Open full append-only audit log");
         assertThat(body).containsOnlyOnce("class=\"developer-stages\"")
                 .contains("aria-label=\"Technical steps\"", "Implementation", "Not started")
                 .doesNotContain("class=\"stepper\"", "SOURCE_CONTENT_SENTINEL", "HIDDEN_MESSAGE_SENTINEL",
@@ -272,13 +273,13 @@ class UiRenderSmokeTest {
             auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                     Map.of("activity", "turn_start"));
 
-        String body = assertRendered("/executions/" + execution.getId(), "Raw audit history (240)");
+        String body = assertRendered("/executions/" + execution.getId(), "Execution history (0)");
 
         assertThat(body)
-                .containsOnlyOnce("data-developer-audit")
+                .containsOnlyOnce("data-developer-history")
                 .containsOnlyOnce("Latest reported activity")
-                .contains("Pi working", "No meaningful activity reported yet.")
-                .doesNotContain("<details data-developer-audit open");
+                .contains("Pi working", "No meaningful activity reported yet.", "Open full append-only audit log")
+                .doesNotContain("Raw audit history", "<details data-developer-history open");
     }
 
     @Test

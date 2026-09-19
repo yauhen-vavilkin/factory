@@ -333,6 +333,21 @@ class DashboardUiControllerTest {
         assertThat(row.get("detail").toString()).contains("\n").contains("\"note\"");
     }
 
+    @Test
+    void audit_executionFilterUsesOnlyThatExecutionsDurableEvents() throws Exception {
+        UUID executionId = UUID.fromString("00000000-0000-0000-0000-000000000009");
+        AuditEvent event = new AuditEvent(executionId, AuditEventType.STEP_COMPLETED, "triage", "engine", "{}");
+        when(audit.findByExecutionIdOrderByIdAsc(executionId)).thenReturn(List.of(event));
+
+        mvc.perform(get("/audit").param("executionId", executionId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("selectedExecutionId", executionId.toString()))
+                .andExpect(model().attribute("events", org.hamcrest.Matchers.hasSize(1)))
+                .andExpect(model().attribute("baseUrl", org.hamcrest.Matchers.containsString("executionId=" + executionId)));
+
+        verify(audit).findByExecutionIdOrderByIdAsc(executionId);
+    }
+
     private static Page<AuditEvent> emptyPage(int page, int size) {
         return new PageImpl<>(List.of(), PageRequest.of(page, size), 0);
     }
