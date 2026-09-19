@@ -12,6 +12,45 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DeveloperExecutionViewTest {
     private final DeveloperExecutionView view = new DeveloperExecutionView(JsonMapper.builder().build());
 
+    @Test void productStatusUsesLatestOutcomeAndDoesNotTreatSkippedDeliveryAsSuccess() {
+        var execution = new PipelineExecution("dev-factory", "1", "{}");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        for (String state : List.of("DEVELOPMENT_FAILED", "VERIFICATION_FAILED", "DELIVERY_BLOCKED",
+                "UNSUPPORTED", "BLOCKED", "BLOCKED_ENVIRONMENT", "DELIVERED", "VERIFIED")) {
+            assertThat(view.productStatus(execution, List.of(
+                    artifact("dev_result.json", 2, "{\"state\":\"" + state + "\"}"),
+                    artifact("dev_result.json", 1, "{\"state\":\"VERIFIED\"}"),
+                    artifact("dev_delivery.json", 1, "{\"state\":\"NOT_RUN\"}")))).isEqualTo(state);
+        }
+        assertThat(view.productStatus(execution, List.of())).isEqualTo("OUTCOME_UNAVAILABLE");
+        assertThat(view.productStatus(execution, List.of(artifact("dev_result.json", 1, "not json"))))
+                .isEqualTo("OUTCOME_UNAVAILABLE");
+        assertThat(view.productStatus(execution, List.of(
+                artifact("dev_result.json", 1, "{\"state\":\"secret message\"}"))))
+                .isEqualTo("OUTCOME_UNAVAILABLE");
+        execution.setStatus(ExecutionStatus.RUNNING);
+        assertThat(view.productStatus(execution, List.of(artifact("dev_result.json", 1,
+                "{\"state\":\"DEVELOPMENT_FAILED\"}")))).isEqualTo("RUNNING");
+        execution.setStatus(ExecutionStatus.FAILED_ESCALATED);
+        assertThat(view.productStatus(execution, List.of(artifact("dev_result.json", 1,
+                "{\"state\":\"VERIFIED\"}")))).isEqualTo("FAILED_ESCALATED");
+    }
+
+    @Test void productStatusUsesDeliveryAndFailureEvidenceWhenFinalResultIsMissing() {
+        var execution = new PipelineExecution("dev-factory", "1", "{}");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        assertThat(view.productStatus(execution, List.of(
+                artifact("dev_result.json", 1, "{\"state\":\"VERIFIED\"}"),
+                artifact("dev_delivery.json", 1, "{\"state\":\"DELIVERY_BLOCKED\"}"))))
+                .isEqualTo("DELIVERY_BLOCKED");
+        assertThat(view.productStatus(execution, List.of(
+                artifact("dev_verification.json", 1, "{\"result\":\"FAIL\"}"))))
+                .isEqualTo("VERIFICATION_FAILED");
+        assertThat(view.productStatus(execution, List.of(
+                artifact("dev_candidate.json", 1, "{\"state\":\"DEVELOPMENT_FAILED\"}"))))
+                .isEqualTo("DEVELOPMENT_FAILED");
+    }
+
     @Test void pendingRetryAndExhaustedRetryHaveDistinctReasons() {
         var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
         execution.setCurrentStepIndex(3);

@@ -215,6 +215,57 @@ class ExecutionUiControllerTest {
     }
 
     @Test
+    void execution_detail_failedDeveloperRunUsesLatestStreamedPiUsage() throws Exception {
+        PipelineExecution execution = developerExecution();
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"pi_usage\",\"promptTokens\":12,\"completionTokens\":3,\"costUsd\":0.1}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"pi_usage\",\"promptTokens\":27,\"completionTokens\":8,\"costUsd\":0.3}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine", "{}")));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "prompt", "27", "completion", "8", "total", "35")))
+                .andExpect(model().attribute("reportedCost", "0.3"));
+    }
+
+    @Test
+    void execution_detail_successfulDeveloperRunPrefersCompletedMetricsOverProgress() throws Exception {
+        PipelineExecution execution = developerExecution();
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"pi_usage\",\"promptTokens\":27,\"completionTokens\":8,\"costUsd\":0.3}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
+                        "{\"promptTokens\":27,\"completionTokens\":8,\"costUsd\":0.3}")));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "prompt", "27", "completion", "8", "total", "35")))
+                .andExpect(model().attribute("reportedCost", "0.3"));
+    }
+
+    @Test
+    void execution_detail_nonDeveloperRunIgnoresPiProgress() throws Exception {
+        PipelineExecution execution = execution(ExecutionStatus.RUNNING, 0, "{}");
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(flowRegistry.find("test-factory")).thenReturn(Optional.of(descriptor()));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "triage", "system",
+                        "{\"activity\":\"pi_usage\",\"promptTokens\":27,\"completionTokens\":8,\"costUsd\":0.3}")));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", false, "prompt", "0", "completion", "0", "total", "0")))
+                .andExpect(model().attribute("reportedCost", (Object) null));
+    }
+
+    @Test
     void execution_detail_escalatedCurrentStepMarkedFailed() throws Exception {
         PipelineExecution execution = execution(ExecutionStatus.FAILED_ESCALATED, 1, "{}");
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
@@ -362,6 +413,20 @@ class ExecutionUiControllerTest {
         execution.setStatus(status);
         execution.setCurrentStepIndex(stepIndex);
         execution.setRetryCounts(retryCounts);
+        return execution;
+    }
+
+    private static PipelineExecution developerExecution() {
+        PipelineExecution execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        execution.setCurrentStepIndex(6);
+        try {
+            var field = PipelineExecution.class.getDeclaredField("id");
+            field.setAccessible(true);
+            field.set(execution, EXECUTION_ID);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
         return execution;
     }
 

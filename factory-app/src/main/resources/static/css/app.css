@@ -232,7 +232,7 @@ a:hover { text-decoration: underline; }
   color: hsl(var(--foreground));
   background: transparent;
 }
-.badge-success, .badge-status-COMPLETED, .badge-status-APPROVED {
+.badge-success, .badge-status-COMPLETED, .badge-status-APPROVED, .badge-status-DELIVERED {
   background: hsl(var(--success));
   color: hsl(var(--success-foreground));
 }
@@ -240,7 +240,9 @@ a:hover { text-decoration: underline; }
   background: hsl(var(--warning));
   color: hsl(var(--warning-foreground));
 }
-.badge-destructive, .badge-status-FAILED_ESCALATED, .badge-status-REJECTED {
+.badge-destructive, .badge-status-FAILED_ESCALATED, .badge-status-REJECTED,
+.badge-status-DEVELOPMENT_FAILED, .badge-status-VERIFICATION_FAILED, .badge-status-DELIVERY_BLOCKED,
+.badge-status-UNSUPPORTED, .badge-status-BLOCKED, .badge-status-BLOCKED_ENVIRONMENT, .badge-status-OUTCOME_UNAVAILABLE {
   background: hsl(var(--destructive));
   color: hsl(var(--destructive-foreground));
 }
@@ -250,7 +252,7 @@ a:hover { text-decoration: underline; }
      --muted in the light theme, under WCAG AA for this 12px text. */
   color: hsl(var(--secondary-foreground));
 }
-.badge-status-PENDING, .badge-status-RUNNING, .badge-status-AWAITING_SUBFLOW {
+.badge-status-PENDING, .badge-status-RUNNING, .badge-status-AWAITING_SUBFLOW, .badge-status-VERIFIED {
   border-color: hsl(var(--border));
   color: hsl(var(--foreground));
   background: transparent;

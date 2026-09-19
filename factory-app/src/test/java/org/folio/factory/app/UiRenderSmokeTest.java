@@ -256,6 +256,49 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void completedDeveloperExecutionsRenderProductOutcomeInHeaderAndList() {
+        for (String outcome : List.of("DEVELOPMENT_FAILED", "DELIVERED")) {
+            var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+            execution.setCurrentStepIndex(6);
+            execution.setStatus(ExecutionStatus.COMPLETED);
+            execution = executions.save(execution);
+            artifactStore.putMarkdown(execution.getId(), "dev_result.json",
+                    "{\"state\":\"" + outcome + "\"}", "publish");
+            if (outcome.equals("DEVELOPMENT_FAILED")) {
+                auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                        Map.of("activity", "pi_usage", "promptTokens", 13,
+                                "completionTokens", 3, "costUsd", 0.125));
+                auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of());
+            }
+            String detail = assertRendered("/executions/" + execution.getId(), "Developer Flow");
+            assertThat(detail).contains("badge-status-" + outcome, ">" + outcome + "</span>",
+                            "Workflow engine status: COMPLETED")
+                    .doesNotContain("badge-status-COMPLETED");
+            if (outcome.equals("DEVELOPMENT_FAILED"))
+                assertThat(detail).contains("LLM tokens: 16 total", "Pi-reported cost: $0.125 USD")
+                        .doesNotContain("pi usage");
+            String list = assertRendered("/executions?flow=dev-factory", "Executions");
+            assertThat(list).contains("badge-status-" + outcome, ">" + outcome + "</span>")
+                    .doesNotContain("badge-status-COMPLETED");
+        }
+    }
+
+    @Test
+    void nonDeveloperCompletedStatusIsUnchangedEvenWithDeveloperNamedArtifact() {
+        var execution = new PipelineExecution("test-factory", "1", "{}");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        execution = executions.save(execution);
+        artifactStore.putMarkdown(execution.getId(), "dev_result.json",
+                "{\"state\":\"DEVELOPMENT_FAILED\"}", "test");
+        assertThat(assertRendered("/executions/" + execution.getId(), "Execution"))
+                .contains("badge-status-COMPLETED", ">COMPLETED</span>")
+                .doesNotContain("badge-status-DEVELOPMENT_FAILED", "Workflow engine status:");
+        assertThat(assertRendered("/executions?flow=test-factory", "Executions"))
+                .contains("badge-status-COMPLETED", ">COMPLETED</span>")
+                .doesNotContain("badge-status-DEVELOPMENT_FAILED");
+    }
+
+    @Test
     void artifactsListAndDetailRender() {
         PipelineExecution execution = executions.save(new PipelineExecution("test-factory", "1", "{}"));
         var artifact = artifactStore.putMarkdown(execution.getId(), "coverage_report.md",

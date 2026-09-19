@@ -1,9 +1,82 @@
 package org.folio.factory.devfactory.runtime;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import java.util.List;
+import java.util.Map;
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 class PiCodingRuntimeTest {
+    private static final String USAGE_FRAME = """
+            {"type":"message_end","message":{"role":"assistant","provider":"p","model":"m","content":[{"type":"text","text":"private secret-key"}],"usage":{"input":10,"output":3,"cacheRead":2,"cacheWrite":1,"cost":{"total":0.125}}}}
+            """;
+
+    @Test void streamedUsageMatchesSuccessfulTotalsWithoutCountingSnapshotsTwice() {
+        var events = new java.util.ArrayList<Map<String, Object>>();
+        var progress = new PiCodingRuntime.Progress("secret-key", events::add);
+        progress.accept(USAGE_FRAME);
+        progress.accept(USAGE_FRAME);
+        assertThat(events).hasSize(2);
+        assertThat(events.getFirst()).containsEntry("activity", "pi_usage")
+                .containsEntry("promptTokens", 13L).containsEntry("completionTokens", 3L);
+        var result = PiCodingRuntime.parse(USAGE_FRAME + USAGE_FRAME + "{\"type\":\"agent_end\"}", "p", "m");
+        var totals = new java.util.LinkedHashMap<>(result.metrics());
+        totals.remove("provider");
+        totals.remove("model");
+        totals.put("activity", "pi_usage");
+        assertThat(events.getLast()).isEqualTo(totals)
+                .containsEntry("promptTokens", 26L).containsEntry("completionTokens", 6L);
+        assertThat((java.math.BigDecimal) events.getLast().get("costUsd")).isEqualByComparingTo("0.25");
+        assertThat(events.toString()).doesNotContain("private", "secret-key", "content", "provider", "model");
+    }
+
+    @Test void usageContinuesAfterActivityLimitAndIgnoresNonAssistantMessagesAndMissingUsage() {
+        var events = new java.util.ArrayList<Map<String, Object>>();
+        var progress = new PiCodingRuntime.Progress("secret-key", events::add);
+        for (int i = 0; i < 300; i++) progress.accept("{\"type\":\"turn_start\"}");
+        progress.accept(USAGE_FRAME.replace("assistant", "toolResult"));
+        progress.accept("{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":\"private\"}}");
+        progress.accept("not-json");
+        progress.accept(USAGE_FRAME.replace(",\"cost\":{\"total\":0.125}", ""));
+        progress.accept(USAGE_FRAME.replace("\"input\":10", "\"input\":-1").replace("\"output\":3", "\"output\":-5"));
+        assertThat(events).hasSize(202);
+        assertThat(events.get(200)).doesNotContainKey("costUsd");
+        assertThat(events.getLast()).containsEntry("promptTokens", 16L).containsEntry("completionTokens", 3L);
+        assertThat((java.math.BigDecimal) events.getLast().get("costUsd")).isEqualByComparingTo("0.125");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"timeout", "exit", "provider", "success"})
+    void emittedUsageSurvivesRuntimeFailureAndSuccessDoesNotAddItAgain(String outcome) {
+        var workload = mock(DockerWorkloads.Workload.class);
+        when(workload.execute(List.of("pi", "--version"), 30)).thenReturn(new Processes.Result(0, "0.85.1"));
+        when(workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30)).thenReturn(new Processes.Result(0, ""));
+        when(workload.execute(anyList(), eq(60), eq(PiCodingRuntime.EVENT_STREAM_LIMIT), any()))
+                .thenAnswer(invocation -> {
+                    java.util.function.Consumer<String> observer = invocation.getArgument(3);
+                    String frame = outcome.equals("provider")
+                            ? USAGE_FRAME.replace("\"role\":\"assistant\"", "\"role\":\"assistant\",\"stopReason\":\"error\"") : USAGE_FRAME;
+                    observer.accept(USAGE_FRAME);
+                    observer.accept(frame);
+                    if (outcome.equals("timeout")) throw new IllegalStateException("Process timed out");
+                    return new Processes.Result(outcome.equals("exit") ? 1 : 0,
+                            USAGE_FRAME + frame + "{\"type\":\"agent_end\"}");
+                });
+        var events = new java.util.ArrayList<Map<String, Object>>();
+        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding("pi:image", "p", "m", null, null, "secret-key"));
+        if (outcome.equals("success")) {
+            assertThat(runtime.code(workload, "private task", 60, events::add).metrics())
+                    .containsEntry("promptTokens", 26L).containsEntry("completionTokens", 6L);
+        } else assertThatThrownBy(() -> runtime.code(workload, "private task", 60, events::add))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(events).hasSize(2);
+        assertThat(events.getLast()).containsEntry("promptTokens", 26L).containsEntry("completionTokens", 6L);
+        assertThat((java.math.BigDecimal) events.getLast().get("costUsd")).isEqualByComparingTo("0.25");
+        assertThat(events.toString()).doesNotContain("private", "secret-key", "content");
+    }
+
     @Test void extractsOnlyReportedUsageAndCost() {
         String message = """
                 {"type":"message_end","message":{"role":"assistant","provider":"p","model":"m","content":[{"type":"text","text":"Done"}],"usage":{"input":10,"output":3,"cacheRead":2,"cacheWrite":1,"cost":{"total":0.125}}}}

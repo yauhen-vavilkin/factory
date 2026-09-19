@@ -36,6 +36,25 @@ final class DeveloperExecutionView {
     private final JsonMapper json;
     DeveloperExecutionView(JsonMapper json) { this.json = json; }
 
+    String productStatus(PipelineExecution execution, List<Artifact> artifacts) {
+        if (execution.getStatus() != org.folio.factory.core.domain.ExecutionStatus.COMPLETED)
+            return execution.getStatus().name();
+        Map<String, Artifact> latest = new LinkedHashMap<>();
+        for (var artifact : artifacts) latest.merge(artifact.getName(), artifact,
+                (old, fresh) -> old.getVersion() > fresh.getVersion() ? old : fresh);
+        for (String name : List.of("dev_delivery.json", "dev_result.json", "dev_candidate.json", "dev_task_brief.md")) {
+            String state = artifact(latest, name).path("state").asString("");
+            if (Set.of("DELIVERED", "VERIFIED", "DEVELOPMENT_FAILED", "VERIFICATION_FAILED",
+                    "DELIVERY_BLOCKED", "UNSUPPORTED", "BLOCKED", "BLOCKED_ENVIRONMENT").contains(state))
+                return state;
+        }
+        if ("FAIL".equals(artifact(latest, "dev_verification.json").path("result").asString("")))
+            return "VERIFICATION_FAILED";
+        if ("BASELINE_FAILED".equals(artifact(latest, "dev_readiness.json").path("state").asString("")))
+            return "BLOCKED_ENVIRONMENT";
+        return "OUTCOME_UNAVAILABLE";
+    }
+
     Map<String, Object> build(PipelineExecution execution, List<Artifact> artifacts, List<AuditEvent> events, Instant now) {
         Map<String, Artifact> latest = new LinkedHashMap<>();
         for (var artifact : artifacts) latest.merge(artifact.getName(), artifact,
@@ -77,6 +96,7 @@ final class DeveloperExecutionView {
             if (event.getEventType() != AuditEventType.RUNTIME_PROGRESS) continue;
             var detail = parse(event.getDetail());
             String action = detail.path("activity").asString("");
+            if (action.equals("pi_usage")) continue;
             if (action.equals("agent_start")) { started = true; piObserved = true; }
             if (action.equals("pi_starting")) { config = detail; piObserved = true; }
             StringBuilder text = new StringBuilder(activityLabel(action));

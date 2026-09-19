@@ -42,7 +42,14 @@ class DevelopReadinessTest {
                 .thenReturn(new Processes.Result(1, "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: Read timed out"),
                         new Processes.Result(0, "[INFO] BUILD SUCCESS"));
         if (piFails) when(coding.code(eq(pi), anyString(), eq(60), any()))
-                .thenThrow(new AgentExecutionException("Provider failed"));
+                .thenAnswer(invocation -> {
+                    java.util.function.Consumer<Map<String, Object>> observer = invocation.getArgument(3);
+                    var progress = new PiCodingRuntime.Progress("secret", observer);
+                    progress.accept("""
+                            {"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"private secret"}],"usage":{"input":10,"cacheRead":2,"cacheWrite":1,"output":3,"cost":{"total":0.125}}}}
+                            """);
+                    throw new AgentExecutionException("Provider failed");
+                });
         else {
             when(coding.code(eq(pi), anyString(), eq(60), any())).thenReturn(new CodingRuntime.Result("Done"));
             when(freezer.freeze(eq("repo"), anyString(), anyString(), any()))
@@ -53,7 +60,8 @@ class DevelopReadinessTest {
         var brief = codec.render(Map.of("state", "INTAKE_READY", "repository", Map.of("key", "repo", "base_sha", "a".repeat(40))), "Task");
         var context = new AgentContext(UUID.randomUUID(), "implement", Map.of(IntakeResolveWorker.TASK_BRIEF,
                 new ArtifactContent(IntakeResolveWorker.TASK_BRIEF, 1, "text/markdown", brief)), null, Map.of(), List.of());
-        var worker = new DevelopWorker(properties, runtime, docker, freezer, coding, codec);
+        var audit = mock(AuditLog.class);
+        var worker = new DevelopWorker(properties, runtime, docker, freezer, coding, codec, audit);
 
         assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class);
         verifyNoInteractions(coding);
@@ -62,6 +70,10 @@ class DevelopReadinessTest {
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
                 .contains(piFails ? "DEVELOPMENT_FAILED" : "CANDIDATE_UNVERIFIED");
         assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_PASSED");
+        if (piFails) verify(audit).record(eq(context.executionId()),
+                eq(org.folio.factory.core.domain.AuditEventType.RUNTIME_PROGRESS), eq("implement"),
+                eq(Map.of("activity", "pi_usage", "promptTokens", 13L, "completionTokens", 3L,
+                        "costUsd", new java.math.BigDecimal("0.125"))));
         verify(coding).code(eq(pi), anyString(), eq(60), any());
         verify(docker, times(2)).createTrusted("build:image", workspace, "factory-dev-m2-cache");
         verify(baseline, times(2)).close();

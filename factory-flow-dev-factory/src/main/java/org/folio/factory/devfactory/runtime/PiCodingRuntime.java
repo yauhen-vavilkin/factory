@@ -44,9 +44,7 @@ public class PiCodingRuntime implements CodingRuntime {
         var mapper = JsonMapper.builder().build();
         boolean ended = false;
         String summary = "";
-        long prompt = 0, completion = 0;
-        java.math.BigDecimal cost = null;
-        boolean usagePresent = false;
+        var usage = new Usage();
         for (String line : output.split("\n")) {
             if (line.isBlank()) continue;
             if (line.length() > 512 * 1024) throw new IllegalStateException("Pi frame exceeds limit");
@@ -62,16 +60,7 @@ public class PiCodingRuntime implements CodingRuntime {
                     throw new IllegalStateException("Pi provider failed or aborted");
                 if (!message.path("provider").asString(provider).equals(provider) || !message.path("model").asString(model).equals(model))
                     throw new IllegalStateException("Pi provider/model identity mismatch");
-                var usage = message.path("usage");
-                if (usage.isObject()) {
-                    usagePresent = true;
-                    prompt += Math.max(0, usage.path("input").asLong(0))
-                            + Math.max(0, usage.path("cacheRead").asLong(0)) + Math.max(0, usage.path("cacheWrite").asLong(0));
-                    completion += Math.max(0, usage.path("output").asLong(0));
-                    var total = usage.path("cost").path("total");
-                    if (total.isNumber() && total.asDouble() >= 0 && Double.isFinite(total.asDouble()))
-                        cost = (cost == null ? java.math.BigDecimal.ZERO : cost).add(total.decimalValue());
-                }
+                usage.add(message.path("usage"));
                 StringBuilder text = new StringBuilder();
                 for (var block : message.path("content")) if (block.path("type").asString("").equals("text")) text.append(block.path("text").asString(""));
                 if (!text.isEmpty()) summary = text.toString();
@@ -86,13 +75,38 @@ public class PiCodingRuntime implements CodingRuntime {
         Map<String, Object> metrics = new java.util.LinkedHashMap<>();
         metrics.put("provider", provider);
         metrics.put("model", model);
-        if (usagePresent) { metrics.put("promptTokens", prompt); metrics.put("completionTokens", completion); }
-        if (cost != null) metrics.put("costUsd", cost);
+        metrics.putAll(usage.snapshot());
         return new Result(summary.substring(0, Math.min(8000, summary.length())), metrics);
+    }
+
+    private static final class Usage {
+        private long prompt, completion;
+        private java.math.BigDecimal cost;
+        private boolean present;
+
+        boolean add(tools.jackson.databind.JsonNode usage) {
+            if (!usage.isObject()) return false;
+            present = true;
+            prompt += Math.max(0, usage.path("input").asLong(0))
+                    + Math.max(0, usage.path("cacheRead").asLong(0)) + Math.max(0, usage.path("cacheWrite").asLong(0));
+            completion += Math.max(0, usage.path("output").asLong(0));
+            var total = usage.path("cost").path("total");
+            if (total.isNumber() && total.asDouble() >= 0 && Double.isFinite(total.asDouble()))
+                cost = (cost == null ? java.math.BigDecimal.ZERO : cost).add(total.decimalValue());
+            return true;
+        }
+
+        Map<String, Object> snapshot() {
+            Map<String, Object> metrics = new java.util.LinkedHashMap<>();
+            if (present) { metrics.put("promptTokens", prompt); metrics.put("completionTokens", completion); }
+            if (cost != null) metrics.put("costUsd", cost);
+            return metrics;
+        }
     }
 
     static final class Progress implements java.util.function.Consumer<String> {
         private final JsonMapper mapper = JsonMapper.builder().build();
+        private final Usage usage = new Usage();
         private final String secret;
         private final java.util.function.Consumer<Map<String, Object>> observer;
         private int emitted;
@@ -100,11 +114,21 @@ public class PiCodingRuntime implements CodingRuntime {
             this.secret = secret; this.observer = observer;
         }
         @Override public void accept(String line) {
-            if (emitted >= 200 || line.length() > 512 * 1024 || line.isBlank()) return;
+            if (line.length() > 512 * 1024 || line.isBlank()) return;
             tools.jackson.databind.JsonNode frame;
             try { frame = mapper.readTree(line); }
             catch (RuntimeException ignored) { return; }
             String type = frame.path("type").asString("");
+            if (type.equals("message_end")) {
+                var message = frame.path("message");
+                if (message.path("role").asString("").equals("assistant") && usage.add(message.path("usage"))) {
+                    var event = usage.snapshot();
+                    event.put("activity", "pi_usage");
+                    observer.accept(event);
+                }
+                return;
+            }
+            if (emitted >= 200) return;
             if (!List.of("agent_start", "agent_end", "turn_start", "tool_execution_start", "tool_execution_end",
                     "auto_retry_start", "auto_retry_end", "compaction_start", "compaction_end").contains(type)) return;
             Map<String, Object> event = new java.util.LinkedHashMap<>();
@@ -134,7 +158,7 @@ public class PiCodingRuntime implements CodingRuntime {
                 }
             }
             emitted++;
-            if (emitted == 200) event.put("notice", "Runtime activity limit reached; further progress is omitted");
+            if (emitted == 200) event.put("notice", "Runtime activity limit reached; usage reporting continues");
             observer.accept(event);
         }
         String safe(String value) {

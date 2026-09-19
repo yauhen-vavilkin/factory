@@ -95,11 +95,14 @@ public class ExecutionUiController {
         boolean terminal = execution.getStatus().isTerminal();
 
         List<AuditEvent> events = auditLog.forExecution(id);
-        Map<String, long[]> tokensByStep = tokensByStep(events);
+        boolean developerFlow = "dev-factory".equals(execution.getFlowId());
+        Map<String, ReportedUsage> usageByStep = usageByStep(events, developerFlow);
         List<Artifact> artifacts = artifactStore.allForExecution(id);
-        var steps = stepStates(execution, tokensByStep);
+        model.addAttribute("displayStatus", developerFlow
+                ? new DeveloperExecutionView(jsonMapper).productStatus(execution, artifacts) : execution.getStatus());
+        var steps = stepStates(execution, usageByStep);
         model.addAttribute("progressSteps", steps);
-        if ("dev-factory".equals(execution.getFlowId())) {
+        if (developerFlow) {
             var now = java.time.Instant.now();
             var developer = new DeveloperExecutionView(jsonMapper).build(execution, artifacts, events, now);
             model.addAttribute("developer", developer);
@@ -114,18 +117,16 @@ public class ExecutionUiController {
                     steps.get(i).put("elapsedStart", now.minusSeconds(Long.parseLong(duration.substring(0, duration.length() - 1))));
             }
         }
-        java.math.BigDecimal cost = null;
-        for (var event : events) if (event.getEventType() == AuditEventType.STEP_COMPLETED) {
-            var value = jsonMapper.readTree(event.getDetail() == null ? "{}" : event.getDetail()).path("costUsd");
-            if (value.isNumber()) cost = (cost == null ? java.math.BigDecimal.ZERO : cost).add(value.decimalValue());
-        }
+        java.math.BigDecimal cost = usageByStep.values().stream()
+                .map(ReportedUsage::cost).filter(java.util.Objects::nonNull)
+                .reduce(java.math.BigDecimal::add).orElse(null);
         model.addAttribute("reportedCost", cost == null ? null : cost.toPlainString());
         model.addAttribute("auditCount", events.size());
         model.addAttribute("artifactCount", artifacts.size());
 
         model.addAttribute("execution", execution);
         model.addAttribute("steps", steps);
-        model.addAttribute("tokenTotals", tokenTotals(tokensByStep));
+        model.addAttribute("tokenTotals", tokenTotals(usageByStep));
         model.addAttribute("artifactGroups", artifactGroups(artifacts));
         model.addAttribute("children", childRows(execution, id));
         model.addAttribute("pendingReview", pendingReview(execution, id));
@@ -136,29 +137,38 @@ public class ExecutionUiController {
     }
 
     /**
-     * Token usage per step, read from the {@code STEP_COMPLETED} audit rows already
-     * loaded for the timeline. A retried step emits one completion row, so counts
-     * never double up; steps that reported nothing are simply absent from the map.
+     * Usage per step from completed metrics, with the latest streamed Pi snapshot
+     * as a Developer Flow failure fallback. Completed metrics always win, so a
+     * successful run never counts its streamed snapshots again.
      */
-    private Map<String, long[]> tokensByStep(List<AuditEvent> events) {
-        Map<String, long[]> byStep = new LinkedHashMap<>();
+    private Map<String, ReportedUsage> usageByStep(List<AuditEvent> events, boolean includePiProgress) {
+        Map<String, ReportedUsage> completed = new LinkedHashMap<>();
+        Map<String, ReportedUsage> progress = new LinkedHashMap<>();
         for (AuditEvent event : events) {
-            if (event.getEventType() != AuditEventType.STEP_COMPLETED || event.getStepId() == null) {
-                continue;
-            }
+            if (event.getStepId() == null) continue;
             JsonNode detail = jsonMapper.readTree(event.getDetail() == null ? "{}" : event.getDetail());
+            boolean completedEvent = event.getEventType() == AuditEventType.STEP_COMPLETED;
+            boolean piProgress = includePiProgress && event.getEventType() == AuditEventType.RUNTIME_PROGRESS
+                    && "pi_usage".equals(detail.path("activity").asString(""));
+            if (!completedEvent && !piProgress) continue;
             long prompt = detail.path("promptTokens").asLong(0);
             long completion = detail.path("completionTokens").asLong(0);
-            if (prompt + completion > 0) {
-                byStep.put(event.getStepId(), new long[]{prompt, completion});
-            }
+            boolean tokensPresent = detail.has("promptTokens") || detail.has("completionTokens");
+            JsonNode costNode = detail.path("costUsd");
+            java.math.BigDecimal cost = costNode.isNumber() ? costNode.decimalValue() : null;
+            if (!tokensPresent && cost == null) continue;
+            var usage = new ReportedUsage(tokensPresent, prompt, completion, cost);
+            (piProgress ? progress : completed).put(event.getStepId(), usage);
         }
-        return byStep;
+        progress.forEach(completed::putIfAbsent);
+        return completed;
     }
 
-    private static Map<String, Object> tokenTotals(Map<String, long[]> tokensByStep) {
-        long prompt = tokensByStep.values().stream().mapToLong(t -> t[0]).sum();
-        long completion = tokensByStep.values().stream().mapToLong(t -> t[1]).sum();
+    private static Map<String, Object> tokenTotals(Map<String, ReportedUsage> usageByStep) {
+        long prompt = usageByStep.values().stream().filter(ReportedUsage::tokensPresent)
+                .mapToLong(ReportedUsage::prompt).sum();
+        long completion = usageByStep.values().stream().filter(ReportedUsage::tokensPresent)
+                .mapToLong(ReportedUsage::completion).sum();
         Map<String, Object> totals = new LinkedHashMap<>();
         // A run with no LLM step renders nothing rather than a row of zeroes.
         totals.put("present", prompt + completion > 0);
@@ -173,7 +183,9 @@ public class ExecutionUiController {
         row.put("id", execution.getId());
         row.put("idShort", UiFormat.abbreviate(execution.getId().toString()));
         row.put("flowId", execution.getFlowId());
-        row.put("status", execution.getStatus());
+        row.put("status", "dev-factory".equals(execution.getFlowId())
+                ? new DeveloperExecutionView(jsonMapper).productStatus(execution, artifactStore.allForExecution(execution.getId()))
+                : execution.getStatus());
         row.put("currentStepIndex", execution.getCurrentStepIndex());
         row.put("createdAt", UiFormat.format(execution.getCreatedAt()));
         row.put("updatedAt", UiFormat.format(execution.getUpdatedAt()));
@@ -183,7 +195,8 @@ public class ExecutionUiController {
         return row;
     }
 
-    private List<Map<String, Object>> stepStates(PipelineExecution execution, Map<String, long[]> tokensByStep) {
+    private List<Map<String, Object>> stepStates(PipelineExecution execution,
+                                                  Map<String, ReportedUsage> usageByStep) {
         FlowDescriptor flow = flowRegistry.find(execution.getFlowId()).orElse(null);
         if (flow == null) {
             return List.of();
@@ -199,10 +212,10 @@ public class ExecutionUiController {
             row.put("sublabel", step.stepId() + " · " + step.type());
             row.put("state", stepState(i, execution));
             row.put("attempts", retryCounts.path(step.stepId()).asInt(0));
-            long[] tokens = tokensByStep.get(step.stepId());
-            row.put("tokens", tokens == null ? null
-                    : UiFormat.count(tokens[0] + tokens[1]) + " tokens ("
-                            + UiFormat.count(tokens[0]) + " in / " + UiFormat.count(tokens[1]) + " out)");
+            ReportedUsage usage = usageByStep.get(step.stepId());
+            row.put("tokens", usage == null || !usage.tokensPresent() ? null
+                    : UiFormat.count(usage.prompt() + usage.completion()) + " tokens ("
+                            + UiFormat.count(usage.prompt()) + " in / " + UiFormat.count(usage.completion()) + " out)");
             steps.add(row);
         }
         return steps;
@@ -266,6 +279,9 @@ public class ExecutionUiController {
         }
         return "step " + parentStepIndex + " · " + UiFormat.stepLabel(flow.step(parentStepIndex));
     }
+
+    private record ReportedUsage(boolean tokensPresent, long prompt, long completion,
+                                 java.math.BigDecimal cost) { }
 
     private HitlReview pendingReview(PipelineExecution execution, UUID id) {
         // Both an awaiting-gate run and an escalated run carry a decidable pending
