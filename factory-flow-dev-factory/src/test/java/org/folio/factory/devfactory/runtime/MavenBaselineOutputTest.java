@@ -1,12 +1,55 @@
 package org.folio.factory.devfactory.runtime;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.ArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class MavenBaselineOutputTest {
+    @Test
+    void recognizesWrappedTransferCauseButNotUnrelatedLaterNetworkText() {
+        String transfer = "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central\n";
+        assertThat(MavenBaselineOutput.isTransientDownloadFailure(transfer
+                + "[ERROR] Connect to repo.maven.apache.org:443 failed: Connect timed out")).isTrue();
+        assertThat(MavenBaselineOutput.isTransientDownloadFailure(transfer
+                + "[ERROR] Caused by: java.net.SocketTimeoutException: Read timed out")).isTrue();
+        assertThat(MavenBaselineOutput.isTransientDownloadFailure(transfer
+                + "[ERROR] Premature end of Content-Length delimited message body")).isTrue();
+        assertThat(MavenBaselineOutput.isTransientDownloadFailure(transfer
+                + "[INFO] Running ApplicationTest\n[ERROR] Read timed out")).isFalse();
+        assertThat(MavenBaselineOutput.isTransientDownloadFailure(
+                "[ERROR] Failed to transfer artifact org.example:library:jar:1: Connection reset")).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Connect to repo.maven.apache.org:443 failed: Connect timed out",
+            "Read timed out", "Connection reset", "UnknownHostException: repo.maven.apache.org",
+            "Temporary failure in name resolution", "Name or service not known",
+            "Premature end of Content-Length delimited message body", "Unexpected end of stream"})
+    void retriesExplicitTransfersWithNetworkEvidence(String networkFailure) {
+        assertThat(MavenBaselineOutput.isTransientDownloadFailure("[ERROR] Could not transfer artifact "
+                + "org.example:library:jar:1 from/to central: " + networkFailure)).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "[ERROR] Could not find artifact org.example:library:jar:1 in folio-nexus",
+            "[ERROR] Could not find artifact org.example:library:jar:1 in index-data-nexus",
+            "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: status code: 401",
+            "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: status code: 404",
+            "[ERROR] Connection reset in ApplicationTest",
+            "[WARNING] Could not transfer artifact org.example:library:jar:1 from/to central: Read timed out",
+            "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: Read timed out\n[ERROR] Compilation failure",
+            "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: Read timed out\n[ERROR] There are test failures",
+            "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: Read timed out\nTests run: 4, Failures: 0, Errors: 1",
+            "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: not found\n[ERROR] Read timed out in ApplicationTest"})
+    void doesNotRetryNotFoundAuthenticationOrRealBuildFailures(String failure) {
+        assertThat(MavenBaselineOutput.isTransientDownloadFailure(failure)).isFalse();
+    }
+
     @Test
     void emitsOnlyUsefulBoundedSanitizedActivity() {
         var events = new ArrayList<String>();

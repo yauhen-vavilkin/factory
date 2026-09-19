@@ -14,6 +14,12 @@ public final class MavenBaselineOutput implements Consumer<String> {
             "(?i)(authorization|password|token|api[-_]?key)(\\s*[=:]\\s*)\\S+");
     private static final Pattern TRANSFER = Pattern.compile(
             "(?i)Could not transfer artifact (?:[^:\\s]+:)?([^:\\s]+):[^:\\s]+:([^:\\s]+) from/to ([^ (:\\s]+)");
+    private static final Pattern NETWORK_FAILURE = Pattern.compile(
+            "connect timed out|connection timed out|connection timeout|read timed out|read timeout|connection reset"
+                    + "|unknownhostexception|unknown host|temporary failure in name resolution|name or service not known"
+                    + "|premature end of content-length|unexpected end of stream|incomplete http body");
+    private static final Pattern EXCEPTION_CONTINUATION = Pattern.compile(
+            "(?:[a-z0-9_$]+\\.)+[a-z0-9_$]*exception:.*");
     private final Consumer<String> observer;
     private int emitted;
     private int downloadsSeen;
@@ -58,6 +64,37 @@ public final class MavenBaselineOutput implements Consumer<String> {
         if (lower.contains("premature end of content-length") || lower.contains("unexpected end of stream"))
             summary += " (incomplete download)";
         return Optional.of(summary);
+    }
+
+    /** Retry only Maven transfer diagnostics, never arbitrary application/test network messages. */
+    public static boolean isTransientDownloadFailure(String output) {
+        if (output == null || output.isBlank()) return false;
+        String lower = ANSI.matcher(output).replaceAll("").toLowerCase(Locale.ROOT);
+        if (lower.contains("compilation failure") || lower.contains("compilation error")
+                || lower.contains("there are test failures")
+                || Pattern.compile("tests run:.*(?:failures|errors): [1-9]").matcher(lower).find()) return false;
+        var lines = lower.lines().toList();
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i);
+            if (!line.contains("[error]") || !(line.contains("could not transfer artifact")
+                    || line.contains("could not transfer metadata") || line.contains("failed to transfer artifact"))) continue;
+            if (NETWORK_FAILURE.matcher(line).find()) return true;
+            // Maven can wrap a transfer exception onto adjacent diagnostic lines. Only
+            // recognizable exception continuations qualify, not arbitrary later test output.
+            for (int next = i + 1; next < Math.min(lines.size(), i + 4); next++) {
+                String continuation = lines.get(next).strip();
+                if (continuation.startsWith("[error]")) continuation = continuation.substring(7).strip();
+                boolean cause = continuation.startsWith("caused by:") || continuation.startsWith("connect to ")
+                        || EXCEPTION_CONTINUATION.matcher(continuation).matches()
+                        || NETWORK_FAILURE.matcher(continuation).matches()
+                        || continuation.startsWith("premature end of content-length")
+                        || continuation.startsWith("unexpected end of stream")
+                        || continuation.startsWith("incomplete http body");
+                if (!cause) break;
+                if (NETWORK_FAILURE.matcher(continuation).find()) return true;
+            }
+        }
+        return false;
     }
 
     private static Category category(String line) {

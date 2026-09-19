@@ -19,11 +19,13 @@ import java.util.Map;
 import java.util.Set;
 
 final class DeveloperExecutionView {
+    private static final String STARTING_BUILD_NETWORK_FAILURE =
+            "Starting build hit a network/download failure";
     private static final Map<String, String> TECHNICAL_STEPS = Map.of(
             "read-task", "Read Jira task",
             "select-repository", "Select repository",
             "prepare-task", "Prepare task checkout",
-            "implement", "Run starting build and Pi",
+            "implement", "Implementation",
             "verify", "Independently verify candidate",
             "publish", "Publish pull request");
     private static final List<Phase> PHASES = List.of(
@@ -68,22 +70,36 @@ final class DeveloperExecutionView {
 
         List<Map<String, String>> activity = new ArrayList<>();
         boolean started = false;
+        boolean piObserved = false;
         JsonNode config = json.createObjectNode();
-        for (var event : events) if (event.getEventType() == AuditEventType.RUNTIME_PROGRESS) {
+        String previousHeartbeat = null;
+        for (var event : events) {
+            if (event.getEventType() != AuditEventType.RUNTIME_PROGRESS) continue;
             var detail = parse(event.getDetail());
             String action = detail.path("activity").asString("");
-            if (action.equals("agent_start")) started = true;
-            if (action.equals("pi_starting")) config = detail;
+            if (action.equals("agent_start")) { started = true; piObserved = true; }
+            if (action.equals("pi_starting")) { config = detail; piObserved = true; }
             StringBuilder text = new StringBuilder(activityLabel(action));
             for (String key : List.of("tool", "path", "command", "message", "exitCode", "error", "notice", "summary")) {
                 if (detail.has(key)) text.append(" · ").append(detail.path(key).asString());
             }
-            activity.add(Map.of("time", UiFormat.format(event.getOccurredAt()), "text", text.toString()));
+            boolean heartbeat = action.equals("baseline_progress")
+                    && detail.path("message").asString("").equals("Starting build is still running");
+            var row = Map.of("time", UiFormat.format(event.getOccurredAt()), "text", text.toString());
+            // Keep the latest timestamp for a consecutive heartbeat run, without changing the audit trail.
+            if (heartbeat && text.toString().equals(previousHeartbeat)) activity.set(activity.size() - 1, row);
+            else activity.add(row);
+            previousHeartbeat = heartbeat ? text.toString() : null;
         }
         add(fields, "Pi", started ? "Started" : "Not started");
         add(fields, "Coding image", config.path("image"));
         add(fields, "Provider", config.path("provider"));
         add(fields, "Model", config.path("model"));
+        String executionError = execution.getErrorMessage();
+        boolean retryErrorSuperseded = executionError != null
+                && executionError.startsWith(STARTING_BUILD_NETWORK_FAILURE)
+                && ("BASELINE_PASSED".equals(readiness.path("state").asString(""))
+                    || piObserved || execution.getCurrentStepIndex() > 3);
         String reason = first(result.path("reason"), brief.path("reason"), candidate.path("reason"));
         if (reason.equals("Intake is not ready")) reason = first(brief.path("reason"), result.path("reason"));
         if (reason.isBlank() && "FAIL".equals(verification.path("result").asString("")))
@@ -92,7 +108,7 @@ final class DeveloperExecutionView {
                     + ", failures " + verification.path("failureCount").asString("")
                     + ", errors " + verification.path("errorCount").asString("");
         if (reason.isBlank()) reason = first(delivery.path("reason"), verification.path("reason"));
-        if (reason.isBlank() && execution.getErrorMessage() != null) reason = execution.getErrorMessage();
+        if (reason.isBlank() && executionError != null && !retryErrorSuperseded) reason = executionError;
         String pr = delivery.path("pullRequestUrl").asString("");
         if (!pr.matches("https://[^\\s]+")) pr = "";
         var phases = phases(execution, events, now, brief, readiness, candidate, verification, result, delivery);
@@ -100,6 +116,11 @@ final class DeveloperExecutionView {
         Map<String, Object> view = new LinkedHashMap<>();
         view.put("fields", fields);
         view.put("reason", reason);
+        String reasonLabel = execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.PENDING
+                && !reason.isBlank() ? "Retry pending" : execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.RUNNING
+                && executionError != null && !retryErrorSuperseded ? "Previous attempt" : "Stop reason";
+        view.put("reasonLabel", reasonLabel);
+        view.put("showExecutionError", executionError != null && !retryErrorSuperseded);
         view.put("pullRequestUrl", pr);
         view.put("activity", activity.subList(Math.max(0, activity.size() - 12), activity.size()));
         view.put("startingBuildOutput", readiness.path("output").asString(""));
@@ -217,6 +238,7 @@ final class DeveloperExecutionView {
             case "baseline_started" -> "Starting build started";
             case "baseline_progress" -> "Starting build progress";
             case "baseline_completed" -> "Starting build completed";
+            case "baseline_retryable_failure" -> "Starting build network failure";
             default -> action.replace('_', ' ');
         };
     }

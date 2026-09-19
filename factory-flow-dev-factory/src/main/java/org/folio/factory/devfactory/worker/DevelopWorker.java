@@ -2,6 +2,7 @@ package org.folio.factory.devfactory.worker;
 
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
+import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.devfactory.DevFactoryProperties;
@@ -84,6 +85,14 @@ public class DevelopWorker implements AgentWorker {
                 readiness = Map.copyOf(readinessDetails);
                 progress(context, Map.of("activity", "baseline_completed", "exitCode", result.exitCode(),
                         "summary", summary));
+                if (result.exitCode() != 0 && MavenBaselineOutput.isTransientDownloadFailure(result.diagnostics())) {
+                    // Maven 3 does not cache transfer errors (only not-found results). The next
+                    // engine attempt uses this same persistent repository without -U or eviction.
+                    String detail = summary.isBlank() ? "Maven artifact transfer failed." : summary;
+                    String reason = "Starting build hit a network/download failure; Pi has not started. " + detail;
+                    progress(context, Map.of("activity", "baseline_retryable_failure", "message", reason));
+                    throw new StartingBuildNetworkException(reason);
+                }
                 if (result.exitCode() != 0) return blocked("BLOCKED_ENVIRONMENT",
                         summary.isBlank() ? "Starting build failed before model spend" : summary, readiness);
             }
@@ -105,6 +114,8 @@ public class DevelopWorker implements AgentWorker {
             }
             var candidate = freezer.freeze(key, url, base, exported);
             return new AgentResult(Map.of(CANDIDATE, json.writeValueAsString(candidate), READINESS, json.writeValueAsString(readiness)), metrics);
+        } catch (StartingBuildNetworkException e) {
+            throw e;
         } catch (RuntimeException e) {
             String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             String secret = runtime.coding().apiKey();
@@ -133,4 +144,8 @@ public class DevelopWorker implements AgentWorker {
                 READINESS, json.writeValueAsString(readiness)), Map.of());
     }
     private static String tail(String value) { return value.substring(Math.max(0, value.length() - 16000)); }
+    /** Only a failed pre-Pi build may consume the engine retry budget. */
+    private static final class StartingBuildNetworkException extends AgentExecutionException {
+        private StartingBuildNetworkException(String message) { super(message); }
+    }
 }

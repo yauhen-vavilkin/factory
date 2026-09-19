@@ -54,7 +54,7 @@ public class DockerWorkloads {
 
     static List<String> createCommand(String image, String name, String user, MavenCache cache, String volume) {
         var command = new ArrayList<>(List.of("docker", "create", "--name", name,
-                "--label", "factory.dev-owned=true", "--cpus", "4", "--memory", "6g",
+                "--label", "factory.dev-owned=true",
                 "--pids-limit", "512", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
                 "--user", user, "--env", "HOME=/tmp/factory-home", "--env",
                 "MAVEN_OPTS=-Dmaven.repo.local=" + MAVEN_REPOSITORY, "--workdir", "/workspace"));

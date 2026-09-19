@@ -198,7 +198,35 @@ class UiRenderSmokeTest {
         String body = assertRendered("/executions/" + execution.getId(), "Audit timeline");
         assertThat(body)
                 .contains("LLM tokens: 844 total")
-                .contains("844 tokens (734 in / 110 out)");
+                .contains("844 tokens (734 in / 110 out)")
+                .containsOnlyOnce("class=\"stepper\"")
+                .doesNotContain("Technical step details", "aria-label=\"Technical steps\"");
+    }
+
+    @Test
+    void developerRetryReasonReflectsWhetherAutomaticRetryIsPending() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setCurrentStepIndex(3);
+        execution.setErrorMessage("Starting build hit a network/download failure");
+        executions.save(execution);
+        assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
+                .contains("Retry pending: Starting build hit a network/download failure")
+                .doesNotContain("Stop reason: Starting build");
+
+        execution = executions.findById(execution.getId()).orElseThrow();
+        execution.setStatus(ExecutionStatus.FAILED_ESCALATED);
+        executions.save(execution);
+        assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
+                .contains("Stop reason: Starting build hit a network/download failure")
+                .doesNotContain("Retry pending");
+
+        execution = executions.findById(execution.getId()).orElseThrow();
+        execution.setStatus(ExecutionStatus.RUNNING);
+        executions.save(execution);
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "pi_starting", "provider", "test-provider", "model", "test-model"));
+        assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
+                .doesNotContain("Starting build hit a network/download failure", "Retry pending", "Stop reason:");
     }
 
     @Test
@@ -222,7 +250,9 @@ class UiRenderSmokeTest {
                 "auditTrail.length,artifacts.length", "Prepare task", "Implement changes", "Verify changes",
                 "Create pull request", "Technical step details", "Prepare task checkout", "Starting build output",
                 "Compiling 42 source files", "transfer failed", "Artifacts", "Audit timeline");
-        assertThat(body).doesNotContain(">Baseline<", "Baseline output tail", "Pinned base SHA");
+        assertThat(body).containsOnlyOnce("class=\"stepper\"")
+                .contains("aria-label=\"Technical steps\"", "Implementation", "Not started")
+                .doesNotContain(">Baseline<", "Baseline output tail", "Pinned base SHA", "Run starting build and Pi");
     }
 
     @Test

@@ -9,6 +9,15 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.*;
 
 class DockerWorkloadsTest {
+    @Test
+    void workloadsUseHostResourcesAndKeepIsolation() {
+        for (var cache : DockerWorkloads.MavenCache.values()) {
+            var command = DockerWorkloads.createCommand("build", "workload", "501:20", cache, "cache");
+            assertThat(command).doesNotContain("--cpus", "--memory")
+                    .containsSubsequence("--pids-limit", "512", "--cap-drop", "ALL", "--security-opt", "no-new-privileges")
+                    .containsSubsequence("--user", "501:20");
+        }
+    }
     private static final List<String> OFFLINE_REUSE = List.of("mvn", "-o", "-B", "-ntp",
             "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get",
             "-Dartifact=org.apache.commons:commons-lang3:3.17.0");

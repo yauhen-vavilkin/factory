@@ -12,6 +12,89 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DeveloperExecutionViewTest {
     private final DeveloperExecutionView view = new DeveloperExecutionView(JsonMapper.builder().build());
 
+    @Test void pendingRetryAndExhaustedRetryHaveDistinctReasons() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setCurrentStepIndex(3);
+        execution.setErrorMessage("Starting build hit a network/download failure");
+        var pending = view.build(execution, List.of(), List.of(runtime("baseline_retryable_failure",
+                "Starting build hit a network/download failure", Instant.now())), Instant.now());
+        assertThat(pending).containsEntry("reasonLabel", "Retry pending")
+                .containsEntry("reason", "Starting build hit a network/download failure");
+        assertThat(pending.get("activity").toString())
+                .contains("Starting build network failure · Starting build hit a network/download failure");
+        execution.setStatus(ExecutionStatus.FAILED_ESCALATED);
+        assertThat(view.build(execution, List.of(), List.of(), Instant.now()))
+                .containsEntry("reasonLabel", "Stop reason");
+    }
+
+    @Test void supersededRetryErrorDisappearsAfterStartingBuildRecovery() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setCurrentStepIndex(3);
+        execution.setStatus(ExecutionStatus.RUNNING);
+        execution.setErrorMessage("Starting build hit a network/download failure; Pi has not started.");
+
+        assertThat(view.build(execution, List.of(), List.of(), Instant.now()))
+                .containsEntry("reasonLabel", "Previous attempt")
+                .containsEntry("showExecutionError", true)
+                .containsEntry("reason", execution.getErrorMessage());
+
+        var piRunning = view.build(execution, List.of(),
+                List.of(runtime("pi_starting", "Pi is starting", Instant.now())), Instant.now());
+        assertThat(piRunning).containsEntry("reason", "").containsEntry("showExecutionError", false);
+
+        execution.setCurrentStepIndex(6);
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        assertThat(view.build(execution, List.of(), List.of(), Instant.now()))
+                .containsEntry("reason", "").containsEntry("showExecutionError", false);
+    }
+
+    @Test void compactsOnlyConsecutiveIdenticalHeartbeatsAndKeepsPiStartHonest() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        Instant start = Instant.parse("2026-09-18T10:00:00Z");
+        var events = new java.util.ArrayList<AuditEvent>();
+        events.add(runtime("baseline_started", "mvn test", start));
+        for (int i = 1; i <= 20; i++)
+            events.add(runtime("baseline_progress", "Starting build is still running", start.plusSeconds(i)));
+        events.add(runtime("baseline_progress", "Downloaded from central: dependency.jar", start.plusSeconds(21)));
+        events.add(runtime("baseline_progress", "Downloaded from central: dependency.jar", start.plusSeconds(22)));
+        events.add(runtime("baseline_progress", "Starting build is still running", start.plusSeconds(23)));
+        events.add(runtime("baseline_completed", "Build passed", start.plusSeconds(24)));
+
+        var model = view.build(execution, List.of(), events, start.plusSeconds(25));
+
+        @SuppressWarnings("unchecked")
+        var activity = (List<Map<String, String>>) model.get("activity");
+        assertThat(activity).extracting(row -> row.get("text")).containsExactly(
+                "Starting build started · mvn test",
+                "Starting build progress · Starting build is still running",
+                "Starting build progress · Downloaded from central: dependency.jar",
+                "Starting build progress · Downloaded from central: dependency.jar",
+                "Starting build progress · Starting build is still running",
+                "Starting build completed · Build passed");
+        assertThat(activity.get(1)).containsEntry("time", "2026-09-18 10:00:20");
+        assertThat(events).hasSize(25);
+        assertThat(fields(model)).contains(Map.of("label", "Pi", "value", "Not started"));
+        assertThat(DeveloperExecutionView.technicalStepLabel("implement")).isEqualTo("Implementation");
+
+        events.add(runtime("agent_start", "Pi started", start.plusSeconds(26)));
+        assertThat(fields(view.build(execution, List.of(), events, start.plusSeconds(27))))
+                .contains(Map.of("label", "Pi", "value", "Started"));
+    }
+
+    @Test void hiddenAuditEventsDoNotSplitHeartbeatsButMeaningfulRuntimeEventsDo() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        Instant start = Instant.parse("2026-09-18T10:00:00Z");
+        var events = List.of(
+                runtime("baseline_progress", "Starting build is still running", start),
+                event(AuditEventType.STEP_FAILED, "implement", start.plusSeconds(1)),
+                runtime("baseline_progress", "Starting build is still running", start.plusSeconds(2)),
+                runtime("tool_execution_start", "mvn test", start.plusSeconds(3)),
+                runtime("baseline_progress", "Starting build is still running", start.plusSeconds(4)),
+                runtime("baseline_progress", "[ERROR] Connection timed out", start.plusSeconds(5)));
+        assertThat((List<?>) view.build(execution, List.of(), events, start.plusSeconds(6)).get("activity"))
+                .hasSize(4);
+    }
+
     @Test void verificationFailureIsMoreUsefulThanSkippedDelivery() {
         var execution = new PipelineExecution("dev-factory", "1", "{}");
         execution.setStatus(ExecutionStatus.COMPLETED);
@@ -164,8 +247,18 @@ class DeveloperExecutionViewTest {
     private static List<Map<String, Object>> phases(Map<String, Object> model) {
         return (List<Map<String, Object>>) model.get("phases");
     }
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, String>> fields(Map<String, Object> model) {
+        return (List<Map<String, String>>) model.get("fields");
+    }
     private static AuditEvent event(AuditEventType type, String stepId, Instant when) {
         var event = new AuditEvent(java.util.UUID.randomUUID(), type, stepId, "system", "{}");
+        ReflectionTestUtils.setField(event, "occurredAt", when);
+        return event;
+    }
+    private static AuditEvent runtime(String activity, String message, Instant when) {
+        var event = new AuditEvent(java.util.UUID.randomUUID(), AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                JsonMapper.builder().build().writeValueAsString(Map.of("activity", activity, "message", message)));
         ReflectionTestUtils.setField(event, "occurredAt", when);
         return event;
     }

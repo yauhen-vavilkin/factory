@@ -125,11 +125,17 @@ factory:
     git-base-url: ${FACTORY_DEV_FACTORY_GIT_BASE_URL:https://github.com}
     repositories:
       sidecar:
-        source-repo: folio-org/folio-module-sidecar
+        source-repo: yauhen-vavilkin/folio-module-sidecar
         base-branch: master
         build-image: maven:3.9-eclipse-temurin-21
         verification-plan: modsidecar-java21-unit
         jira-projects: [MODSIDECAR]
+      mod-roles-keycloak:
+        source-repo: yauhen-vavilkin/mod-roles-keycloak
+        base-branch: master
+        build-image: maven:3.9-eclipse-temurin-21
+        verification-plan: modsidecar-java21-unit
+        jira-projects: [MODROLESKC]
     runtime:
       timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
