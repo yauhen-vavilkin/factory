@@ -213,17 +213,37 @@ class DeveloperIntakeDecisionTest {
     }
 
     @Test
+    void emptyDescriptionIssueResolvesWithHonestCodingRequest() {
+        stubIssue("MODBAR-2", "   ", """
+                "comment": {"comments": [
+                  {"author": {"displayName": "PO"}, "created": "2026-09-02", "body": "Inspect the repository"}]}
+                """);
+
+        UUID executionId = start("MODBAR-2");
+        awaitStatus(executionId, ExecutionStatus.COMPLETED);
+
+        assertThat(reviews.findByExecutionIdOrderByCreatedAtAsc(executionId)).isEmpty();
+        JsonNode brief = metadata(executionId, "dev_task_brief.md");
+        assertThat(brief.path("state").asString()).isEqualTo("INTAKE_READY");
+        JsonNode codingRequest = json.readTree(latest(executionId, "dev_coding_request.json"));
+        assertThat(codingRequest.path("issueKey").asString()).isEqualTo("MODBAR-2");
+        assertThat(codingRequest.path("summary").asString()).isEqualTo("Summary of MODBAR-2");
+        assertThat(codingRequest.path("description").asString()).isEmpty();
+        assertThat(codingRequest.path("comments").get(0).path("body").asString())
+                .isEqualTo("Inspect the repository");
+        assertThat(codingRequest.path("acceptanceCriteria")).isEmpty();
+        assertThat(codingRequest.path("repository").path("baseSha").asString()).isEqualTo(barSha);
+    }
+
+    @Test
     void unsupportedAndBlockedIssuesEndHonestlyWithoutReview() {
         UUID invalidKey = start("modbar-1; rm -rf /");
-        stubIssue("MODBAR-2", "   ", "");
-        UUID noDescription = start("MODBAR-2");
         stubIssue("OTHER-1", DESCRIPTION, "");
         UUID unmapped = start("OTHER-1");
         stubIssue("MODWRONG-1", DESCRIPTION, "");
         UUID missingBase = start("MODWRONG-1");
 
         assertOutcome(invalidKey, "UNSUPPORTED", "INVALID_ISSUE_KEY");
-        assertOutcome(noDescription, "BLOCKED", "MISSING_DESCRIPTION");
         assertOutcome(unmapped, "UNSUPPORTED", "NO_REPOSITORY_MAPPING");
         assertOutcome(missingBase, "BLOCKED", "BASE_BRANCH_NOT_FOUND");
         assertThat(jira.getAllServeEvents()).noneMatch(e -> e.getRequest().getUrl().contains("modbar"));

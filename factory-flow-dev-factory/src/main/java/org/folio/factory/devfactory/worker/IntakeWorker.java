@@ -73,9 +73,6 @@ public class IntakeWorker implements AgentWorker {
         if (candidates.isEmpty()) {
             return outcome(key, UNSUPPORTED, "NO_REPOSITORY_MAPPING", snapshot, candidates);
         }
-        if (((String) snapshot.get("description")).isBlank()) {
-            return outcome(key, BLOCKED, "MISSING_DESCRIPTION", snapshot, candidates);
-        }
         return outcome(key, MAPPED, null, snapshot, candidates);
     }
 
