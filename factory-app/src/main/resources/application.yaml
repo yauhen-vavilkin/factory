@@ -148,6 +148,7 @@ factory:
       plans:
         java21-unit: [mvn, -B, -ntp, test]
       coding:
+        runtime: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:pi}
         image: ${FACTORY_DEV_FACTORY_CODING_IMAGE:factory-dev-pi:0.85.1-java21}
         provider: ${FACTORY_MODEL_PROVIDER:}
         model: ${FACTORY_MODEL_ID:}

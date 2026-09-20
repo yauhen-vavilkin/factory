@@ -40,7 +40,11 @@ public class DevFactoryConfiguration {
 
     @Bean
     public org.folio.factory.devfactory.runtime.CodingRuntime devCodingRuntime(org.folio.factory.devfactory.runtime.DevRuntimeProperties runtime) {
-        return new org.folio.factory.devfactory.runtime.PiCodingRuntime(runtime.coding());
+        return switch (runtime.coding().runtime()) {
+            case "pi" -> new org.folio.factory.devfactory.runtime.PiCodingRuntime(runtime.coding());
+            default -> throw new IllegalStateException("Unsupported coding runtime '"
+                    + runtime.coding().runtime() + "'");
+        };
     }
 
     @Bean
@@ -51,6 +55,18 @@ public class DevFactoryConfiguration {
             org.folio.factory.devfactory.runtime.CodingRuntime coding, FrontmatterCodec codec,
             org.folio.factory.core.service.AuditLog audit) {
         return new org.folio.factory.devfactory.worker.DevelopWorker(properties, runtime, docker, freezer, coding, codec, audit);
+    }
+
+    @Bean
+    public org.folio.factory.devfactory.worker.CodingDecisionGateWorker devCodingDecisionGateWorker(
+            ConditionalDecisionGate gate) {
+        return new org.folio.factory.devfactory.worker.CodingDecisionGateWorker(gate);
+    }
+
+    @Bean
+    public org.folio.factory.devfactory.worker.DevelopContinuationWorker devDevelopContinuationWorker(
+            org.folio.factory.devfactory.worker.DevelopWorker develop, FrontmatterCodec codec) {
+        return new org.folio.factory.devfactory.worker.DevelopContinuationWorker(develop, codec);
     }
 
     @Bean

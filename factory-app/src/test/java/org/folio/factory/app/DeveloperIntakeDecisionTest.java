@@ -202,6 +202,12 @@ class DeveloperIntakeDecisionTest {
         assertThat(issue.path("comments").get(0).path("body").asString()).isEqualTo("Keep it small");
         assertThat(issue.path("links").get(0).path("key").asString()).isEqualTo("MODBAR-0");
         assertThat(issue.path("links").get(0).path("relation").asString()).isEqualTo("is blocked by");
+        JsonNode codingRequest = json.readTree(latest(executionId, "dev_coding_request.json"));
+        assertThat(codingRequest.path("issueKey").asString()).isEqualTo("MODBAR-1");
+        assertThat(codingRequest.path("comments").get(0).path("body").asString()).isEqualTo("Keep it small");
+        assertThat(codingRequest.path("linkedIssues").get(0).path("key").asString()).isEqualTo("MODBAR-0");
+        assertThat(codingRequest.path("acceptanceCriteria")).isEmpty();
+        assertThat(codingRequest.path("repository").path("baseSha").asString()).isEqualTo(barSha);
         jira.verify(1, getRequestedFor(urlEqualTo("/rest/api/2/issue/MODBAR-1")));
         jira.verify(0, getRequestedFor(urlEqualTo("/rest/api/2/issue/MODBAR-0")));
     }
@@ -329,12 +335,13 @@ class DeveloperIntakeDecisionTest {
         awaitStatus(executionId, ExecutionStatus.COMPLETED);
         assertThat(decisionGateWorker.execute(repeat).metrics()).containsEntry("reviewOpened", false);
         assertThat(reviews.findByExecutionIdOrderByCreatedAtAsc(executionId)).hasSize(1);
-        assertThat(stateManager.get(executionId).getCurrentStepIndex()).isEqualTo(6);
+        assertThat(stateManager.get(executionId).getCurrentStepIndex()).isEqualTo(8);
         assertThat(artifactStore.getLatest(executionId, "dev_task_brief.md").orElseThrow().getVersion()).isEqualTo(1);
         assertThat(auditLog.forExecution(executionId).stream()
                 .filter(e -> e.getEventType() == AuditEventType.STEP_COMPLETED)
                 .map(e -> e.getStepId()))
-                .containsExactly("read-task", "select-repository", "prepare-task", "implement", "verify", "publish");
+                .containsExactly("read-task", "select-repository", "prepare-task", "implement",
+                        "clarify-implementation", "continue-implementation", "verify", "publish");
     }
 
     @Test

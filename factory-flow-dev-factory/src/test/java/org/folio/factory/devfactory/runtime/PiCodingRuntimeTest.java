@@ -19,7 +19,7 @@ class PiCodingRuntimeTest {
         progress.accept(USAGE_FRAME);
         progress.accept(USAGE_FRAME);
         assertThat(events).hasSize(2);
-        assertThat(events.getFirst()).containsEntry("activity", "pi_usage")
+        assertThat(events.getFirst()).containsEntry("activity", "coding_usage")
                 .containsEntry("inputTokens", 10L)
                 .containsEntry("cacheReadTokens", 2L)
                 .containsEntry("cacheWriteTokens", 1L)
@@ -28,7 +28,7 @@ class PiCodingRuntimeTest {
         var totals = new java.util.LinkedHashMap<>(result.metrics());
         totals.remove("provider");
         totals.remove("model");
-        totals.put("activity", "pi_usage");
+        totals.put("activity", "coding_usage");
         assertThat(events.getLast()).isEqualTo(totals)
                 .containsEntry("inputTokens", 20L)
                 .containsEntry("cacheReadTokens", 4L)
@@ -77,13 +77,15 @@ class PiCodingRuntimeTest {
         var events = new java.util.ArrayList<Map<String, Object>>();
         var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding("pi:image", "p", "m", null, null, "secret-key"));
         if (outcome.equals("success")) {
-            assertThat(runtime.code(workload, "private task", 60, events::add).metrics())
+            var result = runtime.code(workload, request(), 60, events::add);
+            assertThat(result.summary()).contains("[REDACTED]").doesNotContain("secret-key");
+            assertThat(result.metrics())
                     .containsEntry("inputTokens", 20L)
                     .containsEntry("cacheReadTokens", 4L)
                     .containsEntry("cacheWriteTokens", 2L)
                     .containsEntry("outputTokens", 6L);
-        } else assertThatThrownBy(() -> runtime.code(workload, "private task", 60, events::add))
-                .isInstanceOf(IllegalStateException.class);
+        } else assertThat(runtime.code(workload, request(), 60, events::add).status())
+                .isEqualTo(CodingOutcome.Status.FAILED);
         assertThat(events).hasSize(2);
         assertThat(events.getLast()).containsEntry("inputTokens", 20L)
                 .containsEntry("cacheReadTokens", 4L)
@@ -128,22 +130,29 @@ class PiCodingRuntimeTest {
         assertThat(events.get(199)).containsKey("notice");
     }
     @Test void acknowledgementIsNotCompletionAndProviderErrorsCannotPass() {
-        assertThatThrownBy(() -> PiCodingRuntime.parse("{\"type\":\"response\",\"command\":\"prompt\",\"success\":true}", "provider", "model"))
-                .hasMessageContaining("completed");
-        assertThatThrownBy(() -> PiCodingRuntime.parse("{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\"}}\n{\"type\":\"agent_end\"}", "provider", "model"))
-                .hasMessageContaining("failed");
+        assertThat(PiCodingRuntime.parse("{\"type\":\"response\",\"command\":\"prompt\",\"success\":true}", "provider", "model").status())
+                .isEqualTo(CodingOutcome.Status.FAILED);
+        assertThat(PiCodingRuntime.parse("{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\"}}\n{\"type\":\"agent_end\"}", "provider", "model").status())
+                .isEqualTo(CodingOutcome.Status.FAILED);
+        assertThat(PiCodingRuntime.parse("not-json", "provider", "model").failure().code())
+                .isEqualTo("MALFORMED_FRAME");
     }
     @Test void completedAssistantMustMatchConfiguredModel() {
         String output = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"provider\":\"provider\",\"model\":\"model\",\"content\":[{\"type\":\"text\",\"text\":\"Implemented\"}]}}\n{\"type\":\"agent_end\"}";
         assertThat(PiCodingRuntime.parse(output, "provider", "model").summary()).isEqualTo("Implemented");
-        assertThatThrownBy(() -> PiCodingRuntime.parse(output, "provider", "other")).hasMessageContaining("identity mismatch");
+        assertThat(PiCodingRuntime.parse(output, "provider", "other").failure().code())
+                .isEqualTo("IDENTITY_MISMATCH");
     }
 
     @Test void materialDecisionKeepsTheConcreteQuestion() {
-        String output = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"provider\":\"provider\",\"model\":\"model\",\"content\":[{\"type\":\"text\",\"text\":\"FACTORY_DECISION_REQUIRED: Which public API should change?\"}]}}\n{\"type\":\"agent_end\"}";
-        assertThatThrownBy(() -> PiCodingRuntime.parse(output, "provider", "model"))
-                .hasMessageContaining("CODING_DECISION_REQUIRED")
-                .hasMessageContaining("Which public API should change?");
+        String decision = "FACTORY_DECISION_REQUIRED: {\\\"kind\\\":\\\"PRODUCT_REQUIREMENTS\\\","
+                + "\\\"question\\\":\\\"Which public API should change?\\\","
+                + "\\\"options\\\":[\\\"A\\\",\\\"B\\\"],\\\"evidence\\\":\\\"Both APIs exist\\\"}";
+        String output = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"provider\":\"provider\",\"model\":\"model\",\"content\":[{\"type\":\"text\",\"text\":\"" + decision + "\"}]}}\n{\"type\":\"agent_end\"}";
+        var result = PiCodingRuntime.parse(output, "provider", "model");
+        assertThat(result.status()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
+        assertThat(result.decision().kind()).isEqualTo(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS);
+        assertThat(result.decision().question()).isEqualTo("Which public API should change?");
     }
 
     @Test void markerMentionedLaterInSuccessfulSummaryCompletesNormally() {
@@ -152,5 +161,21 @@ class PiCodingRuntimeTest {
         String output = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"provider\":\"provider\","
                 + "\"model\":\"model\",\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}]}}\n{\"type\":\"agent_end\"}";
         assertThat(PiCodingRuntime.parse(output, "provider", "model").summary()).isEqualTo(text);
+    }
+
+    @Test void decisionProtocolRejectsTrailingText() {
+        String decision = "FACTORY_DECISION_REQUIRED: {\\\"kind\\\":\\\"PRODUCT_REQUIREMENTS\\\","
+                + "\\\"question\\\":\\\"Which API?\\\",\\\"options\\\":[],\\\"evidence\\\":\\\"Both exist\\\"} extra";
+        String output = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"provider\":\"provider\","
+                + "\"model\":\"model\",\"content\":[{\"type\":\"text\",\"text\":\"" + decision
+                + "\"}]}}\n{\"type\":\"agent_end\"}";
+        assertThat(PiCodingRuntime.parse(output, "provider", "model").failure().code())
+                .isEqualTo("INVALID_DECISION_RESULT");
+    }
+
+    private static CodingRequest request() {
+        return new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(), List.of(),
+                List.of(), new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)),
+                CodingRequest.Constraints.defaults());
     }
 }

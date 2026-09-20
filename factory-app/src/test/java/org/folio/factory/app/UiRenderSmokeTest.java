@@ -278,7 +278,7 @@ class UiRenderSmokeTest {
         assertThat(body)
                 .containsOnlyOnce("data-developer-history")
                 .containsOnlyOnce("Latest reported activity")
-                .contains("Pi working", "No meaningful activity reported yet.", "Open full append-only audit log")
+                .contains("Coding agent working", "No meaningful activity reported yet.", "Open full append-only audit log")
                 .doesNotContain("Raw audit history", "<details data-developer-history open");
     }
 

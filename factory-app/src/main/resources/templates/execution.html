@@ -115,7 +115,7 @@
                                 <div><dt>Prompt</dt><dd th:text="${tokenTotals['prompt']}"></dd></div>
                                 <div><dt>Completion</dt><dd th:text="${tokenTotals['completion']}"></dd></div>
                             </th:block>
-                            <div th:if="${estimatedCost != null}"><dt>Estimated Pi API cost</dt><dd th:text="${estimatedCost.amount} + ' ' + ${estimatedCost.currency}"></dd></div>
+                            <div th:if="${estimatedCost != null}"><dt>Estimated coding API cost</dt><dd th:text="${estimatedCost.amount} + ' ' + ${estimatedCost.currency}"></dd></div>
                         </dl>
                         <p class="developer-estimate-note" th:if="${estimatedCost != null}"
                            th:text="'Configured rate card · ' + ${estimatedCost.asOf}"></p>
@@ -157,12 +157,12 @@
                             </div>
                             <div class="developer-pricing-evidence" th:if="${estimatedCost != null or reportedCost != null}">
                                 <h4>Cost evidence</h4>
-                                <p th:if="${estimatedCost != null}">Estimated Pi API cost:
+                                <p th:if="${estimatedCost != null}">Estimated coding API cost:
                                     <strong th:text="${estimatedCost.amount} + ' ' + ${estimatedCost.currency}"></strong>
                                     <span th:text="' using rates dated ' + ${estimatedCost.asOf}"></span>
                                     · <a th:href="${estimatedCost.source}">rate source</a>
                                 </p>
-                                <p th:if="${reportedCost != null}" th:text="'Pi-reported cost: $' + ${reportedCost} + ' USD'"></p>
+                                <p th:if="${reportedCost != null}" th:text="'Coding runtime-reported cost: $' + ${reportedCost} + ' USD'"></p>
                             </div>
                             <p th:text="'Workflow engine status: ' + ${execution.status}"></p>
                             <div class="table-wrap">
@@ -249,7 +249,7 @@
             </div>
             <ol th:replace="~{fragments/components :: stepper(${progressSteps})}"></ol>
             <p th:if="${reportedCost != null}"
-               th:text="'Pi-reported cost: $' + ${reportedCost} + ' USD'"></p>
+               th:text="'Coding runtime-reported cost: $' + ${reportedCost} + ' USD'"></p>
         </section>
 
         <section th:unless="${#lists.isEmpty(children)}">

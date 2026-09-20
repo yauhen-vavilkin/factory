@@ -11,9 +11,12 @@ import org.folio.factory.devfactory.decision.DecisionArtifacts.Answer;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Request;
 import org.folio.factory.devfactory.repository.BaseRefResolver;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
+import org.folio.factory.devfactory.runtime.CodingRequest;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -27,12 +30,14 @@ public class IntakeResolveWorker implements AgentWorker {
 
     public static final String ID = "dev-intake-resolve";
     public static final String TASK_BRIEF = "dev_task_brief.md";
+    public static final String CODING_REQUEST = "dev_coding_request.json";
 
     static final String INTAKE_READY = "INTAKE_READY";
 
     private final RepositoryPolicy policy;
     private final BaseRefResolver baseRefResolver;
     private final FrontmatterCodec codec;
+    private final JsonMapper json = JsonMapper.builder().build();
 
     public IntakeResolveWorker(RepositoryPolicy policy, BaseRefResolver baseRefResolver, FrontmatterCodec codec) {
         this.policy = policy;
@@ -62,6 +67,7 @@ public class IntakeResolveWorker implements AgentWorker {
             decision.put("request_id", request.requestId());
             decision.put("choice", choice);
             decision.put("recommended", request.recommended());
+            decision.put("question", request.question());
         } else {
             choice = intake.path("candidates").path(0).asString("");
         }
@@ -126,6 +132,36 @@ public class IntakeResolveWorker implements AgentWorker {
             body.append("Repository `").append(repositoryKey).append("` at `").append(baseSha).append("`.\n\n");
         }
         body.append("Build environment readiness has not been checked yet.\n");
-        return AgentResult.of(TASK_BRIEF, codec.render(metadata, body.toString()));
+        CodingRequest request = codingRequest(intake, decision, repositoryKey, baseSha);
+        return new AgentResult(Map.of(TASK_BRIEF, codec.render(metadata, body.toString()),
+                CODING_REQUEST, json.writeValueAsString(request)), Map.of());
+    }
+
+    private CodingRequest codingRequest(JsonNode intake, Map<String, Object> decision,
+                                        String repositoryKey, String baseSha) {
+        JsonNode issue = intake.path("issue");
+        List<CodingRequest.Comment> comments = new java.util.ArrayList<>();
+        issue.path("comments").forEach(comment -> comments.add(new CodingRequest.Comment(
+                comment.path("author").asString(""), comment.path("created").asString(""),
+                comment.path("body").asString(""))));
+        List<CodingRequest.LinkedIssue> links = new java.util.ArrayList<>();
+        issue.path("links").forEach(link -> links.add(new CodingRequest.LinkedIssue(
+                link.path("relation").asString(""), link.path("key").asString(""),
+                link.path("summary").asString(""), link.path("status").asString(""))));
+        List<CodingRequest.ConfirmedDecision> decisions = new java.util.ArrayList<>();
+        if (Boolean.TRUE.equals(decision == null ? null : decision.get("required"))) {
+            decisions.add(new CodingRequest.ConfirmedDecision(String.valueOf(decision.get("request_id")),
+                    "REPOSITORY_SELECTION", String.valueOf(decision.get("question")),
+                    String.valueOf(decision.get("choice"))));
+        }
+        CodingRequest.RepositoryTarget target = null;
+        if (repositoryKey != null && baseSha != null) {
+            Repository repository = policy.find(repositoryKey).orElseThrow();
+            target = new CodingRequest.RepositoryTarget(repositoryKey, repository.sourceRepo(),
+                    repository.baseBranch(), baseSha);
+        }
+        return new CodingRequest(intake.path("issue_key").asString(""), issue.path("summary").asString(""),
+                issue.path("description").asString(""), comments, links, List.of(), decisions, target,
+                CodingRequest.Constraints.defaults());
     }
 }

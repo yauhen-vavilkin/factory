@@ -27,26 +27,38 @@ final class DeveloperExecutionView {
             "select-repository", "Select repository",
             "prepare-task", "Prepare task checkout",
             "implement", "Implementation",
+            "clarify-implementation", "Clarify implementation",
+            "continue-implementation", "Continue implementation",
             "verify", "Independently verify candidate",
             "publish", "Publish pull request");
-    private static final List<Phase> PHASES = List.of(
+    private static final List<Phase> LEGACY_PHASES = List.of(
             new Phase("Prepare task", 0, 2, List.of("read-task", "select-repository", "prepare-task")),
             new Phase("Implement changes", 3, 3, List.of("implement")),
             new Phase("Verify changes", 4, 4, List.of("verify")),
             new Phase("Create pull request", 5, 5, List.of("publish")));
+    private static final List<Phase> CURRENT_PHASES = List.of(
+            new Phase("Prepare task", 0, 2, List.of("read-task", "select-repository", "prepare-task")),
+            new Phase("Implement changes", 3, 5, List.of("implement", "clarify-implementation", "continue-implementation")),
+            new Phase("Verify changes", 6, 6, List.of("verify")),
+            new Phase("Create pull request", 7, 7, List.of("publish")));
     private final JsonMapper json;
     DeveloperExecutionView(JsonMapper json) { this.json = json; }
 
     String productStatus(PipelineExecution execution, List<Artifact> artifacts) {
-        if (execution.getStatus() != org.folio.factory.core.domain.ExecutionStatus.COMPLETED)
-            return execution.getStatus().name();
         Map<String, Artifact> latest = new LinkedHashMap<>();
         for (var artifact : artifacts) latest.merge(artifact.getName(), artifact,
                 (old, fresh) -> old.getVersion() > fresh.getVersion() ? old : fresh);
+        String codingStatus = artifact(latest, "dev_coding_outcome.json").path("status").asString("");
+        if ("NEEDS_DECISION".equals(codingStatus)
+                && execution.getStatus() != org.folio.factory.core.domain.ExecutionStatus.REJECTED
+                && execution.getStatus() != org.folio.factory.core.domain.ExecutionStatus.FAILED_ESCALATED)
+            return "NEEDS_DECISION";
+        if (execution.getStatus() != org.folio.factory.core.domain.ExecutionStatus.COMPLETED)
+            return execution.getStatus().name();
         for (String name : List.of("dev_delivery.json", "dev_result.json", "dev_candidate.json", "dev_task_brief.md")) {
             String state = artifact(latest, name).path("state").asString("");
             if (Set.of("DELIVERED", "VERIFIED", "DEVELOPMENT_FAILED", "VERIFICATION_FAILED",
-                    "DELIVERY_BLOCKED", "UNSUPPORTED", "BLOCKED", "BLOCKED_ENVIRONMENT").contains(state))
+                    "DELIVERY_BLOCKED", "UNSUPPORTED", "BLOCKED", "BLOCKED_ENVIRONMENT", "NEEDS_DECISION").contains(state))
                 return state;
         }
         if ("FAIL".equals(artifact(latest, "dev_verification.json").path("result").asString("")))
@@ -63,6 +75,7 @@ final class DeveloperExecutionView {
         var brief = artifact(latest, "dev_task_brief.md");
         var readiness = artifact(latest, "dev_readiness.json");
         var candidate = artifact(latest, "dev_candidate.json");
+        var codingOutcome = artifact(latest, "dev_coding_outcome.json");
         var verification = artifact(latest, "dev_verification.json");
         var result = artifact(latest, "dev_result.json");
         var delivery = artifact(latest, "dev_delivery.json");
@@ -79,7 +92,7 @@ final class DeveloperExecutionView {
         List<Map<String, String>> recentActivity = new ArrayList<>();
         Map<String, String> latestActivity = null;
         String activityNotice = "";
-        boolean piObserved = false;
+        boolean runtimeObserved = false;
         JsonNode config = json.createObjectNode();
         String previousHeartbeat = null;
         var bashActivity = new BashActivity();
@@ -90,9 +103,12 @@ final class DeveloperExecutionView {
             if (event.getEventType() != AuditEventType.RUNTIME_PROGRESS) continue;
             var detail = parse(event.getDetail());
             String action = detail.path("activity").asString("");
-            if (action.equals("pi_usage")) continue;
-            if (action.equals("agent_start")) piObserved = true;
-            if (action.equals("pi_starting")) { config = detail; piObserved = true; }
+            if (action.equals("pi_usage") || action.equals("coding_usage")) continue;
+            if (action.equals("agent_start")) runtimeObserved = true;
+            if (action.equals("pi_starting") || action.equals("coding_starting")) {
+                config = detail;
+                runtimeObserved = true;
+            }
             String text = runtimeActivityText(detail, bashActivity);
             var row = Map.of("time", UiFormat.format(event.getOccurredAt()), "text", text);
             latestActivity = row;
@@ -109,14 +125,19 @@ final class DeveloperExecutionView {
             previousHeartbeat = heartbeat ? text : null;
         }
         add(technicalFields, "Coding image", config.path("image"));
+        add(technicalFields, "Coding runtime", config.path("runtime"));
         add(technicalFields, "Provider", config.path("provider"));
         add(technicalFields, "Model", config.path("model"));
         String executionError = execution.getErrorMessage();
         boolean retryErrorSuperseded = executionError != null
                 && executionError.startsWith(STARTING_BUILD_NETWORK_FAILURE)
                 && ("BASELINE_PASSED".equals(readiness.path("state").asString(""))
-                    || piObserved || execution.getCurrentStepIndex() > 3);
+                    || runtimeObserved || execution.getCurrentStepIndex() > 3);
         String reason = first(result.path("reason"), brief.path("reason"), candidate.path("reason"));
+        if (reason.isBlank() && "NEEDS_DECISION".equals(codingOutcome.path("status").asString("")))
+            reason = codingOutcome.path("decision").path("question").asString("");
+        if (reason.isBlank() && "FAILED".equals(codingOutcome.path("status").asString("")))
+            reason = codingOutcome.path("failure").path("message").asString("");
         if (reason.equals("Intake is not ready")) reason = first(brief.path("reason"), result.path("reason"));
         if (reason.isBlank() && "FAIL".equals(verification.path("result").asString("")))
             reason = "Independent verification failed: exit " + verification.path("exitCode").asString("")
@@ -135,7 +156,8 @@ final class DeveloperExecutionView {
         view.put("branch", repo.path("base_branch").asString(""));
         view.put("technicalFields", technicalFields);
         view.put("reason", reason);
-        String reasonLabel = execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.PENDING
+        String reasonLabel = "NEEDS_DECISION".equals(codingOutcome.path("status").asString(""))
+                ? "Decision required" : execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.PENDING
                 && !reason.isBlank() ? "Retry pending" : execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.RUNNING
                 && executionError != null && !retryErrorSuperseded ? "Previous attempt" : "Stop reason";
         view.put("reasonLabel", reasonLabel);
@@ -197,9 +219,11 @@ final class DeveloperExecutionView {
                                               JsonNode brief, JsonNode readiness, JsonNode candidate,
                                               JsonNode verification, JsonNode result, JsonNode delivery) {
         int failedPhase = failedPhase(brief, readiness, candidate, verification, result, delivery);
-        List<Map<String, Object>> rows = new ArrayList<>(PHASES.size());
-        for (int i = 0; i < PHASES.size(); i++) {
-            var phase = PHASES.get(i);
+        List<Phase> definitions = execution.getFlowVersion().startsWith("0.6.")
+                ? LEGACY_PHASES : CURRENT_PHASES;
+        List<Map<String, Object>> rows = new ArrayList<>(definitions.size());
+        for (int i = 0; i < definitions.size(); i++) {
+            var phase = definitions.get(i);
             var timing = timing(new HashSet<>(phase.stepIds()), events, execution, now);
             String state = phaseState(phase, execution, timing.seen());
             if (failedPhase >= 0) {
@@ -230,7 +254,7 @@ final class DeveloperExecutionView {
         if (!preparation.isBlank() && !"INTAKE_READY".equals(preparation)) return 0;
         String candidateState = candidate.path("state").asString("");
         if ("BASELINE_FAILED".equals(readiness.path("state").asString(""))
-                || (!candidateState.isBlank() && !"CANDIDATE_UNVERIFIED".equals(candidateState))) return 1;
+                || (!candidateState.isBlank() && !Set.of("CANDIDATE_UNVERIFIED", "NEEDS_DECISION").contains(candidateState))) return 1;
         if ("FAIL".equals(verification.path("result").asString(""))
                 || "VERIFICATION_FAILED".equals(result.path("state").asString(""))) return 2;
         if ("DELIVERY_BLOCKED".equals(delivery.path("state").asString(""))) return 3;
@@ -288,6 +312,7 @@ final class DeveloperExecutionView {
             case "current" -> switch (execution.getStatus()) {
                 case RUNNING -> "Running";
                 case PENDING -> "Retry pending";
+                case AWAITING_HITL -> "Awaiting decision";
                 default -> "Current";
             };
             default -> state;
@@ -319,13 +344,13 @@ final class DeveloperExecutionView {
     private static String runtimeActivityText(JsonNode detail, BashActivity bashActivity) {
         String action = detail.path("activity").asString("");
         return switch (action) {
-            case "agent_start" -> "Pi started";
-            case "agent_end" -> "Pi finished";
-            case "turn_start" -> "Pi working";
-            case "auto_retry_start" -> "Pi retrying request";
-            case "auto_retry_end" -> "Pi retry finished";
-            case "compaction_start" -> "Pi compacting context";
-            case "compaction_end" -> "Pi compaction finished";
+            case "agent_start" -> "Coding agent started";
+            case "agent_end" -> "Coding agent finished";
+            case "turn_start" -> "Coding agent working";
+            case "auto_retry_start" -> "Coding runtime retrying request";
+            case "auto_retry_end" -> "Coding runtime retry finished";
+            case "compaction_start" -> "Coding runtime compacting context";
+            case "compaction_end" -> "Coding runtime compaction finished";
             case "tool_execution_start" -> toolStartText(detail, bashActivity);
             case "tool_execution_end" -> toolEndText(detail, bashActivity);
             default -> genericActivityText(detail, action);

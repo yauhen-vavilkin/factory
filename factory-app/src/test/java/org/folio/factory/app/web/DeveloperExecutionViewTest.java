@@ -51,6 +51,29 @@ class DeveloperExecutionViewTest {
                 .isEqualTo("DEVELOPMENT_FAILED");
     }
 
+    @Test void needsDecisionIsVisibleWhilePausedAndAfterTheSingleContinuation() {
+        var execution = new PipelineExecution("dev-factory", "0.7.0", "{}");
+        execution.setCurrentStepIndex(4);
+        execution.setStatus(ExecutionStatus.AWAITING_HITL);
+        var outcome = artifact("dev_coding_outcome.json", 1,
+                "{\"status\":\"NEEDS_DECISION\",\"decision\":{\"question\":\"Which API?\"}}");
+
+        assertThat(view.productStatus(execution, List.of(outcome))).isEqualTo("NEEDS_DECISION");
+        var paused = view.build(execution, List.of(outcome), List.of(), Instant.now());
+        assertThat(paused).containsEntry("currentPhase", "Implement changes")
+                .containsEntry("reasonLabel", "Decision required")
+                .containsEntry("reason", "Which API?");
+
+        execution.setCurrentStepIndex(8);
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        assertThat(view.productStatus(execution, List.of(outcome))).isEqualTo("NEEDS_DECISION");
+        assertThat(phases(view.build(execution, List.of(outcome), List.of(), Instant.now())))
+                .extracting(phase -> phase.get("state")).containsExactly("done", "done", "done", "done");
+
+        execution.setStatus(ExecutionStatus.REJECTED);
+        assertThat(view.productStatus(execution, List.of(outcome))).isEqualTo("REJECTED");
+    }
+
     @Test void pendingRetryAndExhaustedRetryHaveDistinctReasons() {
         var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
         execution.setCurrentStepIndex(3);
@@ -70,15 +93,15 @@ class DeveloperExecutionViewTest {
         var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
         execution.setCurrentStepIndex(3);
         execution.setStatus(ExecutionStatus.RUNNING);
-        execution.setErrorMessage("Starting build hit a network/download failure; Pi has not started.");
+        execution.setErrorMessage("Starting build hit a network/download failure; coding has not started.");
 
         assertThat(view.build(execution, List.of(), List.of(), Instant.now()))
                 .containsEntry("reasonLabel", "Previous attempt")
                 .containsEntry("reason", execution.getErrorMessage());
 
-        var piRunning = view.build(execution, List.of(),
-                List.of(runtime("pi_starting", "Pi is starting", Instant.now())), Instant.now());
-        assertThat(piRunning).containsEntry("reason", "");
+        var runtimeRunning = view.build(execution, List.of(),
+                List.of(runtime("coding_starting", "Coding runtime is starting", Instant.now())), Instant.now());
+        assertThat(runtimeRunning).containsEntry("reason", "");
 
         execution.setCurrentStepIndex(6);
         execution.setStatus(ExecutionStatus.COMPLETED);
@@ -116,7 +139,7 @@ class DeveloperExecutionViewTest {
 
         events.add(runtime("agent_start", "Pi started", start.plusSeconds(26)));
         assertThat(view.build(execution, List.of(), events, start.plusSeconds(27)).get("latestActivity").toString())
-                .contains("Pi started");
+                .contains("Coding agent started");
     }
 
     @Test void hiddenAuditEventsDoNotSplitHeartbeatsButMeaningfulRuntimeEventsDo() {
@@ -206,12 +229,12 @@ class DeveloperExecutionViewTest {
                 start.plusSeconds(7)).get("activity");
 
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "Pi started",
-                "Pi retrying request",
-                "Pi retry finished",
-                "Pi compacting context",
-                "Pi compaction finished",
-                "Pi finished");
+                "Coding agent started",
+                "Coding runtime retrying request",
+                "Coding runtime retry finished",
+                "Coding runtime compacting context",
+                "Coding runtime compaction finished",
+                "Coding agent finished");
         assertThat(activity.toString()).doesNotContain("hidden message", "hidden reasoning", "reasoning");
     }
 

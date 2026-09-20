@@ -6,6 +6,7 @@ import org.folio.factory.core.hitl.ArtifactAmendmentValidator;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.folio.factory.devfactory.worker.IntakeWorker;
 import org.folio.factory.devfactory.worker.IntakeResolveWorker;
+import org.folio.factory.devfactory.worker.DevelopWorker;
 
 import java.util.Set;
 
@@ -17,7 +18,8 @@ import java.util.Set;
 public class DevArtifactAmendmentValidator implements ArtifactAmendmentValidator {
 
     private static final Set<String> TRUSTED = Set.of(
-            IntakeWorker.INTAKE, DecisionArtifacts.REQUEST, IntakeResolveWorker.TASK_BRIEF);
+            IntakeWorker.INTAKE, DecisionArtifacts.REQUEST, IntakeResolveWorker.TASK_BRIEF,
+            IntakeResolveWorker.CODING_REQUEST, DevelopWorker.OUTCOME, CodingDecisionArtifacts.REQUEST);
 
     private final FrontmatterCodec codec;
     private final RepositoryPolicy policy;
@@ -31,6 +33,15 @@ public class DevArtifactAmendmentValidator implements ArtifactAmendmentValidator
     public void validate(String artifactName, String content) {
         if (TRUSTED.contains(artifactName)) {
             throw new IllegalArgumentException("'" + artifactName + "' is trusted Developer Flow data and cannot be amended");
+        }
+        if (CodingDecisionArtifacts.ANSWER.equals(artifactName)) {
+            try {
+                CodingDecisionArtifacts.parseAnswer(codec, content);
+            } catch (RuntimeException e) {
+                throw new IllegalArgumentException("Amended coding decision answer is not valid: "
+                        + e.getMessage(), e);
+            }
+            return;
         }
         if (!DecisionArtifacts.ANSWER.equals(artifactName)) {
             return;

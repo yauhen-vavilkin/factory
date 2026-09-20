@@ -7,19 +7,27 @@ import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
+import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
+import org.folio.factory.devfactory.runtime.CodingOutcome;
+import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.runtime.Processes;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+
 import java.nio.file.Path;
 import java.util.Map;
 
-/** Baseline first, one coding attempt, then trusted freeze. No provider retry in the flow. */
+/** Baseline, one portable coding attempt, and trusted freeze only on COMPLETED. */
 public class DevelopWorker implements AgentWorker {
+    public static final String ID = "dev-develop";
     public static final String CANDIDATE = "dev_candidate.json";
     public static final String READINESS = "dev_readiness.json";
+    public static final String OUTCOME = "dev_coding_outcome.json";
+
     private final DevFactoryProperties properties;
     private final DevRuntimeProperties runtime;
     private final DockerWorkloads docker;
@@ -28,121 +36,208 @@ public class DevelopWorker implements AgentWorker {
     private final FrontmatterCodec codec;
     private final org.folio.factory.core.service.AuditLog audit;
     private final JsonMapper json = JsonMapper.builder().build();
+
     public DevelopWorker(DevFactoryProperties properties, DevRuntimeProperties runtime, DockerWorkloads docker,
                          CandidateFreezer freezer, CodingRuntime coding, FrontmatterCodec codec) {
         this(properties, runtime, docker, freezer, coding, codec, null);
     }
+
     public DevelopWorker(DevFactoryProperties properties, DevRuntimeProperties runtime, DockerWorkloads docker,
                          CandidateFreezer freezer, CodingRuntime coding, FrontmatterCodec codec,
                          org.folio.factory.core.service.AuditLog audit) {
-        this.properties = properties; this.runtime = runtime; this.docker = docker;
-        this.freezer = freezer; this.coding = coding; this.codec = codec;
+        this.properties = properties;
+        this.runtime = runtime;
+        this.docker = docker;
+        this.freezer = freezer;
+        this.coding = coding;
+        this.codec = codec;
         this.audit = audit;
     }
-    @Override public String id() { return "dev-develop"; }
-    @Override public AgentResult execute(AgentContext context) {
-        String task = context.requireInput(IntakeResolveWorker.TASK_BRIEF).content();
-        var brief = codec.parse(task).metadata();
+
+    @Override public String id() { return ID; }
+
+    @Override
+    public AgentResult execute(AgentContext context) {
+        var brief = codec.parse(context.requireInput(IntakeResolveWorker.TASK_BRIEF).content()).metadata();
         String state = brief.path("state").asString("");
         if (!state.equals("INTAKE_READY")) return blocked(state, "Intake is not ready", Map.of());
-        String key = brief.path("repository").path("key").asString("");
-        var repo = properties.repositories().get(key);
-        if (repo == null) return blocked("BLOCKED_ENVIRONMENT", "Repository is no longer configured", Map.of());
-        String base = brief.path("repository").path("base_sha").asString("");
-        String url = properties.gitBaseUrl() + "/" + repo.sourceRepo() + ".git";
+        CodingRequest request = json.readValue(
+                context.requireInput(IntakeResolveWorker.CODING_REQUEST).content(), CodingRequest.class);
+        Attempt attempt = runAttempt(context, request, true, json.createObjectNode());
+        return initialResult(attempt);
+    }
+
+    Attempt retry(AgentContext context, CodingRequest request, JsonNode readiness) {
+        return runAttempt(context, request, false, readiness);
+    }
+
+    private Attempt runAttempt(AgentContext context, CodingRequest request, boolean runBaseline,
+                               JsonNode existingReadiness) {
+        request.requireReady();
+        String key = request.repository().key();
+        var repository = properties.repositories().get(key);
+        if (repository == null) return failedAttempt("Repository is no longer configured", existingReadiness);
+        if (!repository.sourceRepo().equals(request.repository().sourceRepo())
+                || !repository.baseBranch().equals(request.repository().baseBranch()))
+            return failedAttempt("Coding request repository no longer matches Factory configuration", existingReadiness);
+        String base = request.repository().baseSha();
+        String url = properties.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
         Path pristine = null;
         Path exported = null;
-        Map<String, Object> readiness = Map.of();
+        Map<String, Object> readiness = nodeMap(existingReadiness);
         Map<String, Object> metrics = Map.of();
         try {
-            var command = runtime.command(repo.verificationPlan());
-            progress(context, Map.of("activity", "baseline_started", "command", String.join(" ", command), "image", repo.buildImage()));
             pristine = freezer.checkout(url, base);
-            try (var baseline = docker.createTrusted(repo.buildImage(), pristine, runtime.mavenCacheVolume())) {
-                var observer = new MavenBaselineOutput(line -> progress(context,
-                        Map.of("activity", "baseline_progress", "message", line)));
-                var heartbeat = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(
-                        Thread.ofVirtual().name("factory-maven-progress-", 0).factory());
-                Processes.Result result;
-                try {
-                    heartbeat.scheduleAtFixedRate(observer::heartbeat, 15, 30,
-                            java.util.concurrent.TimeUnit.SECONDS);
-                    result = baseline.execute(command, runtime.timeoutSeconds(), Processes.OUTPUT_LIMIT, observer);
-                } finally {
-                    observer.close();
-                    heartbeat.shutdownNow();
+            if (runBaseline) {
+                var command = runtime.command(repository.verificationPlan());
+                progress(context, Map.of("activity", "baseline_started", "command", String.join(" ", command),
+                        "image", repository.buildImage()));
+                try (var baseline = docker.createTrusted(repository.buildImage(), pristine,
+                        runtime.mavenCacheVolume())) {
+                    var observer = new MavenBaselineOutput(line -> progress(context,
+                            Map.of("activity", "baseline_progress", "message", line)));
+                    var heartbeat = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(
+                            Thread.ofVirtual().name("factory-maven-progress-", 0).factory());
+                    Processes.Result result;
+                    try {
+                        heartbeat.scheduleAtFixedRate(observer::heartbeat, 15, 30,
+                                java.util.concurrent.TimeUnit.SECONDS);
+                        result = baseline.execute(command, runtime.timeoutSeconds(), Processes.OUTPUT_LIMIT, observer);
+                    } finally {
+                        observer.close();
+                        heartbeat.shutdownNow();
+                    }
+                    String summary = MavenBaselineOutput.failureSummary(result.diagnostics()).orElse("");
+                    var details = new java.util.LinkedHashMap<String, Object>();
+                    details.put("state", result.exitCode() == 0 ? "BASELINE_PASSED" : "BASELINE_FAILED");
+                    details.put("baseSha", base);
+                    details.put("image", repository.buildImage());
+                    details.put("plan", repository.verificationPlan());
+                    details.put("command", command);
+                    details.put("exitCode", result.exitCode());
+                    if (!summary.isBlank()) details.put("summary", summary);
+                    details.put("output", tail(MavenBaselineOutput.sanitize(result.output())));
+                    readiness = Map.copyOf(details);
+                    progress(context, Map.of("activity", "baseline_completed", "exitCode", result.exitCode(),
+                            "summary", summary));
+                    if (result.exitCode() != 0
+                            && MavenBaselineOutput.isTransientDownloadFailure(result.diagnostics())) {
+                        String detail = summary.isBlank() ? "Maven artifact transfer failed." : summary;
+                        String reason = "Starting build hit a network/download failure; coding has not started. " + detail;
+                        progress(context, Map.of("activity", "baseline_retryable_failure", "message", reason));
+                        throw new StartingBuildNetworkException(reason);
+                    }
+                    if (result.exitCode() != 0)
+                        return failedAttempt("BLOCKED_ENVIRONMENT", summary.isBlank()
+                                ? "Starting build failed before model spend" : summary, readiness);
                 }
-                String summary = MavenBaselineOutput.failureSummary(result.diagnostics()).orElse("");
-                var readinessDetails = new java.util.LinkedHashMap<String, Object>();
-                readinessDetails.put("state", result.exitCode() == 0 ? "BASELINE_PASSED" : "BASELINE_FAILED");
-                readinessDetails.put("baseSha", base);
-                readinessDetails.put("image", repo.buildImage());
-                readinessDetails.put("plan", repo.verificationPlan());
-                readinessDetails.put("command", command);
-                readinessDetails.put("exitCode", result.exitCode());
-                if (!summary.isBlank()) readinessDetails.put("summary", summary);
-                readinessDetails.put("output", tail(MavenBaselineOutput.sanitize(result.output())));
-                readiness = Map.copyOf(readinessDetails);
-                progress(context, Map.of("activity", "baseline_completed", "exitCode", result.exitCode(),
-                        "summary", summary));
-                if (result.exitCode() != 0 && MavenBaselineOutput.isTransientDownloadFailure(result.diagnostics())) {
-                    // Maven 3 does not cache transfer errors (only not-found results). The next
-                    // engine attempt uses this same persistent repository without -U or eviction.
-                    String detail = summary.isBlank() ? "Maven artifact transfer failed." : summary;
-                    String reason = "Starting build hit a network/download failure; Pi has not started. " + detail;
-                    progress(context, Map.of("activity", "baseline_retryable_failure", "message", reason));
-                    throw new StartingBuildNetworkException(reason);
-                }
-                if (result.exitCode() != 0) return blocked("BLOCKED_ENVIRONMENT",
-                        summary.isBlank() ? "Starting build failed before model spend" : summary, readiness);
             }
-            runtime.coding().requireConfigured();
+            coding.requireConfigured();
             exported = CandidateFreezer.temporary("factory-dev-export-");
-            try (var workload = docker.createSeeded(runtime.coding().image(), pristine, runtime.mavenCacheVolume())) {
-                progress(context, Map.of("activity", "pi_starting", "image", runtime.coding().image(),
-                        "provider", runtime.coding().provider(), "model", runtime.coding().model()));
-                var codingResult = coding.code(workload, "Implement this task in /workspace. Inspect, understand, plan, edit, run targeted checks, debug and self-review. "
-                        + "Keep changes focused. Do not push or access Jira/GitHub writes. Do not alter .git or generate final verification receipts. "
-                        + "Trusted intake has already approved this task for implementation; its Jira status is not an unresolved requirement. "
-                        + "For this first demo, do not add or run integration checks that require nested Docker/Testcontainers; add focused unit coverage where useful. "
-                        + "If a material requirement is unresolved, stop and return FACTORY_DECISION_REQUIRED with one concrete question and 2-4 options. "
-                        + "Your self-checks are diagnostic; Factory independently verifies the final frozen tree.\n\n" + task,
-                        runtime.timeoutSeconds(), event -> progress(context, event));
-                metrics = withFactoryTokenMetrics(codingResult.metrics());
-                workload.stop();
-                workload.export(exported);
+            CodingOutcome outcome;
+            try (var workload = docker.createSeeded(coding.image(), pristine, runtime.mavenCacheVolume())) {
+                var identity = new java.util.LinkedHashMap<>(coding.identity());
+                identity.put("activity", "coding_starting");
+                progress(context, identity);
+                outcome = coding.code(workload, request, runtime.timeoutSeconds(), event -> progress(context, event));
+                metrics = withFactoryTokenMetrics(outcome.metrics());
+                if (outcome.status() == CodingOutcome.Status.COMPLETED) {
+                    workload.stop();
+                    workload.export(exported);
+                }
             }
-            var candidate = freezer.freeze(key, url, base, exported);
-            return new AgentResult(Map.of(CANDIDATE, json.writeValueAsString(candidate), READINESS, json.writeValueAsString(readiness)), metrics);
+            String candidate;
+            if (outcome.status() == CodingOutcome.Status.COMPLETED) {
+                candidate = json.writeValueAsString(freezer.freeze(key, url, base, exported));
+            } else if (outcome.status() == CodingOutcome.Status.NEEDS_DECISION) {
+                candidate = placeholder("NEEDS_DECISION", outcome.decision().question());
+            } else {
+                candidate = placeholder("DEVELOPMENT_FAILED", outcome.failure().message());
+            }
+            var decision = outcome.status() == CodingOutcome.Status.NEEDS_DECISION
+                    ? CodingDecisionArtifacts.Request.from(outcome.decision()) : CodingDecisionArtifacts.Request.none();
+            return new Attempt(request, outcome, candidate, json.writeValueAsString(readiness),
+                    CodingDecisionArtifacts.renderRequest(codec, decision),
+                    CodingDecisionArtifacts.renderAnswer(codec,
+                            new CodingDecisionArtifacts.Answer(decision.requestId(), CodingDecisionArtifacts.UNANSWERED)),
+                    metrics);
         } catch (StartingBuildNetworkException e) {
             throw e;
         } catch (RuntimeException e) {
-            String reason = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-            String secret = runtime.coding().apiKey();
-            if (secret != null && !secret.isBlank()) reason = reason.replace(secret, "[REDACTED]");
-            return new AgentResult(blocked("DEVELOPMENT_FAILED", "Development stopped: " + reason.substring(0, Math.min(2000, reason.length())), readiness).outputs(), metrics);
+            String reason = safeRedact(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+            return failedAttempt("DEVELOPMENT_FAILED", "Development stopped: "
+                    + reason.substring(0, Math.min(2000, reason.length())), readiness, metrics);
         } finally {
             CandidateFreezer.cleanup(pristine);
             CandidateFreezer.cleanup(exported);
         }
     }
+
+    private AgentResult initialResult(Attempt attempt) {
+        return new AgentResult(Map.of(CANDIDATE, attempt.candidate(), READINESS, attempt.readiness(),
+                OUTCOME, json.writeValueAsString(attempt.outcome()),
+                CodingDecisionArtifacts.REQUEST, attempt.decisionRequest(),
+                CodingDecisionArtifacts.ANSWER, attempt.decisionAnswer()), attempt.metrics());
+    }
+
+    private AgentResult blocked(String state, String reason, Map<String, Object> readiness) {
+        CodingOutcome outcome = CodingOutcome.failed(state, reason, Map.of());
+        var decision = CodingDecisionArtifacts.Request.none();
+        return new AgentResult(Map.of(CANDIDATE, placeholder(state, reason),
+                READINESS, json.writeValueAsString(readiness), OUTCOME, json.writeValueAsString(outcome),
+                CodingDecisionArtifacts.REQUEST, CodingDecisionArtifacts.renderRequest(codec, decision),
+                CodingDecisionArtifacts.ANSWER, CodingDecisionArtifacts.renderAnswer(codec,
+                        new CodingDecisionArtifacts.Answer(decision.requestId(), CodingDecisionArtifacts.UNANSWERED))),
+                Map.of());
+    }
+
+    private Attempt failedAttempt(String reason, JsonNode readiness) {
+        return failedAttempt(reason, nodeMap(readiness));
+    }
+
+    private Attempt failedAttempt(String reason, Map<String, Object> readiness) {
+        return failedAttempt("DEVELOPMENT_FAILED", reason, readiness);
+    }
+
+    private Attempt failedAttempt(String state, String reason, Map<String, Object> readiness) {
+        return failedAttempt(state, reason, readiness, Map.of());
+    }
+
+    private Attempt failedAttempt(String state, String reason, Map<String, Object> readiness,
+                                  Map<String, Object> metrics) {
+        CodingOutcome outcome = CodingOutcome.failed(state, reason, Map.of());
+        var decision = CodingDecisionArtifacts.Request.none();
+        return new Attempt(null, outcome, placeholder(state, reason),
+                json.writeValueAsString(readiness), CodingDecisionArtifacts.renderRequest(codec, decision),
+                CodingDecisionArtifacts.renderAnswer(codec,
+                        new CodingDecisionArtifacts.Answer(decision.requestId(), CodingDecisionArtifacts.UNANSWERED)),
+                metrics);
+    }
+
+    private String placeholder(String state, String reason) {
+        return json.writeValueAsString(Map.of("state", state, "reason", reason == null ? "" : reason));
+    }
+
     private void progress(AgentContext context, Map<String, Object> event) {
         if (audit == null) return;
         Map<String, Object> safe = new java.util.LinkedHashMap<>();
         event.forEach((key, value) -> {
             if (value instanceof String text) {
-                String secret = runtime.coding().apiKey();
-                if (secret != null && !secret.isBlank()) text = text.replace(secret, "[REDACTED]");
+                text = safeRedact(text);
                 safe.put(key, text.substring(0, Math.min(240, text.length())));
             } else safe.put(key, value);
         });
-        try { audit.record(context.executionId(), org.folio.factory.core.domain.AuditEventType.RUNTIME_PROGRESS, context.stepId(), safe); }
-        catch (RuntimeException ignored) { /* Progress does not authorize or reject a candidate. */ }
+        try {
+            audit.record(context.executionId(), org.folio.factory.core.domain.AuditEventType.RUNTIME_PROGRESS,
+                    context.stepId(), safe);
+        } catch (RuntimeException ignored) { }
     }
-    private AgentResult blocked(String state, String reason, Map<String, Object> readiness) {
-        return new AgentResult(Map.of(CANDIDATE, json.writeValueAsString(Map.of("state", state, "reason", reason)),
-                READINESS, json.writeValueAsString(readiness)), Map.of());
+
+    private String safeRedact(String text) {
+        String redacted = coding.redact(text);
+        return redacted == null ? text : redacted;
     }
+
     private static Map<String, Object> withFactoryTokenMetrics(Map<String, Object> runtimeMetrics) {
         var metrics = new java.util.LinkedHashMap<>(runtimeMetrics);
         long prompt = 0;
@@ -158,8 +253,19 @@ public class DevelopWorker implements AgentWorker {
             metrics.putIfAbsent("completionTokens", Math.max(0, value.longValue()));
         return Map.copyOf(metrics);
     }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> nodeMap(JsonNode node) {
+        if (node == null || !node.isObject()) return Map.of();
+        return json.convertValue(node, Map.class);
+    }
+
     private static String tail(String value) { return value.substring(Math.max(0, value.length() - 16000)); }
-    /** Only a failed pre-Pi build may consume the engine retry budget. */
+
+    record Attempt(CodingRequest request, CodingOutcome outcome, String candidate, String readiness,
+                   String decisionRequest, String decisionAnswer, Map<String, Object> metrics) { }
+
+    /** Only a failed pre-runtime build may consume the engine retry budget. */
     private static final class StartingBuildNetworkException extends AgentExecutionException {
         private StartingBuildNetworkException(String message) { super(message); }
     }

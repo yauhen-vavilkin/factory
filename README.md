@@ -129,8 +129,9 @@ dependencies current.
 
 ### Developer Flow demo
 
-Developer Flow needs the Pi provider values and GitHub token in `.env`; see the
-Developer Flow block in `.env.example`. Source repositories and their matching,
+Developer Flow currently ships the Pi coding-runtime adapter and needs its provider
+values plus the GitHub token in `.env`; see the Developer Flow block in `.env.example`.
+Source repositories and their matching,
 authorized delivery targets are declared together in `application.yaml`. Then build
 both runtime images and start the complete local control plane:
 
@@ -142,17 +143,17 @@ curl -s -X POST localhost:8080/api/triggers/manual \
 ```
 
 The Factory container owns the Docker socket only for this trusted single-user MVP.
-Pi runs in a separate container without that socket or Jira/GitHub credentials;
+The configured coding runtime runs in a separate container without that socket or Jira/GitHub credentials;
 verification reconstructs the frozen patch in another fresh container. Delivery is
 blocked unless the exact candidate has a matching successful verification receipt.
-The trusted starting build reuses the `factory-dev-m2-cache` Docker volume. Pi and independent
+The trusted starting build reuses the `factory-dev-m2-cache` Docker volume. The coding runtime and independent
 verification mount it read-only and copy dependencies into private writable repositories.
 The cache survives `docker compose down`; to reset only it, stop the stack and run
 `docker volume rm factory-dev-m2-cache` before starting Compose again.
 Developer execution pages estimate API cost from the operator-owned
 `config/developer-pricing.yaml` rate card, mounted read-only by Compose. Rates match
 the exact stored provider/model pair and are deliberately separate from any cost
-reported by Pi; update the YAML when provider pricing changes. A positive token
+reported by the coding runtime; update the YAML when provider pricing changes. A positive token
 category without a configured rate makes the estimate unavailable rather than
 silently undercounting it.
 Compose publishes Factory and PostgreSQL on `127.0.0.1` by default. The MVP still
@@ -187,6 +188,7 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_LLM_BASE_URL` / `_COMPLETIONS_PATH` | OpenAI-compatible endpoint (defaults target Groq: `https://api.groq.com/openai/v1` + `/chat/completions`) |
 | `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (default `jdbc:postgresql://localhost:5432/factory`) |
 | `FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME` | Persistent trusted Developer Flow Maven cache volume (default `factory-dev-m2-cache`) |
+| `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (currently `pi`; default `pi`) |
 | `FACTORY_DB_POOL_MAX` / `_MIN_IDLE` | HikariCP pool sizing (defaults `16` / `4`; see `doc/performance.md`) |
 | `FACTORY_DB_POOL_CONNECTION_TIMEOUT_MS` / `_MAX_LIFETIME_MS` / `_IDLE_TIMEOUT_MS` / `_LEAK_DETECTION_MS` | HikariCP tuning (defaults `30000` / `1800000` / `600000` / `60000`) |
 | `FACTORY_HTTP_CONNECT_TIMEOUT` / `_READ_TIMEOUT` | Connector HTTP timeouts (Duration; defaults `5s` / `30s`) |

@@ -165,13 +165,13 @@ public class ExecutionUiController {
             boolean completedEvent = event.getEventType() == AuditEventType.STEP_COMPLETED;
             String activity = detail.path("activity").asString("");
             if (includeCodingProgress && event.getEventType() == AuditEventType.RUNTIME_PROGRESS
-                    && "pi_starting".equals(activity)) {
+                    && ("pi_starting".equals(activity) || "coding_starting".equals(activity))) {
                 runtimeIdentity.put(event.getStepId(), new RuntimeIdentity(
                         text(detail, "provider"), text(detail, "model")));
                 continue;
             }
             boolean codingProgress = includeCodingProgress && event.getEventType() == AuditEventType.RUNTIME_PROGRESS
-                    && "pi_usage".equals(activity);
+                    && ("pi_usage".equals(activity) || "coding_usage".equals(activity));
             if (!completedEvent && !codingProgress) continue;
             Long prompt = token(detail, "promptTokens");
             Long completion = token(detail, "completionTokens");
