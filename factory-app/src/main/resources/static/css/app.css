@@ -242,7 +242,8 @@ a:hover { text-decoration: underline; }
 }
 .badge-destructive, .badge-status-FAILED_ESCALATED, .badge-status-REJECTED,
 .badge-status-DEVELOPMENT_FAILED, .badge-status-VERIFICATION_FAILED, .badge-status-DELIVERY_BLOCKED,
-.badge-status-UNSUPPORTED, .badge-status-BLOCKED, .badge-status-BLOCKED_ENVIRONMENT, .badge-status-OUTCOME_UNAVAILABLE {
+.badge-status-UNSUPPORTED, .badge-status-BLOCKED, .badge-status-BLOCKED_ENVIRONMENT,
+.badge-status-REPOSITORY_MISMATCH, .badge-status-OUTCOME_UNAVAILABLE {
   background: hsl(var(--destructive));
   color: hsl(var(--destructive-foreground));
 }

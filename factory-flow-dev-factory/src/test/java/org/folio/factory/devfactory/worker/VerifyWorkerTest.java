@@ -28,4 +28,20 @@ class VerifyWorkerTest {
         assertThat(result.outputs().get(VerifyWorker.RESULT)).contains("DEVELOPMENT_FAILED", "provider unavailable");
         verifyNoInteractions(verifier);
     }
+
+    @Test
+    void repositoryMismatchPlaceholderCannotBeVerified() {
+        CandidateVerifier verifier = mock(CandidateVerifier.class);
+        var candidate = new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json",
+                "{\"state\":\"REPOSITORY_MISMATCH\",\"reason\":\"Repository target remains unresolved\"}");
+        var context = new AgentContext(UUID.randomUUID(), "verify", Map.of(DevelopWorker.CANDIDATE, candidate),
+                null, Map.of(), List.of());
+
+        var result = new VerifyWorker(verifier).execute(context);
+
+        assertThat(result.outputs().get(VerifyWorker.RECEIPT)).contains("NOT_RUN");
+        assertThat(result.outputs().get(VerifyWorker.RESULT))
+                .contains("REPOSITORY_MISMATCH", "Repository target remains unresolved");
+        verifyNoInteractions(verifier);
+    }
 }

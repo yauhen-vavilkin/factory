@@ -16,7 +16,8 @@ class DeveloperExecutionViewTest {
         var execution = new PipelineExecution("dev-factory", "1", "{}");
         execution.setStatus(ExecutionStatus.COMPLETED);
         for (String state : List.of("DEVELOPMENT_FAILED", "VERIFICATION_FAILED", "DELIVERY_BLOCKED",
-                "UNSUPPORTED", "BLOCKED", "BLOCKED_ENVIRONMENT", "DELIVERED", "VERIFIED")) {
+                "UNSUPPORTED", "BLOCKED", "BLOCKED_ENVIRONMENT", "REPOSITORY_MISMATCH",
+                "DELIVERED", "VERIFIED")) {
             assertThat(view.productStatus(execution, List.of(
                     artifact("dev_result.json", 2, "{\"state\":\"" + state + "\"}"),
                     artifact("dev_result.json", 1, "{\"state\":\"VERIFIED\"}"),

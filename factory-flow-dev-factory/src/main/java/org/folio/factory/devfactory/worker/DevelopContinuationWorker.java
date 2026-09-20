@@ -12,7 +12,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Map;
 
-/** Starts one fresh coding session after a confirmed answer; otherwise passes the first outcome through. */
+/** Retries a product clarification once; repository mismatches stop with an explicit non-candidate outcome. */
 public class DevelopContinuationWorker implements AgentWorker {
     public static final String ID = "dev-develop-continuation";
 
@@ -46,6 +46,8 @@ public class DevelopContinuationWorker implements AgentWorker {
 
         CodingRequest next = request.withDecision(new CodingRequest.ConfirmedDecision(
                 decisionRequest.requestId(), decisionRequest.kind(), decisionRequest.question(), answer.answer()));
+        if (outcome.decision().kind() == CodingOutcome.DecisionKind.REPOSITORY_MISMATCH)
+            return repositoryMismatch(context, next, outcome, decisionRequest, answer);
         var attempt = develop.retry(context, next,
                 json.readTree(context.requireInput(DevelopWorker.READINESS).content()));
         return new AgentResult(Map.of(
@@ -60,6 +62,26 @@ public class DevelopContinuationWorker implements AgentWorker {
                 IntakeResolveWorker.CODING_REQUEST, json.writeValueAsString(request),
                 DevelopWorker.OUTCOME, json.writeValueAsString(outcome),
                 DevelopWorker.CANDIDATE, context.requireInput(DevelopWorker.CANDIDATE).content(),
+                DevelopWorker.READINESS, context.requireInput(DevelopWorker.READINESS).content()), Map.of());
+    }
+
+    private AgentResult repositoryMismatch(AgentContext context, CodingRequest request, CodingOutcome previous,
+                                           CodingDecisionArtifacts.Request decision,
+                                           CodingDecisionArtifacts.Answer answer) {
+        String reason = "Repository target remains unresolved after human review: " + decision.question();
+        CodingOutcome terminal = CodingOutcome.failed("REPOSITORY_MISMATCH", reason, previous.metrics());
+        Map<String, Object> candidate = new java.util.LinkedHashMap<>();
+        candidate.put("state", "REPOSITORY_MISMATCH");
+        candidate.put("reason", reason);
+        candidate.put("requestId", decision.requestId());
+        candidate.put("evidence", decision.evidence());
+        candidate.put("humanAnswer", answer.answer());
+        candidate.put("repository", request.repository().key());
+        candidate.put("baseSha", request.repository().baseSha());
+        return new AgentResult(Map.of(
+                IntakeResolveWorker.CODING_REQUEST, json.writeValueAsString(request),
+                DevelopWorker.OUTCOME, json.writeValueAsString(terminal),
+                DevelopWorker.CANDIDATE, json.writeValueAsString(candidate),
                 DevelopWorker.READINESS, context.requireInput(DevelopWorker.READINESS).content()), Map.of());
     }
 }

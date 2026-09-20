@@ -19,6 +19,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class DevelopContinuationWorkerTest {
@@ -45,9 +46,38 @@ class DevelopContinuationWorkerTest {
             assertThat(confirmed.answer()).isEqualTo("Use the public API");
         });
         assertThat(next.repository()).isEqualTo(request().repository());
+        assertThat(next.repository().baseSha()).isEqualTo(request().repository().baseSha());
         assertThat(json.readValue(result.outputs().get(DevelopWorker.OUTCOME), CodingOutcome.class).status())
                 .isEqualTo(CodingOutcome.Status.COMPLETED);
         verify(develop).retry(any(), eq(next), any());
+    }
+
+    @Test void repositoryMismatchPreservesReviewAndStopsWithoutAnotherAttempt() {
+        DevelopWorker develop = mock(DevelopWorker.class);
+        var decision = new CodingOutcome.Decision(CodingOutcome.DecisionKind.REPOSITORY_MISMATCH,
+                "Is this the wrong repository?", List.of(), "Expected module is absent");
+        var requestArtifact = CodingDecisionArtifacts.Request.from(decision);
+
+        var result = new DevelopContinuationWorker(develop, codec)
+                .execute(context(requestArtifact, decision, "Use owner/other-repo"));
+
+        CodingRequest next = json.readValue(result.outputs().get(IntakeResolveWorker.CODING_REQUEST),
+                CodingRequest.class);
+        assertThat(next.confirmedDecisions()).singleElement().satisfies(confirmed -> {
+            assertThat(confirmed.kind()).isEqualTo("REPOSITORY_MISMATCH");
+            assertThat(confirmed.answer()).isEqualTo("Use owner/other-repo");
+        });
+        assertThat(next.repository()).isEqualTo(request().repository());
+        CodingOutcome terminal = json.readValue(result.outputs().get(DevelopWorker.OUTCOME), CodingOutcome.class);
+        assertThat(terminal.status()).isEqualTo(CodingOutcome.Status.FAILED);
+        assertThat(terminal.failure().code()).isEqualTo("REPOSITORY_MISMATCH");
+        var candidate = json.readTree(result.outputs().get(DevelopWorker.CANDIDATE));
+        assertThat(candidate.path("state").asString()).isEqualTo("REPOSITORY_MISMATCH");
+        assertThat(candidate.path("evidence").asString()).isEqualTo("Expected module is absent");
+        assertThat(candidate.path("humanAnswer").asString()).isEqualTo("Use owner/other-repo");
+        assertThat(candidate.path("repository").asString()).isEqualTo("repo");
+        assertThat(candidate.path("baseSha").asString()).isEqualTo("a".repeat(40));
+        verifyNoInteractions(develop);
     }
 
     @Test void approvalWithoutAnAnswerDoesNotAuthorizeAnotherAttempt() {
@@ -80,7 +110,12 @@ class DevelopContinuationWorkerTest {
     }
 
     private AgentContext context(CodingDecisionArtifacts.Request decisionRequest, String answer) {
-        CodingOutcome outcome = CodingOutcome.needsDecision(decision(), Map.of());
+        return context(decisionRequest, decision(), answer);
+    }
+
+    private AgentContext context(CodingDecisionArtifacts.Request decisionRequest,
+                                 CodingOutcome.Decision decision, String answer) {
+        CodingOutcome outcome = CodingOutcome.needsDecision(decision, Map.of());
         return new AgentContext(UUID.randomUUID(), "continue-implementation", Map.of(
                 IntakeResolveWorker.CODING_REQUEST, artifact(IntakeResolveWorker.CODING_REQUEST,
                         json.writeValueAsString(request())),

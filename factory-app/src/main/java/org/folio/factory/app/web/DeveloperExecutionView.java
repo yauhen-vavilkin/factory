@@ -58,7 +58,8 @@ final class DeveloperExecutionView {
         for (String name : List.of("dev_delivery.json", "dev_result.json", "dev_candidate.json", "dev_task_brief.md")) {
             String state = artifact(latest, name).path("state").asString("");
             if (Set.of("DELIVERED", "VERIFIED", "DEVELOPMENT_FAILED", "VERIFICATION_FAILED",
-                    "DELIVERY_BLOCKED", "UNSUPPORTED", "BLOCKED", "BLOCKED_ENVIRONMENT", "NEEDS_DECISION").contains(state))
+                    "DELIVERY_BLOCKED", "UNSUPPORTED", "BLOCKED", "BLOCKED_ENVIRONMENT", "NEEDS_DECISION",
+                    "REPOSITORY_MISMATCH").contains(state))
                 return state;
         }
         if ("FAIL".equals(artifact(latest, "dev_verification.json").path("result").asString("")))
