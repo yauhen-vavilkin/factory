@@ -289,6 +289,35 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void developerExecutionRendersFinalRetryUsageAndSafeProviderDiagnostics() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        execution = executions.save(execution);
+        artifactStore.putMarkdown(execution.getId(), "dev_coding_outcome.json",
+                "{\"status\":\"FAILED\",\"failure\":{\"code\":\"PROVIDER_RETRIES_EXHAUSTED\","
+                        + "\"message\":\"Pi provider request failed: HTTP 429 (rate limited)\"}}", "implement");
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "coding_starting", "provider", "test-provider", "model", "test-model"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "coding_usage", "inputTokens", 40_000, "cacheReadTokens", 100_000,
+                        "cacheWriteTokens", 0, "outputTokens", 4_000));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "provider_error", "reason", "HTTP 429 (rate limited)",
+                        "stopReason", "error"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "auto_retry_start", "attempt", 1, "maxAttempts", 3,
+                        "reason", "HTTP 429 (rate limited)"));
+        auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement",
+                Map.of("inputTokens", 100_000, "cacheReadTokens", 200_000, "cacheWriteTokens", 0,
+                        "outputTokens", 10_000, "provider", "test-provider", "model", "test-model"));
+
+        String body = assertRendered("/executions/" + execution.getId(), "Provider diagnostics");
+        assertThat(body).contains("Stop reason: Pi provider request failed: HTTP 429 (rate limited)",
+                        "310k", "0.026 USD", "Coding runtime retrying request (1/3) · HTTP 429 (rate limited)")
+                .doesNotContain("Coding runtime-reported cost");
+    }
+
+    @Test
     void developerAuditVolumeStaysBehindClosedDebugDisclosure() {
         var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
         execution.setCurrentStepIndex(3);

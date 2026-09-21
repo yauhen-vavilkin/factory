@@ -91,6 +91,7 @@ final class DeveloperExecutionView {
         add(technicalFields, "Verification exit code", verification.path("exitCode"));
 
         List<Map<String, String>> recentActivity = new ArrayList<>();
+        List<Map<String, String>> providerDiagnostics = new ArrayList<>();
         Map<String, String> latestActivity = null;
         String activityNotice = "";
         boolean runtimeObserved = false;
@@ -112,6 +113,9 @@ final class DeveloperExecutionView {
             }
             String text = runtimeActivityText(detail, bashActivity);
             var row = Map.of("time", UiFormat.format(event.getOccurredAt()), "text", text);
+            if (action.equals("provider_error") || (action.startsWith("auto_retry_")
+                    && (detail.hasNonNull("reason") || detail.has("success"))))
+                providerDiagnostics.add(row);
             latestActivity = row;
             if (detail.has("notice")) activityNotice = detail.path("notice").asString("");
             if (action.equals("turn_start")) {
@@ -166,6 +170,8 @@ final class DeveloperExecutionView {
         view.put("latestActivity", latestActivity);
         view.put("activityNotice", activityNotice);
         view.put("activity", recentActivity.subList(Math.max(0, recentActivity.size() - 6), recentActivity.size()));
+        view.put("providerDiagnostics", providerDiagnostics.subList(
+                Math.max(0, providerDiagnostics.size() - 20), providerDiagnostics.size()));
         var history = executionHistory(events);
         view.put("history", history);
         view.put("historyCount", history.size());
@@ -348,14 +354,34 @@ final class DeveloperExecutionView {
             case "agent_start" -> "Coding agent started";
             case "agent_end" -> "Coding agent finished";
             case "turn_start" -> "Coding agent working";
-            case "auto_retry_start" -> "Coding runtime retrying request";
-            case "auto_retry_end" -> "Coding runtime retry finished";
+            case "provider_error" -> "Provider request failed" + providerDetail(detail);
+            case "auto_retry_start" -> "Coding runtime retrying request" + retryAttempt(detail)
+                    + providerDetail(detail);
+            case "auto_retry_end" -> retryEndText(detail) + retryAttempt(detail) + providerDetail(detail);
             case "compaction_start" -> "Coding runtime compacting context";
             case "compaction_end" -> "Coding runtime compaction finished";
             case "tool_execution_start" -> toolStartText(detail, bashActivity);
             case "tool_execution_end" -> toolEndText(detail, bashActivity);
             default -> genericActivityText(detail, action);
         };
+    }
+
+    private static String retryAttempt(JsonNode detail) {
+        if (!detail.path("attempt").isInt()) return "";
+        String attempt = detail.path("attempt").asString();
+        return detail.path("maxAttempts").isInt() ? " (" + attempt + "/"
+                + detail.path("maxAttempts").asString() + ")" : " (attempt " + attempt + ")";
+    }
+
+    private static String retryEndText(JsonNode detail) {
+        if (!detail.has("success")) return "Coding runtime retry finished";
+        return detail.path("success").asBoolean(false)
+                ? "Coding runtime retry succeeded" : "Coding runtime retry failed";
+    }
+
+    private static String providerDetail(JsonNode detail) {
+        String reason = detail.path("reason").asString("");
+        return reason.isBlank() ? "" : " · " + reason;
     }
 
     private static String toolStartText(JsonNode detail, BashActivity bashActivity) {

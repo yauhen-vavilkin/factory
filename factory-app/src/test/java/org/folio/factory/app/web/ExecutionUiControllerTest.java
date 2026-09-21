@@ -281,6 +281,38 @@ class ExecutionUiControllerTest {
     }
 
     @Test
+    void execution_detail_newRunShowsFullRetryUsageAndSafeFailureReason() throws Exception {
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(developerExecution()));
+        when(artifactStore.allForExecution(EXECUTION_ID)).thenReturn(List.of(artifact(
+                "dev_coding_outcome.json", 1,
+                "{\"status\":\"FAILED\",\"failure\":{\"code\":\"PROVIDER_RETRIES_EXHAUSTED\","
+                        + "\"message\":\"Pi provider request failed: HTTP 429 (rate limited)\"}}", "dev-develop")));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"coding_usage\",\"inputTokens\":40000,\"cacheReadTokens\":100000,"
+                                + "\"cacheWriteTokens\":0,\"outputTokens\":4000}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"provider_error\",\"reason\":\"HTTP 429 (rate limited)\"}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
+                        "{\"inputTokens\":100000,\"cacheReadTokens\":200000,\"cacheWriteTokens\":0,"
+                                + "\"outputTokens\":10000,\"provider\":\"openai-compatible\","
+                                + "\"model\":\"glm-5.3-flash\"}")));
+
+        var result = mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "coding", true, "total", "310k", "input", "100k",
+                        "cacheRead", "200k", "cacheWrite", "0", "output", "10k")))
+                .andExpect(model().attribute("estimatedCost", new DeveloperCostEstimator.Estimate(
+                        "0.026", "USD", LocalDate.parse("2026-09-19"), "https://example.test/pricing")))
+                .andReturn();
+        @SuppressWarnings("unchecked")
+        var developer = (Map<String, Object>) result.getModelAndView().getModel().get("developer");
+        assertThat(developer).containsEntry("reason", "Pi provider request failed: HTTP 429 (rate limited)");
+        assertThat(developer.get("activity").toString()).contains("Provider request failed · HTTP 429 (rate limited)");
+    }
+
+    @Test
     void execution_detail_developerUsageKeepsMissingCacheMetricsOptional() throws Exception {
         PipelineExecution execution = developerExecution();
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));

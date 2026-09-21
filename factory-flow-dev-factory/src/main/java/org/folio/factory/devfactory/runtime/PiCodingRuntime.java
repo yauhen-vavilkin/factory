@@ -10,6 +10,7 @@ import java.util.Map;
 /** Pi adapter for the Factory-owned coding request and outcome contracts. */
 public class PiCodingRuntime implements CodingRuntime {
     static final int EVENT_STREAM_LIMIT = 16 * 1024 * 1024;
+    private static final java.util.regex.Pattern HTTP_STATUS = java.util.regex.Pattern.compile("\\b[45][0-9]{2}\\b");
     private final DevRuntimeProperties.Coding config;
     private final JsonMapper json = JsonMapper.builder().build();
 
@@ -66,7 +67,9 @@ public class PiCodingRuntime implements CodingRuntime {
                 return CodingOutcome.failed("RUNTIME_EXIT", "Pi exited with code " + execution.exitCode(),
                         withIdentity(observer.metrics(), config.provider(), config.model()));
             }
-            return sanitize(parse(execution.output(), config.provider(), config.model()));
+            var parsed = parse(execution.output(), config.provider(), config.model());
+            return sanitize(new CodingOutcome(parsed.status(), parsed.summary(), parsed.decision(), parsed.failure(),
+                    withIdentity(observer.metrics(), config.provider(), config.model())));
         } catch (java.io.IOException e) {
             throw new IllegalStateException("Cannot prepare Pi input", e);
         } finally {
@@ -108,7 +111,11 @@ public class PiCodingRuntime implements CodingRuntime {
         var mapper = JsonMapper.builder()
                 .enable(tools.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
                 .build();
-        boolean ended = false;
+        boolean settled = false;
+        boolean identityMismatch = false;
+        boolean retryExhausted = false;
+        String stopReason = "";
+        String failureDetail = "";
         String summary = "";
         var usage = new Usage();
         for (String line : output.split("\n")) {
@@ -124,21 +131,27 @@ public class PiCodingRuntime implements CodingRuntime {
                         withIdentity(usage.snapshot(), provider, model));
             }
             String type = event.path("type").asString("");
-            if (type.equals("agent_end")) ended = true;
-            if (type.equals("auto_retry_end") && !event.path("success").asBoolean(true))
-                return CodingOutcome.failed("PROVIDER_RETRIES_EXHAUSTED", "Pi provider retries exhausted",
-                        withIdentity(usage.snapshot(), provider, model));
+            var reported = reportedUsage(event);
+            if (reported != null) usage.add(reported);
+            if (type.equals("agent_start") || type.equals("auto_retry_start")) settled = false;
+            if (type.equals("agent_settled")) settled = true;
+            if (type.equals("auto_retry_end")) {
+                retryExhausted = !event.path("success").asBoolean(false);
+                if (retryExhausted && !event.path("finalError").asString("").isBlank())
+                    failureDetail = providerCause(event.path("finalError").asString(""));
+            }
             if (type.equals("message_end")) {
                 var message = event.path("message");
                 if (!message.path("role").asString("").equals("assistant")) continue;
-                if (List.of("error", "aborted").contains(message.path("stopReason").asString("")))
-                    return CodingOutcome.failed("PROVIDER_FAILED", "Pi provider failed or aborted",
-                            withIdentity(usage.snapshot(), provider, model));
+                stopReason = message.path("stopReason").asString("");
+                summary = "";
+                if (List.of("error", "aborted").contains(stopReason))
+                    failureDetail = providerCause(message.path("errorMessage").asString(""));
+                else retryExhausted = false;
+                if (List.of("error", "aborted").contains(stopReason)) continue;
                 if (!message.path("provider").asString(provider).equals(provider)
                         || !message.path("model").asString(model).equals(model))
-                    return CodingOutcome.failed("IDENTITY_MISMATCH", "Pi provider/model identity mismatch",
-                            withIdentity(usage.snapshot(), provider, model));
-                usage.add(message.path("usage"));
+                    identityMismatch = true;
                 StringBuilder text = new StringBuilder();
                 for (var block : message.path("content"))
                     if (block.path("type").asString("").equals("text"))
@@ -147,7 +160,16 @@ public class PiCodingRuntime implements CodingRuntime {
             }
         }
         Map<String, Object> metrics = withIdentity(usage.snapshot(), provider, model);
-        if (!ended || summary.isBlank())
+        if (identityMismatch)
+            return CodingOutcome.failed("IDENTITY_MISMATCH", "Pi provider/model identity mismatch", metrics);
+        if (!settled)
+            return CodingOutcome.failed("INCOMPLETE_RESULT", "Pi did not return a completed coding result", metrics);
+        if (stopReason.equals("aborted") || retryExhausted && failureDetail.equals("Retry cancelled"))
+            return CodingOutcome.failed("PROVIDER_ABORTED", "Pi provider request aborted: " + failureDetail, metrics);
+        if (stopReason.equals("error"))
+            return CodingOutcome.failed(retryExhausted ? "PROVIDER_RETRIES_EXHAUSTED" : "PROVIDER_FAILED",
+                    "Pi provider request failed: " + failureDetail, metrics);
+        if (!stopReason.equals("stop") || summary.isBlank())
             return CodingOutcome.failed("INCOMPLETE_RESULT", "Pi did not return a completed coding result", metrics);
         String normalized = summary.stripLeading();
         if (normalized.startsWith("FACTORY_DECISION_REQUIRED:")) {
@@ -168,6 +190,47 @@ public class PiCodingRuntime implements CodingRuntime {
             }
         }
         return CodingOutcome.completed(summary.substring(0, Math.min(8000, summary.length())), metrics);
+    }
+
+    private static tools.jackson.databind.JsonNode reportedUsage(tools.jackson.databind.JsonNode event) {
+        return switch (event.path("type").asString("")) {
+            case "message_end" -> event.path("message").path("role").asString("").equals("assistant")
+                    ? event.path("message").path("usage") : null;
+            case "compaction_end" -> event.path("aborted").asBoolean(false)
+                    ? null : event.path("result").path("usage");
+            default -> null;
+        };
+    }
+
+    /** Only allow fixed categories and a numeric HTTP status from untrusted provider diagnostics. */
+    private static String providerCause(String raw) {
+        if (raw == null || raw.isBlank()) return "cause unavailable";
+        var status = HTTP_STATUS.matcher(raw);
+        String code = status.find() ? status.group() : "";
+        String lower = raw.toLowerCase(java.util.Locale.ROOT);
+        String category = switch (code) {
+            case "400", "422" -> "request rejected";
+            case "401", "403" -> "authentication rejected";
+            case "402" -> "quota exhausted";
+            case "404" -> "model or endpoint unavailable";
+            case "408", "504" -> "request timed out";
+            case "413" -> "request too large";
+            case "429" -> "rate limited";
+            default -> classifyProviderCause(code, lower);
+        };
+        return code.isEmpty() ? category : "HTTP " + code + " (" + category + ")";
+    }
+
+    private static String classifyProviderCause(String code, String lower) {
+        if (code.startsWith("5")) return "provider unavailable";
+        if (!code.isEmpty()) return "request rejected";
+        if (lower.contains("rate limit") || lower.contains("too many requests")) return "rate limited";
+        if (lower.contains("context") && (lower.contains("overflow") || lower.contains("length")))
+            return "context limit exceeded";
+        if (lower.contains("timeout") || lower.contains("timed out")) return "request timed out";
+        if (lower.contains("connection") || lower.contains("network")) return "network error";
+        if (lower.contains("cancel") || lower.contains("abort")) return "Retry cancelled";
+        return "cause unavailable";
     }
 
     private static Map<String, Object> withIdentity(Map<String, Object> usage, String provider, String model) {
@@ -227,6 +290,7 @@ public class PiCodingRuntime implements CodingRuntime {
         private final String secret;
         private final java.util.function.Consumer<Map<String, Object>> observer;
         private int emitted;
+        private int diagnosticsEmitted;
         Progress(String secret, java.util.function.Consumer<Map<String, Object>> observer) {
             this.secret = secret; this.observer = observer;
         }
@@ -236,18 +300,39 @@ public class PiCodingRuntime implements CodingRuntime {
             try { frame = mapper.readTree(line); }
             catch (RuntimeException ignored) { return; }
             String type = frame.path("type").asString("");
+            var reported = reportedUsage(frame);
+            if (reported != null && usage.add(reported)) {
+                var event = usage.snapshot();
+                event.put("activity", "coding_usage");
+                observer.accept(event);
+            }
             if (type.equals("message_end")) {
                 var message = frame.path("message");
-                if (message.path("role").asString("").equals("assistant") && usage.add(message.path("usage"))) {
-                    var event = usage.snapshot();
-                    event.put("activity", "coding_usage");
-                    observer.accept(event);
+                if (message.path("role").asString("").equals("assistant")
+                        && List.of("error", "aborted").contains(message.path("stopReason").asString(""))) {
+                    var event = new java.util.LinkedHashMap<String, Object>();
+                    event.put("activity", "provider_error");
+                    event.put("stopReason", message.path("stopReason").asString(""));
+                    event.put("reason", providerCause(message.path("errorMessage").asString("")));
+                    diagnostic(event);
                 }
+                return;
+            }
+            if (type.equals("auto_retry_start") || type.equals("auto_retry_end")) {
+                var event = new java.util.LinkedHashMap<String, Object>();
+                event.put("activity", type);
+                if (frame.path("attempt").isIntegralNumber()) event.put("attempt", frame.path("attempt").asInt());
+                if (frame.path("maxAttempts").isIntegralNumber())
+                    event.put("maxAttempts", frame.path("maxAttempts").asInt());
+                if (type.equals("auto_retry_end")) event.put("success", frame.path("success").asBoolean(false));
+                String raw = frame.path(type.equals("auto_retry_start") ? "errorMessage" : "finalError").asString("");
+                if (!raw.isBlank()) event.put("reason", providerCause(raw));
+                diagnostic(event);
                 return;
             }
             if (emitted >= 200) return;
             if (!List.of("agent_start", "agent_end", "turn_start", "tool_execution_start", "tool_execution_end",
-                    "auto_retry_start", "auto_retry_end", "compaction_start", "compaction_end").contains(type)) return;
+                    "compaction_start", "compaction_end").contains(type)) return;
             Map<String, Object> event = new java.util.LinkedHashMap<>();
             event.put("activity", type);
             if (type.startsWith("tool_execution")) {
@@ -276,6 +361,9 @@ public class PiCodingRuntime implements CodingRuntime {
             emitted++;
             if (emitted == 200) event.put("notice", "Runtime activity limit reached; usage reporting continues");
             observer.accept(event);
+        }
+        private void diagnostic(Map<String, Object> event) {
+            if (diagnosticsEmitted++ < 32) observer.accept(event);
         }
         String safe(String value) {
             String clean = secret == null || secret.isBlank() ? value : value.replace(secret, "[REDACTED]");

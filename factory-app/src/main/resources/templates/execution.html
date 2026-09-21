@@ -139,6 +139,16 @@
                     <details>
                         <summary>Technical details</summary>
                         <div class="developer-debug-content">
+                            <section th:unless="${#lists.isEmpty(developer['providerDiagnostics'])}"
+                                     aria-label="Provider diagnostics">
+                                <h4>Provider diagnostics</h4>
+                                <ol>
+                                    <li th:each="diagnostic : ${developer['providerDiagnostics']}">
+                                        <time th:text="${diagnostic['time']}"></time>
+                                        <span th:text="${diagnostic['text']}"></span>
+                                    </li>
+                                </ol>
+                            </section>
                             <section class="developer-outcomes" aria-label="Verification and delivery evidence">
                                 <div><span>Starting build</span><strong th:text="${developer['startingBuild']}"></strong></div>
                                 <div><span>Verification</span><strong th:text="${developer['verification']}"></strong>
