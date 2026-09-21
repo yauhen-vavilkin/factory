@@ -19,3 +19,14 @@ factory:
         input-per-million: 1.40
         cache-read-per-million: 0.26
         output-per-million: 4.40
+      # Public Google Standard API list price, not the CodeMie organization's bill.
+      # Introductory rates expire after 2026-12-31; review before that date.
+      codemie-gemini-3-8-flash:
+        provider: codemie
+        model: gemini-3.8-flash
+        currency: USD
+        as-of: 2026-09-21
+        source: https://ai.google.dev/gemini-api/docs/pricing
+        input-per-million: 0.75
+        cache-read-per-million: 0.075
+        output-per-million: 3.75

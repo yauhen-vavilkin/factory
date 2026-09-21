@@ -20,6 +20,9 @@ final class DeveloperCostEstimator {
         boolean observed = false;
         for (Usage usage : usages) {
             if (!usage.present() || usage.provider() == null || usage.model() == null) return null;
+            // Pi can normalize absent provider usage to four zeros. Do not show that as a free run.
+            if (usage.input() == 0 && usage.cacheRead() == 0
+                    && usage.cacheWrite() == 0 && usage.output() == 0) return null;
             var rate = properties.rates().values().stream()
                     .filter(candidate -> candidate.provider().equals(usage.provider()) && candidate.model().equals(usage.model()))
                     .findFirst().orElse(null);

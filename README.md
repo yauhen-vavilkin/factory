@@ -153,9 +153,22 @@ The cache survives `docker compose down`; to reset only it, stop the stack and r
 Developer execution pages estimate API cost from the operator-owned
 `config/developer-pricing.yaml` rate card, mounted read-only by Compose. Rates match
 the exact stored provider/model pair; update the YAML when provider pricing changes.
+The `codemie/gemini-3.8-flash` rate is an estimate based on Google's public Standard
+API price through December 31, 2026, not the amount billed by CodeMie. Explicit
+cache storage charges are not included.
 The coding runtime's raw cost field remains in audit events but is not shown as API cost. A positive token
 category without a configured rate makes the estimate unavailable rather than
 silently undercounting it.
+
+To switch the coding model to CodeMie, copy the commented CodeMie model block from
+`.env.example` into the ignored `.env`, replacing the active `FACTORY_MODEL_*` values.
+Start the local CodeMie proxy on the Mac, then run
+`docker compose up -d --force-recreate factory` (add `--build` after changing Factory code).
+The coding container reaches the host proxy through `host.docker.internal:4001`.
+Switch back by restoring the previous `FACTORY_MODEL_*` values and recreating Factory.
+The CodeMie connection still needs a live streaming tool-call round trip before use
+in a Developer Flow; a healthy proxy status alone does not establish Pi compatibility.
+
 Compose publishes Factory and PostgreSQL on `127.0.0.1` by default. The MVP still
 runs the trusted Factory container as root with the Docker socket, makes its private
 workload root writable for the checkout UID/GID, and uses a 7200-second global engine
@@ -189,6 +202,9 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (default `jdbc:postgresql://localhost:5432/factory`) |
 | `FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME` | Persistent trusted Developer Flow Maven cache volume (default `factory-dev-m2-cache`) |
 | `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (currently `pi`; default `pi`) |
+| `FACTORY_MODEL_PROVIDER` / `_ID` / `_BASE_URL` / `_API` / `_API_KEY` | Pi provider identity, model id, endpoint, protocol, and credential; see the switchable profiles in `.env.example` |
+| `FACTORY_MODEL_REASONING_EFFORT` | Optional Pi thinking level; `high` for CodeMie Gemini 3.8 Flash, empty for the current GLM behavior |
+| `FACTORY_MODEL_MAX_OUTPUT_TOKENS` | Pi model output limit (default `16384`; CodeMie profile `65536`) |
 | `FACTORY_DB_POOL_MAX` / `_MIN_IDLE` | HikariCP pool sizing (defaults `16` / `4`; see `doc/performance.md`) |
 | `FACTORY_DB_POOL_CONNECTION_TIMEOUT_MS` / `_MAX_LIFETIME_MS` / `_IDLE_TIMEOUT_MS` / `_LEAK_DETECTION_MS` | HikariCP tuning (defaults `30000` / `1800000` / `600000` / `60000`) |
 | `FACTORY_HTTP_CONNECT_TIMEOUT` / `_READ_TIMEOUT` | Connector HTTP timeouts (Duration; defaults `5s` / `30s`) |

@@ -11,7 +11,7 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
     public static final String DEFAULT_MAVEN_CACHE_VOLUME = "factory-dev-m2-cache";
     public DevRuntimeProperties {
         plans = plans == null ? Map.of() : Map.copyOf(plans);
-        coding = coding == null ? new Coding(null, null, null, null, null, null, null) : coding;
+        coding = coding == null ? new Coding(null, null, null, null, null, null, null, null, null) : coding;
         timeoutSeconds = timeoutSeconds <= 0 ? 1800 : timeoutSeconds;
         mavenCacheVolume = mavenCacheVolume == null || mavenCacheVolume.isBlank()
                 ? DEFAULT_MAVEN_CACHE_VOLUME : mavenCacheVolume;
@@ -24,10 +24,14 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         return List.copyOf(command);
     }
     public record Coding(String image, String provider, String model, String baseUrl, String api, String apiKey,
-                         String runtime) {
+                         String runtime, String reasoningEffort, Integer maxOutputTokens) {
         public Coding {
             api = api == null ? "openai-completions" : api;
             runtime = runtime == null || runtime.isBlank() ? "pi" : runtime.strip().toLowerCase(java.util.Locale.ROOT);
+            reasoningEffort = reasoningEffort == null || reasoningEffort.isBlank()
+                    ? null : reasoningEffort.strip().toLowerCase(java.util.Locale.ROOT);
+            maxOutputTokens = maxOutputTokens == null ? 16384 : maxOutputTokens;
+            if (maxOutputTokens <= 0) throw new IllegalArgumentException("Coding max-output-tokens must be positive");
         }
         @Override public String toString() {
             return "Coding[runtime=" + runtime + ", image=" + image + ", provider=" + provider + ", model=" + model + "]";

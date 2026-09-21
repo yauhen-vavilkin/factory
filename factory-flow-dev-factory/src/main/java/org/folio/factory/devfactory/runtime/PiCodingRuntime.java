@@ -44,8 +44,15 @@ public class PiCodingRuntime implements CodingRuntime {
             if (config.baseUrl() != null && !config.baseUrl().isBlank()) provider.put("baseUrl", config.baseUrl());
             provider.put("api", config.api());
             provider.put("apiKey", config.apiKey());
-            provider.put("models", List.of(Map.of("id", config.model(), "name", config.model(),
-                    "contextWindow", 200000, "maxTokens", 16384)));
+            var model = new java.util.LinkedHashMap<String, Object>();
+            model.put("id", config.model());
+            model.put("name", config.model());
+            model.put("contextWindow", 200000);
+            model.put("maxTokens", config.maxOutputTokens());
+            if (config.reasoningEffort() != null) model.put("reasoning", true);
+            if (config.provider().equals("codemie") && config.model().equals("gemini-3.8-flash"))
+                model.put("compat", Map.of("supportsDeveloperRole", false, "maxTokensField", "max_tokens"));
+            provider.put("models", List.of(model));
             Files.writeString(temporary.resolve("models.json"),
                     json.writeValueAsString(Map.of("providers", Map.of(config.provider(), provider))));
             Files.writeString(temporary.resolve("task.txt"), prompt(request));
@@ -54,10 +61,14 @@ public class PiCodingRuntime implements CodingRuntime {
             var observer = new Progress(config.apiKey(), progress);
             Processes.Result execution;
             try {
-                execution = workload.execute(List.of("env", "PI_CODING_AGENT_DIR=/tmp/factory-pi", "pi", "--print",
-                                "--mode", "json", "--no-session", "--no-extensions", "--no-skills",
-                                "--no-prompt-templates", "--no-themes", "--offline", "--provider",
-                                config.provider(), "--model", config.model(), "@/tmp/factory-pi/task.txt"),
+                var command = new java.util.ArrayList<>(List.of("env", "PI_CODING_AGENT_DIR=/tmp/factory-pi", "pi", "--print",
+                        "--mode", "json", "--no-session", "--no-extensions", "--no-skills",
+                        "--no-prompt-templates", "--no-themes", "--offline", "--provider",
+                        config.provider(), "--model", config.model()));
+                if (config.reasoningEffort() != null)
+                    command.addAll(List.of("--thinking", config.reasoningEffort()));
+                command.add("@/tmp/factory-pi/task.txt");
+                execution = workload.execute(command,
                         timeoutSeconds, EVENT_STREAM_LIMIT, observer);
             } catch (RuntimeException e) {
                 return CodingOutcome.failed("RUNTIME_ERROR", redact(safeFailure(e)),

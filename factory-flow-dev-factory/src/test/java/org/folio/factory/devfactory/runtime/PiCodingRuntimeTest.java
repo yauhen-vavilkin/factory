@@ -5,6 +5,9 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import java.util.List;
 import java.util.Map;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -13,6 +16,68 @@ class PiCodingRuntimeTest {
     private static final String USAGE_FRAME = """
             {"type":"message_end","message":{"role":"assistant","provider":"p","model":"m","stopReason":"stop","content":[{"type":"text","text":"private secret-key"}],"usage":{"input":10,"output":3,"cacheRead":2,"cacheWrite":1,"cost":{"total":0.125}}}}
             """;
+
+    @Test void codemieProfileProducesPiReasoningAndChatCompletionsSettings() throws Exception {
+        var coding = new DevRuntimeProperties.Coding("pi:image", "codemie", "gemini-3.8-flash",
+                "http://host.docker.internal:4001/v1", "openai-completions", "codemie-proxy", "pi", "high", 65536);
+        var captured = captureConfiguration(coding);
+        var provider = tools.jackson.databind.json.JsonMapper.builder().build().readTree(captured.modelsJson())
+                .path("providers").path("codemie");
+        assertThat(provider.path("baseUrl").asString()).isEqualTo("http://host.docker.internal:4001/v1");
+        assertThat(provider.path("api").asString()).isEqualTo("openai-completions");
+        assertThat(provider.path("apiKey").asString()).isEqualTo("codemie-proxy");
+        var model = provider.path("models").get(0);
+        assertThat(model.path("id").asString()).isEqualTo("gemini-3.8-flash");
+        assertThat(model.path("contextWindow").asInt()).isEqualTo(200000);
+        assertThat(model.path("maxTokens").asInt()).isEqualTo(65536);
+        assertThat(model.path("reasoning").asBoolean()).isTrue();
+        assertThat(model.path("compat").path("supportsDeveloperRole").asBoolean()).isFalse();
+        assertThat(model.path("compat").path("maxTokensField").asString()).isEqualTo("max_tokens");
+        assertThat(captured.command()).containsSubsequence("--provider", "codemie", "--model", "gemini-3.8-flash",
+                "--thinking", "high");
+        assertThat(captured.events().toString()).doesNotContain("codemie-proxy");
+    }
+
+    @Test void glmProfileKeepsExistingPiDefaults() throws Exception {
+        var coding = new DevRuntimeProperties.Coding("pi:image", "openai-compatible", "glm-5.3",
+                "https://api.z.ai/api/coding/paas/v4", null, "test-key", "pi", null, null);
+        var captured = captureConfiguration(coding);
+        var provider = tools.jackson.databind.json.JsonMapper.builder().build().readTree(captured.modelsJson())
+                .path("providers").path("openai-compatible");
+        var model = provider.path("models").get(0);
+        assertThat(model.path("contextWindow").asInt()).isEqualTo(200000);
+        assertThat(model.path("maxTokens").asInt()).isEqualTo(16384);
+        assertThat(model.has("reasoning")).isFalse();
+        assertThat(model.has("compat")).isFalse();
+        assertThat(captured.command()).doesNotContain("--thinking");
+    }
+
+    private static CapturedConfiguration captureConfiguration(DevRuntimeProperties.Coding coding) {
+        var workload = mock(DockerWorkloads.Workload.class);
+        var modelsJson = new AtomicReference<String>();
+        var command = new AtomicReference<List<String>>();
+        var events = new java.util.ArrayList<Map<String, Object>>();
+        when(workload.execute(List.of("pi", "--version"), 30)).thenReturn(new Processes.Result(0, "0.85.1"));
+        when(workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30))
+                .thenReturn(new Processes.Result(0, ""));
+        doAnswer(invocation -> {
+            modelsJson.set(Files.readString(Path.of((String) invocation.getArgument(0)).resolve("models.json")));
+            return null;
+        }).when(workload).copy(anyString(), eq("/tmp/factory-pi"));
+        when(workload.execute(anyList(), eq(60), eq(PiCodingRuntime.EVENT_STREAM_LIMIT), any()))
+                .thenAnswer(invocation -> {
+                    command.set(List.copyOf(invocation.getArgument(0)));
+                    return new Processes.Result(0, "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\","
+                            + "\"provider\":\"" + coding.provider() + "\",\"model\":\"" + coding.model() + "\","
+                            + "\"stopReason\":\"stop\",\"content\":[{\"type\":\"text\",\"text\":\"Done\"}]}}\n"
+                            + SETTLED);
+                });
+        assertThat(new PiCodingRuntime(coding).code(workload, request(), 60, events::add).status())
+                .isEqualTo(CodingOutcome.Status.COMPLETED);
+        return new CapturedConfiguration(modelsJson.get(), command.get(), events);
+    }
+
+    private record CapturedConfiguration(String modelsJson, List<String> command, List<Map<String, Object>> events) { }
 
     @Test void recoveredProviderErrorUsesFinalAnswerAndAllReportedUsage() {
         String stream = """
@@ -206,7 +271,7 @@ class PiCodingRuntimeTest {
                             USAGE_FRAME + frame + SETTLED);
                 });
         var events = new java.util.ArrayList<Map<String, Object>>();
-        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding("pi:image", "p", "m", null, null, "secret-key", "pi"));
+        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding("pi:image", "p", "m", null, null, "secret-key", "pi", null, null));
         if (outcome.equals("success")) {
             var result = runtime.code(workload, request(), 60, events::add);
             assertThat(result.summary()).contains("[REDACTED]").doesNotContain("secret-key");

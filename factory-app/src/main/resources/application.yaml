@@ -155,6 +155,8 @@ factory:
         base-url: ${FACTORY_MODEL_BASE_URL:}
         api: ${FACTORY_MODEL_API:openai-completions}
         api-key: ${FACTORY_MODEL_API_KEY:}
+        reasoning-effort: ${FACTORY_MODEL_REASONING_EFFORT:}
+        max-output-tokens: ${FACTORY_MODEL_MAX_OUTPUT_TOKENS:16384}
     delivery:
       create-pull-request: true
       targets:

@@ -29,7 +29,7 @@ class DevelopReadinessTest {
         var repo = new DevFactoryProperties.Repository("owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
         var properties = new DevFactoryProperties("https://example.org", new TreeMap<>(Map.of("repo", repo)));
         var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")),
-                new DevRuntimeProperties.Coding("pi:image", "provider", "model", null, null, "secret", "pi"), 60, null);
+                new DevRuntimeProperties.Coding("pi:image", "provider", "model", null, null, "secret", "pi", null, null), 60, null);
         var docker = mock(DockerWorkloads.class);
         var baseline = mock(DockerWorkloads.Workload.class);
         var pi = mock(DockerWorkloads.Workload.class);
