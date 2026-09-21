@@ -11,6 +11,7 @@ import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
+import org.folio.factory.devfactory.delivery.DeliveryReceipt;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
 import org.springframework.web.client.HttpClientErrorException;
 import tools.jackson.databind.json.JsonMapper;
@@ -70,14 +71,22 @@ public class DeliveryWorker implements AgentWorker {
                     candidate, verification, target, githubProperties.token());
             String prUrl = "";
             if (properties.createPullRequest()) {
-                prUrl = github.findOpenPullRequest(target.repository(), receipt.branch(), target.baseBranch())
-                        .orElseGet(() -> github.createPullRequest(target.repository(), receipt.branch(), target.baseBranch(),
-                                issueKey + ": " + summary, pullRequestBody(candidate, receipt.commitSha())));
+                try {
+                    prUrl = github.findOpenPullRequest(target.repository(), receipt.branch(), target.baseBranch())
+                            .orElseGet(() -> github.createPullRequest(target.repository(), receipt.branch(), target.baseBranch(),
+                                    issueKey + ": " + summary, pullRequestBody(candidate, receipt.commitSha())));
+                } catch (HttpClientErrorException e) {
+                    int status = e.getStatusCode().value();
+                    if (status != 408 && status != 429) {
+                        return blocked(previous, candidate,
+                                "Candidate branch and commit delivered; GitHub blocked pull request creation (HTTP " + status + ")",
+                                receipt);
+                    }
+                    throw e;
+                }
             }
             Map<String, Object> result = identity("DELIVERED", candidate);
-            result.put("deliveryRepository", receipt.repository());
-            result.put("deliveryBranch", receipt.branch());
-            result.put("deliveryCommitSha", receipt.commitSha());
+            deliveredIdentity(result, receipt);
             result.put("pullRequestUrl", prUrl);
             return new AgentResult(Map.of(DELIVERY, json.writeValueAsString(result),
                     VerifyWorker.RESULT, json.writeValueAsString(result)), Map.of());
@@ -93,11 +102,26 @@ public class DeliveryWorker implements AgentWorker {
     }
 
     private AgentResult blocked(tools.jackson.databind.JsonNode previous, Candidate candidate, String reason) {
+        return blocked(previous, candidate, reason, null);
+    }
+
+    private AgentResult blocked(tools.jackson.databind.JsonNode previous, Candidate candidate, String reason,
+                                DeliveryReceipt receipt) {
         Map<String, Object> result = identity("DELIVERY_BLOCKED", candidate);
         result.put("reason", reason);
         result.put("verificationPlan", previous.path("verificationPlan").asString(""));
+        if (receipt != null) {
+            deliveredIdentity(result, receipt);
+            result.put("pullRequestState", "BLOCKED");
+        }
         return new AgentResult(Map.of(DELIVERY, json.writeValueAsString(result),
                 VerifyWorker.RESULT, json.writeValueAsString(result)), Map.of());
+    }
+
+    private static void deliveredIdentity(Map<String, Object> result, DeliveryReceipt receipt) {
+        result.put("deliveryRepository", receipt.repository());
+        result.put("deliveryBranch", receipt.branch());
+        result.put("deliveryCommitSha", receipt.commitSha());
     }
 
     private static Map<String, Object> identity(String state, Candidate candidate) {

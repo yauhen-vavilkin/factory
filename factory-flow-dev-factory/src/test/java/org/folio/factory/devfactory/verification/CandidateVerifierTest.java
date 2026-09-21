@@ -76,7 +76,7 @@ class CandidateVerifierTest {
         assertThat(receipt.planId()).isEqualTo("unit");
         assertThat(receipt.image()).isEqualTo("trusted-java21");
         assertThat(receipt.argv()).isEqualTo(command);
-        assertThat(receipt.testCount()).isEqualTo(exit == 0 ? 3 : 0);
+        assertThat(receipt.testCount()).isEqualTo(3);
         assertThat(receipt.finishedAt()).isAfterOrEqualTo(receipt.startedAt());
         if (exit == 0) receipt.requireVerified("execution", candidate);
         else assertThatThrownBy(() -> receipt.requireVerified("execution", candidate)).isInstanceOf(IllegalStateException.class);
@@ -92,7 +92,9 @@ class CandidateVerifierTest {
         var receipt = verifier.verify("execution", candidate);
 
         assertThat(receipt.exitCode()).isZero();
-        assertThat(receipt.testCount()).isZero();
+        assertThat(receipt.testCount()).isNull();
+        assertThat(receipt.failureCount()).isNull();
+        assertThat(receipt.errorCount()).isNull();
         assertThat(receipt.result()).isEqualTo("FAIL");
         assertThat(receipt.output()).contains("no fresh executed Surefire tests");
         assertThatThrownBy(() -> receipt.requireVerified("execution", candidate))
@@ -120,6 +122,49 @@ class CandidateVerifierTest {
         assertThat(receipt.testCount()).isEqualTo(3);
         assertThat(receipt.failureCount()).isEqualTo(1);
         assertThat(receipt.result()).isEqualTo("FAIL");
+    }
+
+    @Test
+    void failingCommandPreservesFreshTestFailuresAndErrors() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "BUILD FAILURE"));
+        exportReport("<testsuite tests='5' skipped='1' failures='2' errors='1'/>");
+
+        var receipt = verifier.verify("execution", candidate);
+
+        assertThat(receipt.testCount()).isEqualTo(4);
+        assertThat(receipt.failureCount()).isEqualTo(2);
+        assertThat(receipt.errorCount()).isEqualTo(1);
+        assertThat(receipt.result()).isEqualTo("FAIL");
+        assertThatThrownBy(() -> receipt.requireVerified("execution", candidate)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void buildFailureWithoutReportsHasNoUsableEvidence() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "Compilation failed"));
+        doNothing().when(workload).export(any());
+
+        var receipt = verifier.verify("execution", candidate);
+
+        assertThat(receipt.surefireReportCount()).isZero();
+        assertThat(receipt.testCount()).isNull();
+        assertThat(receipt.failureCount()).isNull();
+        assertThat(receipt.errorCount()).isNull();
+        assertThat(receipt.result()).isEqualTo("FAIL");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1})
+    void invalidEvidenceCannotAuthorizePassAndRetainsDiagnostic(int exit) {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(exit, "x".repeat(20000)));
+        exportReport("<testsuite tests='3' skipped='0' failures='0' errors='0'>");
+
+        var receipt = verifier.verify("execution", candidate);
+
+        assertThat(receipt.result()).isEqualTo("FAIL");
+        assertThat(receipt.surefireReportCount()).isZero();
+        assertThat(receipt.failureCount()).isNull();
+        assertThat(receipt.output()).hasSizeLessThanOrEqualTo(16000).contains("Invalid or unsafe Surefire XML");
+        assertThatThrownBy(() -> receipt.requireVerified("execution", candidate)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test

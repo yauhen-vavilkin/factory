@@ -42,7 +42,7 @@ class CandidateDeliveryTest {
     private VerificationReceipt receipt(String execution, int exit) {
         return new VerificationReceipt(execution, candidate.repository(), candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(),
                 "focused", "fixture", List.of("true"), "fixture", Instant.EPOCH, Instant.EPOCH, exit,
-                exit == 0 ? 1 : 0, exit == 0 ? 1 : 0, 0, 0,
+                exit == 0 ? 1 : 0, exit == 0 ? 1 : null, exit == 0 ? 0 : null, exit == 0 ? 0 : null,
                 exit == 0 ? "PASS" : "FAIL", "");
     }
 

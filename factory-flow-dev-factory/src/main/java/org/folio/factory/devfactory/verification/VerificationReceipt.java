@@ -10,12 +10,16 @@ import java.util.Objects;
 public record VerificationReceipt(String executionId, String repository, String baseSha, String treeSha,
                                   String patchSha256, String planId, String image, List<String> argv,
                                   String workload, Instant startedAt, Instant finishedAt, int exitCode,
-                                  int surefireReportCount, int testCount, int failureCount, int errorCount,
+                                  int surefireReportCount, Integer testCount, Integer failureCount, Integer errorCount,
                                   String result, String output) {
     public VerificationReceipt {
         Objects.requireNonNull(executionId);
         argv = List.copyOf(argv);
-        if (surefireReportCount < 0 || testCount < 0 || failureCount < 0 || errorCount < 0) {
+        if (surefireReportCount < 0 || (surefireReportCount == 0
+                ? testCount != null || failureCount != null || errorCount != null
+                : testCount == null || failureCount == null || errorCount == null
+                || testCount < 0 || failureCount < 0 || errorCount < 0
+                || (long) failureCount + errorCount > testCount)) {
             throw new IllegalArgumentException("Invalid test evidence count");
         }
         if (!Objects.equals(result, exitCode == 0 && surefireReportCount > 0 && testCount > 0
@@ -26,7 +30,8 @@ public record VerificationReceipt(String executionId, String repository, String 
 
     /** Delivery must call this against its current execution and frozen candidate. */
     public void requireVerified(String currentExecutionId, Candidate candidate) {
-        if (!"PASS".equals(result) || exitCode != 0 || surefireReportCount < 1 || testCount < 1
+        if (!"PASS".equals(result) || exitCode != 0 || surefireReportCount < 1
+                || testCount == null || failureCount == null || errorCount == null || testCount < 1
                 || failureCount != 0 || errorCount != 0
                 || !Objects.equals(executionId, currentExecutionId)
                 || !Objects.equals(repository, candidate.repository())

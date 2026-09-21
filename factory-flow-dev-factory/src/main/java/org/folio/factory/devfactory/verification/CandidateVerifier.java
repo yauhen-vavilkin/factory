@@ -39,26 +39,30 @@ public class CandidateVerifier {
                 Instant started = Instant.now();
                 var observation = workload.execute(command, runtime.timeoutSeconds());
                 Instant finished = Instant.now();
-                SurefireEvidence evidence = new SurefireEvidence(0, 0, 0, 0);
+                SurefireEvidence evidence = null;
                 String output = observation.diagnostics();
-                if (observation.exitCode() == 0) {
-                    exported = CandidateFreezer.temporary("factory-dev-verification-");
-                    workload.stop();
-                    workload.export(exported);
+                exported = CandidateFreezer.temporary("factory-dev-verification-");
+                workload.stop();
+                workload.export(exported);
+                try {
                     evidence = SurefireEvidence.inspect(exported, started);
-                    if (evidence.testCount() == 0) {
-                        output = output + System.lineSeparator()
-                                + "Trusted verification produced no fresh executed Surefire tests";
-                    }
+                } catch (IllegalStateException e) {
+                    output += System.lineSeparator() + "No usable test evidence: " + e.getMessage();
                 }
-                String result = observation.exitCode() == 0 && evidence.reportCount() > 0
+                if (evidence != null && evidence.reportCount() == 0) evidence = null;
+                if (evidence == null || evidence.testCount() == 0) {
+                    output += System.lineSeparator() + "Trusted verification produced no fresh executed Surefire tests";
+                }
+                String result = observation.exitCode() == 0 && evidence != null && evidence.reportCount() > 0
                         && evidence.testCount() > 0 && evidence.failureCount() == 0
                         && evidence.errorCount() == 0 ? "PASS" : "FAIL";
                 return new VerificationReceipt(executionId, candidate.repository(), candidate.baseSha(),
                         candidate.treeSha(), candidate.patchSha256(), repository.verificationPlan(),
                         repository.buildImage(), command, workload.name(), started, finished,
-                        observation.exitCode(), evidence.reportCount(), evidence.testCount(),
-                        evidence.failureCount(), evidence.errorCount(), result,
+                        observation.exitCode(), evidence == null ? 0 : evidence.reportCount(),
+                        evidence == null ? null : evidence.testCount(),
+                        evidence == null ? null : evidence.failureCount(),
+                        evidence == null ? null : evidence.errorCount(), result,
                         output.substring(Math.max(0, output.length() - 16000)));
             }
         } finally {

@@ -11,17 +11,24 @@ import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
+import org.folio.factory.devfactory.delivery.DeliveryReceipt;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpClientErrorException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
@@ -92,6 +99,80 @@ class DeliveryWorkerTest {
         assertThat(result.outputs().get(DeliveryWorker.DELIVERY))
                 .contains("DELIVERY_BLOCKED", "no longer contains");
         verifyNoInteractions(github);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void permanentPullRequestRejectionPreservesDeliveredIdentity(boolean lookupRejected) {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var worker = worker(delivery, github, new GitHubProperties(null, "token"));
+        var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/modsidecar-196-12345678",
+                "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString()))
+                .thenReturn(delivered);
+        var rejection = new HttpClientErrorException(HttpStatus.FORBIDDEN, "sensitive remote diagnostic");
+        if (lookupRejected) {
+            when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenThrow(rejection);
+        } else {
+            when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+            when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
+                    .thenThrow(rejection);
+        }
+
+        var result = worker.execute(verifiedContext());
+
+        for (String artifact : List.of(DeliveryWorker.DELIVERY, VerifyWorker.RESULT)) {
+            var output = json.readTree(result.outputs().get(artifact));
+            assertThat(output.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
+            assertThat(output.path("deliveryRepository").asString()).isEqualTo(delivered.repository());
+            assertThat(output.path("deliveryBranch").asString()).isEqualTo(delivered.branch());
+            assertThat(output.path("deliveryCommitSha").asString()).isEqualTo(delivered.commitSha());
+            assertThat(output.path("pullRequestState").asString()).isEqualTo("BLOCKED");
+            assertThat(output.path("reason").asString()).contains("branch and commit delivered", "HTTP 403")
+                    .doesNotContain("sensitive remote diagnostic");
+        }
+    }
+
+    @Test
+    void transientPullRequestFailureRetriesAndReusesExistingPullRequest() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var worker = worker(delivery, github, new GitHubProperties(null, "token"));
+        var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/modsidecar-196-12345678",
+                "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString()))
+                .thenReturn(delivered);
+        when(github.findOpenPullRequest(anyString(), anyString(), anyString()))
+                .thenReturn(Optional.empty(), Optional.of("https://github.com/user/folio-module-sidecar/pull/1"));
+        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenThrow(new HttpClientErrorException(HttpStatus.TOO_MANY_REQUESTS));
+        var context = verifiedContext();
+
+        assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(HttpClientErrorException.class);
+        var result = json.readTree(worker.execute(context).outputs().get(VerifyWorker.RESULT));
+
+        assertThat(result.path("state").asString()).isEqualTo("DELIVERED");
+        assertThat(result.path("deliveryCommitSha").asString()).isEqualTo(delivered.commitSha());
+        assertThat(result.path("pullRequestUrl").asString()).endsWith("/pull/1");
+        verify(delivery, times(2)).deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString());
+        verify(github, times(1)).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    private AgentContext verifiedContext() {
+        var candidate = new Candidate("sidecar", "a".repeat(40), "b".repeat(40),
+                Candidate.sha256(""), "", "CANDIDATE_UNVERIFIED");
+        var receipt = new VerificationReceipt("00000000-0000-0000-0000-000000000001", "sidecar",
+                candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "unit", "image",
+                List.of("mvn", "test"), "fresh", Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
+                0, 1, 1, 0, 0, "PASS", "ok");
+        String brief = new FrontmatterCodec().render(Map.of("issue", Map.of(
+                "key", "MODSIDECAR-196", "summary", "Task")), "Task");
+        return contextWithId("execution", Map.of(
+                VerifyWorker.RESULT, "{\"state\":\"VERIFIED\",\"verificationPlan\":\"unit\"}",
+                DevelopWorker.CANDIDATE, json.writeValueAsString(candidate),
+                VerifyWorker.RECEIPT, json.writeValueAsString(receipt),
+                IntakeResolveWorker.TASK_BRIEF, brief));
     }
 
     private static DeliveryWorker worker(CandidateDelivery delivery, GitHubConnector github,
