@@ -284,8 +284,23 @@ class UiRenderSmokeTest {
         String body = assertRendered("/executions/" + execution.getId(), "Cost evidence");
         assertThat(body)
                 .contains("Estimated coding API cost", "0.0203 USD", "using rates dated 2026-09-19",
-                        "href=\"https://example.test/pricing\"", ">rate source</a>")
+                        "href=\"https://example.test/pricing\"", ">https://example.test/pricing</a>",
+                        "Rate-card estimate; actual provider or proxy charges may differ")
                 .doesNotContain("Coding runtime-reported cost");
+    }
+
+    @Test
+    void developerExecutionExplainsWhyPartialUsageHasNoCostEstimate() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "coding_starting", "provider", "test-provider", "model", "test-model"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "coding_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
+                        "cacheWriteTokens", 0, "outputTokens", 10_000, "usageIncomplete", true));
+
+        String body = assertRendered("/executions/" + execution.getId(), "Usage");
+        assertThat(body).contains("Cost estimate unavailable: Pi did not report enough usage for every response.")
+                .doesNotContain("Cost evidence", "No matching configured rate card.");
     }
 
     @Test

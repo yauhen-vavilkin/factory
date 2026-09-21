@@ -124,13 +124,15 @@ public class ExecutionUiController {
         }
         boolean hasLegacyOnlyUsage = usageByStep.values().stream()
                 .anyMatch(usage -> usage.factoryTokensPresent() && !usage.codingTokensPresent());
-        DeveloperCostEstimator.Estimate estimate = developerFlow && !hasLegacyOnlyUsage
+        boolean usageIncomplete = usageByStep.values().stream().anyMatch(ReportedUsage::usageIncomplete);
+        DeveloperCostEstimator.Estimate estimate = developerFlow && !hasLegacyOnlyUsage && !usageIncomplete
                 ? costEstimator.estimate(usageByStep.values().stream()
                 .filter(ReportedUsage::codingTokensPresent)
                 .map(usage -> new DeveloperCostEstimator.Usage(usage.provider(), usage.model(), usage.input(),
                         usage.cacheRead(), usage.cacheWrite(), usage.output()))
                 .toList()) : null;
         model.addAttribute("estimatedCost", estimate);
+        model.addAttribute("usageIncomplete", usageIncomplete);
         model.addAttribute("auditCount", events.size());
         model.addAttribute("artifactCount", artifacts.size());
 
@@ -183,7 +185,7 @@ public class ExecutionUiController {
             if (provider == null && identity != null) provider = identity.provider();
             if (model == null && identity != null) model = identity.model();
             var usage = new ReportedUsage(prompt, completion, input, cacheRead, cacheWrite, output,
-                    provider, model);
+                    provider, model, detail.path("usageIncomplete").asBoolean(false));
             (codingProgress ? progress : completed).put(event.getStepId(), usage);
         }
         progress.forEach(completed::putIfAbsent);
@@ -359,7 +361,7 @@ public class ExecutionUiController {
 
     private record ReportedUsage(Long prompt, Long completion, Long input, Long cacheRead,
                                  Long cacheWrite, Long output,
-                                 String provider, String model) {
+                                 String provider, String model, boolean usageIncomplete) {
         boolean factoryTokensPresent() { return prompt != null || completion != null; }
         boolean codingTokensPresent() {
             return input != null || cacheRead != null || cacheWrite != null || output != null;

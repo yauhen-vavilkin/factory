@@ -235,7 +235,35 @@ class PiCodingRuntimeTest {
         assertThat(events.toString()).doesNotContain("private", "secret-key", "content", "provider", "model");
     }
 
-    @Test void usageContinuesAfterActivityLimitAndIgnoresNonAssistantMessagesAndMissingUsage() {
+    @Test void missingUsageAfterReportedRetryKeepsTokensButMarksEstimateIncomplete() {
+        String reported = """
+                {"type":"message_end","message":{"role":"assistant","stopReason":"error","usage":{"input":10,"cacheRead":2,"cacheWrite":0,"output":1}}}
+                """;
+        String unreported = """
+                {"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"Done"}],"usage":{"input":0,"cacheRead":0,"cacheWrite":0,"output":0}}}
+                """;
+        var events = new java.util.ArrayList<Map<String, Object>>();
+        var progress = new PiCodingRuntime.Progress("secret", events::add);
+        progress.accept(reported);
+        progress.accept(unreported);
+        var result = PiCodingRuntime.parse(reported + unreported + SETTLED, "p", "m");
+        assertThat(result.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(result.metrics()).containsEntry("inputTokens", 10L)
+                .containsEntry("cacheReadTokens", 2L).containsEntry("outputTokens", 1L)
+                .containsEntry("usageIncomplete", true);
+        assertThat(events.getLast()).containsEntry("usageIncomplete", true)
+                .containsEntry("inputTokens", 10L);
+    }
+
+    @Test void partialUsageDoesNotAuthorizeACompleteCostEstimate() {
+        String stream = """
+                {"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"Done"}],"usage":{"input":1000,"cacheRead":0,"cacheWrite":0,"output":0}}}
+                """;
+        assertThat(PiCodingRuntime.parse(stream + SETTLED, "p", "m").metrics())
+                .containsEntry("inputTokens", 1000L).containsEntry("usageIncomplete", true);
+    }
+
+    @Test void usageAndMissingTelemetryContinueAfterActivityLimit() {
         var events = new java.util.ArrayList<Map<String, Object>>();
         var progress = new PiCodingRuntime.Progress("secret-key", events::add);
         for (int i = 0; i < 300; i++) progress.accept("{\"type\":\"turn_start\"}");
@@ -244,12 +272,13 @@ class PiCodingRuntimeTest {
         progress.accept("not-json");
         progress.accept(USAGE_FRAME.replace(",\"cost\":{\"total\":0.125}", ""));
         progress.accept(USAGE_FRAME.replace("\"input\":10", "\"input\":-1").replace("\"output\":3", "\"output\":-5"));
-        assertThat(events).hasSize(202);
-        assertThat(events.get(200)).doesNotContainKey("costUsd");
+        assertThat(events).hasSize(203);
+        assertThat(events.get(200)).containsEntry("usageIncomplete", true).doesNotContainKey("costUsd");
         assertThat(events.getLast()).containsEntry("inputTokens", 10L)
                 .containsEntry("cacheReadTokens", 4L)
                 .containsEntry("cacheWriteTokens", 2L)
-                .containsEntry("outputTokens", 3L);
+                .containsEntry("outputTokens", 3L)
+                .containsEntry("usageIncomplete", true);
         assertThat((java.math.BigDecimal) events.getLast().get("costUsd")).isEqualByComparingTo("0.125");
     }
 

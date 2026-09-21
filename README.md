@@ -159,6 +159,8 @@ cache storage charges are not included.
 The coding runtime's raw cost field remains in audit events but is not shown as API cost. A positive token
 category without a configured rate makes the estimate unavailable rather than
 silently undercounting it.
+If Pi reports insufficient usage for a model response, Factory keeps the reported token totals
+but does not show a cost estimate for that execution.
 
 To switch the coding model to CodeMie, copy the commented CodeMie model block from
 `.env.example` into the ignored `.env`, replacing the active `FACTORY_MODEL_*` values.
@@ -259,6 +261,16 @@ platform on a non-FOLIO project. The YAML schema itself is specified in
 
 ```bash
 mvn verify        # unit + integration tests (Testcontainers PostgreSQL; Docker required)
+```
+
+To check Pi's actual Chat Completions HTTP request against a local test endpoint,
+build the coding image and run the opt-in contract test:
+
+```bash
+docker compose build pi-runtime
+mvn -pl factory-flow-dev-factory -am test -Dtest=PiCodingHttpContractTest \
+  -Dsurefire.failIfNoSpecifiedTests=false \
+  -Dfactory.pi.contract.image=factory-dev-pi:0.85.1-java21
 ```
 
 The suite includes two full Test Factory end-to-end tests (scripted LLM, WireMock'd

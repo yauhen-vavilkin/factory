@@ -142,8 +142,7 @@ public class PiCodingRuntime implements CodingRuntime {
                         withIdentity(usage.snapshot(), provider, model));
             }
             String type = event.path("type").asString("");
-            var reported = reportedUsage(event);
-            if (reported != null) usage.add(reported);
+            usage.record(event);
             if (type.equals("agent_start") || type.equals("auto_retry_start")) settled = false;
             if (type.equals("agent_settled")) settled = true;
             if (type.equals("auto_retry_end")) {
@@ -261,6 +260,30 @@ public class PiCodingRuntime implements CodingRuntime {
         private long input, cacheRead, cacheWrite, output;
         private java.math.BigDecimal cost;
         private boolean inputPresent, cacheReadPresent, cacheWritePresent, outputPresent;
+        private boolean incomplete;
+
+        boolean record(tools.jackson.databind.JsonNode frame) {
+            var reported = reportedUsage(frame);
+            boolean changed = reported != null && add(reported);
+            String type = frame.path("type").asString("");
+            boolean metered = (type.equals("message_end")
+                    && frame.path("message").path("role").asString("").equals("assistant"))
+                    || (type.equals("compaction_end") && !frame.path("aborted").asBoolean(false));
+            // Pi substitutes zeroes for missing provider usage. A model response with no
+            // output or no input evidence cannot justify a complete cost estimate.
+            if (metered && !hasInputAndOutput(reported)) {
+                changed |= !incomplete;
+                incomplete = true;
+            }
+            return changed;
+        }
+
+        private static boolean hasInputAndOutput(tools.jackson.databind.JsonNode reported) {
+            return reported != null && reported.path("output").asLong(0) > 0
+                    && (reported.path("input").asLong(0) > 0
+                    || reported.path("cacheRead").asLong(0) > 0
+                    || reported.path("cacheWrite").asLong(0) > 0);
+        }
 
         boolean add(tools.jackson.databind.JsonNode usage) {
             if (!usage.isObject()) return false;
@@ -291,6 +314,7 @@ public class PiCodingRuntime implements CodingRuntime {
             if (cacheWritePresent) metrics.put("cacheWriteTokens", cacheWrite);
             if (outputPresent) metrics.put("outputTokens", output);
             if (cost != null) metrics.put("costUsd", cost);
+            if (incomplete) metrics.put("usageIncomplete", true);
             return metrics;
         }
     }
@@ -311,8 +335,7 @@ public class PiCodingRuntime implements CodingRuntime {
             try { frame = mapper.readTree(line); }
             catch (RuntimeException ignored) { return; }
             String type = frame.path("type").asString("");
-            var reported = reportedUsage(frame);
-            if (reported != null && usage.add(reported)) {
+            if (usage.record(frame)) {
                 var event = usage.snapshot();
                 event.put("activity", "coding_usage");
                 observer.accept(event);

@@ -313,6 +313,25 @@ class ExecutionUiControllerTest {
     }
 
     @Test
+    void execution_detail_missingRetryUsagePreservesTokensButSuppressesCost() throws Exception {
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(developerExecution()));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"coding_starting\",\"provider\":\"openai-compatible\",\"model\":\"glm-5.3-flash\"}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"coding_usage\",\"inputTokens\":1000,\"cacheReadTokens\":0,"
+                                + "\"cacheWriteTokens\":0,\"outputTokens\":100,\"usageIncomplete\":true}")));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("estimatedCost", (Object) null))
+                .andExpect(model().attribute("usageIncomplete", true))
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "coding", true, "total", "1.1k", "input", "1k",
+                        "cacheRead", "0", "cacheWrite", "0", "output", "100")));
+    }
+
+    @Test
     void execution_detail_developerUsageKeepsMissingCacheMetricsOptional() throws Exception {
         PipelineExecution execution = developerExecution();
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
