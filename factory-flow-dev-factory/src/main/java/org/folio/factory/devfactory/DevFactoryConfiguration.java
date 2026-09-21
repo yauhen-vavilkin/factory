@@ -92,13 +92,14 @@ public class DevFactoryConfiguration {
     @Bean
     public org.folio.factory.devfactory.worker.DeliveryWorker devDeliveryWorker(
             DevFactoryProperties repositories,
+            org.folio.factory.devfactory.runtime.DevRuntimeProperties runtime,
             org.folio.factory.devfactory.delivery.DevDeliveryProperties properties,
             org.folio.factory.devfactory.delivery.CandidateDelivery delivery,
             org.folio.factory.connectors.github.GitHubProperties githubProperties,
             @org.springframework.beans.factory.annotation.Qualifier("gitHubConnector")
             org.folio.factory.connectors.github.GitHubConnector github,
             FrontmatterCodec frontmatter) {
-        return new org.folio.factory.devfactory.worker.DeliveryWorker(repositories, properties, delivery,
+        return new org.folio.factory.devfactory.worker.DeliveryWorker(repositories, runtime, properties, delivery,
                 githubProperties, github, frontmatter);
     }
 

@@ -39,6 +39,9 @@ class VerifyWorkerTest {
         assertThat(json.readValue(result.outputs().get(VerifyWorker.RECEIPT), VerificationReceipt.class)).isEqualTo(receipt);
         var outcome = json.readTree(result.outputs().get(VerifyWorker.RESULT));
         assertThat(outcome.path("state").asString()).isEqualTo("VERIFICATION_FAILED");
+        assertThat(outcome.path("failureKind").asString()).isEqualTo("UNKNOWN");
+        assertThat(outcome.path("repair").asString()).isEqualTo("NOT_ATTEMPTED");
+        assertThat(outcome.path("repairReason").asString()).contains("not eligible");
         for (String count : List.of("testCount", "failureCount", "errorCount")) {
             assertThat(outcome.path(count).isNull()).isTrue();
         }

@@ -7,10 +7,24 @@ import java.util.Map;
 /** Operator-owned commands; task text never supplies executable configuration. */
 @ConfigurationProperties(prefix = "factory.dev-factory.runtime")
 public record DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
-                                   String mavenCacheVolume) {
+                                   String mavenCacheVolume, Map<String, List<String>> requiredReports) {
     public static final String DEFAULT_MAVEN_CACHE_VOLUME = "factory-dev-m2-cache";
+    public DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
+                                String mavenCacheVolume) {
+        this(plans, coding, timeoutSeconds, mavenCacheVolume, Map.of());
+    }
+    @org.springframework.boot.context.properties.bind.ConstructorBinding
     public DevRuntimeProperties {
         plans = plans == null ? Map.of() : Map.copyOf(plans);
+        requiredReports = requiredReports == null ? Map.of() : requiredReports.entrySet().stream()
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey,
+                        entry -> List.copyOf(entry.getValue())));
+        for (var reports : requiredReports.values()) for (String report : reports) {
+            if (!report.matches("(?:[A-Za-z0-9_.-]+/)*target/(?:surefire|failsafe)-reports/TEST-[A-Za-z0-9_.$-]+\\.xml")
+                    || java.util.Arrays.asList(report.split("/")).contains("..")) {
+                throw new IllegalArgumentException("Invalid required Maven report path");
+            }
+        }
         coding = coding == null ? new Coding(null, null, null, null, null, null, null, null, null) : coding;
         timeoutSeconds = timeoutSeconds <= 0 ? 1800 : timeoutSeconds;
         mavenCacheVolume = mavenCacheVolume == null || mavenCacheVolume.isBlank()
@@ -22,6 +36,9 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         var command = plans.get(id);
         if (command == null || command.isEmpty()) throw new IllegalStateException("Missing trusted verification plan: " + id);
         return List.copyOf(command);
+    }
+    public List<String> requiredReports(String id) {
+        return requiredReports.getOrDefault(id, List.of());
     }
     public record Coding(String image, String provider, String model, String baseUrl, String api, String apiKey,
                          String runtime, String reasoningEffort, Integer maxOutputTokens) {

@@ -150,6 +150,22 @@ The trusted starting build reuses the `factory-dev-m2-cache` Docker volume. The 
 verification mount it read-only and copy dependencies into private writable repositories.
 The cache survives `docker compose down`; to reset only it, stop the stack and run
 `docker volume rm factory-dev-m2-cache` before starting Compose again.
+Verification commands and required report paths are operator-owned in `application.yaml`.
+The `mod-roles-keycloak` plan uses `mvn -B -ntp verify`, which runs both Surefire
+and Failsafe through its inherited Maven lifecycle; required suites must produce
+fresh, executed reports. A successful unit suite alone cannot approve that plan.
+The other configured `java21-unit` plans cover only their executed unit tests;
+they do not claim integration-test coverage.
+In the controlled `mod-roles-keycloak` run at `55155b54aee4ae2f2ced024c3d462f27f9d8b05f`,
+the trusted starting build stopped before tests on a Maven-cache access error.
+A separate fresh workload ran 2,600 Surefire tests successfully, then all 46
+Failsafe integration tests failed during Testcontainers setup because no Docker
+environment was available inside the isolated container. This topology does not
+support that integration suite; Factory does not mount the host Docker socket or
+claim a successful verification for it. Resolve the cache ownership separately
+before using that repository for coding. Automatic verification-driven repair is
+deferred: the current engine may replay a worker after a lease recovery, so a
+durable one-attempt claim would be needed before adding a repair coding step.
 Developer execution pages estimate API cost from the operator-owned
 `config/developer-pricing.yaml` rate card, mounted read-only by Compose. Rates match
 the exact stored model ID, independent of the Pi provider; update the YAML when official model pricing changes.

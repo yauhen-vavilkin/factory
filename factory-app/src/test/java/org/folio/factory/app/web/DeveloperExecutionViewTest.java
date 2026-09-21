@@ -12,6 +12,25 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DeveloperExecutionViewTest {
     private final DeveloperExecutionView view = new DeveloperExecutionView(JsonMapper.builder().build());
 
+    @Test void absentVerificationCountersRemainUnknown() {
+        var execution = new PipelineExecution("dev-factory", "0.8.0", "{}");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        var result = view.build(execution, List.of(artifact("dev_verification.json", 1,
+                "{\"result\":\"FAIL\",\"exitCode\":1,\"testCount\":null,\"failureCount\":null,\"errorCount\":null}")),
+                List.of(), Instant.now());
+        assertThat(result).containsEntry("testCount", "unknown");
+        assertThat(result.get("reason").toString()).contains("tests unknown", "failures unknown", "errors unknown");
+    }
+
+    @Test void deferredRepairReasonIsVisibleInTechnicalEvidence() {
+        var execution = new PipelineExecution("dev-factory", "0.8.0", "{}");
+        var result = view.build(execution, List.of(artifact("dev_result.json", 1,
+                "{\"repair\":\"NOT_ATTEMPTED\",\"repairReason\":\"Durable single attempt is not supported\"}")),
+                List.of(), Instant.now());
+        assertThat(result.get("technicalFields").toString())
+                .contains("Automatic repair", "NOT_ATTEMPTED", "Durable single attempt is not supported");
+    }
+
     @Test void productStatusUsesLatestOutcomeAndDoesNotTreatSkippedDeliveryAsSuccess() {
         var execution = new PipelineExecution("dev-factory", "1", "{}");
         execution.setStatus(ExecutionStatus.COMPLETED);

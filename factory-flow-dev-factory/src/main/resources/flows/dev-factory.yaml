@@ -1,6 +1,6 @@
 id: dev-factory
 name: Developer Flow
-version: 0.7.0
+version: 0.8.0
 triggers:
   - event_type: manual
 input_schema:
@@ -56,5 +56,5 @@ agent_chain:
   - step_id: publish
     type: AGENT
     worker_id: dev-deliver
-    inputs: [dev_task_brief.md, dev_candidate.json, dev_verification.json, dev_result.json]
+    inputs: [dev_task_brief.md, dev_coding_request.json, dev_coding_outcome.json, dev_candidate.json, dev_verification.json, dev_result.json]
     outputs: [dev_delivery.json, dev_result.json]

@@ -76,4 +76,17 @@ class DevRuntimePropertiesTest {
         assertThatThrownBy(() -> new DevRuntimeProperties(null, null, 0, "bad/name"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void bindsTrustedRequiredReportPathsAndRejectsTraversal() {
+        var source = new MapConfigurationPropertySource(Map.of(
+                "factory.dev-factory.runtime.required-reports.roles[0]",
+                "target/failsafe-reports/TEST-org.folio.roles.it.CacheConfigIT.xml"));
+        var properties = new Binder(source).bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get();
+        assertThat(properties.requiredReports("roles")).containsExactly(
+                "target/failsafe-reports/TEST-org.folio.roles.it.CacheConfigIT.xml");
+        assertThatThrownBy(() -> new DevRuntimeProperties(null, null, 0, null,
+                Map.of("roles", java.util.List.of("../target/failsafe-reports/TEST-a.xml"))))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

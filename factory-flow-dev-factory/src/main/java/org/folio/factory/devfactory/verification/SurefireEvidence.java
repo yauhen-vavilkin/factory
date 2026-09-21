@@ -14,8 +14,9 @@ import org.w3c.dom.Element;
 import org.xml.sax.SAXException;
 import org.xml.sax.helpers.DefaultHandler;
 
-/** Small Maven/Surefire proof: only fresh TEST-*.xml reports count as executed tests. */
-record SurefireEvidence(int reportCount, int testCount, int failureCount, int errorCount) {
+/** Maven proof: only fresh Surefire/Failsafe TEST-*.xml reports count as executed tests. */
+record SurefireEvidence(int reportCount, int testCount, int failureCount, int errorCount,
+                        int failsafeReportCount, java.util.Map<String, Integer> executedByReport) {
     private static final int MAX_REPORT_BYTES = 2 * 1024 * 1024;
 
     static SurefireEvidence inspect(Path workspace, Instant verificationStarted) {
@@ -23,6 +24,8 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
         int tests = 0;
         int failures = 0;
         int errors = 0;
+        int failsafeReports = 0;
+        var executedByReport = new java.util.LinkedHashMap<String, Integer>();
         Instant oldestAccepted = verificationStarted.minusSeconds(2);
         try (var paths = Files.walk(workspace)) {
             for (Path report : paths.toList()) {
@@ -50,11 +53,13 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
                     throw new IllegalStateException("Invalid Surefire counters");
                 }
                 reports++;
+                if (relative.getParent().getFileName().toString().equals("failsafe-reports")) failsafeReports++;
+                executedByReport.put(relative.toString().replace('\\', '/'), suiteTests - suiteSkipped);
                 tests = Math.addExact(tests, suiteTests - suiteSkipped);
                 failures = Math.addExact(failures, suiteFailures);
                 errors = Math.addExact(errors, suiteErrors);
             }
-            return new SurefireEvidence(reports, tests, failures, errors);
+            return new SurefireEvidence(reports, tests, failures, errors, failsafeReports, java.util.Map.copyOf(executedByReport));
         } catch (IOException | UncheckedIOException | ArithmeticException e) {
             throw new IllegalStateException("Cannot inspect fresh Surefire evidence", e);
         }
@@ -103,7 +108,9 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
         if (!name.startsWith("TEST-") || !name.endsWith(".xml")) return false;
         for (int i = 0; i + 1 < relative.getNameCount(); i++) {
             if (relative.getName(i).toString().equals("target")
-                    && relative.getName(i + 1).toString().equals("surefire-reports")) return true;
+                    && (relative.getName(i + 1).toString().equals("surefire-reports")
+                    || relative.getName(i + 1).toString().equals("failsafe-reports"))
+                    && i + 3 == relative.getNameCount()) return true;
         }
         return false;
     }

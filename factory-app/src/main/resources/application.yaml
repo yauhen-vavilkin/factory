@@ -134,7 +134,7 @@ factory:
         source-repo: yauhen-vavilkin/mod-roles-keycloak
         base-branch: master
         build-image: maven:3.9-eclipse-temurin-21
-        verification-plan: java21-unit
+        verification-plan: java21-roles-verify
         jira-projects: [MODROLESKC]
       mgr-tenant-entitlements:
         source-repo: yauhen-vavilkin/mgr-tenant-entitlements
@@ -147,6 +147,145 @@ factory:
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
       plans:
         java21-unit: [mvn, -B, -ntp, test]
+        java21-roles-verify: [mvn, -B, -ntp, verify]
+      required-reports:
+        # Inspected at mod-roles-keycloak 55155b54aee4ae2f2ced024c3d462f27f9d8b05f.
+        # Integration requires isolated Docker support; unavailable in the current workload topology.
+        java21-roles-verify:
+          - target/surefire-reports/TEST-org.folio.roles.controller.ApiExceptionHandlerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.controller.CapabilityControllerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.controller.CapabilitySetControllerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.controller.LoadableControllerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.controller.MigrationControllerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.controller.PermissionsUsersControllerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.controller.RoleCapabilityControllerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.controller.RoleCapabilitySetControllerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.controller.UserCapabilityControllerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.controller.UserCapabilitySetControllerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.controller.UserRoleControllerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.controller.validation.validator.PolicyValidatorTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.kafka.CapabilityEventModuleIdExtractorTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.kafka.CapabilityEventProcessorTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.kafka.CapabilityKafkaEventHandlerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.kafka.CapabilitySetByDummyUpdaterTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.kafka.CapabilitySetDescriptorServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.kafka.KafkaMessageListenerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.kafka.configuration.KafkaConfigurationErrorDetectionTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakAuthorizationServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakClientServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakMethodRetryPredicateTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakPermissionsExecutorTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakPolicyServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakRoleServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakRolesUserServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.KeycloakUserServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.RealmConfigurationProviderTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.keyclock.configuration.KeycloakConfigurationPropertiesTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.mte.MteEntitlementServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.integration.mte.configuration.MteConfigurationTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.mapper.KeycloakPolicyMapperTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.repository.BaseCqlJpaRepositoryTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.repository.generators.FolioUuidGeneratorImplTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.CustomTenantServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.MigrationServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.ApiRoleCapabilityServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.ApiRoleCapabilitySetServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilityEndpointServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilityEventHandlerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilityReplacementsServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilityResolverTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilityServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilitySetByCapabilitiesUpdaterTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilitySetEventHandlerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.CapabilitySetServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.RoleCapabilityServiceImplTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.RoleCapabilitySetServiceImplTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.UserCapabilityServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.UserCapabilitySetQueryServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.UserCapabilitySetServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.UserPermissionCacheEventHandlerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.UserPermissionCacheServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.capability.UserPermissionsCacheEvictorTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.loadablerole.LoadablePermissionServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.loadablerole.LoadableRoleCapabilityAssignmentHelperTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.loadablerole.LoadableRoleCapabilityAssignmentProcessorTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.loadablerole.LoadableRoleServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.loadablerole.UnresolvedLoadablePermissionsCreatedEventHandlerTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.migration.CapabilitiesMergeServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.migration.CapabilityDuplicateMigrationServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.migration.ManagePermissionsResolverTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.migration.MigrationErrorServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.migration.MigrationRoleCreatorTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.migration.PermissionMigrationServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.migration.RolePermissionAssignorTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.migration.UserPermissionsLoaderTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.permission.FolioPermissionServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.permission.PermissionOverriderTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.permission.RolePermissionServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.permission.UserPermissionServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.policy.PolicyEntityServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.policy.PolicyServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.reference.PoliciesDataLoaderTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.reference.ReferenceDataRoleNamesTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.reference.RolesDataLoaderTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.role.RoleEntityServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.role.RoleMigrationServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.role.RoleServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.role.UserRoleEntityServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.service.role.UserRoleServiceTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.utils.CapabilityUtilsTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.utils.CollectionUtilsTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.utils.JsonHelperTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.utils.ParseUtilsTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.utils.ResourceHelperTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.utils.RoleNameUtilsTest.xml
+          - target/surefire-reports/TEST-org.folio.roles.utils.UpdateOperationHelperTest.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.ActuatorIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.CacheConfigIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.CapabilityIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.CapabilityReplacesIntegrityIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.CapabilitySetIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.DummyCapabilityIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.DummyCapabilityReplacementCollapseIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.KafkaCapabilityEventUpsertIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.KafkaEventConfirmationIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.KafkaMessageFilteringFailStrategyIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.KafkaMessageFilteringIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.KafkaMessageListenerIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.LoadableRoleProcessingIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.LoadableRolesWithDummyCapabilitiesIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.MigrationIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.NestedCapabilitySetIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.PermissionReplacementIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.PermissionsUserEntitledOnlyIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.PermissionsUserIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.PolicyIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.ReferenceDataIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.ReferenceRoleLoadingIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.RemoveCapabilityDuplicateMigrationIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.RoleCapabilityIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.RoleCapabilitySetIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.RoleCapabilitySetUpdateIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.RoleCapabilityUpdateIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.RoleKeycloakIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.UserCapabilityIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.UserCapabilitySetIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.UserCapabilitySetUpdateIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.UserCapabilityUpdateIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.UserPermissionCacheIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.it.UserRolesIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.repository.BasePolicyEntityRepositoryIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.repository.CapabilityEndpointRepositoryIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.repository.CapabilityRepositoryIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.repository.CapabilitySetRepositoryIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.repository.LoadablePermissionRepositoryIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.repository.LoadableRoleRepositoryIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.repository.RoleCapabilityRepositoryIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.repository.RoleCapabilitySetRepositoryIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.repository.RoleEntityRepositoryIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.repository.UserCapabilityRepositoryIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.repository.UserCapabilitySetRepositoryIT.xml
+          - target/failsafe-reports/TEST-org.folio.roles.repository.UserRoleRepositoryIT.xml
       coding:
         runtime: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:pi}
         image: ${FACTORY_DEV_FACTORY_CODING_IMAGE:factory-dev-pi:0.85.1-java21}

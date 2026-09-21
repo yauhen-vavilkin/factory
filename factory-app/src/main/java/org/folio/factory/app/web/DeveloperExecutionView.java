@@ -89,6 +89,12 @@ final class DeveloperExecutionView {
         add(technicalFields, "Verification plan", verification.path("planId"));
         add(technicalFields, "Verification command", verification.path("argv"));
         add(technicalFields, "Verification exit code", verification.path("exitCode"));
+        add(technicalFields, "Verification failure category", verification.path("failureKind"));
+        add(technicalFields, "Required suites without executed evidence", verification.path("missingRequiredReports"));
+        add(technicalFields, "Automatic repair", result.path("repair"));
+        add(technicalFields, "Repair decision", result.path("repairReason"));
+        add(technicalFields, "Final candidate tree", candidate.path("treeSha"));
+        add(technicalFields, "Final candidate patch SHA-256", candidate.path("patchSha256"));
 
         List<Map<String, String>> recentActivity = new ArrayList<>();
         List<Map<String, String>> providerDiagnostics = new ArrayList<>();
@@ -146,9 +152,9 @@ final class DeveloperExecutionView {
         if (reason.equals("Intake is not ready")) reason = first(brief.path("reason"), result.path("reason"));
         if (reason.isBlank() && "FAIL".equals(verification.path("result").asString("")))
             reason = "Independent verification failed: exit " + verification.path("exitCode").asString("")
-                    + ", tests " + verification.path("testCount").asString("")
-                    + ", failures " + verification.path("failureCount").asString("")
-                    + ", errors " + verification.path("errorCount").asString("");
+                    + ", tests " + counter(verification, "testCount")
+                    + ", failures " + counter(verification, "failureCount")
+                    + ", errors " + counter(verification, "errorCount");
         if (reason.isBlank()) reason = first(delivery.path("reason"), verification.path("reason"));
         if (reason.isBlank() && executionError != null && !retryErrorSuperseded) reason = executionError;
         String pr = delivery.path("pullRequestUrl").asString("");
@@ -180,7 +186,7 @@ final class DeveloperExecutionView {
         view.put("currentPhase", currentPhase(phases));
         view.put("startingBuild", outcomeState(startingBuildState(readiness.path("state").asString("")), phases, 1));
         view.put("verification", outcomeState(first(verification.path("result"), verification.path("state")), phases, 2));
-        view.put("testCount", verification.path("testCount").asString(""));
+        view.put("testCount", verification.isEmpty() ? "" : counter(verification, "testCount"));
         view.put("delivery", outcomeState(delivery.path("state").asString(""), phases, 3));
         view.put("deliveryRepository", delivery.path("deliveryRepository").asString(""));
         view.put("deliveryBranch", delivery.path("deliveryBranch").asString(""));
@@ -191,6 +197,10 @@ final class DeveloperExecutionView {
         view.put("elapsed", duration(execution.getCreatedAt(), elapsedEnd));
         view.put("elapsedStart", execution.getStatus().isTerminal() ? null : execution.getCreatedAt());
         return view;
+    }
+
+    private static String counter(JsonNode receipt, String field) {
+        return receipt.hasNonNull(field) ? receipt.path(field).asString() : "unknown";
     }
 
     private static List<Map<String, String>> executionHistory(List<AuditEvent> events) {

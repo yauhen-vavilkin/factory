@@ -72,7 +72,9 @@ class DeveloperFlowRegistrationTest {
 
         JsonNode detail = rest.get().uri("/api/flows/dev-factory").retrieve().body(JsonNode.class);
         assertThat(detail.path("name").asString()).isEqualTo("Developer Flow");
-        assertThat(detail.path("version").asString()).isEqualTo("0.7.0");
+        assertThat(detail.path("version").asString()).isEqualTo("0.8.0");
+        assertThat(flowRegistry.require("dev-factory").agentChain().get(7).inputs())
+                .contains("dev_coding_request.json", "dev_coding_outcome.json");
         assertThat(detail.path("steps").findValuesAsString("stepId"))
                 .containsExactly("read-task", "select-repository", "prepare-task", "implement",
                         "clarify-implementation", "continue-implementation", "verify", "publish");
@@ -95,12 +97,15 @@ class DeveloperFlowRegistrationTest {
         assertThat(devFactoryProperties.repositories().get("mod-roles-keycloak"))
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "yauhen-vavilkin/mod-roles-keycloak", "master", "maven:3.9-eclipse-temurin-21",
-                        "java21-unit", List.of("MODROLESKC"), List.of()));
+                        "java21-roles-verify", List.of("MODROLESKC"), List.of()));
         assertThat(devFactoryProperties.repositories().get("mgr-tenant-entitlements"))
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "yauhen-vavilkin/mgr-tenant-entitlements", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-unit", List.of("MGRENTITLE"), List.of()));
         assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
+        assertThat(devRuntimeProperties.command("java21-roles-verify"))
+                .containsExactly("mvn", "-B", "-ntp", "verify");
+        assertThat(devRuntimeProperties.requiredReports("java21-roles-verify")).hasSize(134);
         assertThat(devDeliveryProperties.createPullRequest()).isTrue();
         assertThat(devDeliveryProperties.targets()).containsOnly(
                 entry("sidecar", new DeliveryTarget("yauhen-vavilkin/folio-module-sidecar", "master", true)),

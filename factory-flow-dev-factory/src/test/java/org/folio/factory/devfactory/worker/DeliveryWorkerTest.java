@@ -12,6 +12,7 @@ import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryReceipt;
+import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -34,6 +35,58 @@ import static org.mockito.Mockito.*;
 
 class DeliveryWorkerTest {
     private final JsonMapper json = JsonMapper.builder().build();
+
+    @ParameterizedTest
+    @ValueSource(strings = {"plan", "image", "command", "required"})
+    void historicalMatchingCandidateReceiptCannotBypassCurrentVerificationPolicy(String changed) {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        String plan = changed.equals("plan") ? "full" : "unit";
+        String image = changed.equals("image") ? "different-image" : "image";
+        var commands = Map.of("unit", changed.equals("command") ? List.of("mvn", "verify")
+                : List.of("mvn", "test"), "full", List.of("mvn", "verify"));
+        var required = changed.equals("required") ? Map.of("unit", List.of("target/failsafe-reports/TEST-required.xml"))
+                : Map.<String, List<String>>of();
+        var worker = worker(delivery, github, new GitHubProperties(null, "token"),
+                plan, image, new DevRuntimeProperties(commands, null, 60, null, required));
+
+        var result = json.readTree(worker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
+
+        assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
+        assertThat(result.path("reason").asString()).contains("current Factory plan", "reverify");
+        verifyNoInteractions(delivery, github);
+    }
+
+    @Test
+    void pullRequestDescribesFinalArtifactsAndActualIndependentEvidence() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var worker = worker(delivery, github, new GitHubProperties(null, "token"));
+        var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
+                "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString()))
+                .thenReturn(delivered);
+        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn("https://github.com/user/folio-module-sidecar/pull/1");
+        var original = verifiedContext();
+        var inputs = new java.util.HashMap<>(original.inputs());
+        inputs.put("dev_coding_request.json", new ArtifactContent("dev_coding_request.json", 2, "application/json",
+                "{\"description\":\"Preserve tenant routing\",\"confirmedDecisions\":[{\"question\":\"Which API?\",\"answer\":\"Use v2\"}]}"));
+        inputs.put("dev_coding_outcome.json", new ArtifactContent("dev_coding_outcome.json", 2, "application/json",
+                "{\"status\":\"COMPLETED\",\"summary\":\"Updated final routing <script> @everyone token=secret123 https://user:password123@host/path Authorization: Bearer abc123\"}"));
+
+        worker.execute(new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
+
+        var body = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(github).createPullRequest(eq(delivered.repository()), eq(delivered.branch()), eq("master"), anyString(), body.capture());
+        assertThat(body.getValue()).contains("Preserve tenant routing", "Use v2", "Updated final routing",
+                "&lt;script&gt;", "＠everyone", "executed tests: 1", "failures: 0", "errors: 0", "Plan: unit",
+                "Coding runtime summary (descriptive, not verification evidence)", "manual acceptance",
+                "b".repeat(40), "c".repeat(40), "factory/final")
+                .contains("Reports: Surefire 1; Failsafe 0", "No named suites configured")
+                .doesNotContain("<script>", "@everyone", "secret123", "password123", "abc123");
+    }
 
     @Test
     void unverifiedResultCannotReachGitOrGitHub() {
@@ -177,13 +230,20 @@ class DeliveryWorkerTest {
 
     private static DeliveryWorker worker(CandidateDelivery delivery, GitHubConnector github,
                                          GitHubProperties githubProperties) {
-        var repository = new DevFactoryProperties.Repository("folio-org/folio-module-sidecar", "master", "image",
-                "unit", List.of("MODSIDECAR"), List.of());
+        return worker(delivery, github, githubProperties, "unit", "image",
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null));
+    }
+
+    private static DeliveryWorker worker(CandidateDelivery delivery, GitHubConnector github,
+                                         GitHubProperties githubProperties, String plan, String image,
+                                         DevRuntimeProperties runtime) {
+        var repository = new DevFactoryProperties.Repository("folio-org/folio-module-sidecar", "master", image,
+                plan, List.of("MODSIDECAR"), List.of());
         var repositories = new DevFactoryProperties("https://github.com",
                 new TreeMap<>(Map.of("sidecar", repository)));
         var targets = new DevDeliveryProperties(Map.of("sidecar",
                 new DeliveryTarget("user/folio-module-sidecar", "master", true)), true);
-        return new DeliveryWorker(repositories, targets, delivery, githubProperties, github, new FrontmatterCodec());
+        return new DeliveryWorker(repositories, runtime, targets, delivery, githubProperties, github, new FrontmatterCodec());
     }
 
     private static AgentContext context(Map<String, String> inputs) {

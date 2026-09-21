@@ -54,6 +54,15 @@ public class VerifyWorker implements AgentWorker {
         outcome.put("exitCode", receipt.exitCode());
         outcome.put("testCount", receipt.testCount());
         outcome.put("surefireReportCount", receipt.surefireReportCount());
+        outcome.put("failsafeReportCount", receipt.failsafeReportCount());
+        outcome.put("failureKind", receipt.failureKind());
+        outcome.put("missingRequiredReports", receipt.missingRequiredReports());
+        if (!"PASS".equals(receipt.result())) {
+            outcome.put("repair", "NOT_ATTEMPTED");
+            outcome.put("repairReason", receipt.failureKind().repairable()
+                    ? "Automatic repair is deferred: durable single-attempt execution is not supported"
+                    : "Verification failure is not eligible for automatic repair: " + receipt.failureKind());
+        }
         outcome.put("failureCount", receipt.failureCount());
         outcome.put("errorCount", receipt.errorCount());
         return new AgentResult(Map.of(

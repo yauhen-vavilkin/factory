@@ -47,8 +47,11 @@ class SurefireEvidenceTest {
     @Test
     void singleQuotedAttributesPreserveRealFailureCounts() throws Exception {
         report("single", "<testsuite tests = '4' skipped='1' failures = '1' errors='1'/>");
-        assertThat(SurefireEvidence.inspect(workspace, Instant.now()))
-                .isEqualTo(new SurefireEvidence(1, 3, 1, 1));
+        var evidence = SurefireEvidence.inspect(workspace, Instant.now());
+        assertThat(evidence.reportCount()).isEqualTo(1);
+        assertThat(evidence.testCount()).isEqualTo(3);
+        assertThat(evidence.failureCount()).isEqualTo(1);
+        assertThat(evidence.errorCount()).isEqualTo(1);
     }
 
     @Test
@@ -72,5 +75,15 @@ class SurefireEvidenceTest {
     private Path report(String name, String xml) throws Exception {
         Path reports = Files.createDirectories(workspace.resolve("module/target/surefire-reports"));
         return Files.writeString(reports.resolve("TEST-" + name + ".xml"), xml);
+    }
+
+    @Test
+    void malformedFailsafeReportInvalidatesPassingUnitEvidence() throws Exception {
+        report("unit", "<testsuite tests='1' skipped='0' failures='0' errors='0'/>");
+        Path integration = Files.createDirectories(workspace.resolve("target/failsafe-reports"));
+        Files.writeString(integration.resolve("TEST-integration.xml"),
+                "<!DOCTYPE testsuite SYSTEM 'file:///etc/passwd'><testsuite tests='1' skipped='0' failures='0' errors='0'/>");
+        assertThatThrownBy(() -> SurefireEvidence.inspect(workspace, Instant.now()))
+                .hasMessageContaining("Invalid or unsafe Surefire XML");
     }
 }

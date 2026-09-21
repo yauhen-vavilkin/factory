@@ -32,6 +32,7 @@ class CandidateVerifierTest {
     private DockerWorkloads docker;
     private DockerWorkloads.Workload workload;
     private Path original;
+    private DevFactoryProperties properties;
     private final List<String> command = List.of("mvn", "-B", "-ntp", "clean", "test");
 
     @BeforeEach
@@ -49,7 +50,7 @@ class CandidateVerifierTest {
                 Candidate.sha256(patch), patch, "CANDIDATE_UNVERIFIED");
         var repository = new DevFactoryProperties.Repository("owner/source", "master", "trusted-java21",
                 "unit", List.of("TASK"), List.of());
-        var properties = new DevFactoryProperties(root.toString(), new TreeMap<>(Map.of("source", repository)));
+        properties = new DevFactoryProperties(root.toString(), new TreeMap<>(Map.of("source", repository)));
         var runtime = new DevRuntimeProperties(Map.of("unit", command), null, 60, null);
         docker = mock(DockerWorkloads.class);
         workload = mock(DockerWorkloads.Workload.class);
@@ -183,6 +184,109 @@ class CandidateVerifierTest {
                 candidate.patchSha256(), candidate.patch(), candidate.state());
         assertThatThrownBy(() -> receipt.requireVerified("execution", other)).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> receipt.requireVerified("other-execution", candidate)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {-1, 0, 2})
+    void everyRequiredFailsafeSuiteMustExecute(int executed) {
+        String required = "module/target/failsafe-reports/TEST-integration.xml";
+        var runtime = new DevRuntimeProperties(Map.of("unit", command), null, 60, null,
+                Map.of("unit", List.of(required)));
+        verifier = new CandidateVerifier(properties, runtime, new CandidateFreezer(), docker);
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "BUILD SUCCESS"));
+        doAnswer(invocation -> {
+            Path exported = invocation.getArgument(0);
+            Path unit = Files.createDirectories(exported.resolve("target/surefire-reports"));
+            Files.writeString(unit.resolve("TEST-unit.xml"), "<testsuite tests='3' skipped='0' failures='0' errors='0'/>");
+            if (executed >= 0) {
+                Files.createDirectories(exported.resolve(required).getParent());
+                Files.writeString(exported.resolve(required), "<testsuite tests='2' skipped='"
+                        + (2 - executed) + "' failures='0' errors='0'/>");
+            }
+            return null;
+        }).when(workload).export(any());
+
+        var receipt = verifier.verify("execution", candidate);
+
+        assertThat(receipt.surefireReportCount()).isEqualTo(1);
+        assertThat(receipt.failsafeReportCount()).isEqualTo(executed < 0 ? 0 : 1);
+        assertThat(receipt.testCount()).isEqualTo(3 + Math.max(executed, 0));
+        assertThat(receipt.result()).isEqualTo(executed > 0 ? "PASS" : "FAIL");
+        if (executed > 0) receipt.requireVerified("execution", candidate);
+        else {
+            assertThat(receipt.missingRequiredReports()).containsExactly(required);
+            assertThat(receipt.failureKind()).isEqualTo(VerificationFailure.INSUFFICIENT_EVIDENCE);
+            assertThat(receipt.failureKind().repairable()).isFalse();
+            assertThatThrownBy(() -> receipt.requireVerified("execution", candidate)).isInstanceOf(IllegalStateException.class);
+        }
+    }
+
+    @Test
+    void assertionDiagnosticAndValidEvidenceIdentifyCandidateFailure() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "AssertionFailedError: expected: <1> but was: <2>"));
+        exportReport("<testsuite tests='3' skipped='0' failures='1' errors='0'/>");
+        assertThat(verifier.verify("execution", candidate).failureKind()).isEqualTo(VerificationFailure.CANDIDATE);
+    }
+
+    @Test
+    void dockerFailureIsNeverCandidateFailureEvenWithAssertionFailures() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+                "AssertionFailedError; Could not find a valid Docker environment"));
+        exportReport("<testsuite tests='3' skipped='0' failures='1' errors='0'/>");
+        assertThat(verifier.verify("execution", candidate).failureKind()).isEqualTo(VerificationFailure.ENVIRONMENT);
+    }
+
+    @Test
+    void timeoutRetainsEvidenceButCannotAuthorizeDeliveryOrRepair() {
+        when(workload.execute(command, 60)).thenThrow(new IllegalStateException("Command exceeded 60 seconds"));
+        var receipt = verifier.verify("execution", candidate);
+        assertThat(receipt.exitCode()).isEqualTo(-1);
+        assertThat(receipt.testCount()).isEqualTo(3);
+        assertThat(receipt.failureKind()).isEqualTo(VerificationFailure.ENVIRONMENT);
+        assertThat(receipt.failureKind().repairable()).isFalse();
+        assertThatThrownBy(() -> receipt.requireVerified("execution", candidate)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void compilerDiagnosticIsInformationalWithoutInventingTestEvidence() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+                "[ERROR] COMPILATION ERROR :\n[ERROR] /workspace/src/main/java/Example.java:[12,3] cannot find symbol"));
+        doNothing().when(workload).export(any());
+        var receipt = verifier.verify("execution", candidate);
+        assertThat(receipt.testCount()).isNull();
+        assertThat(receipt.failureKind()).isEqualTo(VerificationFailure.CANDIDATE_COMPILE);
+        assertThat(receipt.failureKind().repairable()).isFalse();
+    }
+
+    @Test
+    void unrecognizedFailureWithPassingReportsRemainsUnknown() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "BUILD FAILURE"));
+        assertThat(verifier.verify("execution", candidate).failureKind()).isEqualTo(VerificationFailure.UNKNOWN);
+    }
+
+    @Test
+    void assertionTextWithoutEvidenceCannotAuthorizeRepair() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "AssertionFailedError"));
+        doNothing().when(workload).export(any());
+        assertThat(verifier.verify("execution", candidate).failureKind()).isEqualTo(VerificationFailure.INSUFFICIENT_EVIDENCE);
+    }
+
+    @Test
+    void persistedDiagnosticRedactsCredentials() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+                "Authorization: Bearer secret123 https://user:password@example.org/artifact token=secret456"));
+        var receipt = verifier.verify("execution", candidate);
+        assertThat(receipt.output()).contains("[REDACTED]")
+                .doesNotContain("secret123", "secret456", "user:password");
+    }
+
+    @Test
+    void credentialCrossingDiagnosticTailBoundaryIsRedactedBeforeTruncation() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+                "x".repeat(4000) + "token=secret123" + "y".repeat(15994)));
+        var receipt = verifier.verify("execution", candidate);
+        assertThat(receipt.output()).hasSizeLessThanOrEqualTo(16000)
+                .doesNotContain("secret123", "ecret123", "cret123");
     }
 
     private void exportReport(String xml) {
