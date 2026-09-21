@@ -25,9 +25,6 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
     }
     public record Coding(String image, String provider, String model, String baseUrl, String api, String apiKey,
                          String runtime) {
-        public Coding(String image, String provider, String model, String baseUrl, String api, String apiKey) {
-            this(image, provider, model, baseUrl, api, apiKey, "pi");
-        }
         public Coding {
             api = api == null ? "openai-completions" : api;
             runtime = runtime == null || runtime.isBlank() ? "pi" : runtime.strip().toLowerCase(java.util.Locale.ROOT);

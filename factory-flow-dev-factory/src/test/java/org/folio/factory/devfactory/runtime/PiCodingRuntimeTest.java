@@ -75,7 +75,7 @@ class PiCodingRuntimeTest {
                             USAGE_FRAME + frame + "{\"type\":\"agent_end\"}");
                 });
         var events = new java.util.ArrayList<Map<String, Object>>();
-        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding("pi:image", "p", "m", null, null, "secret-key"));
+        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding("pi:image", "p", "m", null, null, "secret-key", "pi"));
         if (outcome.equals("success")) {
             var result = runtime.code(workload, request(), 60, events::add);
             assertThat(result.summary()).contains("[REDACTED]").doesNotContain("secret-key");
