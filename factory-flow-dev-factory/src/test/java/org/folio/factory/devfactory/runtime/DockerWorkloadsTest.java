@@ -111,4 +111,61 @@ class DockerWorkloadsTest {
             Processes.run(null, List.of("docker", "volume", "rm", volume), 30);
         }
     }
+
+    @Test @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
+    void trustedBaselineRepairsNestedCacheOwnershipWithoutLosingSeedIsolation() throws Exception {
+        Files.writeString(source.resolve("source.txt"), "source");
+        Files.writeString(source.resolve("pom.xml"), """
+                <project xmlns="http://maven.apache.org/POM/4.0.0">
+                  <modelVersion>4.0.0</modelVersion>
+                  <groupId>test</groupId><artifactId>cache-repair</artifactId><version>1</version>
+                </project>
+                """);
+        String volume = "factory-dev-cache-test-" + java.util.UUID.randomUUID();
+        String image = "maven:3.9-eclipse-temurin-21";
+        try {
+            assertThat(Processes.run(null, List.of("docker", "run", "--rm", "--user", "0:0",
+                    "--mount", "type=volume,source=" + volume + ",target=/cache",
+                    "--entrypoint", "sh", image, "-c",
+                    "mkdir -p /cache/org/example/dependency/1.0 "
+                            + "&& printf original > /cache/org/example/dependency/1.0/artifact.pom "
+                            + "&& chmod 0000 /cache/org /cache/org/example /cache/org/example/dependency "
+                            + "/cache/org/example/dependency/1.0 "
+                            + "&& chmod 0000 /cache/org/example/dependency/1.0/artifact.pom"), 60)
+                    .exitCode()).isZero();
+
+            try (var baseline = new DockerWorkloads().createTrusted(image, source, volume)) {
+                assertThat(baseline.execute(List.of("sh", "-c",
+                        "test \"$(cat $HOME/.m2/repository/org/example/dependency/1.0/artifact.pom)\" = original "
+                                + "&& printf updated > $HOME/.m2/repository/org/example/dependency/1.0/artifact.pom "
+                                + "&& printf nested > $HOME/.m2/repository/org/example/dependency/1.0/new.pom"), 30)
+                        .exitCode()).isZero();
+                assertThat(baseline.execute(List.of("mvn", "-B", "-ntp",
+                        "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get",
+                        "-Dartifact=org.apache.commons:commons-lang3:3.17.0"), 120).exitCode()).isZero();
+            }
+            try (var repeated = new DockerWorkloads().createTrusted(image, source, volume)) {
+                assertThat(repeated.execute(List.of("sh", "-c",
+                        "test \"$(cat $HOME/.m2/repository/org/example/dependency/1.0/artifact.pom)\" = updated "
+                                + "&& test \"$(cat $HOME/.m2/repository/org/example/dependency/1.0/new.pom)\" = nested"), 30)
+                        .exitCode()).isZero();
+                assertThat(repeated.execute(OFFLINE_REUSE, 120).exitCode()).isZero();
+            }
+            try (var seeded = new DockerWorkloads().createSeeded(image, source, volume)) {
+                assertThat(seeded.execute(List.of("sh", "-c",
+                        "test \"$(cat $HOME/.m2/repository/org/example/dependency/1.0/artifact.pom)\" = updated "
+                                + "&& printf private > $HOME/.m2/repository/org/example/dependency/1.0/new.pom "
+                                + "&& ! touch /tmp/factory-m2-seed/org/example/dependency/1.0/forbidden"), 30)
+                        .exitCode()).isZero();
+                assertThat(seeded.execute(OFFLINE_REUSE, 120).exitCode()).isZero();
+            }
+            assertThat(Processes.run(null, List.of("docker", "run", "--rm", "--mount",
+                    "type=volume,source=" + volume + ",target=/cache,readonly",
+                    "--entrypoint", "sh", image, "-c",
+                    "test \"$(cat /cache/org/example/dependency/1.0/new.pom)\" = nested "
+                            + "&& test ! -e /cache/org/example/dependency/1.0/forbidden"), 60).exitCode()).isZero();
+        } finally {
+            Processes.run(null, List.of("docker", "volume", "rm", volume), 30);
+        }
+    }
 }

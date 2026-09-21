@@ -15,7 +15,7 @@ public class DockerWorkloads {
         return create(image, source, MavenCache.NONE, null);
     }
     public Workload createTrusted(String image, Path source, String mavenCacheVolume) {
-        ensureWritableCache(image, mavenCacheVolume);
+        ensureWritableCache(image, mavenCacheVolume, workloadUser(source));
         return create(image, source, MavenCache.TRUSTED_WRITABLE, mavenCacheVolume);
     }
     public Workload createSeeded(String image, Path source, String mavenCacheVolume) {
@@ -39,10 +39,14 @@ public class DockerWorkloads {
         } catch (RuntimeException e) { workload.close(); throw e; }
     }
 
-    private static void ensureWritableCache(String image, String volume) {
+    private static void ensureWritableCache(String image, String volume, String user) {
+        // This short-lived Factory-controlled helper touches only the configured
+        // Factory-owned Maven volume, before a trusted baseline mounts it writable.
+        // The root directory alone is insufficient: cached artifacts and nested
+        // directories can belong to a previous UID and block the checkout user.
         Processes.run(null, List.of("docker", "run", "--rm", "--user", "0:0", "--entrypoint", "/bin/sh",
                 "--mount", "type=volume,source=" + volume + ",target=/cache", image,
-                "-c", "chmod 0777 /cache"), 120).requireSuccess();
+                "-c", "chown -R \"$1\" /cache && chmod -R u+rwX /cache", "--", user), 120).requireSuccess();
     }
 
     private static void seedMavenRepository(String name) {
