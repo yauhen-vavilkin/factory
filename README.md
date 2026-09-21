@@ -152,8 +152,9 @@ The cache survives `docker compose down`; to reset only it, stop the stack and r
 `docker volume rm factory-dev-m2-cache` before starting Compose again.
 Developer execution pages estimate API cost from the operator-owned
 `config/developer-pricing.yaml` rate card, mounted read-only by Compose. Rates match
-the exact stored provider/model pair; update the YAML when provider pricing changes.
-The `codemie/gemini-3.8-flash` rate is an estimate based on Google's public Standard
+the exact stored model ID, independent of the Pi provider; update the YAML when official model pricing changes.
+Factory does not fetch prices from the model API; the YAML records rates and links to their official sources.
+The `gemini-3.8-flash` rate is an estimate based on Google's public Standard
 API price through December 31, 2026, not the amount billed by CodeMie. Explicit
 cache storage charges are not included.
 The coding runtime's raw cost field remains in audit events but is not shown as API cost. A positive token

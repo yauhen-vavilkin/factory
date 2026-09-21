@@ -18,16 +18,16 @@ public record DeveloperPricingProperties(Map<String, Rate> rates) {
         rates.forEach((id, rate) -> {
             if (id == null || id.isBlank() || rate == null) throw new IllegalArgumentException("Pricing rate id and value are required");
             rate.validate(id);
-            if (!identities.add(rate.provider() + "\n" + rate.model()))
-                throw new IllegalArgumentException("Duplicate pricing identity for " + rate.provider() + "/" + rate.model());
+            if (!identities.add(rate.model()))
+                throw new IllegalArgumentException("Duplicate pricing model " + rate.model());
         });
     }
 
-    public record Rate(String provider, String model, String currency, LocalDate asOf, URI source,
+    public record Rate(String model, String currency, LocalDate asOf, URI source,
                        BigDecimal inputPerMillion, BigDecimal cacheReadPerMillion,
                        BigDecimal cacheWritePerMillion, BigDecimal outputPerMillion) {
         private void validate(String id) {
-            if (blank(provider) || blank(model)) throw new IllegalArgumentException("Pricing rate " + id + " requires provider and model");
+            if (blank(model)) throw new IllegalArgumentException("Pricing rate " + id + " requires model");
             if (currency == null || !currency.matches("[A-Z]{3}")) throw new IllegalArgumentException("Pricing rate " + id + " requires an ISO currency");
             if (asOf == null) throw new IllegalArgumentException("Pricing rate " + id + " requires as-of");
             if (source == null || !"https".equalsIgnoreCase(source.getScheme())) throw new IllegalArgumentException("Pricing rate " + id + " requires an HTTPS source");

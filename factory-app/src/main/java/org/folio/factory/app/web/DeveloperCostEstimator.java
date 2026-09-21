@@ -19,12 +19,12 @@ final class DeveloperCostEstimator {
         DeveloperPricingProperties.Rate selected = null;
         boolean observed = false;
         for (Usage usage : usages) {
-            if (!usage.present() || usage.provider() == null || usage.model() == null) return null;
+            if (!usage.present() || usage.model() == null) return null;
             // Pi can normalize absent provider usage to four zeros. Do not show that as a free run.
             if (usage.input() == 0 && usage.cacheRead() == 0
                     && usage.cacheWrite() == 0 && usage.output() == 0) return null;
             var rate = properties.rates().values().stream()
-                    .filter(candidate -> candidate.provider().equals(usage.provider()) && candidate.model().equals(usage.model()))
+                    .filter(candidate -> candidate.model().equals(usage.model()))
                     .findFirst().orElse(null);
             if (rate == null || selected != null && (!selected.currency().equals(rate.currency())
                     || !selected.asOf().equals(rate.asOf()) || !selected.source().equals(rate.source()))) return null;
@@ -54,7 +54,7 @@ final class DeveloperCostEstimator {
         return perMillion == null ? null : BigDecimal.valueOf(tokens).multiply(perMillion).divide(MILLION, 12, RoundingMode.HALF_UP);
     }
 
-    record Usage(String provider, String model, Long input, Long cacheRead, Long cacheWrite, Long output) {
+    record Usage(String model, Long input, Long cacheRead, Long cacheWrite, Long output) {
         boolean present() { return input != null && cacheRead != null && cacheWrite != null && output != null; }
     }
     record Estimate(String amount, String currency, LocalDate asOf, String source) { }

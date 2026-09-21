@@ -128,7 +128,7 @@ public class ExecutionUiController {
         DeveloperCostEstimator.Estimate estimate = developerFlow && !hasLegacyOnlyUsage && !usageIncomplete
                 ? costEstimator.estimate(usageByStep.values().stream()
                 .filter(ReportedUsage::codingTokensPresent)
-                .map(usage -> new DeveloperCostEstimator.Usage(usage.provider(), usage.model(), usage.input(),
+                .map(usage -> new DeveloperCostEstimator.Usage(usage.model(), usage.input(),
                         usage.cacheRead(), usage.cacheWrite(), usage.output()))
                 .toList()) : null;
         model.addAttribute("estimatedCost", estimate);
@@ -164,8 +164,7 @@ public class ExecutionUiController {
             String activity = detail.path("activity").asString("");
             if (includeCodingProgress && event.getEventType() == AuditEventType.RUNTIME_PROGRESS
                     && ("pi_starting".equals(activity) || "coding_starting".equals(activity))) {
-                runtimeIdentity.put(event.getStepId(), new RuntimeIdentity(
-                        text(detail, "provider"), text(detail, "model")));
+                runtimeIdentity.put(event.getStepId(), new RuntimeIdentity(text(detail, "model")));
                 continue;
             }
             boolean codingProgress = includeCodingProgress && event.getEventType() == AuditEventType.RUNTIME_PROGRESS
@@ -180,12 +179,10 @@ public class ExecutionUiController {
             if (prompt == null && completion == null && input == null && cacheRead == null
                     && cacheWrite == null && output == null) continue;
             RuntimeIdentity identity = codingProgress ? runtimeIdentity.get(event.getStepId()) : null;
-            String provider = text(detail, "provider");
             String model = text(detail, "model");
-            if (provider == null && identity != null) provider = identity.provider();
             if (model == null && identity != null) model = identity.model();
             var usage = new ReportedUsage(prompt, completion, input, cacheRead, cacheWrite, output,
-                    provider, model, detail.path("usageIncomplete").asBoolean(false));
+                    model, detail.path("usageIncomplete").asBoolean(false));
             (codingProgress ? progress : completed).put(event.getStepId(), usage);
         }
         progress.forEach(completed::putIfAbsent);
@@ -361,7 +358,7 @@ public class ExecutionUiController {
 
     private record ReportedUsage(Long prompt, Long completion, Long input, Long cacheRead,
                                  Long cacheWrite, Long output,
-                                 String provider, String model, boolean usageIncomplete) {
+                                 String model, boolean usageIncomplete) {
         boolean factoryTokensPresent() { return prompt != null || completion != null; }
         boolean codingTokensPresent() {
             return input != null || cacheRead != null || cacheWrite != null || output != null;
@@ -372,7 +369,7 @@ public class ExecutionUiController {
         long outputTotal() { return completion != null ? completion : value(output); }
     }
 
-    private record RuntimeIdentity(String provider, String model) { }
+    private record RuntimeIdentity(String model) { }
 
     private HitlReview pendingReview(PipelineExecution execution, UUID id) {
         // Both an awaiting-gate run and an escalated run carry a decidable pending

@@ -18,13 +18,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class DeveloperCostEstimatorTest {
     private final DeveloperCostEstimator estimator = new DeveloperCostEstimator(new DeveloperPricingProperties(Map.of(
-            "flash", new DeveloperPricingProperties.Rate("openai-compatible", "glm-5.3-flash", "USD",
+            "flash", new DeveloperPricingProperties.Rate("glm-5.3-flash", "USD",
                     LocalDate.parse("2026-09-19"), URI.create("https://docs.z.ai/guides/overview/pricing"),
                     new BigDecimal("0.15"), new BigDecimal("0.03"), null, new BigDecimal("0.50")))));
 
-    @Test void estimatesOnlyFromExactConfiguredIdentityAndAvailableCategories() {
+    @Test void estimatesFromModelAndAvailableCategories() {
         var estimate = estimator.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "openai-compatible", "glm-5.3-flash", 71_200L, 2_500_000L, 0L, 35_100L)));
+                "glm-5.3-flash", 71_200L, 2_500_000L, 0L, 35_100L)));
         assertThat(estimate).isNotNull();
         assertThat(estimate.amount()).isEqualTo("0.10323");
         assertThat(estimate.currency()).isEqualTo("USD");
@@ -32,11 +32,21 @@ class DeveloperCostEstimatorTest {
 
     @Test void refusesUnknownModelsAndPositiveCategoriesWithoutRates() {
         assertThat(estimator.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "openai-compatible", "other", 1L, 0L, 0L, 0L)))).isNull();
+                "other", 1L, 0L, 0L, 0L)))).isNull();
         assertThat(estimator.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "openai-compatible", "glm-5.3-flash", 1L, 0L, 1L, 0L)))).isNull();
+                "glm-5.3-flash", 1L, 0L, 1L, 0L)))).isNull();
         assertThat(estimator.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "openai-compatible", "glm-5.3-flash", null, 0L, 0L, 1L)))).isNull();
+                "glm-5.3-flash", null, 0L, 0L, 1L)))).isNull();
+    }
+
+    @Test void rejectsAmbiguousOfficialRatesForTheSameModel() {
+        var configured = new DeveloperPricingProperties.Rate("glm-5.3-flash", "USD",
+                LocalDate.parse("2026-09-19"), URI.create("https://docs.z.ai/guides/overview/pricing"),
+                new BigDecimal("0.15"), new BigDecimal("0.03"), null, new BigDecimal("0.50"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new DeveloperPricingProperties(
+                Map.of("first", configured, "second", configured)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Duplicate pricing model glm-5.3-flash");
     }
 
     @Test void estimatesGeminiWithCacheHitsAndSuppressesMissingUsage() throws Exception {
@@ -46,8 +56,7 @@ class DeveloperCostEstimatorTest {
         var source = new YamlPropertySourceLoader().load("pricing", new FileSystemResource(card)).getFirst();
         var rates = new Binder(ConfigurationPropertySources.from(source))
                 .bind("factory.developer-pricing", DeveloperPricingProperties.class).get();
-        var configured = rates.rates().get("codemie-gemini-3-8-flash");
-        assertThat(configured.provider()).isEqualTo("codemie");
+        var configured = rates.rates().get("google-gemini-3-8-flash");
         assertThat(configured.model()).isEqualTo("gemini-3.8-flash");
         assertThat(configured.inputPerMillion()).isEqualByComparingTo("0.75");
         assertThat(configured.cacheReadPerMillion()).isEqualByComparingTo("0.075");
@@ -55,15 +64,15 @@ class DeveloperCostEstimatorTest {
         assertThat(configured.cacheWritePerMillion()).isNull();
         var gemini = new DeveloperCostEstimator(rates);
         var estimate = gemini.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "codemie", "gemini-3.8-flash", 1_000_000L, 2_000_000L, 0L, 100_000L)));
+                "gemini-3.8-flash", 1_000_000L, 2_000_000L, 0L, 100_000L)));
         assertThat(estimate).isNotNull();
         assertThat(estimate.amount()).isEqualTo("1.275");
         assertThat(estimate.asOf()).isEqualTo(LocalDate.parse("2026-09-21"));
         assertThat(gemini.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "codemie", "gemini-3.8-flash", 0L, 0L, 0L, 0L)))).isNull();
+                "gemini-3.8-flash", 0L, 0L, 0L, 0L)))).isNull();
         assertThat(gemini.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "codemie", "gemini-3.8-flash", null, 0L, 0L, 1L)))).isNull();
+                "gemini-3.8-flash", null, 0L, 0L, 1L)))).isNull();
         assertThat(gemini.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "codemie", "gemini-3.8-flash", 1L, 0L, 1L, 0L)))).isNull();
+                "gemini-3.8-flash", 1L, 0L, 1L, 0L)))).isNull();
     }
 }

@@ -82,7 +82,7 @@ class ExecutionUiControllerTest {
                 .standaloneSetup(new ExecutionUiController(executions, artifactStore, auditLog,
                         flowRegistry, reviews, json,
                         new DeveloperCostEstimator(new DeveloperPricingProperties(Map.of("flash",
-                                new DeveloperPricingProperties.Rate("openai-compatible", "glm-5.3-flash", "USD",
+                                new DeveloperPricingProperties.Rate("glm-5.3-flash", "USD",
                                         LocalDate.parse("2026-09-19"), URI.create("https://example.test/pricing"),
                                         new BigDecimal("0.15"), new BigDecimal("0.03"), null,
                                         new BigDecimal("0.50")))))))
@@ -268,7 +268,7 @@ class ExecutionUiControllerTest {
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
         when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
                 new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
-                        "{\"activity\":\"pi_starting\",\"provider\":\"openai-compatible\",\"model\":\"glm-5.3-flash\"}"),
+                        "{\"activity\":\"pi_starting\",\"provider\":\"another-proxy\",\"model\":\"glm-5.3-flash\"}"),
                 new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
                         "{\"activity\":\"pi_usage\",\"inputTokens\":71200,\"cacheReadTokens\":2500000,"
                                 + "\"cacheWriteTokens\":0,\"outputTokens\":35100,\"costUsd\":0}")));

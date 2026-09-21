@@ -2,7 +2,6 @@ factory:
   developer-pricing:
     rates:
       zai-glm-5-3-flash:
-        provider: openai-compatible
         model: glm-5.3-flash
         currency: USD
         as-of: 2026-09-19
@@ -11,7 +10,6 @@ factory:
         cache-read-per-million: 0.03
         output-per-million: 0.50
       zai-glm-5-3:
-        provider: openai-compatible
         model: glm-5.3
         currency: USD
         as-of: 2026-09-19
@@ -21,8 +19,7 @@ factory:
         output-per-million: 4.40
       # Public Google Standard API list price, not the CodeMie organization's bill.
       # Introductory rates expire after 2026-12-31; review before that date.
-      codemie-gemini-3-8-flash:
-        provider: codemie
+      google-gemini-3-8-flash:
         model: gemini-3.8-flash
         currency: USD
         as-of: 2026-09-21

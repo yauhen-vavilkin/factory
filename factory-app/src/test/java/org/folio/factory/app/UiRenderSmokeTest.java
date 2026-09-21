@@ -43,7 +43,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false",
-                "factory.developer-pricing.rates.test.provider=test-provider",
                 "factory.developer-pricing.rates.test.model=test-model",
                 "factory.developer-pricing.rates.test.currency=USD",
                 "factory.developer-pricing.rates.test.as-of=2026-09-19",
