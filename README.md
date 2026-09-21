@@ -166,6 +166,10 @@ claim a successful verification for it. Resolve the cache ownership separately
 before using that repository for coding. Automatic verification-driven repair is
 deferred: the current engine may replay a worker after a lease recovery, so a
 durable one-attempt claim would be needed before adding a repair coding step.
+The 2,600 unit count is Maven's console total; some nested JUnit suites have
+smaller XML root counters, which Factory currently uses for receipt counts
+(2,467 in this run). Neither count makes the failed integration plan pass.
+
 Developer execution pages estimate API cost from the operator-owned
 `config/developer-pricing.yaml` rate card, mounted read-only by Compose. Rates match
 the exact stored model ID, independent of the Pi provider; update the YAML when official model pricing changes.
