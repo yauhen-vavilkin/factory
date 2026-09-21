@@ -152,8 +152,8 @@ The cache survives `docker compose down`; to reset only it, stop the stack and r
 `docker volume rm factory-dev-m2-cache` before starting Compose again.
 Developer execution pages estimate API cost from the operator-owned
 `config/developer-pricing.yaml` rate card, mounted read-only by Compose. Rates match
-the exact stored provider/model pair and are deliberately separate from any cost
-reported by the coding runtime; update the YAML when provider pricing changes. A positive token
+the exact stored provider/model pair; update the YAML when provider pricing changes.
+The coding runtime's raw cost field remains in audit events but is not shown as API cost. A positive token
 category without a configured rate makes the estimate unavailable rather than
 silently undercounting it.
 Compose publishes Factory and PostgreSQL on `127.0.0.1` by default. The MVP still

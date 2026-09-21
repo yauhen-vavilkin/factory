@@ -42,7 +42,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  * UI page renders through the shared layout.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false"})
+        properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false",
+                "factory.developer-pricing.rates.test.provider=test-provider",
+                "factory.developer-pricing.rates.test.model=test-model",
+                "factory.developer-pricing.rates.test.currency=USD",
+                "factory.developer-pricing.rates.test.as-of=2026-09-19",
+                "factory.developer-pricing.rates.test.source=https://example.test/pricing",
+                "factory.developer-pricing.rates.test.input-per-million=0.15",
+                "factory.developer-pricing.rates.test.cache-read-per-million=0.03",
+                "factory.developer-pricing.rates.test.output-per-million=0.50"})
 @Import(StubLlmConfiguration.class)
 @Testcontainers
 class UiRenderSmokeTest {
@@ -248,19 +256,36 @@ class UiRenderSmokeTest {
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "turn_start", "message", "HIDDEN_MESSAGE_SENTINEL",
                         "reasoning", "HIDDEN_REASONING_SENTINEL"));
-        auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of("costUsd", 0.125));
+        auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of("costUsd", 0));
         String body = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(body).contains("MODSIDECAR-196", "17 tests executed", "mvn test", "DELIVERY_BLOCKED",
-                "Safe destination missing", "$0.125 USD",
+                "Safe destination missing", "class=\"badge badge-outline developer-task-key\">MODSIDECAR-196</span>",
                 "auditTrail.length,artifacts.length", "Prepare task", "Implement changes", "Verify changes",
                 "Create pull request", "Technical details", "Prepare task checkout", "Starting build output",
                 "Compiling 42 source files", "transfer failed", "Artifacts", "Execution history",
                 "Open full append-only audit log");
         assertThat(body).containsOnlyOnce("class=\"developer-stages\"")
                 .contains("aria-label=\"Technical steps\"", "Implementation", "Not started")
-                .doesNotContain("class=\"stepper\"", "SOURCE_CONTENT_SENTINEL", "HIDDEN_MESSAGE_SENTINEL",
+                .doesNotContain("Coding runtime-reported cost", "Cost evidence", "class=\"stepper\"",
+                        "SOURCE_CONTENT_SENTINEL", "HIDDEN_MESSAGE_SENTINEL",
                         "HIDDEN_REASONING_SENTINEL", ">Baseline<",
                         "Baseline output tail", "Pinned base SHA", "Run starting build and Pi");
+    }
+
+    @Test
+    void developerExecutionShowsEstimatedCostEvidenceWithoutRuntimeCost() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "pi_starting", "provider", "test-provider", "model", "test-model"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "pi_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
+                        "cacheWriteTokens", 0, "outputTokens", 10_000, "costUsd", 0));
+
+        String body = assertRendered("/executions/" + execution.getId(), "Cost evidence");
+        assertThat(body)
+                .contains("Estimated coding API cost", "0.0203 USD", "using rates dated 2026-09-19",
+                        "href=\"https://example.test/pricing\"", ">rate source</a>")
+                .doesNotContain("Coding runtime-reported cost");
     }
 
     @Test
@@ -304,8 +329,8 @@ class UiRenderSmokeTest {
                     .doesNotContain("badge-status-COMPLETED");
             if (outcome.equals("DEVELOPMENT_FAILED"))
                 assertThat(detail).contains(">16</strong>", "total tokens", "Input", "Cached read",
-                                "Cache write", "Output", "$0.125 USD")
-                        .doesNotContain("pi usage");
+                                "Cache write", "Output")
+                        .doesNotContain("pi usage", "Coding runtime-reported cost");
             String list = assertRendered("/executions?flow=dev-factory", "Executions");
             assertThat(list).contains("badge-status-" + outcome, ">" + outcome + "</span>")
                     .doesNotContain("badge-status-COMPLETED");

@@ -240,7 +240,7 @@ class ExecutionUiControllerTest {
                 .andExpect(model().attribute("tokenTotals", Map.of(
                         "present", true, "coding", true, "total", "130k", "input", "80k",
                         "cacheRead", "35k", "cacheWrite", "5k", "output", "10k")))
-                .andExpect(model().attribute("reportedCost", "0.3"));
+                .andExpect(model().attributeDoesNotExist("reportedCost"));
     }
 
     @Test
@@ -259,7 +259,7 @@ class ExecutionUiControllerTest {
                 .andExpect(model().attribute("tokenTotals", Map.of(
                         "present", true, "coding", true, "total", "49", "input", "30",
                         "cacheRead", "10", "output", "9")))
-                .andExpect(model().attribute("reportedCost", "0.4"));
+                .andExpect(model().attributeDoesNotExist("reportedCost"));
     }
 
     @Test
@@ -277,7 +277,7 @@ class ExecutionUiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("estimatedCost", new DeveloperCostEstimator.Estimate(
                         "0.10323", "USD", LocalDate.parse("2026-09-19"), "https://example.test/pricing")))
-                .andExpect(model().attribute("reportedCost", "0"));
+                .andExpect(model().attributeDoesNotExist("reportedCost"));
     }
 
     @Test
@@ -346,7 +346,7 @@ class ExecutionUiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("tokenTotals", Map.of(
                         "present", false, "prompt", "0", "completion", "0", "total", "0")))
-                .andExpect(model().attribute("reportedCost", (Object) null));
+                .andExpect(model().attributeDoesNotExist("reportedCost"));
     }
 
     @Test

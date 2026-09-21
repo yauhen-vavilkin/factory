@@ -33,7 +33,8 @@
                 <div>
                     <p class="developer-flow-label">
                         <span>Developer Flow</span>
-                        <span th:if="${!#strings.isEmpty(developer['taskKey'])}"
+                        <span class="badge badge-outline developer-task-key"
+                              th:if="${!#strings.isEmpty(developer['taskKey'])}"
                               th:text="${developer['taskKey']}"></span>
                     </p>
                     <h2 class="developer-title" th:text="${developer['summary']}">Developer task</h2>
@@ -155,14 +156,13 @@
                                     <dt th:text="${field['label']}"></dt><dd th:text="${field['value']}"></dd>
                                 </dl>
                             </div>
-                            <div class="developer-pricing-evidence" th:if="${estimatedCost != null or reportedCost != null}">
+                            <div class="developer-pricing-evidence" th:if="${estimatedCost != null}">
                                 <h4>Cost evidence</h4>
                                 <p th:if="${estimatedCost != null}">Estimated coding API cost:
                                     <strong th:text="${estimatedCost.amount} + ' ' + ${estimatedCost.currency}"></strong>
                                     <span th:text="' using rates dated ' + ${estimatedCost.asOf}"></span>
                                     · <a th:href="${estimatedCost.source}">rate source</a>
                                 </p>
-                                <p th:if="${reportedCost != null}" th:text="'Coding runtime-reported cost: $' + ${reportedCost} + ' USD'"></p>
                             </div>
                             <p th:text="'Workflow engine status: ' + ${execution.status}"></p>
                             <div class="table-wrap">
@@ -248,8 +248,6 @@
                 </p>
             </div>
             <ol th:replace="~{fragments/components :: stepper(${progressSteps})}"></ol>
-            <p th:if="${reportedCost != null}"
-               th:text="'Coding runtime-reported cost: $' + ${reportedCost} + ' USD'"></p>
         </section>
 
         <section th:unless="${#lists.isEmpty(children)}">

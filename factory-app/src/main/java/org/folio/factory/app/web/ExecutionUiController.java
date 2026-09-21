@@ -122,10 +122,6 @@ public class ExecutionUiController {
                     steps.get(i).put("elapsedStart", now.minusSeconds(durationSeconds));
             }
         }
-        java.math.BigDecimal cost = usageByStep.values().stream()
-                .map(ReportedUsage::cost).filter(java.util.Objects::nonNull)
-                .reduce(java.math.BigDecimal::add).orElse(null);
-        model.addAttribute("reportedCost", cost == null ? null : cost.toPlainString());
         boolean hasLegacyOnlyUsage = usageByStep.values().stream()
                 .anyMatch(usage -> usage.factoryTokensPresent() && !usage.codingTokensPresent());
         DeveloperCostEstimator.Estimate estimate = developerFlow && !hasLegacyOnlyUsage
@@ -179,16 +175,14 @@ public class ExecutionUiController {
             Long cacheRead = token(detail, "cacheReadTokens");
             Long cacheWrite = token(detail, "cacheWriteTokens");
             Long output = token(detail, "outputTokens");
-            JsonNode costNode = detail.path("costUsd");
-            java.math.BigDecimal cost = costNode.isNumber() ? costNode.decimalValue() : null;
             if (prompt == null && completion == null && input == null && cacheRead == null
-                    && cacheWrite == null && output == null && cost == null) continue;
+                    && cacheWrite == null && output == null) continue;
             RuntimeIdentity identity = codingProgress ? runtimeIdentity.get(event.getStepId()) : null;
             String provider = text(detail, "provider");
             String model = text(detail, "model");
             if (provider == null && identity != null) provider = identity.provider();
             if (model == null && identity != null) model = identity.model();
-            var usage = new ReportedUsage(prompt, completion, input, cacheRead, cacheWrite, output, cost,
+            var usage = new ReportedUsage(prompt, completion, input, cacheRead, cacheWrite, output,
                     provider, model);
             (codingProgress ? progress : completed).put(event.getStepId(), usage);
         }
@@ -364,7 +358,7 @@ public class ExecutionUiController {
     }
 
     private record ReportedUsage(Long prompt, Long completion, Long input, Long cacheRead,
-                                 Long cacheWrite, Long output, java.math.BigDecimal cost,
+                                 Long cacheWrite, Long output,
                                  String provider, String model) {
         boolean factoryTokensPresent() { return prompt != null || completion != null; }
         boolean codingTokensPresent() {

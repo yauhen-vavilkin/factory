@@ -580,10 +580,17 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 }
 .developer-flow-label {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 0.375rem 0.75rem;
   color: hsl(var(--muted-foreground));
   font-size: 0.8125rem;
+}
+.developer-task-key {
+  background: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+  font-size: 0.8125rem;
+  font-weight: 700;
 }
 .developer-title {
   max-width: 52rem;
