@@ -72,7 +72,7 @@ class DeliveryWorkerTest {
         var original = verifiedContext();
         var inputs = new java.util.HashMap<>(original.inputs());
         inputs.put("dev_coding_request.json", new ArtifactContent("dev_coding_request.json", 2, "application/json",
-                "{\"description\":\"Preserve tenant routing\",\"confirmedDecisions\":[{\"question\":\"Which API?\",\"answer\":\"Use v2\"}]}"));
+                "{\"description\":\"Preserve tenant routing\",\"confirmedDecisions\":[{\"question\":\"## Which API?\",\"answer\":\"- Use v2\"}]}"));
         inputs.put("dev_coding_outcome.json", new ArtifactContent("dev_coding_outcome.json", 2, "application/json",
                 "{\"status\":\"COMPLETED\",\"summary\":\"Updated final routing <script> @everyone token=secret123 https://user:password123@host/path Authorization: Bearer abc123\"}"));
 
@@ -80,7 +80,7 @@ class DeliveryWorkerTest {
 
         var body = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(github).createPullRequest(eq(delivered.repository()), eq(delivered.branch()), eq("master"), anyString(), body.capture());
-        assertThat(body.getValue()).contains("## Summary\n\nTask", "## Confirmed decisions\n\n- Which API? — Use v2",
+        assertThat(body.getValue()).contains("## Summary\n\nTask", "## Confirmed decisions\n\n- &#35;&#35; Which API? — &#45; Use v2",
                 "Updated final routing", "&lt;script&gt;", "＠everyone", "**PASS** · 1 tests · 0 failures · 0 errors",
                 "- Plan: `unit`", "- Command: `mvn test`", "- Image: `image`",
                 "<summary>Factory verification details</summary>", "- Surefire reports: 1", "- Failsafe reports: 0",
@@ -182,10 +182,40 @@ class DeliveryWorkerTest {
 
         var body = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
-        assertThat(body.getValue()).contains("## Changes\n\n- Added safe thing.", "&lt;script&gt;",
+        assertThat(body.getValue()).contains("## Changes\n\n- Added safe thing.", "- &#35;&#35; &lt;script&gt;",
                 "＠everyone", "&#91;REDACTED&#93;", "&#91;link omitted&#93;")
                 .doesNotContain("<script>", "@everyone", "https://", "user:pass", "c2VjcmV0",
-                        "secret", "ghp_", "sk-" + "Y".repeat(36), "fake-success", "\n## <script>", "[click](");
+                        "secret", "ghp_", "sk-" + "Y".repeat(36), "fake-success", "- ##", "[click](");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "Updated routing. Checks passed: - mvn test - git diff --check",
+            "1. Updated routing.\nChecks passed: - mvn test",
+            "Implemented task.\nChanges:\n- Added routing. Checks passed: - mvn test"
+    })
+    void inlineRuntimeChecksNeverAppearInPr(String summary) {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var delivered = new DeliveryReceipt("execution", "user/sidecar", "factory/final",
+                "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString()))
+                .thenReturn(delivered);
+        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        var original = verifiedContext();
+        var inputs = new java.util.HashMap<>(original.inputs());
+        inputs.put("dev_coding_outcome.json", new ArtifactContent("dev_coding_outcome.json", 1, "application/json",
+                json.writeValueAsString(Map.of("summary", summary))));
+
+        worker(delivery, github, new GitHubProperties(null, "token")).execute(
+                new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
+
+        var body = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
+        assertThat(body.getValue()).contains("routing.", "## Verification", "- Command: `mvn test`")
+                .doesNotContain("Checks passed:", "git diff", "- mvn test", "Implemented task.");
+        if (summary.startsWith("1.")) assertThat(body.getValue()).contains("1&#46; Updated routing.")
+                .doesNotContain("\n1. Updated routing.");
     }
 
     @Test

@@ -30,6 +30,7 @@ public class DeliveryWorker implements AgentWorker {
     private static final Pattern DIFF_PATH = Pattern.compile("^diff --git a/(.+) b/(.+)$");
     private static final Pattern QUOTED_DIFF_PATH = Pattern.compile("^diff --git \"a/(.+)\" \"b/(.+)\"$");
     private static final Pattern URL = Pattern.compile("(?i)https?://\\S+");
+    private static final Pattern RUNTIME_CHECKS = Pattern.compile("(?i)\\bChecks passed:");
     private static final Pattern TOKEN = Pattern.compile("\\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})\\b");
 
     private final DevFactoryProperties repositories;
@@ -200,13 +201,15 @@ public class DeliveryWorker implements AgentWorker {
 
     private static void appendRuntimeSummary(StringBuilder body, String summary) {
         if (summary == null || summary.isBlank()) return;
-        List<String> lines = summary.substring(0, Math.min(summary.length(), 4000)).lines().toList();
+        String descriptive = summary.substring(0, Math.min(summary.length(), 4000));
+        var checks = RUNTIME_CHECKS.matcher(descriptive);
+        if (checks.find()) descriptive = descriptive.substring(0, checks.start());
+        List<String> lines = descriptive.lines().toList();
         boolean changes = false;
         var bullets = new java.util.ArrayList<String>();
         var fallback = new StringBuilder();
         for (String raw : lines) {
             String line = raw.strip();
-            if (line.equalsIgnoreCase("Checks passed:")) break;
             if (line.equalsIgnoreCase("Changes:")) { changes = true; continue; }
             if (changes && line.startsWith("- ")) {
                 String bullet = prose(line.substring(2), 240);
@@ -253,9 +256,13 @@ public class DeliveryWorker implements AgentWorker {
         String clean = URL.matcher(redact(value)).replaceAll("[link omitted]").replace("`", "")
                 .replaceAll("[\\p{Cntrl}\\s]+", " ")
                 .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace("#", "&#35;")
                 .replace("@", "＠").replace("[", "&#91;").replace("]", "&#93;")
                 .replace("*", "&#42;").replace("_", "&#95;")
+                .replace("-", "&#45;").replace("+", "&#43;").replace("~", "&#126;")
                 .replace("!", "&#33;").replace("|", "&#124;").replace("\\", "&#92;").strip();
+        clean = clean.replaceFirst("^([0-9]{1,9})\\.(?=\\s)", "$1&#46;")
+                .replaceFirst("^([0-9]{1,9})\\)(?=\\s)", "$1&#41;");
         return clean.length() <= limit ? clean : clean.substring(0, limit) + "…";
     }
 }
