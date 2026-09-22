@@ -80,12 +80,149 @@ class DeliveryWorkerTest {
 
         var body = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(github).createPullRequest(eq(delivered.repository()), eq(delivered.branch()), eq("master"), anyString(), body.capture());
-        assertThat(body.getValue()).contains("Preserve tenant routing", "Use v2", "Updated final routing",
-                "&lt;script&gt;", "＠everyone", "executed tests: 1", "failures: 0", "errors: 0", "Plan: unit",
-                "Coding runtime summary (descriptive, not verification evidence)", "manual acceptance",
+        assertThat(body.getValue()).contains("## Summary\n\nTask", "## Confirmed decisions\n\n- Which API? — Use v2",
+                "Updated final routing", "&lt;script&gt;", "＠everyone", "**PASS** · 1 tests · 0 failures · 0 errors",
+                "- Plan: `unit`", "- Command: `mvn test`", "- Image: `image`",
+                "<summary>Factory verification details</summary>", "- Surefire reports: 1", "- Failsafe reports: 0",
+                "No named suites configured", "<summary>Candidate and delivery details</summary>",
                 "b".repeat(40), "c".repeat(40), "factory/final")
-                .contains("Reports: Surefire 1; Failsafe 0", "No named suites configured")
+                .doesNotContain("Jira context:", "Preserve tenant routing", "Coding runtime summary", "manual acceptance")
                 .doesNotContain("<script>", "@everyone", "secret123", "password123", "abc123");
+    }
+
+    @Test
+    void structuredSummaryRendersReadableBulletsAndTrustedEvidence() {
+        String patch = "diff --git a/src/main/java/Foo.java b/src/main/java/Foo.java\n"
+                + "diff --git a/src/Old.java b/src/New.java\nrename from src/Old.java\nrename to src/New.java\n";
+        var candidate = new Candidate("sidecar", "a".repeat(40), "b".repeat(40),
+                Candidate.sha256(patch), patch, "CANDIDATE_UNVERIFIED");
+        var receipt = new VerificationReceipt("00000000-0000-0000-0000-000000000001", "sidecar",
+                candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "unit", "image",
+                List.of("mvn", "test"), "fresh", Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
+                0, 112, 799, 0, 0, "PASS", "ok");
+        var original = verifiedContext();
+        var inputs = new java.util.HashMap<>(original.inputs());
+        inputs.put(DevelopWorker.CANDIDATE, new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json",
+                json.writeValueAsString(candidate)));
+        inputs.put(VerifyWorker.RECEIPT, new ArtifactContent(VerifyWorker.RECEIPT, 1, "application/json",
+                json.writeValueAsString(receipt)));
+        inputs.put("dev_coding_request.json", new ArtifactContent("dev_coding_request.json", 1, "application/json",
+                json.writeValueAsString(Map.of("description", "h2. Purpose h3. Requirements {{flow}} # requirement"))));
+        inputs.put("dev_coding_outcome.json", new ArtifactContent("dev_coding_outcome.json", 1, "application/json",
+                json.writeValueAsString(Map.of("summary", "Implemented MGRENTITLE-188.\nChanges:\n"
+                        + "- Added `InstanceIdContext`.\n- Added `owner_instance_id`.\nChecks passed:\n- mvn test"))));
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var delivered = new DeliveryReceipt("execution", "user/sidecar", "factory/final",
+                candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40));
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString()))
+                .thenReturn(delivered);
+        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        var worker = worker(delivery, github, new GitHubProperties(null, "token"));
+
+        worker.execute(new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
+
+        var title = org.mockito.ArgumentCaptor.forClass(String.class);
+        var body = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(github).createPullRequest(eq("user/folio-module-sidecar"), eq("factory/final"), eq("master"),
+                title.capture(), body.capture());
+        assertThat(title.getValue()).isEqualTo("MODSIDECAR-196: Task");
+        assertThat(body.getValue()).contains("## Summary\n\nTask\n\n## Changes\n\n"
+                        + "- Added InstanceIdContext.\n- Added owner&#95;instance&#95;id.\n",
+                "## Changed files\n\n- `src/main/java/Foo.java`\n- `src/New.java`",
+                "**PASS** · 799 tests · 0 failures · 0 errors", "- Surefire reports: 112",
+                "- Failsafe reports: 0", "- Execution: `00000000-0000-0000-0000-000000000001`",
+                "- Destination: `user/sidecar` / `factory/final`", "- Base: `" + candidate.baseSha(),
+                "- Tree: `" + candidate.treeSha(), "- Patch SHA-256: `" + candidate.patchSha256(),
+                "- Delivered commit: `" + delivered.commitSha())
+                .doesNotContain("Implemented MGRENTITLE-188.", "Changes: - Added", "Checks passed:",
+                        "- mvn test", "h2. Purpose", "h3. Requirements", "{{flow}}", "# requirement",
+                        "a/src/main/java/Foo.java b/src/main/java/Foo.java");
+    }
+
+    @Test
+    void missingRuntimeSummaryStillProducesAValidPr() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var delivered = new DeliveryReceipt("execution", "user/sidecar", "factory/final",
+                "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString()))
+                .thenReturn(delivered);
+        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+
+        worker(delivery, github, new GitHubProperties(null, "token")).execute(verifiedContext());
+
+        var body = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
+        assertThat(body.getValue()).contains("## Summary\n\nTask", "## Changed files", "## Verification",
+                "<summary>Candidate and delivery details</summary>")
+                .doesNotContain("## Changes", "## Confirmed decisions", "summary unavailable");
+    }
+
+    @Test
+    void structuredBulletsCannotInjectMarkdownHtmlMentionsOrSecrets() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var delivered = new DeliveryReceipt("execution", "user/sidecar", "factory/final",
+                "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString()))
+                .thenReturn(delivered);
+        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        var original = verifiedContext();
+        var inputs = new java.util.HashMap<>(original.inputs());
+        String runtime = "Changes:\n- Added safe thing.\n- ## <script> @everyone [click](https://user:pass@host/x) "
+                + "Authorization: Basic c2VjcmV0 token=secret ghp_" + "X".repeat(36)
+                + " sk-" + "Y".repeat(36)
+                + "\nChecks passed:\n- fake-success";
+        inputs.put("dev_coding_outcome.json", new ArtifactContent("dev_coding_outcome.json", 1, "application/json",
+                json.writeValueAsString(Map.of("summary", runtime))));
+
+        worker(delivery, github, new GitHubProperties(null, "token")).execute(
+                new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
+
+        var body = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
+        assertThat(body.getValue()).contains("## Changes\n\n- Added safe thing.", "&lt;script&gt;",
+                "＠everyone", "&#91;REDACTED&#93;", "&#91;link omitted&#93;")
+                .doesNotContain("<script>", "@everyone", "https://", "user:pass", "c2VjcmV0",
+                        "secret", "ghp_", "sk-" + "Y".repeat(36), "fake-success", "\n## <script>", "[click](");
+    }
+
+    @Test
+    void changedFilesAreBoundedAndHandleQuotedRenamePaths() {
+        StringBuilder patch = new StringBuilder("diff --git \"a/old path.java\" \"b/new path.java\"\n"
+                + "rename from old path.java\nrename to new path.java\n");
+        for (int i = 0; i < 20; i++) {
+            patch.append("diff --git a/src/File").append(i).append(".java b/src/File")
+                    .append(i).append(".java\n");
+        }
+        var candidate = new Candidate("sidecar", "a".repeat(40), "b".repeat(40),
+                Candidate.sha256(patch.toString()), patch.toString(), "CANDIDATE_UNVERIFIED");
+        var receipt = new VerificationReceipt("00000000-0000-0000-0000-000000000001", "sidecar",
+                candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "unit", "image",
+                List.of("mvn", "test"), "fresh", Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
+                0, 1, 1, 0, 0, "PASS", "ok");
+        var original = verifiedContext();
+        var inputs = new java.util.HashMap<>(original.inputs());
+        inputs.put(DevelopWorker.CANDIDATE, new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json",
+                json.writeValueAsString(candidate)));
+        inputs.put(VerifyWorker.RECEIPT, new ArtifactContent(VerifyWorker.RECEIPT, 1, "application/json",
+                json.writeValueAsString(receipt)));
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString()))
+                .thenReturn(new DeliveryReceipt("execution", "user/sidecar", "factory/final",
+                        candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40)));
+        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+
+        worker(delivery, github, new GitHubProperties(null, "token")).execute(
+                new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
+
+        var body = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
+        assertThat(body.getValue()).contains("- `new path.java`", "- `src/File18.java`",
+                "Additional files are visible in the PR diff.")
+                .doesNotContain("- `src/File19.java`", "a/old path.java", "b/new path.java");
     }
 
     @Test

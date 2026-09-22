@@ -19,12 +19,18 @@ import org.springframework.web.client.HttpClientErrorException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /** Delivers only the exact candidate authorized by the current successful receipt. */
 public class DeliveryWorker implements AgentWorker {
     public static final String ID = "dev-deliver";
     public static final String DELIVERY = "dev_delivery.json";
+    private static final Pattern DIFF_PATH = Pattern.compile("^diff --git a/(.+) b/(.+)$");
+    private static final Pattern QUOTED_DIFF_PATH = Pattern.compile("^diff --git \"a/(.+)\" \"b/(.+)\"$");
+    private static final Pattern URL = Pattern.compile("(?i)https?://\\S+");
+    private static final Pattern TOKEN = Pattern.compile("\\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})\\b");
 
     private final DevFactoryProperties repositories;
     private final DevRuntimeProperties runtime;
@@ -150,57 +156,106 @@ public class DeliveryWorker implements AgentWorker {
         var outcomeArtifact = context.inputs().get("dev_coding_outcome.json");
         var request = requestArtifact == null ? json.createObjectNode() : json.readTree(requestArtifact.content());
         var outcome = outcomeArtifact == null ? json.createObjectNode() : json.readTree(outcomeArtifact.content());
-        var body = new StringBuilder("## What changed and why\n\n")
+        var body = new StringBuilder("## Summary\n\n")
                 .append(prose(summary, 500)).append("\n\n");
-        String description = prose(request.path("description").asString(""), 1600);
-        if (!description.isBlank()) body.append("Jira context: ").append(description).append("\n\n");
-        String runtimeSummary = prose(outcome.path("summary").asString(""), 2000);
-        body.append(runtimeSummary.isBlank() ? "Implementation summary unavailable; review the frozen diff below."
-                : "Coding runtime summary (descriptive, not verification evidence): " + runtimeSummary).append("\n\n");
+        appendRuntimeSummary(body, outcome.path("summary").asString(""));
         int decisions = 0;
         for (var decision : request.path("confirmedDecisions")) {
             if (decisions++ >= 5) break;
-            body.append("- Confirmed decision: ").append(prose(decision.path("question").asString(""), 300))
+            if (decisions == 1) body.append("## Confirmed decisions\n\n");
+            body.append("- ").append(prose(decision.path("question").asString(""), 300))
                     .append(" — ").append(prose(decision.path("answer").asString(""), 500)).append("\n");
         }
-        var files = candidate.patch().lines().filter(line -> line.startsWith("diff --git ")).toList();
-        body.append("\nFrozen diff: ").append(files.size()).append(" changed file(s).\n");
-        files.stream().limit(20).forEach(line -> body.append("- ").append(prose(line.substring(11), 240)).append("\n"));
+        if (decisions > 0) body.append("\n");
+        List<String> files = candidate.patch().lines().filter(line -> line.startsWith("diff --git "))
+                .map(DeliveryWorker::changedPath).toList();
+        body.append("## Changed files\n\n");
+        files.stream().limit(20).forEach(path -> body.append("- `").append(code(path, 240)).append("`\n"));
         if (files.size() > 20) body.append("- Additional files are visible in the PR diff.\n");
-        body.append("\n## Independent Factory verification\n\n")
-                .append("Factory verified this exact candidate in a fresh Docker workload.\n\n")
-                .append("- Plan: ").append(prose(verification.planId(), 200)).append("\n")
-                .append("- Command argv: ").append(prose(json.writeValueAsString(verification.argv()), 1200)).append("\n")
-                .append("- Result: ").append(verification.result()).append("; exit ").append(verification.exitCode())
-                .append("; executed tests: ").append(count(verification.testCount()))
-                .append("; failures: ").append(count(verification.failureCount()))
-                .append("; errors: ").append(count(verification.errorCount())).append(".\n")
-                .append("- Reports: Surefire ").append(verification.surefireReportCount())
-                .append("; Failsafe ").append(verification.failsafeReportCount()).append(".\n")
-                .append("- Required report suites: ").append(verification.requiredReports().isEmpty()
+        body.append("\n## Verification\n\n**").append(prose(verification.result(), 40)).append("** · ")
+                .append(count(verification.testCount())).append(" tests · ")
+                .append(count(verification.failureCount())).append(" failures · ")
+                .append(count(verification.errorCount())).append(" errors\n\n")
+                .append("- Plan: `").append(code(verification.planId(), 200)).append("`\n")
+                .append("- Command: `").append(code(String.join(" ", verification.argv()), 1200)).append("`\n")
+                .append("- Image: `").append(code(verification.image(), 300)).append("`\n\n")
+                .append("<details>\n<summary>Factory verification details</summary>\n\n")
+                .append("- Surefire reports: ").append(verification.surefireReportCount()).append("\n")
+                .append("- Failsafe reports: ").append(verification.failsafeReportCount()).append("\n")
+                .append("- Required suites: ").append(verification.requiredReports().isEmpty()
                         ? "No named suites configured; aggregate executed-test evidence only."
                         : prose(String.join(", ", verification.requiredReports()), 1600)).append("\n")
-                .append("- Image: ").append(prose(verification.image(), 300)).append("\n\n")
-                .append("Only the configured plan and its collected evidence were verified. Runtime self-checks are not independent verification. ")
-                .append("Passing tests do not establish every Jira requirement; manual acceptance and checks outside this plan remain unverified.\n\n")
-                .append("## Candidate and delivery identity\n\n")
-                .append("- Execution: `").append(verification.executionId()).append("`\n")
-                .append("- Destination: `").append(delivery.repository()).append("` / `").append(delivery.branch()).append("`\n");
-        return body.append("- Base: `").append(candidate.baseSha()).append("`\n")
-                .append("- Tree: `").append(candidate.treeSha()).append("`\n")
-                .append("- Patch SHA-256: `").append(candidate.patchSha256()).append("`\n")
-                .append("- Delivered commit: `").append(delivery.commitSha()).append("`").toString();
+                .append("\nFactory independently verified the exact frozen candidate using the configured verification plan.\n")
+                .append("</details>\n\n")
+                .append("<details>\n<summary>Candidate and delivery details</summary>\n\n")
+                .append("- Execution: `").append(code(verification.executionId(), 200)).append("`\n")
+                .append("- Destination: `").append(code(delivery.repository(), 300)).append("` / `")
+                .append(code(delivery.branch(), 300)).append("`\n");
+        return body.append("- Base: `").append(code(candidate.baseSha(), 100)).append("`\n")
+                .append("- Tree: `").append(code(candidate.treeSha(), 100)).append("`\n")
+                .append("- Patch SHA-256: `").append(code(candidate.patchSha256(), 100)).append("`\n")
+                .append("- Delivered commit: `").append(code(delivery.commitSha(), 100)).append("`\n")
+                .append("</details>").toString();
+    }
+
+    private static void appendRuntimeSummary(StringBuilder body, String summary) {
+        if (summary == null || summary.isBlank()) return;
+        List<String> lines = summary.substring(0, Math.min(summary.length(), 4000)).lines().toList();
+        boolean changes = false;
+        var bullets = new java.util.ArrayList<String>();
+        var fallback = new StringBuilder();
+        for (String raw : lines) {
+            String line = raw.strip();
+            if (line.equalsIgnoreCase("Checks passed:")) break;
+            if (line.equalsIgnoreCase("Changes:")) { changes = true; continue; }
+            if (changes && line.startsWith("- ")) {
+                String bullet = prose(line.substring(2), 240);
+                if (!bullet.isBlank() && bullets.size() < 20) bullets.add(bullet);
+            } else if (!changes && !line.isBlank()) {
+                if (!fallback.isEmpty()) fallback.append(' ');
+                fallback.append(line);
+            }
+        }
+        if (!bullets.isEmpty()) {
+            body.append("## Changes\n\n");
+            bullets.forEach(bullet -> body.append("- ").append(bullet).append("\n"));
+            body.append("\n");
+        } else {
+            String description = prose(fallback.toString(), 2000);
+            if (!description.isBlank()) body.append(description).append("\n\n");
+        }
+    }
+
+    private static String changedPath(String header) {
+        var matcher = DIFF_PATH.matcher(header);
+        if (!matcher.matches()) matcher = QUOTED_DIFF_PATH.matcher(header);
+        return matcher.matches() ? matcher.group(2) : "Path visible in PR diff";
     }
 
     private static String count(Integer value) { return value == null ? "unknown" : value.toString(); }
 
-    /** Descriptive input cannot introduce Markdown structure, HTML or mentions into trusted prose. */
+    /** Dynamic inline code cannot close Factory's code span or expose credentials. */
+    private static String code(String value, int limit) {
+        String clean = redact(value).replaceAll("[\\p{Cntrl}\\s]+", " ").replace("`", "′")
+                .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").strip();
+        return clean.length() <= limit ? clean : clean.substring(0, limit) + "…";
+    }
+
+    private static String redact(String value) {
+        if (value == null) return "";
+        String clean = value.replaceAll("(?i)\\b(Bearer|Basic)\\s+[A-Za-z0-9+/_.=-]+", "$1 [REDACTED]");
+        clean = MavenBaselineOutput.sanitize(clean);
+        return TOKEN.matcher(clean).replaceAll("[REDACTED]");
+    }
+
+    /** Descriptive input cannot introduce Markdown structure, HTML, links or mentions. */
     private static String prose(String value, int limit) {
-        String clean = value == null ? "" : MavenBaselineOutput.sanitize(value
-                .replaceAll("(?i)\\b(Bearer|Basic)\\s+[A-Za-z0-9+/_.=-]+", "$1 [REDACTED]"))
+        String clean = URL.matcher(redact(value)).replaceAll("[link omitted]").replace("`", "")
                 .replaceAll("[\\p{Cntrl}\\s]+", " ")
                 .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                .replace("@", "＠").replaceAll("([\\\\`*_{}\\[\\]()#+!|])", "\\\\$1").strip();
+                .replace("@", "＠").replace("[", "&#91;").replace("]", "&#93;")
+                .replace("*", "&#42;").replace("_", "&#95;")
+                .replace("!", "&#33;").replace("|", "&#124;").replace("\\", "&#92;").strip();
         return clean.length() <= limit ? clean : clean.substring(0, limit) + "…";
     }
 }
