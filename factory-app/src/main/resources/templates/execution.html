@@ -86,6 +86,11 @@
                     <section class="developer-panel developer-current" aria-labelledby="developer-current-stage">
                         <h3 id="developer-current-stage">Current stage</h3>
                         <strong class="developer-current-stage" th:text="${developer['currentPhase']}"></strong>
+                        <dl class="developer-runtime-facts"
+                            th:if="${!#strings.isEmpty(developer['codingRuntime']) or !#strings.isEmpty(developer['codingModel'])}">
+                            <div th:if="${!#strings.isEmpty(developer['codingRuntime'])}"><dt>Coding runtime</dt><dd class="developer-runtime-name" th:text="${developer['codingRuntime']}"></dd></div>
+                            <div th:if="${!#strings.isEmpty(developer['codingModel'])}"><dt>Model</dt><dd th:text="${developer['codingModel']}"></dd></div>
+                        </dl>
                         <div class="developer-latest">
                             <span>Latest reported activity</span>
                             <p th:if="${developer['latestActivity'] != null}">
@@ -102,24 +107,22 @@
                         <h3 id="developer-usage-heading">Usage</h3>
                         <div class="developer-usage-total" th:if="${tokenTotals['present']}">
                             <strong th:text="${tokenTotals['total']}"></strong>
-                            <span>total tokens</span>
+                            <span>total usage tokens</span>
                         </div>
                         <p class="muted" th:unless="${tokenTotals['present']}">No token usage reported yet.</p>
                         <dl class="developer-usage-breakdown" th:if="${tokenTotals['present']}">
                             <th:block th:if="${tokenTotals['coding'] == true}">
-                                <div th:if="${tokenTotals['input'] != null}"><dt>Input</dt><dd th:text="${tokenTotals['input']}"></dd></div>
-                                <div th:if="${tokenTotals['cacheRead'] != null}"><dt>Cached read</dt><dd th:text="${tokenTotals['cacheRead']}"></dd></div>
-                                <div th:if="${tokenTotals['cacheWrite'] != null}"><dt>Cache write</dt><dd th:text="${tokenTotals['cacheWrite']}"></dd></div>
-                                <div th:if="${tokenTotals['output'] != null}"><dt>Output</dt><dd th:text="${tokenTotals['output']}"></dd></div>
+                                <div th:if="${tokenTotals['input'] != null}"><dt>Input tokens (uncached)</dt><dd th:text="${tokenTotals['input']}"></dd></div>
+                                <div th:if="${tokenTotals['cacheRead'] != null}"><dt>Cache read tokens</dt><dd th:text="${tokenTotals['cacheRead']}"></dd></div>
+                                <div th:if="${tokenTotals['cacheWrite'] != null}"><dt>Cache creation tokens</dt><dd th:text="${tokenTotals['cacheWrite']}"></dd></div>
+                                <div th:if="${tokenTotals['output'] != null}"><dt>Output tokens</dt><dd th:text="${tokenTotals['output']}"></dd></div>
                             </th:block>
                             <th:block th:unless="${tokenTotals['coding'] == true}">
                                 <div><dt>Prompt</dt><dd th:text="${tokenTotals['prompt']}"></dd></div>
                                 <div><dt>Completion</dt><dd th:text="${tokenTotals['completion']}"></dd></div>
                             </th:block>
-                            <div th:if="${estimatedCost != null}"><dt>Estimated coding API cost</dt><dd th:text="${estimatedCost.amount} + ' ' + ${estimatedCost.currency}"></dd></div>
+                            <div class="developer-estimated-cost" th:if="${estimatedCost != null}"><dt>Estimated cost</dt><dd th:text="${estimatedCost.amount} + ' ' + ${estimatedCost.currency}"></dd></div>
                         </dl>
-                        <p class="developer-estimate-note" th:if="${estimatedCost != null}"
-                           th:text="'Configured rate card · ' + ${estimatedCost.asOf} + ' · Actual provider or proxy charges may differ'"></p>
                         <p class="muted" th:if="${tokenTotals['present'] and estimatedCost == null and usageIncomplete}">Cost estimate unavailable: Pi did not report enough usage for every response.</p>
                         <p class="muted" th:if="${tokenTotals['present'] and estimatedCost == null and !usageIncomplete}">No matching configured rate card.</p>
                     </section>

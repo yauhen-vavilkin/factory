@@ -703,6 +703,18 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   font-weight: 500;
 }
 .developer-current-stage { display: block; margin-top: 0.125rem; font-size: 1rem; }
+.developer-runtime-facts { display: grid; gap: 0.375rem; margin: 0.75rem 0 0; }
+.developer-runtime-facts div,
+.developer-usage-breakdown div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.developer-runtime-facts div { font-size: 0.8125rem; }
+.developer-runtime-facts dt { color: hsl(var(--muted-foreground)); }
+.developer-runtime-facts dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.developer-runtime-name { text-transform: capitalize; }
 .developer-latest { margin-top: 0.625rem; }
 .developer-latest > span { color: hsl(var(--muted-foreground)); font-size: 0.75rem; }
 .developer-latest p {
@@ -724,15 +736,14 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .developer-usage-total strong { font-size: 1.25rem; font-variant-numeric: tabular-nums; }
 .developer-usage-total span { color: hsl(var(--muted-foreground)); font-size: 0.75rem; }
 .developer-usage-breakdown {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem 1rem;
+  display: grid;
+  gap: 0.375rem;
   margin-top: 0.5rem;
 }
-.developer-usage-breakdown div { display: flex; gap: 0.25rem; font-size: 0.75rem; }
+.developer-usage-breakdown div { font-size: 0.8125rem; }
 .developer-usage-breakdown dt { color: hsl(var(--muted-foreground)); }
-.developer-usage-breakdown dd { font-variant-numeric: tabular-nums; }
-.developer-estimate-note { margin-top: 0.375rem; color: hsl(var(--muted-foreground)); font-size: 0.6875rem; }
+.developer-usage-breakdown dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.developer-usage-breakdown .developer-estimated-cost { border-top: 1px solid hsl(var(--border)); padding-top: 0.5rem; margin-top: 0.125rem; }
 .developer-recent { margin-top: 1rem; }
 .developer-recent ol { display: grid; gap: 0.25rem; margin-top: 0.375rem; padding: 0; list-style: none; }
 .developer-recent li {

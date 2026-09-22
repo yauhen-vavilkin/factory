@@ -12,6 +12,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DeveloperExecutionViewTest {
     private final DeveloperExecutionView view = new DeveloperExecutionView(JsonMapper.builder().build());
 
+    @Test void codingIdentityComesFromRuntimeStartAndUnknownFieldsStayAbsent() {
+        var execution = new PipelineExecution("dev-factory", "0.8.0", "{}");
+        Instant start = Instant.parse("2026-09-22T10:00:00Z");
+        assertThat(view.build(execution, List.of(), List.of(), start))
+                .containsEntry("codingRuntime", "").containsEntry("codingModel", "");
+
+        var runtimeOnly = runtime(Map.of("activity", "coding_starting", "runtime", "pi"), start);
+        assertThat(view.build(execution, List.of(), List.of(runtimeOnly), start))
+                .containsEntry("codingRuntime", "pi").containsEntry("codingModel", "");
+
+        var identified = runtime(Map.of("activity", "coding_starting", "runtime", "pi",
+                "model", "gemini-3.8-flash", "provider", "example-provider"), start.plusSeconds(1));
+        assertThat(view.build(execution, List.of(), List.of(runtimeOnly, identified), start.plusSeconds(2)))
+                .containsEntry("codingRuntime", "pi").containsEntry("codingModel", "gemini-3.8-flash");
+    }
+
     @Test void absentVerificationCountersRemainUnknown() {
         var execution = new PipelineExecution("dev-factory", "0.8.0", "{}");
         execution.setStatus(ExecutionStatus.COMPLETED);

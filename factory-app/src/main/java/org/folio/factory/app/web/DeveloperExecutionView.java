@@ -166,6 +166,8 @@ final class DeveloperExecutionView {
         view.put("repository", first(repo.path("source_repo"), repo.path("key"), candidate.path("repository")));
         view.put("branch", repo.path("base_branch").asString(""));
         view.put("technicalFields", technicalFields);
+        view.put("codingRuntime", config.path("runtime").asString(""));
+        view.put("codingModel", config.path("model").asString(""));
         view.put("reason", reason);
         String reasonLabel = "NEEDS_DECISION".equals(codingOutcome.path("status").asString(""))
                 ? "Decision required" : execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.PENDING

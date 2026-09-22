@@ -265,7 +265,7 @@ class UiRenderSmokeTest {
                 "Open full append-only audit log");
         assertThat(body).containsOnlyOnce("class=\"developer-stages\"")
                 .contains("aria-label=\"Technical steps\"", "Implementation", "Not started")
-                .doesNotContain("Coding runtime-reported cost", "Cost evidence", "class=\"stepper\"",
+                .doesNotContain("class=\"developer-runtime-facts\"", "Coding runtime-reported cost", "Cost evidence", "class=\"stepper\"",
                         "SOURCE_CONTENT_SENTINEL", "HIDDEN_MESSAGE_SENTINEL",
                         "HIDDEN_REASONING_SENTINEL", ">Baseline<",
                         "Baseline output tail", "Pinned base SHA", "Run starting build and Pi");
@@ -275,12 +275,21 @@ class UiRenderSmokeTest {
     void developerExecutionShowsEstimatedCostEvidenceWithoutRuntimeCost() {
         var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
-                Map.of("activity", "pi_starting", "provider", "test-provider", "model", "test-model"));
+                Map.of("activity", "coding_starting", "runtime", "pi", "provider", "test-provider", "model", "test-model"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "pi_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
                         "cacheWriteTokens", 0, "outputTokens", 10_000, "costUsd", 0));
 
         String body = assertRendered("/executions/" + execution.getId(), "Cost evidence");
+        String currentPanel = body.substring(body.indexOf("<section class=\"developer-panel developer-current\""),
+                body.indexOf("<section class=\"developer-panel developer-usage\""));
+        String usagePanel = body.substring(body.indexOf("<section class=\"developer-panel developer-usage\""),
+                body.indexOf("<section class=\"developer-recent\""));
+        assertThat(currentPanel).contains("<dt>Coding runtime</dt>", ">pi</dd>", "<dt>Model</dt>", ">test-model</dd>")
+                .doesNotContain("<dt>Provider</dt>", "test-provider");
+        assertThat(usagePanel).contains("total usage tokens", "Input tokens (uncached)", "Cache read tokens",
+                        "Cache creation tokens", "Output tokens", "<dt>Estimated cost</dt>", "0.0203 USD")
+                .doesNotContain("Configured rate card ·", "Actual provider or proxy charges may differ");
         assertThat(body)
                 .contains("Estimated coding API cost", "0.0203 USD", "using rates dated 2026-09-19",
                         "href=\"https://example.test/pricing\"", ">https://example.test/pricing</a>",
@@ -299,7 +308,7 @@ class UiRenderSmokeTest {
 
         String body = assertRendered("/executions/" + execution.getId(), "Usage");
         assertThat(body).contains("Cost estimate unavailable: Pi did not report enough usage for every response.")
-                .doesNotContain("Cost evidence", "No matching configured rate card.");
+                .doesNotContain("Cost evidence", "No matching configured rate card.", "<dt>Estimated cost</dt>");
     }
 
     @Test
@@ -371,8 +380,8 @@ class UiRenderSmokeTest {
                             "Workflow engine status: COMPLETED")
                     .doesNotContain("badge-status-COMPLETED");
             if (outcome.equals("DEVELOPMENT_FAILED"))
-                assertThat(detail).contains(">16</strong>", "total tokens", "Input", "Cached read",
-                                "Cache write", "Output")
+                assertThat(detail).contains(">16</strong>", "total usage tokens", "Input tokens (uncached)",
+                                "Cache read tokens", "Cache creation tokens", "Output tokens")
                         .doesNotContain("pi usage", "Coding runtime-reported cost");
             String list = assertRendered("/executions?flow=dev-factory", "Executions");
             assertThat(list).contains("badge-status-" + outcome, ">" + outcome + "</span>")
