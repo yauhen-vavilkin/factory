@@ -16,6 +16,62 @@ class PiCodingRuntimeTest {
     private static final String USAGE_FRAME = """
             {"type":"message_end","message":{"role":"assistant","provider":"p","model":"m","stopReason":"stop","content":[{"type":"text","text":"private secret-key"}],"usage":{"input":10,"output":3,"cacheRead":2,"cacheWrite":1,"cost":{"total":0.125}}}}
             """;
+    private static final String OVERSIZED_CONTENT = "private secret-key " + "x".repeat(512 * 1024);
+
+    private static String oversizedAgentEnd() {
+        return "{\"type\":\"agent_end\",\"messages\":[{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\""
+                + OVERSIZED_CONTENT + "\"}],\"usage\":{\"input\":900,\"output\":900}}],\"willRetry\":false}";
+    }
+
+    private static String oversizedFrame(String type) {
+        return "{\"type\":\"" + type + "\",\"padding\":\"" + OVERSIZED_CONTENT + "\"}";
+    }
+
+    @Test void oversizedAggregatePreservesFinalIdentityUsageAndBoundedDiagnostics() {
+        String stream = oversizedAgentEnd() + "\n" + USAGE_FRAME + SETTLED;
+        var result = PiCodingRuntime.parse(stream, "p", "m");
+        assertThat(result.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(result.metrics()).containsEntry("provider", "p").containsEntry("model", "m")
+                .containsEntry("inputTokens", 10L).containsEntry("outputTokens", 3L)
+                .containsEntry("ignoredOversizedPiFrameType", "agent_end")
+                .containsEntry("ignoredOversizedPiFrameCount", 1)
+                .containsEntry("largestIgnoredPiFrameChars", oversizedAgentEnd().length());
+        assertThat(result.metrics().toString()).doesNotContain("private", "secret-key", "content", OVERSIZED_CONTENT);
+        assertThat(PiCodingRuntime.parse(stream, "p", "other").failure().code())
+                .isEqualTo("IDENTITY_MISMATCH");
+
+        var twice = PiCodingRuntime.parse(oversizedAgentEnd() + "\n" + oversizedAgentEnd()
+                + "\n" + USAGE_FRAME + SETTLED, "p", "m");
+        assertThat(twice.metrics()).containsEntry("ignoredOversizedPiFrameCount", 2)
+                .containsEntry("inputTokens", 10L).containsEntry("outputTokens", 3L);
+    }
+
+    @Test void oversizedTerminalAndRetryControlFramesRemainFailClosed() {
+        for (String type : List.of("message_end", "agent_settled", "auto_retry_start", "auto_retry_end", "compaction_end")) {
+            var result = PiCodingRuntime.parse(USAGE_FRAME + oversizedFrame(type) + "\n" + SETTLED, "p", "m");
+            assertThat(result.failure().code()).as(type).isEqualTo("FRAME_TOO_LARGE");
+        }
+        assertThat(PiCodingRuntime.parse(USAGE_FRAME + oversizedFrame("agent_settled"), "p", "m")
+                .failure().code()).isEqualTo("FRAME_TOO_LARGE");
+        assertThat(PiCodingRuntime.parse(oversizedAgentEnd() + "\n" + USAGE_FRAME, "p", "m")
+                .failure().code()).isEqualTo("INCOMPLETE_RESULT");
+    }
+
+    @Test void oversizedUnknownNestedSpoofAndMalformedAggregateCannotPass() {
+        String nestedSpoof = "{\"content\":{\"type\":\"agent_end\",\"text\":\""
+                + OVERSIZED_CONTENT + "\"},\"messages\":[]}";
+        String duplicateType = oversizedAgentEnd().replace("\"willRetry\":false",
+                "\"type\":\"message_end\",\"willRetry\":false");
+        String malformed = oversizedAgentEnd().substring(0, oversizedAgentEnd().length() - 1);
+        String malformedNested = oversizedAgentEnd().replace("\"role\":\"assistant\"", "\"role\":}");
+        String unexpectedUsage = oversizedAgentEnd().replace("\"willRetry\":false",
+                "\"usage\":{\"input\":900},\"willRetry\":false");
+        for (String frame : List.of(oversizedFrame("unknown"), nestedSpoof, duplicateType, malformed,
+                malformedNested, unexpectedUsage, oversizedAgentEnd() + " {}")) {
+            assertThat(PiCodingRuntime.parse(USAGE_FRAME + frame + "\n" + SETTLED, "p", "m")
+                    .failure().code()).isEqualTo("FRAME_TOO_LARGE");
+        }
+    }
 
     @Test void codemieProfileProducesPiReasoningAndChatCompletionsSettings() throws Exception {
         var coding = new DevRuntimeProperties.Coding("pi:image", "codemie", "gemini-3.8-flash",

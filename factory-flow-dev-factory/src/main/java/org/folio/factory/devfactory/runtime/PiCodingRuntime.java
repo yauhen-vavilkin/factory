@@ -1,6 +1,7 @@
 package org.folio.factory.devfactory.runtime;
 
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
+import tools.jackson.core.JsonToken;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.file.Files;
@@ -131,9 +132,14 @@ public class PiCodingRuntime implements CodingRuntime {
         var usage = new Usage();
         for (String line : output.split("\n")) {
             if (line.isBlank()) continue;
-            if (line.length() > 512 * 1024)
+            if (line.length() > 512 * 1024) {
+                if (isOversizedAgentEnd(line, mapper)) {
+                    usage.ignoredOversizedAgentEnd(line.length());
+                    continue;
+                }
                 return CodingOutcome.failed("FRAME_TOO_LARGE", "Pi frame exceeds limit",
                         withIdentity(usage.snapshot(), provider, model));
+            }
             tools.jackson.databind.JsonNode event;
             try {
                 event = mapper.readTree(line);
@@ -202,6 +208,36 @@ public class PiCodingRuntime implements CodingRuntime {
         return CodingOutcome.completed(summary.substring(0, Math.min(8000, summary.length())), metrics);
     }
 
+    /** Pi 0.85.1 JSON mode serializes agent_end as {type, messages, willRetry}.
+     * Validate the entire frame without building its potentially large message tree.
+     */
+    private static boolean isOversizedAgentEnd(String line, JsonMapper mapper) {
+        try (var parser = mapper.tokenStreamFactory().createParser(line)) {
+            if (parser.nextToken() != JsonToken.START_OBJECT) return false;
+            boolean type = false, messages = false, willRetry = false;
+            JsonToken token;
+            while ((token = parser.nextToken()) != JsonToken.END_OBJECT) {
+                if (token != JsonToken.PROPERTY_NAME) return false;
+                String name = parser.currentName();
+                token = parser.nextToken();
+                if (name.equals("type")) {
+                    if (type || token != JsonToken.VALUE_STRING || !parser.getText().equals("agent_end")) return false;
+                    type = true;
+                } else if (name.equals("messages")) {
+                    if (messages || token != JsonToken.START_ARRAY) return false;
+                    parser.skipChildren();
+                    messages = true;
+                } else if (name.equals("willRetry")) {
+                    if (willRetry || token != JsonToken.VALUE_TRUE && token != JsonToken.VALUE_FALSE) return false;
+                    willRetry = true;
+                } else return false;
+            }
+            return type && messages && parser.nextToken() == null;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
     private static tools.jackson.databind.JsonNode reportedUsage(tools.jackson.databind.JsonNode event) {
         return switch (event.path("type").asString("")) {
             case "message_end" -> event.path("message").path("role").asString("").equals("assistant")
@@ -258,6 +294,7 @@ public class PiCodingRuntime implements CodingRuntime {
 
     private static final class Usage {
         private long input, cacheRead, cacheWrite, output;
+        private int ignoredOversizedFrames, largestIgnoredFrameChars;
         private java.math.BigDecimal cost;
         private boolean inputPresent, cacheReadPresent, cacheWritePresent, outputPresent;
         private boolean incomplete;
@@ -307,6 +344,11 @@ public class PiCodingRuntime implements CodingRuntime {
             return found;
         }
 
+        void ignoredOversizedAgentEnd(int frameChars) {
+            ignoredOversizedFrames++;
+            largestIgnoredFrameChars = Math.max(largestIgnoredFrameChars, frameChars);
+        }
+
         Map<String, Object> snapshot() {
             Map<String, Object> metrics = new java.util.LinkedHashMap<>();
             if (inputPresent) metrics.put("inputTokens", input);
@@ -315,6 +357,11 @@ public class PiCodingRuntime implements CodingRuntime {
             if (outputPresent) metrics.put("outputTokens", output);
             if (cost != null) metrics.put("costUsd", cost);
             if (incomplete) metrics.put("usageIncomplete", true);
+            if (ignoredOversizedFrames > 0) {
+                metrics.put("ignoredOversizedPiFrameType", "agent_end");
+                metrics.put("ignoredOversizedPiFrameCount", ignoredOversizedFrames);
+                metrics.put("largestIgnoredPiFrameChars", largestIgnoredFrameChars);
+            }
             return metrics;
         }
     }
