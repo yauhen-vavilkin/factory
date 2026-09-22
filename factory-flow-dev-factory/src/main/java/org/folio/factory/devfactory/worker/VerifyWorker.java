@@ -43,7 +43,7 @@ public class VerifyWorker implements AgentWorker {
                     RESULT, json.writeValueAsString(outcome)), Map.of());
         }
         Candidate candidate = json.readValue(content, Candidate.class);
-        var receipt = verifier.verify(context.executionId().toString(), candidate);
+        var receipt = verifier.verify(context.executionId(), context.stepId(), candidate);
         Map<String, Object> outcome = new LinkedHashMap<>();
         outcome.put("state", receipt.result().equals("PASS") ? "VERIFIED" : "VERIFICATION_FAILED");
         outcome.put("repository", candidate.repository());

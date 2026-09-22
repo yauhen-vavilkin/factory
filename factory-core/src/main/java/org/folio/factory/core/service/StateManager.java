@@ -236,15 +236,29 @@ public class StateManager {
         return true;
     }
 
+    /** Advances an agent only if the final renewal's lease still belongs to it. */
+    @Transactional
+    public boolean advanceStep(UUID executionId, int expectedStepIndex, ExecutionStatus expectedStatus,
+                               long expectedVersion) {
+        boolean advanced = executions.advanceLeasedStep(executionId, expectedStepIndex, expectedVersion,
+                expectedStatus, Instant.now()) == 1;
+        if (!advanced) {
+            log.warn("Refusing stale leased step advance for execution {} at step {}, version {}",
+                    executionId, expectedStepIndex, expectedVersion);
+        }
+        return advanced;
+    }
+
     /**
      * Marks the execution as alive so the lease reaper does not re-queue it while
      * a long-running step (LLM call, test execution) is still in flight.
      */
     @Transactional
-    public void heartbeat(UUID executionId) {
-        PipelineExecution execution = load(executionId);
-        execution.touchUpdatedAt();
-        executions.save(execution);
+    public boolean heartbeat(UUID executionId, int expectedStepIndex, long expectedVersion) {
+        // Atomic renewal also advances the optimistic version: a reaper that read
+        // an older timestamp cannot overwrite this renewal with its stale entity.
+        return executions.renewLease(executionId, expectedStepIndex, expectedVersion,
+                ExecutionStatus.RUNNING, Instant.now()) == 1;
     }
 
     private PipelineExecution load(UUID executionId) {

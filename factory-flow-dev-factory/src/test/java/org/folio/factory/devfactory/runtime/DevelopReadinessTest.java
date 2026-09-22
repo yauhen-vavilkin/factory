@@ -31,6 +31,8 @@ class DevelopReadinessTest {
         var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")),
                 new DevRuntimeProperties.Coding("pi:image", "provider", "model", null, null, "secret", "pi", null, null), 60, null);
         var docker = mock(DockerWorkloads.class);
+        var stepScope = mock(DockerWorkloads.StepScope.class);
+        when(docker.beginStep(any(), eq("implement"))).thenReturn(stepScope);
         var baseline = mock(DockerWorkloads.Workload.class);
         var pi = mock(DockerWorkloads.Workload.class);
         var freezer = mock(CandidateFreezer.class);
@@ -39,8 +41,8 @@ class DevelopReadinessTest {
         when(coding.identity()).thenReturn(Map.of("runtime", "pi", "image", "pi:image",
                 "provider", "provider", "model", "model"));
         when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
-        when(docker.createTrusted("build:image", workspace, "factory-dev-m2-cache")).thenReturn(baseline);
-        when(docker.createSeeded("pi:image", workspace, "factory-dev-m2-cache")).thenReturn(pi);
+        when(stepScope.createTrusted("build:image", workspace, "factory-dev-m2-cache")).thenReturn(baseline);
+        when(stepScope.createSeeded("pi:image", workspace, "factory-dev-m2-cache", "coding")).thenReturn(pi);
         when(baseline.execute(eq(List.of("mvn", "test")), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
                 .thenReturn(new Processes.Result(1, "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: Read timed out"),
                         new Processes.Result(0, "[INFO] BUILD SUCCESS"));
@@ -93,7 +95,7 @@ class DevelopReadinessTest {
                 .containsEntry("promptTokens", 13L)
                 .containsEntry("completionTokens", 3L);
         verify(coding).code(eq(pi), any(CodingRequest.class), eq(60), any());
-        verify(docker, times(2)).createTrusted("build:image", workspace, "factory-dev-m2-cache");
+        verify(stepScope, times(2)).createTrusted("build:image", workspace, "factory-dev-m2-cache");
         verify(baseline, times(2)).close();
         verify(pi).close();
     }
@@ -122,11 +124,13 @@ class DevelopReadinessTest {
         var properties = new DevFactoryProperties("https://example.org", new TreeMap<>(Map.of("repo", repo)));
         var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
         var docker = mock(DockerWorkloads.class);
+        var stepScope = mock(DockerWorkloads.StepScope.class);
+        when(docker.beginStep(any(), eq("implement"))).thenReturn(stepScope);
         var workload = mock(DockerWorkloads.Workload.class);
         var freezer = mock(CandidateFreezer.class);
         var coding = mock(CodingRuntime.class);
         when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
-        when(docker.createTrusted("build:image", workspace, "factory-dev-m2-cache")).thenReturn(workload);
+        when(stepScope.createTrusted("build:image", workspace, "factory-dev-m2-cache")).thenReturn(workload);
         when(workload.execute(eq(List.of("mvn", "test")), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
                 .thenAnswer(invocation -> {
                     @SuppressWarnings("unchecked")
@@ -151,7 +155,7 @@ class DevelopReadinessTest {
                         .hasMessageContaining("coding has not started")
                         .hasMessageContaining("Saxon-HE").hasMessageContaining("incomplete download");
             }
-            verify(docker, times(2)).createTrusted("build:image", workspace, "factory-dev-m2-cache");
+            verify(stepScope, times(2)).createTrusted("build:image", workspace, "factory-dev-m2-cache");
             verify(workload, times(2)).execute(eq(List.of("mvn", "test")), eq(60), eq(Processes.OUTPUT_LIMIT), any());
         } else {
             var result = worker.execute(context);

@@ -36,7 +36,7 @@ class VerifyWorkerTest {
                 "workload", Instant.EPOCH, Instant.EPOCH.plusSeconds(10), 1, 1, 3, 1, 0, "FAIL",
                 "AssertionFailedError: expected: <ready> but was: <failed>", VerificationFailure.CANDIDATE,
                 0, List.of("target/surefire-reports/TEST-Example.xml"), List.of());
-        when(verifier.verify(execution.toString(), candidate)).thenReturn(receipt);
+        when(verifier.verify(execution, "verify", candidate)).thenReturn(receipt);
         var context = new AgentContext(execution, "verify", Map.of(DevelopWorker.CANDIDATE,
                 new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json", json.writeValueAsString(candidate))),
                 null, Map.of(), List.of());
@@ -76,7 +76,7 @@ class VerifyWorkerTest {
         var receipt = new VerificationReceipt(execution.toString(), candidate.repository(), candidate.baseSha(),
                 candidate.treeSha(), candidate.patchSha256(), "unit", "image", List.of("mvn", "test"),
                 "workload", Instant.EPOCH, Instant.EPOCH, 1, 0, null, null, null, "FAIL", "No usable test evidence");
-        when(verifier.verify(execution.toString(), candidate)).thenReturn(receipt);
+        when(verifier.verify(execution, "verify", candidate)).thenReturn(receipt);
         var input = new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json", json.writeValueAsString(candidate));
         var context = new AgentContext(execution, "verify", Map.of(DevelopWorker.CANDIDATE, input),
                 null, Map.of(), List.of());

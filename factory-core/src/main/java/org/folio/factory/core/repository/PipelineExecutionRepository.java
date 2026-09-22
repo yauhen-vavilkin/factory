@@ -5,6 +5,7 @@ import org.folio.factory.core.domain.PipelineExecution;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -14,6 +15,27 @@ import java.util.List;
 import java.util.UUID;
 
 public interface PipelineExecutionRepository extends JpaRepository<PipelineExecution, UUID> {
+
+    @Modifying
+    @Query("""
+            UPDATE PipelineExecution e SET e.updatedAt = :now, e.version = e.version + 1
+            WHERE e.id = :id AND e.status = :status
+              AND e.currentStepIndex = :stepIndex AND e.version = :version
+            """)
+    int renewLease(@Param("id") UUID id, @Param("stepIndex") int stepIndex,
+                   @Param("version") long version, @Param("status") ExecutionStatus status,
+                   @Param("now") Instant now);
+
+    @Modifying
+    @Query("""
+            UPDATE PipelineExecution e SET e.currentStepIndex = e.currentStepIndex + 1,
+                   e.updatedAt = :now, e.version = e.version + 1
+            WHERE e.id = :id AND e.status = :status
+              AND e.currentStepIndex = :stepIndex AND e.version = :version
+            """)
+    int advanceLeasedStep(@Param("id") UUID id, @Param("stepIndex") int stepIndex,
+                          @Param("version") long version, @Param("status") ExecutionStatus status,
+                          @Param("now") Instant now);
 
     /**
      * Claims runnable executions with a row lock, skipping rows already claimed by

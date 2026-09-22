@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -30,6 +31,8 @@ class CandidateVerifierTest {
     private Candidate candidate;
     private CandidateVerifier verifier;
     private DockerWorkloads docker;
+    private DockerWorkloads.StepScope stepScope;
+    private final UUID executionId = UUID.randomUUID();
     private DockerWorkloads.Workload workload;
     private Path original;
     private DevFactoryProperties properties;
@@ -53,9 +56,11 @@ class CandidateVerifierTest {
         properties = new DevFactoryProperties(root.toString(), new TreeMap<>(Map.of("source", repository)));
         var runtime = new DevRuntimeProperties(Map.of("unit", command), null, 60, null);
         docker = mock(DockerWorkloads.class);
+        stepScope = mock(DockerWorkloads.StepScope.class);
+        when(docker.beginStep(executionId, "verify")).thenReturn(stepScope);
         workload = mock(DockerWorkloads.Workload.class);
         when(workload.name()).thenReturn("fresh-verifier");
-        when(docker.createSeeded(eq("trusted-java21"), any(), eq("factory-dev-m2-cache"))).thenAnswer(invocation -> {
+        when(stepScope.createSeeded(eq("trusted-java21"), any(), eq("factory-dev-m2-cache"), eq("verification"))).thenAnswer(invocation -> {
             Path fresh = invocation.getArgument(1);
             assertThat(fresh).isNotEqualTo(original);
             assertThat(git(fresh, "write-tree").strip()).isEqualTo(candidate.treeSha());
@@ -71,7 +76,7 @@ class CandidateVerifierTest {
     @ValueSource(ints = {0, 17})
     void actualExitControlsAcceptanceOfFreshExactCandidate(int exit) {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(exit, "Pi said PASS"));
-        var receipt = verifier.verify("execution", candidate);
+        var receipt = verifier.verify(executionId, "verify", candidate);
         assertThat(receipt.exitCode()).isEqualTo(exit);
         assertThat(receipt.result()).isEqualTo(exit == 0 ? "PASS" : "FAIL");
         assertThat(receipt.planId()).isEqualTo("unit");
@@ -79,8 +84,8 @@ class CandidateVerifierTest {
         assertThat(receipt.argv()).isEqualTo(command);
         assertThat(receipt.testCount()).isEqualTo(3);
         assertThat(receipt.finishedAt()).isAfterOrEqualTo(receipt.startedAt());
-        if (exit == 0) receipt.requireVerified("execution", candidate);
-        else assertThatThrownBy(() -> receipt.requireVerified("execution", candidate)).isInstanceOf(IllegalStateException.class);
+        if (exit == 0) receipt.requireVerified(executionId.toString(), candidate);
+        else assertThatThrownBy(() -> receipt.requireVerified(executionId.toString(), candidate)).isInstanceOf(IllegalStateException.class);
         verify(workload).execute(command, 60);
         verify(workload).close();
     }
@@ -90,7 +95,7 @@ class CandidateVerifierTest {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "Tests are skipped."));
         doNothing().when(workload).export(any());
 
-        var receipt = verifier.verify("execution", candidate);
+        var receipt = verifier.verify(executionId, "verify", candidate);
 
         assertThat(receipt.exitCode()).isZero();
         assertThat(receipt.testCount()).isNull();
@@ -98,7 +103,7 @@ class CandidateVerifierTest {
         assertThat(receipt.errorCount()).isNull();
         assertThat(receipt.result()).isEqualTo("FAIL");
         assertThat(receipt.output()).contains("no fresh executed Surefire tests");
-        assertThatThrownBy(() -> receipt.requireVerified("execution", candidate))
+        assertThatThrownBy(() -> receipt.requireVerified(executionId.toString(), candidate))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -107,7 +112,7 @@ class CandidateVerifierTest {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "BUILD SUCCESS"));
         exportReport("<testsuite tests=\"3\" skipped=\"3\" failures=\"0\" errors=\"0\"></testsuite>");
 
-        var receipt = verifier.verify("execution", candidate);
+        var receipt = verifier.verify(executionId, "verify", candidate);
 
         assertThat(receipt.testCount()).isZero();
         assertThat(receipt.result()).isEqualTo("FAIL");
@@ -118,7 +123,7 @@ class CandidateVerifierTest {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "BUILD SUCCESS"));
         exportReport("<testsuite tests=\"3\" skipped=\"0\" failures=\"1\" errors=\"0\"></testsuite>");
 
-        var receipt = verifier.verify("execution", candidate);
+        var receipt = verifier.verify(executionId, "verify", candidate);
 
         assertThat(receipt.testCount()).isEqualTo(3);
         assertThat(receipt.failureCount()).isEqualTo(1);
@@ -130,13 +135,14 @@ class CandidateVerifierTest {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "BUILD FAILURE"));
         exportReport("<testsuite tests='5' skipped='1' failures='2' errors='1'/>");
 
-        var receipt = verifier.verify("execution", candidate);
+        var receipt = verifier.verify(executionId, "verify", candidate);
 
         assertThat(receipt.testCount()).isEqualTo(4);
         assertThat(receipt.failureCount()).isEqualTo(2);
         assertThat(receipt.errorCount()).isEqualTo(1);
         assertThat(receipt.result()).isEqualTo("FAIL");
-        assertThatThrownBy(() -> receipt.requireVerified("execution", candidate)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> receipt.requireVerified(executionId.toString(), candidate)).isInstanceOf(IllegalStateException.class);
+        verify(workload).close();
     }
 
     @Test
@@ -144,7 +150,7 @@ class CandidateVerifierTest {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "Compilation failed"));
         doNothing().when(workload).export(any());
 
-        var receipt = verifier.verify("execution", candidate);
+        var receipt = verifier.verify(executionId, "verify", candidate);
 
         assertThat(receipt.surefireReportCount()).isZero();
         assertThat(receipt.testCount()).isNull();
@@ -159,30 +165,41 @@ class CandidateVerifierTest {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(exit, "x".repeat(20000)));
         exportReport("<testsuite tests='3' skipped='0' failures='0' errors='0'>");
 
-        var receipt = verifier.verify("execution", candidate);
+        var receipt = verifier.verify(executionId, "verify", candidate);
 
         assertThat(receipt.result()).isEqualTo("FAIL");
         assertThat(receipt.surefireReportCount()).isZero();
         assertThat(receipt.failureCount()).isNull();
         assertThat(receipt.output()).hasSizeLessThanOrEqualTo(16000).contains("Invalid or unsafe Surefire XML");
-        assertThatThrownBy(() -> receipt.requireVerified("execution", candidate)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> receipt.requireVerified(executionId.toString(), candidate)).isInstanceOf(IllegalStateException.class);
+        verify(workload).close();
+    }
+
+    @Test
+    void runtimeFailureStillClosesVerificationWorkload() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "BUILD SUCCESS"));
+        doThrow(new IllegalStateException("Docker export failed")).when(workload).export(any());
+
+        assertThatThrownBy(() -> verifier.verify(executionId, "verify", candidate))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("Docker export failed");
+        verify(workload).close();
     }
 
     @Test
     void wrongTreeIsRejectedBeforeDockerRuns() {
         var wrong = new Candidate(candidate.repository(), candidate.baseSha(), "a".repeat(40),
                 candidate.patchSha256(), candidate.patch(), candidate.state());
-        assertThatThrownBy(() -> verifier.verify("execution", wrong)).hasMessageContaining("reconstruction failed");
+        assertThatThrownBy(() -> verifier.verify(executionId, "verify", wrong)).hasMessageContaining("reconstruction failed");
         verifyNoInteractions(docker);
     }
 
     @Test
     void receiptCannotAuthorizeAnotherCandidateOrExecution() {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "OK"));
-        var receipt = verifier.verify("execution", candidate);
+        var receipt = verifier.verify(executionId, "verify", candidate);
         var other = new Candidate(candidate.repository(), candidate.baseSha(), "a".repeat(40),
                 candidate.patchSha256(), candidate.patch(), candidate.state());
-        assertThatThrownBy(() -> receipt.requireVerified("execution", other)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> receipt.requireVerified(executionId.toString(), other)).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> receipt.requireVerified("other-execution", candidate)).isInstanceOf(IllegalStateException.class);
     }
 
@@ -206,18 +223,18 @@ class CandidateVerifierTest {
             return null;
         }).when(workload).export(any());
 
-        var receipt = verifier.verify("execution", candidate);
+        var receipt = verifier.verify(executionId, "verify", candidate);
 
         assertThat(receipt.surefireReportCount()).isEqualTo(1);
         assertThat(receipt.failsafeReportCount()).isEqualTo(executed < 0 ? 0 : 1);
         assertThat(receipt.testCount()).isEqualTo(3 + Math.max(executed, 0));
         assertThat(receipt.result()).isEqualTo(executed > 0 ? "PASS" : "FAIL");
-        if (executed > 0) receipt.requireVerified("execution", candidate);
+        if (executed > 0) receipt.requireVerified(executionId.toString(), candidate);
         else {
             assertThat(receipt.missingRequiredReports()).containsExactly(required);
             assertThat(receipt.failureKind()).isEqualTo(VerificationFailure.INSUFFICIENT_EVIDENCE);
             assertThat(receipt.failureKind().repairable()).isFalse();
-            assertThatThrownBy(() -> receipt.requireVerified("execution", candidate)).isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> receipt.requireVerified(executionId.toString(), candidate)).isInstanceOf(IllegalStateException.class);
         }
     }
 
@@ -225,7 +242,7 @@ class CandidateVerifierTest {
     void assertionDiagnosticAndValidEvidenceIdentifyCandidateFailure() {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "AssertionFailedError: expected: <1> but was: <2>"));
         exportReport("<testsuite tests='3' skipped='0' failures='1' errors='0'/>");
-        assertThat(verifier.verify("execution", candidate).failureKind()).isEqualTo(VerificationFailure.CANDIDATE);
+        assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.CANDIDATE);
     }
 
     @Test
@@ -233,18 +250,18 @@ class CandidateVerifierTest {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
                 "AssertionFailedError; Could not find a valid Docker environment"));
         exportReport("<testsuite tests='3' skipped='0' failures='1' errors='0'/>");
-        assertThat(verifier.verify("execution", candidate).failureKind()).isEqualTo(VerificationFailure.ENVIRONMENT);
+        assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.ENVIRONMENT);
     }
 
     @Test
     void timeoutRetainsEvidenceButCannotAuthorizeDeliveryOrRepair() {
         when(workload.execute(command, 60)).thenThrow(new IllegalStateException("Command exceeded 60 seconds"));
-        var receipt = verifier.verify("execution", candidate);
+        var receipt = verifier.verify(executionId, "verify", candidate);
         assertThat(receipt.exitCode()).isEqualTo(-1);
         assertThat(receipt.testCount()).isEqualTo(3);
         assertThat(receipt.failureKind()).isEqualTo(VerificationFailure.ENVIRONMENT);
         assertThat(receipt.failureKind().repairable()).isFalse();
-        assertThatThrownBy(() -> receipt.requireVerified("execution", candidate)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> receipt.requireVerified(executionId.toString(), candidate)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -252,7 +269,7 @@ class CandidateVerifierTest {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
                 "[ERROR] COMPILATION ERROR :\n[ERROR] /workspace/src/main/java/Example.java:[12,3] cannot find symbol"));
         doNothing().when(workload).export(any());
-        var receipt = verifier.verify("execution", candidate);
+        var receipt = verifier.verify(executionId, "verify", candidate);
         assertThat(receipt.testCount()).isNull();
         assertThat(receipt.failureKind()).isEqualTo(VerificationFailure.CANDIDATE_COMPILE);
         assertThat(receipt.failureKind().repairable()).isFalse();
@@ -261,21 +278,21 @@ class CandidateVerifierTest {
     @Test
     void unrecognizedFailureWithPassingReportsRemainsUnknown() {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "BUILD FAILURE"));
-        assertThat(verifier.verify("execution", candidate).failureKind()).isEqualTo(VerificationFailure.UNKNOWN);
+        assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.UNKNOWN);
     }
 
     @Test
     void assertionTextWithoutEvidenceCannotAuthorizeRepair() {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "AssertionFailedError"));
         doNothing().when(workload).export(any());
-        assertThat(verifier.verify("execution", candidate).failureKind()).isEqualTo(VerificationFailure.INSUFFICIENT_EVIDENCE);
+        assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.INSUFFICIENT_EVIDENCE);
     }
 
     @Test
     void persistedDiagnosticRedactsCredentials() {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
                 "Authorization: Bearer secret123 https://user:password@example.org/artifact token=secret456"));
-        var receipt = verifier.verify("execution", candidate);
+        var receipt = verifier.verify(executionId, "verify", candidate);
         assertThat(receipt.output()).contains("[REDACTED]")
                 .doesNotContain("secret123", "secret456", "user:password");
     }
@@ -284,7 +301,7 @@ class CandidateVerifierTest {
     void credentialCrossingDiagnosticTailBoundaryIsRedactedBeforeTruncation() {
         when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
                 "x".repeat(4000) + "token=secret123" + "y".repeat(15994)));
-        var receipt = verifier.verify("execution", candidate);
+        var receipt = verifier.verify(executionId, "verify", candidate);
         assertThat(receipt.output()).hasSizeLessThanOrEqualTo(16000)
                 .doesNotContain("secret123", "ecret123", "cret123");
     }

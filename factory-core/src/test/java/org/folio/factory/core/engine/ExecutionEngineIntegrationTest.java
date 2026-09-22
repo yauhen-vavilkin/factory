@@ -154,6 +154,30 @@ class ExecutionEngineIntegrationTest {
     }
 
     @Test
+    void guardedHeartbeatRejectsChangedStepStatusAndReclaimedLease() {
+        PipelineExecution execution = stateManager.createExecution("fake-simple", "1.0.0", null);
+        claimUntilRunning(execution.getId());
+        PipelineExecution running = stateManager.get(execution.getId());
+        long version = running.getVersion();
+
+        assertThat(stateManager.heartbeat(execution.getId(), 1, version)).isFalse();
+        assertThat(stateManager.heartbeat(execution.getId(), 0, version)).isTrue();
+        assertThat(stateManager.get(execution.getId()).getVersion()).isEqualTo(version + 1);
+        assertThat(stateManager.heartbeat(execution.getId(), 0, version)).isFalse();
+
+        claimService.release(execution.getId());
+        assertThat(stateManager.heartbeat(execution.getId(), 0,
+                stateManager.get(execution.getId()).getVersion())).isFalse();
+        claimUntilRunning(execution.getId());
+        assertThat(stateManager.heartbeat(execution.getId(), 0, version + 1)).isFalse();
+        assertThat(stateManager.advanceStep(execution.getId(), 0, ExecutionStatus.RUNNING, version + 1)).isFalse();
+        assertThat(stateManager.heartbeat(execution.getId(), 0,
+                stateManager.get(execution.getId()).getVersion())).isTrue();
+        assertThat(stateManager.advanceStep(execution.getId(), 0, ExecutionStatus.RUNNING,
+                stateManager.get(execution.getId()).getVersion())).isTrue();
+    }
+
+    @Test
     void reaperReturnsStaleRunningExecutionsToPending() {
         PipelineExecution execution = stateManager.createExecution("fake-simple", "1.0.0", null);
         claimUntilRunning(execution.getId());

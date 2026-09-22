@@ -86,13 +86,13 @@ public class DevelopWorker implements AgentWorker {
         Path exported = null;
         Map<String, Object> readiness = nodeMap(existingReadiness);
         Map<String, Object> metrics = Map.of();
-        try {
+        try (var stepScope = docker.beginStep(context.executionId(), context.stepId())) {
             pristine = freezer.checkout(url, base);
             if (runBaseline) {
                 var command = runtime.command(repository.verificationPlan());
                 progress(context, Map.of("activity", "baseline_started", "command", String.join(" ", command),
                         "image", repository.buildImage()));
-                try (var baseline = docker.createTrusted(repository.buildImage(), pristine,
+                try (var baseline = stepScope.createTrusted(repository.buildImage(), pristine,
                         runtime.mavenCacheVolume())) {
                     var observer = new MavenBaselineOutput(line -> progress(context,
                             Map.of("activity", "baseline_progress", "message", line)));
@@ -135,7 +135,7 @@ public class DevelopWorker implements AgentWorker {
             coding.requireConfigured();
             exported = CandidateFreezer.temporary("factory-dev-export-");
             CodingOutcome outcome;
-            try (var workload = docker.createSeeded(coding.image(), pristine, runtime.mavenCacheVolume())) {
+            try (var workload = stepScope.createSeeded(coding.image(), pristine, runtime.mavenCacheVolume(), "coding")) {
                 var identity = new java.util.LinkedHashMap<>(coding.identity());
                 identity.put("activity", "coding_starting");
                 progress(context, identity);
@@ -162,6 +162,8 @@ public class DevelopWorker implements AgentWorker {
                             new CodingDecisionArtifacts.Answer(decision.requestId(), CodingDecisionArtifacts.UNANSWERED)),
                     metrics);
         } catch (StartingBuildNetworkException e) {
+            throw e;
+        } catch (DockerWorkloads.ActiveStepException e) {
             throw e;
         } catch (RuntimeException e) {
             String reason = safeRedact(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());

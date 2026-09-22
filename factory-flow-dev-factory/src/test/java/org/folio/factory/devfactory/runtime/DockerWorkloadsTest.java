@@ -6,16 +6,26 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.UUID;
 import static org.assertj.core.api.Assertions.*;
 
 class DockerWorkloadsTest {
+    private final UUID executionId = UUID.randomUUID();
+    private static final String STEP = "implement";
+    private DockerWorkloads.StepScope scope() { return new DockerWorkloads().beginStep(executionId, STEP); }
+
     @Test
     void workloadsUseHostResourcesAndKeepIsolation() {
         for (var cache : DockerWorkloads.MavenCache.values()) {
-            var command = DockerWorkloads.createCommand("build", "workload", "501:20", cache, "cache");
+            var command = DockerWorkloads.createCommand("build", "workload", "501:20", cache, "cache",
+                    executionId, STEP, "coding");
             assertThat(command).doesNotContain("--cpus", "--memory")
                     .containsSubsequence("--pids-limit", "512", "--cap-drop", "ALL", "--security-opt", "no-new-privileges")
-                    .containsSubsequence("--user", "501:20");
+                    .containsSubsequence("--user", "501:20")
+                    .containsSubsequence("--label", "factory.dev-owned=true",
+                            "--label", "factory.dev-execution=" + executionId,
+                            "--label", "factory.dev-step=" + STEP,
+                            "--label", "factory.dev-role=coding");
         }
     }
     private static final List<String> OFFLINE_REUSE = List.of("mvn", "-o", "-B", "-ntp",
@@ -26,7 +36,8 @@ class DockerWorkloadsTest {
     @Test
     void trustedBaselineGetsWritablePersistentMavenRepository() {
         var command = DockerWorkloads.createCommand("build", "baseline", "501:20",
-                DockerWorkloads.MavenCache.TRUSTED_WRITABLE, "factory-dev-m2-cache");
+                DockerWorkloads.MavenCache.TRUSTED_WRITABLE, "factory-dev-m2-cache",
+                executionId, STEP, "baseline");
 
         assertThat(command).containsSubsequence("--mount",
                 "type=volume,source=factory-dev-m2-cache,target=/tmp/factory-home/.m2/repository");
@@ -37,7 +48,8 @@ class DockerWorkloadsTest {
     @Test
     void untrustedWorkloadGetsReadOnlySeedAndPrivateWritableRepository() {
         var command = DockerWorkloads.createCommand("build", "pi", "501:20",
-                DockerWorkloads.MavenCache.READ_ONLY_SEED, "factory-dev-m2-cache");
+                DockerWorkloads.MavenCache.READ_ONLY_SEED, "factory-dev-m2-cache",
+                executionId, STEP, "coding");
 
         assertThat(command).containsSubsequence("--mount",
                 "type=volume,source=factory-dev-m2-cache,target=/tmp/factory-m2-seed,readonly");
@@ -52,7 +64,8 @@ class DockerWorkloadsTest {
     void privateWorkloadRequiresStopBeforeExportAndIsRemoved() throws Exception {
         Files.writeString(source.resolve("source.txt"), "source");
         String name;
-        try (var workload = new DockerWorkloads().create("maven:3.9-eclipse-temurin-21", source)) {
+        try (var scope = scope(); var workload = scope.createSeeded("maven:3.9-eclipse-temurin-21",
+                source, "factory-dev-m2-cache", "coding")) {
             name = workload.name();
             assertThatThrownBy(() -> workload.export(exported)).hasMessageContaining("Stop");
             assertThat(workload.execute(List.of("sh", "-c", "test ! -e /var/run/docker.sock && test -z \"$GH_TOKEN$GITHUB_TOKEN$JIRA_API_TOKEN\" && test -f /workspace/source.txt && printf changed > /workspace/source.txt && mkdir target && printf generated > new-source.txt"), 30).exitCode()).isZero();
@@ -65,6 +78,45 @@ class DockerWorkloadsTest {
     }
 
     @Test @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
+    void replayRemovesOnlyItsOwnStaleWorkloadBeforeReplacement() throws Exception {
+        Files.writeString(source.resolve("source.txt"), "source");
+        String image = "maven:3.9-eclipse-temurin-21";
+        String old = "factory-dev-" + UUID.randomUUID();
+        String other = "factory-dev-" + UUID.randomUUID();
+        UUID otherExecution = UUID.randomUUID();
+        for (var entry : List.of(new Object[] {old, executionId}, new Object[] {other, otherExecution})) {
+            Processes.run(null, List.of("docker", "create", "--name", (String) entry[0],
+                    "--label", "factory.dev-owned=true", "--label", "factory.dev-execution=" + entry[1],
+                    "--label", "factory.dev-step=" + STEP, "--entrypoint", "/bin/sh", image,
+                    "-c", "sleep infinity"), 30).requireSuccess();
+        }
+        try {
+            assertThat(Processes.run(null, List.of("docker", "start", old), 30).exitCode()).isZero();
+            try (var scope = scope()) {
+                assertThat(Processes.run(null, List.of("docker", "inspect", old), 30).exitCode()).isNotZero();
+                assertThat(Processes.run(null, List.of("docker", "inspect", other), 30).exitCode()).isZero();
+                try (var replacement = scope.createSeeded(image, source, "factory-dev-m2-cache", "coding")) {
+                    assertThat(Processes.run(null, List.of("docker", "inspect", "-f",
+                            "{{index .Config.Labels \"factory.dev-execution\"}}", replacement.name()), 30)
+                            .output().strip()).isEqualTo(executionId.toString());
+                }
+            }
+        } finally {
+            Processes.run(null, List.of("docker", "rm", "--force", old), 30);
+            Processes.run(null, List.of("docker", "rm", "--force", other), 30);
+        }
+    }
+
+    @Test @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
+    void liveStepInSameProcessCannotBeReconciledByDuplicate() {
+        var docker = new DockerWorkloads();
+        try (var scope = docker.beginStep(executionId, STEP)) {
+            assertThatThrownBy(() -> docker.beginStep(executionId, STEP))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("already active");
+        }
+    }
+
+    @Test @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
     void trustedCachePersistsButSeededWorkloadCannotModifyIt() throws Exception {
         Files.writeString(source.resolve("source.txt"), "source");
         Files.writeString(source.resolve("pom.xml"), """
@@ -74,8 +126,8 @@ class DockerWorkloadsTest {
                 </project>
                 """);
         String volume = "factory-dev-cache-test-" + java.util.UUID.randomUUID();
-        try {
-            try (var baseline = new DockerWorkloads().createTrusted(
+        try (var scope = scope()) {
+            try (var baseline = scope.createTrusted(
                     "maven:3.9-eclipse-temurin-21", source, volume)) {
                 assertThat(baseline.execute(List.of("mvn", "-B", "-ntp", "-X", "validate"), 30).output())
                         .contains("Using local repository at /tmp/factory-home/.m2/repository");
@@ -85,14 +137,14 @@ class DockerWorkloadsTest {
                 assertThat(baseline.execute(List.of("sh", "-c",
                         "printf cached > $HOME/.m2/repository/cached.txt"), 30).exitCode()).isZero();
             }
-            try (var repeatedBaseline = new DockerWorkloads().createTrusted(
+            try (var repeatedBaseline = scope.createTrusted(
                     "maven:3.9-eclipse-temurin-21", source, volume)) {
                 assertThat(repeatedBaseline.execute(List.of("sh", "-c",
                         "test \"$(cat $HOME/.m2/repository/cached.txt)\" = cached"), 30).exitCode()).isZero();
                 assertThat(repeatedBaseline.execute(OFFLINE_REUSE, 120).exitCode()).isZero();
             }
-            try (var seeded = new DockerWorkloads().createSeeded(
-                    "maven:3.9-eclipse-temurin-21", source, volume)) {
+            try (var seeded = scope.createSeeded(
+                    "maven:3.9-eclipse-temurin-21", source, volume, "coding")) {
                 // createSeeded returns only after the private copy is complete.
                 assertThat(seeded.execute(List.of("mvn", "-B", "-ntp", "-X", "validate"), 30).output())
                         .contains("Using local repository at /tmp/factory-home/.m2/repository");
@@ -123,7 +175,7 @@ class DockerWorkloadsTest {
                 """);
         String volume = "factory-dev-cache-test-" + java.util.UUID.randomUUID();
         String image = "maven:3.9-eclipse-temurin-21";
-        try {
+        try (var scope = scope()) {
             assertThat(Processes.run(null, List.of("docker", "run", "--rm", "--user", "0:0",
                     "--mount", "type=volume,source=" + volume + ",target=/cache",
                     "--entrypoint", "sh", image, "-c",
@@ -134,7 +186,7 @@ class DockerWorkloadsTest {
                             + "&& chmod 0000 /cache/org/example/dependency/1.0/artifact.pom"), 60)
                     .exitCode()).isZero();
 
-            try (var baseline = new DockerWorkloads().createTrusted(image, source, volume)) {
+            try (var baseline = scope.createTrusted(image, source, volume)) {
                 assertThat(baseline.execute(List.of("sh", "-c",
                         "test \"$(cat $HOME/.m2/repository/org/example/dependency/1.0/artifact.pom)\" = original "
                                 + "&& printf updated > $HOME/.m2/repository/org/example/dependency/1.0/artifact.pom "
@@ -144,14 +196,14 @@ class DockerWorkloadsTest {
                         "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get",
                         "-Dartifact=org.apache.commons:commons-lang3:3.17.0"), 120).exitCode()).isZero();
             }
-            try (var repeated = new DockerWorkloads().createTrusted(image, source, volume)) {
+            try (var repeated = scope.createTrusted(image, source, volume)) {
                 assertThat(repeated.execute(List.of("sh", "-c",
                         "test \"$(cat $HOME/.m2/repository/org/example/dependency/1.0/artifact.pom)\" = updated "
                                 + "&& test \"$(cat $HOME/.m2/repository/org/example/dependency/1.0/new.pom)\" = nested"), 30)
                         .exitCode()).isZero();
                 assertThat(repeated.execute(OFFLINE_REUSE, 120).exitCode()).isZero();
             }
-            try (var seeded = new DockerWorkloads().createSeeded(image, source, volume)) {
+            try (var seeded = scope.createSeeded(image, source, volume, "coding")) {
                 assertThat(seeded.execute(List.of("sh", "-c",
                         "test \"$(cat $HOME/.m2/repository/org/example/dependency/1.0/artifact.pom)\" = updated "
                                 + "&& printf private > $HOME/.m2/repository/org/example/dependency/1.0/new.pom "

@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The control plane's state machine: advances a pipeline execution through its
@@ -57,6 +58,8 @@ public class ExecutionEngine {
     private final List<StepPostProcessor> postProcessors;
     private final JsonMapper jsonMapper;
     private final EngineMetrics engineMetrics;
+    private final AgentLeaseHeartbeat leaseHeartbeat;
+    private final Set<UUID> activeExecutions = ConcurrentHashMap.newKeySet();
 
     public ExecutionEngine(FlowRegistry flowRegistry,
                            AgentWorkerRegistry workerRegistry,
@@ -67,7 +70,8 @@ public class ExecutionEngine {
                            SubFlowInvoker subFlowInvoker,
                            List<StepPostProcessor> postProcessors,
                            JsonMapper jsonMapper,
-                           EngineMetrics engineMetrics) {
+                           EngineMetrics engineMetrics,
+                           AgentLeaseHeartbeat leaseHeartbeat) {
         this.flowRegistry = flowRegistry;
         this.workerRegistry = workerRegistry;
         this.stateManager = stateManager;
@@ -78,6 +82,7 @@ public class ExecutionEngine {
         this.postProcessors = postProcessors;
         this.jsonMapper = jsonMapper;
         this.engineMetrics = engineMetrics;
+        this.leaseHeartbeat = leaseHeartbeat;
     }
 
     /**
@@ -85,6 +90,12 @@ public class ExecutionEngine {
      * fails, or completes. The execution must already be in RUNNING status.
      */
     public void advance(UUID executionId) {
+        // Single-instance guard: a reaped/reclaimed claim must not start a second
+        // driver while this process still has an agent running for the same run.
+        if (!activeExecutions.add(executionId)) {
+            log.warn("Ignoring duplicate local driver for execution {}", executionId);
+            return;
+        }
         // Every log line emitted while this execution advances carries executionId.
         // Removed in finally: engine threads come from a pooled AsyncTaskExecutor and
         // are reused across executions, so the key must not leak to the next task.
@@ -123,6 +134,7 @@ public class ExecutionEngine {
             failTerminally(executionId, e);
         } finally {
             MDC.remove("executionId");
+            activeExecutions.remove(executionId);
         }
     }
 
@@ -130,17 +142,20 @@ public class ExecutionEngine {
         UUID executionId = execution.getId();
         MDC.put("stepId", step.stepId());
         try {
-            stateManager.heartbeat(executionId);
             auditLog.record(executionId, AuditEventType.STEP_STARTED, step.stepId(),
                     Map.of("workerId", step.workerId(), "attempt", stateManager.retryCount(executionId, step.stepId()) + 1));
             long startNanos = System.nanoTime();
             // Recorded exactly once in finally, classified by whether the step reached
             // success — so a fault in advanceStep is not counted as both success and failure.
             boolean success = false;
+            AgentResult result = null;
             try {
                 AgentWorker worker = workerRegistry.require(step.workerId());
                 AgentContext context = buildContext(execution, step);
-                AgentResult result = worker.execute(context);
+                var lease = leaseHeartbeat.start(execution);
+                try (lease) {
+                    result = worker.execute(context);
+                }
                 requireDeclaredOutputs(step, result);
                 for (StepPostProcessor postProcessor : postProcessors) {
                     postProcessor.process(flow, step, result.outputs());
@@ -148,15 +163,34 @@ public class ExecutionEngine {
                 for (Map.Entry<String, String> output : result.outputs().entrySet()) {
                     artifactStore.putMarkdown(executionId, output.getKey(), output.getValue(), step.stepId());
                 }
-                auditLog.record(executionId, AuditEventType.STEP_COMPLETED, step.stepId(), result.metrics());
-                engineMetrics.recordLlmTokens(step.workerId(), result.metrics());
                 // Guarded advance: if a duplicate driver (lease-reaped run) moved the
                 // execution meanwhile, stop instead of double-advancing past a step.
                 boolean advanced = stateManager.advanceStep(executionId, execution.getCurrentStepIndex(),
-                        ExecutionStatus.RUNNING);
-                success = true;
+                        ExecutionStatus.RUNNING, lease.version());
+                if (advanced) {
+                    auditLog.record(executionId, AuditEventType.STEP_COMPLETED, step.stepId(), result.metrics());
+                    engineMetrics.recordLlmTokens(step.workerId(), result.metrics());
+                }
+                success = advanced;
                 return advanced;
             } catch (Exception e) {
+                // Conditional HITL gate workers intentionally park their own AGENT
+                // step with no outputs. Their guarded advance would refuse AWAITING_HITL,
+                // but the completed gate still needs its normal audit event.
+                if (result != null && step.outputs().isEmpty() && leaseLost(e)
+                        && parkedAtReview(executionId, execution.getCurrentStepIndex())) {
+                    auditLog.record(executionId, AuditEventType.STEP_COMPLETED, step.stepId(), result.metrics());
+                    success = true;
+                    return false;
+                }
+                // A failed renewal means ownership is lost or unknown. Leave the
+                // current owner/reaper in charge; stale workers must not retry or
+                // escalate a run that may already have been claimed elsewhere.
+                if (leaseLost(e)) {
+                    log.error("Discarding result of step '{}' for execution {} after lease renewal failure",
+                            step.stepId(), executionId, e);
+                    return false;
+                }
                 handleStepFailure(execution, flow, step, e);
                 return false;
             } finally {
@@ -165,6 +199,28 @@ public class ExecutionEngine {
         } finally {
             MDC.remove("stepId");
         }
+    }
+
+    private boolean parkedAtReview(UUID executionId, int expectedStepIndex) {
+        try {
+            PipelineExecution current = stateManager.get(executionId);
+            return current.getStatus() == ExecutionStatus.AWAITING_HITL
+                    && current.getCurrentStepIndex() == expectedStepIndex;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    private boolean leaseLost(Exception exception) {
+        if (exception instanceof AgentLeaseHeartbeat.LeaseLostException) {
+            return true;
+        }
+        for (Throwable suppressed : exception.getSuppressed()) {
+            if (suppressed instanceof AgentLeaseHeartbeat.LeaseLostException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private AgentContext buildContext(PipelineExecution execution, StepDescriptor step) {

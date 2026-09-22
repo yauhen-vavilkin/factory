@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 /** Independent acceptance authority. No coding output or task text supplies executable policy. */
 public class CandidateVerifier {
@@ -28,7 +29,7 @@ public class CandidateVerifier {
         this.docker = docker;
     }
 
-    public VerificationReceipt verify(String executionId, Candidate candidate) {
+    public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate) {
         var repository = repositories.repositories().get(candidate.repository());
         if (repository == null) throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
         var command = runtime.command(repository.verificationPlan());
@@ -37,10 +38,11 @@ public class CandidateVerifier {
         // reconstruct checks the Git tree before any command can execute.
         Path source = candidates.reconstruct(sourceUrl, candidate);
         Path exported = null;
-        try {
+        try (var stepScope = docker.beginStep(executionId, stepId)) {
             // New container storage; DockerWorkloads supplies no model/Jira/GitHub environment.
             // The checkout contains source only, without the coding workspace's target output.
-            try (var workload = docker.createSeeded(repository.buildImage(), source, runtime.mavenCacheVolume())) {
+            try (var workload = stepScope.createSeeded(repository.buildImage(), source,
+                    runtime.mavenCacheVolume(), "verification")) {
                 Instant started = Instant.now();
                 Processes.Result observation;
                 try {
@@ -76,7 +78,7 @@ public class CandidateVerifier {
                 var failure = VerificationFailure.classify(result, output, invalidEvidence,
                         evidence == null || evidence.testCount() == 0 || !missingReports.isEmpty(),
                         evidence == null ? null : evidence.failureCount(), evidence == null ? null : evidence.errorCount());
-                return new VerificationReceipt(executionId, candidate.repository(), candidate.baseSha(),
+                return new VerificationReceipt(executionId.toString(), candidate.repository(), candidate.baseSha(),
                         candidate.treeSha(), candidate.patchSha256(), repository.verificationPlan(),
                         repository.buildImage(), command, workload.name(), started, finished,
                         observation.exitCode(), evidence == null ? 0 : evidence.reportCount() - evidence.failsafeReportCount(),
