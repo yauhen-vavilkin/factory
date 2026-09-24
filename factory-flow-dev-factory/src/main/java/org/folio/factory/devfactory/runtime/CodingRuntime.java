@@ -7,8 +7,14 @@ public interface CodingRuntime {
 
     void requireConfigured();
 
+    /** Non-secret display identity, available before the runtime is fully configured. */
     default java.util.Map<String, Object> identity() {
-        return java.util.Map.of("runtime", id(), "image", image());
+        var identity = new java.util.LinkedHashMap<String, Object>();
+        String runtime = id();
+        String image = image();
+        if (runtime != null && !runtime.isBlank()) identity.put("runtime", runtime);
+        if (image != null && !image.isBlank()) identity.put("image", image);
+        return java.util.Map.copyOf(identity);
     }
 
     /** Removes adapter-owned credentials from persisted failures and audit activity. */

@@ -75,4 +75,27 @@ class DeveloperCostEstimatorTest {
         assertThat(gemini.estimate(List.of(new DeveloperCostEstimator.Usage(
                 "gemini-3.8-flash", 1L, 0L, 1L, 0L)))).isNull();
     }
+
+    @Test void estimatesLunaMaxReasoningOutputAndCacheWritesAtOfficialRates() throws Exception {
+        var directory = Path.of("").toAbsolutePath();
+        var card = directory.resolve("config/developer-pricing.yaml");
+        if (!Files.exists(card)) card = directory.getParent().resolve("config/developer-pricing.yaml");
+        var source = new YamlPropertySourceLoader().load("pricing", new FileSystemResource(card)).getFirst();
+        var rates = new Binder(ConfigurationPropertySources.from(source))
+                .bind("factory.developer-pricing", DeveloperPricingProperties.class).get();
+        var configured = rates.rates().get("openai-gpt-5-6-luna");
+        assertThat(configured.model()).isEqualTo("gpt-5.6-luna-2026-07-09");
+        assertThat(configured.inputPerMillion()).isEqualByComparingTo("0.20");
+        assertThat(configured.cacheReadPerMillion()).isEqualByComparingTo("0.02");
+        assertThat(configured.cacheWritePerMillion()).isEqualByComparingTo("0.25");
+        assertThat(configured.outputPerMillion()).isEqualByComparingTo("1.20");
+        assertThat(configured.source()).isEqualTo(URI.create(
+                "https://developers.openai.com/api/docs/models/gpt-5.6-luna"));
+        var luna = new DeveloperCostEstimator(rates);
+        var estimate = luna.estimate(List.of(new DeveloperCostEstimator.Usage(
+                "gpt-5.6-luna-2026-07-09", 1_000_000L, 2_000_000L, 3_000_000L, 100_000L)));
+        assertThat(estimate).isNotNull();
+        assertThat(estimate.amount()).isEqualTo("1.11");
+        assertThat(estimate.asOf()).isEqualTo(LocalDate.parse("2026-09-21"));
+    }
 }

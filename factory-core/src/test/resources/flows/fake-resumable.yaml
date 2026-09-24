@@ -1,0 +1,20 @@
+id: fake-resumable
+name: Resumable test fixture
+version: 1.0.0
+triggers: []
+retry_policy:
+  max_attempts: 2
+  backoff_seconds: [0]
+agent_chain:
+  - step_id: initialize
+    type: AGENT
+    worker_id: resumable-fixture
+    inputs: []
+    outputs: [counter]
+  - step_id: repeat
+    type: AGENT
+    worker_id: resumable-fixture
+    inputs: [counter, "$trigger"]
+    outputs: [counter]
+    config:
+      resumable: true

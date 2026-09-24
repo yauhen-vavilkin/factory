@@ -81,6 +81,14 @@ public class AgentLeaseHeartbeat {
             }
         }
 
+        /** Serialize short ownership checks with renewal; never hold this across workload calls. */
+        public synchronized <T> T checked(java.util.function.LongFunction<T> action) {
+            renew();
+            requireHealthy();
+            if (closed) throw new IllegalStateException("Lease is closed");
+            return action.apply(version);
+        }
+
         public synchronized long version() {
             return version;
         }

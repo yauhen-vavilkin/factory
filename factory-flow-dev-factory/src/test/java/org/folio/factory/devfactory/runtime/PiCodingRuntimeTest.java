@@ -3,6 +3,7 @@ package org.folio.factory.devfactory.runtime;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
 import java.util.List;
 import java.util.Map;
 import java.nio.file.Files;
@@ -17,6 +18,28 @@ class PiCodingRuntimeTest {
             {"type":"message_end","message":{"role":"assistant","provider":"p","model":"m","stopReason":"stop","content":[{"type":"text","text":"private secret-key"}],"usage":{"input":10,"output":3,"cacheRead":2,"cacheWrite":1,"cost":{"total":0.125}}}}
             """;
     private static final String OVERSIZED_CONTENT = "private secret-key " + "x".repeat(512 * 1024);
+
+    @Test void identityContainsOnlyDisplayFields() {
+        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding("pi:image", "provider", "model",
+                "https://private.example", "openai-completions", "secret-key", "pi", "high", 4096));
+        assertThat(runtime.identity()).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "runtime", "pi", "image", "pi:image", "provider", "provider", "model", "model"));
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" "})
+    void identityIsAvailableWithMissingConfiguration(String missing) {
+        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding(missing, missing, missing,
+                null, null, null, "pi", null, null));
+        assertThat(runtime.identity()).containsExactlyInAnyOrderEntriesOf(Map.of("runtime", "pi"));
+
+        var base = mock(CodingRuntime.class, CALLS_REAL_METHODS);
+        when(base.id()).thenReturn(missing);
+        when(base.image()).thenReturn(missing);
+        assertThat(base.identity()).isEmpty();
+        verify(base, never()).requireConfigured();
+    }
 
     private static String oversizedAgentEnd() {
         return "{\"type\":\"agent_end\",\"messages\":[{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\""

@@ -19,6 +19,7 @@ TestRail / GitHub / Jira sync.
 | Look up any flow YAML field and its validation rules | [doc/flow-descriptor-reference.md](doc/flow-descriptor-reference.md) |
 | Understand the architecture and its principles | [doc/design-overview.md](doc/design-overview.md) |
 | Operate it in production (stuck runs, alerts, cost, retention) | [doc/runbook.md](doc/runbook.md) |
+| Work on PR comments inside Developer Flow | [docs/PR_FEEDBACK.md](docs/PR_FEEDBACK.md) |
 | Back up / restore the database | [doc/backup-dr.md](doc/backup-dr.md) |
 | Tune pool sizing / plan a load test | [doc/performance.md](doc/performance.md) |
 
@@ -177,6 +178,10 @@ Factory does not fetch prices from the model API; the YAML records rates and lin
 The `gemini-3.8-flash` rate is an estimate based on Google's public Standard
 API price through December 31, 2026, not the amount billed by CodeMie. Explicit
 cache storage charges are not included.
+The `gpt-5.6-luna-2026-07-09` rate uses OpenAI's public Standard short-context
+price. Factory's Pi profile advertises a 200K context window, below OpenAI's
+272K long-context threshold. Reasoning tokens, including `max` effort, are
+billed as output tokens; the estimate is not the CodeMie organization's bill.
 The coding runtime's raw cost field remains in audit events but is not shown as API cost. A positive token
 category without a configured rate makes the estimate unavailable rather than
 silently undercounting it.
@@ -226,7 +231,7 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME` | Persistent trusted Developer Flow Maven cache volume (default `factory-dev-m2-cache`) |
 | `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (currently `pi`; default `pi`) |
 | `FACTORY_MODEL_PROVIDER` / `_ID` / `_BASE_URL` / `_API` / `_API_KEY` | Pi provider identity, model id, endpoint, protocol, and credential; see the switchable profiles in `.env.example` |
-| `FACTORY_MODEL_REASONING_EFFORT` | Optional Pi thinking level; `high` for CodeMie Gemini 3.8 Flash, empty for the current GLM behavior |
+| `FACTORY_MODEL_REASONING_EFFORT` | Optional Pi thinking level; `max` for the CodeMie GPT-5.6 Luna profile, empty for the current GLM behavior |
 | `FACTORY_MODEL_MAX_OUTPUT_TOKENS` | Pi model output limit (default `16384`; CodeMie profile `65536`) |
 | `FACTORY_DB_POOL_MAX` / `_MIN_IDLE` | HikariCP pool sizing (defaults `16` / `4`; see `doc/performance.md`) |
 | `FACTORY_DB_POOL_CONNECTION_TIMEOUT_MS` / `_MAX_LIFETIME_MS` / `_IDLE_TIMEOUT_MS` / `_LEAK_DETECTION_MS` | HikariCP tuning (defaults `30000` / `1800000` / `600000` / `60000`) |

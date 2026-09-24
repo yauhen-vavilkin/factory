@@ -35,6 +35,17 @@ public class DockerWorkloads {
         public ActiveStepException() { super("Developer step is already active in this process"); }
     }
 
+    /** Strict cleanup for a quiescent, owned feedback operation. Failure must remain visible. */
+    public void cleanOwned(UUID executionId, String stepId) {
+        if (activeSteps.contains(executionId + "/" + stepId))
+            throw new IllegalStateException("Workload operation is still active");
+        reconcile(executionId, stepId);
+        var remaining = Processes.run(null, List.of("docker", "ps", "-aq",
+                "--filter", "label=factory.dev-owned=true", "--filter", "label=factory.dev-execution=" + executionId,
+                "--filter", "label=factory.dev-step=" + stepId), 30).requireSuccess();
+        if (!remaining.output().isBlank()) throw new IllegalStateException("Owned containers remain");
+    }
+
     private void reconcile(UUID executionId, String stepId) {
         var result = Processes.run(null, List.of("docker", "ps", "-aq",
                 "--filter", "label=factory.dev-owned=true",

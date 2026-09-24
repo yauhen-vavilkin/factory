@@ -59,6 +59,10 @@ public class ExecutionEngine {
     private final JsonMapper jsonMapper;
     private final EngineMetrics engineMetrics;
     private final AgentLeaseHeartbeat leaseHeartbeat;
+    private ResumableAgentDriver resumableDriver;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setResumableDriver(ResumableAgentDriver driver) { this.resumableDriver = driver; }
+
     private final Set<UUID> activeExecutions = ConcurrentHashMap.newKeySet();
 
     public ExecutionEngine(FlowRegistry flowRegistry,
@@ -139,6 +143,8 @@ public class ExecutionEngine {
     }
 
     private boolean runAgentStep(PipelineExecution execution, FlowDescriptor flow, StepDescriptor step) {
+        if (Boolean.TRUE.equals(step.config().get("resumable")))
+            return resumableDriver.run(execution, flow, step, () -> buildContext(execution, step));
         UUID executionId = execution.getId();
         MDC.put("stepId", step.stepId());
         try {
@@ -156,6 +162,8 @@ public class ExecutionEngine {
                 try (lease) {
                     result = worker.execute(context);
                 }
+                if (result.disposition() != AgentResult.Disposition.ADVANCE)
+                    throw new AgentExecutionException("Step is not opted into resumable invocation results");
                 requireDeclaredOutputs(step, result);
                 for (StepPostProcessor postProcessor : postProcessors) {
                     postProcessor.process(flow, step, result.outputs());

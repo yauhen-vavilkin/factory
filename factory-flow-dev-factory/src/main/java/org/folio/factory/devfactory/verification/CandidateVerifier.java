@@ -32,9 +32,16 @@ public class CandidateVerifier {
     public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate) {
         var repository = repositories.repositories().get(candidate.repository());
         if (repository == null) throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
+        return verify(executionId, stepId, candidate,
+                repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git");
+    }
+
+    /** Source is supplied by Factory's authorized PR adapter, never by model output. */
+    public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate, String sourceUrl) {
+        var repository = repositories.repositories().get(candidate.repository());
+        if (repository == null) throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
         var command = runtime.command(repository.verificationPlan());
         var requiredReports = runtime.requiredReports(repository.verificationPlan());
-        String sourceUrl = repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
         // reconstruct checks the Git tree before any command can execute.
         Path source = candidates.reconstruct(sourceUrl, candidate);
         Path exported = null;

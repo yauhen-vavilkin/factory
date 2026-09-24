@@ -21,7 +21,10 @@ public class PiCodingRuntime implements CodingRuntime {
     @Override public String image() { return config.image(); }
     @Override public void requireConfigured() { config.requireConfigured(); }
     @Override public Map<String, Object> identity() {
-        return Map.of("runtime", id(), "image", image(), "provider", config.provider(), "model", config.model());
+        var identity = new java.util.LinkedHashMap<>(CodingRuntime.super.identity());
+        if (config.provider() != null && !config.provider().isBlank()) identity.put("provider", config.provider());
+        if (config.model() != null && !config.model().isBlank()) identity.put("model", config.model());
+        return Map.copyOf(identity);
     }
     @Override public String redact(String value) {
         return config.apiKey() == null || config.apiKey().isBlank()

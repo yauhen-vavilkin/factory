@@ -6,6 +6,9 @@ import org.folio.factory.connectors.jira.JiraIssue;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
+import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.service.AuditLog;
+import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.decision.DecisionArtifacts;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Answer;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Option;
@@ -37,11 +40,16 @@ public class IntakeWorker implements AgentWorker {
     private final JiraConnector jira;
     private final RepositoryPolicy policy;
     private final FrontmatterCodec codec;
+    private final CodingRuntime runtime;
+    private final AuditLog audit;
 
-    public IntakeWorker(JiraConnector jira, RepositoryPolicy policy, FrontmatterCodec codec) {
+    public IntakeWorker(JiraConnector jira, RepositoryPolicy policy, FrontmatterCodec codec,
+                        CodingRuntime runtime, AuditLog audit) {
         this.jira = jira;
         this.policy = policy;
         this.codec = codec;
+        this.runtime = runtime;
+        this.audit = audit;
     }
 
     @Override
@@ -51,6 +59,7 @@ public class IntakeWorker implements AgentWorker {
 
     @Override
     public AgentResult execute(AgentContext context) {
+        recordRuntimeConfiguration(context);
         String requested = context.triggerPayload() == null ? ""
                 : context.triggerPayload().path("issueKey").asString("");
         if (!IssueSnapshot.ISSUE_KEY.matcher(requested).matches()) {
@@ -74,6 +83,12 @@ public class IntakeWorker implements AgentWorker {
             return outcome(key, UNSUPPORTED, "NO_REPOSITORY_MAPPING", snapshot, candidates);
         }
         return outcome(key, MAPPED, null, snapshot, candidates);
+    }
+
+    private void recordRuntimeConfiguration(AgentContext context) {
+        var identity = new LinkedHashMap<>(runtime.identity());
+        identity.put("activity", "coding_configured");
+        audit.record(context.executionId(), AuditEventType.RUNTIME_PROGRESS, context.stepId(), ID, identity);
     }
 
     private AgentResult outcome(String issueKey, String state, String reason, Map<String, Object> snapshot,

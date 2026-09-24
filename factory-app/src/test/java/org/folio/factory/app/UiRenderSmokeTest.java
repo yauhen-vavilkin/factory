@@ -237,6 +237,21 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void developerExecutionShowsPullRequestTitleOrUrlAsLink() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        String url = "https://github.com/user/repo/pull/42";
+        for (String title : List.of("", "TASK-1: Fix <routing> & permissions")) {
+            artifactStore.putMarkdown(execution.getId(), "dev_delivery.json",
+                    "{\"state\":\"DELIVERED\",\"pullRequestUrl\":\"" + url
+                            + "\",\"pullRequestTitle\":\"" + title + "\"}", "publish");
+            String body = assertRendered("/executions/" + execution.getId(), "Pull request");
+            String label = title.isEmpty() ? url : "TASK-1: Fix &lt;routing&gt; &amp; permissions";
+            assertThat(body).contains("class=\"developer-pr-link\"", "href=\"" + url + "\">" + label + "</a>")
+                    .doesNotContain("Open pull request", "<routing>");
+        }
+    }
+
+    @Test
     void developerExecutionShowsLiveActivityAndHonestDeliveryOutcome() {
         var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{\"issueKey\":\"MODSIDECAR-196\"}"));
         execution.setCurrentStepIndex(6);
@@ -275,7 +290,8 @@ class UiRenderSmokeTest {
     void developerExecutionShowsEstimatedCostEvidenceWithoutRuntimeCost() {
         var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
-                Map.of("activity", "coding_starting", "runtime", "pi", "provider", "test-provider", "model", "test-model"));
+                Map.of("activity", "coding_starting", "runtime", "pi", "provider", "test-provider", "model", "test-model",
+                        "image", "factory-dev-pi:0.85.1-java21"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "pi_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
                         "cacheWriteTokens", 0, "outputTokens", 10_000, "costUsd", 0));
@@ -284,17 +300,64 @@ class UiRenderSmokeTest {
         String currentPanel = body.substring(body.indexOf("<section class=\"developer-panel developer-current\""),
                 body.indexOf("<section class=\"developer-panel developer-usage\""));
         String usagePanel = body.substring(body.indexOf("<section class=\"developer-panel developer-usage\""),
-                body.indexOf("<section class=\"developer-recent\""));
-        assertThat(currentPanel).contains("<dt>Coding runtime</dt>", ">pi</dd>", "<dt>Model</dt>", ">test-model</dd>")
-                .doesNotContain("<dt>Provider</dt>", "test-provider");
-        assertThat(usagePanel).contains("total usage tokens", "Input tokens (uncached)", "Cache read tokens",
+                body.indexOf("<div class=\"developer-debug\""));
+        assertThat(currentPanel).doesNotContain("developer-runtime-facts", "<dt>Model</dt>", "<dt>Provider</dt>",
+                "<dt>Runtime</dt>", "<dt>Image</dt>");
+        assertThat(usagePanel).contains("Runtime &amp; usage", "<dt>Model</dt>", ">test-model</dd>",
+                        "<dt>Provider</dt>", ">test-provider</dd>", "<dt>Runtime</dt>", ">pi</dd>",
+                        "<dt>Image</dt>", ">factory-dev-pi:0.85.1-java21</dd>",
+                        "total usage tokens", "Input tokens (uncached)", "Cache read tokens",
                         "Cache creation tokens", "Output tokens", "<dt>Estimated cost</dt>", "0.0203 USD")
                 .doesNotContain("Configured rate card ·", "Actual provider or proxy charges may differ");
         assertThat(body)
+                .containsOnlyOnce("<dt>Model</dt>").containsOnlyOnce("<dt>Provider</dt>")
+                .containsOnlyOnce("<dt>Runtime</dt>").containsOnlyOnce("<dt>Image</dt>")
                 .contains("Estimated coding API cost", "0.0203 USD", "using rates dated 2026-09-19",
                         "href=\"https://example.test/pricing\"", ">https://example.test/pricing</a>",
                         "Rate-card estimate; actual provider or proxy charges may differ")
-                .doesNotContain("Coding runtime-reported cost");
+                .doesNotContain("Coding runtime-reported cost", "<dt>Coding runtime</dt>", "<dt>Coding image</dt>");
+    }
+
+    @Test
+    void developerExecutionShowsConfiguredModelAcrossStagesAndActivityInLeftPanel() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.8.0", "{}"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "read-task",
+                Map.of("activity", "coding_configured", "model", "planned-model", "provider", "test-provider",
+                        "runtime", "pi", "image", "coding-image"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "baseline_started", "message", "mvn test"));
+        for (int stage : List.of(0, 3, 6, 7)) {
+            execution.setCurrentStepIndex(stage);
+            execution.setStatus(ExecutionStatus.RUNNING);
+            execution = executions.save(execution);
+            String body = assertRendered("/executions/" + execution.getId(), "planned-model");
+            String currentPanel = body.substring(body.indexOf("<section class=\"developer-panel developer-current\""),
+                    body.indexOf("<section class=\"developer-panel developer-usage\""));
+            assertThat(currentPanel).contains("class=\"developer-recent\"", "Starting build started · mvn test");
+            assertThat(body).containsOnlyOnce("class=\"developer-recent\"")
+                    .contains("No token usage reported yet.", ">coding-image</dd>")
+                    .doesNotContain("Latest reported activity", "Recent meaningful activity", "coding configured");
+        }
+    }
+
+    @Test
+    void developerExecutionShowsPartialRuntimeIdentityBeforeUsage() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        for (String field : List.of("model", "provider", "runtime", "image")) {
+            auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                    Map.of("activity", "coding_starting", field, "reported-" + field));
+            String body = assertRendered("/executions/" + execution.getId(), "Runtime &amp; usage");
+            String usagePanel = body.substring(body.indexOf("<section class=\"developer-panel developer-usage\""),
+                    body.indexOf("<div class=\"developer-debug\""));
+            assertThat(usagePanel).contains("class=\"developer-runtime-facts\"", ">reported-" + field + "</dd>",
+                            "No token usage reported yet.")
+                    .doesNotContain("total usage tokens", "<dt>Estimated cost</dt>");
+            for (String absent : List.of("model", "provider", "runtime", "image")) {
+                if (!absent.equals(field))
+                    assertThat(usagePanel).doesNotContain("<dt>" + Character.toUpperCase(absent.charAt(0))
+                            + absent.substring(1) + "</dt>");
+            }
+        }
     }
 
     @Test
@@ -306,7 +369,7 @@ class UiRenderSmokeTest {
                 Map.of("activity", "coding_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
                         "cacheWriteTokens", 0, "outputTokens", 10_000, "usageIncomplete", true));
 
-        String body = assertRendered("/executions/" + execution.getId(), "Usage");
+        String body = assertRendered("/executions/" + execution.getId(), "Runtime &amp; usage");
         assertThat(body).contains("Cost estimate unavailable: Pi did not report enough usage for every response.")
                 .doesNotContain("Cost evidence", "No matching configured rate card.", "<dt>Estimated cost</dt>");
     }
@@ -354,8 +417,8 @@ class UiRenderSmokeTest {
 
         assertThat(body)
                 .containsOnlyOnce("data-developer-history")
-                .containsOnlyOnce("Latest reported activity")
-                .contains("Coding agent working", "No meaningful activity reported yet.", "Open full append-only audit log")
+                .containsOnlyOnce("id=\"developer-recent-heading\"")
+                .contains("No activity reported yet.", "Open full append-only audit log")
                 .doesNotContain("Raw audit history", "<details data-developer-history open");
     }
 

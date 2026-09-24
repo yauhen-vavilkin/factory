@@ -35,6 +35,9 @@ public class DevelopWorker implements AgentWorker {
     private final CodingRuntime coding;
     private final FrontmatterCodec codec;
     private final org.folio.factory.core.service.AuditLog audit;
+    private org.folio.factory.devfactory.feedback.AttemptPricing pricing = model -> Map.of();
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setAttemptPricing(org.folio.factory.devfactory.feedback.AttemptPricing pricing) { this.pricing=pricing; }
     private final JsonMapper json = JsonMapper.builder().build();
 
     public DevelopWorker(DevFactoryProperties properties, DevRuntimeProperties runtime, DockerWorkloads docker,
@@ -137,10 +140,18 @@ public class DevelopWorker implements AgentWorker {
             CodingOutcome outcome;
             try (var workload = stepScope.createSeeded(coding.image(), pristine, runtime.mavenCacheVolume(), "coding")) {
                 var identity = new java.util.LinkedHashMap<>(coding.identity());
+                String attemptId = java.util.UUID.randomUUID().toString();
+                var rate = pricing.snapshot(java.util.Objects.toString(identity.get("model"), ""));
                 identity.put("activity", "coding_starting");
+                identity.put("attemptId", attemptId); identity.put("rate", rate);
                 progress(context, identity);
-                outcome = coding.code(workload, request, runtime.timeoutSeconds(), event -> progress(context, event));
-                metrics = withFactoryTokenMetrics(outcome.metrics());
+                outcome = coding.code(workload, request, runtime.timeoutSeconds(), event -> {
+                    var detail = new java.util.LinkedHashMap<String,Object>(event);
+                    detail.put("attemptId", attemptId); progress(context, detail);
+                });
+                var reported = new java.util.LinkedHashMap<String,Object>(withFactoryTokenMetrics(outcome.metrics()));
+                reported.put("attemptId", attemptId); reported.put("rate", rate);
+                metrics = reported;
                 if (outcome.status() == CodingOutcome.Status.COMPLETED) {
                     workload.stop();
                     workload.export(exported);

@@ -58,6 +58,14 @@ class CandidateDeliveryTest {
         assertThat(CandidateFreezer.git(remote, "rev-parse", first.branch() + "^").strip()).isEqualTo(candidate.baseSha());
     }
 
+    @Test void newExecutionsUseStableExecutionIdentityInFirstBranch() {
+        String id=java.util.UUID.randomUUID().toString();
+        var receipt=delivery.deliver(id,"MODSIDECAR-196","Fixture",source.toString(),candidate,receipt(id,0),target,"fixture-token",true);
+        assertThat(receipt.branch()).isEqualTo("factory/modsidecar-196-"+id);
+        assertThat(delivery.deliver(id,"MODSIDECAR-196","Fixture",source.toString(),candidate,receipt(id,0),target,"fixture-token",true))
+                .isEqualTo(receipt);
+    }
+
     @Test void rejectsFailedWrongOrMissingReceiptAndMissingTokenBeforeRemoteWrites() {
         assertThatThrownBy(() -> deliver(receipt("execution", 1), target, "token")).hasMessageContaining("matching successful");
         assertThatThrownBy(() -> deliver(receipt("other", 0), target, "token")).hasMessageContaining("matching successful");

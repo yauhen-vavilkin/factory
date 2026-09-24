@@ -16,16 +16,63 @@ class DeveloperExecutionViewTest {
         var execution = new PipelineExecution("dev-factory", "0.8.0", "{}");
         Instant start = Instant.parse("2026-09-22T10:00:00Z");
         assertThat(view.build(execution, List.of(), List.of(), start))
-                .containsEntry("codingRuntime", "").containsEntry("codingModel", "");
+                .containsEntry("runtimeFields", List.of());
 
         var runtimeOnly = runtime(Map.of("activity", "coding_starting", "runtime", "pi"), start);
         assertThat(view.build(execution, List.of(), List.of(runtimeOnly), start))
-                .containsEntry("codingRuntime", "pi").containsEntry("codingModel", "");
+                .containsEntry("runtimeFields", List.of(Map.of("label", "Runtime", "value", "pi")));
 
         var identified = runtime(Map.of("activity", "coding_starting", "runtime", "pi",
-                "model", "gemini-3.8-flash", "provider", "example-provider"), start.plusSeconds(1));
-        assertThat(view.build(execution, List.of(), List.of(runtimeOnly, identified), start.plusSeconds(2)))
-                .containsEntry("codingRuntime", "pi").containsEntry("codingModel", "gemini-3.8-flash");
+                "model", "gemini-3.8-flash", "provider", "example-provider",
+                "image", "factory-dev-pi:0.85.1-java21"), start.plusSeconds(1));
+        assertThat(view.build(execution, List.of(), List.of(identified, runtimeOnly), start.plusSeconds(2)))
+                .containsEntry("runtimeFields", List.of(
+                        Map.of("label", "Model", "value", "gemini-3.8-flash"),
+                        Map.of("label", "Provider", "value", "example-provider"),
+                        Map.of("label", "Runtime", "value", "pi"),
+                        Map.of("label", "Image", "value", "factory-dev-pi:0.85.1-java21")));
+
+        var restarted = runtime(Map.of("activity", "pi_starting", "runtime", "pi"), start.plusSeconds(3));
+        assertThat(view.build(execution, List.of(), List.of(restarted, identified), start.plusSeconds(4)))
+                .containsEntry("runtimeFields", List.of(Map.of("label", "Runtime", "value", "pi")));
+    }
+
+    @Test void configuredIdentityIsVisibleBeforeCodingAndDoesNotImplyAgentStarted() {
+        var execution = new PipelineExecution("dev-factory", "0.8.0", "{}");
+        Instant start = Instant.parse("2026-09-22T10:00:00Z");
+        var configured = runtime(Map.of("activity", "coding_configured", "runtime", "pi",
+                "model", "planned-model", "provider", "example-provider", "image", "coding-image"), start);
+        var model = view.build(execution, List.of(), List.of(configured), start);
+        assertThat(model).containsEntry("runtimeFields", List.of(
+                        Map.of("label", "Model", "value", "planned-model"),
+                        Map.of("label", "Provider", "value", "example-provider"),
+                        Map.of("label", "Runtime", "value", "pi"),
+                        Map.of("label", "Image", "value", "coding-image")))
+                .containsEntry("currentPhase", "Prepare task");
+        assertThat((List<?>) model.get("activity")).isEmpty();
+
+        execution.setErrorMessage("Starting build hit a network/download failure");
+        assertThat(view.build(execution, List.of(), List.of(configured), start).get("reason"))
+                .isEqualTo(execution.getErrorMessage());
+        var started = runtime(Map.of("activity", "coding_starting", "runtime", "pi", "model", "actual-model"),
+                start.plusSeconds(1));
+        var laterConfig = runtime(Map.of("activity", "coding_configured", "model", "other-model"), start.plusSeconds(2));
+        assertThat(view.build(execution, List.of(), List.of(configured, started, laterConfig), start.plusSeconds(3)))
+                .containsEntry("runtimeFields", List.of(
+                        Map.of("label", "Model", "value", "actual-model"),
+                        Map.of("label", "Runtime", "value", "pi")));
+    }
+
+    @Test void initialRuntimeCardDoesNotAdoptCorrectionModel() {
+        var execution = new PipelineExecution("dev-factory", "0.9.0", "{}");
+        Instant start = Instant.parse("2026-09-24T10:00:00Z");
+        var initial = runtime(Map.of("activity", "coding_starting", "model", "initial-model", "runtime", "pi"), start);
+        var correction = runtime(Map.of("activity", "coding_starting", "model", "correction-model",
+                "runtime", "scripted", "round", 1), start.plusSeconds(60));
+        assertThat(view.build(execution, List.of(), List.of(initial, correction), start.plusSeconds(61)))
+                .containsEntry("runtimeFields", List.of(
+                        Map.of("label", "Model", "value", "initial-model"),
+                        Map.of("label", "Runtime", "value", "pi")));
     }
 
     @Test void absentVerificationCountersRemainUnknown() {
@@ -70,6 +117,22 @@ class DeveloperExecutionViewTest {
         execution.setStatus(ExecutionStatus.FAILED_ESCALATED);
         assertThat(view.productStatus(execution, List.of(artifact("dev_result.json", 1,
                 "{\"state\":\"VERIFIED\"}")))).isEqualTo("FAILED_ESCALATED");
+    }
+
+    @Test void prLifecycleStatusIsTheSameForDetailAndListAndPreservesOldCompletions() {
+        var execution = new PipelineExecution("dev-factory", "0.9.0", "{}");
+        var waiting = artifact("dev_pr_state.json", 1,
+                "{\"phase\":\"READY\",\"pr\":{\"repository\":\"fork/repo\"}}");
+        execution.setStatus(ExecutionStatus.AWAITING_HITL);
+        assertThat(view.productStatus(execution, List.of(waiting))).isEqualTo("AWAITING_PR");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        assertThat(view.productStatus(execution, List.of(waiting,
+                artifact("dev_delivery.json", 1, "{\"state\":\"DELIVERED\"}")))).isEqualTo("DELIVERED");
+        assertThat(view.productStatus(execution, List.of(artifact("dev_pr_state.json", 2,
+                "{\"phase\":\"FINISHED\",\"completionReason\":\"MERGED\"}")))).isEqualTo("COMPLETED");
+        execution.setStatus(ExecutionStatus.CANCELLED);
+        assertThat(view.productStatus(execution, List.of(artifact("dev_pr_state.json", 3,
+                "{\"phase\":\"STOPPED\",\"completionReason\":\"CLOSED_WITHOUT_MERGE\"}")))).isEqualTo("CANCELLED");
     }
 
     @Test void productStatusUsesDeliveryAndFailureEvidenceWhenFinalResultIsMissing() {
@@ -162,19 +225,19 @@ class DeveloperExecutionViewTest {
         @SuppressWarnings("unchecked")
         var activity = (List<Map<String, String>>) model.get("activity");
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "Starting build started · mvn test",
+                "Starting build completed · Build passed",
                 "Starting build progress · Starting build is still running",
                 "Starting build progress · Downloaded from central: dependency.jar",
                 "Starting build progress · Downloaded from central: dependency.jar",
                 "Starting build progress · Starting build is still running",
-                "Starting build completed · Build passed");
-        assertThat(activity.get(1)).containsEntry("time", "2026-09-18 10:00:20");
+                "Starting build started · mvn test");
+        assertThat(activity.get(4)).containsEntry("time", "2026-09-18 10:00:20");
         assertThat(events).hasSize(25);
-        assertThat(model.get("latestActivity").toString()).contains("Starting build completed");
+        assertThat(((List<?>) model.get("activity")).getFirst().toString()).contains("Starting build completed");
         assertThat(DeveloperExecutionView.technicalStepLabel("implement")).isEqualTo("Implementation");
 
         events.add(runtime("agent_start", "Pi started", start.plusSeconds(26)));
-        assertThat(view.build(execution, List.of(), events, start.plusSeconds(27)).get("latestActivity").toString())
+        assertThat(((List<?>) view.build(execution, List.of(), events, start.plusSeconds(27)).get("activity")).getFirst().toString())
                 .contains("Coding agent started");
     }
 
@@ -214,12 +277,15 @@ class DeveloperExecutionViewTest {
                 start.plusSeconds(9)).get("activity");
 
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "write completed",
-                "Reading Foo.java",
+                "mvn test failed",
                 "Running mvn test",
                 "mvn test completed",
                 "Running mvn test",
-                "mvn test failed");
+                "Reading Foo.java",
+                "write completed",
+                "Writing AdvisoryLockService.java",
+                "edit completed",
+                "Editing KeycloakAuthorizationService.java");
         assertThat(activity.toString()).doesNotContain("false", "true", "error=");
     }
 
@@ -239,12 +305,12 @@ class DeveloperExecutionViewTest {
                 start.plusSeconds(6)).get("activity");
 
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "Running mvn test",
-                "Running npm test",
-                "Shell command failed",
-                "Running go test",
                 "Shell command completed",
-                "Shell command completed");
+                "Shell command completed",
+                "Running go test",
+                "Shell command failed",
+                "Running npm test",
+                "Running mvn test");
     }
 
     @Test void rendersConservativePiLifecycleLabelsWithoutMessageOrReasoningContent() {
@@ -265,12 +331,12 @@ class DeveloperExecutionViewTest {
                 start.plusSeconds(7)).get("activity");
 
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "Coding agent started",
-                "Coding runtime retrying request",
-                "Coding runtime retry finished",
-                "Coding runtime compacting context",
+                "Coding agent finished",
                 "Coding runtime compaction finished",
-                "Coding agent finished");
+                "Coding runtime compacting context",
+                "Coding runtime retry finished",
+                "Coding runtime retrying request",
+                "Coding agent started");
         assertThat(activity.toString()).doesNotContain("hidden message", "hidden reasoning", "reasoning");
     }
 
@@ -282,16 +348,16 @@ class DeveloperExecutionViewTest {
         var events = new java.util.ArrayList<AuditEvent>();
         events.add(runtime(Map.of("activity", "tool_execution_start", "tool", "bash", "command", "mvn test",
                 "notice", "Runtime activity limit reached; usage reporting continues"), start));
-        for (int i = 1; i <= 8; i++)
+        for (int i = 1; i <= 24; i++)
             events.add(runtime(Map.of("activity", "tool_execution_start", "tool", "read",
                     "path", "/workspace/Foo" + i + ".java"), start.plusSeconds(i)));
 
-        var model = view.build(execution, List.of(), events, start.plusSeconds(9));
+        var model = view.build(execution, List.of(), events, start.plusSeconds(25));
 
         assertThat(model).containsEntry("activityNotice", "Runtime activity limit reached; usage reporting continues")
                 .containsEntry("currentPhase", "Implement changes");
-        assertThat((List<?>) model.get("activity")).hasSize(6);
-        assertThat(model.get("latestActivity").toString()).contains("Reading Foo8.java");
+        assertThat((List<?>) model.get("activity")).hasSize(20);
+        assertThat(((List<?>) model.get("activity")).getFirst().toString()).contains("Reading Foo24.java");
     }
 
     @Test void terminalExecutionKeepsPiEventHistoricalAndUsesProductStage() {
@@ -305,7 +371,7 @@ class DeveloperExecutionViewTest {
         var model = view.build(execution, List.of(result), List.of(latest), Instant.now());
 
         assertThat(model).containsEntry("currentPhase", "Complete");
-        assertThat(model.get("latestActivity").toString()).contains("Editing Foo.java");
+        assertThat(((List<?>) model.get("activity")).getFirst().toString()).contains("Editing Foo.java");
         assertThat(phases(model)).extracting(phase -> phase.get("stateLabel"))
                 .containsExactly("Done", "Done", "Done", "Done");
     }
@@ -347,7 +413,12 @@ class DeveloperExecutionViewTest {
                 .containsEntry("deliveryRepository", "user/repo")
                 .containsEntry("deliveryBranch", "dev/task")
                 .containsEntry("deliveryCommit", "def456")
-                .containsEntry("pullRequestUrl", "https://github.com/user/repo/pull/1");
+                .containsEntry("pullRequestUrl", "https://github.com/user/repo/pull/1")
+                .containsEntry("pullRequestLabel", "https://github.com/user/repo/pull/1");
+        var titled = artifact("dev_delivery.json", 2,
+                "{\"pullRequestUrl\":\"https://github.com/user/repo/pull/1\",\"pullRequestTitle\":\"TASK-1: Fix route\"}");
+        assertThat(view.build(execution, List.of(delivery, titled), List.of(), Instant.now()))
+                .containsEntry("pullRequestLabel", "TASK-1: Fix route");
         assertThat(model.get("technicalFields").toString()).contains("Starting commit", "abc123", "mvn test");
         var unsafe = artifact("dev_delivery.json", 2, "{\"pullRequestUrl\":\"javascript:alert(1)\"}");
         assertThat(view.build(execution, List.of(delivery, unsafe), List.of(), Instant.now())).containsEntry("pullRequestUrl", "");

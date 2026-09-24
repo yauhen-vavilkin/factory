@@ -31,6 +31,11 @@ public class CandidateFreezer {
         } catch (RuntimeException e) { cleanup(directory); throw e; }
     }
     public Candidate freeze(String repository, String sourceUrl, String baseSha, Path exported) {
+        return freeze(repository, sourceUrl, baseSha, exported, false);
+    }
+
+    /** Follow-up snapshots may intentionally preserve an unchanged tree. */
+    public Candidate freeze(String repository, String sourceUrl, String baseSha, Path exported, boolean allowUnchanged) {
         Path trusted = checkout(sourceUrl, baseSha);
         try {
             Set<Path> tracked = trackedPaths(trusted);
@@ -41,9 +46,9 @@ public class CandidateFreezer {
             git(trusted, "add", "--all", "--", ".");
             String tree = git(trusted, "write-tree").strip();
             String baseTree = git(trusted, "rev-parse", baseSha + "^{tree}").strip();
-            if (tree.equals(baseTree)) throw new IllegalStateException("Candidate contains no changes");
+            if (!allowUnchanged && tree.equals(baseTree)) throw new IllegalStateException("Candidate contains no changes");
             String patch = git(trusted, "diff", "--cached", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", baseSha, "--");
-            if (patch.isEmpty()) throw new IllegalStateException("Candidate contains no patch");
+            if (!allowUnchanged && patch.isEmpty()) throw new IllegalStateException("Candidate contains no patch");
             Candidate candidate = new Candidate(repository, baseSha, tree, Candidate.sha256(patch), patch, "CANDIDATE_UNVERIFIED");
             Path roundTrip = reconstruct(sourceUrl, candidate);
             cleanup(roundTrip);

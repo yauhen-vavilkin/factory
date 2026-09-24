@@ -76,10 +76,15 @@ class DeliveryWorkerTest {
         inputs.put("dev_coding_outcome.json", new ArtifactContent("dev_coding_outcome.json", 2, "application/json",
                 "{\"status\":\"COMPLETED\",\"summary\":\"Updated final routing <script> @everyone token=secret123 https://user:password123@host/path Authorization: Bearer abc123\"}"));
 
-        worker.execute(new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
+        var result = worker.execute(new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
+        for (String artifact : List.of(DeliveryWorker.DELIVERY, VerifyWorker.RESULT)) {
+            assertThat(json.readTree(result.outputs().get(artifact)).path("pullRequestTitle").asString())
+                    .isEqualTo("MODSIDECAR-196: Task");
+        }
 
         var body = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(github).createPullRequest(eq(delivered.repository()), eq(delivered.branch()), eq("master"), anyString(), body.capture());
+        verify(github).createPullRequest(eq(delivered.repository()), eq(delivered.branch()), eq("master"),
+                eq("MODSIDECAR-196: Task"), body.capture());
         assertThat(body.getValue()).contains("## Summary\n\nTask", "## Confirmed decisions\n\n- &#35;&#35; Which API? — &#45; Use v2",
                 "Updated final routing", "&lt;script&gt;", "＠everyone", "**PASS** · 1 tests · 0 failures · 0 errors",
                 "- Plan: `unit`", "- Command: `mvn test`", "- Image: `image`",
@@ -375,6 +380,7 @@ class DeliveryWorkerTest {
         assertThat(result.path("state").asString()).isEqualTo("DELIVERED");
         assertThat(result.path("deliveryCommitSha").asString()).isEqualTo(delivered.commitSha());
         assertThat(result.path("pullRequestUrl").asString()).endsWith("/pull/1");
+        assertThat(result.has("pullRequestTitle")).isFalse();
         verify(delivery, times(2)).deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString());
         verify(github, times(1)).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
     }

@@ -72,12 +72,13 @@ class DeveloperFlowRegistrationTest {
 
         JsonNode detail = rest.get().uri("/api/flows/dev-factory").retrieve().body(JsonNode.class);
         assertThat(detail.path("name").asString()).isEqualTo("Developer Flow");
-        assertThat(detail.path("version").asString()).isEqualTo("0.8.0");
+        assertThat(detail.path("version").asString()).isEqualTo("0.9.0");
         assertThat(flowRegistry.require("dev-factory").agentChain().get(7).inputs())
                 .contains("dev_coding_request.json", "dev_coding_outcome.json");
         assertThat(detail.path("steps").findValuesAsString("stepId"))
                 .containsExactly("read-task", "select-repository", "prepare-task", "implement",
-                        "clarify-implementation", "continue-implementation", "verify", "publish");
+                        "clarify-implementation", "continue-implementation", "verify", "publish",
+                        "initialize-pr-feedback", "pr-follow-up");
         assertThat(detail.path("steps").get(0).path("workerId").asString()).isEqualTo("dev-intake");
 
         assertThat(rest.get().uri("/flows").retrieve().body(String.class))
@@ -89,7 +90,7 @@ class DeveloperFlowRegistrationTest {
     @Test
     void configuresDeveloperRepositoriesForVerificationAndDelivery() {
         assertThat(devFactoryProperties.repositories())
-                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements");
+                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications");
         assertThat(devFactoryProperties.repositories().get("sidecar"))
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "yauhen-vavilkin/folio-module-sidecar", "master", "maven:3.9-eclipse-temurin-21",
@@ -103,6 +104,10 @@ class DeveloperFlowRegistrationTest {
                         "yauhen-vavilkin/mgr-tenant-entitlements", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-unit", List.of("MGRENTITLE"), List.of()));
         assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
+        assertThat(devFactoryProperties.repositories().get("mgr-applications"))
+                .isEqualTo(new DevFactoryProperties.Repository(
+                        "yauhen-vavilkin/mgr-applications", "master", "maven:3.9-eclipse-temurin-21",
+                        "java21-unit", List.of("MGRAPPS"), List.of()));
         assertThat(devRuntimeProperties.command("java21-roles-verify"))
                 .containsExactly("mvn", "-B", "-ntp", "verify");
         assertThat(devRuntimeProperties.requiredReports("java21-roles-verify")).hasSize(134);
@@ -112,6 +117,8 @@ class DeveloperFlowRegistrationTest {
                 entry("mod-roles-keycloak", new DeliveryTarget(
                         "yauhen-vavilkin/mod-roles-keycloak", "master", true)),
                 entry("mgr-tenant-entitlements", new DeliveryTarget(
-                        "yauhen-vavilkin/mgr-tenant-entitlements", "master", true)));
+                        "yauhen-vavilkin/mgr-tenant-entitlements", "master", true)),
+                entry("mgr-applications", new DeliveryTarget(
+                        "yauhen-vavilkin/mgr-applications", "master", true)));
     }
 }

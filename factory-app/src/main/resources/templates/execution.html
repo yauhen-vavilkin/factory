@@ -17,7 +17,7 @@
                 <a th:href="@{'/executions/' + ${execution.parentExecutionId}}"
                    th:text="${#strings.abbreviate(execution.parentExecutionId.toString(), 13)}"></a>
             </span>
-            <a class="btn btn-primary btn-sm" th:if="${pendingReview}"
+            <a class="btn btn-primary btn-sm" th:if="${pendingReview != null and feedback == null}"
                th:href="@{'/reviews/' + ${pendingReview.id}}">Open review</a>
         </div>
     </div>
@@ -39,10 +39,10 @@
                     </p>
                     <h2 class="developer-title" th:text="${developer['summary']}">Developer task</h2>
                 </div>
-                <p class="developer-elapsed">Elapsed
-                    <span th:attr="data-elapsed-start=${developer['elapsedStart']}"
-                          th:text="${developer['elapsed']}"></span>
-                </p>
+                <div class="feedback-totals">
+                    <span>Total cost <strong th:text="${attemptUsage != null ? attemptUsage['cost'] : estimatedCost != null ? estimatedCost.amount + ' ' + estimatedCost.currency : '—'}"></strong></span>
+                    <span>Factory time <strong th:attr="data-elapsed-start=${factoryTimeStart}" th:text="${factoryTime}"></strong></span>
+                </div>
             </div>
             <div class="developer-content">
                 <div class="alert alert-error" role="alert" th:if="${!#strings.isEmpty(developer['reason'])}"
@@ -59,8 +59,8 @@
                     </dl>
                     <dl>
                         <dt>Pull request</dt>
-                        <dd><a th:if="${!#strings.isEmpty(developer['pullRequestUrl'])}"
-                               th:href="${developer['pullRequestUrl']}">Open pull request</a>
+                        <dd><a class="developer-pr-link" th:if="${!#strings.isEmpty(developer['pullRequestUrl'])}"
+                               th:href="${developer['pullRequestUrl']}" th:text="${developer['pullRequestLabel']}"></a>
                             <span class="muted" th:if="${#strings.isEmpty(developer['pullRequestUrl'])}">Not created yet</span></dd>
                     </dl>
                 </div>
@@ -85,26 +85,28 @@
                 <div class="developer-live-grid">
                     <section class="developer-panel developer-current" aria-labelledby="developer-current-stage">
                         <h3 id="developer-current-stage">Current stage</h3>
-                        <strong class="developer-current-stage" th:text="${developer['currentPhase']}"></strong>
-                        <dl class="developer-runtime-facts"
-                            th:if="${!#strings.isEmpty(developer['codingRuntime']) or !#strings.isEmpty(developer['codingModel'])}">
-                            <div th:if="${!#strings.isEmpty(developer['codingRuntime'])}"><dt>Coding runtime</dt><dd class="developer-runtime-name" th:text="${developer['codingRuntime']}"></dd></div>
-                            <div th:if="${!#strings.isEmpty(developer['codingModel'])}"><dt>Model</dt><dd th:text="${developer['codingModel']}"></dd></div>
-                        </dl>
-                        <div class="developer-latest">
-                            <span>Latest reported activity</span>
-                            <p th:if="${developer['latestActivity'] != null}">
-                                <time th:text="${developer['latestActivity']['time']}"></time>
-                                <span th:text="${developer['latestActivity']['text']}"></span>
-                            </p>
-                            <p class="muted" th:if="${developer['latestActivity'] == null}">No runtime activity reported yet.</p>
-                        </div>
+                        <strong class="developer-current-stage" th:text="${feedback != null ? feedback['phase'] : developer['currentPhase']}"></strong>
+                        <section class="developer-recent" aria-labelledby="developer-recent-heading">
+                            <h4 id="developer-recent-heading">Activity</h4>
+                            <p class="muted" th:if="${#lists.isEmpty(developer['activity'])}">No activity reported yet.</p>
+                            <ol tabindex="0" aria-label="Recent activity" th:unless="${#lists.isEmpty(developer['activity'])}">
+                                <li th:each="activity : ${developer['activity']}">
+                                    <time th:text="${activity['time']}"></time>
+                                    <span th:text="${activity['text']}"></span>
+                                </li>
+                            </ol>
+                        </section>
                         <p class="developer-notice" th:if="${!#strings.isEmpty(developer['activityNotice'])}"
                            th:text="${developer['activityNotice']}"></p>
                     </section>
 
                     <section class="developer-panel developer-usage" aria-labelledby="developer-usage-heading">
-                        <h3 id="developer-usage-heading">Usage</h3>
+                        <h3 id="developer-usage-heading">Runtime &amp; usage</h3>
+                        <dl class="developer-runtime-facts" th:unless="${#lists.isEmpty(developer['runtimeFields'])}">
+                            <div th:each="field : ${developer['runtimeFields']}">
+                                <dt th:text="${field['label']}"></dt><dd th:text="${field['value']}"></dd>
+                            </div>
+                        </dl>
                         <div class="developer-usage-total" th:if="${tokenTotals['present']}">
                             <strong th:text="${tokenTotals['total']}"></strong>
                             <span>total usage tokens</span>
@@ -121,23 +123,15 @@
                                 <div><dt>Prompt</dt><dd th:text="${tokenTotals['prompt']}"></dd></div>
                                 <div><dt>Completion</dt><dd th:text="${tokenTotals['completion']}"></dd></div>
                             </th:block>
-                            <div class="developer-estimated-cost" th:if="${estimatedCost != null}"><dt>Estimated cost</dt><dd th:text="${estimatedCost.amount} + ' ' + ${estimatedCost.currency}"></dd></div>
                         </dl>
-                        <p class="muted" th:if="${tokenTotals['present'] and estimatedCost == null and usageIncomplete}">Cost estimate unavailable: Pi did not report enough usage for every response.</p>
-                        <p class="muted" th:if="${tokenTotals['present'] and estimatedCost == null and !usageIncomplete}">No matching configured rate card.</p>
+                        <dl class="developer-usage-breakdown">
+                            <div class="developer-estimated-cost" th:if="${initialUsage != null}"><dt>Estimated cost</dt><dd th:text="${initialUsage['cost']}"></dd></div>
+                            <div class="developer-estimated-cost" th:if="${initialUsage == null and estimatedCost != null}"><dt>Estimated cost</dt><dd th:text="${estimatedCost.amount} + ' ' + ${estimatedCost.currency}"></dd></div>
+                        </dl>
+                        <p class="muted" th:if="${attemptUsage == null and tokenTotals['present'] and estimatedCost == null and usageIncomplete}">Cost estimate unavailable: Pi did not report enough usage for every response.</p>
+                        <p class="muted" th:if="${attemptUsage == null and tokenTotals['present'] and estimatedCost == null and !usageIncomplete}">No matching configured rate card.</p>
                     </section>
                 </div>
-
-                <section class="developer-recent" aria-labelledby="developer-recent-heading">
-                    <h3 id="developer-recent-heading">Recent meaningful activity</h3>
-                    <p class="muted" th:if="${#lists.isEmpty(developer['activity'])}">No meaningful activity reported yet.</p>
-                    <ol th:unless="${#lists.isEmpty(developer['activity'])}">
-                        <li th:each="activity : ${developer['activity']}">
-                            <time th:text="${activity['time']}"></time>
-                            <span th:text="${activity['text']}"></span>
-                        </li>
-                    </ol>
-                </section>
 
                 <div class="developer-debug">
                     <details>
@@ -170,13 +164,21 @@
                                     <dt th:text="${field['label']}"></dt><dd th:text="${field['value']}"></dd>
                                 </dl>
                             </div>
-                            <div class="developer-pricing-evidence" th:if="${estimatedCost != null}">
+                            <div class="developer-pricing-evidence" th:if="${estimatedCost != null and attemptUsage == null}">
                                 <h4>Cost evidence</h4>
-                                <p th:if="${estimatedCost != null}">Rate-card estimate; actual provider or proxy charges may differ. Estimated coding API cost:
+                                <p th:if="${estimatedCost != null and attemptUsage == null}">Rate-card estimate; actual provider or proxy charges may differ. Estimated coding API cost:
                                     <strong th:text="${estimatedCost.amount} + ' ' + ${estimatedCost.currency}"></strong>
                                     <span th:text="' using rates dated ' + ${estimatedCost.asOf}"></span>
                                     · <a th:href="${estimatedCost.source}" th:text="${estimatedCost.source}">rate source</a>
                                 </p>
+                            </div>
+                            <div class="developer-pricing-evidence" th:if="${attemptUsage != null}">
+                                <h4>Pricing details</h4>
+                                <p>Costs use rates captured when each coding attempt started; actual provider charges may differ.</p>
+                                <p th:if="${attemptUsage['partial']}">Totals include reported usage and available rates. Some attempts have incomplete data; additional charges may not yet be included.</p>
+                                <ul th:unless="${#lists.isEmpty(attemptUsage['sources'])}">
+                                    <li th:each="source : ${attemptUsage['sources']}" th:text="${source}"></li>
+                                </ul>
                             </div>
                             <p th:text="'Workflow engine status: ' + ${execution.status}"></p>
                             <div class="table-wrap">
@@ -240,6 +242,7 @@
                 </div>
             </div>
         </section>
+        <th:block th:if="${feedback != null}"><th:block th:replace="~{fragments/pr-feedback :: feedback}"></th:block></th:block>
         <section th:if="${developer == null and !#lists.isEmpty(steps)}">
             <div class="page-header">
                 <h2 class="card-title">Progress</h2>

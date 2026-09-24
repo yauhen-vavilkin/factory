@@ -29,11 +29,17 @@ public class CandidateDelivery {
     public DeliveryReceipt deliver(String executionId, String issueKey, String summary, String sourceUrl,
                                    Candidate candidate, VerificationReceipt verification,
                                    DeliveryTarget target, String githubToken) {
+        return deliver(executionId, issueKey, summary, sourceUrl, candidate, verification, target, githubToken, false);
+    }
+
+    public DeliveryReceipt deliver(String executionId, String issueKey, String summary, String sourceUrl,
+                                   Candidate candidate, VerificationReceipt verification,
+                                   DeliveryTarget target, String githubToken, boolean stableBranch) {
         Objects.requireNonNull(verification, "Verification receipt is missing").requireVerified(executionId, candidate);
         Objects.requireNonNull(target, "Delivery target is missing").requireAuthorized();
         if (githubToken == null || githubToken.isBlank()) throw new DeliveryBlockedException("FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
         if (issueKey == null || !issueKey.matches("[A-Z][A-Z0-9]*-[0-9]+")) throw new DeliveryBlockedException("Invalid delivery issue key");
-        String branch = "factory/" + issueKey.toLowerCase(java.util.Locale.ROOT) + "-" + candidate.patchSha256().substring(0, 8);
+        String branch = "factory/" + issueKey.toLowerCase(java.util.Locale.ROOT) + "-" + (stableBranch ? java.util.UUID.fromString(executionId).toString() : candidate.patchSha256().substring(0, 8));
         try {
             CandidateFreezer.git(null, "check-ref-format", "--branch", branch);
             CandidateFreezer.git(null, "check-ref-format", "--branch", target.baseBranch());

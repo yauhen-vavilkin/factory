@@ -355,13 +355,14 @@ class DeveloperIntakeDecisionTest {
         awaitStatus(executionId, ExecutionStatus.COMPLETED);
         assertThat(decisionGateWorker.execute(repeat).metrics()).containsEntry("reviewOpened", false);
         assertThat(reviews.findByExecutionIdOrderByCreatedAtAsc(executionId)).hasSize(1);
-        assertThat(stateManager.get(executionId).getCurrentStepIndex()).isEqualTo(8);
+        assertThat(stateManager.get(executionId).getCurrentStepIndex()).isEqualTo(10);
         assertThat(artifactStore.getLatest(executionId, "dev_task_brief.md").orElseThrow().getVersion()).isEqualTo(1);
         assertThat(auditLog.forExecution(executionId).stream()
                 .filter(e -> e.getEventType() == AuditEventType.STEP_COMPLETED)
                 .map(e -> e.getStepId()))
                 .containsExactly("read-task", "select-repository", "prepare-task", "implement",
-                        "clarify-implementation", "continue-implementation", "verify", "publish");
+                        "clarify-implementation", "continue-implementation", "verify", "publish",
+                        "initialize-pr-feedback", "pr-follow-up");
     }
 
     @Test

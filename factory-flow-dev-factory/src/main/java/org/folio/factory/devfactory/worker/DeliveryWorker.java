@@ -40,6 +40,9 @@ public class DeliveryWorker implements AgentWorker {
     private final GitHubProperties githubProperties;
     private final GitHubConnector github;
     private final FrontmatterCodec frontmatter;
+    private org.folio.factory.core.service.StateManager executionState;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setExecutionState(org.folio.factory.core.service.StateManager state) { this.executionState=state; }
     private final JsonMapper json = JsonMapper.builder().build();
 
     public DeliveryWorker(DevFactoryProperties repositories, DevRuntimeProperties runtime, DevDeliveryProperties properties,
@@ -84,14 +87,25 @@ public class DeliveryWorker implements AgentWorker {
                 return blocked(previous, candidate, "FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
             }
             String sourceUrl = repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
-            var receipt = delivery.deliver(context.executionId().toString(), issueKey, summary, sourceUrl,
-                    candidate, verification, target, githubProperties.token());
+            boolean feedbackVersion = executionState != null && org.folio.factory.devfactory.feedback.FeedbackArtifacts.VERSION
+                    .equals(executionState.get(context.executionId()).getFlowVersion());
+            var receipt = feedbackVersion
+                    ? delivery.deliver(context.executionId().toString(), issueKey, summary, sourceUrl,
+                        candidate, verification, target, githubProperties.token(), true)
+                    : delivery.deliver(context.executionId().toString(), issueKey, summary, sourceUrl,
+                        candidate, verification, target, githubProperties.token());
             String prUrl = "";
+            String prTitle = "";
             if (properties.createPullRequest()) {
                 try {
-                    prUrl = github.findOpenPullRequest(target.repository(), receipt.branch(), target.baseBranch())
-                            .orElseGet(() -> github.createPullRequest(target.repository(), receipt.branch(), target.baseBranch(),
-                                    issueKey + ": " + summary, pullRequestBody(context, summary, candidate, verification, receipt)));
+                    var existing = github.findOpenPullRequest(target.repository(), receipt.branch(), target.baseBranch());
+                    if (existing.isPresent()) {
+                        prUrl = existing.get();
+                    } else {
+                        prTitle = issueKey + ": " + summary;
+                        prUrl = github.createPullRequest(target.repository(), receipt.branch(), target.baseBranch(),
+                                prTitle, pullRequestBody(context, summary, candidate, verification, receipt));
+                    }
                 } catch (HttpClientErrorException e) {
                     int status = e.getStatusCode().value();
                     if (status != 408 && status != 429) {
@@ -105,6 +119,7 @@ public class DeliveryWorker implements AgentWorker {
             Map<String, Object> result = identity("DELIVERED", candidate);
             deliveredIdentity(result, receipt);
             result.put("pullRequestUrl", prUrl);
+            if (!prTitle.isBlank()) result.put("pullRequestTitle", prTitle);
             return new AgentResult(Map.of(DELIVERY, json.writeValueAsString(result),
                     VerifyWorker.RESULT, json.writeValueAsString(result)), Map.of());
         } catch (DeliveryBlockedException e) {

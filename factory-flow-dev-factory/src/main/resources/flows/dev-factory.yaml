@@ -1,6 +1,6 @@
 id: dev-factory
 name: Developer Flow
-version: 0.8.0
+version: 0.9.0
 triggers:
   - event_type: manual
 input_schema:
@@ -58,3 +58,17 @@ agent_chain:
     worker_id: dev-deliver
     inputs: [dev_task_brief.md, dev_coding_request.json, dev_coding_outcome.json, dev_candidate.json, dev_verification.json, dev_result.json]
     outputs: [dev_delivery.json, dev_result.json]
+
+  - step_id: initialize-pr-feedback
+    type: AGENT
+    worker_id: dev-pr-initialize
+    inputs: []
+    outputs: [dev_pr_state.json, dev_pr_request.json, dev_pr_candidate.json, dev_pr_verification.json, dev_pr_delivery.json]
+
+  - step_id: pr-follow-up
+    type: AGENT
+    worker_id: dev-pr-follow-up
+    inputs: [dev_delivery.json, dev_coding_request.json, dev_pr_state.json, dev_pr_request.json, dev_pr_candidate.json, dev_pr_verification.json, dev_pr_delivery.json]
+    outputs: [dev_pr_state.json, dev_pr_request.json, dev_pr_candidate.json, dev_pr_verification.json, dev_pr_delivery.json]
+    config:
+      resumable: true

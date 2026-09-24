@@ -84,9 +84,9 @@ class DevelopReadinessTest {
         assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_PASSED");
         if (piFails) verify(audit).record(eq(context.executionId()),
                 eq(org.folio.factory.core.domain.AuditEventType.RUNTIME_PROGRESS), eq("implement"),
-                eq(Map.of("activity", "coding_usage", "inputTokens", 10L, "cacheReadTokens", 2L,
+                argThat(detail -> detail.entrySet().containsAll(Map.of("activity", "coding_usage", "inputTokens", 10L, "cacheReadTokens", 2L,
                         "cacheWriteTokens", 1L, "outputTokens", 3L,
-                        "costUsd", new java.math.BigDecimal("0.125"))));
+                        "costUsd", new java.math.BigDecimal("0.125")).entrySet()) && detail.containsKey("attemptId")));
         else assertThat(result.metrics())
                 .containsEntry("inputTokens", 10L)
                 .containsEntry("cacheReadTokens", 2L)

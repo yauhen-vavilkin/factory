@@ -16,6 +16,11 @@ import java.util.UUID;
 
 public interface PipelineExecutionRepository extends JpaRepository<PipelineExecution, UUID> {
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select e from PipelineExecution e where e.id = :id")
+    java.util.Optional<PipelineExecution> lockById(@Param("id") UUID id);
+
+
     @Modifying
     @Query("""
             UPDATE PipelineExecution e SET e.updatedAt = :now, e.version = e.version + 1

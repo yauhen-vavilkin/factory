@@ -7,6 +7,7 @@ import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.PipelineExecution;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -48,6 +49,16 @@ final class DeveloperExecutionView {
         Map<String, Artifact> latest = new LinkedHashMap<>();
         for (var artifact : artifacts) latest.merge(artifact.getName(), artifact,
                 (old, fresh) -> old.getVersion() > fresh.getVersion() ? old : fresh);
+        if (FeedbackArtifacts.VERSION.equals(execution.getFlowVersion())) {
+            var feedback = artifact(latest, FeedbackArtifacts.STATE);
+            String reason = feedback.path("completionReason").asString("");
+            if (execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.COMPLETED
+                    && "MERGED".equals(reason)) return "COMPLETED";
+            if (execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.CANCELLED
+                    && "CLOSED_WITHOUT_MERGE".equals(reason)) return "CANCELLED";
+            if (execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.AWAITING_HITL
+                    && feedback.has("pr") && !feedback.path("pr").isNull()) return "AWAITING_PR";
+        }
         String codingStatus = artifact(latest, "dev_coding_outcome.json").path("status").asString("");
         if ("NEEDS_DECISION".equals(codingStatus)
                 && execution.getStatus() != org.folio.factory.core.domain.ExecutionStatus.REJECTED
@@ -98,7 +109,6 @@ final class DeveloperExecutionView {
 
         List<Map<String, String>> recentActivity = new ArrayList<>();
         List<Map<String, String>> providerDiagnostics = new ArrayList<>();
-        Map<String, String> latestActivity = null;
         String activityNotice = "";
         boolean runtimeObserved = false;
         JsonNode config = json.createObjectNode();
@@ -111,10 +121,16 @@ final class DeveloperExecutionView {
             if (event.getEventType() != AuditEventType.RUNTIME_PROGRESS) continue;
             var detail = parse(event.getDetail());
             String action = detail.path("activity").asString("");
+            boolean initialRuntime = !FeedbackArtifacts.VERSION.equals(execution.getFlowVersion())
+                    || detail.path("round").asInt(-1) < 0;
+            if (action.equals("coding_configured")) {
+                if (initialRuntime && config.isEmpty()) config = detail;
+                continue;
+            }
             if (action.equals("pi_usage") || action.equals("coding_usage")) continue;
             if (action.equals("agent_start")) runtimeObserved = true;
             if (action.equals("pi_starting") || action.equals("coding_starting")) {
-                config = detail;
+                if (initialRuntime) config = detail;
                 runtimeObserved = true;
             }
             String text = runtimeActivityText(detail, bashActivity);
@@ -122,7 +138,6 @@ final class DeveloperExecutionView {
             if (action.equals("provider_error") || (action.startsWith("auto_retry_")
                     && (detail.hasNonNull("reason") || detail.has("success"))))
                 providerDiagnostics.add(row);
-            latestActivity = row;
             if (detail.has("notice")) activityNotice = detail.path("notice").asString("");
             if (action.equals("turn_start")) {
                 previousHeartbeat = null;
@@ -135,10 +150,6 @@ final class DeveloperExecutionView {
             else recentActivity.add(row);
             previousHeartbeat = heartbeat ? text : null;
         }
-        add(technicalFields, "Coding image", config.path("image"));
-        add(technicalFields, "Coding runtime", config.path("runtime"));
-        add(technicalFields, "Provider", config.path("provider"));
-        add(technicalFields, "Model", config.path("model"));
         String executionError = execution.getErrorMessage();
         boolean retryErrorSuperseded = executionError != null
                 && executionError.startsWith(STARTING_BUILD_NETWORK_FAILURE)
@@ -166,8 +177,12 @@ final class DeveloperExecutionView {
         view.put("repository", first(repo.path("source_repo"), repo.path("key"), candidate.path("repository")));
         view.put("branch", repo.path("base_branch").asString(""));
         view.put("technicalFields", technicalFields);
-        view.put("codingRuntime", config.path("runtime").asString(""));
-        view.put("codingModel", config.path("model").asString(""));
+        List<Map<String, String>> runtimeFields = new ArrayList<>();
+        add(runtimeFields, "Model", config.path("model"));
+        add(runtimeFields, "Provider", config.path("provider"));
+        add(runtimeFields, "Runtime", config.path("runtime"));
+        add(runtimeFields, "Image", config.path("image"));
+        view.put("runtimeFields", runtimeFields);
         view.put("reason", reason);
         String reasonLabel = "NEEDS_DECISION".equals(codingOutcome.path("status").asString(""))
                 ? "Decision required" : execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.PENDING
@@ -175,9 +190,10 @@ final class DeveloperExecutionView {
                 && executionError != null && !retryErrorSuperseded ? "Previous attempt" : "Stop reason";
         view.put("reasonLabel", reasonLabel);
         view.put("pullRequestUrl", pr);
-        view.put("latestActivity", latestActivity);
+        String prTitle = delivery.path("pullRequestTitle").asString("");
+        view.put("pullRequestLabel", prTitle.isBlank() ? pr : prTitle);
         view.put("activityNotice", activityNotice);
-        view.put("activity", recentActivity.subList(Math.max(0, recentActivity.size() - 6), recentActivity.size()));
+        view.put("activity", recentActivity.subList(Math.max(0, recentActivity.size() - 20), recentActivity.size()).reversed());
         view.put("providerDiagnostics", providerDiagnostics.subList(
                 Math.max(0, providerDiagnostics.size() - 20), providerDiagnostics.size()));
         var history = executionHistory(events);

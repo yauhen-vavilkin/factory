@@ -50,6 +50,9 @@ public class ExecutionUiController {
     private final HitlReviewRepository reviews;
     private final JsonMapper jsonMapper;
     private final DeveloperCostEstimator costEstimator;
+    private FeedbackUi feedbackUi;
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setFeedbackUi(FeedbackUi feedbackUi) { this.feedbackUi=feedbackUi; }
 
     public ExecutionUiController(PipelineExecutionRepository executions, ArtifactStore artifactStore,
                                  AuditLog auditLog, FlowRegistry flowRegistry, HitlReviewRepository reviews,
@@ -106,6 +109,12 @@ public class ExecutionUiController {
         model.addAttribute("progressSteps", steps);
         if (developerFlow) {
             var now = java.time.Instant.now();
+            var end = execution.getStatus().isFinal() && execution.getCompletedAt() != null
+                    ? execution.getCompletedAt() : now;
+            long workSeconds = AttemptUsageSummary.activeSeconds(events, end);
+            model.addAttribute("factoryTime", FeedbackUi.duration(workSeconds));
+            model.addAttribute("factoryTimeStart", execution.getStatus() == ExecutionStatus.RUNNING
+                    ? now.minusSeconds(workSeconds) : null);
             var developer = new DeveloperExecutionView(jsonMapper).build(execution, artifacts, events, now);
             model.addAttribute("developer", developer);
             model.addAttribute("progressSteps", developer.get("phases"));
@@ -145,6 +154,7 @@ public class ExecutionUiController {
         model.addAttribute("events", events.stream()
                 .map(event -> UiFormat.auditRow(event, jsonMapper)).toList());
         model.addAttribute("pollUrl", terminal ? null : "/api/executions/" + id);
+        if (developerFlow && feedbackUi != null) feedbackUi.populate(execution, artifacts, events, model);
         return "execution";
     }
 
