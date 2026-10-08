@@ -63,15 +63,8 @@ Technical details.
   finish or cancel new executions and confirm their resources have been removed.
   Preserve the database and execution history.
 
-Recovery snapshot: `codex/recovery-dev-flow-before-pr-feedback-2026-09-23`,
-commit `3e29a8415fb8b34ab6a9c3177b12cf03bd3ba9c5`. Implementation remains on
-`recovery/upstream-dev-flow`.
-
 ## Local verification
 
-`FACTORY_DOCKER_TEST=true mvn -B -ntp clean verify` includes the core continuation
-and stale-owner checks; 12 rounds through the real engine and PostgreSQL against
-scripted coding/check boundaries and local Git; paginated fixture GitHub responses;
-cost accounting; and a real Docker coding/export/check/publish scenario against a
-local bare repository. These tests do not use a paid model or write to GitHub.
-The optional Pi HTTP contract test requires its own explicit environment setup.
+The stage is covered by `FACTORY_DOCKER_TEST=true mvn -B -ntp clean verify`,
+including real-engine rounds against local Git and a Docker coding/verify/publish
+scenario; the tests use no paid model and do not write to GitHub.
