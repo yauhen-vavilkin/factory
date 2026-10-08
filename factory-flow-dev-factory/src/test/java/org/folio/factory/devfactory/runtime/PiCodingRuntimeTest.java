@@ -117,9 +117,9 @@ class PiCodingRuntimeTest {
         assertThat(captured.events().toString()).doesNotContain("codemie-proxy");
     }
 
-    @Test void glmProfileKeepsExistingPiDefaults() throws Exception {
-        var coding = new DevRuntimeProperties.Coding("pi:image", "openai-compatible", "glm-5.3",
-                "https://api.z.ai/api/coding/paas/v4", null, "test-key", "pi", null, null);
+    @Test void plainProfileKeepsExistingPiDefaults() throws Exception {
+        var coding = new DevRuntimeProperties.Coding("pi:image", "openai-compatible", "test-model",
+                "https://api.example.com/v1", null, "test-key", "pi", null, null);
         var captured = captureConfiguration(coding);
         var provider = tools.jackson.databind.json.JsonMapper.builder().build().readTree(captured.modelsJson())
                 .path("providers").path("openai-compatible");

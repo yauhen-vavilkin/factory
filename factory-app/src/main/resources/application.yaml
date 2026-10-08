@@ -125,25 +125,25 @@ factory:
     git-base-url: ${FACTORY_DEV_FACTORY_GIT_BASE_URL:https://github.com}
     repositories:
       sidecar:
-        source-repo: yauhen-vavilkin/folio-module-sidecar
+        source-repo: ${FACTORY_SIDECAR_SOURCE_REPO:folio-org/folio-module-sidecar}
         base-branch: master
         build-image: maven:3.9-eclipse-temurin-21
         verification-plan: java21-unit
         jira-projects: [MODSIDECAR]
       mod-roles-keycloak:
-        source-repo: yauhen-vavilkin/mod-roles-keycloak
+        source-repo: ${FACTORY_MOD_ROLES_KEYCLOAK_SOURCE_REPO:folio-org/mod-roles-keycloak}
         base-branch: master
         build-image: maven:3.9-eclipse-temurin-21
         verification-plan: java21-roles-verify
         jira-projects: [MODROLESKC]
       mgr-tenant-entitlements:
-        source-repo: yauhen-vavilkin/mgr-tenant-entitlements
+        source-repo: ${FACTORY_MGR_TENANT_ENTITLEMENTS_SOURCE_REPO:folio-org/mgr-tenant-entitlements}
         base-branch: ${FACTORY_MGR_TENANT_ENTITLEMENTS_BASE_BRANCH:master}
         build-image: maven:3.9-eclipse-temurin-21
         verification-plan: java21-unit
         jira-projects: [MGRENTITLE]
       mgr-applications:
-        source-repo: yauhen-vavilkin/mgr-applications
+        source-repo: ${FACTORY_MGR_APPLICATIONS_SOURCE_REPO:folio-org/mgr-applications}
         base-branch: master
         build-image: maven:3.9-eclipse-temurin-21
         verification-plan: java21-unit
@@ -155,7 +155,6 @@ factory:
         java21-unit: [mvn, -B, -ntp, test]
         java21-roles-verify: [mvn, -B, -ntp, verify]
       required-reports:
-        # Inspected at mod-roles-keycloak 55155b54aee4ae2f2ced024c3d462f27f9d8b05f.
         # Integration requires isolated Docker support; unavailable in the current workload topology.
         java21-roles-verify:
           - target/surefire-reports/TEST-org.folio.roles.controller.ApiExceptionHandlerTest.xml
@@ -306,19 +305,19 @@ factory:
       create-pull-request: true
       targets:
         sidecar:
-          repository: yauhen-vavilkin/folio-module-sidecar
+          repository: ${FACTORY_SIDECAR_DELIVERY_REPO:folio-org/folio-module-sidecar}
           base-branch: master
           authorized: true
         mod-roles-keycloak:
-          repository: yauhen-vavilkin/mod-roles-keycloak
+          repository: ${FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_REPO:folio-org/mod-roles-keycloak}
           base-branch: master
           authorized: true
         mgr-tenant-entitlements:
-          repository: yauhen-vavilkin/mgr-tenant-entitlements
+          repository: ${FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_REPO:folio-org/mgr-tenant-entitlements}
           base-branch: ${FACTORY_MGR_TENANT_ENTITLEMENTS_BASE_BRANCH:master}
           authorized: true
         mgr-applications:
-          repository: yauhen-vavilkin/mgr-applications
+          repository: ${FACTORY_MGR_APPLICATIONS_DELIVERY_REPO:folio-org/mgr-applications}
           base-branch: master
           authorized: true
   test-factory:

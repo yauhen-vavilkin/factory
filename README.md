@@ -19,7 +19,7 @@ TestRail / GitHub / Jira sync.
 | Look up any flow YAML field and its validation rules | [doc/flow-descriptor-reference.md](doc/flow-descriptor-reference.md) |
 | Understand the architecture and its principles | [doc/design-overview.md](doc/design-overview.md) |
 | Operate it in production (stuck runs, alerts, cost, retention) | [doc/runbook.md](doc/runbook.md) |
-| Work on PR comments inside Developer Flow | [docs/PR_FEEDBACK.md](docs/PR_FEEDBACK.md) |
+| Work on PR comments inside Developer Flow | [doc/pr-feedback.md](doc/pr-feedback.md) |
 | Back up / restore the database | [doc/backup-dr.md](doc/backup-dr.md) |
 | Tune pool sizing / plan a load test | [doc/performance.md](doc/performance.md) |
 
@@ -132,9 +132,10 @@ dependencies current.
 
 Developer Flow currently ships the Pi coding-runtime adapter and needs its provider
 values plus the GitHub token in `.env`; see the Developer Flow block in `.env.example`.
-Source repositories and their matching,
-authorized delivery targets are declared together in `application.yaml`. Then build
-both runtime images and start the complete local control plane:
+Source repositories and their matching, authorized delivery targets are declared
+together in `application.yaml`; each default is overridable via
+`FACTORY_<REPO>_SOURCE_REPO` / `FACTORY_<REPO>_DELIVERY_REPO` (for example,
+`FACTORY_SIDECAR_SOURCE_REPO`). Start the local control plane and trigger a task:
 
 ```bash
 docker compose up -d --build
@@ -144,64 +145,25 @@ curl -s -X POST localhost:8080/api/triggers/manual \
 ```
 
 The Factory container owns the Docker socket only for this trusted single-user MVP.
-The configured coding runtime runs in a separate container without that socket or Jira/GitHub credentials;
-verification reconstructs the frozen patch in another fresh container. Delivery is
-blocked unless the exact candidate has a matching successful verification receipt.
-The trusted starting build reuses the `factory-dev-m2-cache` Docker volume. Before each trusted build,
-Factory repairs ownership and owner access on nested cache entries in that volume without removing dependencies.
-The coding runtime and independent verification mount it read-only and copy dependencies into private writable repositories.
-The cache survives `docker compose down`; to reset only it, stop the stack and run
-`docker volume rm factory-dev-m2-cache` before starting Compose again.
-Verification commands and required report paths are operator-owned in `application.yaml`.
-The `mod-roles-keycloak` plan uses `mvn -B -ntp verify`, which runs both Surefire
-and Failsafe through its inherited Maven lifecycle; required suites must produce
-fresh, executed reports. A successful unit suite alone cannot approve that plan.
-The other configured `java21-unit` plans cover only their executed unit tests;
-they do not claim integration-test coverage.
-In the earlier controlled `mod-roles-keycloak` run at `55155b54aee4ae2f2ced024c3d462f27f9d8b05f`,
-the trusted starting build stopped before tests on a Maven-cache access error. With the ownership
-repair, the same revision's trusted starting build used a copy of that cache and ran 2,600
-Surefire tests successfully. All 46 Failsafe integration tests then failed during Testcontainers setup because no Docker
-environment was available inside the isolated container. This topology does not
-support that integration suite; Factory does not mount the host Docker socket or
-claim a successful verification for it. Automatic verification-driven repair is
-deferred: the current engine may replay a worker after a lease recovery, so a
-durable one-attempt claim would be needed before adding a repair coding step.
-The 2,600 unit count is Maven's console total; some nested JUnit suites have
-smaller XML root counters, which Factory currently uses for receipt counts
-(2,467 in this run). Neither count makes the failed integration plan pass.
+The coding runtime runs in a separate container without that socket or Jira/GitHub
+credentials; verification rebuilds the frozen patch in another fresh container.
+Delivery is blocked unless the exact candidate has a matching successful
+verification receipt: required Maven suites must produce fresh, executed reports
+(see `required-reports` in `application.yaml`), and a successful unit suite alone
+cannot approve a plan that requires integration reports. The trusted build reuses
+the `factory-dev-m2-cache` Docker volume, repairing cache entry ownership before
+each build; reset it with `docker volume rm factory-dev-m2-cache` while the stack
+is stopped.
 
-Developer execution pages estimate API cost from the operator-owned
-`config/developer-pricing.yaml` rate card, mounted read-only by Compose. Rates match
-the exact stored model ID, independent of the Pi provider; update the YAML when official model pricing changes.
-Factory does not fetch prices from the model API; the YAML records rates and links to their official sources.
-The `gemini-3.8-flash` rate is an estimate based on Google's public Standard
-API price through December 31, 2026, not the amount billed by CodeMie. Explicit
-cache storage charges are not included.
-The `gpt-5.6-luna-2026-07-09` rate uses OpenAI's public Standard short-context
-price. Factory's Pi profile advertises a 200K context window, below OpenAI's
-272K long-context threshold. Reasoning tokens, including `max` effort, are
-billed as output tokens; the estimate is not the CodeMie organization's bill.
-The coding runtime's raw cost field remains in audit events but is not shown as API cost. A positive token
-category without a configured rate makes the estimate unavailable rather than
-silently undercounting it.
-If Pi reports insufficient usage for a model response, Factory keeps the reported token totals
-but does not show a cost estimate for that execution.
-
-To switch the coding model to CodeMie, copy the commented CodeMie model block from
-`.env.example` into the ignored `.env`, replacing the active `FACTORY_MODEL_*` values.
-Start the local CodeMie proxy on the Mac, then run
-`docker compose up -d --force-recreate factory` (add `--build` after changing Factory code).
-The coding container reaches the host proxy through `host.docker.internal:4001`.
-Switch back by restoring the previous `FACTORY_MODEL_*` values and recreating Factory.
-The CodeMie connection still needs a live streaming tool-call round trip before use
-in a Developer Flow; a healthy proxy status alone does not establish Pi compatibility.
+Execution pages estimate API cost from the operator-owned
+`config/developer-pricing.yaml` rate card. The YAML records public list prices
+linked to their official sources — update it when pricing changes; Factory does
+not fetch prices from the model API. An estimate is shown only when every positive
+token category has a configured rate.
 
 Compose publishes Factory and PostgreSQL on `127.0.0.1` by default. The MVP still
-runs the trusted Factory container as root with the Docker socket, makes its private
-workload root writable for the checkout UID/GID, and uses a 7200-second global engine
-lease to cover the starting build plus coding. Tightening those local-only controls is deferred;
-no additional security or lease framework is part of this stabilization.
+runs the trusted Factory container as root with the Docker socket and a 7200-second
+engine lease; tightening these local-only controls is deferred.
 
 ## Operations
 

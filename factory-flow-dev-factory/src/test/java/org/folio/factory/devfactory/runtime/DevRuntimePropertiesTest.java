@@ -39,16 +39,16 @@ class DevRuntimePropertiesTest {
     }
 
     @Test
-    void bindsExistingGlmProfileWithUnchangedDefaults() {
+    void bindsPlainOpenAiCompatibleProfileWithUnchangedDefaults() {
         var source = new MapConfigurationPropertySource(Map.of(
                 "factory.dev-factory.runtime.coding.image", "pi:image",
                 "factory.dev-factory.runtime.coding.provider", "openai-compatible",
-                "factory.dev-factory.runtime.coding.model", "glm-5.3",
-                "factory.dev-factory.runtime.coding.base-url", "https://api.z.ai/api/coding/paas/v4",
+                "factory.dev-factory.runtime.coding.model", "test-model",
+                "factory.dev-factory.runtime.coding.base-url", "https://api.example.com/v1",
                 "factory.dev-factory.runtime.coding.api-key", "test-key"));
         var coding = new Binder(source).bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get().coding();
         assertThat(coding.provider()).isEqualTo("openai-compatible");
-        assertThat(coding.model()).isEqualTo("glm-5.3");
+        assertThat(coding.model()).isEqualTo("test-model");
         assertThat(coding.api()).isEqualTo("openai-completions");
         assertThat(coding.reasoningEffort()).isNull();
         assertThat(coding.maxOutputTokens()).isEqualTo(16384);

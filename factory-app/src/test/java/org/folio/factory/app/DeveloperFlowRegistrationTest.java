@@ -93,32 +93,32 @@ class DeveloperFlowRegistrationTest {
                 .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications");
         assertThat(devFactoryProperties.repositories().get("sidecar"))
                 .isEqualTo(new DevFactoryProperties.Repository(
-                        "yauhen-vavilkin/folio-module-sidecar", "master", "maven:3.9-eclipse-temurin-21",
+                        "folio-org/folio-module-sidecar", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-unit", List.of("MODSIDECAR"), List.of()));
         assertThat(devFactoryProperties.repositories().get("mod-roles-keycloak"))
                 .isEqualTo(new DevFactoryProperties.Repository(
-                        "yauhen-vavilkin/mod-roles-keycloak", "master", "maven:3.9-eclipse-temurin-21",
+                        "folio-org/mod-roles-keycloak", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-roles-verify", List.of("MODROLESKC"), List.of()));
         assertThat(devFactoryProperties.repositories().get("mgr-tenant-entitlements"))
                 .isEqualTo(new DevFactoryProperties.Repository(
-                        "yauhen-vavilkin/mgr-tenant-entitlements", "master", "maven:3.9-eclipse-temurin-21",
+                        "folio-org/mgr-tenant-entitlements", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-unit", List.of("MGRENTITLE"), List.of()));
         assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
         assertThat(devFactoryProperties.repositories().get("mgr-applications"))
                 .isEqualTo(new DevFactoryProperties.Repository(
-                        "yauhen-vavilkin/mgr-applications", "master", "maven:3.9-eclipse-temurin-21",
+                        "folio-org/mgr-applications", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-unit", List.of("MGRAPPS"), List.of()));
         assertThat(devRuntimeProperties.command("java21-roles-verify"))
                 .containsExactly("mvn", "-B", "-ntp", "verify");
         assertThat(devRuntimeProperties.requiredReports("java21-roles-verify")).hasSize(134);
         assertThat(devDeliveryProperties.createPullRequest()).isTrue();
         assertThat(devDeliveryProperties.targets()).containsOnly(
-                entry("sidecar", new DeliveryTarget("yauhen-vavilkin/folio-module-sidecar", "master", true)),
+                entry("sidecar", new DeliveryTarget("folio-org/folio-module-sidecar", "master", true)),
                 entry("mod-roles-keycloak", new DeliveryTarget(
-                        "yauhen-vavilkin/mod-roles-keycloak", "master", true)),
+                        "folio-org/mod-roles-keycloak", "master", true)),
                 entry("mgr-tenant-entitlements", new DeliveryTarget(
-                        "yauhen-vavilkin/mgr-tenant-entitlements", "master", true)),
+                        "folio-org/mgr-tenant-entitlements", "master", true)),
                 entry("mgr-applications", new DeliveryTarget(
-                        "yauhen-vavilkin/mgr-applications", "master", true)));
+                        "folio-org/mgr-applications", "master", true)));
     }
 }
