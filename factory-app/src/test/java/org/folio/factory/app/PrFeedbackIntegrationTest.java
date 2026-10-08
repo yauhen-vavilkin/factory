@@ -78,11 +78,11 @@ class PrFeedbackIntegrationTest {
     UUID id;
     String branch, base;
     int calls;
-    boolean noChanges, ask, codeFails, checksFail, cleanupFails, exportFails, closed, merged, mergeDuringCode, statusFails, badPolicy;
+    boolean noChanges, ask, checksFail, cleanupFails, exportFails, closed, merged, mergeDuringCode, statusFails, badPolicy;
     String commentsRevision="1";
     Map<String,Object> usage=Map.of("model","fixture-model","inputTokens",100L,"cacheReadTokens",0L,"cacheWriteTokens",0L,"outputTokens",20L);
     @BeforeEach void setup() throws Exception {
-        calls=0; noChanges=ask=codeFails=checksFail=cleanupFails=exportFails=closed=merged=mergeDuringCode=statusFails=badPolicy=false; commentsRevision="1";
+        calls=0; noChanges=ask=checksFail=cleanupFails=exportFails=closed=merged=mergeDuringCode=statusFails=badPolicy=false; commentsRevision="1";
         bare=root.resolve("fork/repo.git"); CandidateFreezer.delete(bare);
         work=Files.createTempDirectory(root,"work-");
         git(root,"init","--bare",bare.toString()); git(root,"init","-b","main",work.toString());
@@ -113,7 +113,6 @@ class PrFeedbackIntegrationTest {
             if(!noChanges) Files.writeString(codingSource.resolve("value.txt"),Files.readString(codingSource.resolve("value.txt"))+"fix "+calls+"\n");
             Consumer<Map<String,Object>> progress=i.getArgument(3); var streamed=new HashMap<String,Object>(usage); streamed.put("activity","coding_usage"); progress.accept(streamed);
             if(ask) return CodingOutcome.needsDecision(new CodingOutcome.Decision(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS,"Keep both options?",List.of("Yes","No"),"Partial patch saved"),usage);
-            if(codeFails) return CodingOutcome.failed("SCRIPTED_FAILURE","Coding failed after edits",usage);
             return CodingOutcome.completed("Corrected selected feedback",usage);
         });
         when(verifier.verify(any(),anyString(),any(),anyString())).thenAnswer(i->{
@@ -155,7 +154,6 @@ class PrFeedbackIntegrationTest {
         var html=RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class);
         assertThat(html).contains("Round 1","Round 12","Total cost","Factory time","fixture-model","second-fixture-model","0.0072 USD","Work on feedback");
         assertThat(html).doesNotContain("Download current patch", "Download diagnostics", "Rate-card estimate", "Finish task");
-        Files.writeString(Path.of("/tmp/factory-pr-feedback-preview.html"),html);
         assertThatThrownBy(()->action(FINISH)).isInstanceOf(IllegalArgumentException.class);
         merged=true; actions.reconcilePr(id); drive(); assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
         assertThat(view().state().summary).contains("Verified changes published");

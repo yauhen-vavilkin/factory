@@ -218,8 +218,6 @@ public class FeedbackWorker implements AgentWorker {
                     throw new IllegalStateException("Latest edits could not be saved; the previous confirmed patch is retained. " + safe(lost));
                 }
             }
-            s.usage=outcome.metrics(); metrics.putAll(outcome.metrics()); metrics.put("attemptId",s.attemptId);
-            metrics.put("round",s.round); metrics.put("rate",s.rate);
             s.summary=outcome.summary();
             if (outcome.status()==CodingOutcome.Status.COMPLETED) { s.phase=VERIFY; s.reason=""; }
             else if (outcome.status()==CodingOutcome.Status.NEEDS_DECISION) {

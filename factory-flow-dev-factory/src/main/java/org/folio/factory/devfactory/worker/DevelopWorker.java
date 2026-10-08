@@ -41,11 +41,6 @@ public class DevelopWorker implements AgentWorker {
     private final JsonMapper json = JsonMapper.builder().build();
 
     public DevelopWorker(DevFactoryProperties properties, DevRuntimeProperties runtime, DockerWorkloads docker,
-                         CandidateFreezer freezer, CodingRuntime coding, FrontmatterCodec codec) {
-        this(properties, runtime, docker, freezer, coding, codec, null);
-    }
-
-    public DevelopWorker(DevFactoryProperties properties, DevRuntimeProperties runtime, DockerWorkloads docker,
                          CandidateFreezer freezer, CodingRuntime coding, FrontmatterCodec codec,
                          org.folio.factory.core.service.AuditLog audit) {
         this.properties = properties;
