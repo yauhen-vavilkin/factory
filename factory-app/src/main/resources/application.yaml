@@ -301,6 +301,27 @@ factory:
         api-key: ${FACTORY_MODEL_API_KEY:}
         reasoning-effort: ${FACTORY_MODEL_REASONING_EFFORT:}
         max-output-tokens: ${FACTORY_MODEL_MAX_OUTPUT_TOKENS:16384}
+        pi:
+          image: ${FACTORY_PI_IMAGE:}
+          provider: ${FACTORY_PI_PROVIDER:}
+          model: ${FACTORY_PI_MODEL:}
+          base-url: ${FACTORY_PI_BASE_URL:}
+          api: ${FACTORY_PI_API:}
+          authentication: ${FACTORY_PI_AUTHENTICATION:api-key}
+          api-key: ${FACTORY_PI_API_KEY:}
+          reasoning-effort: ${FACTORY_PI_REASONING_EFFORT:}
+          max-output-tokens: ${FACTORY_PI_MAX_OUTPUT_TOKENS:}
+        claude-code:
+          image: ${FACTORY_CLAUDE_CODE_IMAGE:factory-dev-claude-code:2.1.287-java21}
+          api: ${FACTORY_CLAUDE_CODE_API:anthropic-messages}
+          base-url: ${FACTORY_CLAUDE_CODE_BASE_URL:}
+          model: ${FACTORY_CLAUDE_CODE_MODEL:}
+          authentication: ${FACTORY_CLAUDE_CODE_AUTHENTICATION:}
+          api-key: ${FACTORY_CLAUDE_CODE_API_KEY:}
+          auth-token: ${FACTORY_CLAUDE_CODE_AUTH_TOKEN:}
+          max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:40}
+          max-output-tokens: ${FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS:16384}
+          effort: ${FACTORY_CLAUDE_CODE_EFFORT:}
     delivery:
       create-pull-request: true
       targets:

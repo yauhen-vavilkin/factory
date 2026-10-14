@@ -36,6 +36,7 @@ import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.PiCodingRuntime;
+import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
 import org.folio.factory.devfactory.worker.CodingDecisionGateWorker;
 import org.folio.factory.devfactory.worker.DecisionGateWorker;
@@ -85,6 +86,7 @@ public class DevFactoryConfiguration {
     public CodingRuntime devCodingRuntime(DevRuntimeProperties runtime) {
         return switch (runtime.coding().runtime()) {
             case "pi" -> new PiCodingRuntime(runtime.coding());
+            case "claude-code" -> new ClaudeCodeCodingRuntime(runtime.coding().claudeCode());
             default ->
                     throw new IllegalStateException(
                             "Unsupported coding runtime '" + runtime.coding().runtime() + "'");

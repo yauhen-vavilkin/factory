@@ -135,8 +135,9 @@ dependencies current.
 
 ### Developer Flow demo
 
-Developer Flow currently ships the Pi coding-runtime adapter and needs its provider
-values plus the GitHub token in `.env`; see the Developer Flow block in `.env.example`.
+Developer Flow supports `pi` (default) and `claude-code`. Set
+`FACTORY_DEV_FACTORY_CODING_RUNTIME` and the selected profile in `.env`; see the
+Developer Flow block in `.env.example`. Configure a GitHub token for delivery.
 Source repositories and their matching, authorized delivery targets are declared
 together in `application.yaml`; each default is overridable via
 `FACTORY_<REPO>_SOURCE_REPO` / `FACTORY_<REPO>_DELIVERY_REPO` (for example,
@@ -170,6 +171,100 @@ Compose publishes Factory and PostgreSQL on `127.0.0.1` by default. The MVP stil
 runs the trusted Factory container as root with the Docker socket and a 7200-second
 engine lease; tightening these local-only controls is deferred.
 
+### Coding runtime profiles
+
+`factory.dev-factory.runtime.coding.pi` and `.claude-code` are independent
+operator-owned profiles. Only the selected runtime is validated before coding;
+empty inactive profiles do not prevent application startup. Both adapters serve
+initial coding, a fresh attempt after a confirmed clarification, and PR feedback.
+Feedback retains partial edits on questions and failures; initial coding keeps
+its existing completed-candidate policy. Factory still owns repository checks,
+candidate export, independent verification, workload ownership and cleanup.
+
+Minimal Pi configuration (OpenAI Chat Completions):
+
+```dotenv
+FACTORY_DEV_FACTORY_CODING_RUNTIME=pi
+FACTORY_PI_PROVIDER=openai-compatible
+FACTORY_PI_API=openai-completions
+FACTORY_PI_BASE_URL=https://gateway.example/v1
+FACTORY_PI_MODEL=operator-model-id
+FACTORY_PI_AUTHENTICATION=api-key
+FACTORY_PI_API_KEY=replace-with-your-key
+```
+
+Minimal Claude Code configuration (Anthropic Messages, including an operator's
+CodeMie route):
+
+```dotenv
+FACTORY_DEV_FACTORY_CODING_RUNTIME=claude-code
+FACTORY_CLAUDE_CODE_API=anthropic-messages
+FACTORY_CLAUDE_CODE_BASE_URL=https://codemie.example/anthropic
+FACTORY_CLAUDE_CODE_MODEL=operator-model-id
+FACTORY_CLAUDE_CODE_AUTHENTICATION=bearer-token
+FACTORY_CLAUDE_CODE_AUTH_TOKEN=replace-with-your-token
+```
+
+The example endpoint is a placeholder. Supply the prefix before `/v1/messages`
+reachable from the coding container (on Docker Desktop, use
+`host.docker.internal` for a host proxy). A Chat Completions or Responses endpoint
+cannot be used with Claude Code: an incompatible API type fails before the
+coding container starts. Factory does not translate API protocols, rename model
+IDs, or restrict models to an allowlist. Endpoint/model capabilities, streaming
+and tool support remain the operator's responsibility. Live CodeMie integration
+requires a separately authorized test; the local contract tests make no paid calls.
+
+Claude Code authentication must be explicitly `api-key` (`FACTORY_CLAUDE_CODE_API_KEY`
+→ `x-api-key`) or `bearer-token` (`FACTORY_CLAUDE_CODE_AUTH_TOKEN` → `Authorization:
+Bearer ...`). Only the selected credential is sent. No host Claude credentials or
+configuration are mounted. Runtime secrets are copied into a private temporary
+file only during coding, outside `/workspace`, and removed afterwards. They are
+not build arguments or Docker image environment values. Raw CLI/provider output
+is not logged or saved by Factory; progress contains bounded tool names and token
+counts. Claude's cost estimate is separate from Factory's operator rate card.
+
+Pi precedence is field-by-field: nonblank `FACTORY_PI_*` > legacy
+`FACTORY_MODEL_*` > defaults. `FACTORY_PI_MODEL` falls back to `FACTORY_MODEL_ID`;
+`FACTORY_PI_IMAGE` falls back to `FACTORY_DEV_FACTORY_CODING_IMAGE`. New empty values
+keep the legacy behavior; remove an old value to clear it. Legacy variables never
+configure Claude Code. Pi authentication is `api-key`; the Pi provider controls
+its wire format. Optional harness settings are Pi `REASONING_EFFORT` and
+`MAX_OUTPUT_TOKENS`, and Claude Code `EFFORT`, `MAX_TURNS` (40), and
+`MAX_OUTPUT_TOKENS` (16384). Use each profile's prefix from `.env.example`.
+The common attempt timeout remains `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` (1800).
+
+Claude Code is pinned to **2.1.287**, resolved from the official stable channel on
+2026-10-14; both supported Linux architectures have pinned manifest checksums.
+The [official setup guide](https://code.claude.com/docs/en/setup) documents the
+stable channel and version management. Auto-updates are disabled. The adapter
+uses [programmatic print mode](https://code.claude.com/docs/en/headless), NDJSON
+output, bare mode, no session persistence and explicitly allowed local coding
+tools. It works under the workload's UID (including the Compose root UID), private
+`HOME=/tmp/factory-home`, `/workspace`, and Java/Maven 21 without interactive
+login or permission approval.
+
+Compose 2.20+ includes only the selected runtime service and checks its exact
+version before starting Factory. Build/check each profile without credentials:
+
+```bash
+FACTORY_DEV_FACTORY_CODING_RUNTIME=pi docker compose build coding-runtime
+FACTORY_DEV_FACTORY_CODING_RUNTIME=pi docker compose run --rm --no-deps coding-runtime
+FACTORY_DEV_FACTORY_CODING_RUNTIME=claude-code docker compose build coding-runtime
+FACTORY_DEV_FACTORY_CODING_RUNTIME=claude-code docker compose run --rm --no-deps coding-runtime
+
+# Real CLI against local mock servers, plus existing workload/feedback tests.
+FACTORY_DOCKER_TEST=true mvn -B -ntp -pl factory-flow-dev-factory -am \
+  -Dtest=ClaudeCodeDockerTest,PiCodingHttpContractTest,FeedbackDockerTest,DockerWorkloadsTest \
+  -Dfactory.pi.contract.image=factory-dev-pi:0.85.1-java21 \
+  -Dsurefire.failIfNoSpecifiedTests=false test
+mvn -B -ntp verify
+```
+
+The contract tests use Docker Desktop's `host.docker.internal` and isolated test
+credentials. Claude tests use the default pinned image tag. When starting Factory
+directly, export `.env` first as described in `.env.example`; no Java edits are
+needed to switch runtimes or endpoints.
+
 ## Operations
 
 Production procedures live under `doc/`:
@@ -196,8 +291,9 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_LLM_BASE_URL` / `_COMPLETIONS_PATH` | OpenAI-compatible endpoint (defaults target Groq: `https://api.groq.com/openai/v1` + `/chat/completions`) |
 | `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (default `jdbc:postgresql://localhost:5432/factory`) |
 | `FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME` | Persistent trusted Developer Flow Maven cache volume (default `factory-dev-m2-cache`) |
-| `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (currently `pi`; default `pi`) |
-| `FACTORY_MODEL_PROVIDER` / `_ID` / `_BASE_URL` / `_API` / `_API_KEY` | Pi provider identity, model id, endpoint, protocol, and credential; see the switchable profiles in `.env.example` |
+| `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `pi`) |
+| `FACTORY_MODEL_PROVIDER` / `_ID` / `_BASE_URL` / `_API` / `_API_KEY` | Legacy Pi profile settings; nonblank `FACTORY_PI_*` values override them |
+| `FACTORY_PI_*` / `FACTORY_CLAUDE_CODE_*` | Independent image, API, model, endpoint, authentication and harness profiles; see [Coding runtime profiles](#coding-runtime-profiles) |
 | `FACTORY_MODEL_REASONING_EFFORT` | Optional Pi thinking level; `max` for the CodeMie GPT-5.6 Luna profile, empty for the current GLM behavior |
 | `FACTORY_MODEL_MAX_OUTPUT_TOKENS` | Pi model output limit (default `16384`; CodeMie profile `65536`) |
 | `FACTORY_DB_POOL_MAX` / `_MIN_IDLE` | HikariCP pool sizing (defaults `16` / `4`; see `doc/performance.md`) |

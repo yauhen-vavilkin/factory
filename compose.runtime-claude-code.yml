@@ -1,0 +1,8 @@
+services:
+  coding-runtime:
+    build:
+      context: .
+      dockerfile: factory-flow-dev-factory/docker/Dockerfile.claude-code
+    image: ${FACTORY_CLAUDE_CODE_IMAGE:-factory-dev-claude-code:2.1.287-java21}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["test \"$$(claude --version)\" = '2.1.287 (Claude Code)'"]

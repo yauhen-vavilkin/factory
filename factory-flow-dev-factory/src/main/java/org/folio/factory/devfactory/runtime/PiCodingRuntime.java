@@ -15,11 +15,11 @@ import java.util.function.Consumer;
 /** Pi adapter for the Factory-owned coding request and outcome contracts. */
 public class PiCodingRuntime implements CodingRuntime {
     static final int EVENT_STREAM_LIMIT = 16 * 1024 * 1024;
-    private final DevRuntimeProperties.Coding config;
+    private final DevRuntimeProperties.Pi config;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public PiCodingRuntime(DevRuntimeProperties.Coding config) {
-        this.config = config;
+        this.config = config.piProfile();
     }
 
     @Override
@@ -96,7 +96,7 @@ public class PiCodingRuntime implements CodingRuntime {
                     temporary.resolve("models.json"),
                     json.writeValueAsString(
                             Map.of("providers", Map.of(config.provider(), provider))));
-            Files.writeString(temporary.resolve("task.txt"), prompt(request));
+            Files.writeString(temporary.resolve("task.txt"), CodingProtocol.prompt(request));
             workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30).requireSuccess();
             workload.copy(temporary.resolve(".").toString(), "/tmp/factory-pi");
             var observer = new PiProgress(config.apiKey(), progress);
@@ -153,23 +153,6 @@ public class PiCodingRuntime implements CodingRuntime {
         } finally {
             CandidateFreezer.cleanup(temporary);
         }
-    }
-
-    private String prompt(CodingRequest request) {
-        return """
-        Implement this task in /workspace. Inspect, understand, plan, edit, run targeted checks, debug, and self-review in one cohesive session.
-        Keep changes focused. Do not push, perform Jira/GitHub writes, switch repositories, alter .git, or generate Factory verification receipts.
-        The repository and base commit are authorized working inputs, not proof that the repository owns the requested change.
-        If the selected repository appears wrong, do not switch it. Return the decision protocol below with kind REPOSITORY_MISMATCH.
-        If a material product or requirements question cannot be resolved from the request and repository, return the protocol with kind PRODUCT_REQUIREMENTS.
-        Otherwise complete the implementation. Your self-checks are diagnostic; Factory independently verifies the frozen candidate.
-
-        For NEEDS_DECISION, the entire final response must be one line beginning FACTORY_DECISION_REQUIRED: followed by JSON:
-        {"kind":"PRODUCT_REQUIREMENTS|REPOSITORY_MISMATCH","question":"one concrete question","options":["2-4 options when useful"],"evidence":"bounded repository evidence"}
-
-        Factory CodingRequest JSON:
-        """
-                + json.writeValueAsString(request);
     }
 
     private CodingOutcome sanitize(CodingOutcome outcome) {

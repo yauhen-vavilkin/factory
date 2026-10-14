@@ -11,6 +11,71 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DevRuntimePropertiesTest {
     @Test
+    void independentProfilesKeepPiLegacyFallbacksAndExactClaudeModel() {
+        var values = new java.util.HashMap<String, Object>();
+        String prefix = "factory.dev-factory.runtime.coding.";
+        values.put(prefix + "runtime", "claude-code");
+        values.put(prefix + "image", "legacy:image");
+        values.put(prefix + "provider", "legacy-provider");
+        values.put(prefix + "model", "legacy-model");
+        values.put(prefix + "api-key", "legacy-key");
+        values.put(prefix + "pi.model", "new-pi-model");
+        values.put(prefix + "pi.api-key", "new-pi-key");
+        values.put(prefix + "pi.base-url", "");
+        values.put(prefix + "pi.max-output-tokens", "8192");
+        values.put(prefix + "claude-code.model", "operator/Custom-Model-2026");
+        values.put(prefix + "claude-code.base-url", "http://gateway.example/anthropic");
+        values.put(prefix + "claude-code.authentication", "bearer-token");
+        values.put(prefix + "claude-code.auth-token", "claude-secret");
+        var coding = bind(values).coding();
+        assertThat(coding.piProfile().image()).isEqualTo("legacy:image");
+        assertThat(coding.piProfile().provider()).isEqualTo("legacy-provider");
+        assertThat(coding.piProfile().model()).isEqualTo("new-pi-model");
+        assertThat(coding.piProfile().apiKey()).isEqualTo("new-pi-key");
+        assertThat(coding.piProfile().maxOutputTokens()).isEqualTo(8192);
+        assertThat(coding.claudeCode().model()).isEqualTo("operator/Custom-Model-2026");
+        coding.claudeCode().requireConfigured();
+        assertThat(coding.toString() + coding.piProfile() + coding.claudeCode())
+                .doesNotContain("legacy-key", "new-pi-key", "claude-secret", "gateway.example");
+        var selected = new org.folio.factory.devfactory.DevFactoryConfiguration().devCodingRuntime(bind(values));
+        assertThat(selected).isInstanceOf(ClaudeCodeCodingRuntime.class);
+        assertThat(selected.identity()).containsEntry("model", "operator/Custom-Model-2026");
+    }
+
+    @Test
+    void inactiveProfilesAreNotValidatedAndSelectionIsClosed() {
+        var configuration = new org.folio.factory.devfactory.DevFactoryConfiguration();
+        var empty = bind(Map.of("factory.dev-factory.runtime.coding.runtime", "claude-code",
+                "factory.dev-factory.runtime.coding.pi.max-output-tokens", "-1"));
+        assertThat(configuration.devCodingRuntime(empty)).isInstanceOf(ClaudeCodeCodingRuntime.class);
+        assertThat(configuration.devCodingRuntime(new DevRuntimeProperties(null, null, 0, null)))
+                .isInstanceOf(PiCodingRuntime.class);
+        assertThatThrownBy(() -> configuration.devCodingRuntime(bind(Map.of(
+                "factory.dev-factory.runtime.coding.runtime", "unknown"))))
+                .hasMessageContaining("Unsupported coding runtime");
+    }
+
+    @Test
+    void claudeRejectsWrongProtocolAndRequiresSelectedCredentialBeforeExecution() {
+        var config = new DevRuntimeProperties.ClaudeCode(null, "openai-completions", "http://gateway",
+                "model", "api-key", "secret", null, null, null, null);
+        var workload = org.mockito.Mockito.mock(DockerWorkloads.Workload.class);
+        assertThatThrownBy(() -> new ClaudeCodeCodingRuntime(config).code(workload, null, 30))
+                .hasMessageContaining("api=anthropic-messages");
+        org.mockito.Mockito.verifyNoInteractions(workload);
+        for (String auth : new String[] {null, "", "oauth", "bearer-token"}) {
+            var missing = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway", "model",
+                    auth, "api-key-is-not-a-token", null, null, null, null);
+            assertThatThrownBy(missing::requireConfigured).isInstanceOf(IllegalStateException.class);
+        }
+    }
+
+    private static DevRuntimeProperties bind(Map<String, ?> values) {
+        return new Binder(new MapConfigurationPropertySource(values))
+                .bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get();
+    }
+
+    @Test
     void bindsCodingSettingsFromSpringConfiguration() {
         var source = new MapConfigurationPropertySource(Map.of(
                 "factory.dev-factory.runtime.timeout-seconds", "60",

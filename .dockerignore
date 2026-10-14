@@ -31,3 +31,9 @@ Dockerfile
 .dockerignore
 owasp-suppressions.xml
 .dependency-check-data/
+
+# Operator credentials and local execution state must never enter image layers.
+.env
+.env.*
+.factory/
+.tasks/

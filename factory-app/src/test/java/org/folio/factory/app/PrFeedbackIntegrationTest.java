@@ -27,6 +27,7 @@ import java.time.*;
 import java.util.*;
 import java.util.function.Consumer;
 import static org.assertj.core.api.Assertions.*;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
@@ -132,10 +133,20 @@ class PrFeedbackIntegrationTest {
     PrFeedbackGateway.PullRequest pr() {return new PrFeedbackGateway.PullRequest("fork/repo",7,branch,"main",git(bare,"rev-parse",branch).strip(),"https://github.com/fork/repo/pull/7",!closed);}
     PrFeedbackGateway.Comment comment() {return new PrFeedbackGateway.Comment("inline:1","Reviewer","Fix selected behavior","value.txt",1,false,commentsRevision,"https://github.com/fork/repo/pull/7#discussion_r1");}
     void drive() {
-        for(int n=0;n<20;n++) {var e=state.get(id); if(e.getStatus()==ExecutionStatus.AWAITING_HITL || e.getStatus().isFinal()) return;
+        // PostgreSQL checks next_run_at against its own clock. A tight iteration budget
+        // can finish before a newly scheduled continuation becomes claimable.
+        await().pollInSameThread().pollDelay(Duration.ZERO).pollInterval(Duration.ofMillis(20))
+                .atMost(Duration.ofSeconds(10)).until(() -> {
+            var e=state.get(id);
+            if(e.getStatus()==ExecutionStatus.AWAITING_HITL || e.getStatus().isFinal()) return true;
             claims.claim(100).forEach(engine::advance);
-        }
-        fail("Execution failed to settle: "+state.get(id).getStatus()+" "+state.get(id).getErrorMessage());
+            return false;
+        });
+    }
+    UUID claimNext() {
+        await().pollInSameThread().pollDelay(Duration.ZERO).pollInterval(Duration.ofMillis(20))
+                .atMost(Duration.ofSeconds(10)).until(() -> claims.claim(100).contains(id));
+        return id;
     }
     FeedbackActions.View view() {return actions.view(id);}
     void action(FeedbackActions.Action action) {var v=view(); actions.command(id,new FeedbackActions.Command(v.reviewId(),v.version(),action,v.snapshot()==null?null:v.snapshot().id(),List.of("inline:1"),"Keep both"),"operator");}
@@ -238,9 +249,9 @@ class PrFeedbackIntegrationTest {
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
     }
     @Test void replayedCodingOperationWaitsForHumanAndDoesNotSpendAgain() {
-        drive(); select(); claims.claim(100).forEach(engine::advance);
+        drive(); select(); engine.advance(claimNext());
         assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.CODE);
-        claims.claim(100); var e=state.get(id); var step=flows.require("dev-factory").step(9);
+        claimNext(); var e=state.get(id); var step=flows.require("dev-factory").step(9);
         var inputs=new LinkedHashMap<String,org.folio.factory.core.agent.ArtifactContent>();
         for(String name:step.inputs()) {
             var a=artifacts.getLatest(id,name).orElseThrow();
@@ -263,14 +274,14 @@ class PrFeedbackIntegrationTest {
         assertThat(html).contains("Manual verification 1").doesNotContain("Round 1");
     }
     @Test void unexpectedEngineEscalationRequiresCleanupAndNeverAutomaticallyRepeatsCoding() {
-        drive(); select(); claims.claim(100).forEach(engine::advance);
+        drive(); select(); engine.advance(claimNext());
         gates.openEscalationReview(state.get(id),flows.require("dev-factory").step(9),"Unexpected persistence error",3);
         assertThat(view().actions()).containsExactly(RETRY_CLEANUP);
         action(RETRY_CLEANUP); drive();
         assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.INTERRUPTED); assertThat(calls).isZero();
     }
     @Test void branchChangeBeforeCodingRequiresFreshSelection() throws Exception {
-        drive(); select(); claims.claim(100).forEach(engine::advance);
+        drive(); select(); engine.advance(claimNext());
         Files.writeString(work.resolve("manual.txt"),"Human correction\n"); commit("manual correction");
         git(work,"push",bare.toString(),"HEAD:refs/heads/"+branch);
         drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.REFRESH_REQUIRED); assertThat(calls).isZero();

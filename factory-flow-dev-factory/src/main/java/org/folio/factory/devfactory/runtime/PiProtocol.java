@@ -5,7 +5,6 @@ import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -94,35 +93,7 @@ final class PiProtocol {
         if (!stopReason.equals("stop") || summary.isBlank())
             return CodingOutcome.failed(
                     "INCOMPLETE_RESULT", "Pi did not return a completed coding result", metrics);
-        String normalized = summary.stripLeading();
-        if (normalized.startsWith("FACTORY_DECISION_REQUIRED:")) {
-            String detail = normalized.substring("FACTORY_DECISION_REQUIRED:".length()).strip();
-            if (detail.contains("\n") || detail.contains("\r"))
-                return CodingOutcome.failed(
-                        "INVALID_DECISION_RESULT",
-                        "Pi returned an invalid decision request",
-                        metrics);
-            try {
-                var decision = mapper.readTree(detail);
-                var options = new ArrayList<String>();
-                decision.path("options").forEach(option -> options.add(option.asString("")));
-                return CodingOutcome.needsDecision(
-                        new CodingOutcome.Decision(
-                                CodingOutcome.DecisionKind.valueOf(
-                                        decision.path("kind").asString("")),
-                                decision.path("question").asString(""),
-                                options,
-                                decision.path("evidence").asString("")),
-                        metrics);
-            } catch (RuntimeException e) {
-                return CodingOutcome.failed(
-                        "INVALID_DECISION_RESULT",
-                        "Pi returned an invalid decision request",
-                        metrics);
-            }
-        }
-        return CodingOutcome.completed(
-                summary.substring(0, Math.min(8000, summary.length())), metrics);
+        return CodingProtocol.answer(summary, metrics, "Pi");
     }
 
     /**
