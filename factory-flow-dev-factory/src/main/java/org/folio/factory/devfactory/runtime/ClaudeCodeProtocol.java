@@ -19,6 +19,7 @@ final class ClaudeCodeProtocol implements Consumer<String> {
     private final Map<String, JsonNode> messages = new LinkedHashMap<>();
     private JsonNode result;
     private String invalid;
+    private String streamingMessage = "";
     private int emitted;
     private boolean initialized;
 
@@ -39,6 +40,7 @@ final class ClaudeCodeProtocol implements Consumer<String> {
         switch (frame.path("type").asString()) {
             case "system" -> system(frame);
             case "assistant" -> assistant(frame);
+            case "stream_event" -> streamEvent(frame.path("event"));
             case "user" -> {
                 for (var block : frame.path("message").path("content"))
                     if (block.path("type").asString("").equals("tool_result"))
@@ -49,7 +51,7 @@ final class ClaudeCodeProtocol implements Consumer<String> {
                 usageProgress();
                 emit(Map.of("activity", "agent_end"));
             }
-            default -> { /* Stream deltas and future diagnostic events are not completion evidence. */ }
+            default -> { /* Future diagnostic events are not completion evidence. */ }
         }
     }
 
@@ -70,7 +72,7 @@ final class ClaudeCodeProtocol implements Consumer<String> {
     private void assistant(JsonNode frame) {
         var message = frame.path("message");
         String id = message.path("id").asString("");
-        if (!id.isBlank() && message.path("usage").isObject()) {
+        if (!id.isBlank()) {
             // Multiple content blocks can report the same message: replace, never double count.
             messages.put(id, message.path("usage"));
             usageProgress();
@@ -81,6 +83,28 @@ final class ClaudeCodeProtocol implements Consumer<String> {
                 emit(Map.of("activity", "tool_execution_start", "tool",
                         tool.replaceAll("[\\p{Cntrl}]", " ").substring(0, Math.min(80, tool.length()))));
             }
+    }
+
+    private void streamEvent(JsonNode event) {
+        switch (event.path("type").asString("")) {
+            case "message_start" -> {
+                streamingMessage = event.path("message").path("id").asString("");
+                if (!streamingMessage.isBlank())
+                    messages.put(streamingMessage, event.path("message").path("usage"));
+            }
+            case "message_delta" -> {
+                // Assistant content is emitted before this final per-message output count.
+                if (streamingMessage.isBlank()) return;
+                var usage = JSON.createObjectNode();
+                var previous = messages.get(streamingMessage);
+                if (previous != null && previous.isObject()) previous.properties().forEach(e -> usage.set(e.getKey(), e.getValue()));
+                if (event.path("usage").isObject()) event.path("usage").properties().forEach(e -> usage.set(e.getKey(), e.getValue()));
+                messages.put(streamingMessage, usage);
+                usageProgress();
+            }
+            case "message_stop" -> streamingMessage = "";
+            default -> { /* Text/tool deltas contain private content, not usage evidence. */ }
+        }
     }
 
     private void usageProgress() {
@@ -97,9 +121,9 @@ final class ClaudeCodeProtocol implements Consumer<String> {
         metrics.put("model", model);
         boolean complete = result != null && result.path("usage").isObject();
         var usage = complete ? java.util.List.of(result.path("usage")) : messages.values();
-        boolean missing = usage.isEmpty();
+        boolean missing = usage.isEmpty() || messages.values().stream().anyMatch(item -> !hasTokenEvidence(item));
         for (var item : usage) {
-            missing |= !item.path("input_tokens").isIntegralNumber() || !item.path("output_tokens").isIntegralNumber();
+            missing |= !hasTokenEvidence(item);
             add(metrics, item, "input_tokens", "inputTokens");
             add(metrics, item, "output_tokens", "outputTokens");
             add(metrics, item, "cache_read_input_tokens", "cacheReadTokens");
@@ -113,6 +137,17 @@ final class ClaudeCodeProtocol implements Consumer<String> {
             metrics.put("runtimeEstimatedCostUsd", result.path("total_cost_usd").decimalValue());
         return metrics;
     }
+
+    private static boolean hasTokenEvidence(JsonNode usage) {
+        // Claude substitutes zeroes when the endpoint omits usage. A generated answer
+        // needs positive output and some input evidence, including fully cached input.
+        return usage.path("input_tokens").isIntegralNumber() && usage.path("input_tokens").asLong() >= 0
+                && positive(usage.path("output_tokens"))
+                && (positive(usage.path("input_tokens")) || positive(usage.path("cache_read_input_tokens"))
+                    || positive(usage.path("cache_creation_input_tokens")));
+    }
+
+    private static boolean positive(JsonNode value) { return value.isIntegralNumber() && value.asLong() > 0; }
 
     private static void add(Map<String, Object> metrics, JsonNode item, String from, String to) {
         if (item.path(from).isIntegralNumber() && item.path(from).asLong() >= 0)

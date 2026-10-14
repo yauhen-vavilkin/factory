@@ -213,6 +213,11 @@ coding container starts. Factory does not translate API protocols, rename model
 IDs, or restrict models to an allowlist. Endpoint/model capabilities, streaming
 and tool support remain the operator's responsibility. Live CodeMie integration
 requires a separately authorized test; the local contract tests make no paid calls.
+Model IDs are literal, including names such as `sonnet` and `default`: the adapter
+pins CLI alias defaults, disables legacy remapping and uses the documented
+[`CLAUDE_CODE_EXTRA_BODY`](https://code.claude.com/docs/en/env-vars) setting to keep
+the request's `model` unchanged. A suffix such as `[1m]` is part of the endpoint's
+model ID, not a Factory context-window option.
 
 Claude Code authentication must be explicitly `api-key` (`FACTORY_CLAUDE_CODE_API_KEY`
 → `x-api-key`) or `bearer-token` (`FACTORY_CLAUDE_CODE_AUTH_TOKEN` → `Authorization:
@@ -222,6 +227,8 @@ file only during coding, outside `/workspace`, and removed afterwards. They are
 not build arguments or Docker image environment values. Raw CLI/provider output
 is not logged or saved by Factory; progress contains bounded tool names and token
 counts. Claude's cost estimate is separate from Factory's operator rate card.
+Missing or zero-filled provider usage stays marked incomplete, including when
+other turns in the same attempt reported valid counts.
 
 Pi precedence is field-by-field: nonblank `FACTORY_PI_*` > legacy
 `FACTORY_MODEL_*` > defaults. `FACTORY_PI_MODEL` falls back to `FACTORY_MODEL_ID`;
@@ -239,9 +246,11 @@ The [official setup guide](https://code.claude.com/docs/en/setup) documents the
 stable channel and version management. Auto-updates are disabled. The adapter
 uses [programmatic print mode](https://code.claude.com/docs/en/headless), NDJSON
 output, bare mode, no session persistence and explicitly allowed local coding
-tools. It works under the workload's UID (including the Compose root UID), private
-`HOME=/tmp/factory-home`, `/workspace`, and Java/Maven 21 without interactive
-login or permission approval.
+tools. Permission mode is explicitly `dontAsk` with `--permission-prompts none`;
+allowed tools run without a separate model-based permission classifier, and any
+remaining permission request is denied without waiting. It works under the
+workload's UID (including the Compose root UID), private `HOME=/tmp/factory-home`,
+`/workspace`, and Java/Maven 21 without interactive login or permission approval.
 
 Compose 2.20+ includes only the selected runtime service and checks its exact
 version before starting Factory. Build/check each profile without credentials:

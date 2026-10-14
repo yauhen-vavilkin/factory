@@ -1,6 +1,7 @@
 package org.folio.factory.devfactory.runtime;
 
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -17,6 +18,7 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
     static final int EVENT_STREAM_LIMIT = 16 * 1024 * 1024;
     private static final String INPUT = "/tmp/factory-claude";
     private static final String TOOLS = "Bash,Read,Edit,Write,Glob,Grep";
+    private static final JsonMapper JSON = JsonMapper.builder().build();
     private final DevRuntimeProperties.ClaudeCode config;
 
     public ClaudeCodeCodingRuntime(DevRuntimeProperties.ClaudeCode config) { this.config = config; }
@@ -78,8 +80,9 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
         var command = new ArrayList<>(List.of("/bin/sh", "-c",
                 "set -a; . " + INPUT + "/environment; set +a; exec \"$@\" < " + INPUT + "/task.txt", "--",
                 "claude", "--bare", "--print", "--output-format", "stream-json", "--verbose",
-                "--no-session-persistence", "--setting-sources", "", "--strict-mcp-config",
+                "--include-partial-messages", "--no-session-persistence", "--setting-sources", "", "--strict-mcp-config",
                 "--mcp-config", "{\"mcpServers\":{}}", "--tools", TOOLS, "--allowedTools", TOOLS,
+                "--permission-mode", "dontAsk", "--permission-prompts", "none",
                 "--model", config.model(), "--max-turns", config.maxTurns().toString()));
         if (config.effort() != null && !config.effort().isBlank())
             command.addAll(List.of("--effort", config.effort()));
@@ -92,8 +95,25 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
                 + "ANTHROPIC_BASE_URL=" + quote(config.baseUrl()) + "\n"
                 + ("api-key".equals(config.authentication()) ? "ANTHROPIC_API_KEY=" : "ANTHROPIC_AUTH_TOKEN=")
                 + quote(config.secret()) + "\n"
+                + modelEnvironment()
                 + "CLAUDE_CODE_MAX_OUTPUT_TOKENS=" + config.maxOutputTokens() + "\n"
                 + "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1\nDISABLE_AUTOUPDATER=1\nDISABLE_UPDATES=1\n";
+    }
+
+    private String modelEnvironment() {
+        // Pin CLI aliases to the operator's literal ID, including its default selection.
+        var environment = new StringBuilder();
+        for (String name : List.of("ANTHROPIC_DEFAULT_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
+                "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL"))
+            environment.append(name).append('=').append(quote(config.model())).append('\n');
+        // The supported request-body setting also preserves IDs containing CLI context suffixes.
+        environment.append("CLAUDE_CODE_EXTRA_BODY=")
+                .append(quote(JSON.writeValueAsString(Map.of("model", config.model())))).append('\n');
+        environment.append("CLAUDE_CODE_DISABLE_LEGACY_MODEL_REMAP=1\n");
+        // Otherwise the CLI decorates the special default selection as default[1m] in init.
+        if ("default".equalsIgnoreCase(config.model()))
+            environment.append("CLAUDE_CODE_DISABLE_1M_CONTEXT=1\n");
+        return environment.toString();
     }
 
     private static String quote(String value) { return "'" + value.replace("'", "'\"'\"'") + "'"; }

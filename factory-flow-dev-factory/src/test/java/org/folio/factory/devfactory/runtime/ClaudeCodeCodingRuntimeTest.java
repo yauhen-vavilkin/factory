@@ -33,6 +33,9 @@ class ClaudeCodeCodingRuntimeTest {
             temporary.set(directory);
             String environment = Files.readString(directory.resolve("environment"));
             assertThat(environment).contains("ANTHROPIC_BASE_URL='http://gateway.example/anthropic'");
+            assertThat(environment).contains("ANTHROPIC_DEFAULT_MODEL='custom/Model-1'",
+                    "CLAUDE_CODE_EXTRA_BODY='{\"model\":\"custom/Model-1\"}'",
+                    "CLAUDE_CODE_DISABLE_LEGACY_MODEL_REMAP=1");
             assertThat(environment).contains(authentication.equals("api-key")
                     ? "ANTHROPIC_API_KEY='secret-key'" : "ANTHROPIC_AUTH_TOKEN='secret-token'");
             assertThat(environment).doesNotContain(authentication.equals("api-key")
@@ -48,7 +51,8 @@ class ClaudeCodeCodingRuntimeTest {
                 .thenAnswer(call -> {
                     List<String> argv = call.getArgument(0);
                     assertThat(argv).containsSubsequence("--model", "custom/Model-1")
-                            .contains("--bare", "--print", "stream-json", "--no-session-persistence", "--allowedTools")
+                            .containsSubsequence("--permission-mode", "dontAsk", "--permission-prompts", "none")
+                            .contains("--bare", "--print", "stream-json", "--include-partial-messages", "--no-session-persistence", "--allowedTools")
                             .doesNotContain("secret-key", "secret-token", "--continue", "--resume");
                     Consumer<String> progress = call.getArgument(3);
                     (INIT + RESULT).lines().forEach(progress);
@@ -115,10 +119,60 @@ class ClaudeCodeCodingRuntimeTest {
                 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"private secret-key"}}]}}
                 """);
         protocol.accept(RESULT);
-        assertThat(protocol.metrics()).containsEntry("inputTokens", 40L).containsEntry("outputTokens", 5L);
+        assertThat(protocol.metrics()).containsEntry("inputTokens", 40L).containsEntry("outputTokens", 5L)
+                .doesNotContainKey("usageIncomplete");
         assertThat(events.stream().filter(e -> !"coding_usage".equals(e.get("activity"))).count()).isEqualTo(200);
         assertThat(events.toString()).doesNotContain("private", "secret-key");
         assertThat(events.getLast()).containsEntry("activity", "coding_usage");
+    }
+
+    @ParameterizedTest @ValueSource(strings = {
+            "{}", "{\"input_tokens\":0,\"output_tokens\":0}",
+            "{\"input_tokens\":40}", "{\"output_tokens\":5}",
+            "{\"input_tokens\":-1,\"output_tokens\":5}", "{\"input_tokens\":40,\"output_tokens\":-1}",
+            "{\"input_tokens\":0,\"output_tokens\":5}", "{\"input_tokens\":40,\"output_tokens\":0}"
+    })
+    void missingOrSyntheticUsageCannotAuthorizeCompleteAccounting(String usage) {
+        var result = JsonMapper.builder().build().readTree(RESULT).deepCopy();
+        ((tools.jackson.databind.node.ObjectNode) result).set("usage", JsonMapper.builder().build().readTree(usage));
+        var outcome = parse(INIT + result, 0);
+        assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(outcome.metrics()).containsEntry("usageIncomplete", true);
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"cache_read_input_tokens", "cache_creation_input_tokens"})
+    void fullyCachedInputStillProvidesUsageEvidence(String cacheCounter) {
+        var outcome = parse(INIT + RESULT.replace("\"input_tokens\":40", "\"input_tokens\":0")
+                .replace("\"cache_read_input_tokens\":3,\"cache_creation_input_tokens\":2", "\"" + cacheCounter + "\":40"), 0);
+        assertThat(outcome.metrics()).containsEntry("inputTokens", 0L).containsEntry("outputTokens", 5L)
+                .doesNotContainKey("usageIncomplete");
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"", ",\"usage\":{\"input_tokens\":0,\"output_tokens\":0}"})
+    void terminalTotalsCannotHideAnUnaccountedMessage(String usage) {
+        String missing = "{\"type\":\"assistant\",\"message\":{\"id\":\"missing\"" + usage + "}}\n";
+        var outcome = parse(INIT + missing + assistant("known", 40) + "\n" + RESULT, 0);
+        assertThat(outcome.metrics()).containsEntry("inputTokens", 40L).containsEntry("outputTokens", 5L)
+                .containsEntry("usageIncomplete", true);
+    }
+
+    @Test void finalMessageSnapshotCanCompleteEarlierMissingUsage() {
+        String missing = "{\"type\":\"assistant\",\"message\":{\"id\":\"same\"}}\n";
+        var outcome = parse(INIT + missing + assistant("same", 40) + "\n" + RESULT, 0);
+        assertThat(outcome.metrics()).containsEntry("inputTokens", 40L).doesNotContainKey("usageIncomplete");
+    }
+
+    @Test void streamedFinalUsageCompletesTheIntermediateAssistantSnapshot() {
+        String streamed = """
+                {"type":"stream_event","event":{"type":"message_start","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":0}}}}
+                {"type":"assistant","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":0}}}
+                {"type":"stream_event","event":{"type":"message_delta","usage":{"output_tokens":5}}}
+                {"type":"stream_event","event":{"type":"message_stop"}}
+                """;
+        assertThat(parse(INIT + streamed + RESULT, 0).metrics())
+                .containsEntry("inputTokens", 40L).containsEntry("outputTokens", 5L).doesNotContainKey("usageIncomplete");
+        assertThat(parse(INIT + streamed, 1).metrics())
+                .containsEntry("inputTokens", 40L).containsEntry("outputTokens", 5L).containsEntry("usageIncomplete", true);
     }
 
     @Test void decisionsUseTheExistingFactoryContractAndRedactSecrets() {
