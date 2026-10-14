@@ -27,11 +27,11 @@ class DevelopContinuationWorkerTest {
     private final JsonMapper json = JsonMapper.builder().build();
 
     @Test void amendedAnswerStartsOneFreshAttemptWithTheConfirmedDecision() {
-        DevelopWorker develop = mock(DevelopWorker.class);
+        InitialCodingAttempt develop = mock(InitialCodingAttempt.class);
         var decision = decision();
         var requestArtifact = CodingDecisionArtifacts.Request.from(decision);
         var secondOutcome = CodingOutcome.completed("Implemented after clarification", Map.of());
-        when(develop.retry(any(), any(), any())).thenReturn(new DevelopWorker.Attempt(null, secondOutcome,
+        when(develop.retry(any(), any(), any())).thenReturn(new InitialCodingAttempt.Attempt(null, secondOutcome,
                 "{\"state\":\"CANDIDATE_UNVERIFIED\"}", "{\"state\":\"BASELINE_PASSED\"}", "", "", Map.of()));
 
         var worker = new DevelopContinuationWorker(develop, codec);
@@ -53,7 +53,7 @@ class DevelopContinuationWorkerTest {
     }
 
     @Test void repositoryMismatchPreservesReviewAndStopsWithoutAnotherAttempt() {
-        DevelopWorker develop = mock(DevelopWorker.class);
+        InitialCodingAttempt develop = mock(InitialCodingAttempt.class);
         var decision = new CodingOutcome.Decision(CodingOutcome.DecisionKind.REPOSITORY_MISMATCH,
                 "Is this the wrong repository?", List.of(), "Expected module is absent");
         var requestArtifact = CodingDecisionArtifacts.Request.from(decision);
@@ -81,7 +81,7 @@ class DevelopContinuationWorkerTest {
     }
 
     @Test void approvalWithoutAnAnswerDoesNotAuthorizeAnotherAttempt() {
-        DevelopWorker develop = mock(DevelopWorker.class);
+        InitialCodingAttempt develop = mock(InitialCodingAttempt.class);
         var requestArtifact = CodingDecisionArtifacts.Request.from(decision());
 
         var result = new DevelopContinuationWorker(develop, codec)
@@ -93,12 +93,12 @@ class DevelopContinuationWorkerTest {
     }
 
     @Test void aSecondDecisionOutcomeIsTerminalForThisExecution() {
-        DevelopWorker develop = mock(DevelopWorker.class);
+        InitialCodingAttempt develop = mock(InitialCodingAttempt.class);
         var requestArtifact = CodingDecisionArtifacts.Request.from(decision());
         var second = CodingOutcome.needsDecision(new CodingOutcome.Decision(
                 CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "One more question?", List.of(), "Evidence"),
                 Map.of());
-        when(develop.retry(any(), any(), any())).thenReturn(new DevelopWorker.Attempt(null, second,
+        when(develop.retry(any(), any(), any())).thenReturn(new InitialCodingAttempt.Attempt(null, second,
                 "{\"state\":\"NEEDS_DECISION\"}", "{}", "", "", Map.of()));
 
         var result = new DevelopContinuationWorker(develop, codec)

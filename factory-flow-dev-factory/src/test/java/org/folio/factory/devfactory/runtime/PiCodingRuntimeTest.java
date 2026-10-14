@@ -52,7 +52,7 @@ class PiCodingRuntimeTest {
 
     @Test void oversizedAggregatePreservesFinalIdentityUsageAndBoundedDiagnostics() {
         String stream = oversizedAgentEnd() + "\n" + USAGE_FRAME + SETTLED;
-        var result = PiCodingRuntime.parse(stream, "p", "m");
+        var result = PiProtocol.parse(stream, "p", "m");
         assertThat(result.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
         assertThat(result.metrics()).containsEntry("provider", "p").containsEntry("model", "m")
                 .containsEntry("inputTokens", 10L).containsEntry("outputTokens", 3L)
@@ -60,10 +60,10 @@ class PiCodingRuntimeTest {
                 .containsEntry("ignoredOversizedPiFrameCount", 1)
                 .containsEntry("largestIgnoredPiFrameChars", oversizedAgentEnd().length());
         assertThat(result.metrics().toString()).doesNotContain("private", "secret-key", "content", OVERSIZED_CONTENT);
-        assertThat(PiCodingRuntime.parse(stream, "p", "other").failure().code())
+        assertThat(PiProtocol.parse(stream, "p", "other").failure().code())
                 .isEqualTo("IDENTITY_MISMATCH");
 
-        var twice = PiCodingRuntime.parse(oversizedAgentEnd() + "\n" + oversizedAgentEnd()
+        var twice = PiProtocol.parse(oversizedAgentEnd() + "\n" + oversizedAgentEnd()
                 + "\n" + USAGE_FRAME + SETTLED, "p", "m");
         assertThat(twice.metrics()).containsEntry("ignoredOversizedPiFrameCount", 2)
                 .containsEntry("inputTokens", 10L).containsEntry("outputTokens", 3L);
@@ -71,12 +71,12 @@ class PiCodingRuntimeTest {
 
     @Test void oversizedTerminalAndRetryControlFramesRemainFailClosed() {
         for (String type : List.of("message_end", "agent_settled", "auto_retry_start", "auto_retry_end", "compaction_end")) {
-            var result = PiCodingRuntime.parse(USAGE_FRAME + oversizedFrame(type) + "\n" + SETTLED, "p", "m");
+            var result = PiProtocol.parse(USAGE_FRAME + oversizedFrame(type) + "\n" + SETTLED, "p", "m");
             assertThat(result.failure().code()).as(type).isEqualTo("FRAME_TOO_LARGE");
         }
-        assertThat(PiCodingRuntime.parse(USAGE_FRAME + oversizedFrame("agent_settled"), "p", "m")
+        assertThat(PiProtocol.parse(USAGE_FRAME + oversizedFrame("agent_settled"), "p", "m")
                 .failure().code()).isEqualTo("FRAME_TOO_LARGE");
-        assertThat(PiCodingRuntime.parse(oversizedAgentEnd() + "\n" + USAGE_FRAME, "p", "m")
+        assertThat(PiProtocol.parse(oversizedAgentEnd() + "\n" + USAGE_FRAME, "p", "m")
                 .failure().code()).isEqualTo("INCOMPLETE_RESULT");
     }
 
@@ -91,7 +91,7 @@ class PiCodingRuntimeTest {
                 "\"usage\":{\"input\":900},\"willRetry\":false");
         for (String frame : List.of(oversizedFrame("unknown"), nestedSpoof, duplicateType, malformed,
                 malformedNested, unexpectedUsage, oversizedAgentEnd() + " {}")) {
-            assertThat(PiCodingRuntime.parse(USAGE_FRAME + frame + "\n" + SETTLED, "p", "m")
+            assertThat(PiProtocol.parse(USAGE_FRAME + frame + "\n" + SETTLED, "p", "m")
                     .failure().code()).isEqualTo("FRAME_TOO_LARGE");
         }
     }
@@ -169,7 +169,7 @@ class PiCodingRuntimeTest {
                 {"type":"agent_end"}
                 {"type":"agent_settled"}
                 """;
-        var result = PiCodingRuntime.parse(stream, "p", "m");
+        var result = PiProtocol.parse(stream, "p", "m");
         assertThat(result.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
         assertThat(result.summary()).isEqualTo("Implemented");
         assertThat(result.metrics()).containsEntry("inputTokens", 30L)
@@ -184,7 +184,7 @@ class PiCodingRuntimeTest {
                 {"type":"agent_end"}
                 {"type":"agent_settled"}
                 """;
-        var outcome = PiCodingRuntime.parse(stream, "p", "m");
+        var outcome = PiProtocol.parse(stream, "p", "m");
         assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.FAILED);
         assertThat(outcome.failure().code()).isEqualTo("PROVIDER_FAILED");
         assertThat(outcome.failure().message()).contains("HTTP 503", "provider unavailable")
@@ -207,7 +207,7 @@ class PiCodingRuntimeTest {
                 {"type":"agent_end"}
                 {"type":"agent_settled"}
                 """;
-        var outcome = PiCodingRuntime.parse(stream, "p", "m");
+        var outcome = PiProtocol.parse(stream, "p", "m");
         assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
         assertThat(outcome.summary()).isEqualTo("All checks passed");
         assertThat(outcome.metrics()).containsEntry("inputTokens", 14L).containsEntry("outputTokens", 7L);
@@ -219,14 +219,14 @@ class PiCodingRuntimeTest {
                 {"type":"auto_retry_start","attempt":1,"maxAttempts":1,"errorMessage":"HTTP 429"}
                 {"type":"message_end","message":{"role":"assistant","provider":"p","model":"m","stopReason":"error","errorMessage":"HTTP 429","usage":{"input":5,"output":2}}}
                 """;
-        var exhausted = PiCodingRuntime.parse(prefix
+        var exhausted = PiProtocol.parse(prefix
                 + "{\"type\":\"auto_retry_end\",\"success\":false,\"attempt\":1,\"finalError\":\"HTTP 429\"}\n"
                 + SETTLED, "p", "m");
         assertThat(exhausted.failure().code()).isEqualTo("PROVIDER_RETRIES_EXHAUSTED");
         assertThat(exhausted.failure().message()).contains("HTTP 429");
         assertThat(exhausted.metrics()).containsEntry("inputTokens", 9L).containsEntry("outputTokens", 3L);
 
-        var cancelled = PiCodingRuntime.parse(prefix
+        var cancelled = PiProtocol.parse(prefix
                 + "{\"type\":\"auto_retry_end\",\"success\":false,\"attempt\":1,\"finalError\":\"Retry cancelled\"}\n"
                 + SETTLED, "p", "m");
         assertThat(cancelled.failure().code()).isEqualTo("PROVIDER_ABORTED");
@@ -245,9 +245,9 @@ class PiCodingRuntimeTest {
                 {"type":"agent_settled"}
                 """;
         var events = new java.util.ArrayList<Map<String, Object>>();
-        var progress = new PiCodingRuntime.Progress("secret-key", events::add);
+        var progress = new PiProgress("secret-key", events::add);
         stream.lines().forEach(progress);
-        var outcome = PiCodingRuntime.parse(stream, "p", "m");
+        var outcome = PiProtocol.parse(stream, "p", "m");
         assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
         assertThat(outcome.metrics()).containsEntry("inputTokens", 35L)
                 .containsEntry("cacheReadTokens", 4L).containsEntry("outputTokens", 7L);
@@ -264,8 +264,8 @@ class PiCodingRuntimeTest {
                 {"type":"auto_retry_start","attempt":1,"maxAttempts":3}
                 {"type":"agent_start"}
                 """;
-        assertThat(PiCodingRuntime.parse(stream, "p", "m").failure().code()).isEqualTo("INCOMPLETE_RESULT");
-        assertThat(PiCodingRuntime.parse("""
+        assertThat(PiProtocol.parse(stream, "p", "m").failure().code()).isEqualTo("INCOMPLETE_RESULT");
+        assertThat(PiProtocol.parse("""
                 {"type":"message_end","message":{"role":"assistant","provider":"p","model":"m","stopReason":"length","content":[{"type":"text","text":"Truncated"}]}}
                 {"type":"agent_settled"}
                 """, "p", "m").failure().code()).isEqualTo("INCOMPLETE_RESULT");
@@ -273,7 +273,7 @@ class PiCodingRuntimeTest {
 
     @Test void diagnosticEventsContinueAfterOrdinaryActivityLimitWithoutLeakingProviderText() {
         var events = new java.util.ArrayList<Map<String, Object>>();
-        var progress = new PiCodingRuntime.Progress("secret-key", events::add);
+        var progress = new PiProgress("secret-key", events::add);
         for (int i = 0; i < 200; i++) progress.accept("{\"type\":\"turn_start\"}");
         progress.accept("{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\","
                 + "\"stopReason\":\"error\",\"errorMessage\":\"HTTP 429: Bearer secret-key "
@@ -290,7 +290,7 @@ class PiCodingRuntimeTest {
 
     @Test void streamedUsageMatchesSuccessfulTotalsWithoutCountingSnapshotsTwice() {
         var events = new java.util.ArrayList<Map<String, Object>>();
-        var progress = new PiCodingRuntime.Progress("secret-key", events::add);
+        var progress = new PiProgress("secret-key", events::add);
         progress.accept(USAGE_FRAME);
         progress.accept(USAGE_FRAME);
         assertThat(events).hasSize(2);
@@ -299,7 +299,7 @@ class PiCodingRuntimeTest {
                 .containsEntry("cacheReadTokens", 2L)
                 .containsEntry("cacheWriteTokens", 1L)
                 .containsEntry("outputTokens", 3L);
-        var result = PiCodingRuntime.parse(USAGE_FRAME + USAGE_FRAME + SETTLED, "p", "m");
+        var result = PiProtocol.parse(USAGE_FRAME + USAGE_FRAME + SETTLED, "p", "m");
         var totals = new java.util.LinkedHashMap<>(result.metrics());
         totals.remove("provider");
         totals.remove("model");
@@ -322,10 +322,10 @@ class PiCodingRuntimeTest {
                 {"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"Done"}],"usage":{"input":0,"cacheRead":0,"cacheWrite":0,"output":0}}}
                 """;
         var events = new java.util.ArrayList<Map<String, Object>>();
-        var progress = new PiCodingRuntime.Progress("secret", events::add);
+        var progress = new PiProgress("secret", events::add);
         progress.accept(reported);
         progress.accept(unreported);
-        var result = PiCodingRuntime.parse(reported + unreported + SETTLED, "p", "m");
+        var result = PiProtocol.parse(reported + unreported + SETTLED, "p", "m");
         assertThat(result.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
         assertThat(result.metrics()).containsEntry("inputTokens", 10L)
                 .containsEntry("cacheReadTokens", 2L).containsEntry("outputTokens", 1L)
@@ -338,13 +338,13 @@ class PiCodingRuntimeTest {
         String stream = """
                 {"type":"message_end","message":{"role":"assistant","stopReason":"stop","content":[{"type":"text","text":"Done"}],"usage":{"input":1000,"cacheRead":0,"cacheWrite":0,"output":0}}}
                 """;
-        assertThat(PiCodingRuntime.parse(stream + SETTLED, "p", "m").metrics())
+        assertThat(PiProtocol.parse(stream + SETTLED, "p", "m").metrics())
                 .containsEntry("inputTokens", 1000L).containsEntry("usageIncomplete", true);
     }
 
     @Test void usageAndMissingTelemetryContinueAfterActivityLimit() {
         var events = new java.util.ArrayList<Map<String, Object>>();
-        var progress = new PiCodingRuntime.Progress("secret-key", events::add);
+        var progress = new PiProgress("secret-key", events::add);
         for (int i = 0; i < 300; i++) progress.accept("{\"type\":\"turn_start\"}");
         progress.accept(USAGE_FRAME.replace("assistant", "toolResult"));
         progress.accept("{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"content\":\"private\"}}");
@@ -403,16 +403,16 @@ class PiCodingRuntimeTest {
         String message = """
                 {"type":"message_end","message":{"role":"assistant","provider":"p","model":"m","stopReason":"stop","content":[{"type":"text","text":"Done"}],"usage":{"input":10,"output":3,"cacheRead":2,"cacheWrite":1,"cost":{"total":0.125}}}}
                 """;
-        var metrics = PiCodingRuntime.parse(message + message + SETTLED, "p", "m").metrics();
+        var metrics = PiProtocol.parse(message + message + SETTLED, "p", "m").metrics();
         assertThat(metrics).containsEntry("inputTokens", 20L)
                 .containsEntry("cacheReadTokens", 4L)
                 .containsEntry("cacheWriteTokens", 2L)
                 .containsEntry("outputTokens", 6L)
                 .doesNotContainKeys("promptTokens", "completionTokens");
         assertThat((java.math.BigDecimal) metrics.get("costUsd")).isEqualByComparingTo("0.25");
-        assertThat(PiCodingRuntime.parse(message.replace(",\"cost\":{\"total\":0.125}", "")
+        assertThat(PiProtocol.parse(message.replace(",\"cost\":{\"total\":0.125}", "")
                 + SETTLED, "p", "m").metrics()).doesNotContainKey("costUsd");
-        var withoutCache = PiCodingRuntime.parse(message.replace(",\"cacheRead\":2,\"cacheWrite\":1", "")
+        var withoutCache = PiProtocol.parse(message.replace(",\"cacheRead\":2,\"cacheWrite\":1", "")
                 + SETTLED, "p", "m").metrics();
         assertThat(withoutCache).containsEntry("inputTokens", 10L).containsEntry("outputTokens", 3L)
                 .doesNotContainKeys("cacheReadTokens", "cacheWriteTokens");
@@ -420,7 +420,7 @@ class PiCodingRuntimeTest {
 
     @Test void progressOmitsTextOutputAndSecretsAndIsBounded() {
         var events = new java.util.ArrayList<java.util.Map<String, Object>>();
-        var progress = new PiCodingRuntime.Progress("secret-key", events::add);
+        var progress = new PiProgress("secret-key", events::add);
         progress.accept("{\"type\":\"message_update\",\"text\":\"hidden reasoning\"}");
         progress.accept("{\"type\":\"tool_execution_start\",\"toolName\":\"read\",\"args\":{\"path\":\"secret-key/" + "x".repeat(500) + "\",\"content\":\"private\"}}");
         progress.accept("{\"type\":\"tool_execution_start\",\"toolName\":\"bash\",\"args\":{\"command\":\"mvn test -Dtoken=secret-key -Dtest=FooTest\"}}");
@@ -434,17 +434,17 @@ class PiCodingRuntimeTest {
         assertThat(events.get(199)).containsKey("notice");
     }
     @Test void acknowledgementIsNotCompletionAndProviderErrorsCannotPass() {
-        assertThat(PiCodingRuntime.parse("{\"type\":\"response\",\"command\":\"prompt\",\"success\":true}", "provider", "model").status())
+        assertThat(PiProtocol.parse("{\"type\":\"response\",\"command\":\"prompt\",\"success\":true}", "provider", "model").status())
                 .isEqualTo(CodingOutcome.Status.FAILED);
-        assertThat(PiCodingRuntime.parse("{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\"}}\n{\"type\":\"agent_end\"}", "provider", "model").status())
+        assertThat(PiProtocol.parse("{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"error\"}}\n{\"type\":\"agent_end\"}", "provider", "model").status())
                 .isEqualTo(CodingOutcome.Status.FAILED);
-        assertThat(PiCodingRuntime.parse("not-json", "provider", "model").failure().code())
+        assertThat(PiProtocol.parse("not-json", "provider", "model").failure().code())
                 .isEqualTo("MALFORMED_FRAME");
     }
     @Test void completedAssistantMustMatchConfiguredModel() {
         String output = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"provider\":\"provider\",\"model\":\"model\",\"stopReason\":\"stop\",\"content\":[{\"type\":\"text\",\"text\":\"Implemented\"}]}}\n" + SETTLED;
-        assertThat(PiCodingRuntime.parse(output, "provider", "model").summary()).isEqualTo("Implemented");
-        assertThat(PiCodingRuntime.parse(output, "provider", "other").failure().code())
+        assertThat(PiProtocol.parse(output, "provider", "model").summary()).isEqualTo("Implemented");
+        assertThat(PiProtocol.parse(output, "provider", "other").failure().code())
                 .isEqualTo("IDENTITY_MISMATCH");
     }
 
@@ -453,7 +453,7 @@ class PiCodingRuntimeTest {
                 + "\\\"question\\\":\\\"Which public API should change?\\\","
                 + "\\\"options\\\":[\\\"A\\\",\\\"B\\\"],\\\"evidence\\\":\\\"Both APIs exist\\\"}";
         String output = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"provider\":\"provider\",\"model\":\"model\",\"stopReason\":\"stop\",\"content\":[{\"type\":\"text\",\"text\":\"" + decision + "\"}]}}\n" + SETTLED;
-        var result = PiCodingRuntime.parse(output, "provider", "model");
+        var result = PiProtocol.parse(output, "provider", "model");
         assertThat(result.status()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
         assertThat(result.decision().kind()).isEqualTo(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS);
         assertThat(result.decision().question()).isEqualTo("Which public API should change?");
@@ -464,7 +464,7 @@ class PiCodingRuntimeTest {
                 + "No FACTORY_DECISION_REQUIRED was needed for this task.";
         String output = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"provider\":\"provider\","
                 + "\"model\":\"model\",\"stopReason\":\"stop\",\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}]}}\n" + SETTLED;
-        assertThat(PiCodingRuntime.parse(output, "provider", "model").summary()).isEqualTo(text);
+        assertThat(PiProtocol.parse(output, "provider", "model").summary()).isEqualTo(text);
     }
 
     @Test void decisionProtocolRejectsTrailingText() {
@@ -473,7 +473,7 @@ class PiCodingRuntimeTest {
         String output = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"provider\":\"provider\","
                 + "\"model\":\"model\",\"stopReason\":\"stop\",\"content\":[{\"type\":\"text\",\"text\":\"" + decision
                 + "\"}]}}\n" + SETTLED;
-        assertThat(PiCodingRuntime.parse(output, "provider", "model").failure().code())
+        assertThat(PiProtocol.parse(output, "provider", "model").failure().code())
                 .isEqualTo("INVALID_DECISION_RESULT");
     }
 

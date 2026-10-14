@@ -70,4 +70,22 @@ class AttemptUsageSummaryTest {
         assertThat(AttemptUsageSummary.build(events,-1,true))
                 .containsEntry("cost","0").containsEntry("tokensDisplay","0").containsEntry("present",false);
     }
+    @Test void projectionKeepsRoundsSeparateAndUsesCapturedRates() {
+        var start = event("initial", "coding_starting", false, "a", "USD", 0, 0);
+        var initial = event("initial", "", true, "a", "USD", 100, 20);
+        var initialDetail = (tools.jackson.databind.node.ObjectNode) JSON.readTree(initial.getDetail());
+        initialDetail.put("round", -1);
+        initialDetail.set("rate", JSON.readTree("{\"currency\":\"EUR\",\"inputPerMillion\":999,\"outputPerMillion\":999}"));
+        var startDetail = (tools.jackson.databind.node.ObjectNode) JSON.readTree(start.getDetail());
+        startDetail.put("round", -1);
+        var events = List.of(
+                new AuditEvent(start.getExecutionId(), start.getEventType(), "implement", "test", JSON.writeValueAsString(startDetail)),
+                new AuditEvent(initial.getExecutionId(), initial.getEventType(), "implement", "test", JSON.writeValueAsString(initialDetail)),
+                event("round", "", true, "b", "EUR", 200, 30));
+        var projection = new AttemptUsageSummary.Projection(events);
+        assertThat(projection.summary(-1, false)).containsEntry("cost", "0.0004 USD").containsEntry("attempts", 1);
+        assertThat(projection.summary(1, false)).containsEntry("cost", "0.0007 EUR").containsEntry("tokens", 230L);
+        assertThat(projection.summary(null, false)).containsEntry("cost", "0.0007 EUR + 0.0004 USD")
+                .containsEntry("tokens", 350L).containsEntry("attempts", 2);
+    }
 }

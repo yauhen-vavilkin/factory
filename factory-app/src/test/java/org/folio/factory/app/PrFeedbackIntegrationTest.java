@@ -140,14 +140,14 @@ class PrFeedbackIntegrationTest {
     void select() {actions.refresh(id,view().version()); action(FIX);}
     void startRound() {drive(); select(); drive();}
     @Test void twelveRoundsUseOneExecutionOneBranchAndRenderChronologicalHistory() throws Exception {
-        drive(); assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.READY);
+        drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
         verifyNoInteractions(verifier); verify(coding,never()).code(any(),any(),anyInt(),any());
         for(int round=1;round<=12;round++) {
             String model=round%2==0?"second-fixture-model":"fixture-model";
             when(coding.identity()).thenReturn(Map.of("model",model,"runtime","scripted"));
             usage=Map.of("model",model,"inputTokens",100L,"cacheReadTokens",0L,"cacheWriteTokens",0L,"outputTokens",20L);
-            select(); drive(); assertThat(view().state().phase).as("round %s reason %s",round,view().state().reason).isEqualTo(FeedbackState.Phase.READY);
-            assertThat(view().state().round).isEqualTo(round); assertThat(pr().headSha()).isEqualTo(view().state().commitSha);
+            select(); drive(); assertThat(view().state().phase()).as("round %s reason %s",round,view().state().reason()).isEqualTo(FeedbackState.Phase.READY);
+            assertThat(view().state().round()).isEqualTo(round); assertThat(pr().headSha()).isEqualTo(view().state().commitSha());
         }
         assertThat(calls).isEqualTo(12); assertThat(git(bare,"rev-list","--count",branch).strip()).isEqualTo("13");
         assertThat(git(bare,"for-each-ref","--format=%(refname)","refs/heads").lines()).containsExactly("refs/heads/"+branch);
@@ -156,42 +156,42 @@ class PrFeedbackIntegrationTest {
         assertThat(html).doesNotContain("Download current patch", "Download diagnostics", "Rate-card estimate", "Finish task");
         assertThatThrownBy(()->action(FINISH)).isInstanceOf(IllegalArgumentException.class);
         merged=true; actions.reconcilePr(id); drive(); assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
-        assertThat(view().state().summary).contains("Verified changes published");
-        assertThat(view().state().taskSummary).isEqualTo("PR merged");
-        assertThat(view().state().completionReason).isEqualTo("MERGED");
+        assertThat(view().state().summary()).contains("Verified changes published");
+        assertThat(view().state().taskSummary()).isEqualTo("PR merged");
+        assertThat(view().state().completionReason()).isEqualTo("MERGED");
     }
     @Test void preservesPartialPatchAcrossQuestionAndFailureThenVerifiesBeforePublishing() {
-        ask=true; startRound(); assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.QUESTION); assertThat(actions.patch(id)).contains("fix 1");
+        ask=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.QUESTION); assertThat(actions.patch(id)).contains("fix 1");
         assertThat(pr().headSha()).isEqualTo(base); verifyNoInteractions(verifier);
-        ask=false; checksFail=true; action(ANSWER); drive(); assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.FAILURE);
+        ask=false; checksFail=true; action(ANSWER); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.FAILURE);
         assertThat(actions.patch(id)).contains("fix 1","fix 2"); assertThat(pr().headSha()).isEqualTo(base);
-        checksFail=false; action(RETRY_CHECKS); drive(); assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(2);
+        checksFail=false; action(RETRY_CHECKS); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(2);
     }
     @Test void rejectsOldSelectionsDuplicateCommandsAndEveryGenericDecision() {
         drive(); var v=actions.refresh(id,view().version());
         for(var d:HitlDecision.values()) assertThatThrownBy(()->decisions.decide(v.reviewId(),d,"operator",null,Map.of())).isInstanceOf(IllegalArgumentException.class);
         var command=new FeedbackActions.Command(v.reviewId(),v.version(),FIX,v.snapshot().id(),List.of("inline:1"),null);
         actions.command(id,command,"operator"); assertThatThrownBy(()->actions.command(id,command,"operator")).isInstanceOf(IllegalStateException.class);
-        commentsRevision="2"; drive(); assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.REFRESH_REQUIRED); assertThat(calls).isZero();
+        commentsRevision="2"; drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.REFRESH_REQUIRED); assertThat(calls).isZero();
         assertThatThrownBy(()->actions.command(id,command,"operator")).isInstanceOf(IllegalStateException.class);
     }
     @Test void cleanupFailureBlocksAllActionsUntilExplicitCleanup() {
-        cleanupFails=true; startRound(); assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.CLEANUP_BLOCKED);
+        cleanupFails=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.CLEANUP_BLOCKED);
         assertThat(view().actions()).containsExactly(RETRY_CLEANUP); assertThatThrownBy(()->action(FINISH)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(()->actions.refresh(id,view().version())).isInstanceOf(IllegalStateException.class);
         assertThat(pr().headSha()).isEqualTo(base); assertThat(calls).isEqualTo(1);
-        cleanupFails=false; action(RETRY_CLEANUP); drive(); assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(1);
+        cleanupFails=false; action(RETRY_CLEANUP); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(1);
     }
     @Test void noChangesProducesVerificationWithoutEmptyCommitAndClosedPrCancels() {
-        noChanges=true; startRound(); assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.READY);
+        noChanges=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
         assertThat(pr().headSha()).isEqualTo(base); verify(verifier).verify(eq(id),anyString(),any(),contains("fork/repo.git"));
         closed=true; actions.reconcilePr(id);
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
-        assertThat(view().state().completionReason).isEqualTo("CLOSED_WITHOUT_MERGE");
+        assertThat(view().state().completionReason()).isEqualTo("CLOSED_WITHOUT_MERGE");
     }
     @Test void failedExportReportsLostEditsKeepsPreviousSnapshotAndUsage() {
-        exportFails=true; startRound(); assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.FAILURE);
-        assertThat(view().state().reason).contains("Latest edits could not be saved"); assertThat(actions.patch(id)).isEmpty();
+        exportFails=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.FAILURE);
+        assertThat(view().state().reason()).contains("Latest edits could not be saved"); assertThat(actions.patch(id)).isEmpty();
         assertThat(audit.forExecution(id)).anyMatch(e->e.getEventType()==AuditEventType.STEP_COMPLETED && e.getDetail().contains("inputTokens"));
     }
     @Test void oldExecutionSkipsFeedback() throws Exception {
@@ -207,10 +207,10 @@ class PrFeedbackIntegrationTest {
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED); verifyNoInteractions(docker,gateway,verifier);
     }
     @Test void outdatedVerificationPolicyBlocksPushUntilCurrentChecksPass() {
-        badPolicy=true; startRound(); assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.FAILURE);
-        assertThat(view().state().reason).contains("Verification policy changed"); assertThat(view().actions()).contains(RETRY_CHECKS);
+        badPolicy=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.FAILURE);
+        assertThat(view().state().reason()).contains("Verification policy changed"); assertThat(view().actions()).contains(RETRY_CHECKS);
         assertThat(pr().headSha()).isEqualTo(base);
-        badPolicy=false; action(RETRY_CHECKS); drive(); assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.READY);
+        badPolicy=false; action(RETRY_CHECKS); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
         assertThat(calls).isEqualTo(1);
     }
     @Test void typedHttpActionsRejectReplayAndPageReloadNeverStartsAnotherAttempt() {
@@ -237,7 +237,7 @@ class PrFeedbackIntegrationTest {
     }
     @Test void replayedCodingOperationWaitsForHumanAndDoesNotSpendAgain() {
         drive(); select(); claims.claim(100).forEach(engine::advance);
-        assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.CODE);
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.CODE);
         claims.claim(100); var e=state.get(id); var step=flows.require("dev-factory").step(9);
         var inputs=new LinkedHashMap<String,org.folio.factory.core.agent.ArtifactContent>();
         for(String name:step.inputs()) {
@@ -248,15 +248,15 @@ class PrFeedbackIntegrationTest {
             lease.checked(version->resumable.start(id,9,version,step,UUID.randomUUID(),inputs));
         }
         state.scheduleRetry(id,0,"Simulated process restart after durable start"); drive();
-        assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.INTERRUPTED); assertThat(calls).isZero();
-        action(RETRY_CODE); drive(); assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(1);
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.INTERRUPTED); assertThat(calls).isZero();
+        action(RETRY_CODE); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(1);
     }
     @Test void manualBranchUpdatesAreCheckedWithoutCallingTheAgentOrAddingACommit() throws Exception {
         drive(); Files.writeString(work.resolve("manual.txt"),"Human correction\n"); commit("manual correction");
         git(work,"push",bare.toString(),"HEAD:refs/heads/"+branch); String manual=pr().headSha();
-        action(MANUAL_CONTINUE); drive(); assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.READY);
+        action(MANUAL_CONTINUE); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
         assertThat(pr().headSha()).isEqualTo(manual); assertThat(calls).isZero();
-        assertThat(view().state().verification.baseSha()).isEqualTo(manual);
+        assertThat(view().state().verification().baseSha()).isEqualTo(manual);
         String html=RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class);
         assertThat(html).contains("Manual verification 1").doesNotContain("Round 1");
     }
@@ -265,26 +265,26 @@ class PrFeedbackIntegrationTest {
         gates.openEscalationReview(state.get(id),flows.require("dev-factory").step(9),"Unexpected persistence error",3);
         assertThat(view().actions()).containsExactly(RETRY_CLEANUP);
         action(RETRY_CLEANUP); drive();
-        assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.INTERRUPTED); assertThat(calls).isZero();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.INTERRUPTED); assertThat(calls).isZero();
     }
     @Test void branchChangeBeforeCodingRequiresFreshSelection() throws Exception {
         drive(); select(); claims.claim(100).forEach(engine::advance);
         Files.writeString(work.resolve("manual.txt"),"Human correction\n"); commit("manual correction");
         git(work,"push",bare.toString(),"HEAD:refs/heads/"+branch);
-        drive(); assertThat(view().state().phase).isEqualTo(FeedbackState.Phase.REFRESH_REQUIRED); assertThat(calls).isZero();
+        drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.REFRESH_REQUIRED); assertThat(calls).isZero();
     }
     @Test void mergeBetweenSelectionAndWorkerStartSkipsPaidCallAndCompletes() {
         drive(); select(); merged=true; drive();
         assertThat(calls).isZero();
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
-        assertThat(view().state().completionReason).isEqualTo("MERGED");
+        assertThat(view().state().completionReason()).isEqualTo("MERGED");
         String html=RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class);
         assertThat(html).doesNotContain("Round 1");
     }
     @Test void mergeBetweenCommentRefreshAndActionRejectsWithoutCreatingRound() {
         drive(); actions.refresh(id,view().version()); merged=true;
         assertThatThrownBy(()->action(FIX)).hasMessageContaining("no longer open");
-        assertThat(view().state().round).isZero();
+        assertThat(view().state().round()).isZero();
         assertThat(calls).isZero();
         actions.reconcilePr(id); drive();
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);

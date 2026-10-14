@@ -63,6 +63,30 @@ Technical details.
   finish or cancel new executions and confirm their resources have been removed.
   Preserve the database and execution history.
 
+## Implementation boundaries
+
+Workers orchestrate finite phases; `FeedbackState` owns phase transitions and keeps the
+historical JSON field names and defaults. `FeedbackActions` keeps network reads outside
+version-checked command transactions. `FeedbackCodingAttempt` preserves partial edits,
+while `InitialCodingAttempt` is shared by initial development and clarification and
+exports only completed candidates. `BaselineBuild` owns starting-build diagnostics;
+`FeedbackResources` reconciles owned workloads before another operation can proceed.
+
+`VerificationPolicy` compares receipts with the current trusted plan. Receipt identity
+checks remain in `VerificationReceipt`, and publication phases recheck both identity
+and policy. `PublicationGit` shares only command, identity and authentication mechanics:
+initial delivery rejects conflicting branches, while feedback reconciles its saved
+commit and permits later manual descendants. `PullRequestRenderer` separates untrusted
+text from independent verification evidence.
+
+The Pi adapter owns runtime setup and execution. `PiProtocol`, `PiUsage`, and
+`PiProgress` separately validate final results, accumulate incremental usage, and
+produce bounded activity. Progress is diagnostic and cannot authorize a result.
+Execution pages explicitly select attempt-based or historical step-based usage.
+Attempt events are interpreted once per request and reused across round cards;
+`AttemptCharge` prices saved observations using captured rates. The historical
+estimator retains its stricter all-or-unknown and zero-usage compatibility rules.
+
 ## Local verification
 
 The stage is covered by `FACTORY_DOCKER_TEST=true mvn -B -ntp clean verify`,

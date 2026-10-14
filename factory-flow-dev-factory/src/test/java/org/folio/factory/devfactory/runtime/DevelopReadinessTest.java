@@ -49,7 +49,7 @@ class DevelopReadinessTest {
         if (piFails) when(coding.code(eq(pi), any(CodingRequest.class), eq(60), any()))
                 .thenAnswer(invocation -> {
                     java.util.function.Consumer<Map<String, Object>> observer = invocation.getArgument(3);
-                    var progress = new PiCodingRuntime.Progress("secret", observer);
+                    var progress = new PiProgress("secret", observer);
                     progress.accept("""
                             {"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"private secret"}],"usage":{"input":10,"cacheRead":2,"cacheWrite":1,"output":3,"cost":{"total":0.125}}}}
                             """);
@@ -72,7 +72,7 @@ class DevelopReadinessTest {
                         "application/json", tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(request))),
                 null, Map.of(), List.of());
         var audit = mock(AuditLog.class);
-        var worker = new DevelopWorker(properties, runtime, docker, freezer, coding, codec, audit);
+        var worker = new DevelopWorker(new org.folio.factory.devfactory.worker.InitialCodingAttempt(properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of()), codec);
 
         assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class);
         verify(coding, never()).code(any(), any(), anyInt(), any());
@@ -146,7 +146,7 @@ class DevelopReadinessTest {
                         "application/json", tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(request()))),
                 null, Map.of(), List.of());
         var audit = mock(AuditLog.class);
-        var worker = new DevelopWorker(properties, runtime, docker, freezer, coding, codec, audit);
+        var worker = new DevelopWorker(new org.folio.factory.devfactory.worker.InitialCodingAttempt(properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of()), codec);
         if (retryable) {
             // Repeated worker attempts retain the configured repository and do not add a global -U.
             for (int attempt = 0; attempt < 2; attempt++) {

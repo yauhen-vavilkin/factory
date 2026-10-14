@@ -58,6 +58,26 @@ class DeliveryWorkerTest {
     }
 
     @Test
+    void policyIsCheckedAgainBeforeCreatingPullRequest() {
+        var delivery = mock(CandidateDelivery.class);
+        var github = mock(GitHubConnector.class);
+        var runtime = mock(DevRuntimeProperties.class);
+        when(runtime.command("unit")).thenReturn(List.of("mvn", "test"), List.of("mvn", "verify"));
+        when(runtime.requiredReports("unit")).thenReturn(List.of());
+        var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image", runtime);
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString()))
+                .thenReturn(new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
+                        "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40)));
+        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+
+        var result = json.readTree(worker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
+
+        assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
+        assertThat(result.path("deliveryCommitSha").asString()).isEqualTo("c".repeat(40));
+        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
     void pullRequestDescribesFinalArtifactsAndActualIndependentEvidence() {
         CandidateDelivery delivery = mock(CandidateDelivery.class);
         GitHubConnector github = mock(GitHubConnector.class);
@@ -416,7 +436,9 @@ class DeliveryWorkerTest {
                 new TreeMap<>(Map.of("sidecar", repository)));
         var targets = new DevDeliveryProperties(Map.of("sidecar",
                 new DeliveryTarget("user/folio-module-sidecar", "master", true)), true);
-        return new DeliveryWorker(repositories, runtime, targets, delivery, githubProperties, github, new FrontmatterCodec());
+        var state = mock(org.folio.factory.core.service.StateManager.class);
+        when(state.get(any())).thenReturn(new org.folio.factory.core.domain.PipelineExecution("dev-factory", "0.8.0", null));
+        return new DeliveryWorker(repositories, runtime, targets, delivery, githubProperties, github, new FrontmatterCodec(), state);
     }
 
     private static AgentContext context(Map<String, String> inputs) {

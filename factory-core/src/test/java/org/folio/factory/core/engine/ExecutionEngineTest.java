@@ -90,7 +90,7 @@ class ExecutionEngineTest {
     @BeforeEach
     void setUp() {
         engine = new ExecutionEngine(flowRegistry, workerRegistry, stateManager, artifactStore,
-                auditLog, hitlGateOpener, subFlowInvoker, List.of(), jsonMapper, engineMetrics, leaseHeartbeat);
+                auditLog, hitlGateOpener, subFlowInvoker, List.of(), jsonMapper, engineMetrics, leaseHeartbeat, mock(ResumableAgentDriver.class));
     }
 
     @AfterEach
@@ -108,7 +108,7 @@ class ExecutionEngineTest {
         realHeartbeat = new AgentLeaseHeartbeat(stateManager,
                 new EngineProperties(null, null, null, 1, 1L, null, null));
         engine = new ExecutionEngine(flowRegistry, workerRegistry, stateManager, artifactStore,
-                auditLog, hitlGateOpener, subFlowInvoker, List.of(), jsonMapper, engineMetrics, realHeartbeat);
+                auditLog, hitlGateOpener, subFlowInvoker, List.of(), jsonMapper, engineMetrics, realHeartbeat, mock(ResumableAgentDriver.class));
         StepDescriptor step = new StepDescriptor("agent", StepType.AGENT, "worker", null, null,
                 List.of(), outputs, null);
         when(stateManager.get(executionId)).thenReturn(running);

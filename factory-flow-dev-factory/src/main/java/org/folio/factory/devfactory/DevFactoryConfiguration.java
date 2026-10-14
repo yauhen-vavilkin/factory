@@ -1,106 +1,171 @@
 package org.folio.factory.devfactory;
 
 import org.folio.factory.agents.artifact.FrontmatterCodec;
+import org.folio.factory.connectors.github.GitHubConnector;
+import org.folio.factory.connectors.github.GitHubProperties;
 import org.folio.factory.connectors.jira.JiraConnector;
+import org.folio.factory.core.agent.AgentContext;
+import org.folio.factory.core.agent.AgentResult;
+import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.engine.HitlGateOpener;
+import org.folio.factory.core.hitl.HitlDecisionService;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.repository.HitlReviewRepository;
+import org.folio.factory.core.repository.PipelineExecutionRepository;
+import org.folio.factory.core.service.ArtifactStore;
+import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
+import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.decision.ConditionalDecisionGate;
 import org.folio.factory.devfactory.decision.DevArtifactAmendmentValidator;
+import org.folio.factory.devfactory.delivery.CandidateDelivery;
+import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
+import org.folio.factory.devfactory.feedback.AttemptPricing;
+import org.folio.factory.devfactory.feedback.FeedbackActions;
+import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
+import org.folio.factory.devfactory.feedback.FeedbackDecisionPolicy;
+import org.folio.factory.devfactory.feedback.FeedbackGit;
+import org.folio.factory.devfactory.feedback.FeedbackPrMonitor;
+import org.folio.factory.devfactory.feedback.FeedbackWorker;
+import org.folio.factory.devfactory.feedback.GitHubPrFeedbackGateway;
+import org.folio.factory.devfactory.feedback.PrFeedbackGateway;
 import org.folio.factory.devfactory.repository.BaseRefResolver;
 import org.folio.factory.devfactory.repository.GitBaseRefResolver;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
+import org.folio.factory.devfactory.runtime.CodingRuntime;
+import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.DockerWorkloads;
+import org.folio.factory.devfactory.runtime.PiCodingRuntime;
+import org.folio.factory.devfactory.verification.CandidateVerifier;
+import org.folio.factory.devfactory.worker.CodingDecisionGateWorker;
 import org.folio.factory.devfactory.worker.DecisionGateWorker;
+import org.folio.factory.devfactory.worker.DeliveryWorker;
+import org.folio.factory.devfactory.worker.DevelopContinuationWorker;
+import org.folio.factory.devfactory.worker.DevelopWorker;
+import org.folio.factory.devfactory.worker.InitialCodingAttempt;
 import org.folio.factory.devfactory.worker.IntakeResolveWorker;
 import org.folio.factory.devfactory.worker.IntakeWorker;
+import org.folio.factory.devfactory.worker.VerifyWorker;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.web.client.RestClient;
+
+import java.time.Clock;
+import java.util.Map;
 
 /**
- * Developer Flow plugin wiring. The flow itself is data ({@code flows/dev-factory.yaml});
- * this class only assembles the worker beans the descriptor references.
+ * Developer Flow plugin wiring. The flow itself is data ({@code flows/dev-factory.yaml}); this
+ * class only assembles the worker beans the descriptor references.
  */
 @Configuration
-@EnableConfigurationProperties({DevFactoryProperties.class,
-        org.folio.factory.devfactory.runtime.DevRuntimeProperties.class,
-        org.folio.factory.devfactory.delivery.DevDeliveryProperties.class})
+@EnableConfigurationProperties({
+    DevFactoryProperties.class,
+    DevRuntimeProperties.class,
+    DevDeliveryProperties.class
+})
 public class DevFactoryConfiguration {
 
     @Bean
-    public org.folio.factory.devfactory.runtime.DockerWorkloads devDockerWorkloads() {
-        return new org.folio.factory.devfactory.runtime.DockerWorkloads();
+    public DockerWorkloads devDockerWorkloads() {
+        return new DockerWorkloads();
     }
 
     @Bean
-    public org.folio.factory.devfactory.candidate.CandidateFreezer devCandidateFreezer() {
-        return new org.folio.factory.devfactory.candidate.CandidateFreezer();
+    public CandidateFreezer devCandidateFreezer() {
+        return new CandidateFreezer();
     }
 
     @Bean
-    public org.folio.factory.devfactory.runtime.CodingRuntime devCodingRuntime(org.folio.factory.devfactory.runtime.DevRuntimeProperties runtime) {
+    public CodingRuntime devCodingRuntime(DevRuntimeProperties runtime) {
         return switch (runtime.coding().runtime()) {
-            case "pi" -> new org.folio.factory.devfactory.runtime.PiCodingRuntime(runtime.coding());
-            default -> throw new IllegalStateException("Unsupported coding runtime '"
-                    + runtime.coding().runtime() + "'");
+            case "pi" -> new PiCodingRuntime(runtime.coding());
+            default ->
+                    throw new IllegalStateException(
+                            "Unsupported coding runtime '" + runtime.coding().runtime() + "'");
         };
     }
 
     @Bean
-    public org.folio.factory.devfactory.worker.DevelopWorker devDevelopWorker(DevFactoryProperties properties,
-            org.folio.factory.devfactory.runtime.DevRuntimeProperties runtime,
-            org.folio.factory.devfactory.runtime.DockerWorkloads docker,
-            org.folio.factory.devfactory.candidate.CandidateFreezer freezer,
-            org.folio.factory.devfactory.runtime.CodingRuntime coding, FrontmatterCodec codec,
-            org.folio.factory.core.service.AuditLog audit) {
-        return new org.folio.factory.devfactory.worker.DevelopWorker(properties, runtime, docker, freezer, coding, codec, audit);
+    public InitialCodingAttempt initialCodingAttempt(
+            DevFactoryProperties properties,
+            DevRuntimeProperties runtime,
+            DockerWorkloads docker,
+            CandidateFreezer freezer,
+            CodingRuntime coding,
+            FrontmatterCodec codec,
+            AuditLog audit,
+            ObjectProvider<AttemptPricing> pricing) {
+        return new InitialCodingAttempt(
+                properties,
+                runtime,
+                docker,
+                freezer,
+                coding,
+                codec,
+                audit,
+                pricing.getIfAvailable(() -> model -> Map.of()));
     }
 
     @Bean
-    public org.folio.factory.devfactory.worker.CodingDecisionGateWorker devCodingDecisionGateWorker(
-            ConditionalDecisionGate gate) {
-        return new org.folio.factory.devfactory.worker.CodingDecisionGateWorker(gate);
+    public DevelopWorker devDevelopWorker(InitialCodingAttempt attempt, FrontmatterCodec codec) {
+        return new DevelopWorker(attempt, codec);
     }
 
     @Bean
-    public org.folio.factory.devfactory.worker.DevelopContinuationWorker devDevelopContinuationWorker(
-            org.folio.factory.devfactory.worker.DevelopWorker develop, FrontmatterCodec codec) {
-        return new org.folio.factory.devfactory.worker.DevelopContinuationWorker(develop, codec);
+    public CodingDecisionGateWorker devCodingDecisionGateWorker(ConditionalDecisionGate gate) {
+        return new CodingDecisionGateWorker(gate);
     }
 
     @Bean
-    public org.folio.factory.devfactory.verification.CandidateVerifier devCandidateVerifier(
-            DevFactoryProperties properties, org.folio.factory.devfactory.runtime.DevRuntimeProperties runtime,
-            org.folio.factory.devfactory.candidate.CandidateFreezer freezer,
-            org.folio.factory.devfactory.runtime.DockerWorkloads docker) {
-        return new org.folio.factory.devfactory.verification.CandidateVerifier(properties, runtime, freezer, docker);
+    public DevelopContinuationWorker devDevelopContinuationWorker(
+            InitialCodingAttempt develop, FrontmatterCodec codec) {
+        return new DevelopContinuationWorker(develop, codec);
     }
 
     @Bean
-    public org.folio.factory.devfactory.worker.VerifyWorker devVerifyWorker(
-            org.folio.factory.devfactory.verification.CandidateVerifier verifier) {
-        return new org.folio.factory.devfactory.worker.VerifyWorker(verifier);
+    public CandidateVerifier devCandidateVerifier(
+            DevFactoryProperties properties,
+            DevRuntimeProperties runtime,
+            CandidateFreezer freezer,
+            DockerWorkloads docker) {
+        return new CandidateVerifier(properties, runtime, freezer, docker);
     }
 
     @Bean
-    public org.folio.factory.devfactory.delivery.CandidateDelivery devCandidateDelivery(
-            org.folio.factory.devfactory.candidate.CandidateFreezer freezer) {
-        return new org.folio.factory.devfactory.delivery.CandidateDelivery(freezer);
+    public VerifyWorker devVerifyWorker(CandidateVerifier verifier) {
+        return new VerifyWorker(verifier);
     }
 
     @Bean
-    public org.folio.factory.devfactory.worker.DeliveryWorker devDeliveryWorker(
+    public CandidateDelivery devCandidateDelivery(CandidateFreezer freezer) {
+        return new CandidateDelivery(freezer);
+    }
+
+    @Bean
+    public DeliveryWorker devDeliveryWorker(
             DevFactoryProperties repositories,
-            org.folio.factory.devfactory.runtime.DevRuntimeProperties runtime,
-            org.folio.factory.devfactory.delivery.DevDeliveryProperties properties,
-            org.folio.factory.devfactory.delivery.CandidateDelivery delivery,
-            org.folio.factory.connectors.github.GitHubProperties githubProperties,
-            @org.springframework.beans.factory.annotation.Qualifier("gitHubConnector")
-            org.folio.factory.connectors.github.GitHubConnector github,
-            FrontmatterCodec frontmatter) {
-        return new org.folio.factory.devfactory.worker.DeliveryWorker(repositories, runtime, properties, delivery,
-                githubProperties, github, frontmatter);
+            DevRuntimeProperties runtime,
+            DevDeliveryProperties properties,
+            CandidateDelivery delivery,
+            GitHubProperties githubProperties,
+            @Qualifier("gitHubConnector") GitHubConnector github,
+            FrontmatterCodec frontmatter,
+            StateManager state) {
+        return new DeliveryWorker(
+                repositories,
+                runtime,
+                properties,
+                delivery,
+                githubProperties,
+                github,
+                frontmatter,
+                state);
     }
 
     @Bean
@@ -114,59 +179,74 @@ public class DevFactoryConfiguration {
     }
 
     @Bean
-    public ConditionalDecisionGate devConditionalDecisionGate(StateManager stateManager, FlowRegistry flowRegistry,
-                                                              HitlGateOpener gateOpener, HitlReviewRepository reviews) {
+    public ConditionalDecisionGate devConditionalDecisionGate(
+            StateManager stateManager,
+            FlowRegistry flowRegistry,
+            HitlGateOpener gateOpener,
+            HitlReviewRepository reviews) {
         return new ConditionalDecisionGate(stateManager, flowRegistry, gateOpener, reviews);
     }
 
     @Bean
-    public DevArtifactAmendmentValidator devArtifactAmendmentValidator(FrontmatterCodec codec, RepositoryPolicy policy) {
+    public DevArtifactAmendmentValidator devArtifactAmendmentValidator(
+            FrontmatterCodec codec, RepositoryPolicy policy) {
         return new DevArtifactAmendmentValidator(codec, policy);
     }
 
     @Bean
-    public IntakeWorker devIntakeWorker(JiraConnector jiraConnector, RepositoryPolicy policy, FrontmatterCodec codec,
-            org.folio.factory.devfactory.runtime.CodingRuntime runtime,
-            org.folio.factory.core.service.AuditLog audit) {
+    public IntakeWorker devIntakeWorker(
+            JiraConnector jiraConnector,
+            RepositoryPolicy policy,
+            FrontmatterCodec codec,
+            CodingRuntime runtime,
+            AuditLog audit) {
         return new IntakeWorker(jiraConnector, policy, codec, runtime, audit);
     }
 
     @Bean
-    public DecisionGateWorker devDecisionGateWorker(ConditionalDecisionGate gate, FrontmatterCodec codec) {
+    public DecisionGateWorker devDecisionGateWorker(
+            ConditionalDecisionGate gate, FrontmatterCodec codec) {
         return new DecisionGateWorker(gate, codec);
     }
 
     @Bean
-    public IntakeResolveWorker devIntakeResolveWorker(RepositoryPolicy policy, BaseRefResolver baseRefResolver,
-                                                      FrontmatterCodec codec) {
+    public IntakeResolveWorker devIntakeResolveWorker(
+            RepositoryPolicy policy, BaseRefResolver baseRefResolver, FrontmatterCodec codec) {
         return new IntakeResolveWorker(policy, baseRefResolver, codec);
     }
+
     @Bean
-    public org.folio.factory.devfactory.feedback.PrFeedbackGateway prFeedbackGateway(
-            org.folio.factory.connectors.github.GitHubProperties properties, org.springframework.web.client.RestClient.Builder builder) {
-        return new org.folio.factory.devfactory.feedback.GitHubPrFeedbackGateway(properties, builder);
+    public PrFeedbackGateway prFeedbackGateway(
+            GitHubProperties properties, RestClient.Builder builder) {
+        return new GitHubPrFeedbackGateway(properties, builder);
     }
+
     @Bean
-    public org.folio.factory.devfactory.feedback.FeedbackGit feedbackGit(org.folio.factory.devfactory.candidate.CandidateFreezer freezer) {
-        return new org.folio.factory.devfactory.feedback.FeedbackGit(freezer);
+    public FeedbackGit feedbackGit(CandidateFreezer freezer) {
+        return new FeedbackGit(freezer);
     }
+
     @Bean
-    public org.folio.factory.devfactory.feedback.FeedbackDecisionPolicy feedbackDecisionPolicy(FlowRegistry flows) {
-        return new org.folio.factory.devfactory.feedback.FeedbackDecisionPolicy(flows);
+    public FeedbackDecisionPolicy feedbackDecisionPolicy(FlowRegistry flows) {
+        return new FeedbackDecisionPolicy(flows);
     }
+
     @Bean
-    public org.folio.factory.devfactory.feedback.FeedbackActions feedbackActions(
-            org.folio.factory.core.service.ArtifactStore artifacts,
-            org.folio.factory.core.repository.PipelineExecutionRepository executions,
-            HitlReviewRepository reviews, org.folio.factory.core.hitl.HitlDecisionService decisions,
-            org.folio.factory.devfactory.feedback.FeedbackDecisionPolicy policy,
-            org.folio.factory.devfactory.feedback.PrFeedbackGateway gateway,
-            org.springframework.transaction.PlatformTransactionManager transactions) {
-        return new org.folio.factory.devfactory.feedback.FeedbackActions(artifacts, executions, reviews, decisions, policy, gateway, transactions);
+    public FeedbackActions feedbackActions(
+            ArtifactStore artifacts,
+            PipelineExecutionRepository executions,
+            HitlReviewRepository reviews,
+            HitlDecisionService decisions,
+            FeedbackDecisionPolicy policy,
+            PrFeedbackGateway gateway,
+            PlatformTransactionManager transactions) {
+        return new FeedbackActions(
+                artifacts, executions, reviews, decisions, policy, gateway, transactions);
     }
+
     @Bean
-    public org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor feedbackPrExecutor() {
-        var executor = new org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor();
+    public ThreadPoolTaskExecutor feedbackPrExecutor() {
+        var executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(2);
         executor.setMaxPoolSize(2);
         executor.setQueueCapacity(20);
@@ -175,39 +255,62 @@ public class DevFactoryConfiguration {
         executor.setAwaitTerminationSeconds(35);
         return executor;
     }
+
     @Bean
-    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(prefix = "factory.engine", name = "enabled", havingValue = "true", matchIfMissing = true)
-    public org.folio.factory.devfactory.feedback.FeedbackPrMonitor feedbackPrMonitor(
-            org.folio.factory.core.repository.PipelineExecutionRepository executions, FlowRegistry flows,
-            org.folio.factory.devfactory.feedback.FeedbackActions actions,
-            @org.springframework.beans.factory.annotation.Qualifier("feedbackPrExecutor")
-            org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor executor) {
-        return new org.folio.factory.devfactory.feedback.FeedbackPrMonitor(executions, flows, actions, executor, java.time.Clock.systemUTC());
+    @ConditionalOnProperty(
+            prefix = "factory.engine",
+            name = "enabled",
+            havingValue = "true",
+            matchIfMissing = true)
+    public FeedbackPrMonitor feedbackPrMonitor(
+            PipelineExecutionRepository executions,
+            FlowRegistry flows,
+            FeedbackActions actions,
+            @Qualifier("feedbackPrExecutor") ThreadPoolTaskExecutor executor) {
+        return new FeedbackPrMonitor(executions, flows, actions, executor, Clock.systemUTC());
     }
+
     @Bean
-    public org.folio.factory.core.agent.AgentWorker feedbackInitializer() {
-        return new org.folio.factory.core.agent.AgentWorker() {
-            public String id() { return "dev-pr-initialize"; }
-            public org.folio.factory.core.agent.AgentResult execute(org.folio.factory.core.agent.AgentContext context) {
-                return new org.folio.factory.core.agent.AgentResult(org.folio.factory.devfactory.feedback.FeedbackArtifacts.initial(), java.util.Map.of());
+    public AgentWorker feedbackInitializer() {
+        return new AgentWorker() {
+            public String id() {
+                return "dev-pr-initialize";
+            }
+
+            public AgentResult execute(AgentContext context) {
+                return new AgentResult(FeedbackArtifacts.initial(), Map.of());
             }
         };
     }
-    @Bean
-    public org.folio.factory.devfactory.feedback.FeedbackWorker feedbackWorker(DevFactoryProperties repositories,
-            org.folio.factory.devfactory.delivery.DevDeliveryProperties delivery,
-            org.folio.factory.devfactory.runtime.DevRuntimeProperties runtime,
-            org.folio.factory.connectors.github.GitHubProperties github,
-            org.folio.factory.devfactory.feedback.PrFeedbackGateway gateway,
-            org.folio.factory.devfactory.candidate.CandidateFreezer freezer,
-            org.folio.factory.devfactory.verification.CandidateVerifier verifier,
-            org.folio.factory.devfactory.runtime.CodingRuntime coding,
-            org.folio.factory.devfactory.runtime.DockerWorkloads docker,
-            org.folio.factory.devfactory.feedback.FeedbackGit git, StateManager state,
-            org.folio.factory.core.service.AuditLog audit,
-            org.springframework.beans.factory.ObjectProvider<org.folio.factory.devfactory.feedback.AttemptPricing> pricing) {
-        return new org.folio.factory.devfactory.feedback.FeedbackWorker(repositories,delivery,runtime,github,gateway,
-                freezer,verifier,coding,docker,git,state,audit,pricing.getIfAvailable(()->model->java.util.Map.of()));
-    }
 
+    @Bean
+    public FeedbackWorker feedbackWorker(
+            DevFactoryProperties repositories,
+            DevDeliveryProperties delivery,
+            DevRuntimeProperties runtime,
+            GitHubProperties github,
+            PrFeedbackGateway gateway,
+            CandidateFreezer freezer,
+            CandidateVerifier verifier,
+            CodingRuntime coding,
+            DockerWorkloads docker,
+            FeedbackGit git,
+            StateManager state,
+            AuditLog audit,
+            ObjectProvider<AttemptPricing> pricing) {
+        return new FeedbackWorker(
+                repositories,
+                delivery,
+                runtime,
+                github,
+                gateway,
+                freezer,
+                verifier,
+                coding,
+                docker,
+                git,
+                state,
+                audit,
+                pricing.getIfAvailable(() -> model -> Map.of()));
+    }
 }

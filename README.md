@@ -5,10 +5,13 @@ development lifecycle. Flows are **data** (YAML plugin descriptors), agents are
 stateless workers that communicate only through **immutable versioned
 artifacts**, and every consequential step passes a **human-in-the-loop gate**.
 
-Milestone 1 ships the shared orchestration framework plus **the Test Factory
-flow**: Jira story → scope manifest → manual test plan → QA review →
-generated Karate scripts → (advisory or real) execution → QA sign-off →
-TestRail / GitHub / Jira sync.
+The shared orchestration framework runs two flow plugins:
+
+- **Test Factory**: Jira story → scope manifest → manual test plan → QA review →
+  generated Karate scripts → (advisory or real) execution → QA sign-off →
+  TestRail / GitHub / Jira sync.
+- **Developer Flow**: task intake and clarification → isolated coding → independent
+  candidate verification → pull request delivery → resumable PR feedback.
 
 ## Documentation
 
@@ -38,6 +41,8 @@ factory-connectors/          Jira, GitHub, TestRail REST clients + graceful fall
 factory-agents/              LLM base worker (Spring AI ChatClient), prompt loading,
                              frontmatter codec, secret-scan post-processor
 factory-flow-test-factory/   Test Factory plugin: flows/test-factory.yaml + 5 workers + prompts
+factory-flow-dev-factory/    Developer Flow: intake, isolated coding, independent verification,
+                             exact candidate delivery and resumable PR feedback
 factory-app/                 Spring Boot app: management console (server-rendered UI),
                              REST API, Flyway, config
 ```

@@ -59,9 +59,7 @@ public class ExecutionEngine {
     private final JsonMapper jsonMapper;
     private final EngineMetrics engineMetrics;
     private final AgentLeaseHeartbeat leaseHeartbeat;
-    private ResumableAgentDriver resumableDriver;
-    @org.springframework.beans.factory.annotation.Autowired
-    public void setResumableDriver(ResumableAgentDriver driver) { this.resumableDriver = driver; }
+    private final ResumableAgentDriver resumableDriver;
 
     private final Set<UUID> activeExecutions = ConcurrentHashMap.newKeySet();
 
@@ -75,7 +73,8 @@ public class ExecutionEngine {
                            List<StepPostProcessor> postProcessors,
                            JsonMapper jsonMapper,
                            EngineMetrics engineMetrics,
-                           AgentLeaseHeartbeat leaseHeartbeat) {
+                           AgentLeaseHeartbeat leaseHeartbeat,
+                           ResumableAgentDriver resumableDriver) {
         this.flowRegistry = flowRegistry;
         this.workerRegistry = workerRegistry;
         this.stateManager = stateManager;
@@ -87,6 +86,7 @@ public class ExecutionEngine {
         this.jsonMapper = jsonMapper;
         this.engineMetrics = engineMetrics;
         this.leaseHeartbeat = leaseHeartbeat;
+        this.resumableDriver = resumableDriver;
     }
 
     /**

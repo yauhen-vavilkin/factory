@@ -12,7 +12,9 @@ final class DeveloperCostEstimator {
     private static final BigDecimal MILLION = BigDecimal.valueOf(1_000_000);
     private final DeveloperPricingProperties properties;
 
-    DeveloperCostEstimator(DeveloperPricingProperties properties) { this.properties = properties; }
+    DeveloperCostEstimator(DeveloperPricingProperties properties) {
+        this.properties = properties;
+    }
 
     Estimate estimate(Collection<Usage> usages) {
         BigDecimal total = BigDecimal.ZERO;
@@ -21,13 +23,16 @@ final class DeveloperCostEstimator {
         for (Usage usage : usages) {
             if (!usage.present() || usage.model() == null) return null;
             // Pi can normalize absent provider usage to four zeros. Do not show that as a free run.
-            if (usage.input() == 0 && usage.cacheRead() == 0
-                    && usage.cacheWrite() == 0 && usage.output() == 0) return null;
-            var rate = properties.rates().values().stream()
-                    .filter(candidate -> candidate.model().equals(usage.model()))
-                    .findFirst().orElse(null);
-            if (rate == null || selected != null && (!selected.currency().equals(rate.currency())
-                    || !selected.asOf().equals(rate.asOf()) || !selected.source().equals(rate.source()))) return null;
+            if (usage.input() == 0
+                    && usage.cacheRead() == 0
+                    && usage.cacheWrite() == 0
+                    && usage.output() == 0) return null;
+            var rate = properties.rateFor(usage.model()).orElse(null);
+            if (rate == null
+                    || selected != null
+                            && (!selected.currency().equals(rate.currency())
+                                    || !selected.asOf().equals(rate.asOf())
+                                    || !selected.source().equals(rate.source()))) return null;
             selected = rate;
             BigDecimal amount = charge(usage.input(), rate.inputPerMillion());
             if (amount == null) return null;
@@ -44,18 +49,28 @@ final class DeveloperCostEstimator {
             observed = true;
         }
         if (!observed || selected == null) return null;
-        return new Estimate(total.setScale(6, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString(),
-                selected.currency(), selected.asOf(), selected.source().toString());
+        return new Estimate(
+                total.setScale(6, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString(),
+                selected.currency(),
+                selected.asOf(),
+                selected.source().toString());
     }
 
     private static BigDecimal charge(Long tokens, BigDecimal perMillion) {
         if (tokens == null) return null;
         if (tokens == 0) return BigDecimal.ZERO;
-        return perMillion == null ? null : BigDecimal.valueOf(tokens).multiply(perMillion).divide(MILLION, 12, RoundingMode.HALF_UP);
+        return perMillion == null
+                ? null
+                : BigDecimal.valueOf(tokens)
+                        .multiply(perMillion)
+                        .divide(MILLION, 12, RoundingMode.HALF_UP);
     }
 
     record Usage(String model, Long input, Long cacheRead, Long cacheWrite, Long output) {
-        boolean present() { return input != null && cacheRead != null && cacheWrite != null && output != null; }
+        boolean present() {
+            return input != null && cacheRead != null && cacheWrite != null && output != null;
+        }
     }
-    record Estimate(String amount, String currency, LocalDate asOf, String source) { }
+
+    record Estimate(String amount, String currency, LocalDate asOf, String source) {}
 }

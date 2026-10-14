@@ -31,6 +31,14 @@ class DockerWorkloadsTest {
     private static final List<String> OFFLINE_REUSE = List.of("mvn", "-o", "-B", "-ntp",
             "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get",
             "-Dartifact=org.apache.commons:commons-lang3:3.17.0");
+    private final String fixtureVolume = "factory-workloads-test-" + UUID.randomUUID();
+
+    @org.junit.jupiter.api.AfterEach
+    void removeFixtureVolume() {
+        if ("true".equals(System.getenv("FACTORY_DOCKER_TEST")))
+            Processes.run(null, List.of("docker", "volume", "rm", fixtureVolume), 30);
+    }
+
     @TempDir Path source;
     @TempDir Path exported;
     @Test
@@ -65,7 +73,7 @@ class DockerWorkloadsTest {
         Files.writeString(source.resolve("source.txt"), "source");
         String name;
         try (var scope = scope(); var workload = scope.createSeeded("maven:3.9-eclipse-temurin-21",
-                source, "factory-dev-m2-cache", "coding")) {
+                source, fixtureVolume, "coding")) {
             name = workload.name();
             assertThatThrownBy(() -> workload.export(exported)).hasMessageContaining("Stop");
             assertThat(workload.execute(List.of("sh", "-c", "test ! -e /var/run/docker.sock && test -z \"$GH_TOKEN$GITHUB_TOKEN$JIRA_API_TOKEN\" && test -f /workspace/source.txt && printf changed > /workspace/source.txt && mkdir target && printf generated > new-source.txt"), 30).exitCode()).isZero();
@@ -95,7 +103,7 @@ class DockerWorkloadsTest {
             try (var scope = scope()) {
                 assertThat(Processes.run(null, List.of("docker", "inspect", old), 30).exitCode()).isNotZero();
                 assertThat(Processes.run(null, List.of("docker", "inspect", other), 30).exitCode()).isZero();
-                try (var replacement = scope.createSeeded(image, source, "factory-dev-m2-cache", "coding")) {
+                try (var replacement = scope.createSeeded(image, source, fixtureVolume, "coding")) {
                     assertThat(Processes.run(null, List.of("docker", "inspect", "-f",
                             "{{index .Config.Labels \"factory.dev-execution\"}}", replacement.name()), 30)
                             .output().strip()).isEqualTo(executionId.toString());

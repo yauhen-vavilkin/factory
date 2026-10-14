@@ -57,7 +57,7 @@ class VerifyWorkerTest {
         var publishContext = new AgentContext(execution, "publish", Map.of(VerifyWorker.RESULT,
                 new ArtifactContent(VerifyWorker.RESULT, 1, "application/json",
                         verification.outputs().get(VerifyWorker.RESULT))), null, Map.of(), List.of());
-        var published = new DeliveryWorker(null, null, null, delivery, null, github, null).execute(publishContext);
+        var published = new DeliveryWorker(null, null, null, delivery, null, github, null, null).execute(publishContext);
 
         assertThat(json.readTree(published.outputs().get(DeliveryWorker.DELIVERY)).path("state").asString())
                 .isEqualTo("NOT_RUN");

@@ -4,10 +4,11 @@ import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
+import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
-import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -43,28 +44,29 @@ final class DeveloperExecutionView {
             new Phase("Verify changes", 6, 6, List.of("verify")),
             new Phase("Create pull request", 7, 7, List.of("publish")));
     private final JsonMapper json;
-    DeveloperExecutionView(JsonMapper json) { this.json = json; }
+
+    DeveloperExecutionView(JsonMapper json) {
+        this.json = json;
+    }
 
     String productStatus(PipelineExecution execution, List<Artifact> artifacts) {
-        Map<String, Artifact> latest = new LinkedHashMap<>();
-        for (var artifact : artifacts) latest.merge(artifact.getName(), artifact,
-                (old, fresh) -> old.getVersion() > fresh.getVersion() ? old : fresh);
+        var latest = latestArtifacts(artifacts);
         if (FeedbackArtifacts.VERSION.equals(execution.getFlowVersion())) {
             var feedback = artifact(latest, FeedbackArtifacts.STATE);
             String reason = feedback.path("completionReason").asString("");
-            if (execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.COMPLETED
+            if (execution.getStatus() == ExecutionStatus.COMPLETED
                     && "MERGED".equals(reason)) return "COMPLETED";
-            if (execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.CANCELLED
+            if (execution.getStatus() == ExecutionStatus.CANCELLED
                     && "CLOSED_WITHOUT_MERGE".equals(reason)) return "CANCELLED";
-            if (execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.AWAITING_HITL
+            if (execution.getStatus() == ExecutionStatus.AWAITING_HITL
                     && feedback.has("pr") && !feedback.path("pr").isNull()) return "AWAITING_PR";
         }
         String codingStatus = artifact(latest, "dev_coding_outcome.json").path("status").asString("");
         if ("NEEDS_DECISION".equals(codingStatus)
-                && execution.getStatus() != org.folio.factory.core.domain.ExecutionStatus.REJECTED
-                && execution.getStatus() != org.folio.factory.core.domain.ExecutionStatus.FAILED_ESCALATED)
+                && execution.getStatus() != ExecutionStatus.REJECTED
+                && execution.getStatus() != ExecutionStatus.FAILED_ESCALATED)
             return "NEEDS_DECISION";
-        if (execution.getStatus() != org.folio.factory.core.domain.ExecutionStatus.COMPLETED)
+        if (execution.getStatus() != ExecutionStatus.COMPLETED)
             return execution.getStatus().name();
         for (String name : List.of("dev_delivery.json", "dev_result.json", "dev_candidate.json", "dev_task_brief.md")) {
             String state = artifact(latest, name).path("state").asString("");
@@ -81,9 +83,7 @@ final class DeveloperExecutionView {
     }
 
     Map<String, Object> build(PipelineExecution execution, List<Artifact> artifacts, List<AuditEvent> events, Instant now) {
-        Map<String, Artifact> latest = new LinkedHashMap<>();
-        for (var artifact : artifacts) latest.merge(artifact.getName(), artifact,
-                (old, fresh) -> old.getVersion() > fresh.getVersion() ? old : fresh);
+        var latest = latestArtifacts(artifacts);
         var brief = artifact(latest, "dev_task_brief.md");
         var readiness = artifact(latest, "dev_readiness.json");
         var candidate = artifact(latest, "dev_candidate.json");
@@ -107,59 +107,22 @@ final class DeveloperExecutionView {
         add(technicalFields, "Final candidate tree", candidate.path("treeSha"));
         add(technicalFields, "Final candidate patch SHA-256", candidate.path("patchSha256"));
 
-        List<Map<String, String>> recentActivity = new ArrayList<>();
-        List<Map<String, String>> providerDiagnostics = new ArrayList<>();
-        String activityNotice = "";
-        boolean runtimeObserved = false;
-        JsonNode config = json.createObjectNode();
-        String previousHeartbeat = null;
-        var bashActivity = new BashActivity();
-        var orderedEvents = events.stream()
-                .sorted(Comparator.comparing(AuditEvent::getOccurredAt))
-                .toList();
-        for (var event : orderedEvents) {
-            if (event.getEventType() != AuditEventType.RUNTIME_PROGRESS) continue;
-            var detail = parse(event.getDetail());
-            String action = detail.path("activity").asString("");
-            boolean initialRuntime = !FeedbackArtifacts.VERSION.equals(execution.getFlowVersion())
-                    || detail.path("round").asInt(-1) < 0;
-            if (action.equals("coding_configured")) {
-                if (initialRuntime && config.isEmpty()) config = detail;
-                continue;
-            }
-            if (action.equals("pi_usage") || action.equals("coding_usage")) continue;
-            if (action.equals("agent_start")) runtimeObserved = true;
-            if (action.equals("pi_starting") || action.equals("coding_starting")) {
-                if (initialRuntime) config = detail;
-                runtimeObserved = true;
-            }
-            String text = runtimeActivityText(detail, bashActivity);
-            var row = Map.of("time", UiFormat.format(event.getOccurredAt()), "text", text);
-            if (action.equals("provider_error") || (action.startsWith("auto_retry_")
-                    && (detail.hasNonNull("reason") || detail.has("success"))))
-                providerDiagnostics.add(row);
-            if (detail.has("notice")) activityNotice = detail.path("notice").asString("");
-            if (action.equals("turn_start")) {
-                previousHeartbeat = null;
-                continue;
-            }
-            boolean heartbeat = action.equals("baseline_progress")
-                    && detail.path("message").asString("").equals("Starting build is still running");
-            // Keep the latest timestamp for a consecutive heartbeat run, without changing the audit trail.
-            if (heartbeat && text.equals(previousHeartbeat)) recentActivity.set(recentActivity.size() - 1, row);
-            else recentActivity.add(row);
-            previousHeartbeat = heartbeat ? text : null;
-        }
+        var activity = DeveloperRuntimeActivity.from(
+                events, json, FeedbackArtifacts.VERSION.equals(execution.getFlowVersion()));
+        var config = activity.configuration();
         String executionError = execution.getErrorMessage();
         boolean retryErrorSuperseded = executionError != null
                 && executionError.startsWith(STARTING_BUILD_NETWORK_FAILURE)
                 && ("BASELINE_PASSED".equals(readiness.path("state").asString(""))
-                    || runtimeObserved || execution.getCurrentStepIndex() > 3);
+                    || activity.runtimeObserved() || execution.getCurrentStepIndex() > 3);
         String reason = first(result.path("reason"), brief.path("reason"), candidate.path("reason"));
-        if (reason.isBlank() && "NEEDS_DECISION".equals(codingOutcome.path("status").asString("")))
-            reason = codingOutcome.path("decision").path("question").asString("");
-        if (reason.isBlank() && "FAILED".equals(codingOutcome.path("status").asString("")))
-            reason = codingOutcome.path("failure").path("message").asString("");
+        if (reason.isBlank()) {
+            reason = switch (codingOutcome.path("status").asString("")) {
+                case "NEEDS_DECISION" -> codingOutcome.path("decision").path("question").asString("");
+                case "FAILED" -> codingOutcome.path("failure").path("message").asString("");
+                default -> reason;
+            };
+        }
         if (reason.equals("Intake is not ready")) reason = first(brief.path("reason"), result.path("reason"));
         if (reason.isBlank() && "FAIL".equals(verification.path("result").asString("")))
             reason = "Independent verification failed: exit " + verification.path("exitCode").asString("")
@@ -184,18 +147,13 @@ final class DeveloperExecutionView {
         add(runtimeFields, "Image", config.path("image"));
         view.put("runtimeFields", runtimeFields);
         view.put("reason", reason);
-        String reasonLabel = "NEEDS_DECISION".equals(codingOutcome.path("status").asString(""))
-                ? "Decision required" : execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.PENDING
-                && !reason.isBlank() ? "Retry pending" : execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.RUNNING
-                && executionError != null && !retryErrorSuperseded ? "Previous attempt" : "Stop reason";
-        view.put("reasonLabel", reasonLabel);
+        view.put("reasonLabel", reasonLabel(execution, codingOutcome, reason, retryErrorSuperseded));
         view.put("pullRequestUrl", pr);
         String prTitle = delivery.path("pullRequestTitle").asString("");
         view.put("pullRequestLabel", prTitle.isBlank() ? pr : prTitle);
-        view.put("activityNotice", activityNotice);
-        view.put("activity", recentActivity.subList(Math.max(0, recentActivity.size() - 20), recentActivity.size()).reversed());
-        view.put("providerDiagnostics", providerDiagnostics.subList(
-                Math.max(0, providerDiagnostics.size() - 20), providerDiagnostics.size()));
+        view.put("activityNotice", activity.notice());
+        view.put("activity", activity.recent());
+        view.put("providerDiagnostics", activity.diagnostics());
         var history = executionHistory(events);
         view.put("history", history);
         view.put("historyCount", history.size());
@@ -215,6 +173,21 @@ final class DeveloperExecutionView {
         view.put("elapsed", duration(execution.getCreatedAt(), elapsedEnd));
         view.put("elapsedStart", execution.getStatus().isTerminal() ? null : execution.getCreatedAt());
         return view;
+    }
+
+    private static String reasonLabel(
+            PipelineExecution execution, JsonNode codingOutcome, String reason, boolean retryErrorSuperseded) {
+        if ("NEEDS_DECISION".equals(codingOutcome.path("status").asString(""))) {
+            return "Decision required";
+        }
+        if (execution.getStatus() == ExecutionStatus.PENDING && !reason.isBlank()) {
+            return "Retry pending";
+        }
+        if (execution.getStatus() == ExecutionStatus.RUNNING
+                && execution.getErrorMessage() != null && !retryErrorSuperseded) {
+            return "Previous attempt";
+        }
+        return "Stop reason";
     }
 
     private static String counter(JsonNode receipt, String field) {
@@ -237,11 +210,13 @@ final class DeveloperExecutionView {
                 .toList();
     }
 
-    static String technicalStepLabel(String id) { return TECHNICAL_STEPS.getOrDefault(id, id); }
+    static String technicalStepLabel(String id) {
+        return TECHNICAL_STEPS.getOrDefault(id, id);
+    }
 
     static String technicalStepDuration(String id, List<AuditEvent> events, PipelineExecution execution, Instant now) {
-        var timing = timing(Set.of(id), events, execution, now);
-        return timing.seen() ? UiFormat.duration(timing.seconds()) : "Not started";
+        Long seconds = technicalStepDurationSeconds(id, events, execution, now);
+        return seconds == null ? "Not started" : UiFormat.duration(seconds);
     }
 
     static Long technicalStepDurationSeconds(String id, List<AuditEvent> events,
@@ -266,8 +241,9 @@ final class DeveloperExecutionView {
                 else if (i > failedPhase) state = "pending";
                 else state = "done";
             }
-            String duration = i > failedPhase && failedPhase >= 0 ? "Not started"
-                    : timing.seen() ? UiFormat.duration(timing.seconds()) : "Not started";
+            boolean blockedByFailure = failedPhase >= 0 && i > failedPhase;
+            String duration = !timing.seen() || blockedByFailure
+                    ? "Not started" : UiFormat.duration(timing.seconds());
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("type", "PHASE");
             row.put("label", phase.label());
@@ -298,12 +274,12 @@ final class DeveloperExecutionView {
 
     private static String phaseState(Phase phase, PipelineExecution execution, boolean phaseStarted) {
         int current = execution.getCurrentStepIndex();
-        if (execution.getStatus() == org.folio.factory.core.domain.ExecutionStatus.PENDING
+        if (execution.getStatus() == ExecutionStatus.PENDING
                 && current == 0 && !phaseStarted) return "pending";
         if (current > phase.lastStep()) return "done";
         if (current < phase.firstStep()) return "pending";
         return execution.getStatus().isTerminal()
-                && execution.getStatus() != org.folio.factory.core.domain.ExecutionStatus.COMPLETED
+                && execution.getStatus() != ExecutionStatus.COMPLETED
                 ? "failed" : "current";
     }
 
@@ -312,30 +288,42 @@ final class DeveloperExecutionView {
         Map<String, Instant> starts = new HashMap<>();
         Duration total = Duration.ZERO;
         boolean seen = false;
-        for (var event : events) if (event.getStepId() != null && stepIds.contains(event.getStepId())) {
-            if (event.getEventType() == AuditEventType.STEP_STARTED) {
-                starts.put(event.getStepId(), event.getOccurredAt());
-                seen = true;
-            } else if ((event.getEventType() == AuditEventType.STEP_COMPLETED
-                    || event.getEventType() == AuditEventType.STEP_FAILED)) {
-                Instant start = starts.remove(event.getStepId());
-                if (start != null && !event.getOccurredAt().isBefore(start))
-                    total = total.plus(Duration.between(start, event.getOccurredAt()));
+        for (var event : events) {
+            if (event.getStepId() == null || !stepIds.contains(event.getStepId())) continue;
+            switch (event.getEventType()) {
+                case STEP_STARTED -> {
+                    starts.put(event.getStepId(), event.getOccurredAt());
+                    seen = true;
+                }
+                case STEP_COMPLETED, STEP_FAILED -> {
+                    Instant start = starts.remove(event.getStepId());
+                    if (start != null && !event.getOccurredAt().isBefore(start)) {
+                        total = total.plus(Duration.between(start, event.getOccurredAt()));
+                    }
+                }
+                default -> {}
             }
         }
         boolean running = !starts.isEmpty() && !execution.getStatus().isTerminal();
-        Instant end = execution.getStatus().isTerminal()
-                ? execution.getCompletedAt() != null ? execution.getCompletedAt() : execution.getUpdatedAt()
-                : now;
-        for (Instant start : starts.values()) if (end != null && !end.isBefore(start))
-            total = total.plus(Duration.between(start, end));
+        Instant end = now;
+        if (execution.getStatus().isTerminal()) {
+            end = execution.getCompletedAt() != null
+                    ? execution.getCompletedAt() : execution.getUpdatedAt();
+        }
+        for (Instant start : starts.values()) {
+            if (end != null && !end.isBefore(start)) {
+                total = total.plus(Duration.between(start, end));
+            }
+        }
         return new Timing(Math.max(0, total.toSeconds()), seen, running);
     }
 
     private static String currentPhase(List<Map<String, Object>> phases) {
-        for (var phase : phases) if ("failed".equals(phase.get("state"))) return phase.get("label").toString();
-        for (var phase : phases) if ("current".equals(phase.get("state"))) return phase.get("label").toString();
-        for (var phase : phases) if ("pending".equals(phase.get("state"))) return phase.get("label").toString();
+        for (String state : List.of("failed", "current", "pending")) {
+            for (var phase : phases) {
+                if (state.equals(phase.get("state"))) return phase.get("label").toString();
+            }
+        }
         return "Complete";
     }
 
@@ -366,136 +354,44 @@ final class DeveloperExecutionView {
         };
     }
 
-    private static String activityLabel(String action) {
-        return switch (action) {
-            case "baseline_started" -> "Starting build started";
-            case "baseline_progress" -> "Starting build progress";
-            case "baseline_completed" -> "Starting build completed";
-            case "baseline_retryable_failure" -> "Starting build network failure";
-            default -> action.replace('_', ' ');
-        };
-    }
-
-    private static String runtimeActivityText(JsonNode detail, BashActivity bashActivity) {
-        String action = detail.path("activity").asString("");
-        return switch (action) {
-            case "agent_start" -> "Coding agent started";
-            case "agent_end" -> "Coding agent finished";
-            case "turn_start" -> "Coding agent working";
-            case "provider_error" -> "Provider request failed" + providerDetail(detail);
-            case "auto_retry_start" -> "Coding runtime retrying request" + retryAttempt(detail)
-                    + providerDetail(detail);
-            case "auto_retry_end" -> retryEndText(detail) + retryAttempt(detail) + providerDetail(detail);
-            case "compaction_start" -> "Coding runtime compacting context";
-            case "compaction_end" -> "Coding runtime compaction finished";
-            case "tool_execution_start" -> toolStartText(detail, bashActivity);
-            case "tool_execution_end" -> toolEndText(detail, bashActivity);
-            default -> genericActivityText(detail, action);
-        };
-    }
-
-    private static String retryAttempt(JsonNode detail) {
-        if (!detail.path("attempt").isInt()) return "";
-        String attempt = detail.path("attempt").asString();
-        return detail.path("maxAttempts").isInt() ? " (" + attempt + "/"
-                + detail.path("maxAttempts").asString() + ")" : " (attempt " + attempt + ")";
-    }
-
-    private static String retryEndText(JsonNode detail) {
-        if (!detail.has("success")) return "Coding runtime retry finished";
-        return detail.path("success").asBoolean(false)
-                ? "Coding runtime retry succeeded" : "Coding runtime retry failed";
-    }
-
-    private static String providerDetail(JsonNode detail) {
-        String reason = detail.path("reason").asString("");
-        return reason.isBlank() ? "" : " · " + reason;
-    }
-
-    private static String toolStartText(JsonNode detail, BashActivity bashActivity) {
-        String tool = detail.path("tool").asString("").strip();
-        String path = fileName(detail.path("path").asString(""));
-        if (tool.equals("bash")) {
-            String command = detail.path("command").asString("Shell command").strip();
-            if (command.isBlank()) command = "Shell command";
-            bashActivity.started(command);
-            return "Running " + command;
+    private static Map<String, Artifact> latestArtifacts(List<Artifact> artifacts) {
+        Map<String, Artifact> latest = new LinkedHashMap<>();
+        for (var artifact : artifacts) {
+            latest.merge(artifact.getName(), artifact,
+                    (old, fresh) -> old.getVersion() > fresh.getVersion() ? old : fresh);
         }
-        return switch (tool) {
-            case "read" -> "Reading " + fileOrFallback(path);
-            case "write" -> "Writing " + fileOrFallback(path);
-            case "edit" -> "Editing " + fileOrFallback(path);
-            case "find" -> path.isBlank() ? "Finding files" : "Finding files in " + path;
-            case "ls" -> path.isBlank() ? "Listing files" : "Listing " + path;
-            case "grep" -> path.isBlank() ? "Searching files" : "Searching " + path;
-            default -> tool.isBlank() ? "Running tool" : "Running " + tool;
-        };
-    }
-
-    private static String toolEndText(JsonNode detail, BashActivity bashActivity) {
-        String tool = detail.path("tool").asString("").strip();
-        String subject = tool;
-        if (tool.equals("bash")) subject = bashActivity.finishedSubject();
-        if (subject == null || subject.isBlank()) subject = tool.isBlank() ? "Tool" : tool;
-        return subject + (detail.path("error").asBoolean(false) ? " failed" : " completed");
-    }
-
-    private static String genericActivityText(JsonNode detail, String action) {
-        StringBuilder text = new StringBuilder(activityLabel(action));
-        for (String key : List.of("tool", "path", "command", "message", "exitCode", "error", "summary")) {
-            if (detail.has(key)) text.append(" · ").append(detail.path(key).asString());
-        }
-        return text.toString();
-    }
-
-    private static String fileName(String path) {
-        String normalized = path.replace('\\', '/');
-        while (normalized.endsWith("/") && normalized.length() > 1)
-            normalized = normalized.substring(0, normalized.length() - 1);
-        int separator = normalized.lastIndexOf('/');
-        return separator < 0 ? normalized : normalized.substring(separator + 1);
-    }
-
-    private static String fileOrFallback(String path) {
-        return path.isBlank() ? "file" : path;
-    }
-
-    private static final class BashActivity {
-        private int active;
-        private String command;
-        private boolean ambiguous;
-
-        void started(String nextCommand) {
-            if (active == 0) command = nextCommand;
-            else ambiguous = true;
-            active++;
-        }
-
-        String finishedSubject() {
-            String subject = active == 1 && !ambiguous ? command : "Shell command";
-            if (active > 0) active--;
-            if (active == 0) {
-                command = null;
-                ambiguous = false;
-            }
-            return subject;
-        }
+        return latest;
     }
 
     private JsonNode artifact(Map<String, Artifact> artifacts, String name) {
         var artifact = artifacts.get(name);
         if (artifact == null) return json.createObjectNode();
-        try { return name.endsWith(".md") ? new FrontmatterCodec().parse(artifact.getContent()).metadata() : parse(artifact.getContent()); }
-        catch (RuntimeException ignored) { return json.createObjectNode(); }
+        try {
+            return name.endsWith(".md")
+                    ? new FrontmatterCodec().parse(artifact.getContent()).metadata()
+                    : parse(artifact.getContent());
+        } catch (RuntimeException ignored) {
+            return json.createObjectNode();
+        }
     }
+
     private JsonNode parse(String value) {
-        try { return value == null ? json.createObjectNode() : json.readTree(value); }
-        catch (RuntimeException ignored) { return json.createObjectNode(); }
+        try {
+            return value == null ? json.createObjectNode() : json.readTree(value);
+        } catch (RuntimeException ignored) {
+            return json.createObjectNode();
+        }
     }
+
     private static String first(JsonNode... nodes) {
-        for (var node : nodes) if (!node.isMissingNode() && !node.isNull() && !node.asString("").isBlank()) return node.asString();
+        for (var node : nodes) {
+            if (!node.isMissingNode() && !node.isNull() && !node.asString("").isBlank()) {
+                return node.asString();
+            }
+        }
         return "";
     }
+
     private static void add(List<Map<String, String>> fields, String label, JsonNode value) {
         if (value.isArray()) {
             List<String> words = new ArrayList<>();

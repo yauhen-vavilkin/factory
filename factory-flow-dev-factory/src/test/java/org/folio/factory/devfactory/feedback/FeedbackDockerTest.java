@@ -58,14 +58,15 @@ class FeedbackDockerTest {
         try {
             var initialized=worker.execute(context(id,saved)); saved.putAll(initialized.outputs());
             assertThat(initialized.disposition()).isEqualTo(AgentResult.Disposition.WAIT);
-            var s=JSON.readValue(saved.get(STATE),FeedbackState.class);s.round=1;s.attemptId=UUID.randomUUID().toString();s.startedAt=Instant.now().toString();s.selected=List.of(comment);s.snapshotId="snapshot";s.phase=FeedbackState.Phase.PREPARE;
+            var s=JSON.readValue(saved.get(STATE),FeedbackState.class);
+            s.apply(FeedbackActions.Action.FIX, gateway.comments(s.pr), "snapshot", List.of(comment.id()), "");
             saved.put(STATE,JSON.writeValueAsString(s));
             for(int i=0;i<6;i++) {
                 var result=worker.execute(context(id,saved));saved.putAll(result.outputs());
                 if(result.disposition()==AgentResult.Disposition.WAIT)break;
             }
             var result=JSON.readValue(saved.get(STATE),FeedbackState.class);
-            assertThat(result.phase).as(result.reason).isEqualTo(FeedbackState.Phase.READY);
+            assertThat(result.phase()).as(result.reason).isEqualTo(FeedbackState.Phase.READY);
             assertThat(result.verification.result()).isEqualTo("PASS");assertThat(result.verification.testCount()).isEqualTo(1);
             assertThat(CandidateFreezer.git(bare,"rev-parse","feedback").strip()).isEqualTo(result.commitSha).isNotEqualTo(base);
             assertThat(Processes.run(null,List.of("docker","ps","-aq","--filter","label=factory.dev-execution="+id),30).requireSuccess().output()).isBlank();
