@@ -15,6 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -35,6 +36,7 @@ import static org.folio.factory.devfactory.feedback.FeedbackActions.Action.*;
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={"spring.ai.model.chat=none","factory.engine.enabled=false"})
 @Import(StubLlmConfiguration.class)
 @Testcontainers
+@DirtiesContext
 class PrFeedbackIntegrationTest {
     @Container @ServiceConnection static PostgreSQLContainer<?> postgres=new PostgreSQLContainer<>("postgres:16");
     static final Path root=CandidateFreezer.temporary("factory-pr-test-");

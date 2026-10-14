@@ -22,6 +22,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.SliceImpl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -52,6 +53,7 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "factory.developer-pricing.rates.test.output-per-million=0.50"})
 @Import(StubLlmConfiguration.class)
 @Testcontainers
+@DirtiesContext
 class UiRenderSmokeTest {
 
     @Container
