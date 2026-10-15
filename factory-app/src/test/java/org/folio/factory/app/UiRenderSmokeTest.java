@@ -1,6 +1,7 @@
 package org.folio.factory.app;
 
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.domain.PipelineExecution;
@@ -21,6 +22,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.SliceImpl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -41,9 +43,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * UI page renders through the shared layout.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false"})
+        properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false",
+                "factory.developer-pricing.rates.test.model=test-model",
+                "factory.developer-pricing.rates.test.currency=USD",
+                "factory.developer-pricing.rates.test.as-of=2026-09-19",
+                "factory.developer-pricing.rates.test.source=https://example.test/pricing",
+                "factory.developer-pricing.rates.test.input-per-million=0.15",
+                "factory.developer-pricing.rates.test.cache-read-per-million=0.03",
+                "factory.developer-pricing.rates.test.output-per-million=0.50"})
 @Import(StubLlmConfiguration.class)
 @Testcontainers
+@DirtiesContext
 class UiRenderSmokeTest {
 
     @Container
@@ -197,7 +207,266 @@ class UiRenderSmokeTest {
         String body = assertRendered("/executions/" + execution.getId(), "Audit timeline");
         assertThat(body)
                 .contains("LLM tokens: 844 total")
-                .contains("844 tokens (734 in / 110 out)");
+                .contains("844 tokens (734 in / 110 out)")
+                .containsOnlyOnce("class=\"stepper\"")
+                .doesNotContain("Technical step details", "aria-label=\"Technical steps\"");
+    }
+
+    @Test
+    void developerRetryReasonReflectsWhetherAutomaticRetryIsPending() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setCurrentStepIndex(3);
+        execution.setErrorMessage("Starting build hit a network/download failure");
+        executions.save(execution);
+        assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
+                .contains("Retry pending: Starting build hit a network/download failure")
+                .doesNotContain("Stop reason: Starting build");
+
+        execution = executions.findById(execution.getId()).orElseThrow();
+        execution.setStatus(ExecutionStatus.FAILED_ESCALATED);
+        executions.save(execution);
+        assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
+                .contains("Stop reason: Starting build hit a network/download failure")
+                .doesNotContain("Retry pending");
+
+        execution = executions.findById(execution.getId()).orElseThrow();
+        execution.setStatus(ExecutionStatus.RUNNING);
+        executions.save(execution);
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "pi_starting", "provider", "test-provider", "model", "test-model"));
+        assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
+                .doesNotContain("Starting build hit a network/download failure", "Retry pending", "Stop reason:");
+    }
+
+    @Test
+    void developerExecutionShowsPullRequestTitleOrUrlAsLink() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        String url = "https://github.com/user/repo/pull/42";
+        for (String title : List.of("", "TASK-1: Fix <routing> & permissions")) {
+            artifactStore.putMarkdown(execution.getId(), "dev_delivery.json",
+                    "{\"state\":\"DELIVERED\",\"pullRequestUrl\":\"" + url
+                            + "\",\"pullRequestTitle\":\"" + title + "\"}", "publish");
+            String body = assertRendered("/executions/" + execution.getId(), "Pull request");
+            String label = title.isEmpty() ? url : "TASK-1: Fix &lt;routing&gt; &amp; permissions";
+            assertThat(body).contains("class=\"developer-pr-link\"", "href=\"" + url + "\">" + label + "</a>")
+                    .doesNotContain("Open pull request", "<routing>");
+        }
+    }
+
+    @Test
+    void developerExecutionShowsLiveActivityAndHonestDeliveryOutcome() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{\"issueKey\":\"MODSIDECAR-196\"}"));
+        execution.setCurrentStepIndex(6);
+        execution.setStatus(ExecutionStatus.RUNNING);
+        executions.save(execution);
+        artifactStore.putMarkdown(execution.getId(), "dev_verification.json",
+                "{\"result\":\"PASS\",\"testCount\":17,\"exitCode\":0,\"argv\":[\"mvn\",\"test\"]}", "verify");
+        artifactStore.putMarkdown(execution.getId(), "dev_readiness.json",
+                "{\"state\":\"BASELINE_FAILED\",\"output\":\"[INFO] Compiling 42 source files\\n[ERROR] transfer failed\"}", "implement");
+        artifactStore.putMarkdown(execution.getId(), "dev_delivery.json",
+                "{\"state\":\"DELIVERY_BLOCKED\",\"reason\":\"Safe destination missing\"}", "publish");
+        artifactStore.putMarkdown(execution.getId(), "dev_candidate.json",
+                "{\"state\":\"CANDIDATE_UNVERIFIED\",\"patch\":\"SOURCE_CONTENT_SENTINEL\"}", "implement");
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "tool_execution_start", "tool", "bash", "command", "mvn test"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "turn_start", "message", "HIDDEN_MESSAGE_SENTINEL",
+                        "reasoning", "HIDDEN_REASONING_SENTINEL"));
+        auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of("costUsd", 0));
+        String body = assertRendered("/executions/" + execution.getId(), "Developer Flow");
+        assertThat(body).contains("MODSIDECAR-196", "17 tests executed", "mvn test", "DELIVERY_BLOCKED",
+                "Safe destination missing", "class=\"badge badge-outline developer-task-key\">MODSIDECAR-196</span>",
+                "auditTrail.length,artifacts.length", "Prepare task", "Implement changes", "Verify changes",
+                "Create pull request", "Technical details", "Prepare task checkout", "Starting build output",
+                "Compiling 42 source files", "transfer failed", "Artifacts", "Execution history",
+                "Open full append-only audit log");
+        assertThat(body).containsOnlyOnce("class=\"developer-stages\"")
+                .contains("aria-label=\"Technical steps\"", "Implementation", "Not started")
+                .doesNotContain("class=\"developer-runtime-facts\"", "Coding runtime-reported cost", "Cost evidence", "class=\"stepper\"",
+                        "SOURCE_CONTENT_SENTINEL", "HIDDEN_MESSAGE_SENTINEL",
+                        "HIDDEN_REASONING_SENTINEL", ">Baseline<",
+                        "Baseline output tail", "Pinned base SHA", "Run starting build and Pi");
+    }
+
+    @Test
+    void developerExecutionShowsEstimatedCostEvidenceWithoutRuntimeCost() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "coding_starting", "runtime", "pi", "provider", "test-provider", "model", "test-model",
+                        "image", "factory-dev-pi:0.85.1-java21"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "pi_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
+                        "cacheWriteTokens", 0, "outputTokens", 10_000, "costUsd", 0));
+
+        String body = assertRendered("/executions/" + execution.getId(), "Cost evidence");
+        String currentPanel = body.substring(body.indexOf("<section class=\"developer-panel developer-current\""),
+                body.indexOf("<section class=\"developer-panel developer-usage\""));
+        String usagePanel = body.substring(body.indexOf("<section class=\"developer-panel developer-usage\""),
+                body.indexOf("<div class=\"developer-debug\""));
+        assertThat(currentPanel).doesNotContain("developer-runtime-facts", "<dt>Model</dt>", "<dt>Provider</dt>",
+                "<dt>Runtime</dt>", "<dt>Image</dt>");
+        assertThat(usagePanel).contains("Runtime &amp; usage", "<dt>Model</dt>", ">test-model</dd>",
+                        "<dt>Provider</dt>", ">test-provider</dd>", "<dt>Runtime</dt>", ">pi</dd>",
+                        "<dt>Image</dt>", ">factory-dev-pi:0.85.1-java21</dd>",
+                        "total usage tokens", "Input tokens (uncached)", "Cache read tokens",
+                        "Cache creation tokens", "Output tokens", "<dt>Estimated cost</dt>", "0.0203 USD")
+                .doesNotContain("Configured rate card ·", "Actual provider or proxy charges may differ");
+        assertThat(body)
+                .containsOnlyOnce("<dt>Model</dt>").containsOnlyOnce("<dt>Provider</dt>")
+                .containsOnlyOnce("<dt>Runtime</dt>").containsOnlyOnce("<dt>Image</dt>")
+                .contains("Estimated coding API cost", "0.0203 USD", "using rates dated 2026-09-19",
+                        "href=\"https://example.test/pricing\"", ">https://example.test/pricing</a>",
+                        "Rate-card estimate; actual provider or proxy charges may differ")
+                .doesNotContain("Coding runtime-reported cost", "<dt>Coding runtime</dt>", "<dt>Coding image</dt>");
+    }
+
+    @Test
+    void developerExecutionShowsConfiguredModelAcrossStagesAndActivityInLeftPanel() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.8.0", "{}"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "read-task",
+                Map.of("activity", "coding_configured", "model", "planned-model", "provider", "test-provider",
+                        "runtime", "pi", "image", "coding-image"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "baseline_started", "message", "mvn test"));
+        for (int stage : List.of(0, 3, 6, 7)) {
+            execution.setCurrentStepIndex(stage);
+            execution.setStatus(ExecutionStatus.RUNNING);
+            execution = executions.save(execution);
+            String body = assertRendered("/executions/" + execution.getId(), "planned-model");
+            String currentPanel = body.substring(body.indexOf("<section class=\"developer-panel developer-current\""),
+                    body.indexOf("<section class=\"developer-panel developer-usage\""));
+            assertThat(currentPanel).contains("class=\"developer-recent\"", "Starting build started · mvn test");
+            assertThat(body).containsOnlyOnce("class=\"developer-recent\"")
+                    .contains("No token usage reported yet.", ">coding-image</dd>")
+                    .doesNotContain("Latest reported activity", "Recent meaningful activity", "coding configured");
+        }
+    }
+
+    @Test
+    void developerExecutionShowsPartialRuntimeIdentityBeforeUsage() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        for (String field : List.of("model", "provider", "runtime", "image")) {
+            auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                    Map.of("activity", "coding_starting", field, "reported-" + field));
+            String body = assertRendered("/executions/" + execution.getId(), "Runtime &amp; usage");
+            String usagePanel = body.substring(body.indexOf("<section class=\"developer-panel developer-usage\""),
+                    body.indexOf("<div class=\"developer-debug\""));
+            assertThat(usagePanel).contains("class=\"developer-runtime-facts\"", ">reported-" + field + "</dd>",
+                            "No token usage reported yet.")
+                    .doesNotContain("total usage tokens", "<dt>Estimated cost</dt>");
+            for (String absent : List.of("model", "provider", "runtime", "image")) {
+                if (!absent.equals(field))
+                    assertThat(usagePanel).doesNotContain("<dt>" + Character.toUpperCase(absent.charAt(0))
+                            + absent.substring(1) + "</dt>");
+            }
+        }
+    }
+
+    @Test
+    void developerExecutionExplainsWhyPartialUsageHasNoCostEstimate() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "coding_starting", "provider", "test-provider", "model", "test-model"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "coding_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
+                        "cacheWriteTokens", 0, "outputTokens", 10_000, "usageIncomplete", true));
+
+        String body = assertRendered("/executions/" + execution.getId(), "Runtime &amp; usage");
+        assertThat(body).contains("Cost estimate unavailable: Pi did not report enough usage for every response.")
+                .doesNotContain("Cost evidence", "No matching configured rate card.", "<dt>Estimated cost</dt>");
+    }
+
+    @Test
+    void developerExecutionRendersFinalRetryUsageAndSafeProviderDiagnostics() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        execution = executions.save(execution);
+        artifactStore.putMarkdown(execution.getId(), "dev_coding_outcome.json",
+                "{\"status\":\"FAILED\",\"failure\":{\"code\":\"PROVIDER_RETRIES_EXHAUSTED\","
+                        + "\"message\":\"Pi provider request failed: HTTP 429 (rate limited)\"}}", "implement");
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "coding_starting", "provider", "test-provider", "model", "test-model"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "coding_usage", "inputTokens", 40_000, "cacheReadTokens", 100_000,
+                        "cacheWriteTokens", 0, "outputTokens", 4_000));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "provider_error", "reason", "HTTP 429 (rate limited)",
+                        "stopReason", "error"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "auto_retry_start", "attempt", 1, "maxAttempts", 3,
+                        "reason", "HTTP 429 (rate limited)"));
+        auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement",
+                Map.of("inputTokens", 100_000, "cacheReadTokens", 200_000, "cacheWriteTokens", 0,
+                        "outputTokens", 10_000, "provider", "test-provider", "model", "test-model"));
+
+        String body = assertRendered("/executions/" + execution.getId(), "Provider diagnostics");
+        assertThat(body).contains("Stop reason: Pi provider request failed: HTTP 429 (rate limited)",
+                        "310k", "0.026 USD", "Coding runtime retrying request (1/3) · HTTP 429 (rate limited)")
+                .doesNotContain("Coding runtime-reported cost");
+    }
+
+    @Test
+    void developerAuditVolumeStaysBehindClosedDebugDisclosure() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setCurrentStepIndex(3);
+        execution.setStatus(ExecutionStatus.RUNNING);
+        execution = executions.save(execution);
+        for (int i = 0; i < 240; i++)
+            auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                    Map.of("activity", "turn_start"));
+
+        String body = assertRendered("/executions/" + execution.getId(), "Execution history (0)");
+
+        assertThat(body)
+                .containsOnlyOnce("data-developer-history")
+                .containsOnlyOnce("id=\"developer-recent-heading\"")
+                .contains("No activity reported yet.", "Open full append-only audit log")
+                .doesNotContain("Raw audit history", "<details data-developer-history open");
+    }
+
+    @Test
+    void completedDeveloperExecutionsRenderProductOutcomeInHeaderAndList() {
+        for (String outcome : List.of("DEVELOPMENT_FAILED", "DELIVERED")) {
+            var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+            execution.setCurrentStepIndex(6);
+            execution.setStatus(ExecutionStatus.COMPLETED);
+            execution = executions.save(execution);
+            artifactStore.putMarkdown(execution.getId(), "dev_result.json",
+                    "{\"state\":\"" + outcome + "\"}", "publish");
+            if (outcome.equals("DEVELOPMENT_FAILED")) {
+                auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                        Map.of("activity", "pi_usage", "inputTokens", 10,
+                                "cacheReadTokens", 2, "cacheWriteTokens", 1,
+                                "outputTokens", 3, "costUsd", 0.125));
+                auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of());
+            }
+            String detail = assertRendered("/executions/" + execution.getId(), "Developer Flow");
+            assertThat(detail).contains("badge-status-" + outcome, ">" + outcome + "</span>",
+                            "Workflow engine status: COMPLETED")
+                    .doesNotContain("badge-status-COMPLETED");
+            if (outcome.equals("DEVELOPMENT_FAILED"))
+                assertThat(detail).contains(">16</strong>", "total usage tokens", "Input tokens (uncached)",
+                                "Cache read tokens", "Cache creation tokens", "Output tokens")
+                        .doesNotContain("pi usage", "Coding runtime-reported cost");
+            String list = assertRendered("/executions?flow=dev-factory", "Executions");
+            assertThat(list).contains("badge-status-" + outcome, ">" + outcome + "</span>")
+                    .doesNotContain("badge-status-COMPLETED");
+        }
+    }
+
+    @Test
+    void nonDeveloperCompletedStatusIsUnchangedEvenWithDeveloperNamedArtifact() {
+        var execution = new PipelineExecution("test-factory", "1", "{}");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        execution = executions.save(execution);
+        artifactStore.putMarkdown(execution.getId(), "dev_result.json",
+                "{\"state\":\"DEVELOPMENT_FAILED\"}", "test");
+        assertThat(assertRendered("/executions/" + execution.getId(), "Execution"))
+                .contains("badge-status-COMPLETED", ">COMPLETED</span>")
+                .doesNotContain("badge-status-DEVELOPMENT_FAILED", "Workflow engine status:");
+        assertThat(assertRendered("/executions?flow=test-factory", "Executions"))
+                .contains("badge-status-COMPLETED", ">COMPLETED</span>")
+                .doesNotContain("badge-status-DEVELOPMENT_FAILED");
     }
 
     @Test

@@ -20,7 +20,18 @@ public record AgentContext(
         Map<String, ArtifactContent> inputs,
         JsonNode triggerPayload,
         Map<String, Object> config,
-        List<String> expectedOutputs) {
+        List<String> expectedOutputs, Invocation invocation) {
+
+    public record Invocation(UUID id, boolean replay, Runnable ownershipCheck,
+                             java.util.function.Consumer<Map<String, Object>> progressRecorder) {
+        public void requireOwned() { ownershipCheck.run(); }
+        public void recordProgress(Map<String, Object> detail) { progressRecorder.accept(detail); }
+    }
+
+    public AgentContext(UUID executionId, String stepId, Map<String, ArtifactContent> inputs,
+                        JsonNode triggerPayload, Map<String, Object> config, List<String> expectedOutputs) {
+        this(executionId, stepId, inputs, triggerPayload, config, expectedOutputs, null);
+    }
 
     public AgentContext {
         inputs = inputs == null ? Map.of() : Map.copyOf(inputs);

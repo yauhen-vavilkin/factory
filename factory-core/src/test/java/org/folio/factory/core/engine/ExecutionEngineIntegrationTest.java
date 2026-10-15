@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.test.annotation.DirtiesContext;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -24,6 +25,7 @@ import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(properties = "spring.jpa.hibernate.ddl-auto=create-drop")
 @Testcontainers
+@DirtiesContext
 class ExecutionEngineIntegrationTest {
 
     @Container
@@ -151,6 +153,30 @@ class ExecutionEngineIntegrationTest {
         assertThat(stateManager.get(execution.getId()).getCurrentStepIndex()).isEqualTo(1);
         // Wrong expected status → refused.
         assertThat(stateManager.advanceStep(execution.getId(), 1, ExecutionStatus.AWAITING_HITL)).isFalse();
+    }
+
+    @Test
+    void guardedHeartbeatRejectsChangedStepStatusAndReclaimedLease() {
+        PipelineExecution execution = stateManager.createExecution("fake-simple", "1.0.0", null);
+        claimUntilRunning(execution.getId());
+        PipelineExecution running = stateManager.get(execution.getId());
+        long version = running.getVersion();
+
+        assertThat(stateManager.heartbeat(execution.getId(), 1, version)).isFalse();
+        assertThat(stateManager.heartbeat(execution.getId(), 0, version)).isTrue();
+        assertThat(stateManager.get(execution.getId()).getVersion()).isEqualTo(version + 1);
+        assertThat(stateManager.heartbeat(execution.getId(), 0, version)).isFalse();
+
+        claimService.release(execution.getId());
+        assertThat(stateManager.heartbeat(execution.getId(), 0,
+                stateManager.get(execution.getId()).getVersion())).isFalse();
+        claimUntilRunning(execution.getId());
+        assertThat(stateManager.heartbeat(execution.getId(), 0, version + 1)).isFalse();
+        assertThat(stateManager.advanceStep(execution.getId(), 0, ExecutionStatus.RUNNING, version + 1)).isFalse();
+        assertThat(stateManager.heartbeat(execution.getId(), 0,
+                stateManager.get(execution.getId()).getVersion())).isTrue();
+        assertThat(stateManager.advanceStep(execution.getId(), 0, ExecutionStatus.RUNNING,
+                stateManager.get(execution.getId()).getVersion())).isTrue();
     }
 
     @Test

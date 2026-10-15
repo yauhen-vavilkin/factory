@@ -20,4 +20,9 @@ public interface GitHubConnector {
      * @return the created pull request's HTML URL
      */
     String createPullRequest(String repo, String headBranch, String baseBranch, String title, String body);
+
+    /** Find an open PR inside the destination repository before creating another. */
+    default java.util.Optional<String> findOpenPullRequest(String repo, String headBranch, String baseBranch) {
+        throw new UnsupportedOperationException("GitHub pull request lookup is not configured");
+    }
 }

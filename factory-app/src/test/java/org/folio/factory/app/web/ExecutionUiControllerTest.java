@@ -35,11 +35,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.math.BigDecimal;
+import java.net.URI;
+import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
@@ -75,9 +79,13 @@ class ExecutionUiControllerTest {
 
     @BeforeEach
     void setUp() {
-        mvc = MockMvcBuilders
-                .standaloneSetup(new ExecutionUiController(executions, artifactStore, auditLog,
-                        flowRegistry, reviews, json))
+        var rate = new DeveloperPricingProperties.Rate("glm-5.3-flash", "USD",
+                LocalDate.parse("2026-09-19"), URI.create("https://example.test/pricing"),
+                new BigDecimal("0.15"), new BigDecimal("0.03"), null, new BigDecimal("0.50"));
+        var estimator = new DeveloperCostEstimator(new DeveloperPricingProperties(Map.of("flash", rate)));
+        mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(executions, artifactStore, auditLog,
+                flowRegistry, reviews, json, estimator,
+                new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class))))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
@@ -215,6 +223,184 @@ class ExecutionUiControllerTest {
     }
 
     @Test
+    void execution_detail_failedDeveloperRunUsesLatestStreamedCodingUsage() throws Exception {
+        PipelineExecution execution = developerExecution();
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"pi_usage\",\"inputTokens\":40,\"cacheReadTokens\":10,"
+                                + "\"outputTokens\":3,\"costUsd\":0.1}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"pi_usage\",\"inputTokens\":80000,\"cacheReadTokens\":35000,"
+                                + "\"cacheWriteTokens\":5000,\"outputTokens\":10000,\"costUsd\":0.3}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine", "{}")));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "coding", true, "total", "130k", "input", "80k",
+                        "cacheRead", "35k", "cacheWrite", "5k", "output", "10k")))
+                .andExpect(model().attributeDoesNotExist("reportedCost"));
+    }
+
+    @Test
+    void execution_detail_successfulDeveloperRunPrefersCompletedMetricsOverProgress() throws Exception {
+        PipelineExecution execution = developerExecution();
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"pi_usage\",\"inputTokens\":27,\"outputTokens\":8,\"costUsd\":0.3}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
+                        "{\"inputTokens\":30,\"cacheReadTokens\":10,\"outputTokens\":9,"
+                                + "\"promptTokens\":40,\"completionTokens\":9,\"costUsd\":0.4}")));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "coding", true, "total", "49", "input", "30",
+                        "cacheRead", "10", "output", "9")))
+                .andExpect(model().attributeDoesNotExist("reportedCost"));
+    }
+
+    @Test
+    void execution_detail_estimatesDeveloperCostFromStoredRuntimeIdentity() throws Exception {
+        PipelineExecution execution = developerExecution();
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"pi_starting\",\"provider\":\"another-proxy\",\"model\":\"glm-5.3-flash\"}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"pi_usage\",\"inputTokens\":71200,\"cacheReadTokens\":2500000,"
+                                + "\"cacheWriteTokens\":0,\"outputTokens\":35100,\"costUsd\":0}")));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("estimatedCost", new DeveloperCostEstimator.Estimate(
+                        "0.10323", "USD", LocalDate.parse("2026-09-19"), "https://example.test/pricing")))
+                .andExpect(model().attributeDoesNotExist("reportedCost"));
+    }
+
+    @Test
+    void execution_detail_newRunShowsFullRetryUsageAndSafeFailureReason() throws Exception {
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(developerExecution()));
+        when(artifactStore.allForExecution(EXECUTION_ID)).thenReturn(List.of(artifact(
+                "dev_coding_outcome.json", 1,
+                "{\"status\":\"FAILED\",\"failure\":{\"code\":\"PROVIDER_RETRIES_EXHAUSTED\","
+                        + "\"message\":\"Pi provider request failed: HTTP 429 (rate limited)\"}}", "dev-develop")));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"coding_usage\",\"inputTokens\":40000,\"cacheReadTokens\":100000,"
+                                + "\"cacheWriteTokens\":0,\"outputTokens\":4000}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"provider_error\",\"reason\":\"HTTP 429 (rate limited)\"}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
+                        "{\"inputTokens\":100000,\"cacheReadTokens\":200000,\"cacheWriteTokens\":0,"
+                                + "\"outputTokens\":10000,\"provider\":\"openai-compatible\","
+                                + "\"model\":\"glm-5.3-flash\"}")));
+
+        var result = mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "coding", true, "total", "310k", "input", "100k",
+                        "cacheRead", "200k", "cacheWrite", "0", "output", "10k")))
+                .andExpect(model().attribute("estimatedCost", new DeveloperCostEstimator.Estimate(
+                        "0.026", "USD", LocalDate.parse("2026-09-19"), "https://example.test/pricing")))
+                .andReturn();
+        @SuppressWarnings("unchecked")
+        var developer = (Map<String, Object>) result.getModelAndView().getModel().get("developer");
+        assertThat(developer).containsEntry("reason", "Pi provider request failed: HTTP 429 (rate limited)");
+        assertThat(developer.get("activity").toString()).contains("Provider request failed · HTTP 429 (rate limited)");
+    }
+
+    @Test
+    void execution_detail_missingRetryUsagePreservesTokensButSuppressesCost() throws Exception {
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(developerExecution()));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"coding_starting\",\"provider\":\"openai-compatible\",\"model\":\"glm-5.3-flash\"}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "implement", "system",
+                        "{\"activity\":\"coding_usage\",\"inputTokens\":1000,\"cacheReadTokens\":0,"
+                                + "\"cacheWriteTokens\":0,\"outputTokens\":100,\"usageIncomplete\":true}")));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("estimatedCost", (Object) null))
+                .andExpect(model().attribute("usageIncomplete", true))
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "coding", true, "total", "1.1k", "input", "1k",
+                        "cacheRead", "0", "cacheWrite", "0", "output", "100")));
+    }
+
+    @Test
+    void execution_detail_developerUsageKeepsMissingCacheMetricsOptional() throws Exception {
+        PipelineExecution execution = developerExecution();
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
+                        "{\"inputTokens\":20,\"outputTokens\":5,\"promptTokens\":20,"
+                                + "\"completionTokens\":5}")));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "coding", true, "total", "25", "input", "20", "output", "5")));
+    }
+
+    @Test
+    void execution_detail_developerUsageDoesNotDoubleCountPartialNormalizedMetrics() throws Exception {
+        PipelineExecution execution = developerExecution();
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(flowRegistry.find("dev-factory")).thenReturn(Optional.of(developerDescriptor()));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
+                        "{\"promptTokens\":100,\"completionTokens\":20,\"cacheReadTokens\":40}")));
+
+        var result = mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "coding", true, "total", "120", "cacheRead", "40")))
+                .andReturn();
+
+        assertThat(steps(result).get(3)).containsEntry("tokens", "120 tokens (100 in / 20 out)");
+    }
+
+    @Test
+    void execution_detail_developerUsageIncludesLegacyOnlyStepsInTotal() throws Exception {
+        PipelineExecution execution = developerExecution();
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "read-task", "engine",
+                        "{\"promptTokens\":100,\"completionTokens\":20}"),
+                new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
+                        "{\"inputTokens\":30,\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"outputTokens\":9,"
+                                + "\"promptTokens\":30,\"completionTokens\":9,\"provider\":\"openai-compatible\","
+                                + "\"model\":\"glm-5.3-flash\"}")));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", true, "coding", true, "total", "159", "input", "30",
+                        "cacheRead", "0", "cacheWrite", "0", "output", "9")))
+                .andExpect(model().attribute("estimatedCost", (Object) null));
+    }
+
+    @Test
+    void execution_detail_nonDeveloperRunIgnoresPiProgress() throws Exception {
+        PipelineExecution execution = execution(ExecutionStatus.RUNNING, 0, "{}");
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
+        when(flowRegistry.find("test-factory")).thenReturn(Optional.of(descriptor()));
+        when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
+                new AuditEvent(EXECUTION_ID, AuditEventType.RUNTIME_PROGRESS, "triage", "system",
+                        "{\"activity\":\"pi_usage\",\"promptTokens\":27,\"completionTokens\":8,\"costUsd\":0.3}")));
+
+        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("tokenTotals", Map.of(
+                        "present", false, "prompt", "0", "completion", "0", "total", "0")))
+                .andExpect(model().attributeDoesNotExist("reportedCost"));
+    }
+
+    @Test
     void execution_detail_escalatedCurrentStepMarkedFailed() throws Exception {
         PipelineExecution execution = execution(ExecutionStatus.FAILED_ESCALATED, 1, "{}");
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
@@ -271,6 +457,7 @@ class ExecutionUiControllerTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> planVersions = (List<Map<String, Object>>) groups.get(1).get("versions");
         assertThat(planVersions).hasSize(2);
+        assertThat(planVersions).allSatisfy(version -> assertThat(version.get("id")).isInstanceOf(UUID.class));
         assertThat(planVersions.get(0)).containsEntry("version", 1).containsEntry("latest", false);
         assertThat(planVersions.get(1)).containsEntry("version", 2).containsEntry("latest", true);
         assertThat(planVersions.get(1).get("label").toString()).contains("v2").contains("qa");
@@ -365,6 +552,20 @@ class ExecutionUiControllerTest {
         return execution;
     }
 
+    private static PipelineExecution developerExecution() {
+        PipelineExecution execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        execution.setCurrentStepIndex(6);
+        try {
+            var field = PipelineExecution.class.getDeclaredField("id");
+            field.setAccessible(true);
+            field.set(execution, EXECUTION_ID);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
+        }
+        return execution;
+    }
+
     private static PipelineExecution child(UUID id, int parentStepIndex) {
         PipelineExecution child = new PipelineExecution("child-flow", "1", "{}");
         child.setStatus(ExecutionStatus.RUNNING);
@@ -393,5 +594,12 @@ class ExecutionUiControllerTest {
                 null, null, null, null, null);
         return new FlowDescriptor("test-factory", "Test Factory", "1", null, null, null,
                 List.of(triage, gate, finalizer), null);
+    }
+
+    private static FlowDescriptor developerDescriptor() {
+        return new FlowDescriptor("dev-factory", "Developer Flow", "0.6.0", null, null, null,
+                List.of("read-task", "select-repository", "prepare-task", "implement", "verify", "publish")
+                        .stream().map(stepId -> new StepDescriptor(stepId, StepType.AGENT, "worker",
+                                null, null, null, null, null)).toList(), null);
     }
 }

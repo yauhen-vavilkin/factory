@@ -40,6 +40,11 @@ public class HitlDecisionService {
     private final FlowRegistry flowRegistry;
     private final List<ArtifactAmendmentValidator> amendmentValidators;
     private final JsonMapper jsonMapper;
+    private List<HitlDecisionPolicy> policies = List.of();
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setPolicies(List<HitlDecisionPolicy> policies) { this.policies = List.copyOf(policies); }
+
 
     public HitlDecisionService(HitlReviewRepository reviews, StateManager stateManager,
                                ArtifactStore artifactStore, AuditLog auditLog, FlowRegistry flowRegistry,
@@ -69,6 +74,9 @@ public class HitlDecisionService {
         PipelineExecution execution = stateManager.get(review.getExecutionId());
         requireExecutionStillAtReview(review, execution, escalation);
 
+        for (var policy : policies) policy.validate(review, execution, decision,
+                amendedArtifacts == null ? Map.of() : amendedArtifacts);
+
         switch (decision) {
             case APPROVE -> {
                 review.decide(HitlReviewStatus.APPROVED, decision.name(), reviewer, comments, null);
@@ -93,8 +101,9 @@ public class HitlDecisionService {
             }
             case REJECT -> {
                 review.decide(HitlReviewStatus.REJECTED, decision.name(), reviewer, comments, null);
+                boolean cancel = escalation || policies.stream().anyMatch(policy -> policy.cancelOnReject(review, execution));
                 stateManager.transition(review.getExecutionId(),
-                        escalation ? ExecutionStatus.CANCELLED : ExecutionStatus.REJECTED,
+                        cancel ? ExecutionStatus.CANCELLED : ExecutionStatus.REJECTED,
                         Map.of("gateId", review.getGateId(), "reviewer", reviewer));
             }
         }
@@ -112,6 +121,13 @@ public class HitlDecisionService {
      */
     private void requireExecutionStillAtReview(HitlReview review, PipelineExecution execution,
                                                boolean escalation) {
+        var pkg = jsonMapper.readTree(review.getReviewPackage());
+        if (pkg.path("resumeSameStep").asBoolean(false)) {
+            String name = pkg.path("stateArtifact").asString("");
+            var current = artifactStore.getLatest(execution.getId(), name).orElseThrow();
+            if (current.getVersion() != pkg.path("stateVersion").asInt(-1))
+                throw new IllegalStateException("Review state is stale; reload the execution");
+        }
         if (escalation) {
             if (execution.getStatus() != ExecutionStatus.FAILED_ESCALATED) {
                 throw new IllegalStateException("Execution " + execution.getId()
@@ -171,7 +187,8 @@ public class HitlDecisionService {
             String stepId = flowRegistry.require(execution.getFlowId())
                     .step(review.getStepIndex()).stepId();
             stateManager.resetRetry(executionId, stepId);
-        } else if (!stateManager.advanceStep(executionId, review.getStepIndex(),
+        } else if (!jsonMapper.readTree(review.getReviewPackage()).path("resumeSameStep").asBoolean(false)
+                && !stateManager.advanceStep(executionId, review.getStepIndex(),
                 ExecutionStatus.AWAITING_HITL)) {
             throw new IllegalStateException("Execution " + executionId
                     + " moved while the decision was being applied; please re-review");
