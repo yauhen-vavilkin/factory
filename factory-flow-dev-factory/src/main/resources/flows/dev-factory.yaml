@@ -1,0 +1,74 @@
+id: dev-factory
+name: Developer Flow
+version: 0.9.0
+triggers:
+  - event_type: manual
+input_schema:
+  required: [issueKey]
+output_schema:
+  artifacts: [dev_coding_request.json, dev_coding_outcome.json, dev_candidate.json, dev_readiness.json, dev_verification.json, dev_delivery.json, dev_result.json]
+retry_policy:
+  max_attempts: 3
+  backoff_seconds: [30, 120, 300]
+agent_chain:
+  - step_id: read-task
+    type: AGENT
+    worker_id: dev-intake
+    inputs: ["$trigger"]
+    outputs: [dev_intake.md, dev_decision_request.md, dev_decision_answer.md]
+
+  - step_id: select-repository
+    type: AGENT
+    worker_id: dev-decision-gate
+    inputs: [dev_decision_request.md]
+    outputs: []
+
+  - step_id: prepare-task
+    type: AGENT
+    worker_id: dev-intake-resolve
+    inputs: [dev_intake.md, dev_decision_request.md, dev_decision_answer.md]
+    outputs: [dev_task_brief.md, dev_coding_request.json]
+
+  - step_id: implement
+    type: AGENT
+    worker_id: dev-develop
+    inputs: [dev_task_brief.md, dev_coding_request.json]
+    outputs: [dev_candidate.json, dev_readiness.json, dev_coding_outcome.json, dev_coding_decision_request.md, dev_coding_decision_answer.md]
+
+  - step_id: clarify-implementation
+    type: AGENT
+    worker_id: dev-coding-decision-gate
+    inputs: [dev_coding_request.json, dev_coding_outcome.json, dev_coding_decision_request.md, dev_coding_decision_answer.md]
+    outputs: []
+
+  - step_id: continue-implementation
+    type: AGENT
+    worker_id: dev-develop-continuation
+    inputs: [dev_coding_request.json, dev_coding_outcome.json, dev_candidate.json, dev_readiness.json, dev_coding_decision_request.md, dev_coding_decision_answer.md]
+    outputs: [dev_coding_request.json, dev_coding_outcome.json, dev_candidate.json, dev_readiness.json]
+
+  - step_id: verify
+    type: AGENT
+    worker_id: dev-verify
+    inputs: [dev_candidate.json]
+    outputs: [dev_verification.json, dev_result.json]
+
+  - step_id: publish
+    type: AGENT
+    worker_id: dev-deliver
+    inputs: [dev_task_brief.md, dev_coding_request.json, dev_coding_outcome.json, dev_candidate.json, dev_verification.json, dev_result.json]
+    outputs: [dev_delivery.json, dev_result.json]
+
+  - step_id: initialize-pr-feedback
+    type: AGENT
+    worker_id: dev-pr-initialize
+    inputs: []
+    outputs: [dev_pr_state.json, dev_pr_request.json, dev_pr_candidate.json, dev_pr_verification.json, dev_pr_delivery.json]
+
+  - step_id: pr-follow-up
+    type: AGENT
+    worker_id: dev-pr-follow-up
+    inputs: [dev_delivery.json, dev_coding_request.json, dev_pr_state.json, dev_pr_request.json, dev_pr_candidate.json, dev_pr_verification.json, dev_pr_delivery.json]
+    outputs: [dev_pr_state.json, dev_pr_request.json, dev_pr_candidate.json, dev_pr_verification.json, dev_pr_delivery.json]
+    config:
+      resumable: true

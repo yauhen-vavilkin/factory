@@ -1,3 +1,6 @@
+include:
+  - compose.runtime-${FACTORY_DEV_FACTORY_CODING_RUNTIME:-pi}.yml
+
 services:
   postgres:
     image: postgres:16
@@ -6,7 +9,7 @@ services:
       POSTGRES_USER: factory
       POSTGRES_PASSWORD: factory
     ports:
-      - "5432:5432"
+      - "${FACTORY_BIND_ADDRESS:-127.0.0.1}:${FACTORY_DB_PORT:-5432}:5432"
     volumes:
       - factory-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -15,5 +18,68 @@ services:
       timeout: 3s
       retries: 10
 
+  factory:
+    build: .
+    image: folio-factory-app:local
+    # Docker Desktop exposes the daemon socket to root in this single-user MVP.
+    user: "0:0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      coding-runtime:
+        condition: service_completed_successfully
+    environment:
+      FACTORY_DB_URL: jdbc:postgresql://postgres:5432/factory
+      FACTORY_DB_USER: factory
+      FACTORY_DB_PASSWORD: factory
+      # The app listens on the container interface; the published host port below
+      # remains loopback-only by default.
+      FACTORY_SERVER_ADDRESS: 0.0.0.0
+      FACTORY_CONNECTORS_JIRA_BASE_URL: ${FACTORY_CONNECTORS_JIRA_BASE_URL:-}
+      FACTORY_CONNECTORS_JIRA_EMAIL: ${FACTORY_CONNECTORS_JIRA_EMAIL:-}
+      FACTORY_CONNECTORS_JIRA_API_TOKEN: ${FACTORY_CONNECTORS_JIRA_API_TOKEN:-}
+      FACTORY_CONNECTORS_GITHUB_TOKEN: ${FACTORY_CONNECTORS_GITHUB_TOKEN:-}
+      FACTORY_MGR_TENANT_ENTITLEMENTS_BASE_BRANCH: ${FACTORY_MGR_TENANT_ENTITLEMENTS_BASE_BRANCH:-master}
+      FACTORY_MODEL_API_KEY: ${FACTORY_MODEL_API_KEY:-}
+      FACTORY_MODEL_BASE_URL: ${FACTORY_MODEL_BASE_URL:-}
+      FACTORY_MODEL_PROVIDER: ${FACTORY_MODEL_PROVIDER:-}
+      FACTORY_MODEL_ID: ${FACTORY_MODEL_ID:-}
+      FACTORY_MODEL_API: ${FACTORY_MODEL_API:-openai-completions}
+      FACTORY_MODEL_REASONING_EFFORT: ${FACTORY_MODEL_REASONING_EFFORT:-}
+      FACTORY_MODEL_MAX_OUTPUT_TOKENS: ${FACTORY_MODEL_MAX_OUTPUT_TOKENS:-16384}
+      FACTORY_PI_IMAGE: ${FACTORY_PI_IMAGE:-}
+      FACTORY_PI_PROVIDER: ${FACTORY_PI_PROVIDER:-}
+      FACTORY_PI_MODEL: ${FACTORY_PI_MODEL:-}
+      FACTORY_PI_BASE_URL: ${FACTORY_PI_BASE_URL:-}
+      FACTORY_PI_API: ${FACTORY_PI_API:-}
+      FACTORY_PI_AUTHENTICATION: ${FACTORY_PI_AUTHENTICATION:-api-key}
+      FACTORY_PI_API_KEY: ${FACTORY_PI_API_KEY:-}
+      FACTORY_PI_REASONING_EFFORT: ${FACTORY_PI_REASONING_EFFORT:-}
+      FACTORY_PI_MAX_OUTPUT_TOKENS: ${FACTORY_PI_MAX_OUTPUT_TOKENS:-}
+      FACTORY_CLAUDE_CODE_IMAGE: ${FACTORY_CLAUDE_CODE_IMAGE:-factory-dev-claude-code:2.1.287-java21}
+      FACTORY_CLAUDE_CODE_API: ${FACTORY_CLAUDE_CODE_API:-anthropic-messages}
+      FACTORY_CLAUDE_CODE_BASE_URL: ${FACTORY_CLAUDE_CODE_BASE_URL:-}
+      FACTORY_CLAUDE_CODE_MODEL: ${FACTORY_CLAUDE_CODE_MODEL:-}
+      FACTORY_CLAUDE_CODE_AUTHENTICATION: ${FACTORY_CLAUDE_CODE_AUTHENTICATION:-}
+      FACTORY_CLAUDE_CODE_API_KEY: ${FACTORY_CLAUDE_CODE_API_KEY:-}
+      FACTORY_CLAUDE_CODE_AUTH_TOKEN: ${FACTORY_CLAUDE_CODE_AUTH_TOKEN:-}
+      FACTORY_CLAUDE_CODE_MAX_TURNS: ${FACTORY_CLAUDE_CODE_MAX_TURNS:-40}
+      FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS: ${FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS:-16384}
+      FACTORY_CLAUDE_CODE_EFFORT: ${FACTORY_CLAUDE_CODE_EFFORT:-}
+      FACTORY_DEV_FACTORY_CODING_IMAGE: ${FACTORY_DEV_FACTORY_CODING_IMAGE:-factory-dev-pi:0.85.1-java21}
+      FACTORY_DEV_FACTORY_CODING_RUNTIME: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:-pi}
+      FACTORY_DEV_FACTORY_TIMEOUT_SECONDS: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:-1800}
+      FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:-factory-dev-m2-cache}
+      FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS: ${FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS:-7200}
+      SPRING_CONFIG_IMPORT: optional:file:/application/config/developer-pricing.yaml
+    ports:
+      - "${FACTORY_BIND_ADDRESS:-127.0.0.1}:${FACTORY_APP_PORT:-8080}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - factory-dev-m2-cache:/var/lib/factory-dev-m2-cache:ro
+      - ./config/developer-pricing.yaml:/application/config/developer-pricing.yaml:ro
+
 volumes:
   factory-pgdata:
+  factory-dev-m2-cache:
+    name: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:-factory-dev-m2-cache}

@@ -31,6 +31,10 @@
       <groupId>org.folio.factory</groupId>
       <artifactId>factory-flow-test-factory</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.folio.factory</groupId>
+      <artifactId>factory-flow-dev-factory</artifactId>
+    </dependency>
 
     <dependency>
       <groupId>org.springframework.boot</groupId>

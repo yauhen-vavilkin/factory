@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org"><body>
+<section th:fragment="feedback" id="pr-feedback" class="card developer-execution feedback-section">
+  <div class="developer-header">
+    <div><p class="developer-flow-label">Pull request</p><h2 class="developer-title">Work on feedback</h2></div>
+    <span class="badge badge-outline" th:text="${feedback['phase']}"></span>
+  </div>
+  <div class="developer-content feedback-content">
+    <div class="alert alert-error" role="alert" th:if="${feedbackError}" th:text="${feedbackError}"></div>
+    <p th:if="${!#strings.isEmpty(feedback['reason'])}" th:text="${feedback['reason']}"></p>
+    <div class="feedback-toolbar">
+      <form th:if="${feedback['refresh']}" method="post" th:action="@{'/executions/'+${execution.id}+'/pr-feedback/refresh'}">
+        <input type="hidden" name="stateVersion" th:value="${feedback['version']}">
+        <button class="btn btn-outline" type="submit">Check PR comments</button>
+      </form>
+    </div>
+    <form class="feedback-selection" th:if="${feedback['fix'] and !#lists.isEmpty(feedback['comments'])}"
+          method="post" th:action="@{'/executions/'+${execution.id}+'/pr-feedback/actions'}">
+      <input type="hidden" name="reviewId" th:value="${feedback['reviewId']}">
+      <input type="hidden" name="stateVersion" th:value="${feedback['version']}">
+      <input type="hidden" name="snapshotId" th:value="${feedback['snapshotId']}">
+      <input type="hidden" name="action" value="FIX">
+      <h3>Select comments to address</h3>
+      <label class="feedback-comment" th:each="comment:${feedback['comments']}">
+        <input type="checkbox" name="selectedIds" th:value="${comment['id']}">
+        <span><span class="feedback-comment-meta"><strong th:text="${comment['author']}"></strong>
+          <span th:text="${comment['location']}"></span>
+          <span class="badge badge-outline" th:if="${comment['outdated']}">Outdated location</span>
+          <span class="badge badge-outline" th:if="${comment['processed']}">Previously addressed</span></span>
+          <span class="feedback-comment-body" th:text="${comment['body']}"></span></span>
+      </label>
+      <button class="btn btn-primary" type="submit">Fix selected comments</button>
+    </form>
+    <p class="muted" th:if="${feedback['fix'] and #lists.isEmpty(feedback['comments'])}">Check PR comments to select the next changes. No agent runs while this task waits.</p>
+    <form class="feedback-answer" th:if="${feedback['answer']}" method="post" th:action="@{'/executions/'+${execution.id}+'/pr-feedback/actions'}">
+      <input type="hidden" name="reviewId" th:value="${feedback['reviewId']}">
+      <input type="hidden" name="stateVersion" th:value="${feedback['version']}">
+      <input type="hidden" name="action" value="ANSWER">
+      <label for="feedback-answer">Your answer</label><textarea id="feedback-answer" name="answer" required maxlength="16000" rows="4"></textarea>
+      <button class="btn btn-primary" type="submit">Answer and continue</button>
+    </form>
+    <div class="feedback-toolbar" th:unless="${#lists.isEmpty(feedback['actions'])}">
+      <form method="post" th:each="action:${feedback['actions']}" th:action="@{'/executions/'+${execution.id}+'/pr-feedback/actions'}">
+        <input type="hidden" name="reviewId" th:value="${feedback['reviewId']}">
+        <input type="hidden" name="stateVersion" th:value="${feedback['version']}">
+        <button class="btn btn-outline" type="submit" name="action" th:value="${action['value']}" th:text="${action['label']}"></button>
+      </form>
+    </div>
+    <div class="feedback-rounds">
+      <details class="feedback-round" th:each="round:${feedback['rounds']}" th:open="${round['open']}">
+        <summary><strong th:text="${round['title']}"></strong><span th:text="${round['phase']}"></span></summary>
+        <div class="feedback-round-content">
+          <p th:if="${!#strings.isEmpty(round['summary'])}" th:text="${round['summary']}"></p>
+          <p class="muted" th:if="${!#strings.isEmpty(round['reason'])}" th:text="${round['reason']}"></p>
+          <div class="developer-live-grid">
+            <section class="developer-panel"><h3>Selected feedback</h3>
+              <div class="feedback-selected" th:each="item:${round['selected']}"><strong th:text="${item['author']}"></strong><p th:text="${item['body']}"></p></div>
+              <p th:if="${#lists.isEmpty(round['selected'])}" class="muted">Manual changes</p>
+            </section>
+            <section class="developer-panel" th:unless="${round['manual']}"><h3>Runtime &amp; usage</h3>
+              <dl class="developer-runtime-facts"><div th:if="${!#strings.isEmpty(round['runtime'])}"><dt>Runtime</dt><dd th:text="${round['runtime']}"></dd></div>
+                <div><dt>Models</dt><dd th:text="${round['usage']['models']}"></dd></div>
+                <div><dt>Attempts</dt><dd th:text="${round['usage']['attempts']}"></dd></div>
+                <div><dt>Tokens reported</dt><dd th:text="${round['usage']['tokensDisplay']}"></dd></div>
+                <div><dt>Estimated cost</dt><dd th:text="${round['usage']['cost']}"></dd></div>
+                <div th:if="${!#strings.isEmpty(round['commit'])}"><dt>Published commit</dt><dd class="feedback-sha" th:text="${round['commit']}"></dd></div></dl>
+            </section>
+          </div>
+          <section class="developer-panel" th:if="${round['verification'] != null}"><h3>Independent verification</h3>
+            <p><strong th:text="${round['verification'].result}"></strong> · <span th:text="${round['verification'].testCount}"></span> tests
+              · <span th:text="${round['verification'].failureCount}"></span> failures</p>
+            <details><summary>Check output</summary><pre class="feedback-diagnostics" th:text="${round['verification'].output}"></pre></details>
+          </section>
+          <details class="feedback-activity"><summary>Activity</summary><ol class="developer-recent">
+            <li th:each="item:${round['activity']}"><time th:text="${item['time']}"></time><span th:text="${item['text']}"></span></li>
+          </ol></details>
+        </div>
+      </details>
+    </div>
+  </div>
+</section>
+</body></html>

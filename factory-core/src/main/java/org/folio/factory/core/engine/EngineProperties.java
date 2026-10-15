@@ -17,9 +17,11 @@ public record EngineProperties(
         pollIntervalMs = pollIntervalMs == null ? 2000L : pollIntervalMs;
         batchSize = batchSize == null ? 5 : batchSize;
         workerThreads = workerThreads == null ? 4 : workerThreads;
-        // Must exceed the longest legitimate single step (Karate runs are capped
-        // at 15 minutes) or the reaper re-queues live executions.
+        // Agent steps renew their lease periodically, including during long calls.
         leaseTimeoutSeconds = leaseTimeoutSeconds == null ? 1800L : leaseTimeoutSeconds;
+        if (leaseTimeoutSeconds < 1) {
+            throw new IllegalArgumentException("leaseTimeoutSeconds must be positive");
+        }
         // Bounded drain budget on shutdown; a step still running past it is
         // abandoned at forced pool shutdown and recovered by the reaper after
         // leaseTimeoutSeconds. Non-null by construction (used as int below).

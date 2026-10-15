@@ -19,17 +19,22 @@ RUN --mount=type=cache,target=/root/.m2 \
 RUN cp factory-app/target/factory-app-*.jar application.jar \
  && java -Djarmode=tools -jar application.jar extract --layers --destination extracted
 
+FROM docker:29-cli AS docker-cli
+
 # ---- Runtime stage: minimal JRE, non-root, actuator healthcheck ----
 FROM eclipse-temurin:21-jre AS runtime
 
-# curl is used only by the container HEALTHCHECK; create an unprivileged runtime user.
+# Developer Flow uses Git in the trusted control plane and the Docker CLI to create
+# isolated sibling workloads through the local Docker socket.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl \
+ && apt-get install -y --no-install-recommends curl git \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 1001 spring \
  && useradd --system --uid 1001 --gid spring --create-home --home-dir /application --shell /usr/sbin/nologin spring
 
 WORKDIR /application
+
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 
 # Copy the extracted layers slowest-changing first so image layers cache well across builds.
 COPY --from=build --chown=spring:spring /workspace/extracted/dependencies/ ./
