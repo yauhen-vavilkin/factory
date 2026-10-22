@@ -231,8 +231,12 @@ The coding runtime runs in a separate container without that socket or Jira/GitH
 credentials; verification rebuilds the frozen patch in another fresh container.
 Delivery is blocked unless the exact candidate has a matching successful
 verification receipt: required Maven suites must produce fresh, executed reports
-(see `required-reports` in `config/developer-repositories.yaml`), and a successful
-unit suite alone cannot approve a plan that requires integration reports. The
+(see `required-reports` in `config/developer-repositories.yaml`). `surefire` requires
+unit-test reports; `failsafe` requires integration-test reports. Each required
+family must be present, and every report in that family must contain an executed
+test. A successful unit suite alone cannot approve an integration plan. Test class
+names belong to the target project's Maven build and are not listed in Factory.
+Integration remains blocked when its Docker dependencies are unavailable. The
 trusted build reuses the configured Maven cache Docker volume, repairing cache
 entry ownership before each build. Keep this volume when stopping or rebuilding
 the stack.
@@ -273,11 +277,17 @@ be different repositories, but the delivery branch must contain the source base.
 
 `verification-plan` names a trusted command in `factory.dev-factory.runtime.plans`
 in the same file. The bundled `java21-unit` runs `mvn -B -ntp test`; add a separate
-plan and `runtime.required-reports.<plan>` list when your acceptance requires
-specific unit/integration suites. Verification requires fresh executed
-Surefire/Failsafe XML reports. An exit code of zero alone is insufficient.
-Commands and required reports are operator policy, never supplied by Jira or the
-coding model.
+plan with `runtime.required-reports.<plan>: [surefire, failsafe]` when acceptance
+requires both unit and integration tests. Use `[surefire]` for unit tests only.
+Verification reads fresh Surefire/Failsafe XML reports across Maven modules,
+checks executed-test counts and rejects failures, errors and entirely skipped
+reports in required families. New and renamed test classes need no Factory
+configuration changes. This policy checks executed report families; it does not
+prove that every test in the source was discovered or detect deleted tests.
+Existing operator catalogs with exact report paths remain supported, but the
+bundled catalog does not depend on test class names. An exit code of zero alone
+is insufficient. Commands and required reports are operator policy, never
+supplied by Jira or the coding model.
 
 Compose mounts this catalog read-only. To keep a private operator copy, set
 `FACTORY_DEV_FACTORY_REPOSITORIES_FILE=./config/my-repositories.yaml` in `.env`.

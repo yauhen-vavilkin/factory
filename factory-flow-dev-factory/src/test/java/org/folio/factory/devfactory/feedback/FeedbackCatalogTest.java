@@ -35,23 +35,33 @@ class FeedbackCatalogTest {
     private final CodingRuntime coding = mock(CodingRuntime.class);
     private final CandidateFreezer freezer = mock(CandidateFreezer.class);
     private final DockerWorkloads docker = mock(DockerWorkloads.class);
-    private final PrFeedbackGateway.PullRequest pr = new PrFeedbackGateway.PullRequest(
-            "fork/repo", 7, "factory/task", "main", "a".repeat(40),
-            "https://github.com/fork/repo/pull/7", true);
+    private final PrFeedbackGateway.PullRequest pullRequest =
+            new PrFeedbackGateway.PullRequest(
+                    "fork/repo",
+                    7,
+                    "factory/task",
+                    "main",
+                    "a".repeat(40),
+                    "https://github.com/fork/repo/pull/7",
+                    true);
 
     @Test
     void initializesPublishedPullRequestUsingNestedCatalogDestination() {
         var saved = new LinkedHashMap<>(initial());
-        saved.put("dev_delivery.json", JSON.writeValueAsString(Map.of(
-                "state", "DELIVERED", "repository", "fixture", "deliveryBranch", pr.branch(),
-                "pullRequestUrl", pr.url())));
-        when(gateway.read(pr.repository(), pr.number())).thenReturn(pr);
+        saved.put(
+                "dev_delivery.json",
+                JSON.writeValueAsString(Map.of(
+                        "state", "DELIVERED",
+                        "repository", "fixture",
+                        "deliveryBranch", pullRequest.branch(),
+                        "pullRequestUrl", pullRequest.url())));
+        when(gateway.read(pullRequest.repository(), pullRequest.number())).thenReturn(pullRequest);
 
         var result = worker(true).execute(context(saved));
         var state = JSON.readValue(result.outputs().get(STATE), FeedbackState.class);
 
         assertThat(state.phase()).isEqualTo(FeedbackState.Phase.READY);
-        assertThat(state.pr()).isEqualTo(pr);
+        assertThat(state.pr()).isEqualTo(pullRequest);
         verifyNoInteractions(coding, freezer);
     }
 
@@ -59,18 +69,25 @@ class FeedbackCatalogTest {
     @CsvSource({"true, false", "false, false", "true, true", "false, true"})
     void followsCurrentCatalogAuthorizationDespiteAnUnrelatedIncompleteDestination(
             boolean authorized, boolean incompleteOtherTarget) {
-        var comment = new PrFeedbackGateway.Comment("inline:1", "reviewer", "Correct value",
-                "value.txt", 1, false, "now", "url");
+        var comment = new PrFeedbackGateway.Comment(
+                "inline:1", "reviewer", "Correct value", "value.txt", 1, false, "now", "url");
         var state = new FeedbackState();
-        state.pr = pr;
+        state.pr = pullRequest;
         state.initialized();
-        state.apply(FeedbackActions.Action.FIX, new PrFeedbackGateway.Snapshot("selected", pr, List.of(comment)),
-                "selected", List.of(comment.id()), "");
+        var selectedComments = new PrFeedbackGateway.Snapshot(
+                "selected", pullRequest, List.of(comment));
+        state.apply(
+                FeedbackActions.Action.FIX,
+                selectedComments,
+                selectedComments.id(),
+                List.of(comment.id()),
+                "");
         var saved = new LinkedHashMap<>(initial());
         saved.put(STATE, JSON.writeValueAsString(state));
-        when(gateway.status(pr)).thenReturn(PrFeedbackGateway.Status.OPEN);
-        when(gateway.read(pr.repository(), pr.number())).thenReturn(pr);
-        when(gateway.comments(pr)).thenReturn(new PrFeedbackGateway.Snapshot("changed", pr, List.of(comment)));
+        when(gateway.status(pullRequest)).thenReturn(PrFeedbackGateway.Status.OPEN);
+        when(gateway.read(pullRequest.repository(), pullRequest.number())).thenReturn(pullRequest);
+        when(gateway.comments(pullRequest))
+                .thenReturn(new PrFeedbackGateway.Snapshot("changed", pullRequest, List.of(comment)));
         when(coding.redact(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
 
         var result = worker(authorized, incompleteOtherTarget).execute(context(saved));
@@ -78,7 +95,7 @@ class FeedbackCatalogTest {
 
         if (authorized) {
             assertThat(observed.phase()).isEqualTo(FeedbackState.Phase.REFRESH_REQUIRED);
-            verify(gateway).comments(pr);
+            verify(gateway).comments(pullRequest);
         } else {
             assertThat(observed.phase()).isEqualTo(FeedbackState.Phase.FAILURE);
             assertThat(observed.reason()).contains("PR target is no longer authorized");
@@ -95,29 +112,45 @@ class FeedbackCatalogTest {
     }
 
     private FeedbackWorker worker(boolean authorized, boolean incompleteOtherTarget) {
-        var repository = new DevFactoryProperties.Repository("source/repo", "main", "build:image", "unit",
-                List.of("TASK"), List.of(), new DeliveryTarget(pr.repository(), "main", authorized));
+        var repository = new DevFactoryProperties.Repository(
+                "source/repo", "main", "build:image", "unit", List.of("TASK"), List.of(),
+                new DeliveryTarget(pullRequest.repository(), "main", authorized));
         var catalog = new TreeMap<>(Map.of("fixture", repository));
         if (incompleteOtherTarget) {
-            catalog.put("unrelated", new DevFactoryProperties.Repository("source/other", "main", "build:image", "unit",
-                    List.of("OTHER"), List.of(), new DeliveryTarget(null, null, true)));
+            var unrelatedRepository = new DevFactoryProperties.Repository(
+                    "source/other", "main", "build:image", "unit", List.of("OTHER"), List.of(),
+                    new DeliveryTarget(null, null, true));
+            catalog.put("unrelated", unrelatedRepository);
         }
         var repositories = new DevFactoryProperties(null, catalog);
         var delivery = new DevDeliveryProperties(Map.of(), true);
         var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
         var executions = mock(StateManager.class);
-        when(executions.get(executionId)).thenReturn(new PipelineExecution("dev-factory", VERSION, null));
+        when(executions.get(executionId))
+                .thenReturn(new PipelineExecution("dev-factory", VERSION, null));
         var audit = mock(AuditLog.class);
         when(audit.forExecution(executionId)).thenReturn(List.of());
-        return new FeedbackWorker(repositories, delivery, runtime, new GitHubProperties(null, "fixture-token"),
-                gateway, freezer, mock(CandidateVerifier.class), coding, docker, mock(FeedbackGit.class), executions,
-                audit, model -> Map.of());
+        return new FeedbackWorker(
+                repositories,
+                delivery,
+                runtime,
+                new GitHubProperties(null, "fixture-token"),
+                gateway,
+                freezer,
+                mock(CandidateVerifier.class),
+                coding,
+                docker,
+                mock(FeedbackGit.class),
+                executions,
+                audit,
+                model -> Map.of());
     }
 
     private AgentContext context(Map<String, String> saved) {
         var inputs = new LinkedHashMap<String, ArtifactContent>();
-        saved.forEach((name, content) -> inputs.put(name, new ArtifactContent(name, 1, "application/json", content)));
-        return new AgentContext(executionId, STEP, inputs, null, Map.of(), OUTPUTS,
-                new AgentContext.Invocation(UUID.randomUUID(), false, () -> {}, detail -> {}));
+        saved.forEach((name, content) ->
+                inputs.put(name, new ArtifactContent(name, 1, "application/json", content)));
+        var invocation = new AgentContext.Invocation(UUID.randomUUID(), false, () -> {}, detail -> {});
+        return new AgentContext(executionId, STEP, inputs, null, Map.of(), OUTPUTS, invocation);
     }
 }

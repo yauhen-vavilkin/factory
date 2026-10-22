@@ -140,7 +140,7 @@ class DeveloperFlowRegistrationTest {
                         new DeliveryTarget("folio-org/mgr-applications", "master", false)));
         assertThat(devRuntimeProperties.command("java21-roles-verify"))
                 .containsExactly("mvn", "-B", "-ntp", "verify");
-        assertThat(devRuntimeProperties.requiredReports("java21-roles-verify")).hasSize(134);
+        assertThat(devRuntimeProperties.requiredReports("java21-roles-verify")).containsExactly("surefire", "failsafe");
         assertThat(devDeliveryProperties.createPullRequest()).isTrue();
         assertThat(devDeliveryProperties.targets()).isEmpty();
         assertThat(devDeliveryProperties.effectiveTargets(devFactoryProperties)).containsOnly(

@@ -48,7 +48,45 @@ class DeveloperRepositoryImportTest {
                           authorized: true
                 """);
 
-        var runner = new ApplicationContextRunner()
+        var runner = contextWithCatalog(catalog);
+        if (override) {
+            runner = runner.withPropertyValues(
+                    "FACTORY_SIDECAR_SOURCE_REPO=environment-owner/sidecar",
+                    "FACTORY_SIDECAR_BASE_BRANCH=environment-base",
+                    "FACTORY_SIDECAR_DELIVERY_REPO=environment-delivery/sidecar",
+                    "FACTORY_SIDECAR_DELIVERY_AUTHORIZED=false");
+        }
+
+        runner.run(context -> {
+            assertThat(context).hasNotFailed();
+            var repositories = context.getBean(DevFactoryProperties.class);
+            var delivery = context.getBean(DevDeliveryProperties.class);
+            var runtime = context.getBean(DevRuntimeProperties.class);
+            assertThat(repositories.repositories()).containsOnlyKeys(
+                    "sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "another-module");
+            var sidecar = repositories.repositories().get("sidecar");
+            String expectedBase = override ? "environment-base" : "catalog-base";
+            String expectedSource = override ? "environment-owner/sidecar" : "catalog-owner/sidecar";
+            String expectedDestination = override ? "environment-delivery/sidecar" : "catalog-delivery/sidecar";
+            var expectedTarget = new DeliveryTarget(expectedDestination, expectedBase, !override);
+            assertThat(sidecar.sourceRepo()).isEqualTo(expectedSource);
+            assertThat(sidecar.baseBranch()).isEqualTo(expectedBase);
+            assertThat(delivery.target("sidecar", repositories)).isEqualTo(expectedTarget);
+            assertThat(sidecar.jiraProjects()).containsExactly("MODSIDECAR");
+            assertThat(sidecar.verificationPlan()).isEqualTo("java21-unit");
+            assertThat(repositories.repositories().get("mgr-applications").sourceRepo())
+                    .isEqualTo("folio-org/mgr-applications");
+            assertThat(delivery.targets()).isEmpty();
+            assertThat(delivery.requireTarget("another-module", repositories))
+                    .isEqualTo(new DeliveryTarget("fifth-delivery/module", "main", true));
+            assertThat(runtime.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
+            assertThat(runtime.requiredReports("java21-roles-verify"))
+                    .containsExactly("surefire", "failsafe");
+        });
+    }
+
+    private static ApplicationContextRunner contextWithCatalog(Path catalog) {
+        return new ApplicationContextRunner()
                 .withInitializer(context -> {
                     var sources = context.getEnvironment().getPropertySources();
                     sources.remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
@@ -60,35 +98,6 @@ class DeveloperRepositoryImportTest {
                         "spring.config.name=repository-import-fixture",
                         "spring.config.import=classpath:developer-repositories.yaml," + catalog.toUri())
                 .withUserConfiguration(PropertiesConfiguration.class);
-        if (override) runner = runner.withPropertyValues(
-                "FACTORY_SIDECAR_SOURCE_REPO=environment-owner/sidecar",
-                "FACTORY_SIDECAR_BASE_BRANCH=environment-base",
-                "FACTORY_SIDECAR_DELIVERY_REPO=environment-delivery/sidecar",
-                "FACTORY_SIDECAR_DELIVERY_AUTHORIZED=false");
-
-        runner.run(context -> {
-            assertThat(context).hasNotFailed();
-            var repositories = context.getBean(DevFactoryProperties.class);
-            var delivery = context.getBean(DevDeliveryProperties.class);
-            var runtime = context.getBean(DevRuntimeProperties.class);
-            assertThat(repositories.repositories()).containsOnlyKeys(
-                    "sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "another-module");
-            var sidecar = repositories.repositories().get("sidecar");
-            String base = override ? "environment-base" : "catalog-base";
-            assertThat(sidecar.sourceRepo()).isEqualTo(override ? "environment-owner/sidecar" : "catalog-owner/sidecar");
-            assertThat(sidecar.baseBranch()).isEqualTo(base);
-            assertThat(delivery.target("sidecar", repositories)).isEqualTo(new DeliveryTarget(
-                    override ? "environment-delivery/sidecar" : "catalog-delivery/sidecar", base, !override));
-            assertThat(sidecar.jiraProjects()).containsExactly("MODSIDECAR");
-            assertThat(sidecar.verificationPlan()).isEqualTo("java21-unit");
-            assertThat(repositories.repositories().get("mgr-applications").sourceRepo())
-                    .isEqualTo("folio-org/mgr-applications");
-            assertThat(delivery.targets()).isEmpty();
-            assertThat(delivery.requireTarget("another-module", repositories))
-                    .isEqualTo(new DeliveryTarget("fifth-delivery/module", "main", true));
-            assertThat(runtime.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
-            assertThat(runtime.requiredReports("java21-roles-verify")).hasSize(134);
-        });
     }
 
     @Configuration(proxyBeanMethods = false)

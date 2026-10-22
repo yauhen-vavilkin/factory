@@ -17,9 +17,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class TriggerPreflightTest {
     private final JsonMapper json = JsonMapper.builder().build();
@@ -42,6 +52,7 @@ class TriggerPreflightTest {
     @Test
     void invalidManualTriggerCreatesNoExecution() {
         doThrow(new IllegalArgumentException("configuration failed")).when(preflight).requireReady("first", payload);
+
         assertThatThrownBy(() -> router.routeManual("first", payload)).hasMessage("configuration failed");
         verify(state, never()).createExecution(anyString(), anyString(), any(), any());
     }
@@ -50,6 +61,7 @@ class TriggerPreflightTest {
     void successfulAdmissionRunsBeforeCreation() {
         var execution = new PipelineExecution("first", "1", "{}");
         when(state.createExecution(eq("first"), eq("1"), anyString(), isNull())).thenReturn(execution);
+
         assertThat(router.routeManual("first", payload)).isEqualTo(execution.getId());
         var order = inOrder(preflight, state);
         order.verify(preflight).requireReady("first", payload);
@@ -60,6 +72,7 @@ class TriggerPreflightTest {
     void duplicateManualTriggerDoesNotRepeatAdmissionOrCreate() {
         var existing = new PipelineExecution("first", "1", "{}");
         when(state.findRecentDuplicate("first", "unique", limits.dedup().window())).thenReturn(Optional.of(existing));
+
         assertThat(router.routeManual("first", payload, "unique")).isEqualTo(existing.getId());
         verifyNoInteractions(preflight);
         verify(state, never()).createExecution(anyString(), anyString(), any(), any());
@@ -68,6 +81,7 @@ class TriggerPreflightTest {
     @Test
     void webhookFanoutChecksAllCandidatesBeforeCreatingAnyExecution() {
         doThrow(new IllegalArgumentException("second blocked")).when(preflight).requireReady("second", payload);
+
         assertThatThrownBy(() -> router.route(TriggerEvent.of("test", "webhook", payload))).hasMessage("second blocked");
         verify(preflight).requireReady("first", payload);
         verify(state, never()).createExecution(anyString(), anyString(), any(), any());
@@ -78,6 +92,7 @@ class TriggerPreflightTest {
         var existing = new PipelineExecution("first", "1", "{}");
         when(flows.all()).thenReturn(List.of(first));
         when(state.findRecentDuplicate(eq("first"), anyString(), any())).thenReturn(Optional.of(existing));
+
         assertThat(router.route(TriggerEvent.of("test", "webhook", payload))).containsExactly(existing.getId());
         verifyNoInteractions(preflight);
     }

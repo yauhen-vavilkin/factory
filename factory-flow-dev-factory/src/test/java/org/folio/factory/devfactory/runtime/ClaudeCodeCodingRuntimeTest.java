@@ -4,26 +4,37 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class ClaudeCodeCodingRuntimeTest {
+    private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String INIT = "{\"type\":\"system\",\"subtype\":\"init\",\"model\":\"custom/Model-1\"}\n";
     private static final String RESULT = """
             {"type":"result","subtype":"success","is_error":false,"result":"Done secret-key","usage":{"input_tokens":40,"output_tokens":5,"cache_read_input_tokens":3,"cache_creation_input_tokens":2},"total_cost_usd":0.01}
             """;
 
-    @ParameterizedTest @ValueSource(strings = {"api-key", "bearer-token"})
+    @ParameterizedTest
+    @ValueSource(strings = {"api-key", "bearer-token"})
     void attemptUsesPrivateCredentialsExactModelAndConfirmedContext(String authentication) throws Exception {
         var runtime = new ClaudeCodeCodingRuntime(config(authentication));
         var workload = workload();
@@ -41,7 +52,7 @@ class ClaudeCodeCodingRuntimeTest {
             assertThat(environment).doesNotContain(authentication.equals("api-key")
                     ? "ANTHROPIC_AUTH_TOKEN=" : "ANTHROPIC_API_KEY=");
             assertThat(Files.getPosixFilePermissions(directory.resolve("environment")))
-                    .isEqualTo(java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+                    .isEqualTo(PosixFilePermissions.fromString("rw-------"));
             assertThat(Files.readString(directory.resolve("task.txt")))
                     .contains("Use public API", "REPOSITORY_MISMATCH", "Factory independently verifies");
             return null;
@@ -72,7 +83,8 @@ class ClaudeCodeCodingRuntimeTest {
         verify(workload, never()).close();
     }
 
-    @Test void transportFailureRetainsPartialUsageAndNeverPersistsRawDiagnostics() {
+    @Test
+    void transportFailureRetainsPartialUsageAndNeverPersistsRawDiagnostics() {
         var workload = workload();
         when(workload.execute(anyList(), eq(60), eq(ClaudeCodeCodingRuntime.EVENT_STREAM_LIMIT), any()))
                 .thenAnswer(call -> {
@@ -87,7 +99,8 @@ class ClaudeCodeCodingRuntimeTest {
         verify(workload).execute(List.of("rm", "-rf", "/tmp/factory-claude"), 30);
     }
 
-    @Test void versionMismatchDoesNotCopyCredentialsOrStartTheCli() {
+    @Test
+    void versionMismatchDoesNotCopyCredentialsOrStartTheCli() {
         var workload = workload();
         when(workload.execute(List.of("claude", "--version"), 30)).thenReturn(new Processes.Result(0, "other"));
         assertThat(new ClaudeCodeCodingRuntime(config("api-key")).code(workload, request(), 60).failure().code())
@@ -95,7 +108,8 @@ class ClaudeCodeCodingRuntimeTest {
         verify(workload, never()).copy(anyString(), anyString());
     }
 
-    @Test void strictTerminalResultIsRequiredAndProcessFailureCannotAuthorizeSuccess() {
+    @Test
+    void strictTerminalResultIsRequiredAndProcessFailureCannotAuthorizeSuccess() {
         assertThat(parse(INIT + assistant("a", 10), 0).failure().code()).isEqualTo("INCOMPLETE_RESULT");
         assertThat(parse(INIT + RESULT, 1).failure().code()).isEqualTo("RUNTIME_EXIT");
         assertThat(parse(INIT + RESULT + RESULT, 0).failure().code()).isEqualTo("INVALID_RESULT_SEQUENCE");
@@ -108,16 +122,19 @@ class ClaudeCodeCodingRuntimeTest {
         assertThat(parse(INIT + RESULT.replace("\"is_error\":false", "\"is_error\":true"), 0).failure().code()).isEqualTo("PROVIDER_FAILED");
     }
 
-    @Test void terminalUsageReplacesIntermediateSnapshotsAndProgressIsBounded() {
+    @Test
+    void terminalUsageReplacesIntermediateSnapshotsAndProgressIsBounded() {
         var events = new ArrayList<Map<String, Object>>();
         var protocol = new ClaudeCodeProtocol("custom/Model-1", s -> s.replace("secret-key", "[REDACTED]"), events::add);
         protocol.accept(INIT);
         protocol.accept(assistant("a", 10));
         protocol.accept(assistant("a", 12));
         assertThat(protocol.metrics()).containsEntry("inputTokens", 12L).containsEntry("usageIncomplete", true);
-        for (int i = 0; i < 250; i++) protocol.accept("""
-                {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"private secret-key"}}]}}
-                """);
+        for (int i = 0; i < 250; i++) {
+            protocol.accept("""
+                    {"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"private secret-key"}}]}}
+                    """);
+        }
         protocol.accept(RESULT);
         assertThat(protocol.metrics()).containsEntry("inputTokens", 40L).containsEntry("outputTokens", 5L)
                 .doesNotContainKey("usageIncomplete");
@@ -126,21 +143,23 @@ class ClaudeCodeCodingRuntimeTest {
         assertThat(events.getLast()).containsEntry("activity", "coding_usage");
     }
 
-    @ParameterizedTest @ValueSource(strings = {
+    @ParameterizedTest
+    @ValueSource(strings = {
             "{}", "{\"input_tokens\":0,\"output_tokens\":0}",
             "{\"input_tokens\":40}", "{\"output_tokens\":5}",
             "{\"input_tokens\":-1,\"output_tokens\":5}", "{\"input_tokens\":40,\"output_tokens\":-1}",
             "{\"input_tokens\":0,\"output_tokens\":5}", "{\"input_tokens\":40,\"output_tokens\":0}"
     })
     void missingOrSyntheticUsageCannotAuthorizeCompleteAccounting(String usage) {
-        var result = JsonMapper.builder().build().readTree(RESULT).deepCopy();
-        ((tools.jackson.databind.node.ObjectNode) result).set("usage", JsonMapper.builder().build().readTree(usage));
+        ObjectNode result = (ObjectNode) JSON.readTree(RESULT);
+        result.set("usage", JSON.readTree(usage));
         var outcome = parse(INIT + result, 0);
         assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
         assertThat(outcome.metrics()).containsEntry("usageIncomplete", true);
     }
 
-    @ParameterizedTest @ValueSource(strings = {"cache_read_input_tokens", "cache_creation_input_tokens"})
+    @ParameterizedTest
+    @ValueSource(strings = {"cache_read_input_tokens", "cache_creation_input_tokens"})
     void fullyCachedInputStillProvidesUsageEvidence(String cacheCounter) {
         var outcome = parse(INIT + RESULT.replace("\"input_tokens\":40", "\"input_tokens\":0")
                 .replace("\"cache_read_input_tokens\":3,\"cache_creation_input_tokens\":2", "\"" + cacheCounter + "\":40"), 0);
@@ -148,7 +167,8 @@ class ClaudeCodeCodingRuntimeTest {
                 .doesNotContainKey("usageIncomplete");
     }
 
-    @ParameterizedTest @ValueSource(strings = {"", ",\"usage\":{\"input_tokens\":0,\"output_tokens\":0}"})
+    @ParameterizedTest
+    @ValueSource(strings = {"", ",\"usage\":{\"input_tokens\":0,\"output_tokens\":0}"})
     void terminalTotalsCannotHideAnUnaccountedMessage(String usage) {
         String missing = "{\"type\":\"assistant\",\"message\":{\"id\":\"missing\"" + usage + "}}\n";
         var outcome = parse(INIT + missing + assistant("known", 40) + "\n" + RESULT, 0);
@@ -156,28 +176,35 @@ class ClaudeCodeCodingRuntimeTest {
                 .containsEntry("usageIncomplete", true);
     }
 
-    @Test void finalMessageSnapshotCanCompleteEarlierMissingUsage() {
+    @Test
+    void finalMessageSnapshotCanCompleteEarlierMissingUsage() {
         String missing = "{\"type\":\"assistant\",\"message\":{\"id\":\"same\"}}\n";
         var outcome = parse(INIT + missing + assistant("same", 40) + "\n" + RESULT, 0);
         assertThat(outcome.metrics()).containsEntry("inputTokens", 40L).doesNotContainKey("usageIncomplete");
     }
 
-    @Test void streamedFinalUsageCompletesTheIntermediateAssistantSnapshot() {
+    @Test
+    void streamedFinalUsageCompletesTheIntermediateAssistantSnapshot() {
         String streamed = """
-                {"type":"stream_event","event":{"type":"message_start","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":0}}}}
-                {"type":"assistant","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":0}}}
+                {"type":"stream_event","event":{"type":"message_start","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":0,"cache_creation_input_tokens":2,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":0}}}}}
+                {"type":"assistant","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":0,"cache_creation_input_tokens":2,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":0}}}}
                 {"type":"stream_event","event":{"type":"message_delta","usage":{"output_tokens":5}}}
                 {"type":"stream_event","event":{"type":"message_stop"}}
                 """;
         assertThat(parse(INIT + streamed + RESULT, 0).metrics())
                 .containsEntry("inputTokens", 40L).containsEntry("outputTokens", 5L).doesNotContainKey("usageIncomplete");
         assertThat(parse(INIT + streamed, 1).metrics())
-                .containsEntry("inputTokens", 40L).containsEntry("outputTokens", 5L).containsEntry("usageIncomplete", true);
+                .containsEntry("inputTokens", 40L)
+                .containsEntry("outputTokens", 5L)
+                .containsEntry("cacheWrite5mTokens", 2L)
+                .containsEntry("cacheWrite1hTokens", 0L)
+                .containsEntry("usageIncomplete", true);
     }
 
-    @Test void decisionsUseTheExistingFactoryContractAndRedactSecrets() {
+    @Test
+    void decisionsUseTheExistingFactoryContractAndRedactSecrets() {
         String answer = "FACTORY_DECISION_REQUIRED: {\"kind\":\"REPOSITORY_MISMATCH\",\"question\":\"Which repo secret-key?\",\"options\":[],\"evidence\":\"No owner\"}";
-        String result = JsonMapper.builder().build().writeValueAsString(Map.of("type", "result", "subtype", "success",
+        String result = JSON.writeValueAsString(Map.of("type", "result", "subtype", "success",
                 "is_error", false, "result", answer));
         var outcome = parse(INIT + result, 0);
         assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
@@ -187,21 +214,67 @@ class ClaudeCodeCodingRuntimeTest {
                 .isEqualTo("INVALID_DECISION_RESULT");
     }
 
-    @Test void cacheTtlCountersSurviveTerminalReplacementWithoutDoubleCounting() {
-        var result = RESULT.replace("\"cache_creation_input_tokens\":2",
-                "\"cache_creation_input_tokens\":2,\"cache_creation\":{\"ephemeral_5m_input_tokens\":1,\"ephemeral_1h_input_tokens\":1}");
-        var protocol = new ClaudeCodeProtocol("custom/Model-1", s -> s, e -> {});
+    @Test
+    void cacheTtlCountersSurviveTerminalReplacementWithoutDoubleCounting() {
+        ObjectNode terminalResult = resultWithCacheTtl(1L, 1L);
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", text -> text, event -> {});
         protocol.accept(INIT);
         protocol.accept("""
                 {"type":"assistant","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":5,
                 "cache_creation_input_tokens":2,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":0}}}}
                 """);
-        assertThat(protocol.metrics()).containsEntry("cacheWrite5mTokens", 2L).containsEntry("cacheWrite1hTokens", 0L);
-        protocol.accept(result);
+        assertThat(protocol.metrics())
+                .containsEntry("cacheWrite5mTokens", 2L)
+                .containsEntry("cacheWrite1hTokens", 0L);
+
+        protocol.accept(terminalResult.toString());
+
         assertThat(protocol.outcome(0).metrics()).containsEntry("cacheWriteTokens", 2L)
                 .containsEntry("cacheWrite5mTokens", 1L).containsEntry("cacheWrite1hTokens", 1L)
                 .doesNotContainKey("usageIncomplete");
-        assertThat(parse(INIT + RESULT, 0).metrics()).doesNotContainKeys("cacheWrite5mTokens", "cacheWrite1hTokens");
+    }
+
+    @Test
+    void terminalUsageDoesNotInheritCacheTtlFromIntermediateMessages() {
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", text -> text, event -> {});
+        protocol.accept(INIT);
+        protocol.accept("""
+                {"type":"assistant","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":5,
+                "cache_creation_input_tokens":2,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":0}}}}
+                """);
+
+        protocol.accept(RESULT);
+
+        assertThat(protocol.outcome(0).metrics())
+                .containsEntry("cacheWriteTokens", 2L)
+                .doesNotContainKeys("cacheWrite5mTokens", "cacheWrite1hTokens");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"-1", "1.5", "null", "\"unknown\""})
+    void invalidCacheTtlCountersRemainUnknown(String invalidCounter) {
+        ObjectNode terminalResult = resultWithCacheTtl(2L, 0L);
+        ObjectNode usage = (ObjectNode) terminalResult.path("usage");
+        ObjectNode cacheCreation = (ObjectNode) usage.path("cache_creation");
+        cacheCreation.set("ephemeral_5m_input_tokens", JSON.readTree(invalidCounter));
+
+        CodingOutcome outcome = parse(INIT + terminalResult, 0);
+
+        assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(outcome.metrics())
+                .containsEntry("cacheWriteTokens", 2L)
+                .containsEntry("cacheWrite1hTokens", 0L)
+                .doesNotContainKey("cacheWrite5mTokens");
+    }
+
+    private static ObjectNode resultWithCacheTtl(long fiveMinuteTokens, long oneHourTokens) {
+        ObjectNode result = (ObjectNode) JSON.readTree(RESULT);
+        ObjectNode usage = (ObjectNode) result.path("usage");
+        ObjectNode cacheCreation = JSON.createObjectNode()
+                .put("ephemeral_5m_input_tokens", fiveMinuteTokens)
+                .put("ephemeral_1h_input_tokens", oneHourTokens);
+        usage.set("cache_creation", cacheCreation);
+        return result;
     }
 
     private static CodingOutcome parse(String text, int exitCode) {

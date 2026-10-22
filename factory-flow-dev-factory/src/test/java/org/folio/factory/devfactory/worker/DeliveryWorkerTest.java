@@ -430,8 +430,8 @@ class DeliveryWorkerTest {
     private static DeliveryWorker worker(CandidateDelivery delivery, GitHubConnector github,
                                          GitHubProperties githubProperties, String plan, String image,
                                          DevRuntimeProperties runtime) {
-        var repository = new DevFactoryProperties.Repository("folio-org/folio-module-sidecar", "master", image,
-                plan, List.of("MODSIDECAR"), List.of(),
+        var repository = new DevFactoryProperties.Repository(
+                "folio-org/folio-module-sidecar", "master", image, plan, List.of("MODSIDECAR"), List.of(),
                 new DeliveryTarget("user/folio-module-sidecar", "master", true));
         var repositories = new DevFactoryProperties("https://github.com",
                 new TreeMap<>(Map.of("sidecar", repository)));

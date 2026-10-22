@@ -21,7 +21,6 @@ import org.folio.factory.devfactory.decision.DevArtifactAmendmentValidator;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.feedback.AttemptPricing;
-import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.feedback.FeedbackActions;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
 import org.folio.factory.devfactory.feedback.FeedbackDecisionPolicy;
@@ -33,6 +32,7 @@ import org.folio.factory.devfactory.feedback.PrFeedbackGateway;
 import org.folio.factory.devfactory.repository.BaseRefResolver;
 import org.folio.factory.devfactory.repository.GitBaseRefResolver;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
+import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
@@ -114,7 +114,7 @@ public class DevFactoryConfiguration {
                 codec,
                 audit,
                 pricing.getIfAvailable(() -> model -> Map.of()),
-                repositoryPreflight.getIfAvailable(() -> (key, base) -> {}));
+                repositoryPreflight.getIfAvailable(SelectedRepositoryPreflight::none));
     }
 
     @Bean

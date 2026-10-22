@@ -14,6 +14,8 @@ record AttemptCharge(
         boolean subtotalPresent,
         BigDecimal cost,
         String currency) {
+    private static final BigDecimal TOKENS_PER_MILLION = BigDecimal.valueOf(1_000_000);
+
     enum Category {
         INPUT("inputTokens", "inputPerMillion"),
         CACHE_READ("cacheReadTokens", "cacheReadPerMillion"),
@@ -31,7 +33,7 @@ record AttemptCharge(
 
     static AttemptCharge calculate(JsonNode usage, JsonNode rate, boolean complete) {
         boolean known = complete && !usage.path("usageIncomplete").asBoolean(false);
-        boolean priced = false;
+        boolean hasPricedTokens = false;
         long tokens = 0;
         var breakdown = new EnumMap<Category, Long>(Category.class);
         BigDecimal cost = BigDecimal.ZERO;
@@ -44,51 +46,62 @@ record AttemptCharge(
             long count = Math.max(0, value.asLong());
             breakdown.put(category, count);
             tokens += count;
-            if (category == Category.CACHE_WRITE && count > 0
-                    && (rate.has("cacheWrite5mPerMillion") || rate.has("cacheWrite1hPerMillion"))) {
-                var amount = cacheWriteCharge(usage, rate, count);
-                if (amount == null) known = false;
-                else {
-                    priced = true;
-                    cost = cost.add(amount);
-                }
+            BigDecimal categoryCost = categoryCost(usage, rate, category, count);
+            if (categoryCost == null) {
+                known = false;
                 continue;
             }
-            var price = rate.path(category.rateField);
-            if (count != 0 && !price.isNumber()) known = false;
-            else if (count != 0) {
-                priced = true;
-                cost =
-                        cost.add(
-                                BigDecimal.valueOf(count)
-                                        .multiply(price.decimalValue())
-                                        .divide(BigDecimal.valueOf(1_000_000)));
+            if (count > 0) {
+                hasPricedTokens = true;
+                cost = cost.add(categoryCost);
             }
         }
         String currency = rate.path("currency").asString("");
-        known &= !currency.isBlank();
-        boolean subtotal =
-                (priced || breakdown.size() == Category.values().length && tokens == 0)
-                        && !currency.isBlank();
-        return new AttemptCharge(tokens, Map.copyOf(breakdown), known, subtotal, cost, currency);
+        boolean hasCurrency = !currency.isBlank();
+        boolean allCategoriesAreZero = breakdown.size() == Category.values().length && tokens == 0;
+        boolean subtotalPresent = hasCurrency && (hasPricedTokens || allCategoriesAreZero);
+        return new AttemptCharge(
+                tokens, Map.copyOf(breakdown), known && hasCurrency, subtotalPresent, cost, currency);
     }
 
-    private static BigDecimal cacheWriteCharge(JsonNode usage, JsonNode rate, long total) {
-        var fiveMinutes = usage.path("cacheWrite5mTokens");
-        var oneHour = usage.path("cacheWrite1hTokens");
-        if (!fiveMinutes.isIntegralNumber() || !oneHour.isIntegralNumber()
-                || fiveMinutes.asLong() < 0 || oneHour.asLong() < 0
-                || fiveMinutes.asLong() > total || oneHour.asLong() != total - fiveMinutes.asLong())
-            return null;
-        BigDecimal amount = BigDecimal.ZERO;
-        for (String ttl : new String[] {"5m", "1h"}) {
-            long count = usage.path("cacheWrite" + ttl + "Tokens").asLong();
-            var price = rate.path("cacheWrite" + ttl + "PerMillion");
-            if (count > 0 && !price.isNumber()) return null;
-            if (count > 0)
-                amount = amount.add(BigDecimal.valueOf(count).multiply(price.decimalValue())
-                        .divide(BigDecimal.valueOf(1_000_000)));
+    private static BigDecimal categoryCost(JsonNode usage, JsonNode rate, Category category, long tokens) {
+        boolean hasCacheTtlRates = rate.has("cacheWrite5mPerMillion") || rate.has("cacheWrite1hPerMillion");
+        if (category == Category.CACHE_WRITE && tokens > 0 && hasCacheTtlRates) {
+            return cacheWriteCost(usage, rate, tokens);
         }
-        return amount;
+        return costForTokens(tokens, rate.path(category.rateField));
+    }
+
+    private static BigDecimal cacheWriteCost(JsonNode usage, JsonNode rate, long totalTokens) {
+        JsonNode fiveMinuteUsage = usage.path("cacheWrite5mTokens");
+        JsonNode oneHourUsage = usage.path("cacheWrite1hTokens");
+        if (!fiveMinuteUsage.isIntegralNumber() || !oneHourUsage.isIntegralNumber()) {
+            return null;
+        }
+
+        long fiveMinuteTokens = fiveMinuteUsage.asLong();
+        long oneHourTokens = oneHourUsage.asLong();
+        if (fiveMinuteTokens < 0 || oneHourTokens < 0 || fiveMinuteTokens > totalTokens
+                || oneHourTokens != totalTokens - fiveMinuteTokens) {
+            return null;
+        }
+
+        BigDecimal fiveMinuteCost = costForTokens(fiveMinuteTokens, rate.path("cacheWrite5mPerMillion"));
+        BigDecimal oneHourCost = costForTokens(oneHourTokens, rate.path("cacheWrite1hPerMillion"));
+        if (fiveMinuteCost == null || oneHourCost == null) {
+            return null;
+        }
+        return fiveMinuteCost.add(oneHourCost);
+    }
+
+    /** A missing rate leaves positive usage unpriced; zero usage does not require a rate. */
+    private static BigDecimal costForTokens(long tokens, JsonNode rate) {
+        if (tokens == 0) {
+            return BigDecimal.ZERO;
+        }
+        if (!rate.isNumber()) {
+            return null;
+        }
+        return BigDecimal.valueOf(tokens).multiply(rate.decimalValue()).divide(TOKENS_PER_MILLION);
     }
 }

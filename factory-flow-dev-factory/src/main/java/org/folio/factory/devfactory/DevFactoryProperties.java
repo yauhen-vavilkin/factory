@@ -41,11 +41,22 @@ public record DevFactoryProperties(String gitBaseUrl, SortedMap<String, Reposito
         repositories = copy;
     }
 
-    public record Repository(String sourceRepo, String baseBranch, String buildImage, String verificationPlan,
-                             List<String> jiraProjects, List<String> jiraComponents, DeliveryTarget delivery) {
+    public record Repository(
+            String sourceRepo,
+            String baseBranch,
+            String buildImage,
+            String verificationPlan,
+            List<String> jiraProjects,
+            List<String> jiraComponents,
+            DeliveryTarget delivery) {
 
-        public Repository(String sourceRepo, String baseBranch, String buildImage, String verificationPlan,
-                          List<String> jiraProjects, List<String> jiraComponents) {
+        public Repository(
+                String sourceRepo,
+                String baseBranch,
+                String buildImage,
+                String verificationPlan,
+                List<String> jiraProjects,
+                List<String> jiraComponents) {
             this(sourceRepo, baseBranch, buildImage, verificationPlan, jiraProjects, jiraComponents, null);
         }
 
@@ -64,13 +75,21 @@ public record DevFactoryProperties(String gitBaseUrl, SortedMap<String, Reposito
             jiraProjects.forEach(project -> require(PROJECT_KEY, project, "jira-projects entry"));
             jiraProjects = List.copyOf(jiraProjects);
             jiraComponents = jiraComponents == null ? List.of() : List.copyOf(jiraComponents);
-            if (delivery != null) {
-                if (delivery.baseBranch() != null && !delivery.baseBranch().isBlank()
-                        && !baseBranch.equals(delivery.baseBranch())) {
-                    throw new IllegalArgumentException("Repository delivery base-branch must match source base-branch");
-                }
-                delivery = new DeliveryTarget(delivery.repository(), baseBranch, delivery.authorized());
+            delivery = normalizeDeliveryBase(delivery, baseBranch);
+        }
+
+        private static DeliveryTarget normalizeDeliveryBase(DeliveryTarget delivery, String sourceBaseBranch) {
+            if (delivery == null) {
+                return null;
             }
+            String deliveryBaseBranch = delivery.baseBranch();
+            if (deliveryBaseBranch != null
+                    && !deliveryBaseBranch.isBlank()
+                    && !sourceBaseBranch.equals(deliveryBaseBranch)) {
+                throw new IllegalArgumentException(
+                        "Repository delivery base-branch must match source base-branch");
+            }
+            return new DeliveryTarget(delivery.repository(), sourceBaseBranch, delivery.authorized());
         }
     }
 

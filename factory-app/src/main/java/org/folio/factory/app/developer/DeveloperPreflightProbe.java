@@ -14,20 +14,31 @@ import java.net.Socket;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /** Bounded read-only probes. Never sends an inference request or publishes Git changes. */
 @Component
 public class DeveloperPreflightProbe {
+
     private static final Pattern SHA = Pattern.compile("[0-9a-f]{40}|[0-9a-f]{64}");
+    private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(5);
+    private static final int COMMAND_TIMEOUT_SECONDS = 5;
+    private static final int SOURCE_TIMEOUT_SECONDS = 10;
+    private static final int COMMAND_OUTPUT_LIMIT = 4096;
+    private static final int GATEWAY_TIMEOUT_MILLIS = 3000;
+
     private final RestClient github;
 
     public DeveloperPreflightProbe(GitHubProperties properties) {
-        var http = new SimpleClientHttpRequestFactory();
-        http.setConnectTimeout(Duration.ofSeconds(5));
-        http.setReadTimeout(Duration.ofSeconds(5));
-        github = RestClient.builder().baseUrl(properties.effectiveBaseUrl()).requestFactory(http)
-                .defaultHeaders(headers -> headers.setBearerAuth(properties.token() == null ? "" : properties.token()))
+        SimpleClientHttpRequestFactory http = new SimpleClientHttpRequestFactory();
+        http.setConnectTimeout(HTTP_TIMEOUT);
+        http.setReadTimeout(HTTP_TIMEOUT);
+        String token = properties.token() == null ? "" : properties.token();
+        github = RestClient.builder()
+                .baseUrl(properties.effectiveBaseUrl())
+                .requestFactory(http)
+                .defaultHeaders(headers -> headers.setBearerAuth(token))
                 .build();
     }
 
@@ -36,14 +47,19 @@ public class DeveloperPreflightProbe {
     }
 
     public boolean imageAvailable(String image) {
-        if (image == null || image.isBlank()) return false;
+        if (image == null || image.isBlank()) {
+            return false;
+        }
         return command(List.of("docker", "image", "inspect", "--format", "{{.Id}}", image));
     }
 
     public boolean gatewayReachable(URI endpoint) {
-        int port = endpoint.getPort() >= 0 ? endpoint.getPort() : "https".equals(endpoint.getScheme()) ? 443 : 80;
-        try (var socket = new Socket()) {
-            socket.connect(new InetSocketAddress(endpoint.getHost(), port), 3000);
+        int port = endpoint.getPort();
+        if (port < 0) {
+            port = "https".equals(endpoint.getScheme()) ? 443 : 80;
+        }
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(endpoint.getHost(), port), GATEWAY_TIMEOUT_MILLIS);
             return true;
         } catch (IOException | IllegalArgumentException e) {
             return false;
@@ -51,38 +67,72 @@ public class DeveloperPreflightProbe {
     }
 
     public String sourceBase(String gitBaseUrl, String sourceRepo, String branch) {
-        var result = Processes.run(null, List.of("git", "-c", "credential.helper=", "ls-remote", "--exit-code",
-                gitBaseUrl + "/" + sourceRepo + ".git", "refs/heads/" + branch), 10, java.util.Map.of(), 4096);
-        if (result.exitCode() != 0) throw new IllegalStateException("Public source base is not readable");
+        String branchRef = "refs/heads/" + branch;
+        List<String> command = List.of("git", "-c", "credential.helper=", "ls-remote", "--exit-code",
+                gitBaseUrl + "/" + sourceRepo + ".git", branchRef);
+        Processes.Result result = Processes.run(null, command, SOURCE_TIMEOUT_SECONDS, Map.of(), COMMAND_OUTPUT_LIMIT);
+        if (result.exitCode() != 0) {
+            throw new IllegalStateException("Public source base is not readable");
+        }
         for (String line : result.output().lines().toList()) {
             String[] parts = line.split("\t");
-            if (parts.length == 2 && parts[1].equals("refs/heads/" + branch) && SHA.matcher(parts[0]).matches())
+            if (parts.length == 2 && branchRef.equals(parts[1]) && SHA.matcher(parts[0]).matches()) {
                 return parts[0];
+            }
         }
         throw new IllegalStateException("Public source base is missing");
     }
 
     public void requireDeliveryAccess(DeliveryTarget target, String sourceSha) {
         String[] repository = target.repository().split("/");
-        var metadata = github.get().uri(uri -> uri.pathSegment("repos", repository[0], repository[1]).build())
-                .retrieve().body(JsonNode.class);
-        if (metadata == null || !metadata.path("permissions").path("push").asBoolean(false))
+        String owner = repository[0];
+        String name = repository[1];
+        requirePushPermission(owner, name);
+
+        String destinationSha = destinationBase(owner, name, target.baseBranch());
+        if (!sourceSha.equals(destinationSha)) {
+            requireSourceAncestor(owner, name, sourceSha, destinationSha);
+        }
+    }
+
+    private void requirePushPermission(String owner, String repository) {
+        JsonNode metadata = github.get()
+                .uri(uri -> uri.pathSegment("repos", owner, repository).build())
+                .retrieve()
+                .body(JsonNode.class);
+        if (metadata == null || !metadata.path("permissions").path("push").asBoolean(false)) {
             throw new IllegalStateException("GitHub token has no push permission for the destination");
-        var branch = github.get().uri(uri -> uri.pathSegment("repos", repository[0], repository[1], "branches",
-                        target.baseBranch()).build()).retrieve().body(JsonNode.class);
+        }
+    }
+
+    private String destinationBase(String owner, String repository, String baseBranch) {
+        JsonNode branch = github.get()
+                .uri(uri -> uri.pathSegment("repos", owner, repository, "branches", baseBranch).build())
+                .retrieve()
+                .body(JsonNode.class);
         String destinationSha = branch == null ? "" : branch.path("commit").path("sha").asString("");
-        if (!SHA.matcher(destinationSha).matches()) throw new IllegalStateException("Destination base is missing");
-        if (sourceSha.equals(destinationSha)) return;
-        var comparison = github.get().uri(uri -> uri.pathSegment("repos", repository[0], repository[1], "compare",
-                        sourceSha + "..." + destinationSha).build()).retrieve().body(JsonNode.class);
+        if (!SHA.matcher(destinationSha).matches()) {
+            throw new IllegalStateException("Destination base is missing");
+        }
+        return destinationSha;
+    }
+
+    private void requireSourceAncestor(String owner, String repository, String sourceSha, String destinationSha) {
+        String comparisonRange = sourceSha + "..." + destinationSha;
+        JsonNode comparison = github.get()
+                .uri(uri -> uri.pathSegment("repos", owner, repository, "compare", comparisonRange).build())
+                .retrieve()
+                .body(JsonNode.class);
         String status = comparison == null ? "" : comparison.path("status").asString("");
-        if (!List.of("ahead", "identical").contains(status))
+        if (!"ahead".equals(status) && !"identical".equals(status)) {
             throw new IllegalStateException("Destination does not contain the source base; synchronize the fork");
+        }
     }
 
     private boolean command(List<String> argv) {
         try {
-            return Processes.run(null, argv, 5, java.util.Map.of(), 4096).exitCode() == 0;
+            Processes.Result result = Processes.run(null, argv, COMMAND_TIMEOUT_SECONDS, Map.of(), COMMAND_OUTPUT_LIMIT);
+            return result.exitCode() == 0;
         } catch (IllegalStateException e) {
             return false;
         }

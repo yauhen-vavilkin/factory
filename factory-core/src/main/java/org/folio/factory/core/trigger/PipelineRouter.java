@@ -12,9 +12,9 @@ import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
-import org.springframework.beans.factory.annotation.Autowired;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -94,7 +94,9 @@ public class PipelineRouter {
         }
         if (!toCreate.isEmpty()) {
             enforceDailyBudget(toCreate);
-            toCreate.forEach(flow -> requireReady(flow.id(), event.payload()));
+            for (FlowDescriptor flow : toCreate) {
+                requireReady(flow.id(), event.payload());
+            }
             for (FlowDescriptor flow : toCreate) {
                 created.add(create(flow, event, dedupKey).getId());
             }
@@ -128,7 +130,9 @@ public class PipelineRouter {
     }
 
     private void requireReady(String flowId, JsonNode payload) {
-        preflights.forEach(preflight -> preflight.requireReady(flowId, payload));
+        for (TriggerPreflight preflight : preflights) {
+            preflight.requireReady(flowId, payload);
+        }
     }
 
     private boolean matches(FlowDescriptor flow, TriggerEvent event) {

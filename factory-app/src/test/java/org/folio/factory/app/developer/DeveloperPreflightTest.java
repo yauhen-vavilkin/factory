@@ -1,15 +1,21 @@
 package org.folio.factory.app.developer;
 
+import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.app.web.DeveloperPricingProperties;
 import org.folio.factory.connectors.github.GitHubProperties;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.jira.JiraIssue;
 import org.folio.factory.connectors.jira.JiraProperties;
+import org.folio.factory.core.agent.AgentContext;
+import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.DevFactoryProperties;
+import org.folio.factory.devfactory.decision.DecisionArtifacts;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
+import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.worker.IntakeWorker;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,17 +29,31 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.folio.factory.app.developer.DeveloperPreflight.Status.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.folio.factory.app.developer.DeveloperPreflight.Status.FAIL;
+import static org.folio.factory.app.developer.DeveloperPreflight.Status.NOT_RUN;
+import static org.folio.factory.app.developer.DeveloperPreflight.Status.PASS;
+import static org.folio.factory.app.developer.DeveloperPreflight.Status.WARN;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class DeveloperPreflightTest {
+
     private static final String SHA = "a".repeat(40);
     private static final JsonMapper JSON = JsonMapper.builder().build();
+
     private final CodingRuntime coding = mock(CodingRuntime.class);
     private final JiraConnector jira = mock(JiraConnector.class);
     private final DeveloperPreflightProbe probe = mock(DeveloperPreflightProbe.class);
@@ -77,6 +97,7 @@ class DeveloperPreflightTest {
     @Test
     void readyTaskChecksSourceAndAuthorizedDestinationWithoutClaimingInferenceCoverage() {
         var report = service().check("TASK-1");
+
         assertThat(report.ready()).isTrue();
         assertThat(check(report, "runtime").status()).isEqualTo(PASS);
         assertThat(check(report, "delivery:fixture").status()).isEqualTo(PASS);
@@ -93,7 +114,9 @@ class DeveloperPreflightTest {
     @Test
     void invalidSelectedProfileBlocksAdmissionWithoutProbingItsGatewayOrExposingCredential() {
         doThrow(new IllegalStateException("invalid coding-fixture-secret")).when(coding).requireConfigured();
+
         var report = service().check("TASK-1");
+
         assertThat(report.ready()).isFalse();
         assertThat(check(report, "runtime").status()).isEqualTo(FAIL);
         verify(probe, never()).gatewayReachable(any());
@@ -103,10 +126,80 @@ class DeveloperPreflightTest {
                 .hasMessageNotContaining("coding-fixture-secret");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"not-a-url", "http://coding-fixture-secret@gateway.fixture.invalid:4001",
+            "http://gateway.fixture.invalid:4001?token=coding-fixture-secret"})
+    void invalidPiEndpointProducesOneRuntimeFailureWithoutAContradictoryPass(String baseUrl) {
+        usePiProfile(baseUrl);
+
+        var report = service().check("TASK-1");
+
+        assertThat(report.ready()).isFalse();
+        assertThat(report.checks()).filteredOn(check -> check.name().equals("runtime"))
+                .singleElement().satisfies(check -> assertThat(check.status()).isEqualTo(FAIL));
+        assertThat(report.runtime()).containsEntry("endpointOrigin", "unset or invalid");
+        verify(probe, never()).gatewayReachable(any());
+        assertSafe(report);
+    }
+
+    @Test
+    void builtInPiEndpointDoesNotNeedAnExplicitGatewayProbe() {
+        usePiProfile(null);
+
+        var report = service().check("TASK-1");
+
+        assertThat(report.ready()).isTrue();
+        assertThat(check(report, "runtime").status()).isEqualTo(PASS);
+        assertThat(check(report, "gateway").status()).isEqualTo(NOT_RUN);
+        verify(probe, never()).gatewayReachable(any());
+    }
+
+    @Test
+    void pricingUsesTheConfiguredModelInsteadOfTheDisplayIdentity() {
+        when(coding.identity()).thenReturn(Map.of("runtime", "claude-code", "model", "display-only-model"));
+
+        var report = service().check("TASK-1");
+
+        assertThat(check(report, "pricing").status()).isEqualTo(PASS);
+    }
+
+    @Test
+    void dockerFailureBlocksAdmissionAndSkipsTheCodingImageProbe() {
+        when(probe.dockerAvailable()).thenReturn(false);
+
+        var report = service().check("TASK-1");
+
+        assertThat(report.ready()).isFalse();
+        assertThat(check(report, "docker").status()).isEqualTo(FAIL);
+        verify(probe, never()).imageAvailable("coding:image");
+    }
+
+    @Test
+    void missingCodingImageBlocksAdmission() {
+        when(probe.imageAvailable("coding:image")).thenReturn(false);
+
+        var report = service().check("TASK-1");
+
+        assertThat(report.ready()).isFalse();
+        assertThat(check(report, "coding-image").status()).isEqualTo(FAIL);
+    }
+
+    @Test
+    void buildImageCanBePulledLaterWithoutBlockingAdmission() {
+        when(probe.imageAvailable("build:image")).thenReturn(false);
+
+        var report = service().check("TASK-1");
+
+        assertThat(report.ready()).isTrue();
+        assertThat(check(report, "build-image:fixture").status()).isEqualTo(WARN);
+    }
+
     @Test
     void missingRateCardWarnsWithoutBlockingOtherwiseReadyTask() {
         pricing = new DeveloperPricingProperties(Map.of());
+
         var report = service().check("TASK-1");
+
         assertThat(report.ready()).isTrue();
         assertThat(check(report, "pricing").status()).isEqualTo(WARN);
     }
@@ -119,7 +212,9 @@ class DeveloperPreflightTest {
         settings = new DevRuntimeProperties(settings.plans(), new DevRuntimeProperties.Coding(
                 null, null, null, null, null, null, "claude-code", null, null, null, profile), 1800, null);
         when(probe.gatewayReachable(any())).thenReturn(false);
+
         var report = service().check("TASK-1");
+
         assertThat(report.ready()).isTrue();
         assertThat(check(report, "gateway").status()).isEqualTo(WARN);
         assertThat(check(report, "inference").status()).isEqualTo(NOT_RUN);
@@ -129,6 +224,7 @@ class DeveloperPreflightTest {
     @Test
     void configurationOnlyReportDoesNotReadJiraOrSourceOrClaimTaskReadiness() {
         var report = service().check(null);
+
         assertThat(report.ready()).isFalse();
         assertThat(check(report, "task").status()).isEqualTo(NOT_RUN);
         verifyNoInteractions(jira);
@@ -140,15 +236,28 @@ class DeveloperPreflightTest {
     @Test
     void unrelatedFlowBypassesDeveloperChecks() {
         service().requireReady("test-factory", JSON.readTree("{}"));
+
         verifyNoInteractions(coding, jira, probe);
     }
 
     @Test
     void invalidIssueDoesNotReachJira() {
         var report = service().check("TASK-0");
+
         assertThat(report.ready()).isFalse();
         assertThat(check(report, "task").status()).isEqualTo(FAIL);
         verifyNoInteractions(jira);
+    }
+
+    @Test
+    void aDifferentJiraIssueCannotPassTaskAdmission() {
+        when(jira.getIssue("TASK-1")).thenReturn(issue("TASK-2"));
+
+        var report = service().check("TASK-1");
+
+        assertThat(report.ready()).isFalse();
+        assertThat(check(report, "jira").status()).isEqualTo(FAIL);
+        verify(probe, never()).sourceBase(anyString(), anyString(), anyString());
     }
 
     @Test
@@ -163,7 +272,9 @@ class DeveloperPreflightTest {
         var repository = new DevFactoryProperties.Repository("source/module", "campaign/base", "build:image", "unit",
                 List.of("TASK"), List.of(), new DeliveryTarget(null, null, false));
         repositories = catalog(Map.of("fixture", repository));
+
         var report = service().check("TASK-1");
+
         assertThat(report.ready()).isFalse();
         assertThat(report.repositories()).singleElement().satisfies(row -> assertThat(row).containsEntry("delivery", ""));
         assertThat(check(report, "delivery:fixture").status()).isEqualTo(FAIL);
@@ -175,7 +286,9 @@ class DeveloperPreflightTest {
         var enterprise = new GitHubProperties("https://github.enterprise.invalid/api/v3", "github-fixture-secret");
         var service = new DeveloperPreflight(repositories, delivery, settings, coding, jiraProperties, jira,
                 enterprise, pricing, probe);
+
         var report = service.check("TASK-1");
+
         assertThat(report.ready()).isFalse();
         assertThat(check(report, "delivery-api").message()).contains("GitHub.com only");
         verifyNoInteractions(jira);
@@ -186,7 +299,9 @@ class DeveloperPreflightTest {
     void emptyDefaultAuthenticationHasASafeEffectiveConfiguration() {
         settings = new DevRuntimeProperties(Map.of(), null, 1800, null);
         doThrow(new IllegalStateException("not configured")).when(coding).requireConfigured();
+
         var report = service().check(null);
+
         assertThat(report.ready()).isFalse();
         assertThat(report.runtime()).containsEntry("authentication", "unset or invalid");
         assertSafe(report);
@@ -195,7 +310,9 @@ class DeveloperPreflightTest {
     @Test
     void disabledAuthorizationCannotReachDeliveryProbe() {
         repositories = catalog(Map.of("fixture", repository("source/module", false)));
+
         var report = service().check("TASK-1");
+
         assertThat(report.ready()).isFalse();
         assertThat(check(report, "delivery:fixture").status()).isEqualTo(FAIL);
         verify(probe, never()).requireDeliveryAccess(any(), anyString());
@@ -204,7 +321,9 @@ class DeveloperPreflightTest {
     @Test
     void legacyTargetWithDifferentBaseCannotReachDeliveryProbe() {
         delivery = new DevDeliveryProperties(Map.of("fixture", new DeliveryTarget("fork/module", "other-base", true)), true);
+
         var report = service().check("TASK-1");
+
         assertThat(report.ready()).isFalse();
         assertThat(check(report, "delivery:fixture").status()).isEqualTo(FAIL);
         verify(probe, never()).requireDeliveryAccess(any(), anyString());
@@ -216,7 +335,9 @@ class DeveloperPreflightTest {
                 "second", repository("source/other-module", true)));
         doThrow(new IllegalStateException("github-fixture-secret"))
                 .when(probe).sourceBase(anyString(), eq("source/other-module"), anyString());
+
         var report = service().check("TASK-1");
+
         assertThat(report.ready()).isTrue();
         assertThat(check(report, "delivery:fixture").status()).isEqualTo(PASS);
         assertThat(check(report, "source:second").status()).isEqualTo(WARN);
@@ -226,16 +347,14 @@ class DeveloperPreflightTest {
         assertSafe(report);
         var payload = JSON.readTree("{\"issueKey\":\"TASK-1\"}");
         assertThatCode(() -> service().requireReady("dev-factory", payload)).doesNotThrowAnyException();
-        var codec = new org.folio.factory.agents.artifact.FrontmatterCodec();
-        var intake = new org.folio.factory.devfactory.worker.IntakeWorker(jira,
-                new org.folio.factory.devfactory.repository.RepositoryPolicy(repositories), codec, coding,
-                mock(org.folio.factory.core.service.AuditLog.class));
-        var result = intake.execute(new org.folio.factory.core.agent.AgentContext(java.util.UUID.randomUUID(),
+        var codec = new FrontmatterCodec();
+        var intake = new IntakeWorker(jira, new RepositoryPolicy(repositories), codec, coding, mock(AuditLog.class));
+        var result = intake.execute(new AgentContext(UUID.randomUUID(),
                 "read-task", Map.of(), payload, Map.of(), List.of()));
-        var decision = org.folio.factory.devfactory.decision.DecisionArtifacts.parseRequest(codec,
-                result.outputs().get(org.folio.factory.devfactory.decision.DecisionArtifacts.REQUEST));
+        var decision = DecisionArtifacts.parseRequest(codec, result.outputs().get(DecisionArtifacts.REQUEST));
+
         assertThat(decision.required()).isTrue();
-        assertThat(decision.options()).extracting(org.folio.factory.devfactory.decision.DecisionArtifacts.Option::id)
+        assertThat(decision.options()).extracting(DecisionArtifacts.Option::id)
                 .containsExactly("fixture", "second");
     }
 
@@ -243,7 +362,9 @@ class DeveloperPreflightTest {
     void ambiguousMappingWithNoReadyOptionIsStillBlocked() {
         repositories = catalog(Map.of("fixture", repository("source/module", false),
                 "second", repository("source/other-module", false)));
+
         var report = service().check("TASK-1");
+
         assertThat(report.ready()).isFalse();
         assertThat(check(report, "delivery:fixture").status()).isEqualTo(FAIL);
         assertThat(check(report, "delivery:second").status()).isEqualTo(FAIL);
@@ -262,7 +383,9 @@ class DeveloperPreflightTest {
     @Test
     void selectedGuardChecksTheFrozenBaseWithoutReadingJiraOrUsingTodaysSourceHead() {
         String frozenBase = "b".repeat(40);
+
         service().requireRepositoryReady("fixture", frozenBase);
+
         verify(probe).requireDeliveryAccess(new DeliveryTarget("fork/module", "campaign/base", true), frozenBase);
         verify(probe, never()).sourceBase(anyString(), anyString(), anyString());
         verifyNoInteractions(jira);
@@ -278,9 +401,12 @@ class DeveloperPreflightTest {
             case "delivery" -> doThrow(failure).when(probe).requireDeliveryAccess(any(), anyString());
             default -> throw new AssertionError(stage);
         }
+
         var report = service().check("TASK-1");
+
         assertThat(report.ready()).isFalse();
-        assertThat(check(report, stage.equals("jira") ? stage : stage + ":fixture").status()).isEqualTo(FAIL);
+        String checkName = stage.equals("jira") ? "jira" : stage + ":fixture";
+        assertThat(check(report, checkName).status()).isEqualTo(FAIL);
         assertSafe(report);
     }
 
@@ -288,8 +414,21 @@ class DeveloperPreflightTest {
         return new DeveloperPreflight(repositories, delivery, settings, coding, jiraProperties, jira, github, pricing, probe);
     }
 
+    private void usePiProfile(String baseUrl) {
+        var pi = new DevRuntimeProperties.Pi("coding:image", "fixture-provider", "exact-model", baseUrl,
+                "openai-completions", "coding-fixture-secret", "api-key", null, 16384);
+        var runtime = new DevRuntimeProperties.Coding(null, null, null, null, null, null,
+                "pi", null, null, pi, null);
+        settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null);
+        when(coding.id()).thenReturn("pi");
+        when(coding.identity()).thenReturn(Map.of("runtime", "pi", "model", "exact-model"));
+    }
+
     private static DeveloperPreflight.Check check(DeveloperPreflight.Report report, String name) {
-        return report.checks().stream().filter(check -> check.name().equals(name)).findFirst().orElseThrow();
+        return report.checks().stream()
+                .filter(check -> check.name().equals(name))
+                .findFirst()
+                .orElseThrow();
     }
 
     private static void assertSafe(DeveloperPreflight.Report report) {

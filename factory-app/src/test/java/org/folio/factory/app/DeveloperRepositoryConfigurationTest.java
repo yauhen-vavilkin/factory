@@ -4,6 +4,7 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
+import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -15,11 +16,14 @@ import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -104,7 +108,8 @@ class DeveloperRepositoryConfigurationTest {
                 .isEqualTo(new DeliveryTarget("delivery-owner/another-module", "feature/base", true));
         assertThat(configured.runtime().command(repository.verificationPlan()))
                 .containsExactly("mvn", "-B", "-ntp", "test");
-        assertThat(configured.runtime().requiredReports("java21-roles-verify")).hasSize(134);
+        assertThat(configured.runtime().requiredReports("java21-roles-verify"))
+                .containsExactly("surefire", "failsafe");
     }
 
     @Test
@@ -150,7 +155,8 @@ class DeveloperRepositoryConfigurationTest {
         assertThat(configured.delivery().target("sidecar", configured.source()))
                 .isEqualTo(new DeliveryTarget("catalog-owner/module", "catalog-base", authorized));
         if (authorized) {
-            assertThatCode(() -> configured.delivery().requireTarget("sidecar", configured.source())).doesNotThrowAnyException();
+            assertThatCode(() -> configured.delivery().requireTarget("sidecar", configured.source()))
+                    .doesNotThrowAnyException();
         } else {
             assertThatThrownBy(() -> configured.delivery().requireTarget("sidecar", configured.source()))
                     .isInstanceOf(DeliveryBlockedException.class);
@@ -158,14 +164,20 @@ class DeveloperRepositoryConfigurationTest {
     }
 
     @Test
-    void rejectsInvalidExternalRepositoryAndMissingDeliveryRemainsBlocked() throws Exception {
+    void rejectsInvalidExternalRepository() {
         assertThatThrownBy(() -> bind(Map.of(
                 "factory.dev-factory.repositories.sidecar.source-repo", "invalid")))
                 .hasRootCauseMessage("Invalid Developer Flow source-repo 'invalid'");
+    }
+
+    @Test
+    void missingDeliveryConfigurationRemainsBlocked() {
         var repository = new DevFactoryProperties.Repository(
                 "owner/repo", "main", "maven:3.9-eclipse-temurin-21", "unit", List.of("TASK"), List.of());
-        var repositories = new DevFactoryProperties(null, new java.util.TreeMap<>(Map.of("new", repository)));
-        assertThatThrownBy(() -> new DevDeliveryProperties(Map.of(), true).requireTarget("new", repositories))
+        var repositories = new DevFactoryProperties(null, new TreeMap<>(Map.of("new", repository)));
+        var delivery = new DevDeliveryProperties(Map.of(), true);
+
+        assertThatThrownBy(() -> delivery.requireTarget("new", repositories))
                 .isInstanceOf(DeliveryBlockedException.class)
                 .hasMessageContaining("Missing delivery configuration");
     }
@@ -180,20 +192,28 @@ class DeveloperRepositoryConfigurationTest {
         environment.getPropertySources().remove(StandardEnvironment.SYSTEM_ENVIRONMENT_PROPERTY_SOURCE_NAME);
         environment.getPropertySources().remove(StandardEnvironment.SYSTEM_PROPERTIES_PROPERTY_SOURCE_NAME);
         environment.getPropertySources().addFirst(new MapPropertySource("fixture", variables));
-        if (externalCatalog != null)
-            for (var source : new YamlPropertySourceLoader().load("external", new FileSystemResource(externalCatalog)))
-                environment.getPropertySources().addLast(source);
-        for (var source : new YamlPropertySourceLoader().load("repositories", new ClassPathResource("developer-repositories.yaml")))
-            environment.getPropertySources().addLast(source);
-        for (var source : new YamlPropertySourceLoader().load("application", new ClassPathResource("application.yaml")))
-            environment.getPropertySources().addLast(source);
+        if (externalCatalog != null) {
+            loadYaml(environment, "external", new FileSystemResource(externalCatalog));
+        }
+        loadYaml(environment, "repositories", new ClassPathResource("developer-repositories.yaml"));
+        loadYaml(environment, "application", new ClassPathResource("application.yaml"));
         var binder = Binder.get(environment);
         return new Configuration(
                 binder.bind("factory.dev-factory", DevFactoryProperties.class).get(),
                 binder.bind("factory.dev-factory.delivery", DevDeliveryProperties.class).get(),
-                binder.bind("factory.dev-factory.runtime", org.folio.factory.devfactory.runtime.DevRuntimeProperties.class).get());
+                binder.bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get());
     }
 
-    private record Configuration(DevFactoryProperties source, DevDeliveryProperties delivery,
-                                 org.folio.factory.devfactory.runtime.DevRuntimeProperties runtime) {}
+    private static void loadYaml(StandardEnvironment environment, String name, Resource resource)
+            throws IOException {
+        var propertySources = new YamlPropertySourceLoader().load(name, resource);
+        for (var source : propertySources) {
+            environment.getPropertySources().addLast(source);
+        }
+    }
+
+    private record Configuration(
+            DevFactoryProperties source,
+            DevDeliveryProperties delivery,
+            DevRuntimeProperties runtime) {}
 }

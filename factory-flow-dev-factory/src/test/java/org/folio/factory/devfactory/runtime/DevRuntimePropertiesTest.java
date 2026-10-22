@@ -1,9 +1,14 @@
 package org.folio.factory.devfactory.runtime;
 
+import org.folio.factory.devfactory.DevFactoryConfiguration;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -12,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class DevRuntimePropertiesTest {
     @Test
     void independentProfilesKeepPiLegacyFallbacksAndExactClaudeModel() {
-        var values = new java.util.HashMap<String, Object>();
+        var values = new HashMap<String, Object>();
         String prefix = "factory.dev-factory.runtime.coding.";
         values.put(prefix + "runtime", "claude-code");
         values.put(prefix + "image", "legacy:image");
@@ -37,14 +42,14 @@ class DevRuntimePropertiesTest {
         coding.claudeCode().requireConfigured();
         assertThat(coding.toString() + coding.piProfile() + coding.claudeCode())
                 .doesNotContain("legacy-key", "new-pi-key", "claude-secret", "gateway.example");
-        var selected = new org.folio.factory.devfactory.DevFactoryConfiguration().devCodingRuntime(bind(values));
+        var selected = new DevFactoryConfiguration().devCodingRuntime(bind(values));
         assertThat(selected).isInstanceOf(ClaudeCodeCodingRuntime.class);
         assertThat(selected.identity()).containsEntry("model", "operator/Custom-Model-2026");
     }
 
     @Test
     void inactiveProfilesAreNotValidatedAndSelectionIsClosed() {
-        var configuration = new org.folio.factory.devfactory.DevFactoryConfiguration();
+        var configuration = new DevFactoryConfiguration();
         var empty = bind(Map.of("factory.dev-factory.runtime.coding.runtime", "claude-code",
                 "factory.dev-factory.runtime.coding.pi.max-output-tokens", "-1"));
         assertThat(configuration.devCodingRuntime(empty)).isInstanceOf(ClaudeCodeCodingRuntime.class);
@@ -157,7 +162,26 @@ class DevRuntimePropertiesTest {
         assertThat(properties.requiredReports("roles")).containsExactly(
                 "target/failsafe-reports/TEST-org.folio.roles.it.CacheConfigIT.xml");
         assertThatThrownBy(() -> new DevRuntimeProperties(null, null, 0, null,
-                Map.of("roles", java.util.List.of("../target/failsafe-reports/TEST-a.xml"))))
+                Map.of("roles", List.of("../target/failsafe-reports/TEST-a.xml"))))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void bindsMavenReportFamiliesWithoutDependingOnTestClassNames() {
+        var source = new MapConfigurationPropertySource(Map.of(
+                "factory.dev-factory.runtime.required-reports.roles[0]", "surefire",
+                "factory.dev-factory.runtime.required-reports.roles[1]", "failsafe"));
+
+        var properties = new Binder(source).bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get();
+
+        assertThat(properties.requiredReports("roles")).containsExactly("surefire", "failsafe");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"unknown", "**/TEST-*.xml", "../surefire", "target/failsafe-reports/../TEST-a.xml"})
+    void rejectsUnknownFamiliesAndUnsafeReportRequirements(String requirement) {
+        assertThatThrownBy(() -> new DevRuntimeProperties(null, null, 0, null,
+                Map.of("roles", List.of(requirement))))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

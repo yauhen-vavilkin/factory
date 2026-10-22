@@ -3,176 +3,282 @@ package org.folio.factory.devfactory.runtime;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
 /** Bounded Claude stream projection. Only a single terminal result can complete an attempt. */
 final class ClaudeCodeProtocol implements Consumer<String> {
+    private static final int MAX_FRAME_LENGTH = 512 * 1024;
+    private static final int MAX_ACTIVITY_EVENTS = 200;
+    private static final int MAX_TOOL_NAME_LENGTH = 80;
     private static final JsonMapper JSON = JsonMapper.builder()
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .build();
+
     private final String model;
-    private final UnaryOperator<String> redact;
-    private final Consumer<Map<String, Object>> progress;
-    private final Map<String, JsonNode> messages = new LinkedHashMap<>();
-    private JsonNode result;
-    private String invalid;
-    private String streamingMessage = "";
-    private int emitted;
+    private final UnaryOperator<String> redactor;
+    private final Consumer<Map<String, Object>> progressListener;
+    private final Map<String, JsonNode> messageUsage = new LinkedHashMap<>();
+    private JsonNode terminalResult;
+    private String protocolErrorCode;
+    private String streamingMessageId = "";
+    private int emittedActivityEvents;
     private boolean initialized;
 
-    ClaudeCodeProtocol(String model, UnaryOperator<String> redact, Consumer<Map<String, Object>> progress) {
+    ClaudeCodeProtocol(
+            String model,
+            UnaryOperator<String> redactor,
+            Consumer<Map<String, Object>> progressListener) {
         this.model = model;
-        this.redact = redact;
-        this.progress = progress;
+        this.redactor = redactor;
+        this.progressListener = progressListener;
     }
 
-    @Override public void accept(String line) {
-        if (line.isBlank() || invalid != null) return;
-        if (line.length() > 512 * 1024) { invalid = "FRAME_TOO_LARGE"; return; }
+    @Override
+    public void accept(String line) {
+        if (line.isBlank() || protocolErrorCode != null) {
+            return;
+        }
+        if (line.length() > MAX_FRAME_LENGTH) {
+            protocolErrorCode = "FRAME_TOO_LARGE";
+            return;
+        }
+
         JsonNode frame;
-        try { frame = JSON.readTree(line); }
-        catch (RuntimeException e) { invalid = "MALFORMED_FRAME"; return; }
-        if (!frame.isObject() || !frame.path("type").isString()) { invalid = "MALFORMED_FRAME"; return; }
-        if (result != null) { invalid = "INVALID_RESULT_SEQUENCE"; return; }
+        try {
+            frame = JSON.readTree(line);
+        } catch (RuntimeException exception) {
+            protocolErrorCode = "MALFORMED_FRAME";
+            return;
+        }
+        if (!frame.isObject() || !frame.path("type").isString()) {
+            protocolErrorCode = "MALFORMED_FRAME";
+            return;
+        }
+        if (terminalResult != null) {
+            protocolErrorCode = "INVALID_RESULT_SEQUENCE";
+            return;
+        }
+
         switch (frame.path("type").asString()) {
-            case "system" -> system(frame);
-            case "assistant" -> assistant(frame);
-            case "stream_event" -> streamEvent(frame.path("event"));
-            case "user" -> {
-                for (var block : frame.path("message").path("content"))
-                    if (block.path("type").asString("").equals("tool_result"))
-                        emit(Map.of("activity", "tool_execution_end", "error", block.path("is_error").asBoolean(false)));
-            }
+            case "system" -> handleSystemFrame(frame);
+            case "assistant" -> handleAssistantFrame(frame);
+            case "stream_event" -> handleStreamEvent(frame.path("event"));
+            case "user" -> handleToolResults(frame);
             case "result" -> {
-                result = frame;
-                usageProgress();
-                emit(Map.of("activity", "agent_end"));
+                terminalResult = frame;
+                publishUsage();
+                emitActivity(Map.of("activity", "agent_end"));
             }
-            default -> { /* Future diagnostic events are not completion evidence. */ }
+            default -> {
+                // Future diagnostic events are not completion evidence.
+            }
         }
     }
 
-    private void system(JsonNode frame) {
+    private void handleSystemFrame(JsonNode frame) {
         switch (frame.path("subtype").asString("")) {
             case "init" -> {
-                if (initialized || !frame.path("model").asString("").equals(model)) invalid = "IDENTITY_MISMATCH";
+                String reportedModel = frame.path("model").asString("");
+                if (initialized || !reportedModel.equals(model)) {
+                    protocolErrorCode = "IDENTITY_MISMATCH";
+                }
                 initialized = true;
-                emit(Map.of("activity", "agent_start"));
+                emitActivity(Map.of("activity", "agent_start"));
             }
-            case "api_retry" -> emit(Map.of("activity", "auto_retry_start",
+            case "api_retry" -> emitActivity(Map.of(
+                    "activity", "auto_retry_start",
                     "attempt", Math.max(0, frame.path("attempt").asInt(0)),
                     "maxAttempts", Math.max(0, frame.path("max_retries").asInt(0))));
-            default -> { }
-        }
-    }
-
-    private void assistant(JsonNode frame) {
-        var message = frame.path("message");
-        String id = message.path("id").asString("");
-        if (!id.isBlank()) {
-            // Multiple content blocks can report the same message: replace, never double count.
-            messages.put(id, message.path("usage"));
-            usageProgress();
-        }
-        for (var block : message.path("content"))
-            if (block.path("type").asString("").equals("tool_use")) {
-                String tool = redact.apply(block.path("name").asString(""));
-                emit(Map.of("activity", "tool_execution_start", "tool",
-                        tool.replaceAll("[\\p{Cntrl}]", " ").substring(0, Math.min(80, tool.length()))));
+            default -> {
+                // Other system events do not affect the attempt state.
             }
+        }
     }
 
-    private void streamEvent(JsonNode event) {
+    private void handleAssistantFrame(JsonNode frame) {
+        JsonNode message = frame.path("message");
+        String messageId = message.path("id").asString("");
+        if (!messageId.isBlank()) {
+            // Multiple content blocks can report the same message: replace, never double count.
+            messageUsage.put(messageId, message.path("usage"));
+            publishUsage();
+        }
+        for (JsonNode block : message.path("content")) {
+            if ("tool_use".equals(block.path("type").asString(""))) {
+                String toolName = redactor.apply(block.path("name").asString(""));
+                String safeToolName = toolName.replaceAll("[\\p{Cntrl}]", " ");
+                safeToolName = safeToolName.substring(0, Math.min(MAX_TOOL_NAME_LENGTH, safeToolName.length()));
+                emitActivity(Map.of("activity", "tool_execution_start", "tool", safeToolName));
+            }
+        }
+    }
+
+    private void handleToolResults(JsonNode frame) {
+        for (JsonNode block : frame.path("message").path("content")) {
+            if ("tool_result".equals(block.path("type").asString(""))) {
+                emitActivity(Map.of(
+                        "activity", "tool_execution_end",
+                        "error", block.path("is_error").asBoolean(false)));
+            }
+        }
+    }
+
+    private void handleStreamEvent(JsonNode event) {
         switch (event.path("type").asString("")) {
             case "message_start" -> {
-                streamingMessage = event.path("message").path("id").asString("");
-                if (!streamingMessage.isBlank())
-                    messages.put(streamingMessage, event.path("message").path("usage"));
+                JsonNode message = event.path("message");
+                streamingMessageId = message.path("id").asString("");
+                if (!streamingMessageId.isBlank()) {
+                    messageUsage.put(streamingMessageId, message.path("usage"));
+                }
             }
-            case "message_delta" -> {
-                // Assistant content is emitted before this final per-message output count.
-                if (streamingMessage.isBlank()) return;
-                var usage = JSON.createObjectNode();
-                var previous = messages.get(streamingMessage);
-                if (previous != null && previous.isObject()) previous.properties().forEach(e -> usage.set(e.getKey(), e.getValue()));
-                if (event.path("usage").isObject()) event.path("usage").properties().forEach(e -> usage.set(e.getKey(), e.getValue()));
-                messages.put(streamingMessage, usage);
-                usageProgress();
+            case "message_delta" -> updateStreamingUsage(event.path("usage"));
+            case "message_stop" -> streamingMessageId = "";
+            default -> {
+                // Text/tool deltas contain private content, not usage evidence.
             }
-            case "message_stop" -> streamingMessage = "";
-            default -> { /* Text/tool deltas contain private content, not usage evidence. */ }
         }
     }
 
-    private void usageProgress() {
-        var event = new LinkedHashMap<>(metrics());
-        event.put("activity", "coding_usage");
-        progress.accept(event);
+    private void updateStreamingUsage(JsonNode delta) {
+        // Assistant content is emitted before this final per-message output count.
+        if (streamingMessageId.isBlank()) {
+            return;
+        }
+        ObjectNode mergedUsage = JSON.createObjectNode();
+        copyUsageFields(mergedUsage, messageUsage.get(streamingMessageId));
+        copyUsageFields(mergedUsage, delta);
+        messageUsage.put(streamingMessageId, mergedUsage);
+        publishUsage();
     }
 
-    private void emit(Map<String, Object> event) { if (emitted++ < 200) progress.accept(event); }
+    private static void copyUsageFields(ObjectNode target, JsonNode source) {
+        if (source != null && source.isObject()) {
+            for (var entry : source.properties()) {
+                target.set(entry.getKey(), entry.getValue());
+            }
+        }
+    }
+
+    private void publishUsage() {
+        var event = new LinkedHashMap<>(metrics());
+        event.put("activity", "coding_usage");
+        progressListener.accept(event);
+    }
+
+    private void emitActivity(Map<String, Object> event) {
+        boolean withinLimit = emittedActivityEvents < MAX_ACTIVITY_EVENTS;
+        emittedActivityEvents++;
+        if (withinLimit) {
+            progressListener.accept(event);
+        }
+    }
 
     Map<String, Object> metrics() {
         var metrics = new LinkedHashMap<String, Object>();
         metrics.put("provider", "anthropic-messages");
         metrics.put("model", model);
-        boolean complete = result != null && result.path("usage").isObject();
-        var usage = complete ? java.util.List.of(result.path("usage")) : messages.values();
-        boolean missing = usage.isEmpty() || messages.values().stream().anyMatch(item -> !hasTokenEvidence(item));
-        for (var item : usage) {
-            missing |= !hasTokenEvidence(item);
-            add(metrics, item, "input_tokens", "inputTokens");
-            add(metrics, item, "output_tokens", "outputTokens");
-            add(metrics, item, "cache_read_input_tokens", "cacheReadTokens");
-            add(metrics, item, "cache_creation_input_tokens", "cacheWriteTokens");
-            add(metrics, item.path("cache_creation"), "ephemeral_5m_input_tokens", "cacheWrite5mTokens");
-            add(metrics, item.path("cache_creation"), "ephemeral_1h_input_tokens", "cacheWrite1hTokens");
+
+        boolean hasTerminalUsage = terminalResult != null && terminalResult.path("usage").isObject();
+        Collection<JsonNode> usageSnapshots = messageUsage.values();
+        if (hasTerminalUsage) {
+            usageSnapshots = List.of(terminalResult.path("usage"));
         }
-        if (!complete || missing) metrics.put("usageIncomplete", true);
-        // Claude's cost is a client estimate, not the operator endpoint's bill. Factory uses its rate card.
-        if (result != null && result.path("total_cost_usd").isNumber()
-                && Double.isFinite(result.path("total_cost_usd").asDouble())
-                && result.path("total_cost_usd").asDouble() >= 0)
-            metrics.put("runtimeEstimatedCostUsd", result.path("total_cost_usd").decimalValue());
+        boolean hasCompleteUsage = hasTerminalUsage
+                && !usageSnapshots.isEmpty()
+                && messageUsage.values().stream().allMatch(ClaudeCodeProtocol::hasTokenEvidence);
+        for (JsonNode usage : usageSnapshots) {
+            if (!hasTokenEvidence(usage)) {
+                hasCompleteUsage = false;
+            }
+            addUsage(metrics, usage);
+        }
+        if (!hasCompleteUsage) {
+            metrics.put("usageIncomplete", true);
+        }
+        addRuntimeEstimate(metrics);
         return metrics;
+    }
+
+    private static void addUsage(Map<String, Object> metrics, JsonNode usage) {
+        addTokenCount(metrics, usage, "input_tokens", "inputTokens");
+        addTokenCount(metrics, usage, "output_tokens", "outputTokens");
+        addTokenCount(metrics, usage, "cache_read_input_tokens", "cacheReadTokens");
+        addTokenCount(metrics, usage, "cache_creation_input_tokens", "cacheWriteTokens");
+
+        JsonNode cacheCreation = usage.path("cache_creation");
+        addTokenCount(metrics, cacheCreation, "ephemeral_5m_input_tokens", "cacheWrite5mTokens");
+        addTokenCount(metrics, cacheCreation, "ephemeral_1h_input_tokens", "cacheWrite1hTokens");
+    }
+
+    private void addRuntimeEstimate(Map<String, Object> metrics) {
+        if (terminalResult == null) {
+            return;
+        }
+        JsonNode estimate = terminalResult.path("total_cost_usd");
+        if (estimate.isNumber() && Double.isFinite(estimate.asDouble()) && estimate.asDouble() >= 0) {
+            // Claude's cost is a client estimate, not the operator endpoint's bill.
+            metrics.put("runtimeEstimatedCostUsd", estimate.decimalValue());
+        }
     }
 
     private static boolean hasTokenEvidence(JsonNode usage) {
         // Claude substitutes zeroes when the endpoint omits usage. A generated answer
         // needs positive output and some input evidence, including fully cached input.
-        return usage.path("input_tokens").isIntegralNumber() && usage.path("input_tokens").asLong() >= 0
+        JsonNode inputTokens = usage.path("input_tokens");
+        boolean hasInputEvidence = positive(inputTokens)
+                || positive(usage.path("cache_read_input_tokens"))
+                || positive(usage.path("cache_creation_input_tokens"));
+        return inputTokens.isIntegralNumber()
+                && inputTokens.asLong() >= 0
                 && positive(usage.path("output_tokens"))
-                && (positive(usage.path("input_tokens")) || positive(usage.path("cache_read_input_tokens"))
-                    || positive(usage.path("cache_creation_input_tokens")));
+                && hasInputEvidence;
     }
 
-    private static boolean positive(JsonNode value) { return value.isIntegralNumber() && value.asLong() > 0; }
+    private static boolean positive(JsonNode value) {
+        return value.isIntegralNumber() && value.asLong() > 0;
+    }
 
-    private static void add(Map<String, Object> metrics, JsonNode item, String from, String to) {
-        if (item.path(from).isIntegralNumber() && item.path(from).asLong() >= 0)
-            metrics.merge(to, item.path(from).asLong(), (a, b) -> (Long) a + (Long) b);
+    private static void addTokenCount(
+            Map<String, Object> metrics, JsonNode usage, String providerField, String metricField) {
+        JsonNode value = usage.path(providerField);
+        if (value.isIntegralNumber() && value.asLong() >= 0) {
+            metrics.merge(metricField, value.asLong(), (previous, current) -> (Long) previous + (Long) current);
+        }
     }
 
     CodingOutcome outcome(int exitCode) {
-        if (invalid != null) return failed(invalid, "Claude Code returned an invalid event stream");
-        if (result != null && (result.path("is_error").asBoolean(true)
-                || !result.path("subtype").asString("").equals("success"))) {
-            String code = switch (result.path("subtype").asString("")) {
+        if (protocolErrorCode != null) {
+            return failed(protocolErrorCode, "Claude Code returned an invalid event stream");
+        }
+        if (terminalResult != null && (terminalResult.path("is_error").asBoolean(true)
+                || !"success".equals(terminalResult.path("subtype").asString("")))) {
+            String code = switch (terminalResult.path("subtype").asString("")) {
                 case "error_max_turns" -> "TURN_LIMIT";
                 case "error_max_budget_usd" -> "BUDGET_LIMIT";
                 default -> "PROVIDER_FAILED";
             };
             return failed(code, "Claude Code did not complete the attempt (" + code + ")");
         }
-        if (exitCode != 0) return failed("RUNTIME_EXIT", "Claude Code exited with code " + exitCode);
-        if (!initialized || result == null || !result.path("is_error").isBoolean()
-                || result.path("result").asString("").isBlank())
+        if (exitCode != 0) {
+            return failed("RUNTIME_EXIT", "Claude Code exited with code " + exitCode);
+        }
+        if (!initialized || terminalResult == null || !terminalResult.path("is_error").isBoolean()
+                || terminalResult.path("result").asString("").isBlank()) {
             return failed("INCOMPLETE_RESULT", "Claude Code did not return a completed coding result");
-        return CodingProtocol.answer(redact.apply(result.path("result").asString()), metrics(), "Claude Code");
+        }
+        String answer = redactor.apply(terminalResult.path("result").asString());
+        return CodingProtocol.answer(answer, metrics(), "Claude Code");
     }
 
-    private CodingOutcome failed(String code, String message) { return CodingOutcome.failed(code, message, metrics()); }
+    private CodingOutcome failed(String code, String message) {
+        return CodingOutcome.failed(code, message, metrics());
+    }
 }

@@ -7,6 +7,10 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
@@ -16,8 +20,27 @@ import org.xml.sax.helpers.DefaultHandler;
 
 /** Maven proof: only fresh Surefire/Failsafe TEST-*.xml reports count as executed tests. */
 record SurefireEvidence(int reportCount, int testCount, int failureCount, int errorCount,
-                        int failsafeReportCount, java.util.Map<String, Integer> executedByReport) {
+                        int failsafeReportCount, Map<String, Integer> executedByReport) {
     private static final int MAX_REPORT_BYTES = 2 * 1024 * 1024;
+
+    List<String> missingRequiredReports(List<String> requirements) {
+        List<String> missing = new ArrayList<>();
+        for (String requirement : requirements) {
+            if (!satisfies(requirement)) {
+                missing.add(requirement);
+            }
+        }
+        return List.copyOf(missing);
+    }
+
+    private boolean satisfies(String requirement) {
+        MavenTestSuite suite = MavenTestSuite.fromRequirement(requirement);
+        if (suite != null) {
+            return suite.hasExecutedReports(executedByReport);
+        }
+        // Existing operator catalogs may still require an exact report path.
+        return executedByReport.getOrDefault(requirement, 0) > 0;
+    }
 
     static SurefireEvidence inspect(Path workspace, Instant verificationStarted) {
         int reports = 0;
@@ -25,17 +48,21 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
         int failures = 0;
         int errors = 0;
         int failsafeReports = 0;
-        var executedByReport = new java.util.LinkedHashMap<String, Integer>();
+        Map<String, Integer> executedByReport = new LinkedHashMap<>();
         Instant oldestAccepted = verificationStarted.minusSeconds(2);
         try (var paths = Files.walk(workspace)) {
             for (Path report : paths.toList()) {
                 Path relative = workspace.relativize(report);
-                if (!isSurefireReport(relative)) continue;
+                if (!isSurefireReport(relative)) {
+                    continue;
+                }
                 if (!Files.isRegularFile(report, LinkOption.NOFOLLOW_LINKS)) {
                     throw new IllegalStateException("Unsafe Surefire report file");
                 }
                 if (Files.getLastModifiedTime(report, LinkOption.NOFOLLOW_LINKS).toInstant()
-                        .isBefore(oldestAccepted)) continue;
+                        .isBefore(oldestAccepted)) {
+                    continue;
+                }
                 if (Files.size(report) > MAX_REPORT_BYTES) {
                     throw new IllegalStateException("Surefire report exceeds evidence limit");
                 }
@@ -43,7 +70,9 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
                 try (var input = Files.newInputStream(report, LinkOption.NOFOLLOW_LINKS)) {
                     xml = input.readNBytes(MAX_REPORT_BYTES + 1);
                 }
-                if (xml.length > MAX_REPORT_BYTES) throw new IllegalStateException("Surefire report exceeds evidence limit");
+                if (xml.length > MAX_REPORT_BYTES) {
+                    throw new IllegalStateException("Surefire report exceeds evidence limit");
+                }
                 Element suite = parse(xml);
                 int suiteTests = attribute(suite, "tests");
                 int suiteSkipped = attribute(suite, "skipped");
@@ -53,13 +82,15 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
                     throw new IllegalStateException("Invalid Surefire counters");
                 }
                 reports++;
-                if (relative.getParent().getFileName().toString().equals("failsafe-reports")) failsafeReports++;
+                if (relative.getParent().getFileName().toString().equals("failsafe-reports")) {
+                    failsafeReports++;
+                }
                 executedByReport.put(relative.toString().replace('\\', '/'), suiteTests - suiteSkipped);
                 tests = Math.addExact(tests, suiteTests - suiteSkipped);
                 failures = Math.addExact(failures, suiteFailures);
                 errors = Math.addExact(errors, suiteErrors);
             }
-            return new SurefireEvidence(reports, tests, failures, errors, failsafeReports, java.util.Map.copyOf(executedByReport));
+            return new SurefireEvidence(reports, tests, failures, errors, failsafeReports, Map.copyOf(executedByReport));
         } catch (IOException | UncheckedIOException | ArithmeticException e) {
             throw new IllegalStateException("Cannot inspect fresh Surefire evidence", e);
         }
