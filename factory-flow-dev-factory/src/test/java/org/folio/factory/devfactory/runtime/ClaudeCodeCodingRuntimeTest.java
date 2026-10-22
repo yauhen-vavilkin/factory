@@ -187,6 +187,23 @@ class ClaudeCodeCodingRuntimeTest {
                 .isEqualTo("INVALID_DECISION_RESULT");
     }
 
+    @Test void cacheTtlCountersSurviveTerminalReplacementWithoutDoubleCounting() {
+        var result = RESULT.replace("\"cache_creation_input_tokens\":2",
+                "\"cache_creation_input_tokens\":2,\"cache_creation\":{\"ephemeral_5m_input_tokens\":1,\"ephemeral_1h_input_tokens\":1}");
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", s -> s, e -> {});
+        protocol.accept(INIT);
+        protocol.accept("""
+                {"type":"assistant","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":5,
+                "cache_creation_input_tokens":2,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":0}}}}
+                """);
+        assertThat(protocol.metrics()).containsEntry("cacheWrite5mTokens", 2L).containsEntry("cacheWrite1hTokens", 0L);
+        protocol.accept(result);
+        assertThat(protocol.outcome(0).metrics()).containsEntry("cacheWriteTokens", 2L)
+                .containsEntry("cacheWrite5mTokens", 1L).containsEntry("cacheWrite1hTokens", 1L)
+                .doesNotContainKey("usageIncomplete");
+        assertThat(parse(INIT + RESULT, 0).metrics()).doesNotContainKeys("cacheWrite5mTokens", "cacheWrite1hTokens");
+    }
+
     private static CodingOutcome parse(String text, int exitCode) {
         var protocol = new ClaudeCodeProtocol("custom/Model-1", s -> s.replace("secret-key", "[REDACTED]"), e -> {});
         text.lines().forEach(protocol);

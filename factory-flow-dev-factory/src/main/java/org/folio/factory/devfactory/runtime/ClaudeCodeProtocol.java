@@ -128,6 +128,8 @@ final class ClaudeCodeProtocol implements Consumer<String> {
             add(metrics, item, "output_tokens", "outputTokens");
             add(metrics, item, "cache_read_input_tokens", "cacheReadTokens");
             add(metrics, item, "cache_creation_input_tokens", "cacheWriteTokens");
+            add(metrics, item.path("cache_creation"), "ephemeral_5m_input_tokens", "cacheWrite5mTokens");
+            add(metrics, item.path("cache_creation"), "ephemeral_1h_input_tokens", "cacheWrite1hTokens");
         }
         if (!complete || missing) metrics.put("usageIncomplete", true);
         // Claude's cost is a client estimate, not the operator endpoint's bill. Factory uses its rate card.

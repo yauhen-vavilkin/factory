@@ -126,13 +126,13 @@ factory:
     repositories:
       sidecar:
         source-repo: ${FACTORY_SIDECAR_SOURCE_REPO:folio-org/folio-module-sidecar}
-        base-branch: master
+        base-branch: ${FACTORY_SIDECAR_BASE_BRANCH:master}
         build-image: maven:3.9-eclipse-temurin-21
         verification-plan: java21-unit
         jira-projects: [MODSIDECAR]
       mod-roles-keycloak:
         source-repo: ${FACTORY_MOD_ROLES_KEYCLOAK_SOURCE_REPO:folio-org/mod-roles-keycloak}
-        base-branch: master
+        base-branch: ${FACTORY_MOD_ROLES_KEYCLOAK_BASE_BRANCH:master}
         build-image: maven:3.9-eclipse-temurin-21
         verification-plan: java21-roles-verify
         jira-projects: [MODROLESKC]
@@ -144,7 +144,7 @@ factory:
         jira-projects: [MGRENTITLE]
       mgr-applications:
         source-repo: ${FACTORY_MGR_APPLICATIONS_SOURCE_REPO:folio-org/mgr-applications}
-        base-branch: master
+        base-branch: ${FACTORY_MGR_APPLICATIONS_BASE_BRANCH:master}
         build-image: maven:3.9-eclipse-temurin-21
         verification-plan: java21-unit
         jira-projects: [MGRAPPS]
@@ -327,20 +327,20 @@ factory:
       targets:
         sidecar:
           repository: ${FACTORY_SIDECAR_DELIVERY_REPO:folio-org/folio-module-sidecar}
-          base-branch: master
-          authorized: true
+          base-branch: ${FACTORY_SIDECAR_BASE_BRANCH:master}
+          authorized: ${FACTORY_SIDECAR_DELIVERY_AUTHORIZED:true}
         mod-roles-keycloak:
           repository: ${FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_REPO:folio-org/mod-roles-keycloak}
-          base-branch: master
-          authorized: true
+          base-branch: ${FACTORY_MOD_ROLES_KEYCLOAK_BASE_BRANCH:master}
+          authorized: ${FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_AUTHORIZED:true}
         mgr-tenant-entitlements:
           repository: ${FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_REPO:folio-org/mgr-tenant-entitlements}
           base-branch: ${FACTORY_MGR_TENANT_ENTITLEMENTS_BASE_BRANCH:master}
-          authorized: true
+          authorized: ${FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_AUTHORIZED:true}
         mgr-applications:
           repository: ${FACTORY_MGR_APPLICATIONS_DELIVERY_REPO:folio-org/mgr-applications}
-          base-branch: master
-          authorized: true
+          base-branch: ${FACTORY_MGR_APPLICATIONS_BASE_BRANCH:master}
+          authorized: ${FACTORY_MGR_APPLICATIONS_DELIVERY_AUTHORIZED:true}
   test-factory:
     execution:
       base-url: ${FACTORY_TEST_FACTORY_EXECUTION_BASE_URL:}

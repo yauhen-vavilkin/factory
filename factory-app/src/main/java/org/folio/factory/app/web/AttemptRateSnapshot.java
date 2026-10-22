@@ -26,6 +26,10 @@ public class AttemptRateSnapshot implements AttemptPricing {
         result.put("cacheReadPerMillion", rate.cacheReadPerMillion());
         result.put("cacheWritePerMillion", rate.cacheWritePerMillion());
         result.put("outputPerMillion", rate.outputPerMillion());
+        if (rate.cacheWrite5mPerMillion() != null)
+            result.put("cacheWrite5mPerMillion", rate.cacheWrite5mPerMillion());
+        if (rate.cacheWrite1hPerMillion() != null)
+            result.put("cacheWrite1hPerMillion", rate.cacheWrite1hPerMillion());
         return result;
     }
 }

@@ -1,6 +1,7 @@
 package org.folio.factory.app.web;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 import java.math.BigDecimal;
 import java.net.URI;
@@ -40,7 +41,19 @@ public record DeveloperPricingProperties(Map<String, Rate> rates) {
             BigDecimal inputPerMillion,
             BigDecimal cacheReadPerMillion,
             BigDecimal cacheWritePerMillion,
-            BigDecimal outputPerMillion) {
+            BigDecimal outputPerMillion,
+            BigDecimal cacheWrite5mPerMillion,
+            BigDecimal cacheWrite1hPerMillion) {
+        @ConstructorBinding
+        public Rate { }
+
+        public Rate(String model, String currency, LocalDate asOf, URI source,
+                    BigDecimal inputPerMillion, BigDecimal cacheReadPerMillion,
+                    BigDecimal cacheWritePerMillion, BigDecimal outputPerMillion) {
+            this(model, currency, asOf, source, inputPerMillion, cacheReadPerMillion,
+                    cacheWritePerMillion, outputPerMillion, null, null);
+        }
+
         private void validate(String id) {
             if (blank(model))
                 throw new IllegalArgumentException("Pricing rate " + id + " requires model");
@@ -54,7 +67,8 @@ public record DeveloperPricingProperties(Map<String, Rate> rates) {
                         "Pricing rate " + id + " requires an HTTPS source");
             for (BigDecimal value :
                     new BigDecimal[] {
-                        inputPerMillion, cacheReadPerMillion, cacheWritePerMillion, outputPerMillion
+                        inputPerMillion, cacheReadPerMillion, cacheWritePerMillion, outputPerMillion,
+                        cacheWrite5mPerMillion, cacheWrite1hPerMillion
                     })
                 if (value != null && value.signum() < 0)
                     throw new IllegalArgumentException(

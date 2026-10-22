@@ -1,6 +1,18 @@
 factory:
   developer-pricing:
     rates:
+      # Public Anthropic Standard/global list estimate, not the CodeMie bill.
+      # Cache writes require observed TTL counters; never assume 5m for unknown usage.
+      anthropic-claude-sonnet-5-5:
+        model: claude-sonnet-5-5
+        currency: USD
+        as-of: 2026-10-22
+        source: https://platform.claude.com/docs/en/about-claude/pricing
+        input-per-million: 2.00
+        cache-read-per-million: 0.10
+        cache-write-5m-per-million: 2.50
+        cache-write-1h-per-million: 4.00
+        output-per-million: 10.00
       zai-glm-5-3-flash:
         model: glm-5.3-flash
         currency: USD

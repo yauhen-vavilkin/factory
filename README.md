@@ -3,7 +3,7 @@
 An AI-driven, plugin-based orchestration platform for the FOLIO software
 development lifecycle. Flows are **data** (YAML plugin descriptors), agents are
 stateless workers that communicate only through **immutable versioned
-artifacts**, and every consequential step passes a **human-in-the-loop gate**.
+artifacts**. Each flow declares its review and verification gates.
 
 The shared orchestration framework runs two flow plugins:
 
@@ -67,7 +67,7 @@ Key invariants, enforced by the framework:
 Prerequisites: Java 21, Maven 3.9+, Docker.
 
 ```bash
-# 1. Database only (the full Compose stack is the Developer Flow demo below)
+# 1. Database only (the full Compose stack is the Developer Flow section below)
 docker compose up -d postgres
 
 # 2. LLM provider (Spring AI — Anthropic by default, swappable via config)
@@ -133,22 +133,89 @@ SBOM, and builds the Docker image. A weekly `dependency-check.yml` runs an
 opt-in OWASP scan (`mvn -Powasp verify`); Dependabot keeps Maven and Actions
 dependencies current.
 
-### Developer Flow demo
+### Developer Flow with Docker Compose
 
-Developer Flow supports `pi` (default) and `claude-code`. Set
-`FACTORY_DEV_FACTORY_CODING_RUNTIME` and the selected profile in `.env`; see the
-Developer Flow block in `.env.example`. Configure a GitHub token for delivery.
-Source repositories and their matching, authorized delivery targets are declared
-together in `application.yaml`; each default is overridable via
-`FACTORY_<REPO>_SOURCE_REPO` / `FACTORY_<REPO>_DELIVERY_REPO` (for example,
-`FACTORY_SIDECAR_SOURCE_REPO`). Start the local control plane and trigger a task:
+For this path, install Docker Desktop with Compose 2.20+ and start its engine.
+Java, Maven and Claude Code are supplied by the images; no host installation or
+Claude login is needed. The first build downloads public base images, Maven
+dependencies and the pinned coding CLI, so it needs internet access and can take
+several minutes with an empty cache. Docker Desktop on macOS is the validated
+local environment. A host proxy must be reachable from sibling coding containers;
+plain Linux Docker needs its own host routing configuration.
+
+From a fresh clone:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` before starting. Select one coding profile from
+[Coding runtime profiles](#coding-runtime-profiles), then configure:
+
+- Jira base URL, email and API token for reading the requested issue.
+- A GitHub token with access to the source and personal delivery repository.
+- Matching source/delivery repositories and an existing base branch. The bundled
+  `folio-org` delivery defaults are deliberately blocked; choose your own fork.
+  Verification is followed by automatic push/PR publication to the authorized
+  target. `create-pull-request=false` does not disable git push.
+
+For example, enable only your sidecar target (replace `your-github-user`):
+
+```dotenv
+FACTORY_SIDECAR_SOURCE_REPO=your-github-user/folio-module-sidecar
+FACTORY_SIDECAR_DELIVERY_REPO=your-github-user/folio-module-sidecar
+FACTORY_SIDECAR_BASE_BRANCH=master
+FACTORY_SIDECAR_DELIVERY_AUTHORIZED=true
+FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_AUTHORIZED=false
+FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_AUTHORIZED=false
+FACTORY_MGR_APPLICATIONS_DELIVERY_AUTHORIZED=false
+```
+
+Compose explicitly forwards these settings to Spring. Each repository's
+`FACTORY_<REPO>_BASE_BRANCH` applies to both intake and delivery. Set the same
+source/delivery pair for every additional target you enable; `.env.example`
+lists all four supported repositories. The general Configuration table also
+contains settings for host-run Spring applications; Compose forwards the
+Developer Flow settings listed in its `environment` block.
+
+Build and start, including the selected CLI version check:
 
 ```bash
 docker compose up -d --build
-curl -s -X POST localhost:8080/api/triggers/manual \
-  -H 'Content-Type: application/json' \
-  -d '{"flowId":"dev-factory","payload":{"issueKey":"MODSIDECAR-196"}}'
+docker compose ps -a
+curl --fail http://localhost:8080/actuator/health
 ```
+
+Wait for Factory to become healthy (`status: UP`); `coding-runtime` should have
+exited with code 0. Open <http://localhost:8080/flows/dev-factory>, choose
+**Trigger flow**, and submit an issue such as `{"issueKey":"MODSIDECAR-196"}`.
+Use an issue that still requires a change on your chosen base. Set a unique dedup
+key for each intentional run. With a new empty database, starting the stack or
+loading the UI makes no coding-model call. Existing queued executions can resume
+on startup; triggering coding can incur API charges and publish a PR.
+
+To diagnose a failed start, use `docker compose logs --tail=100 factory
+coding-runtime postgres`. Avoid sharing `.env` or unfiltered `docker compose
+config`/container environment output: they include credentials.
+
+`docker compose down` stops this stack while retaining its database volume and
+execution history. Do not use `down -v` or remove existing volumes to upgrade or
+retry a build. To run a separate evaluation alongside an existing stack, choose
+a new Compose project (`docker compose -p factory-evaluation ...`) and set these
+values in its own `.env` before the same build/start command:
+
+```dotenv
+FACTORY_APP_PORT=18080
+FACTORY_DB_PORT=15432
+FACTORY_APP_IMAGE=folio-factory-app:evaluation
+FACTORY_CLAUDE_CODE_IMAGE=factory-dev-claude-code:evaluation
+FACTORY_PI_IMAGE=factory-dev-pi:evaluation
+FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME=factory-evaluation-m2-cache
+```
+
+The project scopes its PostgreSQL volume; the Maven cache has an explicit name,
+so changing the project alone does not isolate that cache. These names and ports
+must be unused. Use the same project name for later `ps`, `logs` and `down`.
 
 The Factory container owns the Docker socket only for this trusted single-user MVP.
 The coding runtime runs in a separate container without that socket or Jira/GitHub
@@ -157,9 +224,8 @@ Delivery is blocked unless the exact candidate has a matching successful
 verification receipt: required Maven suites must produce fresh, executed reports
 (see `required-reports` in `application.yaml`), and a successful unit suite alone
 cannot approve a plan that requires integration reports. The trusted build reuses
-the `factory-dev-m2-cache` Docker volume, repairing cache entry ownership before
-each build; reset it with `docker volume rm factory-dev-m2-cache` while the stack
-is stopped.
+the configured Maven cache Docker volume, repairing cache entry ownership before
+each build. Keep this volume when stopping or rebuilding the stack.
 
 Execution pages estimate API cost from the operator-owned
 `config/developer-pricing.yaml` rate card. The YAML records public list prices
@@ -199,15 +265,18 @@ CodeMie route):
 ```dotenv
 FACTORY_DEV_FACTORY_CODING_RUNTIME=claude-code
 FACTORY_CLAUDE_CODE_API=anthropic-messages
-FACTORY_CLAUDE_CODE_BASE_URL=https://codemie.example/anthropic
+FACTORY_CLAUDE_CODE_BASE_URL=http://host.docker.internal:4001
 FACTORY_CLAUDE_CODE_MODEL=operator-model-id
 FACTORY_CLAUDE_CODE_AUTHENTICATION=bearer-token
 FACTORY_CLAUDE_CODE_AUTH_TOKEN=replace-with-your-token
 ```
 
-The example endpoint is a placeholder. Supply the prefix before `/v1/messages`
-reachable from the coding container (on Docker Desktop, use
-`host.docker.internal` for a host proxy). A Chat Completions or Responses endpoint
+The example assumes an already running local CodeMie proxy on port 4001; Compose
+does not start it. For another gateway, supply the prefix before `/v1/messages`
+reachable from the coding container. Do not append `/v1`: the CLI adds
+`/v1/messages`. Confirm the deployment model ID with your gateway; use
+`claude-sonnet-5-5` only when that literal ID is supported. Leave optional effort
+unset for the first connection check. A Chat Completions or Responses endpoint
 cannot be used with Claude Code: an incompatible API type fails before the
 coding container starts. Factory does not translate API protocols, rename model
 IDs, or restrict models to an allowlist. Endpoint/model capabilities, streaming
