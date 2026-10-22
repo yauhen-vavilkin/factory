@@ -6,6 +6,7 @@ import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.ArtifactContent;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
+import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.worker.DevelopWorker;
 import org.folio.factory.devfactory.worker.IntakeResolveWorker;
 import org.folio.factory.core.service.AuditLog;
@@ -37,6 +38,7 @@ class DevelopReadinessTest {
         var pi = mock(DockerWorkloads.Workload.class);
         var freezer = mock(CandidateFreezer.class);
         var coding = mock(CodingRuntime.class);
+        var selectedRepository = mock(SelectedRepositoryPreflight.class);
         when(coding.image()).thenReturn("pi:image");
         when(coding.identity()).thenReturn(Map.of("runtime", "pi", "image", "pi:image",
                 "provider", "provider", "model", "model"));
@@ -72,11 +74,11 @@ class DevelopReadinessTest {
                         "application/json", tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(request))),
                 null, Map.of(), List.of());
         var audit = mock(AuditLog.class);
-        var worker = new DevelopWorker(new org.folio.factory.devfactory.worker.InitialCodingAttempt(properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of()), codec);
+        var worker = new DevelopWorker(new org.folio.factory.devfactory.worker.InitialCodingAttempt(properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of(), selectedRepository), codec);
 
         assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class);
         verify(coding, never()).code(any(), any(), anyInt(), any());
-        verify(coding, never()).requireConfigured();
+        verify(coding).requireConfigured();
         var result = worker.execute(context);
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
@@ -95,6 +97,12 @@ class DevelopReadinessTest {
                 .containsEntry("promptTokens", 13L)
                 .containsEntry("completionTokens", 3L);
         verify(coding).code(eq(pi), any(CodingRequest.class), eq(60), any());
+        verify(selectedRepository, times(2)).requireRepositoryReady("repo", "a".repeat(40));
+        var order = inOrder(docker, coding, selectedRepository, freezer);
+        order.verify(docker).beginStep(context.executionId(), "implement");
+        order.verify(coding).requireConfigured();
+        order.verify(selectedRepository).requireRepositoryReady("repo", request.repository().baseSha());
+        order.verify(freezer).checkout("https://example.org/owner/repo.git", request.repository().baseSha());
         verify(stepScope, times(2)).createTrusted("build:image", workspace, "factory-dev-m2-cache");
         verify(baseline, times(2)).close();
         verify(pi).close();
@@ -163,10 +171,77 @@ class DevelopReadinessTest {
             assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_FAILED", "output");
         }
         verify(coding, never()).code(any(), any(), anyInt(), any());
-        verify(coding, never()).requireConfigured();
+        verify(coding, times(retryable ? 2 : 1)).requireConfigured();
         verify(audit, atLeastOnce()).record(eq(context.executionId()),
                 eq(org.folio.factory.core.domain.AuditEventType.RUNTIME_PROGRESS), eq("implement"), anyMap());
         verify(workload, times(retryable ? 2 : 1)).close();
+    }
+
+    @Test
+    void invalidCodingProfileReconcilesOwnedStepButNeverChecksOutOrBuilds() {
+        var repository = new DevFactoryProperties.Repository("owner/repo", "master", "build:image", "unit",
+                List.of("TASK"), List.of());
+        var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
+        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var docker = mock(DockerWorkloads.class);
+        var scope = mock(DockerWorkloads.StepScope.class);
+        var freezer = mock(CandidateFreezer.class);
+        var coding = mock(CodingRuntime.class);
+        var context = new AgentContext(UUID.randomUUID(), "implement", Map.of(), null, Map.of(), List.of());
+        when(docker.beginStep(context.executionId(), "implement")).thenReturn(scope);
+        doThrow(new IllegalStateException("secret must not persist")).when(coding).requireConfigured();
+        var attempt = new org.folio.factory.devfactory.worker.InitialCodingAttempt(properties, settings, docker,
+                freezer, coding, new FrontmatterCodec(), mock(AuditLog.class), model -> Map.of());
+
+        var result = attempt.start(context, request());
+
+        assertThat(result.candidate()).contains("BLOCKED_ENVIRONMENT").doesNotContain("secret must not persist");
+        var order = inOrder(docker, coding, scope);
+        order.verify(docker).beginStep(context.executionId(), "implement");
+        order.verify(coding).requireConfigured();
+        order.verify(scope).close();
+        verifyNoInteractions(freezer);
+        verify(scope, never()).createTrusted(anyString(), any(), anyString());
+        verify(coding, never()).code(any(), any(), anyInt(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void blockedSelectedRepositoryReconcilesStepAndStopsBeforeCheckoutForInitialAndContinuation(boolean continuation) {
+        var repository = new DevFactoryProperties.Repository("owner/repo", "master", "build:image", "unit",
+                List.of("TASK"), List.of());
+        var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
+        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var docker = mock(DockerWorkloads.class);
+        var scope = mock(DockerWorkloads.StepScope.class);
+        var freezer = mock(CandidateFreezer.class);
+        var coding = mock(CodingRuntime.class);
+        var selectedRepository = mock(SelectedRepositoryPreflight.class);
+        var context = new AgentContext(UUID.randomUUID(), "implement", Map.of(), null, Map.of(), List.of());
+        var request = request();
+        when(docker.beginStep(context.executionId(), "implement")).thenReturn(scope);
+        doThrow(new IllegalStateException("credential-secret must not persist"))
+                .when(selectedRepository).requireRepositoryReady("repo", request.repository().baseSha());
+        var attempt = new org.folio.factory.devfactory.worker.InitialCodingAttempt(properties, settings, docker,
+                freezer, coding, new FrontmatterCodec(), mock(AuditLog.class), model -> Map.of(), selectedRepository);
+        var readiness = tools.jackson.databind.json.JsonMapper.builder().build()
+                .readTree("{\"state\":\"BASELINE_PASSED\"}");
+
+        var result = continuation ? attempt.retry(context, request, readiness) : attempt.start(context, request);
+
+        assertThat(result.candidate()).contains("BLOCKED_ENVIRONMENT").doesNotContain("credential-secret");
+        assertThat(result.outcome().failure().message()).doesNotContain("credential-secret");
+        if (continuation) assertThat(result.readiness()).contains("BASELINE_PASSED");
+        var order = inOrder(docker, coding, selectedRepository, scope);
+        order.verify(docker).beginStep(context.executionId(), "implement");
+        order.verify(coding).requireConfigured();
+        order.verify(selectedRepository).requireRepositoryReady("repo", "a".repeat(40));
+        order.verify(scope).close();
+        verifyNoInteractions(freezer);
+        verify(scope, never()).createTrusted(anyString(), any(), anyString());
+        verify(scope, never()).createSeeded(anyString(), any(), anyString(), anyString());
+        verify(coding, never()).code(any(), any(), anyInt());
+        verify(coding, never()).code(any(), any(), anyInt(), any());
     }
 
     private static CodingRequest request() {

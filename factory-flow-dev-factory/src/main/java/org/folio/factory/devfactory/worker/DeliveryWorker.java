@@ -100,7 +100,7 @@ public class DeliveryWorker implements AgentWorker {
             throw new IllegalStateException(
                     "Missing trusted repository: " + candidate.repository());
         try {
-            var target = properties.requireTarget(candidate.repository());
+            var target = properties.requireTarget(candidate.repository(), repositories);
             if (!verificationPolicy.matches(candidate, verification)) {
                 return blocked(
                         previous,

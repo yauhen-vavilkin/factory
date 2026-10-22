@@ -1,5 +1,6 @@
 package org.folio.factory.app;
 
+import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
@@ -23,6 +24,7 @@ import org.springframework.data.domain.SliceImpl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -35,6 +37,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
 
 /**
  * The only test that actually renders the Thymeleaf templates end to end;
@@ -78,6 +81,9 @@ class UiRenderSmokeTest {
     @Autowired
     private ITemplateEngine templateEngine;
 
+    @MockitoBean
+    private DeveloperPreflight developerPreflight;
+
     private RestClient rest;
 
     @BeforeEach
@@ -92,6 +98,44 @@ class UiRenderSmokeTest {
                 .contains("chart.umd.js")
                 .contains("/js/charts.js")
                 .contains("class=\"charts-grid\"");
+    }
+
+    @Test
+    void developerConfigurationRendersOverviewBlockedAndReadyReports() {
+        for (var state : List.of("overview", "blocked", "ready")) {
+            boolean ready = state.equals("ready");
+            String issueKey = state.equals("overview") ? "" : "MODSIDECAR-196";
+            var report = new DeveloperPreflight.Report(ready, issueKey,
+                    Map.of("runtime", "claude-code", "model", "claude-sonnet-5-5",
+                            "image", "factory-dev-claude-code:2.1.287-java21"),
+                    List.of(Map.of("key", "sidecar", "source", "owner/folio-module-sidecar",
+                            "baseBranch", "master", "buildImage", "maven:3.9-eclipse-temurin-21",
+                            "verificationPlan", "java21-unit", "jiraProjects", List.of("MODSIDECAR"),
+                            "delivery", "owner/folio-module-sidecar", "authorized", true)),
+                    List.of(new DeveloperPreflight.Check("delivery:sidecar",
+                                    ready ? DeveloperPreflight.Status.PASS : state.equals("overview")
+                                            ? DeveloperPreflight.Status.NOT_RUN : DeveloperPreflight.Status.FAIL,
+                                    "Push permission check <read-only> & base alignment."),
+                            new DeveloperPreflight.Check("inference", DeveloperPreflight.Status.NOT_RUN,
+                                    "No model call made.")));
+            when(developerPreflight.check(issueKey.isEmpty() ? null : issueKey)).thenReturn(report);
+
+            String body = assertRendered("/developer/configuration"
+                    + (issueKey.isEmpty() ? "" : "?issueKey=" + issueKey), "Developer Flow configuration");
+            assertThat(body).contains("claude-sonnet-5-5", "sidecar", "java21-unit", "owner/folio-module-sidecar",
+                            "NOT_RUN", "No model call made.", "Push permission check &lt;read-only&gt; &amp; base alignment.")
+                    .doesNotContain("check <read-only>");
+            if (ready) {
+                assertThat(body).contains("Ready for the requested task.", "Provider inference and coding-container connectivity remain untested.")
+                        .doesNotContain("Resolve failed checks", "Configuration overview.");
+            } else if (issueKey.isEmpty()) {
+                assertThat(body).contains("Configuration overview. Enter an issue key for task readiness.")
+                        .doesNotContain("Ready for the requested task.");
+            } else {
+                assertThat(body).contains("Resolve failed checks before triggering this task.")
+                        .doesNotContain("Ready for the requested task.");
+            }
+        }
     }
 
     @Test

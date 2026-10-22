@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Developer Flow configuration', activeNav='flows', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="page-header">
+        <h1>Developer Flow configuration</h1>
+        <a class="btn btn-outline btn-sm" th:href="@{/flows/dev-factory}">Back to flow</a>
+    </div>
+    <div class="stack">
+        <section class="card">
+            <div class="card-content">
+                <p>Check the effective configuration before starting a task. This check makes no model call and publishes nothing.</p>
+                <form method="get" th:action="@{/developer/configuration}">
+                    <div class="field">
+                        <label class="label" for="issue-key">Jira issue key</label>
+                        <input class="input" id="issue-key" name="issueKey" th:value="${report.issueKey}" placeholder="MODSIDECAR-196">
+                    </div>
+                    <button class="btn btn-primary" type="submit">Check readiness</button>
+                </form>
+                <p th:if="${report.ready}">Ready for the requested task. Provider inference and coding-container connectivity remain untested.</p>
+                <p th:unless="${report.ready}" th:text="${report.issueKey.isEmpty()} ? 'Configuration overview. Enter an issue key for task readiness.' : 'Resolve failed checks before triggering this task.'"></p>
+            </div>
+        </section>
+        <section class="card">
+            <div class="card-header"><h2 class="card-title">Selected runtime</h2></div>
+            <div class="card-content">
+                <dl class="def-list">
+                    <th:block th:each="entry : ${report.runtime}">
+                        <dt th:text="${entry.key}"></dt><dd th:text="${entry.value}"></dd>
+                    </th:block>
+                </dl>
+            </div>
+        </section>
+        <section>
+            <h2>Checks</h2>
+            <div class="table-wrap"><table>
+                <thead><tr><th>Check</th><th>Status</th><th>Result</th></tr></thead>
+                <tbody><tr th:each="check : ${report.checks}">
+                    <td th:text="${check.name}"></td><td th:text="${check.status}"></td><td th:text="${check.message}"></td>
+                </tr></tbody>
+            </table></div>
+        </section>
+        <section>
+            <h2>Effective repositories</h2>
+            <div class="table-wrap"><table>
+                <thead><tr><th>Key / Jira projects</th><th>Source / base</th><th>Build / verification</th><th>Delivery</th><th>Authorized</th></tr></thead>
+                <tbody><tr th:each="repo : ${report.repositories}">
+                    <td><div th:text="${repo['key']}"></div><small th:text="${repo['jiraProjects']}"></small></td>
+                    <td><div th:text="${repo['source']}"></div><small th:text="${repo['baseBranch']}"></small></td>
+                    <td><div th:text="${repo['buildImage']}"></div><small th:text="${repo['verificationPlan']}"></small></td>
+                    <td th:text="${repo['delivery']}"></td><td th:text="${repo['authorized']}"></td>
+                </tr></tbody>
+            </table></div>
+        </section>
+    </div>
+</section>
+</body>
+</html>

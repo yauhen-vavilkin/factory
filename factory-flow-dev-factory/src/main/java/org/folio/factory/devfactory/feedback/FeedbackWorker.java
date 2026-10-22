@@ -165,7 +165,7 @@ public class FeedbackWorker implements AgentWorker {
             state.skip();
             return;
         }
-        var target = delivery.requireTarget(initial.path("repository").asString(""));
+        var target = delivery.requireTarget(initial.path("repository").asString(""), repositories);
         var path = java.net.URI.create(initial.path("pullRequestUrl").asString()).getPath();
         String prefix = "/" + target.repository() + "/pull/";
         if (!path.startsWith(prefix) || !path.substring(prefix.length()).matches("[0-9]+"))
@@ -332,7 +332,7 @@ public class FeedbackWorker implements AgentWorker {
         receipt.requireVerified(context.executionId().toString(), candidate);
         if (!verificationPolicy.matches(candidate, receipt))
             throw new IllegalStateException("Verification policy changed; run checks again");
-        var target = delivery.requireTarget(candidate.repository());
+        var target = delivery.requireTarget(candidate.repository(), repositories);
         if (!target.repository().equals(state.pr.repository())
                 || !target.baseBranch().equals(state.pr.baseBranch()))
             throw new IllegalStateException("PR destination is no longer authorized");
@@ -341,12 +341,12 @@ public class FeedbackWorker implements AgentWorker {
     private PrFeedbackGateway.PullRequest authorized(FeedbackState state) {
         if (state.pr == null) throw new IllegalStateException("No delivered PR is available");
         boolean allowed =
-                delivery.targets().values().stream()
+                delivery.effectiveTargets(repositories).values().stream()
                         .anyMatch(
                                 t ->
                                         t.authorized()
-                                                && t.repository().equals(state.pr.repository())
-                                                && t.baseBranch().equals(state.pr.baseBranch()));
+                                                && state.pr.repository().equals(t.repository())
+                                                && state.pr.baseBranch().equals(t.baseBranch()));
         if (!allowed) throw new IllegalStateException("PR target is no longer authorized");
         var current = gateway.read(state.pr.repository(), state.pr.number());
         if (!current.branch().equals(state.pr.branch())

@@ -1,6 +1,8 @@
 package org.folio.factory.devfactory;
 
+import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 import java.util.List;
 import java.util.SortedMap;
@@ -40,8 +42,14 @@ public record DevFactoryProperties(String gitBaseUrl, SortedMap<String, Reposito
     }
 
     public record Repository(String sourceRepo, String baseBranch, String buildImage, String verificationPlan,
-                             List<String> jiraProjects, List<String> jiraComponents) {
+                             List<String> jiraProjects, List<String> jiraComponents, DeliveryTarget delivery) {
 
+        public Repository(String sourceRepo, String baseBranch, String buildImage, String verificationPlan,
+                          List<String> jiraProjects, List<String> jiraComponents) {
+            this(sourceRepo, baseBranch, buildImage, verificationPlan, jiraProjects, jiraComponents, null);
+        }
+
+        @ConstructorBinding
         public Repository {
             require(SOURCE_REPO, sourceRepo, "source-repo");
             require(BRANCH, baseBranch, "base-branch");
@@ -56,6 +64,13 @@ public record DevFactoryProperties(String gitBaseUrl, SortedMap<String, Reposito
             jiraProjects.forEach(project -> require(PROJECT_KEY, project, "jira-projects entry"));
             jiraProjects = List.copyOf(jiraProjects);
             jiraComponents = jiraComponents == null ? List.of() : List.copyOf(jiraComponents);
+            if (delivery != null) {
+                if (delivery.baseBranch() != null && !delivery.baseBranch().isBlank()
+                        && !baseBranch.equals(delivery.baseBranch())) {
+                    throw new IllegalArgumentException("Repository delivery base-branch must match source base-branch");
+                }
+                delivery = new DeliveryTarget(delivery.repository(), baseBranch, delivery.authorized());
+            }
         }
     }
 

@@ -21,6 +21,7 @@ import org.folio.factory.devfactory.decision.DevArtifactAmendmentValidator;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.feedback.AttemptPricing;
+import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.feedback.FeedbackActions;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
 import org.folio.factory.devfactory.feedback.FeedbackDecisionPolicy;
@@ -102,7 +103,8 @@ public class DevFactoryConfiguration {
             CodingRuntime coding,
             FrontmatterCodec codec,
             AuditLog audit,
-            ObjectProvider<AttemptPricing> pricing) {
+            ObjectProvider<AttemptPricing> pricing,
+            ObjectProvider<SelectedRepositoryPreflight> repositoryPreflight) {
         return new InitialCodingAttempt(
                 properties,
                 runtime,
@@ -111,7 +113,8 @@ public class DevFactoryConfiguration {
                 coding,
                 codec,
                 audit,
-                pricing.getIfAvailable(() -> model -> Map.of()));
+                pricing.getIfAvailable(() -> model -> Map.of()),
+                repositoryPreflight.getIfAvailable(() -> (key, base) -> {}));
     }
 
     @Bean

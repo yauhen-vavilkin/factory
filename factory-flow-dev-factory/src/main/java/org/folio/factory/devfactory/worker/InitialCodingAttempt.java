@@ -9,6 +9,7 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.feedback.AttemptPricing;
+import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
@@ -39,6 +40,7 @@ public final class InitialCodingAttempt {
     private final FrontmatterCodec codec;
     private final AuditLog audit;
     private final AttemptPricing pricing;
+    private final SelectedRepositoryPreflight repositoryPreflight;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public InitialCodingAttempt(
@@ -50,6 +52,19 @@ public final class InitialCodingAttempt {
             FrontmatterCodec codec,
             AuditLog audit,
             AttemptPricing pricing) {
+        this(properties, runtime, docker, freezer, coding, codec, audit, pricing, (key, base) -> {});
+    }
+
+    public InitialCodingAttempt(
+            DevFactoryProperties properties,
+            DevRuntimeProperties runtime,
+            DockerWorkloads docker,
+            CandidateFreezer freezer,
+            CodingRuntime coding,
+            FrontmatterCodec codec,
+            AuditLog audit,
+            AttemptPricing pricing,
+            SelectedRepositoryPreflight repositoryPreflight) {
         this.properties = properties;
         this.runtime = runtime;
         this.docker = docker;
@@ -58,6 +73,7 @@ public final class InitialCodingAttempt {
         this.codec = codec;
         this.audit = audit;
         this.pricing = pricing;
+        this.repositoryPreflight = repositoryPreflight;
     }
 
     public Attempt start(AgentContext context, CodingRequest request) {
@@ -90,6 +106,21 @@ public final class InitialCodingAttempt {
         Map<String, Object> readiness = nodeMap(existingReadiness);
         Map<String, Object> metrics = Map.of();
         try (var stepScope = docker.beginStep(context.executionId(), context.stepId())) {
+            // Reconcile this step's stale workloads before checking an operator profile on replay.
+            try {
+                coding.requireConfigured();
+            } catch (RuntimeException e) {
+                return failedAttempt("BLOCKED_ENVIRONMENT",
+                        "Coding runtime configuration is incomplete or unsupported; check Developer Flow configuration.",
+                        readiness);
+            }
+            try {
+                repositoryPreflight.requireRepositoryReady(key, base);
+            } catch (RuntimeException e) {
+                return failedAttempt("BLOCKED_ENVIRONMENT",
+                        "Selected repository configuration or access is not ready; check Developer Flow configuration.",
+                        readiness);
+            }
             pristine = freezer.checkout(url, base);
             if (runBaseline) {
                 progress(
@@ -149,7 +180,6 @@ public final class InitialCodingAttempt {
                                 readiness);
                 }
             }
-            coding.requireConfigured();
             exported = CandidateFreezer.temporary("factory-dev-export-");
             CodingOutcome outcome;
             try (var workload =

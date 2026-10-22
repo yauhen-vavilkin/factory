@@ -154,9 +154,10 @@ Edit `.env` before starting. Developer Flow defaults to **Claude Code with Sonne
 the selected [coding runtime profile](#coding-runtime-profiles), then supply:
 
 - Jira base URL, email and API token for reading the requested issue.
-- A GitHub token with access to the source and personal delivery repository.
-- Matching source/delivery repositories and an existing base branch. The bundled
-  `folio-org` delivery defaults are deliberately blocked; choose your own fork.
+- A GitHub token with write access to the personal delivery repository. Source
+  repositories must be public; source checkout does not use this token.
+- Source/delivery repositories and an existing shared base branch. The bundled
+  targets have delivery disabled; choose your own fork and authorize it explicitly.
   Verification is followed by automatic push/PR publication to the authorized
   target. `create-pull-request=false` does not disable git push.
 
@@ -172,12 +173,16 @@ FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_AUTHORIZED=false
 FACTORY_MGR_APPLICATIONS_DELIVERY_AUTHORIZED=false
 ```
 
-Compose explicitly forwards these settings to Spring. Each repository's
-`FACTORY_<REPO>_BASE_BRANCH` applies to both intake and delivery. Set the same
-source/delivery pair for every additional target you enable; `.env.example`
-lists all four supported repositories. The general Configuration table also
-contains settings for host-run Spring applications; Compose forwards the
-Developer Flow settings listed in its `environment` block.
+Repository policy lives in [`config/developer-repositories.yaml`](config/developer-repositories.yaml):
+one entry contains Jira mapping, source, shared base branch, build/verification
+policy and delivery target. The four bundled entries keep the `.env` overrides
+shown above. To add another repository, edit the catalog as described below;
+inventing another `FACTORY_<REPO>_SOURCE_REPO` variable does not add an entry.
+
+Compose forwards the documented application settings for both flows, including
+Spring AI, connectors, limits, engine tuning and webhook authentication. Database
+connection settings and the server's container listen address are supplied by
+Compose for its own services; host-run Spring uses exported `.env` values instead.
 
 Build and start, including the selected CLI version check:
 
@@ -188,8 +193,11 @@ curl --fail http://localhost:8080/actuator/health
 ```
 
 Wait for Factory to become healthy (`status: UP`); `coding-runtime` should have
-exited with code 0. Open <http://localhost:8080/flows/dev-factory>, choose
-**Trigger flow**, and submit an issue such as `{"issueKey":"MODSIDECAR-196"}`.
+exited with code 0. Health confirms application/database startup, not that a task
+can run. Open <http://localhost:8080/developer/configuration> to check the effective
+configuration and an issue key before triggering. Then open
+<http://localhost:8080/flows/dev-factory>, choose **Trigger flow**, and submit an
+issue such as `{"issueKey":"MODSIDECAR-196"}`.
 Use an issue that still requires a change on your chosen base. Set a unique dedup
 key for each intentional run. With a new empty database, starting the stack or
 loading the UI makes no coding-model call. Existing queued executions can resume
@@ -223,10 +231,11 @@ The coding runtime runs in a separate container without that socket or Jira/GitH
 credentials; verification rebuilds the frozen patch in another fresh container.
 Delivery is blocked unless the exact candidate has a matching successful
 verification receipt: required Maven suites must produce fresh, executed reports
-(see `required-reports` in `application.yaml`), and a successful unit suite alone
-cannot approve a plan that requires integration reports. The trusted build reuses
-the configured Maven cache Docker volume, repairing cache entry ownership before
-each build. Keep this volume when stopping or rebuilding the stack.
+(see `required-reports` in `config/developer-repositories.yaml`), and a successful
+unit suite alone cannot approve a plan that requires integration reports. The
+trusted build reuses the configured Maven cache Docker volume, repairing cache
+entry ownership before each build. Keep this volume when stopping or rebuilding
+the stack.
 
 Execution pages estimate API cost from the operator-owned
 `config/developer-pricing.yaml` rate card. The YAML records public list prices
@@ -237,6 +246,112 @@ token category has a configured rate.
 Compose publishes Factory and PostgreSQL on `127.0.0.1` by default. The MVP still
 runs the trusted Factory container as root with the Docker socket and a 7200-second
 engine lease; tightening these local-only controls is deferred.
+
+### Adding or changing a repository
+
+Edit `config/developer-repositories.yaml` to add a public Java/Maven repository.
+For example, add this entry under `factory.dev-factory.repositories`:
+
+```yaml
+my-module:
+  source-repo: your-github-user/my-module
+  base-branch: main
+  build-image: maven:3.9-eclipse-temurin-21
+  verification-plan: java21-unit
+  jira-projects: [MYMOD]
+  # jira-components: [Backend]  # optional: restrict the Jira component mapping
+  delivery:
+    repository: your-github-user/my-module
+    authorized: false
+```
+
+Use the actual Jira project key and a branch that exists in the source and
+delivery repositories. The delivery base comes from this entry's `base-branch`;
+there is no second branch to keep in sync. Set `authorized: true` only when the
+destination is ready for automatic push and PR creation. Source and delivery may
+be different repositories, but the delivery branch must contain the source base.
+
+`verification-plan` names a trusted command in `factory.dev-factory.runtime.plans`
+in the same file. The bundled `java21-unit` runs `mvn -B -ntp test`; add a separate
+plan and `runtime.required-reports.<plan>` list when your acceptance requires
+specific unit/integration suites. Verification requires fresh executed
+Surefire/Failsafe XML reports. An exit code of zero alone is insufficient.
+Commands and required reports are operator policy, never supplied by Jira or the
+coding model.
+
+Compose mounts this catalog read-only. To keep a private operator copy, set
+`FACTORY_DEV_FACTORY_REPOSITORIES_FILE=./config/my-repositories.yaml` in `.env`.
+The application also packages the checked-in catalog as its fallback; external
+configuration overrides matching entries and adds new ones. A partial override
+does not remove other catalog entries. The same checked-in external file is
+loaded when Spring runs from the repository root.
+
+After editing a catalog file, recreate Factory to reload the mounted file:
+
+```bash
+docker compose up -d --force-recreate factory
+```
+
+After changing `.env`, run `docker compose up -d` to recreate affected containers;
+`restart` does not load new environment values. Neither operation requires an app
+image rebuild for repository policy changes, and neither removes the database.
+Keep source/delivery/verification settings stable while a task is running.
+
+Current Developer Flow support is public source repositories, GitHub.com
+delivery, and Maven verification. A custom GitHub Enterprise API is supported by
+Test Factory, but Developer Flow preflight rejects it because Developer Flow's
+Git publication targets GitHub.com. Private source authentication, GitLab
+delivery, submodules and other build/report formats require implementation changes.
+
+Older deployments may still supply `factory.dev-factory.delivery.targets.<key>`.
+An explicit legacy target takes precedence over that entry's nested `delivery`
+settings; missing repository/base fields inherit the catalog values. Legacy
+authorization remains authoritative, including `false`; set it explicitly to
+`true` to enable delivery. Remove legacy settings when migrating to the unified catalog. A different legacy
+delivery branch name is rejected by preflight; a conflicting nested delivery base
+is rejected while loading the catalog.
+
+### Checking configuration before a task
+
+The Developer Flow page links to **Check configuration** at
+<http://localhost:8080/developer/configuration>. It displays effective runtime,
+model and repository policy without credentials. Supply the intended issue key
+for task-specific checks. The same read-only report is available as JSON:
+
+```bash
+curl --fail 'http://localhost:8080/api/developer/preflight?issueKey=MODSIDECAR-196'
+```
+
+Without an issue key, the report is a configuration overview and always has
+`ready: false`; task-specific checks are `NOT_RUN`. With an issue key it also
+reads Jira, resolves the repository mapping and source base, and checks whether
+GitHub reports push permission and a destination base containing the source base.
+This is an access check, not a guarantee that a later push will succeed. Docker,
+the local coding image and gateway TCP connectivity from Factory
+are checked before a new execution is created. A failed TCP probe is a warning:
+host-run Spring and sibling coding containers can use different DNS and networks,
+including Docker-only `host.docker.internal`. A missing build image is a warning
+because Docker can pull it when needed. Blocking failures reject a new Developer
+Flow trigger from the UI, manual API or webhooks before baseline build or coding.
+An existing execution found by dedup is returned without starting another attempt.
+The report endpoint returns HTTP 200 for both ready and blocked reports; inspect
+`ready` and the individual checks.
+
+When multiple repositories match, at least one must be ready to open the existing
+repository-selection review. Failures for other candidates are warnings until a
+repository is confirmed. The selected repository is checked again before checkout
+and baseline, using the frozen source SHA from the task; choosing a disabled or
+inaccessible destination cannot start coding. The same guard applies to an
+implementation continuation.
+
+Preflight never runs a build or tests, sends a coding inference request, pushes
+Git changes or writes to Jira/GitHub. TCP reachability does not prove connectivity
+from the coding container, TLS, model authorization, streaming or tool support;
+these remain `NOT_RUN` until a separately authorized live smoke. A denied model
+catalog request does not establish that inference is unavailable. Missing pricing
+is a warning, so it does not prevent coding; cost remains unavailable or incomplete where a
+matching rate or usage category is missing. Recheck after changing configuration;
+preflight does not replace independent candidate verification or delivery checks.
 
 ### Coding runtime profiles
 
@@ -374,6 +489,7 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_LLM_BASE_URL` / `_COMPLETIONS_PATH` | OpenAI-compatible endpoint (defaults target Groq: `https://api.groq.com/openai/v1` + `/chat/completions`) |
 | `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (default `jdbc:postgresql://localhost:5432/factory`) |
 | `FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME` | Persistent trusted Developer Flow Maven cache volume (default `factory-dev-m2-cache`) |
+| `FACTORY_DEV_FACTORY_REPOSITORIES_FILE` | Compose host path of the repository catalog (default `./config/developer-repositories.yaml`); mounted read-only |
 | `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `claude-code`) |
 | `FACTORY_MODEL_PROVIDER` / `_ID` / `_BASE_URL` / `_API` / `_API_KEY` | Legacy Pi profile settings; nonblank `FACTORY_PI_*` values override them |
 | `FACTORY_PI_*` / `FACTORY_CLAUDE_CODE_*` | Independent image, API, model, endpoint, authentication and harness profiles; see [Coding runtime profiles](#coding-runtime-profiles) |
@@ -439,7 +555,7 @@ To check Pi's actual Chat Completions HTTP request against a local test endpoint
 build the coding image and run the opt-in contract test:
 
 ```bash
-docker compose build pi-runtime
+FACTORY_DEV_FACTORY_CODING_RUNTIME=pi docker compose build coding-runtime
 mvn -pl factory-flow-dev-factory -am test -Dtest=PiCodingHttpContractTest \
   -Dsurefire.failIfNoSpecifiedTests=false \
   -Dfactory.pi.contract.image=factory-dev-pi:0.85.1-java21
