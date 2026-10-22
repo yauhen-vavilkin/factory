@@ -296,14 +296,34 @@ class DeveloperPreflightTest {
     }
 
     @Test
-    void emptyDefaultAuthenticationHasASafeEffectiveConfiguration() {
+    void defaultProxyProfileHasASafeEffectiveConfiguration() {
         settings = new DevRuntimeProperties(Map.of(), null, 1800, null);
-        doThrow(new IllegalStateException("not configured")).when(coding).requireConfigured();
+
+        var report = service().check(null);
+
+        assertThat(report.ready()).isFalse();
+        assertThat(report.runtime())
+                .containsEntry("authentication", "bearer-token")
+                .containsEntry("endpointOrigin", "http://host.docker.internal:4001");
+        assertThat(check(report, "runtime").status()).isEqualTo(PASS);
+        assertThat(JSON.writeValueAsString(report)).doesNotContain("codemie-proxy");
+        assertSafe(report);
+    }
+
+    @Test
+    void invalidAuthenticationIsRedactedFromEffectiveConfiguration() {
+        var profile = new DevRuntimeProperties.ClaudeCode(null, null, null, null,
+                "coding-fixture-secret", null, null, null, null, null);
+        var runtime = new DevRuntimeProperties.Coding(null, null, null, null, null, null,
+                "claude-code", null, null, null, profile);
+        settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null);
+        doThrow(new IllegalStateException("invalid coding-fixture-secret")).when(coding).requireConfigured();
 
         var report = service().check(null);
 
         assertThat(report.ready()).isFalse();
         assertThat(report.runtime()).containsEntry("authentication", "unset or invalid");
+        assertThat(check(report, "runtime").status()).isEqualTo(FAIL);
         assertSafe(report);
     }
 

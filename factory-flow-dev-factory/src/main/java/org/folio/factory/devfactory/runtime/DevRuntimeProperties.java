@@ -142,7 +142,10 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         public ClaudeCode {
             image = first(image, "factory-dev-claude-code:2.1.287-java21");
             api = first(api, "anthropic-messages");
+            baseUrl = first(baseUrl, "http://host.docker.internal:4001");
             model = first(model, "claude-sonnet-5-5");
+            authentication = first(authentication, "bearer-token");
+            authToken = first(authToken, "codemie-proxy");
             maxTurns = maxTurns == null ? 40 : maxTurns;
             maxOutputTokens = maxOutputTokens == null ? 16384 : maxOutputTokens;
         }
@@ -151,7 +154,7 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
                 throw new IllegalStateException("Claude Code requires api=anthropic-messages; OpenAI API endpoints need a different runtime");
             }
             if (!"api-key".equals(authentication) && !"bearer-token".equals(authentication)) {
-                throw new IllegalStateException("Claude Code authentication must explicitly select api-key or bearer-token");
+                throw new IllegalStateException("Claude Code authentication must be api-key or bearer-token");
             }
             required("claude-code", image, baseUrl, model, secret());
             requireValidEndpoint();

@@ -153,11 +153,11 @@ factory:
         claude-code:
           image: ${FACTORY_CLAUDE_CODE_IMAGE:factory-dev-claude-code:2.1.287-java21}
           api: ${FACTORY_CLAUDE_CODE_API:anthropic-messages}
-          base-url: ${FACTORY_CLAUDE_CODE_BASE_URL:}
+          base-url: ${FACTORY_CLAUDE_CODE_BASE_URL:http://host.docker.internal:4001}
           model: ${FACTORY_CLAUDE_CODE_MODEL:claude-sonnet-5-5}
-          authentication: ${FACTORY_CLAUDE_CODE_AUTHENTICATION:}
+          authentication: ${FACTORY_CLAUDE_CODE_AUTHENTICATION:bearer-token}
           api-key: ${FACTORY_CLAUDE_CODE_API_KEY:}
-          auth-token: ${FACTORY_CLAUDE_CODE_AUTH_TOKEN:}
+          auth-token: ${FACTORY_CLAUDE_CODE_AUTH_TOKEN:codemie-proxy}
           max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:40}
           max-output-tokens: ${FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS:16384}
           effort: ${FACTORY_CLAUDE_CODE_EFFORT:}

@@ -31,7 +31,7 @@ class CodingRuntimeConfigurationTest {
         coding.piProfile().requireConfigured();
         assertThat(coding.piProfile().model()).isEqualTo("legacy-model");
         assertThat(coding.piProfile().maxOutputTokens()).isEqualTo(8192);
-        assertThat(coding.claudeCode().authentication()).isBlank();
+        assertThat(coding.claudeCode().authToken()).isEqualTo("codemie-proxy");
     }
 
     @Test
@@ -54,18 +54,34 @@ class CodingRuntimeConfigurationTest {
     }
 
     @Test
-    void claudeCodeAndSonnetAreDefaultsWithoutPiCredentials() throws Exception {
-        var properties = bind(Map.of(
-                "FACTORY_CLAUDE_CODE_BASE_URL", "https://gateway/anthropic",
-                "FACTORY_CLAUDE_CODE_AUTHENTICATION", "bearer-token",
-                "FACTORY_CLAUDE_CODE_AUTH_TOKEN", "token"));
+    void localCodeMieProfileWorksWithoutEnvironmentOverrides() throws Exception {
+        var properties = bind(Map.of());
+        var profile = properties.coding().claudeCode();
         var runtime = new DevFactoryConfiguration().devCodingRuntime(properties);
 
         assertThat(properties.coding().runtime()).isEqualTo("claude-code");
         assertThat(runtime).isInstanceOf(ClaudeCodeCodingRuntime.class);
         assertThat(runtime.identity()).containsEntry("model", "claude-sonnet-5-5");
+        assertThat(profile.api()).isEqualTo("anthropic-messages");
+        assertThat(profile.baseUrl()).isEqualTo("http://host.docker.internal:4001");
+        assertThat(profile.authentication()).isEqualTo("bearer-token");
+        assertThat(profile.authToken()).isEqualTo("codemie-proxy");
+        assertThat(profile.secret()).isEqualTo("codemie-proxy");
+        assertThat(profile.maxTurns()).isEqualTo(40);
+        assertThat(profile.effort()).isBlank();
+        assertThat(properties.timeoutSeconds()).isEqualTo(1800);
         runtime.requireConfigured();
         assertThat(properties.coding().piProfile().apiKey()).isBlank();
+    }
+
+    @Test
+    void localCodeMieBearerTokenDoesNotUseLegacyPiApiKey() throws Exception {
+        var properties = bind(Map.of("FACTORY_MODEL_API_KEY", "legacy-pi-key"));
+        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties);
+
+        assertThat(properties.coding().claudeCode().secret()).isEqualTo("codemie-proxy");
+        assertThat(properties.coding().piProfile().apiKey()).isEqualTo("legacy-pi-key");
+        runtime.requireConfigured();
     }
 
     @Test
@@ -81,7 +97,34 @@ class CodingRuntimeConfigurationTest {
         assertThat(runtime).isInstanceOf(ClaudeCodeCodingRuntime.class);
         runtime.requireConfigured();
         assertThat(properties.coding().piProfile().apiKey()).isBlank();
+        assertThat(properties.coding().claudeCode().secret()).isEqualTo("token");
         assertThat(runtime.identity()).containsEntry("model", "exact/Model");
+    }
+
+    @Test
+    void explicitClaudeApiKeyProfileOverridesLocalCodeMieDefaults() throws Exception {
+        var properties = bind(Map.of(
+                "FACTORY_CLAUDE_CODE_BASE_URL", "https://api.anthropic.com",
+                "FACTORY_CLAUDE_CODE_AUTHENTICATION", "api-key",
+                "FACTORY_CLAUDE_CODE_API_KEY", "key"));
+        var profile = properties.coding().claudeCode();
+        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties);
+
+        assertThat(profile.baseUrl()).isEqualTo("https://api.anthropic.com");
+        assertThat(profile.authentication()).isEqualTo("api-key");
+        assertThat(profile.secret()).isEqualTo("key");
+        runtime.requireConfigured();
+    }
+
+    @Test
+    void apiKeyAuthenticationRequiresAnApiKeyDespiteTheDefaultBearerToken() throws Exception {
+        var properties = bind(Map.of("FACTORY_CLAUDE_CODE_AUTHENTICATION", "api-key"));
+        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties);
+
+        assertThat(properties.coding().claudeCode().authToken()).isEqualTo("codemie-proxy");
+        assertThatThrownBy(runtime::requireConfigured)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("selected authentication credential");
     }
 
     private static DevRuntimeProperties bind(Map<String, Object> variables) throws Exception {

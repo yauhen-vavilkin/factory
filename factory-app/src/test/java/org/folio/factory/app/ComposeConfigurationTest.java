@@ -69,6 +69,10 @@ class ComposeConfigurationTest {
                 Map.entry("FACTORY_RETENTION_RUN_CRON", "0 15 4 * * *"),
                 Map.entry("FACTORY_LOG_FORMAT", "ecs"),
                 Map.entry("FACTORY_CLAUDE_CODE_MODEL", "coding-model-from-dotenv"),
+                Map.entry("FACTORY_CLAUDE_CODE_BASE_URL", "https://fixture.invalid/anthropic"),
+                Map.entry("FACTORY_CLAUDE_CODE_AUTHENTICATION", "api-key"),
+                Map.entry("FACTORY_CLAUDE_CODE_API_KEY", "fixture-coding-key"),
+                Map.entry("FACTORY_CLAUDE_CODE_AUTH_TOKEN", "fixture-custom-proxy-token"),
                 Map.entry("FACTORY_SIDECAR_DELIVERY_AUTHORIZED", "false"));
         Map<String, String> shell = Map.of("FACTORY_LLM_MODEL", "model-from-shell");
         var config = render(dotenv, shell);
@@ -79,6 +83,33 @@ class ComposeConfigurationTest {
         assertEnvironmentContains(environment, expected);
         // Compose's service connection is intentional; host-run DB_URL must not break it.
         assertThat(environment.path("FACTORY_DB_URL").asString()).isEqualTo("jdbc:postgresql://postgres:5432/factory");
+    }
+
+    @Test
+    void defaultsSelectLocalCodeMieWithSonnetAndBearerAuthentication() throws Exception {
+        var config = render(Map.of(), Map.of());
+        var environment = config.path("services").path("factory").path("environment");
+
+        assertLocalCodeMieProfile(environment);
+        assertThat(environment.path("FACTORY_CLAUDE_CODE_AUTH_TOKEN").asString()).isEqualTo("codemie-proxy");
+        assertThat(config.path("services").path("coding-runtime").path("image").asString())
+                .startsWith("factory-dev-claude-code:");
+    }
+
+    @Test
+    void copiedExampleUsesLocalProxyAndDoesNotOverrideCatalogAuthorization() throws Exception {
+        Map<String, String> example = exampleEnvironment();
+        var config = render(example, Map.of());
+        var environment = config.path("services").path("factory").path("environment");
+
+        assertLocalCodeMieProfile(environment);
+        assertThat(environment.path("FACTORY_CLAUDE_CODE_AUTH_TOKEN").asString())
+                .isEqualTo("codemie-proxy");
+        for (String prefix : REPOSITORY_PREFIXES) {
+            assertThat(isUnset(environment.path("FACTORY_" + prefix + "_DELIVERY_AUTHORIZED")))
+                    .as("The example must retain catalog authorization for %s", prefix)
+                    .isTrue();
+        }
     }
 
     @ParameterizedTest
@@ -133,6 +164,31 @@ class ComposeConfigurationTest {
                         .as("unset override %s %s must not shadow the catalog", other, field).isTrue();
             }
         }
+    }
+
+    private static void assertLocalCodeMieProfile(JsonNode environment) {
+        assertEnvironmentContains(environment, Map.of(
+                "FACTORY_DEV_FACTORY_CODING_RUNTIME", "claude-code",
+                "FACTORY_CLAUDE_CODE_API", "anthropic-messages",
+                "FACTORY_CLAUDE_CODE_BASE_URL", "http://host.docker.internal:4001",
+                "FACTORY_CLAUDE_CODE_MODEL", "claude-sonnet-5-5",
+                "FACTORY_CLAUDE_CODE_AUTHENTICATION", "bearer-token",
+                "FACTORY_CLAUDE_CODE_MAX_TURNS", "40",
+                "FACTORY_DEV_FACTORY_TIMEOUT_SECONDS", "1800"));
+        assertThat(environment.path("FACTORY_CLAUDE_CODE_EFFORT").asString()).isEmpty();
+    }
+
+    private static Map<String, String> exampleEnvironment() throws IOException {
+        Map<String, String> variables = new HashMap<>();
+        for (String line : Files.readAllLines(ROOT.resolve(".env.example"))) {
+            if (line.isBlank() || line.startsWith("#")) {
+                continue;
+            }
+            String[] assignment = line.split("=", 2);
+            assertThat(assignment).as("Environment assignment: %s", line).hasSize(2);
+            variables.put(assignment[0], assignment[1]);
+        }
+        return variables;
     }
 
     private JsonNode render(Map<String, String> dotenv, Map<String, String> shell) throws Exception {

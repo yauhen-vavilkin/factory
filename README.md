@@ -149,9 +149,14 @@ From a fresh clone:
 cp .env.example .env
 ```
 
-Edit `.env` before starting. Developer Flow defaults to **Claude Code with Sonnet
-5.5** (`claude-sonnet-5-5`); Pi requires an explicit runtime selection. Configure
-the selected [coding runtime profile](#coding-runtime-profiles), then supply:
+The short `.env.example` configures **Claude Code with Sonnet 5.5** through a
+local CodeMie proxy at `http://host.docker.internal:4001`, using Bearer
+authentication and the standard local gateway token `codemie-proxy`. These are
+also the Spring, Java and Compose defaults. Start the proxy yourself; Compose
+does not manage it. The URL is resolved inside the coding
+container and has no `/v1` suffix: the CLI appends `/v1/messages`.
+
+Fill in the empty access values before triggering a task:
 
 - Jira base URL, email and API token for reading the requested issue.
 - A GitHub token with write access to the personal delivery repository. Source
@@ -366,8 +371,10 @@ preflight does not replace independent candidate verification or delivery checks
 ### Coding runtime profiles
 
 `factory.dev-factory.runtime.coding.pi` and `.claude-code` are independent
-operator-owned profiles. Claude Code and model `claude-sonnet-5-5` are the
-defaults; endpoint, authentication method and credentials remain operator-owned.
+operator-owned profiles. Defaults are Claude Code, model `claude-sonnet-5-5`,
+local CodeMie endpoint `http://host.docker.internal:4001` and `bearer-token`
+authentication with the standard gateway token `codemie-proxy`. All profile
+values can be overridden.
 Only the selected runtime is validated before coding; empty inactive profiles do
 not prevent application startup. Both adapters serve
 initial coding, a fresh attempt after a confirmed clarification, and PR feedback.
@@ -375,8 +382,7 @@ Feedback retains partial edits on questions and failures; initial coding keeps
 its existing completed-candidate policy. Factory still owns repository checks,
 candidate export, independent verification, workload ownership and cleanup.
 
-Default Claude Code configuration (Sonnet 5.5 over Anthropic Messages, including
-an operator's CodeMie route):
+Default Claude Code configuration for the local CodeMie proxy:
 
 ```dotenv
 FACTORY_DEV_FACTORY_CODING_RUNTIME=claude-code
@@ -384,12 +390,15 @@ FACTORY_CLAUDE_CODE_API=anthropic-messages
 FACTORY_CLAUDE_CODE_BASE_URL=http://host.docker.internal:4001
 FACTORY_CLAUDE_CODE_MODEL=claude-sonnet-5-5
 FACTORY_CLAUDE_CODE_AUTHENTICATION=bearer-token
-FACTORY_CLAUDE_CODE_AUTH_TOKEN=replace-with-your-token
+FACTORY_CLAUDE_CODE_AUTH_TOKEN=codemie-proxy
 ```
 
 The example assumes an already running local CodeMie proxy on port 4001; Compose
-does not start it. For another gateway, supply the prefix before `/v1/messages`
-reachable from the coding container. Do not append `/v1`: the CLI adds
+does not start it. The standard token authenticates Factory to the local proxy;
+CodeMie manages upstream SSO/provider authentication. If your proxy uses a custom
+gateway key, set `FACTORY_CLAUDE_CODE_AUTH_TOKEN` to that value. For another
+gateway, supply the prefix before `/v1/messages` reachable from the coding
+container. Do not append `/v1`: the CLI adds
 `/v1/messages`. Confirm that your gateway supports the default literal model ID
 `claude-sonnet-5-5`; override `FACTORY_CLAUDE_CODE_MODEL` if it uses another
 deployment ID. Leave optional effort unset for the first connection check.
@@ -405,9 +414,9 @@ pins CLI alias defaults, disables legacy remapping and uses the documented
 the request's `model` unchanged. A suffix such as `[1m]` is part of the endpoint's
 model ID, not a Factory context-window option.
 
-Claude Code authentication must be explicitly `api-key` (`FACTORY_CLAUDE_CODE_API_KEY`
-→ `x-api-key`) or `bearer-token` (`FACTORY_CLAUDE_CODE_AUTH_TOKEN` → `Authorization:
-Bearer ...`). Only the selected credential is sent. No host Claude credentials or
+Claude Code defaults to `bearer-token` (`FACTORY_CLAUDE_CODE_AUTH_TOKEN` →
+`Authorization: Bearer ...`). For another endpoint, explicitly select `api-key`
+(`FACTORY_CLAUDE_CODE_API_KEY` → `x-api-key`) if required. Only the selected credential is sent. No host Claude credentials or
 configuration are mounted. Runtime secrets are copied into a private temporary
 file only during coding, outside `/workspace`, and removed afterwards. They are
 not build arguments or Docker image environment values. Raw CLI/provider output
@@ -436,7 +445,8 @@ keep the legacy behavior; remove an old value to clear it. Legacy variables neve
 configure Claude Code. Pi authentication is `api-key`; the Pi provider controls
 its wire format. Optional harness settings are Pi `REASONING_EFFORT` and
 `MAX_OUTPUT_TOKENS`, and Claude Code `EFFORT`, `MAX_TURNS` (40), and
-`MAX_OUTPUT_TOKENS` (16384). Use each profile's prefix from `.env.example`.
+`MAX_OUTPUT_TOKENS` (16384). Use the `FACTORY_PI_` or `FACTORY_CLAUDE_CODE_`
+prefix respectively. Leave `FACTORY_CLAUDE_CODE_EFFORT` unset initially.
 The common attempt timeout remains `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` (1800).
 
 Claude Code is pinned to **2.1.287**, resolved from the official stable channel on
@@ -470,8 +480,17 @@ mvn -B -ntp verify
 
 The contract tests use Docker Desktop's `host.docker.internal` and isolated test
 credentials. Claude tests use the default pinned image tag. When starting Factory
-directly, export `.env` first as described in `.env.example`; no Java edits are
-needed to switch runtimes or endpoints.
+directly, export `.env` before `mvn spring-boot:run -pl factory-app`:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+Spring Boot does not load `.env` automatically. The coding container still uses
+`host.docker.internal` to reach the host proxy. No Java edits are needed to switch
+runtimes or endpoints.
 
 ## Operations
 

@@ -61,18 +61,34 @@ class DevRuntimePropertiesTest {
     }
 
     @Test
-    void claudeRejectsWrongProtocolAndRequiresSelectedCredentialBeforeExecution() {
+    void claudeRejectsWrongProtocolBeforeExecution() {
         var config = new DevRuntimeProperties.ClaudeCode(null, "openai-completions", "http://gateway",
                 "model", "api-key", "secret", null, null, null, null);
         var workload = org.mockito.Mockito.mock(DockerWorkloads.Workload.class);
         assertThatThrownBy(() -> new ClaudeCodeCodingRuntime(config).code(workload, null, 30))
                 .hasMessageContaining("api=anthropic-messages");
         org.mockito.Mockito.verifyNoInteractions(workload);
-        for (String auth : new String[] {null, "", "oauth", "bearer-token"}) {
-            var missing = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway", "model",
-                    auth, "api-key-is-not-a-token", null, null, null, null);
-            assertThatThrownBy(missing::requireConfigured).isInstanceOf(IllegalStateException.class);
-        }
+    }
+
+    @Test
+    void claudeRejectsUnsupportedAuthentication() {
+        var profile = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway", "model",
+                "oauth", null, null, null, null, null);
+
+        assertThatThrownBy(profile::requireConfigured)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("authentication must be api-key or bearer-token");
+    }
+
+    @Test
+    void claudeApiKeyAuthenticationRequiresItsOwnCredential() {
+        var profile = new DevRuntimeProperties.ClaudeCode(null, null, null, null,
+                "api-key", null, null, null, null, null);
+
+        assertThat(profile.authToken()).isEqualTo("codemie-proxy");
+        assertThatThrownBy(profile::requireConfigured)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("selected authentication credential");
     }
 
     private static DevRuntimeProperties bind(Map<String, ?> values) {
@@ -132,6 +148,9 @@ class DevRuntimePropertiesTest {
         assertThat(defaults.mavenCacheVolume()).isEqualTo("factory-dev-m2-cache");
         assertThat(defaults.coding().runtime()).isEqualTo("claude-code");
         assertThat(defaults.coding().claudeCode().model()).isEqualTo("claude-sonnet-5-5");
+        assertThat(defaults.coding().claudeCode().baseUrl()).isEqualTo("http://host.docker.internal:4001");
+        assertThat(defaults.coding().claudeCode().authentication()).isEqualTo("bearer-token");
+        assertThat(defaults.coding().claudeCode().authToken()).isEqualTo("codemie-proxy");
         assertThat(defaults.coding().claudeCode().maxTurns()).isEqualTo(40);
         assertThat(defaults.coding().claudeCode().effort()).isNull();
         assertThat(defaults.timeoutSeconds()).isEqualTo(1800);
@@ -139,6 +158,25 @@ class DevRuntimePropertiesTest {
         assertThat(defaults.coding().maxOutputTokens()).isEqualTo(16384);
         assertThat(new DevRuntimeProperties(null, null, 0, "operator-cache").mavenCacheVolume())
                 .isEqualTo("operator-cache");
+    }
+
+    @Test
+    void localCodeMieDefaultsUseThePublicBearerTokenInsteadOfAnApiKey() {
+        var profile = new DevRuntimeProperties.ClaudeCode(null, null, null, null, null,
+                "api-key-is-not-a-token", null, null, null, null);
+
+        assertThat(profile.baseUrl()).isEqualTo("http://host.docker.internal:4001");
+        assertThat(profile.authentication()).isEqualTo("bearer-token");
+        assertThat(profile.secret()).isEqualTo("codemie-proxy");
+        profile.requireConfigured();
+    }
+
+    @Test
+    void explicitClaudeBearerTokenOverridesTheLocalCodeMieDefault() {
+        var configured = new DevRuntimeProperties.ClaudeCode(null, null, null, null, null,
+                null, "token", null, null, null);
+        configured.requireConfigured();
+        assertThat(configured.secret()).isEqualTo("token");
     }
 
     @Test
