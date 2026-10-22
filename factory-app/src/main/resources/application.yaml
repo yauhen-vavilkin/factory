@@ -292,7 +292,7 @@ factory:
           - target/failsafe-reports/TEST-org.folio.roles.repository.UserCapabilitySetRepositoryIT.xml
           - target/failsafe-reports/TEST-org.folio.roles.repository.UserRoleRepositoryIT.xml
       coding:
-        runtime: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:pi}
+        runtime: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:claude-code}
         image: ${FACTORY_DEV_FACTORY_CODING_IMAGE:factory-dev-pi:0.85.1-java21}
         provider: ${FACTORY_MODEL_PROVIDER:}
         model: ${FACTORY_MODEL_ID:}
@@ -315,7 +315,7 @@ factory:
           image: ${FACTORY_CLAUDE_CODE_IMAGE:factory-dev-claude-code:2.1.287-java21}
           api: ${FACTORY_CLAUDE_CODE_API:anthropic-messages}
           base-url: ${FACTORY_CLAUDE_CODE_BASE_URL:}
-          model: ${FACTORY_CLAUDE_CODE_MODEL:}
+          model: ${FACTORY_CLAUDE_CODE_MODEL:claude-sonnet-5-5}
           authentication: ${FACTORY_CLAUDE_CODE_AUTHENTICATION:}
           api-key: ${FACTORY_CLAUDE_CODE_API_KEY:}
           auth-token: ${FACTORY_CLAUDE_CODE_AUTH_TOKEN:}

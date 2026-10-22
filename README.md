@@ -149,8 +149,9 @@ From a fresh clone:
 cp .env.example .env
 ```
 
-Edit `.env` before starting. Select one coding profile from
-[Coding runtime profiles](#coding-runtime-profiles), then configure:
+Edit `.env` before starting. Developer Flow defaults to **Claude Code with Sonnet
+5.5** (`claude-sonnet-5-5`); Pi requires an explicit runtime selection. Configure
+the selected [coding runtime profile](#coding-runtime-profiles), then supply:
 
 - Jira base URL, email and API token for reading the requested issue.
 - A GitHub token with access to the source and personal delivery repository.
@@ -240,33 +241,23 @@ engine lease; tightening these local-only controls is deferred.
 ### Coding runtime profiles
 
 `factory.dev-factory.runtime.coding.pi` and `.claude-code` are independent
-operator-owned profiles. Only the selected runtime is validated before coding;
-empty inactive profiles do not prevent application startup. Both adapters serve
+operator-owned profiles. Claude Code and model `claude-sonnet-5-5` are the
+defaults; endpoint, authentication method and credentials remain operator-owned.
+Only the selected runtime is validated before coding; empty inactive profiles do
+not prevent application startup. Both adapters serve
 initial coding, a fresh attempt after a confirmed clarification, and PR feedback.
 Feedback retains partial edits on questions and failures; initial coding keeps
 its existing completed-candidate policy. Factory still owns repository checks,
 candidate export, independent verification, workload ownership and cleanup.
 
-Minimal Pi configuration (OpenAI Chat Completions):
-
-```dotenv
-FACTORY_DEV_FACTORY_CODING_RUNTIME=pi
-FACTORY_PI_PROVIDER=openai-compatible
-FACTORY_PI_API=openai-completions
-FACTORY_PI_BASE_URL=https://gateway.example/v1
-FACTORY_PI_MODEL=operator-model-id
-FACTORY_PI_AUTHENTICATION=api-key
-FACTORY_PI_API_KEY=replace-with-your-key
-```
-
-Minimal Claude Code configuration (Anthropic Messages, including an operator's
-CodeMie route):
+Default Claude Code configuration (Sonnet 5.5 over Anthropic Messages, including
+an operator's CodeMie route):
 
 ```dotenv
 FACTORY_DEV_FACTORY_CODING_RUNTIME=claude-code
 FACTORY_CLAUDE_CODE_API=anthropic-messages
 FACTORY_CLAUDE_CODE_BASE_URL=http://host.docker.internal:4001
-FACTORY_CLAUDE_CODE_MODEL=operator-model-id
+FACTORY_CLAUDE_CODE_MODEL=claude-sonnet-5-5
 FACTORY_CLAUDE_CODE_AUTHENTICATION=bearer-token
 FACTORY_CLAUDE_CODE_AUTH_TOKEN=replace-with-your-token
 ```
@@ -274,9 +265,10 @@ FACTORY_CLAUDE_CODE_AUTH_TOKEN=replace-with-your-token
 The example assumes an already running local CodeMie proxy on port 4001; Compose
 does not start it. For another gateway, supply the prefix before `/v1/messages`
 reachable from the coding container. Do not append `/v1`: the CLI adds
-`/v1/messages`. Confirm the deployment model ID with your gateway; use
-`claude-sonnet-5-5` only when that literal ID is supported. Leave optional effort
-unset for the first connection check. A Chat Completions or Responses endpoint
+`/v1/messages`. Confirm that your gateway supports the default literal model ID
+`claude-sonnet-5-5`; override `FACTORY_CLAUDE_CODE_MODEL` if it uses another
+deployment ID. Leave optional effort unset for the first connection check.
+A Chat Completions or Responses endpoint
 cannot be used with Claude Code: an incompatible API type fails before the
 coding container starts. Factory does not translate API protocols, rename model
 IDs, or restrict models to an allowlist. Endpoint/model capabilities, streaming
@@ -298,6 +290,19 @@ is not logged or saved by Factory; progress contains bounded tool names and toke
 counts. Claude's cost estimate is separate from Factory's operator rate card.
 Missing or zero-filled provider usage stays marked incomplete, including when
 other turns in the same attempt reported valid counts.
+
+To use Pi instead, explicitly select it and configure its independent profile
+(OpenAI Chat Completions example):
+
+```dotenv
+FACTORY_DEV_FACTORY_CODING_RUNTIME=pi
+FACTORY_PI_PROVIDER=openai-compatible
+FACTORY_PI_API=openai-completions
+FACTORY_PI_BASE_URL=https://gateway.example/v1
+FACTORY_PI_MODEL=operator-model-id
+FACTORY_PI_AUTHENTICATION=api-key
+FACTORY_PI_API_KEY=replace-with-your-key
+```
 
 Pi precedence is field-by-field: nonblank `FACTORY_PI_*` > legacy
 `FACTORY_MODEL_*` > defaults. `FACTORY_PI_MODEL` falls back to `FACTORY_MODEL_ID`;
@@ -369,7 +374,7 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_LLM_BASE_URL` / `_COMPLETIONS_PATH` | OpenAI-compatible endpoint (defaults target Groq: `https://api.groq.com/openai/v1` + `/chat/completions`) |
 | `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (default `jdbc:postgresql://localhost:5432/factory`) |
 | `FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME` | Persistent trusted Developer Flow Maven cache volume (default `factory-dev-m2-cache`) |
-| `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `pi`) |
+| `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `claude-code`) |
 | `FACTORY_MODEL_PROVIDER` / `_ID` / `_BASE_URL` / `_API` / `_API_KEY` | Legacy Pi profile settings; nonblank `FACTORY_PI_*` values override them |
 | `FACTORY_PI_*` / `FACTORY_CLAUDE_CODE_*` | Independent image, API, model, endpoint, authentication and harness profiles; see [Coding runtime profiles](#coding-runtime-profiles) |
 | `FACTORY_MODEL_REASONING_EFFORT` | Optional Pi thinking level; `max` for the CodeMie GPT-5.6 Luna profile, empty for the current GLM behavior |

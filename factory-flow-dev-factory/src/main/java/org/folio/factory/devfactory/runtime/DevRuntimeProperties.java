@@ -50,7 +50,7 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         @org.springframework.boot.context.properties.bind.ConstructorBinding
         public Coding {
             api = api == null ? "openai-completions" : api;
-            runtime = runtime == null || runtime.isBlank() ? "pi" : runtime.strip().toLowerCase(java.util.Locale.ROOT);
+            runtime = runtime == null || runtime.isBlank() ? "claude-code" : runtime.strip().toLowerCase(java.util.Locale.ROOT);
             reasoningEffort = reasoningEffort == null || reasoningEffort.isBlank()
                     ? null : reasoningEffort.strip().toLowerCase(java.util.Locale.ROOT);
             maxOutputTokens = maxOutputTokens == null ? 16384 : maxOutputTokens;
@@ -97,6 +97,7 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         public ClaudeCode {
             image = first(image, "factory-dev-claude-code:2.1.287-java21");
             api = first(api, "anthropic-messages");
+            model = first(model, "claude-sonnet-5-5");
             maxTurns = maxTurns == null ? 40 : maxTurns;
             maxOutputTokens = maxOutputTokens == null ? 16384 : maxOutputTokens;
         }

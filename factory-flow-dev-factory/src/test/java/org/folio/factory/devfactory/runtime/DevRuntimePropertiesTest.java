@@ -49,7 +49,7 @@ class DevRuntimePropertiesTest {
                 "factory.dev-factory.runtime.coding.pi.max-output-tokens", "-1"));
         assertThat(configuration.devCodingRuntime(empty)).isInstanceOf(ClaudeCodeCodingRuntime.class);
         assertThat(configuration.devCodingRuntime(new DevRuntimeProperties(null, null, 0, null)))
-                .isInstanceOf(PiCodingRuntime.class);
+                .isInstanceOf(ClaudeCodeCodingRuntime.class);
         assertThatThrownBy(() -> configuration.devCodingRuntime(bind(Map.of(
                 "factory.dev-factory.runtime.coding.runtime", "unknown"))))
                 .hasMessageContaining("Unsupported coding runtime");
@@ -104,8 +104,9 @@ class DevRuntimePropertiesTest {
     }
 
     @Test
-    void bindsPlainOpenAiCompatibleProfileWithUnchangedDefaults() {
+    void explicitPiProfileRetainsItsSettings() {
         var source = new MapConfigurationPropertySource(Map.of(
+                "factory.dev-factory.runtime.coding.runtime", "pi",
                 "factory.dev-factory.runtime.coding.image", "pi:image",
                 "factory.dev-factory.runtime.coding.provider", "openai-compatible",
                 "factory.dev-factory.runtime.coding.model", "test-model",
@@ -117,13 +118,18 @@ class DevRuntimePropertiesTest {
         assertThat(coding.api()).isEqualTo("openai-completions");
         assertThat(coding.reasoningEffort()).isNull();
         assertThat(coding.maxOutputTokens()).isEqualTo(16384);
+        assertThat(coding.runtime()).isEqualTo("pi");
     }
 
     @Test
     void mavenCacheHasStableDefaultAndAcceptsOperatorOverride() {
         var defaults = new DevRuntimeProperties(null, null, 0, null);
         assertThat(defaults.mavenCacheVolume()).isEqualTo("factory-dev-m2-cache");
-        assertThat(defaults.coding().runtime()).isEqualTo("pi");
+        assertThat(defaults.coding().runtime()).isEqualTo("claude-code");
+        assertThat(defaults.coding().claudeCode().model()).isEqualTo("claude-sonnet-5-5");
+        assertThat(defaults.coding().claudeCode().maxTurns()).isEqualTo(40);
+        assertThat(defaults.coding().claudeCode().effort()).isNull();
+        assertThat(defaults.timeoutSeconds()).isEqualTo(1800);
         assertThat(defaults.coding().reasoningEffort()).isNull();
         assertThat(defaults.coding().maxOutputTokens()).isEqualTo(16384);
         assertThat(new DevRuntimeProperties(null, null, 0, "operator-cache").mavenCacheVolume())
