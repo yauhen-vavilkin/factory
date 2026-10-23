@@ -164,18 +164,20 @@ mvn -B -ntp -pl factory-app -am -Dtest=JiraRestConnectorTest,PilotScopeResolverT
 - Enforce unique requestId, unique execution binding and unique (taskId, ordinal). Lock the logical task when reserving the initial attempt; enforce at most one live admission per task at the database boundary.
 - Keep execution/artifact history in the same database. Pilot startup will require destructive retention disabled, matching its existing default; do not add a retention framework or silently change settings of non-pilot installations.
 
-- [ ] **1. Add PostgreSQL/Flyway tests for identity and concurrency.** A renamed key with the same issue ID updates one task. Concurrent admission reservations cannot create two initial attempts. A withdrawn unstarted admission is retained but can be readmitted. Rollback cannot leave half an attempt binding.
+- [x] **1. Add PostgreSQL/Flyway tests for identity and concurrency.** A renamed key with the same issue ID updates one task. Concurrent admission reservations cannot create two initial attempts. A withdrawn unstarted admission is retained but can be readmitted. Rollback cannot leave half an attempt binding.
 ~~~java
 assertThat(tasks.findByJiraInstanceAndIssueId(instance, issueId)).isPresent();
 assertThat(tasks.count()).isEqualTo(1);
 assertThat(liveAdmissionsForTask).hasSize(1);
 ~~~
-- [ ] **2. Add complete-sync tests.** Read all pages before a transaction updates the visible snapshot. A page failure preserves previous rows/last-success time, marks sync stale and blocks admission. Unsupported/ambiguous repository mappings and snapshot-recorded dependencies remain visible as ineligible. Discovery performs zero model and engine-launch calls.
-- [ ] **3. Run new tests to fail, then implement schema/repositories/sync.** Reuse RepositoryPolicy and IssueSnapshot; no long database transaction around remote pagination. Preserve terminal task history when it leaves the current filter.
+- [x] **2. Add complete-sync tests.** Read all pages before a transaction updates the visible snapshot. A page failure preserves previous rows/last-success time, marks sync stale and blocks admission. Unsupported/ambiguous repository mappings and snapshot-recorded dependencies remain visible as ineligible. Discovery performs zero model and engine-launch calls.
+- [x] **3. Run new tests to fail, then implement schema/repositories/sync.** Reuse RepositoryPolicy and IssueSnapshot; no long database transaction around remote pagination. Preserve terminal task history when it leaves the current filter.
 ~~~sh
 mvn -B -ntp -pl factory-app -am -Dtest=PilotPersistenceIntegrationTest,PilotDiscoveryIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test
 ~~~
-- [ ] **4. Rerun with real PostgreSQL, review the migration and commit S02.** The five-minute callback only discovers; no execution is admitted automatically.
+- [x] **4. Rerun with real PostgreSQL, review the migration and commit S02.** The five-minute callback only discovers; no execution is admitted automatically.
+
+**Done 2026-10-23.** V5__pilot_tasks.sql: pilot_task (unique jira_instance+issue_id), pilot_attempt (unique request_id, unique execution_id without FK — retention decoupling, unique task_id+ordinal, partial unique index over live states), pilot_installation singleton. Discovery reads all pages before one short transaction; write or read failure returns an incomplete SyncResult preserving rows/last-success; routing reasons truncated at the column limit. Focused command green on real PostgreSQL: PilotPersistenceIntegrationTest 8, PilotDiscoveryIntegrationTest 7 — 15 run, 0 failed/skipped. Independent critic: ACCEPT WITH FIXES, all applied; also verified the connector bean parameter renames fix a latent full-context boot failure present since S01 (empirically reproduced). Poller and service beans exist only under factory.pilot.discovery.enabled (default false).
 
 ## S03 — Manual admission and atomic serial dispatch
 
@@ -338,7 +340,7 @@ mvn -B -ntp -pl factory-app -am -Dtest=PilotPublicationIntegrationTest,Candidate
 - PilotAutomaticAdmission.admitEligible() → AdmissionResult uses the same task locks/admission records as manual selection; no second queue implementation.
 
 - [ ] **1. Add automatic-mode tests.** Explicit enable covers existing and future eligible tasks. No-label filtering works. An unchanged restart preserves mode/history. Returning to manual stops new automatic admissions and leaves existing queued/running work delegated.
-- [ ] **2. Add changed-authority tests.** Saved-filter query, routing or destination changes return the installation to manual and invalidate affected queued approvals. Initial tasks return for selection/withdrawal; queued retries use S08's stopped-result rule. Unchanged tasks retain their explicit delegation.
+- [ ] **2. Add changed-authority tests.** Saved-filter query, routing or destination changes return the installation to manual and invalidate affected queued approvals. Initial tasks return for selection/withdrawal; queued retries use S08's stopped-result rule. Unchanged tasks retain their explicit delegation. S02 note: discovery currently overwrites `pilot_installation.accepted_authority_fingerprint` on every complete sync — separate observed from accepted authority so a change remains detectable.
 ~~~java
 assertThat(modeAfterUnchangedRestart).isEqualTo(AUTOMATIC);
 assertThat(modeAfterFilterChange).isEqualTo(REVIEW_BEFORE_RUN);

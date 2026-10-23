@@ -58,14 +58,14 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
 
     public DeveloperPreflight(DevFactoryProperties repositories, DevDeliveryProperties delivery,
                               DevRuntimeProperties settings, CodingRuntime coding, JiraProperties jiraProperties,
-                              JiraConnector jira, GitHubProperties github, DeveloperPricingProperties pricing,
+                              JiraConnector jiraConnector, GitHubProperties github, DeveloperPricingProperties pricing,
                               DeveloperPreflightProbe probe) {
         this.repositories = repositories;
         this.delivery = delivery;
         this.settings = settings;
         this.coding = coding;
         this.jiraProperties = jiraProperties;
-        this.jira = jira;
+        this.jira = jiraConnector;
         this.github = github;
         this.pricing = pricing;
         this.probe = probe;
