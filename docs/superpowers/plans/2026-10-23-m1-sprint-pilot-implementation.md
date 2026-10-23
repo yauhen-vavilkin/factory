@@ -235,23 +235,25 @@ mvn -B -ntp -pl factory-app -am -Dtest=PilotAdmissionIntegrationTest,PilotDispat
 - PilotAttemptPolicy.recordStop(UUID executionId, String stage, String reason) → void; store the reason in the attempt and existing declared result artifacts.
 - The app supplies the persistence-backed implementation; no-pilot resolution leaves legacy flow behavior unchanged.
 
-- [ ] **1. Add pilot and legacy comparison tests.** Ambiguous routing, missing requirements and NEEDS_DECISION stop in pilot mode without HITL, while legacy manual behavior still opens its existing review.
-- [ ] **2. Add the critical routing regression.** Intake currently seeds a recommended repository answer. Merely skipping DecisionGateWorker is insufficient: pilot ambiguity must produce a blocked/non-MAPPED intake, so IntakeResolveWorker cannot accept that seeded recommendation.
-- [ ] **3. Add a complete stopped-chain test.** Use existing flow execution with fake runtime/Git; assert all declared outputs exist, original reason/usage survive and no downstream model/verification/publication runs after stop.
+- [x] **1. Add pilot and legacy comparison tests.** Ambiguous routing, missing requirements and NEEDS_DECISION stop in pilot mode without HITL, while legacy manual behavior still opens its existing review.
+- [x] **2. Add the critical routing regression.** Intake currently seeds a recommended repository answer. Merely skipping DecisionGateWorker is insufficient: pilot ambiguity must produce a blocked/non-MAPPED intake, so IntakeResolveWorker cannot accept that seeded recommendation.
+- [x] **3. Add a complete stopped-chain test.** Use existing flow execution with fake runtime/Git; assert all declared outputs exist, original reason/usage survive and no downstream model/verification/publication runs after stop.
 ~~~java
 assertThat(pilotHitlReviews).isEmpty();
 assertThat(providerInvocations).isZero();
 assertThat(publicationInvocations).isZero();
 assertThat(resultReason).contains("ambiguous");
 ~~~
-- [ ] **4. Run the focused command to fail, then implement policy integration.**
+- [x] **4. Run the focused command to fail, then implement policy integration.**
 ~~~sh
 mvn -B -ntp -pl factory-app -am -Dtest=PilotAutonomousFlowIntegrationTest,IntakeWorkerTest,CodingDecisionGateWorkerTest,DevelopContinuationWorkerTest,DevelopReadinessTest,VerifyWorkerTest,DeliveryWorkerTest -Dsurefire.failIfNoSpecifiedTests=false test
 ~~~
-- [ ] **5. Preserve the existing non-ready artifact chain.** Blocked intake → non-ready brief/request → DevelopWorker placeholders → VerifyWorker NOT_RUN → DeliveryWorker NOT_RUN → feedback initialization skips non-delivered work. Do not add generic engine branching or remove required artifacts.
-- [ ] **6. Bind the consumed task to the admitted snapshot.** Intake must not replace the engineer's approved requirements with a second untracked Jira read. No automatic clarification continuation for pilot attempts; explicit Retry is a new execution in S08.
-- [ ] **7. Complete the contribution prompt.** Require reading repository instructions/contribution policy, applicable NEWS/changelog rules, required checks and PR conventions. Use a representative fixture to assert those requirements reach the coding request. Do not copy private skills or claim IDE verification.
-- [ ] **8. Rerun, review and commit S04.** Keep the flow ID dev-factory and existing feedback identity. Do not globally change max_attempts: 3; S05 prevents repeated paid work and converts pilot failures into bounded outcomes.
+- [x] **5. Preserve the existing non-ready artifact chain.** Blocked intake → non-ready brief/request → DevelopWorker placeholders → VerifyWorker NOT_RUN → DeliveryWorker NOT_RUN → feedback initialization skips non-delivered work. Do not add generic engine branching or remove required artifacts.
+- [x] **6. Bind the consumed task to the admitted snapshot.** Intake must not replace the engineer's approved requirements with a second untracked Jira read. No automatic clarification continuation for pilot attempts; explicit Retry is a new execution in S08.
+- [x] **7. Complete the contribution prompt.** Require reading repository instructions/contribution policy, applicable NEWS/changelog rules, required checks and PR conventions. Use a representative fixture to assert those requirements reach the coding request. Do not copy private skills or claim IDE verification.
+- [x] **8. Rerun, review and commit S04.** Keep the flow ID dev-factory and existing feedback identity. Do not globally change max_attempts: 3; S05 prevents repeated paid work and converts pilot failures into bounded outcomes.
+
+**Done 2026-10-23.** Narrow PilotAttemptPolicy port in the flow module (find/claimPaidStart/recordStop + none() default), PersistedPilotAttemptPolicy in the app; six workers consult it, legacy paths byte-compatible (full flow suite 242 green, existing tests only extended). Pilot intake consumes the approved snapshot with zero Jira reads; ambiguous/unmapped/unverifiable mappings stop non-MAPPED (seeded-recommendation bypass closed, critic found no bypass); all decision paths stop without HITL. Paid-start claim sits after baseline success, immediately before the model call: baseline infra failures keep the engine retry, replays stop with PAID_START_CONSUMED and one model call total. Stopped chain preserves all declared artifacts (derived from FlowRegistry), reasons and usage. Focused command green: flow 47, app 6 — 53 run, 0 failed/skipped. Independent critic: ACCEPT WITH FIXES, all applied (claim placement, fail-closed routing-reason parsing via shared PilotRoutingReason constant, FlowRegistry-derived artifact assertions).
 
 ## S05 — Whole-attempt bounds, ownership and queue progress
 

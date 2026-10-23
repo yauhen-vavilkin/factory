@@ -9,6 +9,7 @@ import org.folio.factory.devfactory.DevFactoryProperties.Repository;
 import org.folio.factory.devfactory.decision.DecisionArtifacts;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Answer;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Request;
+import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
 import org.folio.factory.devfactory.repository.BaseRefResolver;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.folio.factory.devfactory.runtime.CodingRequest;
@@ -24,7 +25,8 @@ import java.util.Optional;
  * Produces the trusted task brief: applies the validated decision (if any), then
  * pins the configured base branch to a full SHA. {@code INTAKE_READY} means the
  * issue and trusted configuration are sufficient; it says nothing about the
- * build environment.
+ * build environment. Pilot executions never resolve a required repository
+ * decision, so the seeded recommendation cannot be accepted without a human.
  */
 public class IntakeResolveWorker implements AgentWorker {
 
@@ -37,12 +39,19 @@ public class IntakeResolveWorker implements AgentWorker {
     private final RepositoryPolicy policy;
     private final BaseRefResolver baseRefResolver;
     private final FrontmatterCodec codec;
+    private final PilotAttemptPolicy pilotPolicy;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public IntakeResolveWorker(RepositoryPolicy policy, BaseRefResolver baseRefResolver, FrontmatterCodec codec) {
+        this(policy, baseRefResolver, codec, PilotAttemptPolicy.none());
+    }
+
+    public IntakeResolveWorker(RepositoryPolicy policy, BaseRefResolver baseRefResolver, FrontmatterCodec codec,
+                               PilotAttemptPolicy pilotPolicy) {
         this.policy = policy;
         this.baseRefResolver = baseRefResolver;
         this.codec = codec;
+        this.pilotPolicy = pilotPolicy;
     }
 
     @Override
@@ -58,6 +67,11 @@ public class IntakeResolveWorker implements AgentWorker {
             return brief(intake, state, intake.path("reason").asString(""), null, null, null);
         }
         Request request = DecisionArtifacts.parseRequest(codec, context.requireInput(DecisionArtifacts.REQUEST).content());
+        if (request.required() && pilotPolicy.find(context.executionId()).isPresent()) {
+            pilotPolicy.recordStop(context.executionId(), context.stepId(),
+                    "repository selection requires a human choice; the approved admission must resolve to one repository");
+            return brief(intake, "BLOCKED", "REPOSITORY_SELECTION_REQUIRES_HUMAN", Map.of(), null, null);
+        }
         String choice;
         Map<String, Object> decision = new LinkedHashMap<>();
         decision.put("required", request.required());

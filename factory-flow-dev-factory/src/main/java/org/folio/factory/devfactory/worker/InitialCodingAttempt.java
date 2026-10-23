@@ -9,6 +9,8 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.feedback.AttemptPricing;
+import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
+import org.folio.factory.devfactory.pilot.PilotExecutionContext;
 import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
@@ -42,6 +44,7 @@ public final class InitialCodingAttempt {
     private final AuditLog audit;
     private final AttemptPricing pricing;
     private final SelectedRepositoryPreflight repositoryPreflight;
+    private final PilotAttemptPolicy pilotPolicy;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public InitialCodingAttempt(
@@ -67,6 +70,21 @@ public final class InitialCodingAttempt {
             AuditLog audit,
             AttemptPricing pricing,
             SelectedRepositoryPreflight repositoryPreflight) {
+        this(properties, runtime, docker, freezer, coding, codec, audit, pricing,
+                repositoryPreflight, PilotAttemptPolicy.none());
+    }
+
+    public InitialCodingAttempt(
+            DevFactoryProperties properties,
+            DevRuntimeProperties runtime,
+            DockerWorkloads docker,
+            CandidateFreezer freezer,
+            CodingRuntime coding,
+            FrontmatterCodec codec,
+            AuditLog audit,
+            AttemptPricing pricing,
+            SelectedRepositoryPreflight repositoryPreflight,
+            PilotAttemptPolicy pilotPolicy) {
         this.properties = properties;
         this.runtime = runtime;
         this.docker = docker;
@@ -76,21 +94,23 @@ public final class InitialCodingAttempt {
         this.audit = audit;
         this.pricing = pricing;
         this.repositoryPreflight = repositoryPreflight;
+        this.pilotPolicy = pilotPolicy;
     }
 
     public Attempt start(AgentContext context, CodingRequest request) {
-        return runAttempt(context, request, true, json.createObjectNode());
+        return runAttempt(context, request, true, json.createObjectNode(), true);
     }
 
     public Attempt retry(AgentContext context, CodingRequest request, JsonNode readiness) {
-        return runAttempt(context, request, false, readiness);
+        return runAttempt(context, request, false, readiness, false);
     }
 
     private Attempt runAttempt(
             AgentContext context,
             CodingRequest request,
             boolean runBaseline,
-            JsonNode existingReadiness) {
+            JsonNode existingReadiness,
+            boolean claimPilotPaidStart) {
         request.requireReady();
         String repositoryKey = request.repository().key();
         var repository = properties.repositories().get(repositoryKey);
@@ -172,6 +192,17 @@ public final class InitialCodingAttempt {
                                         ? "Starting build failed before model spend"
                                         : summary,
                                 readiness);
+                }
+            }
+            if (claimPilotPaidStart) {
+                Optional<PilotExecutionContext> pilot = pilotPolicy.find(context.executionId());
+                if (pilot.isPresent() && !pilotPolicy.claimPaidStart(context.executionId())) {
+                    String reason =
+                            "Paid coding was already started for pilot attempt " + pilot.get().attemptId()
+                                    + "; a replayed or retried engine step cannot start a second initial"
+                                    + " coding invocation";
+                    pilotPolicy.recordStop(context.executionId(), context.stepId(), reason);
+                    return failedAttempt("PAID_START_CONSUMED", reason, readiness);
                 }
             }
             exported = CandidateFreezer.temporary("factory-dev-export-");

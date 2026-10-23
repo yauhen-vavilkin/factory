@@ -58,6 +58,19 @@ class CodingContractsTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test void theCodingPromptRequiresTheRepositorysOwnContributionRules() {
+        String prompt = CodingProtocol.prompt(request());
+
+        assertThat(prompt)
+                .contains("contributor documentation")
+                .contains("contribution policy")
+                .contains("NEWS")
+                .contains("changelog")
+                .contains("checks a change must pass")
+                .contains("pull request conventions")
+                .contains("Do not claim checks or IDE verification you did not run");
+    }
+
     private static CodingRequest request() {
         return new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(), List.of(),
                 List.of(), new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)),

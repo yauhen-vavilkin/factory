@@ -2,6 +2,7 @@ package org.folio.factory.app.pilot.source;
 
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
 import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
+import org.folio.factory.app.pilot.persistence.PilotRoutingReason;
 import org.folio.factory.app.pilot.persistence.PilotTask;
 import org.folio.factory.app.pilot.persistence.PilotTaskRepository;
 import org.folio.factory.connectors.jira.JiraProperties;
@@ -163,7 +164,8 @@ public class PilotDiscoveryService {
         }
         List<String> candidates = repositoryPolicy.candidates(issue.projectKey(), issue.components());
         if (candidates.size() == 1) {
-            return new Evaluation(PilotTask.Eligibility.ELIGIBLE, "repository " + candidates.getFirst());
+            return new Evaluation(PilotTask.Eligibility.ELIGIBLE,
+                    PilotRoutingReason.ELIGIBLE_PREFIX + candidates.getFirst());
         }
         if (candidates.isEmpty()) {
             return new Evaluation(PilotTask.Eligibility.INELIGIBLE,

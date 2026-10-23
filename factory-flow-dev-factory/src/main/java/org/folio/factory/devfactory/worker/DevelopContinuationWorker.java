@@ -6,6 +6,7 @@ import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
+import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 
@@ -16,18 +17,26 @@ import java.util.Map;
 
 /**
  * Retries a product clarification once; repository mismatches stop with an explicit non-candidate
- * outcome.
+ * outcome. Pilot attempts never continue automatically: an explicit retry is a
+ * new execution.
  */
 public class DevelopContinuationWorker implements AgentWorker {
     public static final String ID = "dev-develop-continuation";
 
     private final InitialCodingAttempt develop;
     private final FrontmatterCodec codec;
+    private final PilotAttemptPolicy pilotPolicy;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public DevelopContinuationWorker(InitialCodingAttempt develop, FrontmatterCodec codec) {
+        this(develop, codec, PilotAttemptPolicy.none());
+    }
+
+    public DevelopContinuationWorker(InitialCodingAttempt develop, FrontmatterCodec codec,
+                                     PilotAttemptPolicy pilotPolicy) {
         this.develop = develop;
         this.codec = codec;
+        this.pilotPolicy = pilotPolicy;
     }
 
     @Override
@@ -55,6 +64,14 @@ public class DevelopContinuationWorker implements AgentWorker {
                         codec, context.requireInput(CodingDecisionArtifacts.ANSWER).content());
         if (!answer.requestId().equals(decisionRequest.requestId()))
             throw new AgentExecutionException("Coding decision answer is stale");
+        if (pilotPolicy.find(context.executionId()).isPresent()) {
+            if (!CodingDecisionArtifacts.UNANSWERED.equals(answer.answer())) {
+                pilotPolicy.recordStop(context.executionId(), context.stepId(),
+                        "a clarification answer cannot continue a pilot attempt automatically;"
+                                + " an explicit retry is a new execution");
+            }
+            return passThrough(context, request, outcome);
+        }
         if (CodingDecisionArtifacts.UNANSWERED.equals(answer.answer()))
             return passThrough(context, request, outcome);
 

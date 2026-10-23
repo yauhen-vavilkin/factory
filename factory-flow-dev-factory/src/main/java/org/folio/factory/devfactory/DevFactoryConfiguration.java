@@ -39,6 +39,7 @@ import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.PiCodingRuntime;
 import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
+import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
 import org.folio.factory.devfactory.worker.CodingDecisionGateWorker;
 import org.folio.factory.devfactory.worker.DecisionGateWorker;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
@@ -104,7 +105,8 @@ public class DevFactoryConfiguration {
             FrontmatterCodec codec,
             AuditLog audit,
             ObjectProvider<AttemptPricing> pricing,
-            ObjectProvider<SelectedRepositoryPreflight> repositoryPreflight) {
+            ObjectProvider<SelectedRepositoryPreflight> repositoryPreflight,
+            ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
         return new InitialCodingAttempt(
                 properties,
                 runtime,
@@ -114,7 +116,8 @@ public class DevFactoryConfiguration {
                 codec,
                 audit,
                 pricing.getIfAvailable(() -> model -> Map.of()),
-                repositoryPreflight.getIfAvailable(SelectedRepositoryPreflight::none));
+                repositoryPreflight.getIfAvailable(SelectedRepositoryPreflight::none),
+                pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
     }
 
     @Bean
@@ -123,14 +126,18 @@ public class DevFactoryConfiguration {
     }
 
     @Bean
-    public CodingDecisionGateWorker devCodingDecisionGateWorker(ConditionalDecisionGate gate) {
-        return new CodingDecisionGateWorker(gate);
+    public CodingDecisionGateWorker devCodingDecisionGateWorker(
+            ConditionalDecisionGate gate, ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
+        return new CodingDecisionGateWorker(gate, pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
     }
 
     @Bean
     public DevelopContinuationWorker devDevelopContinuationWorker(
-            InitialCodingAttempt develop, FrontmatterCodec codec) {
-        return new DevelopContinuationWorker(develop, codec);
+            InitialCodingAttempt develop,
+            FrontmatterCodec codec,
+            ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
+        return new DevelopContinuationWorker(develop, codec,
+                pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
     }
 
     @Bean
@@ -204,20 +211,28 @@ public class DevFactoryConfiguration {
             RepositoryPolicy policy,
             FrontmatterCodec codec,
             CodingRuntime runtime,
-            AuditLog audit) {
-        return new IntakeWorker(jiraConnector, policy, codec, runtime, audit);
+            AuditLog audit,
+            ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
+        return new IntakeWorker(jiraConnector, policy, codec, runtime, audit,
+                pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
     }
 
     @Bean
     public DecisionGateWorker devDecisionGateWorker(
-            ConditionalDecisionGate gate, FrontmatterCodec codec) {
-        return new DecisionGateWorker(gate, codec);
+            ConditionalDecisionGate gate,
+            FrontmatterCodec codec,
+            ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
+        return new DecisionGateWorker(gate, codec, pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
     }
 
     @Bean
     public IntakeResolveWorker devIntakeResolveWorker(
-            RepositoryPolicy policy, BaseRefResolver baseRefResolver, FrontmatterCodec codec) {
-        return new IntakeResolveWorker(policy, baseRefResolver, codec);
+            RepositoryPolicy policy,
+            BaseRefResolver baseRefResolver,
+            FrontmatterCodec codec,
+            ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
+        return new IntakeResolveWorker(policy, baseRefResolver, codec,
+                pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
     }
 
     @Bean

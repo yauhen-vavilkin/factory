@@ -9,6 +9,7 @@ import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
+import org.folio.factory.devfactory.pilot.RecordingPilotAttempts;
 import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.worker.DevelopWorker;
 import org.folio.factory.devfactory.worker.IntakeResolveWorker;
@@ -231,6 +232,107 @@ class DevelopReadinessTest {
         verifyNoInteractions(freezer);
         verify(scope, never()).createTrusted(anyString(), any(), anyString());
         verify(coding, never()).code(any(), any(), anyInt(), any());
+    }
+
+    @Test
+    void aPilotExecutionClaimsOnePaidStartAndAReplayedStepCannotStartAnother() {
+        var repository = new DevFactoryProperties.Repository(
+                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
+        var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
+        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var docker = mock(DockerWorkloads.class);
+        var scope = mock(DockerWorkloads.StepScope.class);
+        var workload = mock(DockerWorkloads.Workload.class);
+        var freezer = mock(CandidateFreezer.class);
+        var coding = mock(CodingRuntime.class);
+        var pilots = RecordingPilotAttempts.pilot("repo");
+        var codec = new FrontmatterCodec();
+        var request = request();
+        var context = context(codec, request);
+        when(coding.image()).thenReturn("coding:image");
+        when(coding.identity()).thenReturn(Map.of("runtime", "stub", "image", "coding:image"));
+        when(docker.beginStep(context.executionId(), "implement")).thenReturn(scope);
+        when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
+        when(scope.createTrusted(anyString(), any(), anyString())).thenReturn(workload);
+        when(scope.createSeeded(anyString(), any(), anyString(), anyString())).thenReturn(workload);
+        when(workload.execute(anyList(), anyInt(), anyInt(), any()))
+                .thenReturn(new Processes.Result(0, "[INFO] BUILD SUCCESS"));
+        when(coding.code(any(), any(CodingRequest.class), anyInt(), any()))
+                .thenReturn(CodingOutcome.needsDecision(new CodingOutcome.Decision(
+                        CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"),
+                        Map.of()));
+        var attempt = new InitialCodingAttempt(
+                properties, settings, docker, freezer, coding, codec,
+                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), pilots);
+        var worker = new DevelopWorker(attempt, codec);
+
+        var first = worker.execute(context);
+        var replay = worker.execute(context);
+
+        assertThat(first.outputs().get(DevelopWorker.CANDIDATE)).contains("NEEDS_DECISION");
+        assertThat(pilots.paidStartClaims).isEqualTo(2);
+        assertThat(replay.outputs().get(DevelopWorker.CANDIDATE))
+                .contains("PAID_START_CONSUMED")
+                .contains("cannot start a second initial coding invocation");
+        verify(coding, times(1)).code(any(), any(), anyInt(), any());
+        verify(docker, times(2)).beginStep(any(), any());
+        verify(freezer, times(2)).checkout(anyString(), anyString());
+        verify(freezer, never()).freeze(anyString(), anyString(), anyString(), any());
+        assertThat(pilots.stops).singleElement().satisfies(stop -> {
+            assertThat(stop).startsWith("implement: ");
+            assertThat(stop).contains("pilot attempt");
+        });
+    }
+
+    @Test
+    void aPilotBaselineFailureKeepsTheClaimUnconsumedAndTheEngineRetrySucceeds() {
+        var repository = new DevFactoryProperties.Repository(
+                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
+        var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
+        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var docker = mock(DockerWorkloads.class);
+        var scope = mock(DockerWorkloads.StepScope.class);
+        var baseline = mock(DockerWorkloads.Workload.class);
+        var codingWorkload = mock(DockerWorkloads.Workload.class);
+        var freezer = mock(CandidateFreezer.class);
+        var coding = mock(CodingRuntime.class);
+        var pilots = RecordingPilotAttempts.pilot("repo");
+        var codec = new FrontmatterCodec();
+        var request = request();
+        var context = context(codec, request);
+        when(coding.image()).thenReturn("coding:image");
+        when(coding.identity()).thenReturn(Map.of("runtime", "stub", "image", "coding:image"));
+        when(docker.beginStep(context.executionId(), "implement")).thenReturn(scope);
+        when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
+        when(scope.createTrusted(anyString(), any(), anyString())).thenReturn(baseline);
+        when(scope.createSeeded(anyString(), any(), anyString(), anyString())).thenReturn(codingWorkload);
+        when(baseline.execute(anyList(), anyInt(), anyInt(), any()))
+                .thenReturn(
+                        new Processes.Result(1, "[ERROR] Could not transfer artifact org.example:library:jar:1"
+                                + " from/to central: Read timed out"),
+                        new Processes.Result(0, "[INFO] BUILD SUCCESS"));
+        when(coding.code(any(), any(CodingRequest.class), anyInt(), any()))
+                .thenReturn(CodingOutcome.needsDecision(new CodingOutcome.Decision(
+                        CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"),
+                        Map.of()));
+        var attempt = new InitialCodingAttempt(
+                properties, settings, docker, freezer, coding, codec,
+                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), pilots);
+        var worker = new DevelopWorker(attempt, codec);
+
+        assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class)
+                .hasMessageContaining("Starting build hit a network/download failure")
+                .hasMessageContaining("coding has not started");
+        assertThat(pilots.paidStartClaims).isZero();
+        assertThat(pilots.stops).isEmpty();
+
+        var retried = worker.execute(context);
+
+        assertThat(retried.outputs().get(DevelopWorker.CANDIDATE)).contains("NEEDS_DECISION");
+        assertThat(retried.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_PASSED");
+        assertThat(pilots.paidStartClaims).isEqualTo(1);
+        assertThat(pilots.stops).isEmpty();
+        verify(coding, times(1)).code(any(), any(), anyInt(), any());
     }
 
     @ParameterizedTest
