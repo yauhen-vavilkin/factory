@@ -127,6 +127,7 @@ class PilotAdmissionIntegrationTest {
         PilotTask second = task("20022", "MODBAR-122");
         PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
         installation.setAcceptedAuthorityFingerprint(AUTHORITY);
+        installation.setObservedAuthorityFingerprint(AUTHORITY);
         installation.setSyncComplete(false);
         installation.setSyncProblem("search page 2 failed");
         installations.save(installation);
@@ -240,6 +241,7 @@ class PilotAdmissionIntegrationTest {
     private void completeSync(String authority) {
         PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
         installation.setAcceptedAuthorityFingerprint(authority);
+        installation.setObservedAuthorityFingerprint(authority);
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
         installations.save(installation);

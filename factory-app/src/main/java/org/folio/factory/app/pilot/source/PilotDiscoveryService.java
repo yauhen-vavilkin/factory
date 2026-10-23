@@ -1,14 +1,16 @@
 package org.folio.factory.app.pilot.source;
 
+import org.folio.factory.app.pilot.admission.PilotAutomaticAdmission;
+import org.folio.factory.app.pilot.admission.PilotModeService;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
 import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
 import org.folio.factory.app.pilot.persistence.PilotRoutingReason;
 import org.folio.factory.app.pilot.persistence.PilotTask;
 import org.folio.factory.app.pilot.persistence.PilotTaskRepository;
-import org.folio.factory.connectors.jira.JiraProperties;
 import org.folio.factory.connectors.jira.JiraSourceConnector;
 import org.folio.factory.connectors.jira.JiraSourceModels.DiscoveredIssue;
 import org.folio.factory.connectors.jira.JiraSourceModels.IssuePage;
+import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.intake.IssueSnapshot;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.slf4j.Logger;
@@ -19,7 +21,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -28,7 +29,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -36,8 +36,13 @@ import java.util.Set;
  * Read-only discovery of the team source into durable pilot tasks. Every search
  * page is read before a single short transaction replaces the visible task
  * snapshot, so a read or write failure preserves previous rows and the
- * last-success time while marking the installation's sync incomplete. Discovery never admits work
- * and never calls a model or launches an execution.
+ * last-success time while marking the installation's sync incomplete. The
+ * observed source authority (saved-filter scope plus routing/destination
+ * configuration) is recorded on every complete sync and checked against the
+ * accepted authority, so a change reverts automatic mode in the same
+ * transaction. Discovery never calls a model or launches an execution; after a
+ * complete sync it only asks the automatic admission service to delegate
+ * eligible tasks, which it does solely in explicit AUTOMATIC mode.
  */
 @Component
 @ConditionalOnProperty(prefix = "factory.pilot", name = "discovery.enabled",
@@ -53,28 +58,37 @@ public class PilotDiscoveryService {
     private final JiraSourceConnector connector;
     private final PilotSourceProperties properties;
     private final RepositoryPolicy repositoryPolicy;
+    private final DevFactoryProperties devFactoryProperties;
     private final PilotTaskRepository tasks;
     private final PilotInstallationRepository installations;
-    private final JiraProperties jiraProperties;
     private final TransactionTemplate transactions;
     private final PilotScopeResolver scopeResolver;
+    private final PilotModeService modeService;
+    private final PilotAutomaticAdmission automaticAdmission;
+    private final PilotJiraInstance jiraInstance;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public PilotDiscoveryService(JiraSourceConnector jiraSourceConnector,
                                  PilotSourceProperties properties,
                                  RepositoryPolicy repositoryPolicy,
+                                 DevFactoryProperties devFactoryProperties,
                                  PilotTaskRepository tasks,
                                  PilotInstallationRepository installations,
-                                 JiraProperties jiraProperties,
-                                 PlatformTransactionManager transactionManager) {
+                                 PlatformTransactionManager transactionManager,
+                                 PilotModeService modeService,
+                                 PilotAutomaticAdmission automaticAdmission,
+                                 PilotJiraInstance jiraInstance) {
         this.connector = jiraSourceConnector;
         this.properties = properties;
         this.repositoryPolicy = repositoryPolicy;
+        this.devFactoryProperties = devFactoryProperties;
         this.tasks = tasks;
         this.installations = installations;
-        this.jiraProperties = jiraProperties;
         this.transactions = new TransactionTemplate(transactionManager);
         this.scopeResolver = new PilotScopeResolver(connector);
+        this.modeService = modeService;
+        this.automaticAdmission = automaticAdmission;
+        this.jiraInstance = jiraInstance;
     }
 
     public record SyncResult(boolean complete, int discoveredCount, Instant lastSuccessfulSync, String problem) {
@@ -99,8 +113,18 @@ public class PilotDiscoveryService {
         } catch (RuntimeException e) {
             return recordFailure(discovered.size(), e);
         }
+        admitNewMatches();
         log.info("Pilot discovery complete: {} issue(s) in scope", discovered.size());
         return new SyncResult(true, discovered.size(), lastSuccessfulSync, null);
+    }
+
+    private void admitNewMatches() {
+        try {
+            automaticAdmission.admitEligible();
+        } catch (RuntimeException e) {
+            log.warn("Automatic pilot admission after sync failed; the next sync retries: {}",
+                    e.getMessage());
+        }
     }
 
     private void readAllPages(PilotScopeResolver.PilotScope scope, List<DiscoveredIssue> discovered) {
@@ -124,24 +148,47 @@ public class PilotDiscoveryService {
             discoveredIds.add(issue.id());
             upsertTask(issue);
         }
-        for (PilotTask task : tasks.findByJiraInstanceAndInScopeTrue(jiraInstance())) {
+        for (PilotTask task : tasks.findByJiraInstanceAndInScopeTrue(jiraInstance.current())) {
             if (!discoveredIds.contains(task.getIssueId())) {
                 task.setInScope(false);
             }
         }
-        installation.setAcceptedAuthorityFingerprint(scope.authorityFingerprint());
+        installation.setObservedAuthorityFingerprint(observedAuthority(scope));
         installation.setSyncComplete(true);
         installation.setLastSuccessfulSyncAt(Instant.now());
         installation.setSyncProblem(null);
+        modeService.revertIfAuthorityChanged(installation);
         installations.save(installation);
         return installation.getLastSuccessfulSyncAt();
+    }
+
+    /**
+     * The observed installation authority: the resolved Jira scope plus the
+     * trusted routing/destination configuration, so a saved-filter, routing or
+     * destination change is detectable as a fingerprint change.
+     */
+    private String observedAuthority(PilotScopeResolver.PilotScope scope) {
+        return sha256Hex(scope.authorityFingerprint() + "\n" + destinationAuthority());
+    }
+
+    private String destinationAuthority() {
+        StringBuilder canonical = new StringBuilder(devFactoryProperties.gitBaseUrl()).append('\n');
+        devFactoryProperties.repositories().forEach((key, repository) -> canonical.append(key)
+                .append('|').append(repository.sourceRepo())
+                .append('|').append(repository.baseBranch())
+                .append('|').append(repository.jiraProjects())
+                .append('|').append(repository.jiraComponents())
+                .append('|').append(repository.delivery() == null ? "" : repository.delivery().repository())
+                .append('|').append(repository.delivery() != null && repository.delivery().authorized())
+                .append('\n'));
+        return sha256Hex(canonical.toString());
     }
 
     private void upsertTask(DiscoveredIssue issue) {
         Map<String, Object> snapshot = IssueSnapshot.of(issue.issue());
         Evaluation evaluation = evaluate(issue, snapshot);
-        PilotTask task = tasks.findByJiraInstanceAndIssueId(jiraInstance(), issue.id())
-                .orElseGet(() -> new PilotTask(jiraInstance(), issue.id(), issue.key(),
+        PilotTask task = tasks.findByJiraInstanceAndIssueId(jiraInstance.current(), issue.id())
+                .orElseGet(() -> new PilotTask(jiraInstance.current(), issue.id(), issue.key(),
                         truncated(issue.issue().summary(), MAX_TITLE_LENGTH), issue.projectKey(),
                         json.writeValueAsString(snapshot), revision(snapshot),
                         evaluation.eligibility(), truncated(evaluation.reason(), MAX_REASON_LENGTH)));
@@ -202,16 +249,6 @@ public class PilotDiscoveryService {
 
     private PilotInstallation currentInstallation() {
         return installations.findById(1).orElseGet(PilotInstallation::initial);
-    }
-
-    private String jiraInstance() {
-        String baseUrl = jiraProperties.baseUrl();
-        if (baseUrl == null || baseUrl.isBlank()) {
-            return "unconfigured";
-        }
-        URI uri = URI.create(baseUrl.strip());
-        String host = uri.getHost();
-        return host == null ? baseUrl.strip().toLowerCase(Locale.ROOT) : host.toLowerCase(Locale.ROOT);
     }
 
     private String revision(Map<String, Object> snapshot) {

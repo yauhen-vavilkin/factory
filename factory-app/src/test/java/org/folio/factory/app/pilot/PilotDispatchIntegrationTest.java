@@ -284,6 +284,7 @@ class PilotDispatchIntegrationTest {
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar"));
         PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
         installation.setAcceptedAuthorityFingerprint(AUTHORITY);
+        installation.setObservedAuthorityFingerprint(AUTHORITY);
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
         installations.save(installation);

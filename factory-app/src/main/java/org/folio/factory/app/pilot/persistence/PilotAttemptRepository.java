@@ -20,6 +20,8 @@ public interface PilotAttemptRepository extends JpaRepository<PilotAttempt, UUID
 
     List<PilotAttempt> findByTaskIdAndStateIn(UUID taskId, Collection<PilotAttempt.State> states);
 
+    List<PilotAttempt> findByStateAndScopeFingerprint(PilotAttempt.State state, String scopeFingerprint);
+
     default List<PilotAttempt> findLiveByTaskId(UUID taskId) {
         return findByTaskIdAndStateIn(taskId, PilotAttempt.State.LIVE_STATES);
     }

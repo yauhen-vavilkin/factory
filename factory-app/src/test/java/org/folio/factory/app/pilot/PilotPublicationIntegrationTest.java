@@ -469,6 +469,7 @@ class PilotPublicationIntegrationTest {
                 "revision-" + issueId, PilotTask.Eligibility.ELIGIBLE, "repository sidecar"));
         PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
         installation.setAcceptedAuthorityFingerprint(AUTHORITY);
+        installation.setObservedAuthorityFingerprint(AUTHORITY);
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
         installations.save(installation);

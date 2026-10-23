@@ -31,6 +31,9 @@ public class PilotInstallation {
     @Column(name = "accepted_authority_fingerprint", length = 64)
     private String acceptedAuthorityFingerprint;
 
+    @Column(name = "observed_authority_fingerprint", length = 64)
+    private String observedAuthorityFingerprint;
+
     @Column(name = "sync_complete", nullable = false)
     private boolean syncComplete;
 
@@ -89,6 +92,14 @@ public class PilotInstallation {
 
     public void setAcceptedAuthorityFingerprint(String acceptedAuthorityFingerprint) {
         this.acceptedAuthorityFingerprint = acceptedAuthorityFingerprint;
+    }
+
+    public String getObservedAuthorityFingerprint() {
+        return observedAuthorityFingerprint;
+    }
+
+    public void setObservedAuthorityFingerprint(String observedAuthorityFingerprint) {
+        this.observedAuthorityFingerprint = observedAuthorityFingerprint;
     }
 
     public boolean isSyncComplete() {

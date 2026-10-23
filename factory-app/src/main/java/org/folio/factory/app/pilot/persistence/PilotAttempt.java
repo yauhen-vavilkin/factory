@@ -77,6 +77,10 @@ public class PilotAttempt {
     @Column(name = "publication_identity", length = 500)
     private String publicationIdentity;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "admitted_via", nullable = false, length = 16)
+    private AdmittedVia admittedVia = AdmittedVia.MANUAL;
+
     @Version
     @Column(nullable = false)
     private long version;
@@ -206,6 +210,14 @@ public class PilotAttempt {
         this.resultReason = resultReason;
     }
 
+    public AdmittedVia getAdmittedVia() {
+        return admittedVia;
+    }
+
+    public void setAdmittedVia(AdmittedVia admittedVia) {
+        this.admittedVia = admittedVia;
+    }
+
     public String getPublicationIdentity() {
         return publicationIdentity;
     }
@@ -228,6 +240,11 @@ public class PilotAttempt {
 
     public enum Kind {
         INITIAL, RETRY
+    }
+
+    /** How the admission was approved: manual selection or automatic delegation. */
+    public enum AdmittedVia {
+        MANUAL, AUTOMATIC
     }
 
     public enum State {

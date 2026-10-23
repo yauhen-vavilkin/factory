@@ -347,19 +347,21 @@ mvn -B -ntp -pl factory-app -am -Dtest=PilotPublicationIntegrationTest,Candidate
 - AdmissionMode is REVIEW_BEFORE_RUN or AUTOMATIC.
 - PilotAutomaticAdmission.admitEligible() → AdmissionResult uses the same task locks/admission records as manual selection; no second queue implementation.
 
-- [ ] **1. Add automatic-mode tests.** Explicit enable covers existing and future eligible tasks. No-label filtering works. An unchanged restart preserves mode/history. Returning to manual stops new automatic admissions and leaves existing queued/running work delegated.
-- [ ] **2. Add changed-authority tests.** Saved-filter query, routing or destination changes return the installation to manual and invalidate affected queued approvals. Initial tasks return for selection/withdrawal; queued retries use S08's stopped-result rule. Unchanged tasks retain their explicit delegation. S02 note: discovery currently overwrites `pilot_installation.accepted_authority_fingerprint` on every complete sync — separate observed from accepted authority so a change remains detectable.
+- [x] **1. Add automatic-mode tests.** Explicit enable covers existing and future eligible tasks. No-label filtering works. An unchanged restart preserves mode/history. Returning to manual stops new automatic admissions and leaves existing queued/running work delegated.
+- [x] **2. Add changed-authority tests.** Saved-filter query, routing or destination changes return the installation to manual and invalidate affected queued approvals. Initial tasks return for selection/withdrawal; queued retries use S08's stopped-result rule. Unchanged tasks retain their explicit delegation. S02 note: discovery currently overwrites `pilot_installation.accepted_authority_fingerprint` on every complete sync — separate observed from accepted authority so a change remains detectable.
 ~~~java
 assertThat(modeAfterUnchangedRestart).isEqualTo(AUTOMATIC);
 assertThat(modeAfterFilterChange).isEqualTo(REVIEW_BEFORE_RUN);
 assertThat(initialAttemptsForAlreadyAttemptedTask).hasSize(1);
 ~~~
-- [ ] **3. Run the focused command to fail, then implement the mode transitions.**
+- [x] **3. Run the focused command to fail, then implement the mode transitions.**
 ~~~sh
 mvn -B -ntp -pl factory-app -am -Dtest=PilotAutomaticAdmissionIntegrationTest,PilotAdmissionIntegrationTest,PilotDispatchIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test
 ~~~
-- [ ] **4. Revalidate before dispatch/publication.** Automatic initial work may consume refreshed input within unchanged authority; manual initial/explicit Retry cannot silently accept a changed approved input. Partial/stale discovery blocks new starts.
-- [ ] **5. Rerun, review and commit S07.** No automatic sprint rollover, mandatory assignee or hidden label condition.
+- [x] **4. Revalidate before dispatch/publication.** Automatic initial work may consume refreshed input within unchanged authority; manual initial/explicit Retry cannot silently accept a changed approved input. Partial/stale discovery blocks new starts.
+- [x] **5. Rerun, review and commit S07.** No automatic sprint rollover, mandatory assignee or hidden label condition.
+
+**Done 2026-10-24.** Observed vs accepted authority separated (V8): observed = scope fingerprint + canonical routing/destination fingerprint, updated every complete sync; accepted changes only via explicit enable or approved admission (revalidated under the task lock — race test with a REQUIRES_NEW concurrent sync). Authority change in AUTOMATIC reverts to REVIEW_BEFORE_RUN atomically with the observation and invalidates queued approvals: INITIAL → WITHDRAWN (not consumed), RETRY → STOPPED requiring a fresh explicit Retry; delegated work untouched. Automatic INITIAL may consume refreshed input at dispatch within unchanged authority (verified not self-blocked by the S06 publication guard); manual initial and retries stay frozen. Enable covers current and future eligible tasks (new-issue-after-enable test); terminal tasks are never auto-readmitted. Focused command green: PilotAutomaticAdmissionIntegrationTest 12, PilotAdmissionIntegrationTest 9, PilotDispatchIntegrationTest 6 — 27 run, 0 failed/skipped; full factory-app module 411 green. Independent critic: ACCEPT WITH FIXES, all applied.
 
 ## S08 — Explicit fresh Retry
 

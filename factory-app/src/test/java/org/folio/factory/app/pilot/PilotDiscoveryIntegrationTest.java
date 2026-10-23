@@ -144,7 +144,8 @@ class PilotDiscoveryIntegrationTest {
         assertThat(installation.getMode()).isEqualTo(PilotInstallation.Mode.REVIEW_BEFORE_RUN);
         assertThat(installation.isSyncComplete()).isTrue();
         assertThat(installation.getLastSuccessfulSyncAt()).isNotNull();
-        assertThat(installation.getAcceptedAuthorityFingerprint()).hasSize(64);
+        assertThat(installation.getObservedAuthorityFingerprint()).hasSize(64);
+        assertThat(installation.getAcceptedAuthorityFingerprint()).isNull();
         assertThat(installation.getSyncProblem()).isNull();
         assertThat(executions.count()).isZero();
     }

@@ -7,8 +7,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Five-minute discovery callback. It only refreshes the discovered task view;
- * no work is ever admitted here. Disabled unless explicitly enabled.
+ * Five-minute discovery callback. It refreshes the discovered task view; the
+ * automatic admission it may trigger afterwards runs only in explicit
+ * AUTOMATIC mode. Disabled unless explicitly enabled.
  */
 @Component
 @ConditionalOnProperty(prefix = "factory.pilot", name = "discovery.enabled",

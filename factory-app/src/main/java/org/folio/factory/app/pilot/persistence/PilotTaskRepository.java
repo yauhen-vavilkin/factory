@@ -16,6 +16,9 @@ public interface PilotTaskRepository extends JpaRepository<PilotTask, UUID> {
 
     List<PilotTask> findByJiraInstanceAndInScopeTrue(String jiraInstance);
 
+    List<PilotTask> findByJiraInstanceAndInScopeTrueAndEligibility(String jiraInstance,
+                                                                   PilotTask.Eligibility eligibility);
+
     long countByJiraInstance(String jiraInstance);
 
     /**

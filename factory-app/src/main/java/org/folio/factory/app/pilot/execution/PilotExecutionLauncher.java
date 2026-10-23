@@ -1,5 +1,6 @@
 package org.folio.factory.app.pilot.execution;
 
+import org.folio.factory.app.pilot.admission.PilotAdmissionService;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
@@ -99,6 +100,7 @@ public class PilotExecutionLauncher {
             attempts.save(attempt);
             return null;
         }
+        refreshAutomaticInput(installation, attempt, task);
         UUID executionId = router.routePrepared(prepared);
         attempt.setState(PilotAttempt.State.QUEUED);
         attempt.setExecutionId(executionId);
@@ -112,5 +114,34 @@ public class PilotExecutionLauncher {
         installation.setActiveAttemptId(attemptId);
         installations.save(installation);
         return executionId;
+    }
+
+    /**
+     * An automatically delegated initial attempt may consume refreshed input at
+     * dispatch, but only within the authority it was admitted under and with
+     * unchanged destination routing; manual initial attempts and retries keep
+     * the frozen approved input, so a later publication recheck stops them on
+     * changed requirements.
+     */
+    private void refreshAutomaticInput(PilotInstallation installation, PilotAttempt attempt, PilotTask task) {
+        if (attempt.getAdmittedVia() != PilotAttempt.AdmittedVia.AUTOMATIC
+                || attempt.getKind() != PilotAttempt.Kind.INITIAL
+                || !installation.isSyncComplete()) {
+            return;
+        }
+        String accepted = installation.getAcceptedAuthorityFingerprint();
+        if (accepted == null || !accepted.equals(attempt.getScopeFingerprint())) {
+            return;
+        }
+        if (!PilotAdmissionService.destinationFingerprint(task).equals(attempt.getDestinationFingerprint())) {
+            return;
+        }
+        String currentInput = PilotAdmissionService.inputFingerprint(task);
+        if (currentInput.equals(attempt.getInputFingerprint())) {
+            return;
+        }
+        attempt.setInputFingerprint(currentInput);
+        attempt.setApprovedSnapshot(task.getIssueSnapshot());
+        attempts.save(attempt);
     }
 }
