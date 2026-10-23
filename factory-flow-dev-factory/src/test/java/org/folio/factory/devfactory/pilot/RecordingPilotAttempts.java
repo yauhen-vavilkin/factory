@@ -9,9 +9,14 @@ import java.util.UUID;
 public final class RecordingPilotAttempts implements PilotAttemptPolicy {
 
     public final List<String> stops = new ArrayList<>();
+    public final List<String> authorityChecks = new ArrayList<>();
+    public final List<PilotAttemptPolicy.PublicationIntent> intents = new ArrayList<>();
     public int paidStartClaims;
     public AttemptDeadline deadline;
     public boolean ownsSlot = true;
+    public RuntimeException authorityFailure;
+    /** When positive, the authority failure first fires on that 1-based check; earlier checks pass. */
+    public int authorityFailureOnCall;
 
     private final PilotExecutionContext context;
     private boolean claimUsed;
@@ -79,5 +84,25 @@ public final class RecordingPilotAttempts implements PilotAttemptPolicy {
     @Override
     public boolean ownsActiveSlot(UUID executionId) {
         return context == null || ownsSlot;
+    }
+
+    @Override
+    public void beforePublication(UUID executionId, org.folio.factory.devfactory.runtime.CodingRequest request,
+                                  org.folio.factory.devfactory.delivery.DeliveryTarget destination) {
+        if (context == null) {
+            return;
+        }
+        authorityChecks.add(executionId + ":" + destination.repository());
+        if (authorityFailure != null && authorityChecks.size() >= Math.max(authorityFailureOnCall, 1)) {
+            throw authorityFailure;
+        }
+    }
+
+    @Override
+    public void recordPublicationIntent(UUID executionId, PilotAttemptPolicy.PublicationIntent intent) {
+        if (context == null) {
+            return;
+        }
+        intents.add(intent);
     }
 }

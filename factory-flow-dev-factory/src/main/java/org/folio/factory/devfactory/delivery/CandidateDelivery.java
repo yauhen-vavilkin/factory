@@ -80,13 +80,7 @@ public class CandidateDelivery {
             throw new DeliveryBlockedException("FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
         if (issueKey == null || !issueKey.matches("[A-Z][A-Z0-9]*-[0-9]+"))
             throw new DeliveryBlockedException("Invalid delivery issue key");
-        String branch =
-                "factory/"
-                        + issueKey.toLowerCase(Locale.ROOT)
-                        + "-"
-                        + (stableBranch
-                                ? UUID.fromString(executionId).toString()
-                                : candidate.patchSha256().substring(0, 8));
+        String branch = branchFor(executionId, issueKey, candidate, stableBranch);
         try {
             CandidateFreezer.git(null, "check-ref-format", "--branch", branch);
             CandidateFreezer.git(null, "check-ref-format", "--branch", target.baseBranch());
@@ -194,6 +188,20 @@ public class CandidateDelivery {
         } finally {
             CandidateFreezer.cleanup(workspace);
         }
+    }
+
+    /**
+     * The single source of the delivered branch name, shared with publication-intent
+     * persistence so the recorded head identity cannot drift from the pushed one.
+     */
+    public static String branchFor(
+            String executionId, String issueKey, Candidate candidate, boolean stableBranch) {
+        return "factory/"
+                + issueKey.toLowerCase(Locale.ROOT)
+                + "-"
+                + (stableBranch
+                        ? UUID.fromString(executionId).toString()
+                        : candidate.patchSha256().substring(0, 8));
     }
 
     private static String git(

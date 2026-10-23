@@ -22,13 +22,19 @@ public final class PullRequestRenderer {
                     "\\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})\\b");
 
     public String render(
+            String issueKey,
+            String jiraBaseUrl,
             String summary,
             Candidate candidate,
             VerificationReceipt verification,
             DeliveryReceipt delivery,
             JsonNode request,
             JsonNode outcome) {
-        var body = new StringBuilder("## Summary\n\n").append(prose(summary, 500)).append("\n\n");
+        var body = new StringBuilder("## Issue\n\n")
+                .append(issueLink(issueKey, jiraBaseUrl))
+                .append("\n\n## Summary\n\n")
+                .append(prose(summary, 500))
+                .append("\n\n");
         appendRuntimeSummary(body, outcome.path("summary").asString(""));
         int decisions = 0;
         for (var decision : request.path("confirmedDecisions")) {
@@ -113,6 +119,22 @@ public final class PullRequestRenderer {
                 .append("`\n")
                 .append("</details>")
                 .toString();
+    }
+
+    /**
+     * The issue link is composed from the validated issue identity and trusted
+     * operator configuration only; issue text reaches the body exclusively
+     * through {@code prose}, which strips Markdown structure, links and mentions.
+     */
+    private static String issueLink(String issueKey, String jiraBaseUrl) {
+        if (issueKey == null || !issueKey.matches("[A-Z][A-Z0-9]*-[0-9]+")) {
+            return "Issue key unavailable";
+        }
+        String base = jiraBaseUrl == null ? "" : jiraBaseUrl.strip();
+        if (!base.matches("https?://[A-Za-z0-9.-]+(:[0-9]+)?")) {
+            return issueKey;
+        }
+        return "[" + issueKey + "](" + base + "/browse/" + issueKey + ")";
     }
 
     private static void appendRuntimeSummary(StringBuilder body, String summary) {

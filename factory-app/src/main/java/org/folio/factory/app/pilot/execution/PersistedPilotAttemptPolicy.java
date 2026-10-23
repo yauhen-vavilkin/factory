@@ -7,9 +7,14 @@ import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
 import org.folio.factory.app.pilot.persistence.PilotRoutingReason;
 import org.folio.factory.app.pilot.persistence.PilotTask;
 import org.folio.factory.app.pilot.persistence.PilotTaskRepository;
+import org.folio.factory.app.pilot.persistence.PilotPublicationIntent;
+import org.folio.factory.app.pilot.persistence.PilotPublicationIntentRepository;
+import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.pilot.AttemptDeadline;
 import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
 import org.folio.factory.devfactory.pilot.PilotExecutionContext;
+import org.folio.factory.devfactory.runtime.CodingRequest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -28,7 +33,8 @@ import java.util.UUID;
  * resolve to no-pilot and keep their interactive behavior. The paid start is
  * claimed once per attempt, the first stop reason wins, and the persisted
  * whole-attempt deadline plus the installation's active slot bound later side
- * effects.
+ * effects. Publication is gated by {@link PilotPublicationGuard} and the exact
+ * publication identity is persisted before the first remote mutation.
  */
 @Component
 public class PersistedPilotAttemptPolicy implements PilotAttemptPolicy {
@@ -38,15 +44,21 @@ public class PersistedPilotAttemptPolicy implements PilotAttemptPolicy {
     private final PilotAttemptRepository attempts;
     private final PilotTaskRepository tasks;
     private final PilotInstallationRepository installations;
+    private final PilotPublicationIntentRepository intents;
+    private final PilotPublicationGuard publicationGuard;
     private final TransactionTemplate transactions;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public PersistedPilotAttemptPolicy(PilotAttemptRepository attempts, PilotTaskRepository tasks,
                                        PilotInstallationRepository installations,
+                                       PilotPublicationIntentRepository intents,
+                                       PilotPublicationGuard publicationGuard,
                                        PlatformTransactionManager transactionManager) {
         this.attempts = attempts;
         this.tasks = tasks;
         this.installations = installations;
+        this.intents = intents;
+        this.publicationGuard = publicationGuard;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -131,5 +143,32 @@ public class PersistedPilotAttemptPolicy implements PilotAttemptPolicy {
                         .map(PilotInstallation::getActiveAttemptId)
                         .map(ownedId::equals))
                 .orElse(false);
+    }
+
+    /** Delegates to the publication guard for pilot executions; no attempt, no-op. */
+    @Override
+    public void beforePublication(UUID executionId, CodingRequest request, DeliveryTarget destination) {
+        if (attempts.findByExecutionId(executionId).isEmpty()) {
+            return;
+        }
+        publicationGuard.requireCurrent(executionId, request, destination);
+    }
+
+    /** The first intent per attempt (and per execution) stays authoritative. */
+    @Override
+    public void recordPublicationIntent(UUID executionId, PilotAttemptPolicy.PublicationIntent intent) {
+        if (attempts.findByExecutionId(executionId).isEmpty()) {
+            return;
+        }
+        try {
+            transactions.executeWithoutResult(status -> attempts.findByExecutionId(executionId)
+                    .filter(attempt -> intents.findByAttemptId(attempt.getId()).isEmpty())
+                    .ifPresent(attempt -> intents.save(PilotPublicationIntent.of(
+                            attempt.getId(), executionId, intent.repository(), intent.baseBranch(),
+                            intent.headBranch(), intent.baseSha(), intent.treeSha(),
+                            intent.patchSha256()))));
+        } catch (OptimisticLockingFailureException | DataIntegrityViolationException e) {
+            // A concurrent save or insert recorded the same first intent; it stays authoritative.
+        }
     }
 }

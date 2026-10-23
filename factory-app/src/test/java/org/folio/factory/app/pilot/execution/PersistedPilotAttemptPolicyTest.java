@@ -25,7 +25,8 @@ class PersistedPilotAttemptPolicyTest {
     private final PilotAttemptRepository attempts = mock(PilotAttemptRepository.class);
     private final PersistedPilotAttemptPolicy policy = new PersistedPilotAttemptPolicy(
             attempts, mock(PilotTaskRepository.class), mock(PilotInstallationRepository.class),
-            mock(PlatformTransactionManager.class));
+            mock(org.folio.factory.app.pilot.persistence.PilotPublicationIntentRepository.class),
+            mock(PilotPublicationGuard.class), mock(PlatformTransactionManager.class));
 
     @Test
     void aLegacyAttemptWithoutPersistedDeadlineResolvesAsUnbounded() {

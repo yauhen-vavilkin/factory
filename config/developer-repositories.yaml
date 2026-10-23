@@ -1,6 +1,13 @@
 # Operator-owned repository catalog. Add repositories here without rebuilding Factory.
 # Each entry owns its source, Jira routing, verification policy and delivery destination.
 # Delivery inherits the entry's base-branch and requires explicit authorization.
+#
+# Destination authorization is explicit per entry: authorized controls whether
+# Factory publishes there at all. The authorized repository may be the official
+# folio-org destination or a personal fork for live trials — set the delivery
+# repository and the authorized flag together (for example
+# FACTORY_SIDECAR_DELIVERY_REPO and FACTORY_SIDECAR_DELIVERY_AUTHORIZED).
+# Without an explicit authorized: true, delivery stays blocked.
 factory:
   dev-factory:
     repositories:

@@ -1,8 +1,14 @@
 package org.folio.factory.connectors.github;
 
+import java.util.List;
 import java.util.Map;
 
 public interface GitHubConnector {
+
+    /** Read-only lookup result; matching against stored publication identity stays with the caller. */
+    record PullRequest(
+            String htmlUrl, String state, boolean merged, String headRef, String headSha, String baseRef) {
+    }
 
     /**
      * Creates {@code newBranch} pointing at the head of {@code baseBranch}.
@@ -23,6 +29,15 @@ public interface GitHubConnector {
 
     /** Find an open PR inside the destination repository before creating another. */
     default java.util.Optional<String> findOpenPullRequest(String repo, String headBranch, String baseBranch) {
+        throw new UnsupportedOperationException("GitHub pull request lookup is not configured");
+    }
+
+    /**
+     * Read-only lookup across open, closed and merged pull requests for an exact
+     * head/base pair inside the destination repository, so a lost create response
+     * is never misread as "no pull request exists".
+     */
+    default List<PullRequest> findPullRequests(String repo, String headBranch, String baseBranch) {
         throw new UnsupportedOperationException("GitHub pull request lookup is not configured");
     }
 }

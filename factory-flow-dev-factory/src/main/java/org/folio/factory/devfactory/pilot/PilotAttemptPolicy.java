@@ -1,5 +1,8 @@
 package org.folio.factory.devfactory.pilot;
 
+import org.folio.factory.devfactory.delivery.DeliveryTarget;
+import org.folio.factory.devfactory.runtime.CodingRequest;
+
 import java.util.Optional;
 import java.util.UUID;
 
@@ -9,6 +12,17 @@ import java.util.UUID;
  * an unresolved execution keeps the legacy interactive behavior.
  */
 public interface PilotAttemptPolicy {
+
+    /**
+     * The exact publication identity of one attempt, persisted before the first
+     * remote mutation so a lost push or pull-request response can be reconciled
+     * against what was intended instead of guessed. The application resolves and
+     * stores the attempt and execution ids alongside this identity.
+     */
+    record PublicationIntent(
+            String repository, String baseBranch, String headBranch,
+            String baseSha, String treeSha, String patchSha256) {
+    }
 
     Optional<PilotExecutionContext> find(UUID executionId);
 
@@ -38,6 +52,24 @@ public interface PilotAttemptPolicy {
      * standalone {@link #none()} policy always owns its slot.
      */
     boolean ownsActiveSlot(UUID executionId);
+
+    /**
+     * Rechecks current publication authority immediately before a remote
+     * mutation: the normalized consumed input, the task's scope eligibility and
+     * the destination must still match the approved admission. A mismatch, a
+     * revoked destination or an unavailable recheck must stop publication; legacy
+     * executions are a no-op.
+     */
+    default void beforePublication(UUID executionId, CodingRequest request, DeliveryTarget destination) {
+    }
+
+    /**
+     * Persists the exact publication identity before the first remote mutation
+     * of the attempt. The first recorded intent stays authoritative; legacy
+     * executions are a no-op.
+     */
+    default void recordPublicationIntent(UUID executionId, PublicationIntent intent) {
+    }
 
     /** Standalone workers may run without the application's pilot persistence. */
     static PilotAttemptPolicy none() {

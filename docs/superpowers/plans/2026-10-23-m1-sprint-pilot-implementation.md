@@ -315,21 +315,23 @@ These tests use local synthetic providers; verify no configured live-provider en
 - Persist PublicationIntent(attemptId, executionId, repository, baseBranch, headBranch, baseSha, treeSha, patchSha256) before the first remote mutation.
 - GitHubConnector.findPullRequests(String repository, String headBranch, String baseBranch) → List<PullRequest> includes open/closed/merged results; the caller matches stored identity. Keep existing findOpenPullRequest for legacy use.
 
-- [ ] **1. Add destination tests.** Authorized folio-org succeeds; unauthorized official destination fails before writes; explicit fork override still works; changed/revoked target and permission failure never fall back elsewhere. Branch and PR target remain in the same repo.
-- [ ] **2. Add publication-authority tests.** Current normalized consumed input, scope eligibility and destination must match before push and again before PR creation. Changed requirements or unavailable recheck stops and preserves the candidate; verification identity/current policy checks remain mandatory.
-- [ ] **3. Add lost-response tests.** Simulate push/create succeeding remotely then losing its response, and existing open/closed/merged PRs. Reconcile the stored original head identity or return Needs inspection; never infer “no PR” from open-only lookup.
+- [x] **1. Add destination tests.** Authorized folio-org succeeds; unauthorized official destination fails before writes; explicit fork override still works; changed/revoked target and permission failure never fall back elsewhere. Branch and PR target remain in the same repo.
+- [x] **2. Add publication-authority tests.** Current normalized consumed input, scope eligibility and destination must match before push and again before PR creation. Changed requirements or unavailable recheck stops and preserves the candidate; verification identity/current policy checks remain mandatory.
+- [x] **3. Add lost-response tests.** Simulate push/create succeeding remotely then losing its response, and existing open/closed/merged PRs. Reconcile the stored original head identity or return Needs inspection; never infer “no PR” from open-only lookup.
 ~~~java
 assertThat(createdPullRequests).hasSize(1);
 assertThat(remoteWritesAfterRevocation).isZero();
 assertThat(retryAllowedWithUnknownPublication).isFalse();
 ~~~
-- [ ] **4. Run the focused command to fail, then implement narrowly.**
+- [x] **4. Run the focused command to fail, then implement narrowly.**
 ~~~sh
 mvn -B -ntp -pl factory-app -am -Dtest=PilotPublicationIntegrationTest,CandidateDeliveryTest,DeliveryWorkerTest,GitHubRestConnectorTest,DeveloperPreflightProbeTest,DeveloperRepositoryConfigurationTest,FeedbackCatalogTest -Dsurefire.failIfNoSpecifiedTests=false test
 ~~~
-- [ ] **5. Replace the folio-org owner ban with explicit configured authorization.** Retain repository syntax validation, required branch access, candidate/receipt validation, stable owned branch identity, non-force push and protection of user changes. Compose the PR body from trusted artifact data only, including the Jira issue link composed from issue identity; never embed untrusted issue Markdown.
-- [ ] **6. Reuse existing safe recovery; stop when evidence is insufficient.** A valid delivered PR becomes PR ready with its link. Do not build automatic repair of arbitrary branch conflicts or a general reconciliation UI. Read-only inspection may resolve known identity; uncertain outcomes keep Retry disabled.
-- [ ] **7. Rerun, review and commit S06.** All tests use local Git/mocked GitHub. A real official PR is not part of this section's authorization.
+- [x] **5. Replace the folio-org owner ban with explicit configured authorization.** Retain repository syntax validation, required branch access, candidate/receipt validation, stable owned branch identity, non-force push and protection of user changes. Compose the PR body from trusted artifact data only, including the Jira issue link composed from issue identity; never embed untrusted issue Markdown.
+- [x] **6. Reuse existing safe recovery; stop when evidence is insufficient.** A valid delivered PR becomes PR ready with its link. Do not build automatic repair of arbitrary branch conflicts or a general reconciliation UI. Read-only inspection may resolve known identity; uncertain outcomes keep Retry disabled.
+- [x] **7. Rerun, review and commit S06.** All tests use local Git/mocked GitHub. A real official PR is not part of this section's authorization.
+
+**Done 2026-10-23.** folio-org ban replaced by explicit per-repository authorized flag in developer-repositories.yaml (env-driven, defaults false; authorized official and fork destinations identical). PilotPublicationGuard rechecks consumed input, scope, eligibility, destination fingerprint and authorization before push and again before create PR (both rechecks test-proven); PublicationIntent (V7, insert-once per attempt/execution) persisted before the first remote mutation; findPullRequests covers open/closed/merged with head-sha identity matching — lost push/create responses reconcile or block as NEEDS_INSPECTION, never a duplicate PR; PR body from trusted artifact data with composed Jira link. Focused command green: 85 run, 0 failed/skipped (PilotPublicationIntegrationTest 6, DeliveryWorkerTest 33, CandidateDeliveryTest 8, GitHubRestConnectorTest 8, DeveloperPreflightProbeTest 13, DeveloperRepositoryConfigurationTest 12, FeedbackCatalogTest 5). Independent critic: ACCEPT WITH FIXES, all applied (second-recheck test, cause chaining/logging in the guard, catch hardening).
 
 ## S07 — Automatic admission and authority changes
 

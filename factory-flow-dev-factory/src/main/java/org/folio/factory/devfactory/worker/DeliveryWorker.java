@@ -3,6 +3,7 @@ package org.folio.factory.devfactory.worker;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.connectors.github.GitHubConnector;
 import org.folio.factory.connectors.github.GitHubProperties;
+import org.folio.factory.connectors.jira.JiraProperties;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
@@ -18,6 +19,7 @@ import org.folio.factory.devfactory.delivery.PublicationGit;
 import org.folio.factory.devfactory.delivery.PullRequestRenderer;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
 import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
+import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.verification.VerificationPolicy;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
@@ -40,6 +42,7 @@ public class DeliveryWorker implements AgentWorker {
     private final DevDeliveryProperties properties;
     private final CandidateDelivery delivery;
     private final GitHubProperties githubProperties;
+    private final JiraProperties jiraProperties;
     private final GitHubConnector github;
     private final FrontmatterCodec frontmatter;
     private final StateManager executionState;
@@ -52,10 +55,11 @@ public class DeliveryWorker implements AgentWorker {
             DevDeliveryProperties properties,
             CandidateDelivery delivery,
             GitHubProperties githubProperties,
+            JiraProperties jiraProperties,
             GitHubConnector github,
             FrontmatterCodec frontmatter,
             StateManager executionState) {
-        this(repositories, runtime, properties, delivery, githubProperties, github,
+        this(repositories, runtime, properties, delivery, githubProperties, jiraProperties, github,
                 frontmatter, executionState, PilotAttemptPolicy.none());
     }
 
@@ -65,6 +69,7 @@ public class DeliveryWorker implements AgentWorker {
             DevDeliveryProperties properties,
             CandidateDelivery delivery,
             GitHubProperties githubProperties,
+            JiraProperties jiraProperties,
             GitHubConnector github,
             FrontmatterCodec frontmatter,
             StateManager executionState,
@@ -75,6 +80,7 @@ public class DeliveryWorker implements AgentWorker {
         this.properties = properties;
         this.delivery = delivery;
         this.githubProperties = githubProperties;
+        this.jiraProperties = jiraProperties;
         this.github = github;
         this.frontmatter = frontmatter;
         this.pilotPolicy = pilotPolicy;
@@ -137,10 +143,25 @@ public class DeliveryWorker implements AgentWorker {
             if (!githubProperties.isConfigured()) {
                 return blocked(previous, candidate, "FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
             }
+            CodingRequest consumedRequest = consumedRequest(context);
+            pilotPolicy.beforePublication(context.executionId(), consumedRequest, target);
             String sourceUrl = repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
             boolean feedbackVersion =
                     FeedbackArtifacts.VERSION.equals(
                             executionState.get(context.executionId()).getFlowVersion());
+            if (pilotPolicy.find(context.executionId()).isPresent()) {
+                pilotPolicy.recordPublicationIntent(
+                        context.executionId(),
+                        new PilotAttemptPolicy.PublicationIntent(
+                                target.repository(),
+                                target.baseBranch(),
+                                CandidateDelivery.branchFor(
+                                        context.executionId().toString(), issueKey, candidate,
+                                        feedbackVersion),
+                                candidate.baseSha(),
+                                candidate.treeSha(),
+                                candidate.patchSha256()));
+            }
             var receipt =
                     feedbackVersion
                             ? delivery.deliver(
@@ -170,10 +191,27 @@ public class DeliveryWorker implements AgentWorker {
             if (properties.createPullRequest()) {
                 try {
                     var existing =
-                            github.findOpenPullRequest(
+                            github.findPullRequests(
                                     target.repository(), receipt.branch(), target.baseBranch());
-                    if (existing.isPresent()) {
-                        prUrl = existing.get();
+                    if (existing.size() > 1) {
+                        return blocked(
+                                previous,
+                                candidate,
+                                "Multiple existing pull requests match the delivered head identity;"
+                                        + " inspect the repository before publishing",
+                                receipt);
+                    }
+                    if (existing.size() == 1) {
+                        var found = existing.get(0);
+                        if (!receipt.commitSha().equals(found.headSha())) {
+                            return blocked(
+                                    previous,
+                                    candidate,
+                                    "The existing pull request head no longer matches the delivered"
+                                            + " commit; inspect the repository before publishing",
+                                    receipt);
+                        }
+                        prUrl = found.htmlUrl();
                     } else {
                         verification.requireVerified(context.executionId().toString(), candidate);
                         if (!verificationPolicy.matches(candidate, verification))
@@ -183,6 +221,7 @@ public class DeliveryWorker implements AgentWorker {
                                     "Verification receipt no longer matches the current Factory"
                                             + " plan; reverify the candidate",
                                     receipt);
+                        pilotPolicy.beforePublication(context.executionId(), consumedRequest, target);
                         prTitle = issueKey + ": " + summary;
                         prUrl =
                                 github.createPullRequest(
@@ -191,6 +230,8 @@ public class DeliveryWorker implements AgentWorker {
                                         target.baseBranch(),
                                         prTitle,
                                         renderer.render(
+                                                issueKey,
+                                                jiraProperties.baseUrl(),
                                                 summary,
                                                 candidate,
                                                 verification,
@@ -310,5 +351,10 @@ public class DeliveryWorker implements AgentWorker {
     private JsonNode inputJson(AgentContext context, String name) {
         var artifact = context.inputs().get(name);
         return artifact == null ? json.createObjectNode() : json.readTree(artifact.content());
+    }
+
+    private CodingRequest consumedRequest(AgentContext context) {
+        var artifact = context.inputs().get(IntakeResolveWorker.CODING_REQUEST);
+        return artifact == null ? null : json.readValue(artifact.content(), CodingRequest.class);
     }
 }

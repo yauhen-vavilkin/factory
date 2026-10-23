@@ -84,6 +84,7 @@ public class DeveloperPreflightProbe {
     }
 
     public void requireDeliveryAccess(DeliveryTarget target, String sourceSha) {
+        target.requireAuthorized();
         String[] repository = target.repository().split("/");
         String owner = repository[0];
         String name = repository[1];

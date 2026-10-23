@@ -24,7 +24,6 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
 
@@ -68,7 +67,7 @@ class DeliveryWorkerTest {
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
                 .thenReturn(new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
                         "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40)));
-        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
 
         var result = json.readTree(worker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
 
@@ -86,7 +85,7 @@ class DeliveryWorkerTest {
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
                 .thenReturn(delivered);
-        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
         when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn("https://github.com/user/folio-module-sidecar/pull/1");
         var original = verifiedContext();
@@ -142,7 +141,7 @@ class DeliveryWorkerTest {
                 candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40));
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
                 .thenReturn(delivered);
-        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
         var worker = worker(delivery, github, new GitHubProperties(null, "token"));
 
         worker.execute(new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
@@ -173,7 +172,7 @@ class DeliveryWorkerTest {
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
                 .thenReturn(delivered);
-        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
 
         worker(delivery, github, new GitHubProperties(null, "token")).execute(verifiedContext());
 
@@ -192,7 +191,7 @@ class DeliveryWorkerTest {
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
                 .thenReturn(delivered);
-        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
         var original = verifiedContext();
         var inputs = new java.util.HashMap<>(original.inputs());
         String runtime = "Changes:\n- Added safe thing.\n- ## <script> @everyone [click](https://user:pass@host/x) "
@@ -207,10 +206,14 @@ class DeliveryWorkerTest {
 
         var body = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
-        assertThat(body.getValue()).contains("## Changes\n\n- Added safe thing.", "- &#35;&#35; &lt;script&gt;",
+        String withoutComposedIssueLink = body.getValue()
+                .replace("[MODSIDECAR-196](https://jira.example.org/browse/MODSIDECAR-196)", "");
+        assertThat(body.getValue()).contains("## Issue\n\n[MODSIDECAR-196](https://jira.example.org/browse/MODSIDECAR-196)",
+                "## Changes\n\n- Added safe thing.", "- &#35;&#35; &lt;script&gt;",
                 "＠everyone", "&#91;REDACTED&#93;", "&#91;link omitted&#93;")
-                .doesNotContain("<script>", "@everyone", "https://", "user:pass", "c2VjcmV0",
+                .doesNotContain("<script>", "@everyone", "user:pass", "c2VjcmV0",
                         "secret", "ghp_", "sk-" + "Y".repeat(36), "fake-success", "- ##", "[click](");
+        assertThat(withoutComposedIssueLink).doesNotContain("https://");
     }
 
     @ParameterizedTest
@@ -226,7 +229,7 @@ class DeliveryWorkerTest {
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
                 .thenReturn(delivered);
-        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
         var original = verifiedContext();
         var inputs = new java.util.HashMap<>(original.inputs());
         inputs.put("dev_coding_outcome.json", new ArtifactContent("dev_coding_outcome.json", 1, "application/json",
@@ -268,7 +271,7 @@ class DeliveryWorkerTest {
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
                 .thenReturn(new DeliveryReceipt("execution", "user/sidecar", "factory/final",
                         candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40)));
-        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
 
         worker(delivery, github, new GitHubProperties(null, "token")).execute(
                 new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
@@ -358,9 +361,9 @@ class DeliveryWorkerTest {
                 .thenReturn(delivered);
         var rejection = new HttpClientErrorException(HttpStatus.FORBIDDEN, "sensitive remote diagnostic");
         if (lookupRejected) {
-            when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenThrow(rejection);
+            when(github.findPullRequests(anyString(), anyString(), anyString())).thenThrow(rejection);
         } else {
-            when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+            when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
             when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
                     .thenThrow(rejection);
         }
@@ -388,8 +391,9 @@ class DeliveryWorkerTest {
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
                 .thenReturn(delivered);
-        when(github.findOpenPullRequest(anyString(), anyString(), anyString()))
-                .thenReturn(Optional.empty(), Optional.of("https://github.com/user/folio-module-sidecar/pull/1"));
+        when(github.findPullRequests(anyString(), anyString(), anyString()))
+                .thenReturn(List.of(), java.util.List.of(pr("https://github.com/user/folio-module-sidecar/pull/1",
+                        "c".repeat(40), "open")));
         when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenThrow(new HttpClientErrorException(HttpStatus.TOO_MANY_REQUESTS));
         var context = verifiedContext();
@@ -438,6 +442,247 @@ class DeliveryWorkerTest {
         verifyNoInteractions(delivery, github);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"open", "closed", "merged"})
+    void aPullRequestInAnyStateIsReusedInsteadOfCreatingADuplicate(String state) {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var worker = worker(delivery, github, new GitHubProperties(null, "token"));
+        var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
+                "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+                .thenReturn(delivered);
+        when(github.findPullRequests(anyString(), anyString(), anyString()))
+                .thenReturn(List.of(new GitHubConnector.PullRequest(
+                        "https://github.com/user/folio-module-sidecar/pull/9",
+                        "closed", "merged".equals(state), "factory/final", "c".repeat(40), "master")));
+
+        var result = json.readTree(worker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
+
+        assertThat(result.path("state").asString()).isEqualTo("DELIVERED");
+        assertThat(result.path("pullRequestUrl").asString()).endsWith("/pull/9");
+        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void lostCreateResponseIsRecoveredByStateCoveringLookupWithoutADuplicate() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var worker = worker(delivery, github, new GitHubProperties(null, "token"));
+        var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
+                "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+                .thenReturn(delivered);
+        when(github.findPullRequests(anyString(), anyString(), anyString()))
+                .thenReturn(List.of(), List.of(pr("https://github.com/user/folio-module-sidecar/pull/5", "c".repeat(40), "closed")));
+        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenThrow(new IllegalStateException("response lost after the remote accepted the call"));
+        var context = verifiedContext();
+
+        assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(IllegalStateException.class);
+        var result = json.readTree(worker.execute(context).outputs().get(DeliveryWorker.DELIVERY));
+
+        assertThat(result.path("state").asString()).isEqualTo("DELIVERED");
+        assertThat(result.path("pullRequestUrl").asString()).endsWith("/pull/5");
+        verify(github, times(1)).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void multipleMatchingPullRequestsStopForInspectionInsteadOfCreatingAnother() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var worker = worker(delivery, github, new GitHubProperties(null, "token"));
+        var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
+                "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+                .thenReturn(delivered);
+        when(github.findPullRequests(anyString(), anyString(), anyString()))
+                .thenReturn(List.of(
+                        pr("https://github.com/user/folio-module-sidecar/pull/1", "c".repeat(40), "closed"),
+                        pr("https://github.com/user/folio-module-sidecar/pull/2", "c".repeat(40), "open")));
+
+        var result = json.readTree(worker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
+
+        assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
+        assertThat(result.path("reason").asString()).contains("Multiple existing pull requests", "inspect");
+        assertThat(result.path("deliveryCommitSha").asString()).isEqualTo(delivered.commitSha());
+        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void existingPullRequestHeadMismatchStopsForInspectionInsteadOfPublishing() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var worker = worker(delivery, github, new GitHubProperties(null, "token"));
+        var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
+                "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+                .thenReturn(delivered);
+        when(github.findPullRequests(anyString(), anyString(), anyString()))
+                .thenReturn(List.of(pr("https://github.com/user/folio-module-sidecar/pull/3", "d".repeat(40), "open")));
+
+        var result = json.readTree(worker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
+
+        assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
+        assertThat(result.path("reason").asString()).contains("head no longer matches the delivered");
+        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void revokingDestinationAuthorityStopsBeforeAnyRemoteWrite() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var pilotWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null),
+                org.folio.factory.devfactory.pilot.RecordingPilotAttempts.none(),
+                new DeliveryTarget("folio-org/folio-module-sidecar", "master", false));
+
+        var result = json.readTree(pilotWorker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
+
+        assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
+        assertThat(result.path("reason").asString()).contains("explicit operator authorization");
+        verifyNoInteractions(delivery, github);
+    }
+
+    @Test
+    void anAuthorizedFolioOrgDestinationPublishesBranchAndPullRequestThere() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null),
+                org.folio.factory.devfactory.pilot.RecordingPilotAttempts.none(),
+                new DeliveryTarget("folio-org/folio-module-sidecar", "master", true));
+        var delivered = new DeliveryReceipt("execution", "folio-org/folio-module-sidecar", "factory/final",
+                "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+                .thenReturn(delivered);
+        when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
+        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn("https://github.com/folio-org/folio-module-sidecar/pull/11");
+
+        var result = json.readTree(worker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
+
+        assertThat(result.path("state").asString()).isEqualTo("DELIVERED");
+        assertThat(result.path("pullRequestUrl").asString())
+                .isEqualTo("https://github.com/folio-org/folio-module-sidecar/pull/11");
+        verify(delivery).deliver(anyString(), anyString(), anyString(), anyString(), any(), any(),
+                eq(new DeliveryTarget("folio-org/folio-module-sidecar", "master", true)),
+                anyString(), anyBoolean(), anyInt());
+        verify(github).createPullRequest(eq("folio-org/folio-module-sidecar"), eq("factory/final"),
+                eq("master"), anyString(), anyString());
+    }
+
+    @Test
+    void changedConsumedInputStopsBeforeAnyRemoteWriteAndPreservesTheCandidate() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var pilots = org.folio.factory.devfactory.pilot.RecordingPilotAttempts.pilot("sidecar");
+        pilots.authorityFailure = new org.folio.factory.devfactory.delivery.DeliveryBlockedException(
+                "the task's requirements changed after admission");
+        var pilotWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), pilots);
+
+        var result = json.readTree(pilotWorker.execute(pilotContext()).outputs().get(DeliveryWorker.DELIVERY));
+
+        assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
+        assertThat(result.path("reason").asString()).contains("requirements changed after admission");
+        assertThat(pilots.authorityChecks).hasSize(1);
+        assertThat(pilots.intents).isEmpty();
+        verifyNoInteractions(delivery, github);
+    }
+
+    @Test
+    void authorityFailureOnTheSecondRecheckStopsBeforePullRequestCreation() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var pilots = org.folio.factory.devfactory.pilot.RecordingPilotAttempts.pilot("sidecar");
+        pilots.authorityFailure = new DeliveryBlockedException(
+                "the task's requirements changed after admission");
+        pilots.authorityFailureOnCall = 2;
+        var pilotWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), pilots);
+        var candidate = new Candidate("sidecar", "a".repeat(40), "b".repeat(40),
+                Candidate.sha256(""), "", "CANDIDATE_UNVERIFIED");
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+                .thenReturn(new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
+                        candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40)));
+        when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
+
+        var result = json.readTree(pilotWorker.execute(pilotContext()).outputs().get(DeliveryWorker.DELIVERY));
+
+        assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
+        assertThat(result.path("reason").asString()).contains("requirements changed after admission");
+        assertThat(pilots.authorityChecks).hasSize(2);
+        assertThat(pilots.intents).hasSize(1);
+        assertThat(result.path("repository").asString()).isEqualTo(candidate.repository());
+        assertThat(result.path("patchSha256").asString()).isEqualTo(candidate.patchSha256());
+        verify(delivery, times(1)).deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt());
+        verify(github, times(1)).findPullRequests(anyString(), anyString(), anyString());
+        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void publicationIntentIsRecordedBeforeTheFirstRemoteMutation() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var pilots = org.folio.factory.devfactory.pilot.RecordingPilotAttempts.pilot("sidecar");
+        var candidate = new Candidate("sidecar", "a".repeat(40), "b".repeat(40),
+                Candidate.sha256(""), "", "CANDIDATE_UNVERIFIED");
+        var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), pilots);
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+                .thenAnswer(invocation -> {
+                    assertThat(pilots.intents).hasSize(1);
+                    return new DeliveryReceipt("execution", "user/folio-module-sidecar",
+                            pilots.intents.get(0).headBranch(), candidate.baseSha(), candidate.treeSha(),
+                            candidate.patchSha256(), "c".repeat(40));
+                });
+        when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
+        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn("https://github.com/user/folio-module-sidecar/pull/2");
+
+        var result = json.readTree(worker.execute(pilotContext()).outputs().get(DeliveryWorker.DELIVERY));
+
+        assertThat(result.path("state").asString()).isEqualTo("DELIVERED");
+        var intent = pilots.intents.get(0);
+        assertThat(intent.repository()).isEqualTo("user/folio-module-sidecar");
+        assertThat(intent.baseBranch()).isEqualTo("master");
+        assertThat(intent.headBranch()).isEqualTo("factory/modsidecar-196-"
+                + candidate.patchSha256().substring(0, 8));
+        assertThat(intent.baseSha()).isEqualTo(candidate.baseSha());
+        assertThat(intent.treeSha()).isEqualTo(candidate.treeSha());
+        assertThat(intent.patchSha256()).isEqualTo(candidate.patchSha256());
+    }
+
+    @Test
+    void prBodyCarriesTheComposedJiraIssueLinkFromTrustedIdentityOnly() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        var worker = worker(delivery, github, new GitHubProperties(null, "token"));
+        var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
+                "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+                .thenReturn(delivered);
+        when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
+        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn("https://github.com/user/folio-module-sidecar/pull/4");
+        var original = verifiedContext();
+        var inputs = new java.util.HashMap<>(original.inputs());
+        inputs.put(IntakeResolveWorker.CODING_REQUEST, new ArtifactContent(IntakeResolveWorker.CODING_REQUEST, 1,
+                "application/json", json.writeValueAsString(pilotCodingRequest())));
+        inputs.put("dev_coding_outcome.json", new ArtifactContent("dev_coding_outcome.json", 1,
+                "application/json", json.writeValueAsString(Map.of("summary",
+                "See [evil link](https://attacker.example.org) and #123 for details"))));
+
+        worker.execute(new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
+
+        var body = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
+        assertThat(body.getValue())
+                .contains("## Issue\n\n[MODSIDECAR-196](https://jira.example.org/browse/MODSIDECAR-196)")
+                .doesNotContain("https://attacker.example.org", "[evil link]", "#123 for details");
+    }
+
     private AgentContext verifiedContext() {
         var candidate = new Candidate("sidecar", "a".repeat(40), "b".repeat(40),
                 Candidate.sha256(""), "", "CANDIDATE_UNVERIFIED");
@@ -471,20 +716,50 @@ class DeliveryWorkerTest {
                                          GitHubProperties githubProperties, String plan, String image,
                                          DevRuntimeProperties runtime,
                                          org.folio.factory.devfactory.pilot.PilotAttemptPolicy pilotPolicy) {
+        return worker(delivery, github, githubProperties, plan, image, runtime, pilotPolicy,
+                new DeliveryTarget("user/folio-module-sidecar", "master", true));
+    }
+
+    private static DeliveryWorker worker(CandidateDelivery delivery, GitHubConnector github,
+                                         GitHubProperties githubProperties, String plan, String image,
+                                         DevRuntimeProperties runtime,
+                                         org.folio.factory.devfactory.pilot.PilotAttemptPolicy pilotPolicy,
+                                         DeliveryTarget destination) {
         var repository = new DevFactoryProperties.Repository(
                 "folio-org/folio-module-sidecar", "master", image, plan, List.of("MODSIDECAR"), List.of(),
-                new DeliveryTarget("user/folio-module-sidecar", "master", true));
+                destination);
         var repositories = new DevFactoryProperties("https://github.com",
                 new TreeMap<>(Map.of("sidecar", repository)));
         var targets = new DevDeliveryProperties(Map.of(), true);
         var state = mock(org.folio.factory.core.service.StateManager.class);
         when(state.get(any())).thenReturn(new org.folio.factory.core.domain.PipelineExecution("dev-factory", "0.8.0", null));
-        return new DeliveryWorker(repositories, runtime, targets, delivery, githubProperties, github,
-                new FrontmatterCodec(), state, pilotPolicy);
+        return new DeliveryWorker(repositories, runtime, targets, delivery, githubProperties,
+                new org.folio.factory.connectors.jira.JiraProperties("https://jira.example.org", null, null),
+                github, new FrontmatterCodec(), state, pilotPolicy);
+    }
+
+    private static GitHubConnector.PullRequest pr(String url, String headSha, String state) {
+        return new GitHubConnector.PullRequest(url, state, false, "factory/final", headSha, "master");
     }
 
     private static AgentContext context(Map<String, String> inputs) {
         return contextWithId(UUID.randomUUID().toString(), inputs);
+    }
+
+    private static org.folio.factory.devfactory.runtime.CodingRequest pilotCodingRequest() {
+        return new org.folio.factory.devfactory.runtime.CodingRequest(
+                "MODSIDECAR-196", "Task", "Description", List.of(), List.of(), List.of(), List.of(),
+                new org.folio.factory.devfactory.runtime.CodingRequest.RepositoryTarget(
+                        "sidecar", "folio-org/folio-module-sidecar", "master", "a".repeat(40)),
+                null);
+    }
+
+    private AgentContext pilotContext() {
+        var original = verifiedContext();
+        var inputs = new java.util.HashMap<>(original.inputs());
+        inputs.put(IntakeResolveWorker.CODING_REQUEST, new ArtifactContent(IntakeResolveWorker.CODING_REQUEST, 1,
+                "application/json", json.writeValueAsString(pilotCodingRequest())));
+        return new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of());
     }
 
     private static AgentContext contextWithId(String id, Map<String, String> inputs) {

@@ -94,6 +94,29 @@ class DeveloperPreflightProbeTest {
     }
 
     @Test
+    void unauthorizedDestinationIsRejectedBeforeAnyGitHubProbe() {
+        var revoked = new DeliveryTarget("fork/module", "campaign/base", false);
+
+        assertThatThrownBy(() -> probe.requireDeliveryAccess(revoked, SOURCE))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("explicit operator authorization");
+        assertThat(server.getAllServeEvents()).isEmpty();
+    }
+
+    @Test
+    void anAuthorizedOfficialFolioOrgDestinationIsProbedLikeAnyConfiguredDestination() {
+        String repositoryUrl = "/repos/folio-org/module";
+        String branchUrl = repositoryUrl + "/branches/campaign%2Fbase";
+        stub(repositoryUrl, "{\"permissions\":{\"push\":true}}");
+        stub(branchUrl, branch(SOURCE));
+        var official = new DeliveryTarget("folio-org/module", "campaign/base", true);
+
+        assertThatCode(() -> probe.requireDeliveryAccess(official, SOURCE)).doesNotThrowAnyException();
+        server.verify(getRequestedFor(urlEqualTo(repositoryUrl)));
+        server.verify(getRequestedFor(urlEqualTo(branchUrl)));
+    }
+
+    @Test
     void gatewayProbeOnlyOpensTcpWithoutCallingAnApi() {
         assertThat(probe.gatewayReachable(URI.create(server.baseUrl()))).isTrue();
         assertThat(server.getAllServeEvents()).isEmpty();

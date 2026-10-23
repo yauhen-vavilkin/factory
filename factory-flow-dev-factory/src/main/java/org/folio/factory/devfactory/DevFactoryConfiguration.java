@@ -4,6 +4,7 @@ import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.connectors.github.GitHubConnector;
 import org.folio.factory.connectors.github.GitHubProperties;
 import org.folio.factory.connectors.jira.JiraConnector;
+import org.folio.factory.connectors.jira.JiraProperties;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
@@ -167,6 +168,7 @@ public class DevFactoryConfiguration {
             DevDeliveryProperties properties,
             CandidateDelivery delivery,
             GitHubProperties githubProperties,
+            JiraProperties jiraProperties,
             @Qualifier("gitHubConnector") GitHubConnector github,
             FrontmatterCodec frontmatter,
             StateManager state,
@@ -177,6 +179,7 @@ public class DevFactoryConfiguration {
                 properties,
                 delivery,
                 githubProperties,
+                jiraProperties,
                 github,
                 frontmatter,
                 state,
