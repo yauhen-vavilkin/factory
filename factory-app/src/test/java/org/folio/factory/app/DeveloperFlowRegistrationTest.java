@@ -49,7 +49,9 @@ import static org.mockito.Mockito.verify;
         "factory.engine.enabled=false",
         "factory.connectors.jira.base-url=",
         "factory.dev-factory.runtime.coding.runtime=claude-code",
-        "factory.dev-factory.runtime.coding.claude-code.authentication="
+        // A missing API key must block admission even when local proxy defaults are available.
+        "factory.dev-factory.runtime.coding.claude-code.authentication=api-key",
+        "factory.dev-factory.runtime.coding.claude-code.api-key="
 })
 @Import(StubLlmConfiguration.class)
 @Testcontainers
