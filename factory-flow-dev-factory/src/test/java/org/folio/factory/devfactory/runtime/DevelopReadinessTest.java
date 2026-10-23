@@ -4,25 +4,36 @@ import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.ArtifactContent;
+import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.DevFactoryProperties;
+import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
+import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.worker.DevelopWorker;
 import org.folio.factory.devfactory.worker.IntakeResolveWorker;
-import org.folio.factory.core.service.AuditLog;
+import org.folio.factory.devfactory.worker.InitialCodingAttempt;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.io.TempDir;
+
+import tools.jackson.databind.json.JsonMapper;
+
+import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.function.Consumer;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class DevelopReadinessTest {
     @TempDir Path workspace;
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void retryStartsPiOnlyAfterBuildPassesAndNeverRetriesPiFailure(boolean piFails) {
@@ -37,6 +48,7 @@ class DevelopReadinessTest {
         var pi = mock(DockerWorkloads.Workload.class);
         var freezer = mock(CandidateFreezer.class);
         var coding = mock(CodingRuntime.class);
+        var selectedRepository = mock(SelectedRepositoryPreflight.class);
         when(coding.image()).thenReturn("pi:image");
         when(coding.identity()).thenReturn(Map.of("runtime", "pi", "image", "pi:image",
                 "provider", "provider", "model", "model"));
@@ -46,75 +58,98 @@ class DevelopReadinessTest {
         when(baseline.execute(eq(List.of("mvn", "test")), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
                 .thenReturn(new Processes.Result(1, "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: Read timed out"),
                         new Processes.Result(0, "[INFO] BUILD SUCCESS"));
-        if (piFails) when(coding.code(eq(pi), any(CodingRequest.class), eq(60), any()))
-                .thenAnswer(invocation -> {
-                    java.util.function.Consumer<Map<String, Object>> observer = invocation.getArgument(3);
-                    var progress = new PiProgress("secret", observer);
-                    progress.accept("""
-                            {"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"private secret"}],"usage":{"input":10,"cacheRead":2,"cacheWrite":1,"output":3,"cost":{"total":0.125}}}}
-                            """);
-                    throw new AgentExecutionException("Provider failed");
-                });
-        else {
-            when(coding.code(eq(pi), any(CodingRequest.class), eq(60), any())).thenReturn(CodingOutcome.completed("Done", Map.of(
-                    "inputTokens", 10L, "cacheReadTokens", 2L, "cacheWriteTokens", 1L,
-                    "outputTokens", 3L, "costUsd", new java.math.BigDecimal("0.125"))));
+        if (piFails) {
+            when(coding.code(eq(pi), any(CodingRequest.class), eq(60), any()))
+                    .thenAnswer(invocation -> {
+                        Consumer<Map<String, Object>> observer = invocation.getArgument(3);
+                        var progress = new PiProgress("secret", observer);
+                        progress.accept("""
+                                {"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"private secret"}],"usage":{"input":10,"cacheRead":2,"cacheWrite":1,"output":3,"cost":{"total":0.125}}}}
+                                """);
+                        throw new AgentExecutionException("Provider failed");
+                    });
+        } else {
+            Map<String, Object> usage = Map.of(
+                    "inputTokens", 10L,
+                    "cacheReadTokens", 2L,
+                    "cacheWriteTokens", 1L,
+                    "outputTokens", 3L,
+                    "costUsd", new BigDecimal("0.125"));
+            when(coding.code(eq(pi), any(CodingRequest.class), eq(60), any()))
+                    .thenReturn(CodingOutcome.completed("Done", usage));
             when(freezer.freeze(eq("repo"), anyString(), anyString(), any()))
-                    .thenReturn(new org.folio.factory.devfactory.candidate.Candidate("repo", "a".repeat(40),
-                            "b".repeat(40), org.folio.factory.devfactory.candidate.Candidate.sha256("patch"), "patch", "CANDIDATE_UNVERIFIED"));
+                    .thenReturn(new Candidate("repo", "a".repeat(40),
+                            "b".repeat(40), Candidate.sha256("patch"), "patch", "CANDIDATE_UNVERIFIED"));
         }
         var codec = new FrontmatterCodec();
-        var brief = codec.render(Map.of("state", "INTAKE_READY", "repository", Map.of("key", "repo", "base_sha", "a".repeat(40))), "Task");
         var request = request();
-        var context = new AgentContext(UUID.randomUUID(), "implement", Map.of(
-                IntakeResolveWorker.TASK_BRIEF, new ArtifactContent(IntakeResolveWorker.TASK_BRIEF, 1, "text/markdown", brief),
-                IntakeResolveWorker.CODING_REQUEST, new ArtifactContent(IntakeResolveWorker.CODING_REQUEST, 1,
-                        "application/json", tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(request))),
-                null, Map.of(), List.of());
+        var context = context(codec, request);
         var audit = mock(AuditLog.class);
-        var worker = new DevelopWorker(new org.folio.factory.devfactory.worker.InitialCodingAttempt(properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of()), codec);
+        var attempt = new InitialCodingAttempt(
+                properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of(),
+                selectedRepository);
+        var worker = new DevelopWorker(attempt, codec);
 
         assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class);
         verify(coding, never()).code(any(), any(), anyInt(), any());
-        verify(coding, never()).requireConfigured();
+        verify(coding).requireConfigured();
         var result = worker.execute(context);
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
                 .contains(piFails ? "DEVELOPMENT_FAILED" : "CANDIDATE_UNVERIFIED");
         assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_PASSED");
-        if (piFails) verify(audit).record(eq(context.executionId()),
-                eq(org.folio.factory.core.domain.AuditEventType.RUNTIME_PROGRESS), eq("implement"),
-                argThat(detail -> detail.entrySet().containsAll(Map.of("activity", "coding_usage", "inputTokens", 10L, "cacheReadTokens", 2L,
-                        "cacheWriteTokens", 1L, "outputTokens", 3L,
-                        "costUsd", new java.math.BigDecimal("0.125")).entrySet()) && detail.containsKey("attemptId")));
-        else assertThat(result.metrics())
-                .containsEntry("inputTokens", 10L)
-                .containsEntry("cacheReadTokens", 2L)
-                .containsEntry("cacheWriteTokens", 1L)
-                .containsEntry("outputTokens", 3L)
-                .containsEntry("promptTokens", 13L)
-                .containsEntry("completionTokens", 3L);
+        if (piFails) {
+            Map<String, Object> expectedUsageEvent = Map.of(
+                    "activity", "coding_usage",
+                    "inputTokens", 10L,
+                    "cacheReadTokens", 2L,
+                    "cacheWriteTokens", 1L,
+                    "outputTokens", 3L,
+                    "costUsd", new BigDecimal("0.125"));
+            verify(audit).record(
+                    eq(context.executionId()), eq(AuditEventType.RUNTIME_PROGRESS), eq("implement"),
+                    argThat(detail -> detail.entrySet().containsAll(expectedUsageEvent.entrySet())
+                            && detail.containsKey("attemptId")));
+        } else {
+            assertThat(result.metrics())
+                    .containsEntry("inputTokens", 10L)
+                    .containsEntry("cacheReadTokens", 2L)
+                    .containsEntry("cacheWriteTokens", 1L)
+                    .containsEntry("outputTokens", 3L)
+                    .containsEntry("promptTokens", 13L)
+                    .containsEntry("completionTokens", 3L);
+        }
         verify(coding).code(eq(pi), any(CodingRequest.class), eq(60), any());
+        verify(selectedRepository, times(2)).requireRepositoryReady("repo", "a".repeat(40));
+        var order = inOrder(docker, coding, selectedRepository, freezer);
+        order.verify(docker).beginStep(context.executionId(), "implement");
+        order.verify(coding).requireConfigured();
+        order.verify(selectedRepository).requireRepositoryReady("repo", request.repository().baseSha());
+        order.verify(freezer).checkout("https://example.org/owner/repo.git", request.repository().baseSha());
         verify(stepScope, times(2)).createTrusted("build:image", workspace, "factory-dev-m2-cache");
         verify(baseline, times(2)).close();
         verify(pi).close();
     }
 
-    @Test void transientBaselineSignalsEngineRetryAndMakesZeroCodingCalls() {
+    @Test
+    void transientBaselineSignalsEngineRetryAndMakesZeroCodingCalls() {
         verifyFailedBaseline("[ERROR] Could not transfer artifact net.sf.saxon:Saxon-HE:jar:12.9 "
                 + "from/to central (https://repo.maven.apache.org/maven2): "
                 + "Premature end of Content-Length delimited message body", true);
     }
 
-    @Test void compilationFailureDoesNotRetryOrStartPi() {
+    @Test
+    void compilationFailureDoesNotRetryOrStartPi() {
         verifyFailedBaseline("[ERROR] Compilation failure: cannot find symbol", false);
     }
 
-    @Test void testFailureDoesNotRetryOrStartPi() {
+    @Test
+    void testFailureDoesNotRetryOrStartPi() {
         verifyFailedBaseline("[ERROR] There are test failures", false);
     }
 
-    @Test void repositoryNotFoundDoesNotRetryOrStartPi() {
+    @Test
+    void repositoryNotFoundDoesNotRetryOrStartPi() {
         verifyFailedBaseline("[ERROR] Could not find artifact org.example:missing:jar:1 in folio-nexus\n"
                 + "[ERROR] Could not find artifact org.example:missing:jar:1 in index-data-nexus", false);
     }
@@ -134,19 +169,16 @@ class DevelopReadinessTest {
         when(workload.execute(eq(List.of("mvn", "test")), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
                 .thenAnswer(invocation -> {
                     @SuppressWarnings("unchecked")
-                    java.util.function.Consumer<String> observer = invocation.getArgument(3);
+                    Consumer<String> observer = invocation.getArgument(3);
                     observer.accept("[INFO] --- compiler:3.16.0:compile (default-compile) @ module ---");
                     return new Processes.Result(1, failure);
                 });
         var codec = new FrontmatterCodec();
-        var brief = codec.render(Map.of("state", "INTAKE_READY", "repository", Map.of("key", "repo", "base_sha", "a".repeat(40))), "Task");
-        var context = new AgentContext(UUID.randomUUID(), "implement", Map.of(
-                IntakeResolveWorker.TASK_BRIEF, new ArtifactContent(IntakeResolveWorker.TASK_BRIEF, 1, "text/markdown", brief),
-                IntakeResolveWorker.CODING_REQUEST, new ArtifactContent(IntakeResolveWorker.CODING_REQUEST, 1,
-                        "application/json", tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(request()))),
-                null, Map.of(), List.of());
+        var context = context(codec, request());
         var audit = mock(AuditLog.class);
-        var worker = new DevelopWorker(new org.folio.factory.devfactory.worker.InitialCodingAttempt(properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of()), codec);
+        var initialAttempt = new InitialCodingAttempt(
+                properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of());
+        var worker = new DevelopWorker(initialAttempt, codec);
         if (retryable) {
             // Repeated worker attempts retain the configured repository and do not add a global -U.
             for (int attempt = 0; attempt < 2; attempt++) {
@@ -163,10 +195,109 @@ class DevelopReadinessTest {
             assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_FAILED", "output");
         }
         verify(coding, never()).code(any(), any(), anyInt(), any());
-        verify(coding, never()).requireConfigured();
+        verify(coding, times(retryable ? 2 : 1)).requireConfigured();
         verify(audit, atLeastOnce()).record(eq(context.executionId()),
-                eq(org.folio.factory.core.domain.AuditEventType.RUNTIME_PROGRESS), eq("implement"), anyMap());
+                eq(AuditEventType.RUNTIME_PROGRESS), eq("implement"), anyMap());
         verify(workload, times(retryable ? 2 : 1)).close();
+    }
+
+    @Test
+    void invalidCodingProfileReconcilesOwnedStepButNeverChecksOutOrBuilds() {
+        var repository = new DevFactoryProperties.Repository(
+                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
+        var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
+        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var docker = mock(DockerWorkloads.class);
+        var scope = mock(DockerWorkloads.StepScope.class);
+        var freezer = mock(CandidateFreezer.class);
+        var coding = mock(CodingRuntime.class);
+        var context = new AgentContext(
+                UUID.randomUUID(), "implement", Map.of(), null, Map.of(), List.of());
+        when(docker.beginStep(context.executionId(), "implement")).thenReturn(scope);
+        doThrow(new IllegalStateException("secret must not persist")).when(coding).requireConfigured();
+        var attempt = new InitialCodingAttempt(
+                properties, settings, docker, freezer, coding, new FrontmatterCodec(),
+                mock(AuditLog.class), model -> Map.of());
+
+        var result = attempt.start(context, request());
+
+        assertThat(result.candidate())
+                .contains("BLOCKED_ENVIRONMENT")
+                .doesNotContain("secret must not persist");
+        var order = inOrder(docker, coding, scope);
+        order.verify(docker).beginStep(context.executionId(), "implement");
+        order.verify(coding).requireConfigured();
+        order.verify(scope).close();
+        verifyNoInteractions(freezer);
+        verify(scope, never()).createTrusted(anyString(), any(), anyString());
+        verify(coding, never()).code(any(), any(), anyInt(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void blockedRepositoryStopsBeforeCheckoutForInitialAttemptAndContinuation(boolean continuation) {
+        var repository = new DevFactoryProperties.Repository(
+                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
+        var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
+        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var docker = mock(DockerWorkloads.class);
+        var scope = mock(DockerWorkloads.StepScope.class);
+        var freezer = mock(CandidateFreezer.class);
+        var coding = mock(CodingRuntime.class);
+        var selectedRepository = mock(SelectedRepositoryPreflight.class);
+        var context = new AgentContext(
+                UUID.randomUUID(), "implement", Map.of(), null, Map.of(), List.of());
+        var request = request();
+        when(docker.beginStep(context.executionId(), "implement")).thenReturn(scope);
+        doThrow(new IllegalStateException("credential-secret must not persist"))
+                .when(selectedRepository)
+                .requireRepositoryReady("repo", request.repository().baseSha());
+        var attempt = new InitialCodingAttempt(
+                properties, settings, docker, freezer, coding, new FrontmatterCodec(),
+                mock(AuditLog.class), model -> Map.of(), selectedRepository);
+        var readiness = JsonMapper.builder().build().readTree("{\"state\":\"BASELINE_PASSED\"}");
+
+        InitialCodingAttempt.Attempt result;
+        if (continuation) {
+            result = attempt.retry(context, request, readiness);
+        } else {
+            result = attempt.start(context, request);
+        }
+
+        assertThat(result.candidate())
+                .contains("BLOCKED_ENVIRONMENT")
+                .doesNotContain("credential-secret");
+        assertThat(result.outcome().failure().message()).doesNotContain("credential-secret");
+        if (continuation) {
+            assertThat(result.readiness()).contains("BASELINE_PASSED");
+        }
+        var order = inOrder(docker, coding, selectedRepository, scope);
+        order.verify(docker).beginStep(context.executionId(), "implement");
+        order.verify(coding).requireConfigured();
+        order.verify(selectedRepository).requireRepositoryReady("repo", "a".repeat(40));
+        order.verify(scope).close();
+        verifyNoInteractions(freezer);
+        verify(scope, never()).createTrusted(anyString(), any(), anyString());
+        verify(scope, never()).createSeeded(anyString(), any(), anyString(), anyString());
+        verify(coding, never()).code(any(), any(), anyInt());
+        verify(coding, never()).code(any(), any(), anyInt(), any());
+    }
+
+    private static AgentContext context(FrontmatterCodec codec, CodingRequest request) {
+        String brief = codec.render(
+                Map.of(
+                        "state", "INTAKE_READY",
+                        "repository", Map.of("key", "repo", "base_sha", request.repository().baseSha())),
+                "Task");
+        var briefArtifact = new ArtifactContent(
+                IntakeResolveWorker.TASK_BRIEF, 1, "text/markdown", brief);
+        var requestArtifact = new ArtifactContent(
+                IntakeResolveWorker.CODING_REQUEST, 1, "application/json",
+                JsonMapper.builder().build().writeValueAsString(request));
+        Map<String, ArtifactContent> inputs = Map.of(
+                IntakeResolveWorker.TASK_BRIEF, briefArtifact,
+                IntakeResolveWorker.CODING_REQUEST, requestArtifact);
+        return new AgentContext(UUID.randomUUID(), "implement", inputs, null, Map.of(), List.of());
     }
 
     private static CodingRequest request() {

@@ -12,6 +12,7 @@ import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -49,15 +50,24 @@ public class PipelineRouter {
     private final LimitsProperties limits;
     private final DedupKeyDeriver dedupKeyDeriver;
     private final AuditLog auditLog;
+    private final List<TriggerPreflight> preflights;
 
     public PipelineRouter(FlowRegistry flowRegistry, StateManager stateManager, JsonMapper jsonMapper,
                           LimitsProperties limits, DedupKeyDeriver dedupKeyDeriver, AuditLog auditLog) {
+        this(flowRegistry, stateManager, jsonMapper, limits, dedupKeyDeriver, auditLog, List.of());
+    }
+
+    @Autowired
+    public PipelineRouter(FlowRegistry flowRegistry, StateManager stateManager, JsonMapper jsonMapper,
+                          LimitsProperties limits, DedupKeyDeriver dedupKeyDeriver, AuditLog auditLog,
+                          List<TriggerPreflight> preflights) {
         this.flowRegistry = flowRegistry;
         this.stateManager = stateManager;
         this.jsonMapper = jsonMapper;
         this.limits = limits;
         this.dedupKeyDeriver = dedupKeyDeriver;
         this.auditLog = auditLog;
+        this.preflights = List.copyOf(preflights);
     }
 
     /**
@@ -84,6 +94,9 @@ public class PipelineRouter {
         }
         if (!toCreate.isEmpty()) {
             enforceDailyBudget(toCreate);
+            for (FlowDescriptor flow : toCreate) {
+                requireReady(flow.id(), event.payload());
+            }
             for (FlowDescriptor flow : toCreate) {
                 created.add(create(flow, event, dedupKey).getId());
             }
@@ -112,7 +125,14 @@ public class PipelineRouter {
             return existing.get().getId();
         }
         enforceDailyBudget(List.of(flow));
+        requireReady(flowId, payload);
         return create(flow, event, dedupKey).getId();
+    }
+
+    private void requireReady(String flowId, JsonNode payload) {
+        for (TriggerPreflight preflight : preflights) {
+            preflight.requireReady(flowId, payload);
+        }
     }
 
     private boolean matches(FlowDescriptor flow, TriggerEvent event) {

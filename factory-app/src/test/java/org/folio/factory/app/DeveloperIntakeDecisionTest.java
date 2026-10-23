@@ -2,6 +2,7 @@ package org.folio.factory.app;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
+import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.ArtifactContent;
 import org.folio.factory.core.domain.AuditEventType;
@@ -31,6 +32,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -71,6 +73,10 @@ import static org.awaitility.Awaitility.await;
 @Testcontainers
 @DirtiesContext
 class DeveloperIntakeDecisionTest {
+
+    // Admission is covered separately; these fixtures exercise deliberately blocked intake decisions.
+    @MockitoBean
+    DeveloperPreflight preflight;
 
     private static final String GATE_ID = DecisionGateWorker.GATE_ID;
     private static final int DECISION_STEP_INDEX = 1;

@@ -1,6 +1,8 @@
 package org.folio.factory.devfactory;
 
+import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 import java.util.List;
 import java.util.SortedMap;
@@ -39,9 +41,26 @@ public record DevFactoryProperties(String gitBaseUrl, SortedMap<String, Reposito
         repositories = copy;
     }
 
-    public record Repository(String sourceRepo, String baseBranch, String buildImage, String verificationPlan,
-                             List<String> jiraProjects, List<String> jiraComponents) {
+    public record Repository(
+            String sourceRepo,
+            String baseBranch,
+            String buildImage,
+            String verificationPlan,
+            List<String> jiraProjects,
+            List<String> jiraComponents,
+            DeliveryTarget delivery) {
 
+        public Repository(
+                String sourceRepo,
+                String baseBranch,
+                String buildImage,
+                String verificationPlan,
+                List<String> jiraProjects,
+                List<String> jiraComponents) {
+            this(sourceRepo, baseBranch, buildImage, verificationPlan, jiraProjects, jiraComponents, null);
+        }
+
+        @ConstructorBinding
         public Repository {
             require(SOURCE_REPO, sourceRepo, "source-repo");
             require(BRANCH, baseBranch, "base-branch");
@@ -56,6 +75,21 @@ public record DevFactoryProperties(String gitBaseUrl, SortedMap<String, Reposito
             jiraProjects.forEach(project -> require(PROJECT_KEY, project, "jira-projects entry"));
             jiraProjects = List.copyOf(jiraProjects);
             jiraComponents = jiraComponents == null ? List.of() : List.copyOf(jiraComponents);
+            delivery = normalizeDeliveryBase(delivery, baseBranch);
+        }
+
+        private static DeliveryTarget normalizeDeliveryBase(DeliveryTarget delivery, String sourceBaseBranch) {
+            if (delivery == null) {
+                return null;
+            }
+            String deliveryBaseBranch = delivery.baseBranch();
+            if (deliveryBaseBranch != null
+                    && !deliveryBaseBranch.isBlank()
+                    && !sourceBaseBranch.equals(deliveryBaseBranch)) {
+                throw new IllegalArgumentException(
+                        "Repository delivery base-branch must match source base-branch");
+            }
+            return new DeliveryTarget(delivery.repository(), sourceBaseBranch, delivery.authorized());
         }
     }
 

@@ -3,7 +3,7 @@
 An AI-driven, plugin-based orchestration platform for the FOLIO software
 development lifecycle. Flows are **data** (YAML plugin descriptors), agents are
 stateless workers that communicate only through **immutable versioned
-artifacts**, and every consequential step passes a **human-in-the-loop gate**.
+artifacts**. Each flow declares its review and verification gates.
 
 The shared orchestration framework runs two flow plugins:
 
@@ -67,7 +67,7 @@ Key invariants, enforced by the framework:
 Prerequisites: Java 21, Maven 3.9+, Docker.
 
 ```bash
-# 1. Database only (the full Compose stack is the Developer Flow demo below)
+# 1. Database only (the full Compose stack is the Developer Flow section below)
 docker compose up -d postgres
 
 # 2. LLM provider (Spring AI — Anthropic by default, swappable via config)
@@ -133,33 +133,118 @@ SBOM, and builds the Docker image. A weekly `dependency-check.yml` runs an
 opt-in OWASP scan (`mvn -Powasp verify`); Dependabot keeps Maven and Actions
 dependencies current.
 
-### Developer Flow demo
+### Developer Flow with Docker Compose
 
-Developer Flow supports `pi` (default) and `claude-code`. Set
-`FACTORY_DEV_FACTORY_CODING_RUNTIME` and the selected profile in `.env`; see the
-Developer Flow block in `.env.example`. Configure a GitHub token for delivery.
-Source repositories and their matching, authorized delivery targets are declared
-together in `application.yaml`; each default is overridable via
-`FACTORY_<REPO>_SOURCE_REPO` / `FACTORY_<REPO>_DELIVERY_REPO` (for example,
-`FACTORY_SIDECAR_SOURCE_REPO`). Start the local control plane and trigger a task:
+For this path, install Docker Desktop with Compose 2.20+ and start its engine.
+Java, Maven and Claude Code are supplied by the images; no host installation or
+Claude login is needed. The first build downloads public base images, Maven
+dependencies and the pinned coding CLI, so it needs internet access and can take
+several minutes with an empty cache. Docker Desktop on macOS is the validated
+local environment. A host proxy must be reachable from sibling coding containers;
+plain Linux Docker needs its own host routing configuration.
+
+From a fresh clone:
+
+```bash
+cp .env.example .env
+```
+
+The short `.env.example` configures **Claude Code with Sonnet 5.5** through a
+local CodeMie proxy at `http://host.docker.internal:4001`, using Bearer
+authentication and the standard local gateway token `codemie-proxy`. These are
+also the Spring, Java and Compose defaults. Start the proxy yourself; Compose
+does not manage it. The URL is resolved inside the coding
+container and has no `/v1` suffix: the CLI appends `/v1/messages`.
+
+Fill in the empty access values before triggering a task:
+
+- Jira base URL, email and API token for reading the requested issue.
+- A GitHub token with write access to the personal delivery repository. Source
+  repositories must be public; source checkout does not use this token.
+- Source/delivery repositories and an existing shared base branch. The bundled
+  targets have delivery disabled; choose your own fork and authorize it explicitly.
+  Verification is followed by automatic push/PR publication to the authorized
+  target. `create-pull-request=false` does not disable git push.
+
+For example, enable only your sidecar target (replace `your-github-user`):
+
+```dotenv
+FACTORY_SIDECAR_SOURCE_REPO=your-github-user/folio-module-sidecar
+FACTORY_SIDECAR_DELIVERY_REPO=your-github-user/folio-module-sidecar
+FACTORY_SIDECAR_BASE_BRANCH=master
+FACTORY_SIDECAR_DELIVERY_AUTHORIZED=true
+FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_AUTHORIZED=false
+FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_AUTHORIZED=false
+FACTORY_MGR_APPLICATIONS_DELIVERY_AUTHORIZED=false
+```
+
+Repository policy lives in [`config/developer-repositories.yaml`](config/developer-repositories.yaml):
+one entry contains Jira mapping, source, shared base branch, build/verification
+policy and delivery target. The four bundled entries keep the `.env` overrides
+shown above. To add another repository, edit the catalog as described below;
+inventing another `FACTORY_<REPO>_SOURCE_REPO` variable does not add an entry.
+
+Compose forwards the documented application settings for both flows, including
+Spring AI, connectors, limits, engine tuning and webhook authentication. Database
+connection settings and the server's container listen address are supplied by
+Compose for its own services; host-run Spring uses exported `.env` values instead.
+
+Build and start, including the selected CLI version check:
 
 ```bash
 docker compose up -d --build
-curl -s -X POST localhost:8080/api/triggers/manual \
-  -H 'Content-Type: application/json' \
-  -d '{"flowId":"dev-factory","payload":{"issueKey":"MODSIDECAR-196"}}'
+docker compose ps -a
+curl --fail http://localhost:8080/actuator/health
 ```
+
+Wait for Factory to become healthy (`status: UP`); `coding-runtime` should have
+exited with code 0. Health confirms application/database startup, not that a task
+can run. Open <http://localhost:8080/developer/configuration> to check the effective
+configuration and an issue key before triggering. Then open
+<http://localhost:8080/flows/dev-factory>, choose **Trigger flow**, and submit an
+issue such as `{"issueKey":"MODSIDECAR-196"}`.
+Use an issue that still requires a change on your chosen base. Set a unique dedup
+key for each intentional run. With a new empty database, starting the stack or
+loading the UI makes no coding-model call. Existing queued executions can resume
+on startup; triggering coding can incur API charges and publish a PR.
+
+To diagnose a failed start, use `docker compose logs --tail=100 factory
+coding-runtime postgres`. Avoid sharing `.env` or unfiltered `docker compose
+config`/container environment output: they include credentials.
+
+`docker compose down` stops this stack while retaining its database volume and
+execution history. Do not use `down -v` or remove existing volumes to upgrade or
+retry a build. To run a separate evaluation alongside an existing stack, choose
+a new Compose project (`docker compose -p factory-evaluation ...`) and set these
+values in its own `.env` before the same build/start command:
+
+```dotenv
+FACTORY_APP_PORT=18080
+FACTORY_DB_PORT=15432
+FACTORY_APP_IMAGE=folio-factory-app:evaluation
+FACTORY_CLAUDE_CODE_IMAGE=factory-dev-claude-code:evaluation
+FACTORY_PI_IMAGE=factory-dev-pi:evaluation
+FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME=factory-evaluation-m2-cache
+```
+
+The project scopes its PostgreSQL volume; the Maven cache has an explicit name,
+so changing the project alone does not isolate that cache. These names and ports
+must be unused. Use the same project name for later `ps`, `logs` and `down`.
 
 The Factory container owns the Docker socket only for this trusted single-user MVP.
 The coding runtime runs in a separate container without that socket or Jira/GitHub
 credentials; verification rebuilds the frozen patch in another fresh container.
 Delivery is blocked unless the exact candidate has a matching successful
 verification receipt: required Maven suites must produce fresh, executed reports
-(see `required-reports` in `application.yaml`), and a successful unit suite alone
-cannot approve a plan that requires integration reports. The trusted build reuses
-the `factory-dev-m2-cache` Docker volume, repairing cache entry ownership before
-each build; reset it with `docker volume rm factory-dev-m2-cache` while the stack
-is stopped.
+(see `required-reports` in `config/developer-repositories.yaml`). `surefire` requires
+unit-test reports; `failsafe` requires integration-test reports. Each required
+family must be present, and every report in that family must contain an executed
+test. A successful unit suite alone cannot approve an integration plan. Test class
+names belong to the target project's Maven build and are not listed in Factory.
+Integration remains blocked when its Docker dependencies are unavailable. The
+trusted build reuses the configured Maven cache Docker volume, repairing cache
+entry ownership before each build. Keep this volume when stopping or rebuilding
+the stack.
 
 Execution pages estimate API cost from the operator-owned
 `config/developer-pricing.yaml` rate card. The YAML records public list prices
@@ -171,43 +256,153 @@ Compose publishes Factory and PostgreSQL on `127.0.0.1` by default. The MVP stil
 runs the trusted Factory container as root with the Docker socket and a 7200-second
 engine lease; tightening these local-only controls is deferred.
 
+### Adding or changing a repository
+
+Edit `config/developer-repositories.yaml` to add a public Java/Maven repository.
+For example, add this entry under `factory.dev-factory.repositories`:
+
+```yaml
+my-module:
+  source-repo: your-github-user/my-module
+  base-branch: main
+  build-image: maven:3.9-eclipse-temurin-21
+  verification-plan: java21-unit
+  jira-projects: [MYMOD]
+  # jira-components: [Backend]  # optional: restrict the Jira component mapping
+  delivery:
+    repository: your-github-user/my-module
+    authorized: false
+```
+
+Use the actual Jira project key and a branch that exists in the source and
+delivery repositories. The delivery base comes from this entry's `base-branch`;
+there is no second branch to keep in sync. Set `authorized: true` only when the
+destination is ready for automatic push and PR creation. Source and delivery may
+be different repositories, but the delivery branch must contain the source base.
+
+`verification-plan` names a trusted command in `factory.dev-factory.runtime.plans`
+in the same file. The bundled `java21-unit` runs `mvn -B -ntp test`; add a separate
+plan with `runtime.required-reports.<plan>: [surefire, failsafe]` when acceptance
+requires both unit and integration tests. Use `[surefire]` for unit tests only.
+Verification reads fresh Surefire/Failsafe XML reports across Maven modules,
+checks executed-test counts and rejects failures, errors and entirely skipped
+reports in required families. New and renamed test classes need no Factory
+configuration changes. This policy checks executed report families; it does not
+prove that every test in the source was discovered or detect deleted tests.
+Existing operator catalogs with exact report paths remain supported, but the
+bundled catalog does not depend on test class names. An exit code of zero alone
+is insufficient. Commands and required reports are operator policy, never
+supplied by Jira or the coding model.
+
+Compose mounts this catalog read-only. To keep a private operator copy, set
+`FACTORY_DEV_FACTORY_REPOSITORIES_FILE=./config/my-repositories.yaml` in `.env`.
+The application also packages the checked-in catalog as its fallback; external
+configuration overrides matching entries and adds new ones. A partial override
+does not remove other catalog entries. The same checked-in external file is
+loaded when Spring runs from the repository root.
+
+After editing a catalog file, recreate Factory to reload the mounted file:
+
+```bash
+docker compose up -d --force-recreate factory
+```
+
+After changing `.env`, run `docker compose up -d` to recreate affected containers;
+`restart` does not load new environment values. Neither operation requires an app
+image rebuild for repository policy changes, and neither removes the database.
+Keep source/delivery/verification settings stable while a task is running.
+
+Current Developer Flow support is public source repositories, GitHub.com
+delivery, and Maven verification. A custom GitHub Enterprise API is supported by
+Test Factory, but Developer Flow preflight rejects it because Developer Flow's
+Git publication targets GitHub.com. Private source authentication, GitLab
+delivery, submodules and other build/report formats require implementation changes.
+
+Older deployments may still supply `factory.dev-factory.delivery.targets.<key>`.
+An explicit legacy target takes precedence over that entry's nested `delivery`
+settings; missing repository/base fields inherit the catalog values. Legacy
+authorization remains authoritative, including `false`; set it explicitly to
+`true` to enable delivery. Remove legacy settings when migrating to the unified catalog. A different legacy
+delivery branch name is rejected by preflight; a conflicting nested delivery base
+is rejected while loading the catalog.
+
+### Checking configuration before a task
+
+The Developer Flow page links to **Check configuration** at
+<http://localhost:8080/developer/configuration>. It displays effective runtime,
+model and repository policy without credentials. Supply the intended issue key
+for task-specific checks. The same read-only report is available as JSON:
+
+```bash
+curl --fail 'http://localhost:8080/api/developer/preflight?issueKey=MODSIDECAR-196'
+```
+
+Without an issue key, the report is a configuration overview and always has
+`ready: false`; task-specific checks are `NOT_RUN`. With an issue key it also
+reads Jira, resolves the repository mapping and source base, and checks whether
+GitHub reports push permission and a destination base containing the source base.
+This is an access check, not a guarantee that a later push will succeed. Docker,
+the local coding image and gateway TCP connectivity from Factory
+are checked before a new execution is created. A failed TCP probe is a warning:
+host-run Spring and sibling coding containers can use different DNS and networks,
+including Docker-only `host.docker.internal`. A missing build image is a warning
+because Docker can pull it when needed. Blocking failures reject a new Developer
+Flow trigger from the UI, manual API or webhooks before baseline build or coding.
+An existing execution found by dedup is returned without starting another attempt.
+The report endpoint returns HTTP 200 for both ready and blocked reports; inspect
+`ready` and the individual checks.
+
+When multiple repositories match, at least one must be ready to open the existing
+repository-selection review. Failures for other candidates are warnings until a
+repository is confirmed. The selected repository is checked again before checkout
+and baseline, using the frozen source SHA from the task; choosing a disabled or
+inaccessible destination cannot start coding. The same guard applies to an
+implementation continuation.
+
+Preflight never runs a build or tests, sends a coding inference request, pushes
+Git changes or writes to Jira/GitHub. TCP reachability does not prove connectivity
+from the coding container, TLS, model authorization, streaming or tool support;
+these remain `NOT_RUN` until a separately authorized live smoke. A denied model
+catalog request does not establish that inference is unavailable. Missing pricing
+is a warning, so it does not prevent coding; cost remains unavailable or incomplete where a
+matching rate or usage category is missing. Recheck after changing configuration;
+preflight does not replace independent candidate verification or delivery checks.
+
 ### Coding runtime profiles
 
 `factory.dev-factory.runtime.coding.pi` and `.claude-code` are independent
-operator-owned profiles. Only the selected runtime is validated before coding;
-empty inactive profiles do not prevent application startup. Both adapters serve
+operator-owned profiles. Defaults are Claude Code, model `claude-sonnet-5-5`,
+local CodeMie endpoint `http://host.docker.internal:4001` and `bearer-token`
+authentication with the standard gateway token `codemie-proxy`. All profile
+values can be overridden.
+Only the selected runtime is validated before coding; empty inactive profiles do
+not prevent application startup. Both adapters serve
 initial coding, a fresh attempt after a confirmed clarification, and PR feedback.
 Feedback retains partial edits on questions and failures; initial coding keeps
 its existing completed-candidate policy. Factory still owns repository checks,
 candidate export, independent verification, workload ownership and cleanup.
 
-Minimal Pi configuration (OpenAI Chat Completions):
-
-```dotenv
-FACTORY_DEV_FACTORY_CODING_RUNTIME=pi
-FACTORY_PI_PROVIDER=openai-compatible
-FACTORY_PI_API=openai-completions
-FACTORY_PI_BASE_URL=https://gateway.example/v1
-FACTORY_PI_MODEL=operator-model-id
-FACTORY_PI_AUTHENTICATION=api-key
-FACTORY_PI_API_KEY=replace-with-your-key
-```
-
-Minimal Claude Code configuration (Anthropic Messages, including an operator's
-CodeMie route):
+Default Claude Code configuration for the local CodeMie proxy:
 
 ```dotenv
 FACTORY_DEV_FACTORY_CODING_RUNTIME=claude-code
 FACTORY_CLAUDE_CODE_API=anthropic-messages
-FACTORY_CLAUDE_CODE_BASE_URL=https://codemie.example/anthropic
-FACTORY_CLAUDE_CODE_MODEL=operator-model-id
+FACTORY_CLAUDE_CODE_BASE_URL=http://host.docker.internal:4001
+FACTORY_CLAUDE_CODE_MODEL=claude-sonnet-5-5
 FACTORY_CLAUDE_CODE_AUTHENTICATION=bearer-token
-FACTORY_CLAUDE_CODE_AUTH_TOKEN=replace-with-your-token
+FACTORY_CLAUDE_CODE_AUTH_TOKEN=codemie-proxy
 ```
 
-The example endpoint is a placeholder. Supply the prefix before `/v1/messages`
-reachable from the coding container (on Docker Desktop, use
-`host.docker.internal` for a host proxy). A Chat Completions or Responses endpoint
+The example assumes an already running local CodeMie proxy on port 4001; Compose
+does not start it. The standard token authenticates Factory to the local proxy;
+CodeMie manages upstream SSO/provider authentication. If your proxy uses a custom
+gateway key, set `FACTORY_CLAUDE_CODE_AUTH_TOKEN` to that value. For another
+gateway, supply the prefix before `/v1/messages` reachable from the coding
+container. Do not append `/v1`: the CLI adds
+`/v1/messages`. Confirm that your gateway supports the default literal model ID
+`claude-sonnet-5-5`; override `FACTORY_CLAUDE_CODE_MODEL` if it uses another
+deployment ID. Leave optional effort unset for the first connection check.
+A Chat Completions or Responses endpoint
 cannot be used with Claude Code: an incompatible API type fails before the
 coding container starts. Factory does not translate API protocols, rename model
 IDs, or restrict models to an allowlist. Endpoint/model capabilities, streaming
@@ -219,9 +414,9 @@ pins CLI alias defaults, disables legacy remapping and uses the documented
 the request's `model` unchanged. A suffix such as `[1m]` is part of the endpoint's
 model ID, not a Factory context-window option.
 
-Claude Code authentication must be explicitly `api-key` (`FACTORY_CLAUDE_CODE_API_KEY`
-→ `x-api-key`) or `bearer-token` (`FACTORY_CLAUDE_CODE_AUTH_TOKEN` → `Authorization:
-Bearer ...`). Only the selected credential is sent. No host Claude credentials or
+Claude Code defaults to `bearer-token` (`FACTORY_CLAUDE_CODE_AUTH_TOKEN` →
+`Authorization: Bearer ...`). For another endpoint, explicitly select `api-key`
+(`FACTORY_CLAUDE_CODE_API_KEY` → `x-api-key`) if required. Only the selected credential is sent. No host Claude credentials or
 configuration are mounted. Runtime secrets are copied into a private temporary
 file only during coding, outside `/workspace`, and removed afterwards. They are
 not build arguments or Docker image environment values. Raw CLI/provider output
@@ -230,6 +425,19 @@ counts. Claude's cost estimate is separate from Factory's operator rate card.
 Missing or zero-filled provider usage stays marked incomplete, including when
 other turns in the same attempt reported valid counts.
 
+To use Pi instead, explicitly select it and configure its independent profile
+(OpenAI Chat Completions example):
+
+```dotenv
+FACTORY_DEV_FACTORY_CODING_RUNTIME=pi
+FACTORY_PI_PROVIDER=openai-compatible
+FACTORY_PI_API=openai-completions
+FACTORY_PI_BASE_URL=https://gateway.example/v1
+FACTORY_PI_MODEL=operator-model-id
+FACTORY_PI_AUTHENTICATION=api-key
+FACTORY_PI_API_KEY=replace-with-your-key
+```
+
 Pi precedence is field-by-field: nonblank `FACTORY_PI_*` > legacy
 `FACTORY_MODEL_*` > defaults. `FACTORY_PI_MODEL` falls back to `FACTORY_MODEL_ID`;
 `FACTORY_PI_IMAGE` falls back to `FACTORY_DEV_FACTORY_CODING_IMAGE`. New empty values
@@ -237,7 +445,8 @@ keep the legacy behavior; remove an old value to clear it. Legacy variables neve
 configure Claude Code. Pi authentication is `api-key`; the Pi provider controls
 its wire format. Optional harness settings are Pi `REASONING_EFFORT` and
 `MAX_OUTPUT_TOKENS`, and Claude Code `EFFORT`, `MAX_TURNS` (40), and
-`MAX_OUTPUT_TOKENS` (16384). Use each profile's prefix from `.env.example`.
+`MAX_OUTPUT_TOKENS` (16384). Use the `FACTORY_PI_` or `FACTORY_CLAUDE_CODE_`
+prefix respectively. Leave `FACTORY_CLAUDE_CODE_EFFORT` unset initially.
 The common attempt timeout remains `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` (1800).
 
 Claude Code is pinned to **2.1.287**, resolved from the official stable channel on
@@ -271,8 +480,17 @@ mvn -B -ntp verify
 
 The contract tests use Docker Desktop's `host.docker.internal` and isolated test
 credentials. Claude tests use the default pinned image tag. When starting Factory
-directly, export `.env` first as described in `.env.example`; no Java edits are
-needed to switch runtimes or endpoints.
+directly, export `.env` before `mvn spring-boot:run -pl factory-app`:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+Spring Boot does not load `.env` automatically. The coding container still uses
+`host.docker.internal` to reach the host proxy. No Java edits are needed to switch
+runtimes or endpoints.
 
 ## Operations
 
@@ -300,7 +518,8 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_LLM_BASE_URL` / `_COMPLETIONS_PATH` | OpenAI-compatible endpoint (defaults target Groq: `https://api.groq.com/openai/v1` + `/chat/completions`) |
 | `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (default `jdbc:postgresql://localhost:5432/factory`) |
 | `FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME` | Persistent trusted Developer Flow Maven cache volume (default `factory-dev-m2-cache`) |
-| `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `pi`) |
+| `FACTORY_DEV_FACTORY_REPOSITORIES_FILE` | Compose host path of the repository catalog (default `./config/developer-repositories.yaml`); mounted read-only |
+| `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `claude-code`) |
 | `FACTORY_MODEL_PROVIDER` / `_ID` / `_BASE_URL` / `_API` / `_API_KEY` | Legacy Pi profile settings; nonblank `FACTORY_PI_*` values override them |
 | `FACTORY_PI_*` / `FACTORY_CLAUDE_CODE_*` | Independent image, API, model, endpoint, authentication and harness profiles; see [Coding runtime profiles](#coding-runtime-profiles) |
 | `FACTORY_MODEL_REASONING_EFFORT` | Optional Pi thinking level; `max` for the CodeMie GPT-5.6 Luna profile, empty for the current GLM behavior |
@@ -365,7 +584,7 @@ To check Pi's actual Chat Completions HTTP request against a local test endpoint
 build the coding image and run the opt-in contract test:
 
 ```bash
-docker compose build pi-runtime
+FACTORY_DEV_FACTORY_CODING_RUNTIME=pi docker compose build coding-runtime
 mvn -pl factory-flow-dev-factory -am test -Dtest=PiCodingHttpContractTest \
   -Dsurefire.failIfNoSpecifiedTests=false \
   -Dfactory.pi.contract.image=factory-dev-pi:0.85.1-java21

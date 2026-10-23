@@ -14,6 +14,7 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
+import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
@@ -23,6 +24,7 @@ import org.folio.factory.devfactory.verification.VerificationPolicy;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
 
 import java.nio.file.Path;
+import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -165,17 +167,20 @@ public class FeedbackWorker implements AgentWorker {
             state.skip();
             return;
         }
-        var target = delivery.requireTarget(initial.path("repository").asString(""));
-        var path = java.net.URI.create(initial.path("pullRequestUrl").asString()).getPath();
-        String prefix = "/" + target.repository() + "/pull/";
-        if (!path.startsWith(prefix) || !path.substring(prefix.length()).matches("[0-9]+"))
+        String repositoryKey = initial.path("repository").asString("");
+        DeliveryTarget target = delivery.requireTarget(repositoryKey, repositories);
+        String pullRequestPath = URI.create(initial.path("pullRequestUrl").asString()).getPath();
+        String expectedPrefix = "/" + target.repository() + "/pull/";
+        if (!pullRequestPath.startsWith(expectedPrefix)
+                || !pullRequestPath.substring(expectedPrefix.length()).matches("[0-9]+")) {
             throw new IllegalStateException("Published PR identity is invalid");
-        state.pr =
-                gateway.read(
-                        target.repository(), Integer.parseInt(path.substring(prefix.length())));
+        }
+        int pullRequestNumber = Integer.parseInt(pullRequestPath.substring(expectedPrefix.length()));
+        state.pr = gateway.read(target.repository(), pullRequestNumber);
         if (!state.pr.branch().equals(initial.path("deliveryBranch").asString(""))
-                || !state.pr.baseBranch().equals(target.baseBranch()))
+                || !state.pr.baseBranch().equals(target.baseBranch())) {
             throw new IllegalStateException("PR destination changed");
+        }
         state.initialized();
         state.reason = state.pr.open() ? "" : "PR is closed or merged; finish this task";
     }
@@ -330,29 +335,40 @@ public class FeedbackWorker implements AgentWorker {
             Candidate candidate,
             VerificationReceipt receipt) {
         receipt.requireVerified(context.executionId().toString(), candidate);
-        if (!verificationPolicy.matches(candidate, receipt))
+        if (!verificationPolicy.matches(candidate, receipt)) {
             throw new IllegalStateException("Verification policy changed; run checks again");
-        var target = delivery.requireTarget(candidate.repository());
+        }
+        DeliveryTarget target = delivery.requireTarget(candidate.repository(), repositories);
         if (!target.repository().equals(state.pr.repository())
-                || !target.baseBranch().equals(state.pr.baseBranch()))
+                || !target.baseBranch().equals(state.pr.baseBranch())) {
             throw new IllegalStateException("PR destination is no longer authorized");
+        }
     }
 
     private PrFeedbackGateway.PullRequest authorized(FeedbackState state) {
-        if (state.pr == null) throw new IllegalStateException("No delivered PR is available");
-        boolean allowed =
-                delivery.targets().values().stream()
-                        .anyMatch(
-                                t ->
-                                        t.authorized()
-                                                && t.repository().equals(state.pr.repository())
-                                                && t.baseBranch().equals(state.pr.baseBranch()));
-        if (!allowed) throw new IllegalStateException("PR target is no longer authorized");
+        if (state.pr == null) {
+            throw new IllegalStateException("No delivered PR is available");
+        }
+        if (!isDestinationAuthorized(state.pr)) {
+            throw new IllegalStateException("PR target is no longer authorized");
+        }
         var current = gateway.read(state.pr.repository(), state.pr.number());
         if (!current.branch().equals(state.pr.branch())
-                || !current.baseBranch().equals(state.pr.baseBranch()))
+                || !current.baseBranch().equals(state.pr.baseBranch())) {
             throw new IllegalStateException("PR branch identity changed");
+        }
         return current;
+    }
+
+    private boolean isDestinationAuthorized(PrFeedbackGateway.PullRequest pullRequest) {
+        for (DeliveryTarget target : delivery.effectiveTargets(repositories).values()) {
+            if (target.authorized()
+                    && pullRequest.repository().equals(target.repository())
+                    && pullRequest.baseBranch().equals(target.baseBranch())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void requireHead(FeedbackState state) {

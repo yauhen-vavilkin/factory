@@ -32,6 +32,7 @@ import org.folio.factory.devfactory.feedback.PrFeedbackGateway;
 import org.folio.factory.devfactory.repository.BaseRefResolver;
 import org.folio.factory.devfactory.repository.GitBaseRefResolver;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
+import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
@@ -102,7 +103,8 @@ public class DevFactoryConfiguration {
             CodingRuntime coding,
             FrontmatterCodec codec,
             AuditLog audit,
-            ObjectProvider<AttemptPricing> pricing) {
+            ObjectProvider<AttemptPricing> pricing,
+            ObjectProvider<SelectedRepositoryPreflight> repositoryPreflight) {
         return new InitialCodingAttempt(
                 properties,
                 runtime,
@@ -111,7 +113,8 @@ public class DevFactoryConfiguration {
                 coding,
                 codec,
                 audit,
-                pricing.getIfAvailable(() -> model -> Map.of()));
+                pricing.getIfAvailable(() -> model -> Map.of()),
+                repositoryPreflight.getIfAvailable(SelectedRepositoryPreflight::none));
     }
 
     @Bean

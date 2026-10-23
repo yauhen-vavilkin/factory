@@ -9,6 +9,7 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.feedback.AttemptPricing;
+import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
@@ -24,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -39,6 +41,7 @@ public final class InitialCodingAttempt {
     private final FrontmatterCodec codec;
     private final AuditLog audit;
     private final AttemptPricing pricing;
+    private final SelectedRepositoryPreflight repositoryPreflight;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public InitialCodingAttempt(
@@ -50,6 +53,20 @@ public final class InitialCodingAttempt {
             FrontmatterCodec codec,
             AuditLog audit,
             AttemptPricing pricing) {
+        this(properties, runtime, docker, freezer, coding, codec, audit, pricing,
+                SelectedRepositoryPreflight.none());
+    }
+
+    public InitialCodingAttempt(
+            DevFactoryProperties properties,
+            DevRuntimeProperties runtime,
+            DockerWorkloads docker,
+            CandidateFreezer freezer,
+            CodingRuntime coding,
+            FrontmatterCodec codec,
+            AuditLog audit,
+            AttemptPricing pricing,
+            SelectedRepositoryPreflight repositoryPreflight) {
         this.properties = properties;
         this.runtime = runtime;
         this.docker = docker;
@@ -58,6 +75,7 @@ public final class InitialCodingAttempt {
         this.codec = codec;
         this.audit = audit;
         this.pricing = pricing;
+        this.repositoryPreflight = repositoryPreflight;
     }
 
     public Attempt start(AgentContext context, CodingRequest request) {
@@ -74,23 +92,30 @@ public final class InitialCodingAttempt {
             boolean runBaseline,
             JsonNode existingReadiness) {
         request.requireReady();
-        String key = request.repository().key();
-        var repository = properties.repositories().get(key);
-        if (repository == null)
+        String repositoryKey = request.repository().key();
+        var repository = properties.repositories().get(repositoryKey);
+        if (repository == null) {
             return failedAttempt("Repository is no longer configured", existingReadiness);
+        }
         if (!repository.sourceRepo().equals(request.repository().sourceRepo())
-                || !repository.baseBranch().equals(request.repository().baseBranch()))
+                || !repository.baseBranch().equals(request.repository().baseBranch())) {
             return failedAttempt(
                     "Coding request repository no longer matches Factory configuration",
                     existingReadiness);
-        String base = request.repository().baseSha();
+        }
+        String frozenBaseSha = request.repository().baseSha();
         String url = properties.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
         Path pristine = null;
         Path exported = null;
         Map<String, Object> readiness = nodeMap(existingReadiness);
         Map<String, Object> metrics = Map.of();
         try (var stepScope = docker.beginStep(context.executionId(), context.stepId())) {
-            pristine = freezer.checkout(url, base);
+            // beginStep reconciles stale workloads before preflight on a replay.
+            Optional<String> environmentProblem = findEnvironmentProblem(repositoryKey, frozenBaseSha);
+            if (environmentProblem.isPresent()) {
+                return failedAttempt("BLOCKED_ENVIRONMENT", environmentProblem.get(), readiness);
+            }
+            pristine = freezer.checkout(url, frozenBaseSha);
             if (runBaseline) {
                 progress(
                         context,
@@ -108,7 +133,7 @@ public final class InitialCodingAttempt {
                             new BaselineBuild(runtime)
                                     .run(
                                             workload,
-                                            base,
+                                            frozenBaseSha,
                                             repository,
                                             event -> progress(context, event));
                     readiness = baseline.readiness();
@@ -149,7 +174,6 @@ public final class InitialCodingAttempt {
                                 readiness);
                 }
             }
-            coding.requireConfigured();
             exported = CandidateFreezer.temporary("factory-dev-export-");
             CodingOutcome outcome;
             try (var workload =
@@ -185,7 +209,8 @@ public final class InitialCodingAttempt {
             }
             String candidate;
             if (outcome.status() == CodingOutcome.Status.COMPLETED) {
-                candidate = json.writeValueAsString(freezer.freeze(key, url, base, exported));
+                candidate = json.writeValueAsString(
+                        freezer.freeze(repositoryKey, url, frozenBaseSha, exported));
             } else if (outcome.status() == CodingOutcome.Status.NEEDS_DECISION) {
                 candidate = placeholder("NEEDS_DECISION", outcome.decision().question());
             } else {
@@ -223,6 +248,23 @@ public final class InitialCodingAttempt {
             CandidateFreezer.cleanup(pristine);
             CandidateFreezer.cleanup(exported);
         }
+    }
+
+    private Optional<String> findEnvironmentProblem(String repositoryKey, String frozenBaseSha) {
+        try {
+            coding.requireConfigured();
+        } catch (RuntimeException exception) {
+            // Provider failures can contain credentials; persist only the safe operator guidance.
+            return Optional.of(
+                    "Coding runtime configuration is incomplete or unsupported; check Developer Flow configuration.");
+        }
+        try {
+            repositoryPreflight.requireRepositoryReady(repositoryKey, frozenBaseSha);
+        } catch (RuntimeException exception) {
+            return Optional.of(
+                    "Selected repository configuration or access is not ready; check Developer Flow configuration.");
+        }
+        return Optional.empty();
     }
 
     private Attempt failedAttempt(String reason, JsonNode readiness) {

@@ -1,9 +1,14 @@
 package org.folio.factory.devfactory.runtime;
 
+import org.folio.factory.devfactory.DevFactoryConfiguration;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -12,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class DevRuntimePropertiesTest {
     @Test
     void independentProfilesKeepPiLegacyFallbacksAndExactClaudeModel() {
-        var values = new java.util.HashMap<String, Object>();
+        var values = new HashMap<String, Object>();
         String prefix = "factory.dev-factory.runtime.coding.";
         values.put(prefix + "runtime", "claude-code");
         values.put(prefix + "image", "legacy:image");
@@ -37,37 +42,53 @@ class DevRuntimePropertiesTest {
         coding.claudeCode().requireConfigured();
         assertThat(coding.toString() + coding.piProfile() + coding.claudeCode())
                 .doesNotContain("legacy-key", "new-pi-key", "claude-secret", "gateway.example");
-        var selected = new org.folio.factory.devfactory.DevFactoryConfiguration().devCodingRuntime(bind(values));
+        var selected = new DevFactoryConfiguration().devCodingRuntime(bind(values));
         assertThat(selected).isInstanceOf(ClaudeCodeCodingRuntime.class);
         assertThat(selected.identity()).containsEntry("model", "operator/Custom-Model-2026");
     }
 
     @Test
     void inactiveProfilesAreNotValidatedAndSelectionIsClosed() {
-        var configuration = new org.folio.factory.devfactory.DevFactoryConfiguration();
+        var configuration = new DevFactoryConfiguration();
         var empty = bind(Map.of("factory.dev-factory.runtime.coding.runtime", "claude-code",
                 "factory.dev-factory.runtime.coding.pi.max-output-tokens", "-1"));
         assertThat(configuration.devCodingRuntime(empty)).isInstanceOf(ClaudeCodeCodingRuntime.class);
         assertThat(configuration.devCodingRuntime(new DevRuntimeProperties(null, null, 0, null)))
-                .isInstanceOf(PiCodingRuntime.class);
+                .isInstanceOf(ClaudeCodeCodingRuntime.class);
         assertThatThrownBy(() -> configuration.devCodingRuntime(bind(Map.of(
                 "factory.dev-factory.runtime.coding.runtime", "unknown"))))
                 .hasMessageContaining("Unsupported coding runtime");
     }
 
     @Test
-    void claudeRejectsWrongProtocolAndRequiresSelectedCredentialBeforeExecution() {
+    void claudeRejectsWrongProtocolBeforeExecution() {
         var config = new DevRuntimeProperties.ClaudeCode(null, "openai-completions", "http://gateway",
                 "model", "api-key", "secret", null, null, null, null);
         var workload = org.mockito.Mockito.mock(DockerWorkloads.Workload.class);
         assertThatThrownBy(() -> new ClaudeCodeCodingRuntime(config).code(workload, null, 30))
                 .hasMessageContaining("api=anthropic-messages");
         org.mockito.Mockito.verifyNoInteractions(workload);
-        for (String auth : new String[] {null, "", "oauth", "bearer-token"}) {
-            var missing = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway", "model",
-                    auth, "api-key-is-not-a-token", null, null, null, null);
-            assertThatThrownBy(missing::requireConfigured).isInstanceOf(IllegalStateException.class);
-        }
+    }
+
+    @Test
+    void claudeRejectsUnsupportedAuthentication() {
+        var profile = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway", "model",
+                "oauth", null, null, null, null, null);
+
+        assertThatThrownBy(profile::requireConfigured)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("authentication must be api-key or bearer-token");
+    }
+
+    @Test
+    void claudeApiKeyAuthenticationRequiresItsOwnCredential() {
+        var profile = new DevRuntimeProperties.ClaudeCode(null, null, null, null,
+                "api-key", null, null, null, null, null);
+
+        assertThat(profile.authToken()).isEqualTo("codemie-proxy");
+        assertThatThrownBy(profile::requireConfigured)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("selected authentication credential");
     }
 
     private static DevRuntimeProperties bind(Map<String, ?> values) {
@@ -104,8 +125,9 @@ class DevRuntimePropertiesTest {
     }
 
     @Test
-    void bindsPlainOpenAiCompatibleProfileWithUnchangedDefaults() {
+    void explicitPiProfileRetainsItsSettings() {
         var source = new MapConfigurationPropertySource(Map.of(
+                "factory.dev-factory.runtime.coding.runtime", "pi",
                 "factory.dev-factory.runtime.coding.image", "pi:image",
                 "factory.dev-factory.runtime.coding.provider", "openai-compatible",
                 "factory.dev-factory.runtime.coding.model", "test-model",
@@ -117,17 +139,44 @@ class DevRuntimePropertiesTest {
         assertThat(coding.api()).isEqualTo("openai-completions");
         assertThat(coding.reasoningEffort()).isNull();
         assertThat(coding.maxOutputTokens()).isEqualTo(16384);
+        assertThat(coding.runtime()).isEqualTo("pi");
     }
 
     @Test
     void mavenCacheHasStableDefaultAndAcceptsOperatorOverride() {
         var defaults = new DevRuntimeProperties(null, null, 0, null);
         assertThat(defaults.mavenCacheVolume()).isEqualTo("factory-dev-m2-cache");
-        assertThat(defaults.coding().runtime()).isEqualTo("pi");
+        assertThat(defaults.coding().runtime()).isEqualTo("claude-code");
+        assertThat(defaults.coding().claudeCode().model()).isEqualTo("claude-sonnet-5-5");
+        assertThat(defaults.coding().claudeCode().baseUrl()).isEqualTo("http://host.docker.internal:4001");
+        assertThat(defaults.coding().claudeCode().authentication()).isEqualTo("bearer-token");
+        assertThat(defaults.coding().claudeCode().authToken()).isEqualTo("codemie-proxy");
+        assertThat(defaults.coding().claudeCode().maxTurns()).isEqualTo(40);
+        assertThat(defaults.coding().claudeCode().effort()).isNull();
+        assertThat(defaults.timeoutSeconds()).isEqualTo(1800);
         assertThat(defaults.coding().reasoningEffort()).isNull();
         assertThat(defaults.coding().maxOutputTokens()).isEqualTo(16384);
         assertThat(new DevRuntimeProperties(null, null, 0, "operator-cache").mavenCacheVolume())
                 .isEqualTo("operator-cache");
+    }
+
+    @Test
+    void localCodeMieDefaultsUseThePublicBearerTokenInsteadOfAnApiKey() {
+        var profile = new DevRuntimeProperties.ClaudeCode(null, null, null, null, null,
+                "api-key-is-not-a-token", null, null, null, null);
+
+        assertThat(profile.baseUrl()).isEqualTo("http://host.docker.internal:4001");
+        assertThat(profile.authentication()).isEqualTo("bearer-token");
+        assertThat(profile.secret()).isEqualTo("codemie-proxy");
+        profile.requireConfigured();
+    }
+
+    @Test
+    void explicitClaudeBearerTokenOverridesTheLocalCodeMieDefault() {
+        var configured = new DevRuntimeProperties.ClaudeCode(null, null, null, null, null,
+                null, "token", null, null, null);
+        configured.requireConfigured();
+        assertThat(configured.secret()).isEqualTo("token");
     }
 
     @Test
@@ -151,7 +200,26 @@ class DevRuntimePropertiesTest {
         assertThat(properties.requiredReports("roles")).containsExactly(
                 "target/failsafe-reports/TEST-org.folio.roles.it.CacheConfigIT.xml");
         assertThatThrownBy(() -> new DevRuntimeProperties(null, null, 0, null,
-                Map.of("roles", java.util.List.of("../target/failsafe-reports/TEST-a.xml"))))
+                Map.of("roles", List.of("../target/failsafe-reports/TEST-a.xml"))))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void bindsMavenReportFamiliesWithoutDependingOnTestClassNames() {
+        var source = new MapConfigurationPropertySource(Map.of(
+                "factory.dev-factory.runtime.required-reports.roles[0]", "surefire",
+                "factory.dev-factory.runtime.required-reports.roles[1]", "failsafe"));
+
+        var properties = new Binder(source).bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get();
+
+        assertThat(properties.requiredReports("roles")).containsExactly("surefire", "failsafe");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"unknown", "**/TEST-*.xml", "../surefire", "target/failsafe-reports/../TEST-a.xml"})
+    void rejectsUnknownFamiliesAndUnsafeReportRequirements(String requirement) {
+        assertThatThrownBy(() -> new DevRuntimeProperties(null, null, 0, null,
+                Map.of("roles", List.of(requirement))))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

@@ -10,7 +10,6 @@ import org.folio.factory.devfactory.runtime.Processes;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -72,10 +71,15 @@ public class CandidateVerifier {
                     output += System.lineSeparator() + "No usable test evidence: " + e.getMessage();
                 }
                 if (evidence != null && evidence.reportCount() == 0) evidence = null;
-                var executed = evidence == null ? Map.<String, Integer>of() : evidence.executedByReport();
-                var missingReports = requiredReports.stream().filter(path -> executed.getOrDefault(path, 0) < 1).toList();
-                if (!missingReports.isEmpty()) output += System.lineSeparator()
-                        + "Required Maven suites missing or entirely skipped: " + String.join(", ", missingReports);
+                var missingReports = requiredReports;
+                if (evidence != null) {
+                    missingReports = evidence.missingRequiredReports(requiredReports);
+                }
+                if (!missingReports.isEmpty()) {
+                    output += System.lineSeparator()
+                            + "Required Maven suites missing or containing entirely skipped reports: "
+                            + String.join(", ", missingReports);
+                }
                 if (evidence == null || evidence.testCount() == 0) {
                     output += System.lineSeparator() + "Trusted verification produced no fresh executed Surefire tests";
                 }

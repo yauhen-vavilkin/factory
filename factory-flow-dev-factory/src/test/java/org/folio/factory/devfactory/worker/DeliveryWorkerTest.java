@@ -430,12 +430,12 @@ class DeliveryWorkerTest {
     private static DeliveryWorker worker(CandidateDelivery delivery, GitHubConnector github,
                                          GitHubProperties githubProperties, String plan, String image,
                                          DevRuntimeProperties runtime) {
-        var repository = new DevFactoryProperties.Repository("folio-org/folio-module-sidecar", "master", image,
-                plan, List.of("MODSIDECAR"), List.of());
+        var repository = new DevFactoryProperties.Repository(
+                "folio-org/folio-module-sidecar", "master", image, plan, List.of("MODSIDECAR"), List.of(),
+                new DeliveryTarget("user/folio-module-sidecar", "master", true));
         var repositories = new DevFactoryProperties("https://github.com",
                 new TreeMap<>(Map.of("sidecar", repository)));
-        var targets = new DevDeliveryProperties(Map.of("sidecar",
-                new DeliveryTarget("user/folio-module-sidecar", "master", true)), true);
+        var targets = new DevDeliveryProperties(Map.of(), true);
         var state = mock(org.folio.factory.core.service.StateManager.class);
         when(state.get(any())).thenReturn(new org.folio.factory.core.domain.PipelineExecution("dev-factory", "0.8.0", null));
         return new DeliveryWorker(repositories, runtime, targets, delivery, githubProperties, github, new FrontmatterCodec(), state);

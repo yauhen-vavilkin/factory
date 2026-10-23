@@ -12,6 +12,7 @@ import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryReceipt;
+import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.PullRequestRenderer;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
@@ -96,11 +97,12 @@ public class DeliveryWorker implements AgentWorker {
         String issueKey = brief.path("issue").path("key").asString("");
         String summary = brief.path("issue").path("summary").asString("");
         var repository = repositories.repositories().get(candidate.repository());
-        if (repository == null)
+        if (repository == null) {
             throw new IllegalStateException(
                     "Missing trusted repository: " + candidate.repository());
+        }
         try {
-            var target = properties.requireTarget(candidate.repository());
+            DeliveryTarget target = properties.requireTarget(candidate.repository(), repositories);
             if (!verificationPolicy.matches(candidate, verification)) {
                 return blocked(
                         previous,

@@ -8,6 +8,8 @@
         <div class="page-header-meta">
             <span th:text="${flow['id']}">flow-id</span>
             <span class="badge badge-outline" th:text="'v' + ${flow['version']}">v1</span>
+            <a th:if="${flow['id'] == 'dev-factory'}" th:href="@{/developer/configuration}"
+               class="btn btn-outline btn-sm">Check configuration</a>
             <button type="button" class="btn btn-primary btn-sm" data-dialog-open="trigger-dialog">Trigger flow</button>
         </div>
     </div>
