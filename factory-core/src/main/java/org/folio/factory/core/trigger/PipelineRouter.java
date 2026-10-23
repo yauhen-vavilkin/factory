@@ -129,6 +129,36 @@ public class PipelineRouter {
         return create(flow, event, dedupKey).getId();
     }
 
+    /**
+     * Validates a manual trigger without creating anything: flow identity, input
+     * schema, payload size and plugin preflights all run here, before the caller's
+     * own transaction. Pair with {@link #routePrepared(PreparedManualTrigger)},
+     * which re-checks flow identity, dedup and the database budget at creation time.
+     */
+    public PreparedManualTrigger prepareManual(String flowId, JsonNode payload, String dedupKey) {
+        FlowDescriptor flow = flowRegistry.require(flowId);
+        requireInputs(flow, payload);
+        serializedWithinLimit(payload);
+        requireReady(flow.id(), payload);
+        return new PreparedManualTrigger(flow.id(), payload, dedupKey);
+    }
+
+    /**
+     * Creates an execution for a trigger prepared by {@link #prepareManual(String,
+     * JsonNode, String)}. Accepts only the prepared type, never a raw request, and
+     * repeats the creation-time guards: flow identity, dedup and daily budget.
+     */
+    public UUID routePrepared(PreparedManualTrigger prepared) {
+        FlowDescriptor flow = flowRegistry.require(prepared.flowId());
+        TriggerEvent event = TriggerEvent.of("manual", "api", prepared.payload());
+        Optional<PipelineExecution> existing = recentDuplicate(flow, event, prepared.dedupKey());
+        if (existing.isPresent()) {
+            return existing.get().getId();
+        }
+        enforceDailyBudget(List.of(flow));
+        return create(flow, event, prepared.dedupKey()).getId();
+    }
+
     private void requireReady(String flowId, JsonNode payload) {
         for (TriggerPreflight preflight : preflights) {
             preflight.requireReady(flowId, payload);
@@ -210,14 +240,7 @@ public class PipelineRouter {
     }
 
     private PipelineExecution create(FlowDescriptor flow, TriggerEvent event, String dedupKey) {
-        String payloadJson = event.payload() == null ? null : jsonMapper.writeValueAsString(event.payload());
-        if (payloadJson != null) {
-            int size = payloadJson.getBytes(StandardCharsets.UTF_8).length;
-            if (size > limits.maxTriggerPayloadBytes()) {
-                throw new IllegalArgumentException("Trigger payload is " + size
-                        + " bytes, exceeding the " + limits.maxTriggerPayloadBytes() + "-byte limit");
-            }
-        }
+        String payloadJson = serializedWithinLimit(event.payload());
         try {
             PipelineExecution execution =
                     stateManager.createExecution(flow.id(), flow.version(), payloadJson, dedupKey);
@@ -229,6 +252,19 @@ public class PipelineRouter {
             return stateManager.findRecentDuplicate(flow.id(), dedupKey, limits.dedup().window())
                     .orElseThrow(() -> race);
         }
+    }
+
+    private String serializedWithinLimit(JsonNode payload) {
+        if (payload == null) {
+            return null;
+        }
+        String payloadJson = jsonMapper.writeValueAsString(payload);
+        int size = payloadJson.getBytes(StandardCharsets.UTF_8).length;
+        if (size > limits.maxTriggerPayloadBytes()) {
+            throw new IllegalArgumentException("Trigger payload is " + size
+                    + " bytes, exceeding the " + limits.maxTriggerPayloadBytes() + "-byte limit");
+        }
+        return payloadJson;
     }
 
     /**

@@ -146,6 +146,7 @@ public class PilotDiscoveryService {
                         evaluation.eligibility(), truncated(evaluation.reason(), MAX_REASON_LENGTH)));
         task.setDisplayKey(issue.key());
         task.setTitle(truncated(issue.issue().summary(), MAX_TITLE_LENGTH));
+        task.setJiraCreatedAt(issue.createdAt());
         task.setProjectKey(issue.projectKey());
         task.setIssueSnapshot(json.writeValueAsString(snapshot));
         task.setSourceRevision(revision(snapshot));

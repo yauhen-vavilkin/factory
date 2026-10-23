@@ -198,21 +198,23 @@ mvn -B -ntp -pl factory-app -am -Dtest=PilotPersistenceIntegrationTest,PilotDisc
 - PipelineRouter.prepareManual(String flowId, JsonNode payload, String dedupKey) → PreparedManualTrigger performs schema/size/preflight checks before the pilot transaction.
 - PipelineRouter.routePrepared(PreparedManualTrigger) → UUID repeats current flow identity, dedup and database budget checks before creation; it accepts only the internal prepared type, not a REST request. Existing routeManual behavior and generic trigger endpoints remain compatible.
 
-- [ ] **1. Add subset/stale/idempotency tests.** No default selection; only selected eligible rows are admitted. A changed individual row is rejected with a reason; a global stale/source problem rejects the batch. Duplicate request and stale double click resolve to the existing admission.
-- [ ] **2. Add crash/transaction tests.** Inject failure after StateManager.createExecution but before attempt binding. The outer transaction must roll back execution, binding and active reservation together. Repeated dispatch after commit must return the same binding, including after the short trigger-dedup window.
+- [x] **1. Add subset/stale/idempotency tests.** No default selection; only selected eligible rows are admitted. A changed individual row is rejected with a reason; a global stale/source problem rejects the batch. Duplicate request and stale double click resolve to the existing admission.
+- [x] **2. Add crash/transaction tests.** Inject failure after StateManager.createExecution but before attempt binding. The outer transaction must roll back execution, binding and active reservation together. Repeated dispatch after commit must return the same binding, including after the short trigger-dedup window.
 ~~~java
 assertThat(result.admittedTaskIds()).containsExactly(taskAId);
 assertThat(result.rejectedReasons()).containsKey(changedTaskId);
 assertThat(executionsAfterInjectedRollback).isEmpty();
 assertThat(secondDispatchExecutionId).isEqualTo(firstDispatchExecutionId);
 ~~~
-- [ ] **3. Run the focused command to fail.**
+- [x] **3. Run the focused command to fail.**
 ~~~sh
 mvn -B -ntp -pl factory-app -am -Dtest=PilotAdmissionIntegrationTest,PilotDispatchIntegrationTest,PipelineRouterIntegrationTest,TriggerPreflightTest -Dsurefire.failIfNoSpecifiedTests=false test
 ~~~
-- [ ] **4. Implement admission and dispatch.** Re-read scope/task and run read-only prerequisites outside the short transaction. Inside it, lock/revalidate the installation and attempt versions, reserve one active attempt, invoke prepared engine creation with an attempt-specific dedup key and bind executionId atomically. StateManager.createExecution already participates in an outer REQUIRED transaction. Do not bypass router payload limits, budget or preflight.
-- [ ] **5. Keep the queue separate from engine executions.** Create an engine execution only for the one selected next attempt, not for every queued row. Stable order is Jira created time then key. A task leaving scope before its first start is withdrawn; a manual input/destination change returns it for selection.
-- [ ] **6. Rerun tests, review the generic router compatibility and commit S03.** Do not release the active reservation from RUNNING status alone; S05 supplies the outcome/ownership decision. Tests use fake launch/readiness dependencies until then.
+- [x] **4. Implement admission and dispatch.** Re-read scope/task and run read-only prerequisites outside the short transaction. Inside it, lock/revalidate the installation and attempt versions, reserve one active attempt, invoke prepared engine creation with an attempt-specific dedup key and bind executionId atomically. StateManager.createExecution already participates in an outer REQUIRED transaction. Do not bypass router payload limits, budget or preflight.
+- [x] **5. Keep the queue separate from engine executions.** Create an engine execution only for the one selected next attempt, not for every queued row. Stable order is Jira created time then key. A task leaving scope before its first start is withdrawn; a manual input/destination change returns it for selection.
+- [x] **6. Rerun tests, review the generic router compatibility and commit S03.** Do not release the active reservation from RUNNING status alone; S05 supplies the outcome/ownership decision. Tests use fake launch/readiness dependencies until then.
+
+**Done 2026-10-23.** Generic core seam PreparedManualTrigger + PipelineRouter.prepareManual/routePrepared (routeManual unchanged, full factory-core suite 126 green). One transaction covers reservation → routePrepared → binding → activeAttemptId; injected crash between execution creation and binding rolls back everything. Idempotency proven with the dedup window forced to PT0S (active-slot mechanism); concurrent duplicate requestIds resolve to the stored admission. Queue order is Jira created time then display key (V6 adds pilot_task.jira_created_at). Focused command green: admission 9, dispatch 6, discovery 7, router 8, preflight 11 — 41 run, 0 failed/skipped. Independent critic: ACCEPT WITH FIXES, all applied.
 
 ## S04 — Autonomous execution using the existing flow
 

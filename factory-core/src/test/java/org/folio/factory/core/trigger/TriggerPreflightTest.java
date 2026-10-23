@@ -4,6 +4,7 @@ import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.limits.DedupKeyDeriver;
 import org.folio.factory.core.limits.LimitsProperties;
 import org.folio.factory.core.registry.FlowRegistry;
+import org.folio.factory.core.registry.FlowValidationException;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.TriggerContract;
 import org.folio.factory.core.service.AuditLog;
@@ -27,6 +28,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -95,6 +97,71 @@ class TriggerPreflightTest {
 
         assertThat(router.route(TriggerEvent.of("test", "webhook", payload))).containsExactly(existing.getId());
         verifyNoInteractions(preflight);
+    }
+
+    @Test
+    void prepareManualValidatesAndCarriesIdentityWithoutCreating() {
+        var prepared = router.prepareManual("first", payload, "unique");
+
+        assertThat(prepared.flowId()).isEqualTo("first");
+        assertThat(prepared.payload()).isSameAs(payload);
+        assertThat(prepared.dedupKey()).isEqualTo("unique");
+        verify(preflight).requireReady("first", payload);
+        verify(state, never()).createExecution(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void failedPreparationCreatesNothing() {
+        doThrow(new IllegalArgumentException("not ready")).when(preflight).requireReady("first", payload);
+
+        assertThatThrownBy(() -> router.prepareManual("first", payload, "unique"))
+                .hasMessage("not ready");
+        verify(state, never()).createExecution(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void oversizePreparedPayloadIsRejectedBeforePreflight() {
+        JsonNode giant = json.readTree("{\"issueKey\":\"" + "x".repeat(300_000) + "\"}");
+
+        assertThatThrownBy(() -> router.prepareManual("first", giant, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("bytes");
+        verifyNoInteractions(preflight);
+    }
+
+    @Test
+    void routePreparedChecksIdentityDedupAndBudgetWithoutRepeatingPreflight() {
+        var execution = new PipelineExecution("first", "1", "{}");
+        when(state.createExecution(eq("first"), eq("1"), anyString(), eq("unique"))).thenReturn(execution);
+        var prepared = router.prepareManual("first", payload, "unique");
+
+        assertThat(router.routePrepared(prepared)).isEqualTo(execution.getId());
+
+        var order = inOrder(state);
+        order.verify(state).findRecentDuplicate("first", "unique", limits.dedup().window());
+        order.verify(state).createExecution(eq("first"), eq("1"), anyString(), eq("unique"));
+        verify(preflight, times(1)).requireReady(anyString(), any());
+    }
+
+    @Test
+    void routePreparedRevalidatesFlowIdentity() {
+        when(flows.require("missing")).thenThrow(new FlowValidationException("No registered flow with id 'missing'"));
+
+        assertThatThrownBy(() -> router.routePrepared(new PreparedManualTrigger("missing", payload, "unique")))
+                .isInstanceOf(FlowValidationException.class)
+                .hasMessageContaining("missing");
+        verify(state, never()).createExecution(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void routePreparedDedupesOntoExistingExecution() {
+        var existing = new PipelineExecution("first", "1", "{}");
+        when(state.findRecentDuplicate("first", "unique", limits.dedup().window()))
+                .thenReturn(Optional.of(existing));
+        var prepared = router.prepareManual("first", payload, "unique");
+
+        assertThat(router.routePrepared(prepared)).isEqualTo(existing.getId());
+        verify(state, never()).createExecution(anyString(), anyString(), any(), any());
     }
 
     private static FlowDescriptor flow(String id) {

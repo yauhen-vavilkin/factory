@@ -54,6 +54,7 @@ import static org.awaitility.Awaitility.await;
 class PilotDiscoveryIntegrationTest {
 
     private static final String INSTANCE = "localhost";
+    private static final String FIXTURE_CREATED = "2026-10-01T09:30:00.000+0000";
 
     @Container
     @ServiceConnection
@@ -131,6 +132,7 @@ class PilotDiscoveryIntegrationTest {
         assertThat(first.getJiraInstance()).isEqualTo(INSTANCE);
         assertThat(first.getProjectKey()).isEqualTo("MODBAR");
         assertThat(first.isInScope()).isTrue();
+        assertThat(first.getJiraCreatedAt()).isEqualTo(Instant.parse("2026-10-01T09:30:00Z"));
         JsonNode snapshot = json.readTree(first.getIssueSnapshot());
         assertThat(snapshot.path("key").asString()).isEqualTo("MODBAR-1");
         assertThat(snapshot.path("summary").asString()).isEqualTo("Summary of MODBAR-1");
@@ -346,8 +348,8 @@ class PilotDiscoveryIntegrationTest {
         return """
                 {"id": "%s", "key": "%s", "fields": {"summary": "%s", "description": "Description of %s", \
                 "status": {"name": "To Do"}, "issuetype": {"name": "Story"}, "labels": ["backend"], \
-                "created": "2026-10-01T09:30:00.000+0000", "components": [{"name": "api"}], \
-                "project": {"key": "%s"}%s}}""".formatted(id, key, summary, key, project, extraFields);
+                "created": "%s", "components": [{"name": "api"}], \
+                "project": {"key": "%s"}%s}}""".formatted(id, key, summary, key, FIXTURE_CREATED, project, extraFields);
     }
 
     private static String linked(String otherKey) {

@@ -59,6 +59,9 @@ public class PilotTask {
     @Column(name = "in_scope", nullable = false)
     private boolean inScope = true;
 
+    @Column(name = "jira_created_at")
+    private Instant jiraCreatedAt;
+
     @Version
     @Column(nullable = false)
     private long version;
@@ -168,6 +171,14 @@ public class PilotTask {
 
     public void setInScope(boolean inScope) {
         this.inScope = inScope;
+    }
+
+    public Instant getJiraCreatedAt() {
+        return jiraCreatedAt;
+    }
+
+    public void setJiraCreatedAt(Instant jiraCreatedAt) {
+        this.jiraCreatedAt = jiraCreatedAt;
     }
 
     public long getVersion() {
