@@ -213,6 +213,22 @@ class PilotAdmissionIntegrationTest {
     }
 
     @Test
+    void taskWithConsumedInitialAttemptIsNotReselectable() {
+        PilotTask selected = task("20091", "MODBAR-191");
+        run("run-12", selected);
+        PilotAttempt consumed = attempts.findByTaskIdOrderByOrdinalAsc(selected.getId()).getFirst();
+        consumed.setState(PilotAttempt.State.STOPPED);
+        consumed.setResultReason("coding: verification failed");
+        attempts.save(consumed);
+
+        var result = run("run-13", selected);
+
+        assertThat(result.admittedTaskIds()).isEmpty();
+        assertThat(result.rejectedReasons().get(selected.getId())).contains("already has an attempt");
+        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(selected.getId())).hasSize(1);
+    }
+
+    @Test
     void invalidRequestIdIsRejectedWithoutCreatingAttempts() {
         PilotTask selected = task("20081", "MODBAR-181");
 

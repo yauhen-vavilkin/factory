@@ -377,20 +377,22 @@ mvn -B -ntp -pl factory-app -am -Dtest=PilotAutomaticAdmissionIntegrationTest,Pi
 - PilotRetryService.retry(Retry) → RetryResult(attemptId, executionId, state, explanation); executionId may be absent while queued.
 - Reuse the S03 queue/launch mechanism and S05–S06 ownership/publication checks. Do not call InitialCodingAttempt.retry; that method is existing clarification continuation on the old base.
 
-- [ ] **1. Add retry eligibility tests.** Terminal unsuccessful and proven inactive can retry; queued/running, unknown ownership/publication and PR-ready cannot. Current scope/routing still applies; an optional label is not independently required.
-- [ ] **2. Add fresh-input/idempotency tests.** A deliberate Retry uses current bounded issue input and current source base, a new execution/owned attempt branch, and retains previous artifacts/costs. Duplicate and stale clicks never create two attempts.
-- [ ] **3. Add queued-retry change tests in both modes.** If approved input/destination/scope changes before start, preserve the withdrawn admission, restore the prior stopped result with a reason and require another Retry. Never put an attempted task into initial checkbox selection.
+- [x] **1. Add retry eligibility tests.** Terminal unsuccessful and proven inactive can retry; queued/running, unknown ownership/publication and PR-ready cannot. Current scope/routing still applies; an optional label is not independently required.
+- [x] **2. Add fresh-input/idempotency tests.** A deliberate Retry uses current bounded issue input and current source base, a new execution/owned attempt branch, and retains previous artifacts/costs. Duplicate and stale clicks never create two attempts.
+- [x] **3. Add queued-retry change tests in both modes.** If approved input/destination/scope changes before start, preserve the withdrawn admission, restore the prior stopped result with a reason and require another Retry. Never put an attempted task into initial checkbox selection.
 ~~~java
 assertThat(newAttemptId).isNotEqualTo(previousAttemptId);
 assertThat(secondClick.attemptId()).isEqualTo(firstClick.attemptId());
 assertThat(attemptHistory).hasSize(2);
 assertThat(changedQueuedRetry.state()).isEqualTo("STOPPED");
 ~~~
-- [ ] **4. Run the focused command to fail, then implement explicit retry transitions.**
+- [x] **4. Run the focused command to fail, then implement explicit retry transitions.**
 ~~~sh
 mvn -B -ntp -pl factory-app -am -Dtest=PilotRetryIntegrationTest,PilotAutomaticAdmissionIntegrationTest,PilotPublicationIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test
 ~~~
-- [ ] **5. Rerun, review and commit S08.** No automatic retry loop, reset-history shortcut or force-push reuse of an old branch.
+- [x] **5. Rerun, review and commit S08.** No automatic retry loop, reset-history shortcut or force-push reuse of an old branch.
+
+**Done 2026-10-24.** PilotRetryService: explicit RETRY attempt (admittedVia MANUAL, kind RETRY, ordinal+1) with current input and its own full deadline; eligibility keyed off attempt history (latest STOPPED; live/PR_READY/never-attempted reject) plus current scope/fingerprints; S03 idempotency reused (duplicate/stale clicks resolve or reject without new rows); queued-retry fingerprint changes stop at launch in both modes with the fresh-Retry reason. The critic found and this section fixed a real Global-Constraint hole: manual selection could create a second INITIAL attempt for an already-attempted task — admitOnce now rejects any task with a non-WITHDRAWN attempt; withdrawn-retry tasks stay retry-eligible when they return to scope. Focused command green: PilotRetryIntegrationTest 9, PilotAdmissionIntegrationTest 10, PilotAutomaticAdmissionIntegrationTest 12, PilotPublicationIntegrationTest 6 — 37 run, 0 failed/skipped. Full reactor green.
 
 ## S09 — Task projection and preserved tokenomics
 

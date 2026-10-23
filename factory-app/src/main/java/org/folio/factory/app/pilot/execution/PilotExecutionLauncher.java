@@ -17,6 +17,7 @@ import tools.jackson.databind.node.ObjectNode;
 
 import java.time.Instant;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -100,6 +101,15 @@ public class PilotExecutionLauncher {
             attempts.save(attempt);
             return null;
         }
+        if (attempt.getKind() == PilotAttempt.Kind.RETRY) {
+            String change = approvedRetryChange(installation, attempt, task);
+            if (change != null) {
+                attempt.setState(PilotAttempt.State.STOPPED);
+                attempt.setResultReason(change);
+                attempts.save(attempt);
+                return null;
+            }
+        }
         refreshAutomaticInput(installation, attempt, task);
         UUID executionId = router.routePrepared(prepared);
         attempt.setState(PilotAttempt.State.QUEUED);
@@ -114,6 +124,29 @@ public class PilotExecutionLauncher {
         installation.setActiveAttemptId(attemptId);
         installations.save(installation);
         return executionId;
+    }
+
+    /**
+     * A queued retry keeps the frozen input, destination and scope it was
+     * explicitly approved under. If any of them changed before start, the
+     * attempt stops with the S07 invalidation outcome instead of launching,
+     * and only another explicit Retry may admit fresh work.
+     */
+    private String approvedRetryChange(PilotInstallation installation, PilotAttempt attempt, PilotTask task) {
+        if (!Objects.equals(attempt.getScopeFingerprint(), installation.getObservedAuthorityFingerprint())) {
+            return "the pilot source authority changed after the retry was approved; the approved retry"
+                    + " no longer matches; run a fresh explicit Retry";
+        }
+        if (!Objects.equals(attempt.getInputFingerprint(), PilotAdmissionService.inputFingerprint(task))) {
+            return "the approved task input changed after the retry was approved; the approved retry"
+                    + " no longer matches; run a fresh explicit Retry";
+        }
+        if (!Objects.equals(attempt.getDestinationFingerprint(),
+                PilotAdmissionService.destinationFingerprint(task))) {
+            return "the approved destination changed after the retry was approved; the approved retry"
+                    + " no longer matches; run a fresh explicit Retry";
+        }
+        return null;
     }
 
     /**

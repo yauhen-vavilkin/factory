@@ -149,12 +149,16 @@ public class PilotAdmissionService {
         if (!attempts.findLiveByTaskId(task.getId()).isEmpty()) {
             return "task already has a live admission";
         }
+        if (attempts.findByTaskIdOrderByOrdinalAsc(task.getId()).stream()
+                .anyMatch(attempt -> attempt.getState() != PilotAttempt.State.WITHDRAWN)) {
+            return "task already has an attempt; use Retry";
+        }
         PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
         String authority = installation.getObservedAuthorityFingerprint();
         if (!matches(expectedAuthorityFingerprint, authority)) {
             return "pilot source changed since selection; review and select again";
         }
-        PilotAttempt attempt = new PilotAttempt(task.getId(), nextOrdinal(task.getId()),
+        PilotAttempt attempt = new PilotAttempt(task.getId(), nextOrdinal(attempts, task.getId()),
                 PilotAttempt.Kind.INITIAL, attemptRequestId(requestId, task.getId()), PilotAttempt.State.RESERVED);
         attempt.setInputFingerprint(selection.inputFingerprint());
         attempt.setScopeFingerprint(authority);
@@ -180,7 +184,7 @@ public class PilotAdmissionService {
         return null;
     }
 
-    private int nextOrdinal(UUID taskId) {
+    static int nextOrdinal(PilotAttemptRepository attempts, UUID taskId) {
         return attempts.findByTaskIdOrderByOrdinalAsc(taskId).stream()
                 .mapToInt(PilotAttempt::getOrdinal)
                 .max()
@@ -191,7 +195,7 @@ public class PilotAdmissionService {
         return requestId + "#" + taskId;
     }
 
-    private static String requireRequestId(String requestId) {
+    static String requireRequestId(String requestId) {
         if (requestId == null || requestId.isBlank()) {
             throw new IllegalArgumentException("A request id is required to admit selected tasks");
         }
@@ -203,7 +207,7 @@ public class PilotAdmissionService {
         return trimmed;
     }
 
-    private static boolean matches(String expected, String current) {
+    static boolean matches(String expected, String current) {
         return expected != null && expected.equals(current);
     }
 

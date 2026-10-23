@@ -4,10 +4,10 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Immutable admission commands shared by the manual selection UI, the API and
- * (from S07) automatic admission. Selections carry the task version and
- * input/destination identity the user selected against; admission revalidates
- * all of them against the current task before reserving an attempt.
+ * Immutable admission commands shared by the manual selection UI, the API,
+ * automatic admission (S07) and explicit Retry (S08). Selections carry the task
+ * version and input/destination identity the user selected against; admission
+ * revalidates all of them against the current task before reserving an attempt.
  */
 public final class PilotCommands {
 
@@ -22,5 +22,9 @@ public final class PilotCommands {
         public RunSelected {
             selections = selections == null ? List.of() : List.copyOf(selections);
         }
+    }
+
+    public record Retry(String requestId, UUID taskId, long expectedVersion, String inputFingerprint,
+                        String destinationFingerprint) {
     }
 }
