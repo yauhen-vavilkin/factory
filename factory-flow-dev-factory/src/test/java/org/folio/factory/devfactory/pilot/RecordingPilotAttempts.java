@@ -10,6 +10,8 @@ public final class RecordingPilotAttempts implements PilotAttemptPolicy {
 
     public final List<String> stops = new ArrayList<>();
     public int paidStartClaims;
+    public AttemptDeadline deadline;
+    public boolean ownsSlot = true;
 
     private final PilotExecutionContext context;
     private boolean claimUsed;
@@ -61,5 +63,21 @@ public final class RecordingPilotAttempts implements PilotAttemptPolicy {
     @Override
     public void recordStop(UUID executionId, String stage, String reason) {
         stops.add(stage + ": " + reason);
+    }
+
+    /** Sets the deadline returned for every subsequent deadline call. */
+    public RecordingPilotAttempts withDeadline(AttemptDeadline deadline) {
+        this.deadline = deadline;
+        return this;
+    }
+
+    @Override
+    public java.util.Optional<AttemptDeadline> deadline(UUID executionId) {
+        return java.util.Optional.ofNullable(deadline);
+    }
+
+    @Override
+    public boolean ownsActiveSlot(UUID executionId) {
+        return context == null || ownsSlot;
     }
 }

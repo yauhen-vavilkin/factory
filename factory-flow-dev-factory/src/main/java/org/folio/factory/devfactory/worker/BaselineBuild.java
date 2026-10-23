@@ -24,6 +24,7 @@ final class BaselineBuild {
             DockerWorkloads.Workload baseline,
             String base,
             DevFactoryProperties.Repository repository,
+            int timeoutSeconds,
             Consumer<Map<String, Object>> progress) {
         var command = runtime.command(repository.verificationPlan());
         var observer =
@@ -39,7 +40,7 @@ final class BaselineBuild {
             heartbeat.scheduleAtFixedRate(observer::heartbeat, 15, 30, TimeUnit.SECONDS);
             result =
                     baseline.execute(
-                            command, runtime.timeoutSeconds(), Processes.OUTPUT_LIMIT, observer);
+                            command, timeoutSeconds, Processes.OUTPUT_LIMIT, observer);
         } finally {
             observer.close();
             heartbeat.shutdownNow();

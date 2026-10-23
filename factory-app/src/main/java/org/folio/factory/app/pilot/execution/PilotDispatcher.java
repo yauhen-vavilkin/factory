@@ -4,6 +4,7 @@ import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
 import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
@@ -16,8 +17,10 @@ import java.util.UUID;
  * engine executions: dispatchNext creates exactly one execution for the next
  * attempt in stable order and is idempotent — while an attempt owns the
  * installation's active slot, every call returns that attempt's bound execution,
- * regardless of the router's dedup window. Only the attempt's terminal outcome
- * (S05) frees the slot for the next task.
+ * regardless of the router's dedup window. The active attempt is first
+ * reconciled through the outcome service: dispatch proceeds only after a
+ * terminal outcome releases the slot; a held or paused attempt keeps blocking
+ * the queue.
  */
 @Component
 public class PilotDispatcher {
@@ -25,12 +28,15 @@ public class PilotDispatcher {
     private final PilotAttemptRepository attempts;
     private final PilotInstallationRepository installations;
     private final PilotExecutionLauncher launcher;
+    private final ObjectProvider<PilotOutcomeService> outcomes;
 
     public PilotDispatcher(PilotAttemptRepository attempts, PilotInstallationRepository installations,
-                           PilotExecutionLauncher launcher) {
+                           PilotExecutionLauncher launcher,
+                           ObjectProvider<PilotOutcomeService> outcomes) {
         this.attempts = attempts;
         this.installations = installations;
         this.launcher = launcher;
+        this.outcomes = outcomes;
     }
 
     /**
@@ -41,7 +47,11 @@ public class PilotDispatcher {
     public Optional<UUID> dispatchNext() {
         PilotInstallation installation = installations.findById(1).orElse(null);
         if (installation != null && installation.getActiveAttemptId() != null) {
-            return Optional.of(activeBinding(installation.getActiveAttemptId()));
+            PilotOutcomeService outcomeService = outcomes.getIfAvailable();
+            if (outcomeService == null
+                    || !outcomeService.refresh(installation.getActiveAttemptId()).released()) {
+                return Optional.of(activeBinding(installation.getActiveAttemptId()));
+            }
         }
         List<PilotAttempt> candidates =
                 attempts.findDispatchable(PilotAttempt.State.RESERVED, PageRequest.of(0, 1));

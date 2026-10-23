@@ -136,6 +136,19 @@ services:
       FACTORY_RETENTION_TTL_DAYS:
       FACTORY_RETENTION_BATCH_SIZE:
       FACTORY_RETENTION_RUN_CRON:
+      # Pilot settings stay disabled by default: an unset null is omitted from the
+      # container, so Compose forwards them without activating any pilot behavior.
+      FACTORY_PILOT_DISCOVERY_ENABLED:
+      FACTORY_PILOT_DISCOVERY_POLL_INTERVAL_MS:
+      FACTORY_PILOT_EXECUTION_ENABLED:
+      FACTORY_PILOT_EXECUTION_DEADLINE:
+      FACTORY_PILOT_EXECUTION_RECOVERY_POLL_INTERVAL_MS:
+      FACTORY_PILOT_SOURCE:
+      FACTORY_PILOT_SPRINT_ID:
+      FACTORY_PILOT_STATUSES:
+      FACTORY_PILOT_ASSIGNEE:
+      FACTORY_PILOT_PROJECTS:
+      FACTORY_PILOT_LABEL:
       FACTORY_LOG_FORMAT:
       SPRING_CONFIG_IMPORT: classpath:developer-repositories.yaml,file:/application/config/developer-repositories.yaml,optional:file:/application/config/developer-pricing.yaml
     ports:

@@ -14,6 +14,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.time.Instant;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
@@ -34,16 +35,19 @@ public class PilotExecutionLauncher {
     private final PilotTaskRepository tasks;
     private final PilotAttemptRepository attempts;
     private final PilotInstallationRepository installations;
+    private final PilotExecutionProperties properties;
     private final TransactionTemplate transactions;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public PilotExecutionLauncher(PipelineRouter router, PilotTaskRepository tasks,
                                   PilotAttemptRepository attempts, PilotInstallationRepository installations,
+                                  PilotExecutionProperties properties,
                                   PlatformTransactionManager transactionManager) {
         this.router = router;
         this.tasks = tasks;
         this.attempts = attempts;
         this.installations = installations;
+        this.properties = properties;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -98,6 +102,12 @@ public class PilotExecutionLauncher {
         UUID executionId = router.routePrepared(prepared);
         attempt.setState(PilotAttempt.State.QUEUED);
         attempt.setExecutionId(executionId);
+        // Preparation (and with it the whole-attempt budget) starts here: queue
+        // waiting in RESERVED never consumes the budget and a replayed launch
+        // cannot reset the persisted deadline.
+        Instant startedAt = Instant.now();
+        attempt.setStartedAt(startedAt);
+        attempt.setDeadlineAt(startedAt.plus(properties.deadline()));
         attempts.save(attempt);
         installation.setActiveAttemptId(attemptId);
         installations.save(installation);

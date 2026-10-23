@@ -2,9 +2,12 @@ package org.folio.factory.app.pilot.execution;
 
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
+import org.folio.factory.app.pilot.persistence.PilotInstallation;
+import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
 import org.folio.factory.app.pilot.persistence.PilotRoutingReason;
 import org.folio.factory.app.pilot.persistence.PilotTask;
 import org.folio.factory.app.pilot.persistence.PilotTaskRepository;
+import org.folio.factory.devfactory.pilot.AttemptDeadline;
 import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
 import org.folio.factory.devfactory.pilot.PilotExecutionContext;
 import org.springframework.dao.OptimisticLockingFailureException;
@@ -15,6 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -22,7 +26,9 @@ import java.util.UUID;
  * The flow's pilot policy port over the durable admission state. Only an
  * attempt bound to the execution grants pilot policy, so legacy executions
  * resolve to no-pilot and keep their interactive behavior. The paid start is
- * claimed once per attempt and the first stop reason wins.
+ * claimed once per attempt, the first stop reason wins, and the persisted
+ * whole-attempt deadline plus the installation's active slot bound later side
+ * effects.
  */
 @Component
 public class PersistedPilotAttemptPolicy implements PilotAttemptPolicy {
@@ -31,13 +37,16 @@ public class PersistedPilotAttemptPolicy implements PilotAttemptPolicy {
 
     private final PilotAttemptRepository attempts;
     private final PilotTaskRepository tasks;
+    private final PilotInstallationRepository installations;
     private final TransactionTemplate transactions;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public PersistedPilotAttemptPolicy(PilotAttemptRepository attempts, PilotTaskRepository tasks,
+                                       PilotInstallationRepository installations,
                                        PlatformTransactionManager transactionManager) {
         this.attempts = attempts;
         this.tasks = tasks;
+        this.installations = installations;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -100,8 +109,27 @@ public class PersistedPilotAttemptPolicy implements PilotAttemptPolicy {
         }
     }
 
-    private static String truncated(String stage, String reason) {
+    static String truncated(String stage, String reason) {
         String value = (stage == null ? "" : stage) + ": " + (reason == null ? "" : reason);
         return value.length() <= MAX_REASON_LENGTH ? value : value.substring(0, MAX_REASON_LENGTH);
+    }
+
+    @Override
+    public Optional<AttemptDeadline> deadline(UUID executionId) {
+        return attempts.findByExecutionId(executionId)
+                .map(PilotAttempt::getDeadlineAt)
+                .filter(Objects::nonNull)
+                .map(AttemptDeadline::new);
+    }
+
+    @Override
+    public boolean ownsActiveSlot(UUID executionId) {
+        return attempts.findByExecutionId(executionId)
+                .filter(attempt -> attempt.getState().isLive())
+                .map(PilotAttempt::getId)
+                .flatMap(ownedId -> installations.findById(1)
+                        .map(PilotInstallation::getActiveAttemptId)
+                        .map(ownedId::equals))
+                .orElse(false);
     }
 }

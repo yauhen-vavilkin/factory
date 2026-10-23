@@ -9,8 +9,10 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.feedback.AttemptPricing;
+import org.folio.factory.devfactory.pilot.AttemptDeadline;
 import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
 import org.folio.factory.devfactory.pilot.PilotExecutionContext;
+import org.folio.factory.devfactory.pilot.PilotStops;
 import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
@@ -23,6 +25,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -131,6 +134,14 @@ public final class InitialCodingAttempt {
         Map<String, Object> metrics = Map.of();
         try (var stepScope = docker.beginStep(context.executionId(), context.stepId())) {
             // beginStep reconciles stale workloads before preflight on a replay.
+            Optional<PilotExecutionContext> pilot = pilotPolicy.find(context.executionId());
+            Optional<AttemptDeadline> deadline =
+                    pilot.isPresent() ? pilotPolicy.deadline(context.executionId()) : Optional.empty();
+            Optional<GuardStop> guard = pilotGuardProblem(context, pilot.isPresent(), deadline, "preparation");
+            if (guard.isPresent()) {
+                pilotPolicy.recordStop(context.executionId(), context.stepId(), guard.get().reason());
+                return failedAttempt(guard.get().state(), guard.get().reason(), readiness);
+            }
             Optional<String> environmentProblem = findEnvironmentProblem(repositoryKey, frozenBaseSha);
             if (environmentProblem.isPresent()) {
                 return failedAttempt("BLOCKED_ENVIRONMENT", environmentProblem.get(), readiness);
@@ -155,6 +166,7 @@ public final class InitialCodingAttempt {
                                             workload,
                                             frozenBaseSha,
                                             repository,
+                                            stageTimeoutSeconds(deadline, runtime.timeoutSeconds()),
                                             event -> progress(context, event));
                     readiness = baseline.readiness();
                     String summary = baseline.summary();
@@ -195,7 +207,11 @@ public final class InitialCodingAttempt {
                 }
             }
             if (claimPilotPaidStart) {
-                Optional<PilotExecutionContext> pilot = pilotPolicy.find(context.executionId());
+                guard = pilotGuardProblem(context, pilot.isPresent(), deadline, "coding");
+                if (guard.isPresent()) {
+                    pilotPolicy.recordStop(context.executionId(), context.stepId(), guard.get().reason());
+                    return failedAttempt(guard.get().state(), guard.get().reason(), readiness);
+                }
                 if (pilot.isPresent() && !pilotPolicy.claimPaidStart(context.executionId())) {
                     String reason =
                             "Paid coding was already started for pilot attempt " + pilot.get().attemptId()
@@ -221,7 +237,7 @@ public final class InitialCodingAttempt {
                         coding.code(
                                 workload,
                                 request,
-                                runtime.timeoutSeconds(),
+                                stageTimeoutSeconds(deadline, runtime.timeoutSeconds()),
                                 event -> {
                                     var detail = new LinkedHashMap<String, Object>(event);
                                     detail.put("attemptId", attemptId);
@@ -240,6 +256,11 @@ public final class InitialCodingAttempt {
             }
             String candidate;
             if (outcome.status() == CodingOutcome.Status.COMPLETED) {
+                guard = pilotGuardProblem(context, pilot.isPresent(), deadline, "candidate freeze");
+                if (guard.isPresent()) {
+                    pilotPolicy.recordStop(context.executionId(), context.stepId(), guard.get().reason());
+                    return failedAttempt(guard.get().state(), guard.get().reason(), readiness, metrics);
+                }
                 candidate = json.writeValueAsString(
                         freezer.freeze(repositoryKey, url, frozenBaseSha, exported));
             } else if (outcome.status() == CodingOutcome.Status.NEEDS_DECISION) {
@@ -279,6 +300,39 @@ public final class InitialCodingAttempt {
             CandidateFreezer.cleanup(pristine);
             CandidateFreezer.cleanup(exported);
         }
+    }
+
+    /**
+     * A stopped, superseded or expired pilot attempt must start no further side
+     * effects. Legacy executions without pilot policy never produce a guard stop.
+     */
+    private Optional<GuardStop> pilotGuardProblem(
+            AgentContext context, boolean pilotExecution, Optional<AttemptDeadline> deadline,
+            String stage) {
+        if (!pilotExecution) {
+            return Optional.empty();
+        }
+        if (!pilotPolicy.ownsActiveSlot(context.executionId())) {
+            return Optional.of(new GuardStop(PilotStops.INSPECTION_STATE,
+                    "the pilot attempt no longer owns the installation's active slot;"
+                            + " a stopped, superseded or released attempt must not continue"));
+        }
+        if (deadline.filter(budget -> budget.expired(Clock.systemUTC())).isPresent()) {
+            return Optional.of(new GuardStop(PilotStops.DEADLINE_STATE,
+                    "the whole-attempt deadline expired before " + stage
+                            + "; queue and human-review waiting are excluded from the budget"));
+        }
+        return Optional.empty();
+    }
+
+    /** The explicit stop state and reason, classified like VerifyWorker and DeliveryWorker. */
+    private record GuardStop(String state, String reason) {
+    }
+
+    private int stageTimeoutSeconds(Optional<AttemptDeadline> deadline, int perOperationSeconds) {
+        return deadline
+                .map(budget -> budget.capSeconds(Clock.systemUTC(), perOperationSeconds))
+                .orElse(perOperationSeconds);
     }
 
     private Optional<String> findEnvironmentProblem(String repositoryKey, String frozenBaseSha) {

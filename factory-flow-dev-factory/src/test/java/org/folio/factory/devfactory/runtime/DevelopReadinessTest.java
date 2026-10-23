@@ -9,6 +9,8 @@ import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
+import org.folio.factory.devfactory.pilot.AttemptDeadline;
+import org.folio.factory.devfactory.pilot.PilotStops;
 import org.folio.factory.devfactory.pilot.RecordingPilotAttempts;
 import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.worker.DevelopWorker;
@@ -23,6 +25,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -30,7 +33,13 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
+
+import org.mockito.ArgumentCaptor;
 
 class DevelopReadinessTest {
     @TempDir Path workspace;
@@ -383,6 +392,146 @@ class DevelopReadinessTest {
         verify(scope, never()).createSeeded(anyString(), any(), anyString(), anyString());
         verify(coding, never()).code(any(), any(), anyInt());
         verify(coding, never()).code(any(), any(), anyInt(), any());
+    }
+
+    @Test
+    void anExpiredPilotDeadlinePreventsEveryStageSideEffect() {
+        var pilots = RecordingPilotAttempts.pilot("repo")
+                .withDeadline(new AttemptDeadline(Instant.now().minusSeconds(1)));
+        var harness = pilotHarness(pilots);
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains(PilotStops.DEADLINE_STATE)
+                .contains("expired before preparation");
+        verify(harness.freezer(), never()).checkout(anyString(), anyString());
+        verify(harness.scope(), never()).createTrusted(anyString(), any(), anyString());
+        verify(harness.scope(), never()).createSeeded(anyString(), any(), anyString(), anyString());
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any());
+        assertThat(pilots.stops).singleElement().satisfies(stop -> {
+            assertThat(stop).startsWith("implement: ");
+            assertThat(stop).contains("deadline expired");
+        });
+    }
+
+    @Test
+    void aDeadlineExpiringDuringBaselinePreventsCodingWithoutConsumingThePaidStart() {
+        var pilots = RecordingPilotAttempts.pilot("repo")
+                .withDeadline(new AttemptDeadline(Instant.now().plusSeconds(3)));
+        var harness = pilotHarness(pilots);
+        when(harness.baseline().execute(anyList(), anyInt(), anyInt(), any())).thenAnswer(
+                invocation -> {
+                    Thread.sleep(4000);
+                    return new Processes.Result(0, "[INFO] BUILD SUCCESS");
+                });
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains(PilotStops.DEADLINE_STATE)
+                .contains("expired before coding");
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any());
+        assertThat(pilots.paidStartClaims).isZero();
+        assertThat(pilots.stops).anyMatch(stop -> stop.contains("deadline expired before coding"));
+    }
+
+    @Test
+    void theRemainingBudgetCapsEveryStageTimeoutBelowTheConfiguredPerOperationLimit() {
+        var pilots = RecordingPilotAttempts.pilot("repo")
+                .withDeadline(new AttemptDeadline(Instant.now().plusSeconds(45)));
+        var harness = pilotHarness(pilots);
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("NEEDS_DECISION");
+        var baselineTimeout = ArgumentCaptor.forClass(Integer.class);
+        verify(harness.baseline()).execute(anyList(), baselineTimeout.capture(), anyInt(), any());
+        assertThat(baselineTimeout.getValue()).isStrictlyBetween(40, 45);
+        var codingTimeout = ArgumentCaptor.forClass(Integer.class);
+        verify(harness.coding()).code(any(), any(CodingRequest.class), codingTimeout.capture(), any());
+        assertThat(codingTimeout.getValue()).isStrictlyBetween(40, 45);
+    }
+
+    @Test
+    void aLegacyAttemptWithoutPersistedDeadlineRunsUnboundedWithoutGuardStops() {
+        // RecordingPilotAttempts without a deadline mirrors pre-S05 rows: no
+        // deadline_at is persisted, so the whole-attempt budget never applies.
+        var pilots = RecordingPilotAttempts.pilot("repo");
+        var harness = pilotHarness(pilots);
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("NEEDS_DECISION");
+        verify(harness.baseline()).execute(anyList(), anyInt(), anyInt(), any());
+        verify(harness.coding()).code(any(), any(CodingRequest.class), anyInt(), any());
+        assertThat(pilots.paidStartClaims).isEqualTo(1);
+        assertThat(pilots.stops).isEmpty();
+    }
+
+    @Test
+    void aPilotAttemptThatLostItsSlotStopsWithoutAnyStageSideEffect() {
+        var pilots = RecordingPilotAttempts.pilot("repo");
+        pilots.ownsSlot = false;
+        var harness = pilotHarness(pilots);
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains(PilotStops.INSPECTION_STATE)
+                .contains("no longer owns the installation's active slot");
+        verify(harness.freezer(), never()).checkout(anyString(), anyString());
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any());
+        assertThat(pilots.stops).anyMatch(stop -> stop.contains("no longer owns"));
+    }
+
+    /**
+     * Shared pilot harness: docker, freezer and coding stubs allow the attempt to
+     * run through baseline into coding; individual tests override specific stubs
+     * or the recording pilot policy state.
+     */
+    private PilotHarness pilotHarness(RecordingPilotAttempts pilots) {
+        var repository = new DevFactoryProperties.Repository(
+                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
+        var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
+        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var docker = mock(DockerWorkloads.class);
+        var scope = mock(DockerWorkloads.StepScope.class);
+        var baseline = mock(DockerWorkloads.Workload.class);
+        var codingWorkload = mock(DockerWorkloads.Workload.class);
+        var freezer = mock(CandidateFreezer.class);
+        var coding = mock(CodingRuntime.class);
+        var codec = new FrontmatterCodec();
+        var request = request();
+        var context = context(codec, request);
+        when(coding.image()).thenReturn("coding:image");
+        when(coding.identity()).thenReturn(Map.of("runtime", "stub", "image", "coding:image"));
+        when(docker.beginStep(context.executionId(), "implement")).thenReturn(scope);
+        when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
+        when(scope.createTrusted(anyString(), any(), anyString())).thenReturn(baseline);
+        when(scope.createSeeded(anyString(), any(), anyString(), anyString())).thenReturn(codingWorkload);
+        when(baseline.execute(anyList(), anyInt(), anyInt(), any()))
+                .thenReturn(new Processes.Result(0, "[INFO] BUILD SUCCESS"));
+        when(coding.code(any(), any(CodingRequest.class), anyInt(), any()))
+                .thenReturn(CodingOutcome.needsDecision(new CodingOutcome.Decision(
+                        CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"),
+                        Map.of()));
+        var attempt = new InitialCodingAttempt(
+                properties, settings, docker, freezer, coding, codec,
+                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), pilots);
+        return new PilotHarness(docker, scope, baseline, codingWorkload, freezer, coding,
+                new DevelopWorker(attempt, codec), context);
+    }
+
+    private record PilotHarness(
+            DockerWorkloads docker,
+            DockerWorkloads.StepScope scope,
+            DockerWorkloads.Workload baseline,
+            DockerWorkloads.Workload codingWorkload,
+            CandidateFreezer freezer,
+            CodingRuntime coding,
+            DevelopWorker worker,
+            AgentContext context) {
     }
 
     private static AgentContext context(FrontmatterCodec codec, CodingRequest request) {

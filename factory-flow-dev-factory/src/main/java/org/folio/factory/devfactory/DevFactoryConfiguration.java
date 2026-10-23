@@ -150,8 +150,9 @@ public class DevFactoryConfiguration {
     }
 
     @Bean
-    public VerifyWorker devVerifyWorker(CandidateVerifier verifier) {
-        return new VerifyWorker(verifier);
+    public VerifyWorker devVerifyWorker(
+            CandidateVerifier verifier, ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
+        return new VerifyWorker(verifier, pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
     }
 
     @Bean
@@ -168,7 +169,8 @@ public class DevFactoryConfiguration {
             GitHubProperties githubProperties,
             @Qualifier("gitHubConnector") GitHubConnector github,
             FrontmatterCodec frontmatter,
-            StateManager state) {
+            StateManager state,
+            ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
         return new DeliveryWorker(
                 repositories,
                 runtime,
@@ -177,7 +179,8 @@ public class DevFactoryConfiguration {
                 githubProperties,
                 github,
                 frontmatter,
-                state);
+                state,
+                pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
     }
 
     @Bean

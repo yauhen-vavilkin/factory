@@ -7,10 +7,12 @@ import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.runtime.Processes;
+import org.folio.factory.devfactory.pilot.AttemptDeadline;
 
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Independent acceptance authority. No coding output or task text supplies executable policy. */
@@ -35,12 +37,27 @@ public class CandidateVerifier {
                 repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git");
     }
 
+    /** Verification bounded by the pilot attempt's remaining whole-attempt budget. */
+    public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate,
+                                      Optional<AttemptDeadline> deadline) {
+        var repository = repositories.repositories().get(candidate.repository());
+        if (repository == null) throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
+        return verify(executionId, stepId, candidate,
+                repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git", deadline);
+    }
+
     /** Source is supplied by Factory's authorized PR adapter, never by model output. */
     public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate, String sourceUrl) {
+        return verify(executionId, stepId, candidate, sourceUrl, Optional.empty());
+    }
+
+    private VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate,
+                                       String sourceUrl, Optional<AttemptDeadline> deadline) {
         var repository = repositories.repositories().get(candidate.repository());
         if (repository == null) throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
         var command = runtime.command(repository.verificationPlan());
         var requiredReports = runtime.requiredReports(repository.verificationPlan());
+        int timeoutSeconds = stageTimeoutSeconds(deadline);
         // reconstruct checks the Git tree before any command can execute.
         Path source = candidates.reconstruct(sourceUrl, candidate);
         Path exported = null;
@@ -52,7 +69,7 @@ public class CandidateVerifier {
                 Instant started = Instant.now();
                 Processes.Result observation;
                 try {
-                    observation = workload.execute(command, runtime.timeoutSeconds());
+                    observation = workload.execute(command, timeoutSeconds);
                 } catch (IllegalStateException e) {
                     // Transport failure has no process exit status. Still preserve available reports.
                     observation = new Processes.Result(-1, Objects.toString(e.getMessage(), "Command failed without diagnostic"));
@@ -103,6 +120,13 @@ public class CandidateVerifier {
             CandidateFreezer.cleanup(source);
             CandidateFreezer.cleanup(exported);
         }
+    }
+
+    /** min(existing per-operation limit, remaining whole-attempt budget). */
+    private int stageTimeoutSeconds(Optional<AttemptDeadline> deadline) {
+        return deadline
+                .map(budget -> budget.capSeconds(java.time.Clock.systemUTC(), runtime.timeoutSeconds()))
+                .orElse(runtime.timeoutSeconds());
     }
 
     private static String safeOutput(String output) {

@@ -6,6 +6,8 @@ import org.folio.factory.app.pilot.admission.PilotAdmissionService;
 import org.folio.factory.app.pilot.admission.PilotCommands;
 import org.folio.factory.app.pilot.execution.PilotDispatcher;
 import org.folio.factory.app.pilot.execution.PilotExecutionLauncher;
+import org.folio.factory.app.pilot.execution.PilotExecutionProperties;
+import org.folio.factory.app.pilot.execution.PilotOutcomeService;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
@@ -45,6 +47,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Serial dispatch against real PostgreSQL: one queued attempt at a time gets one
@@ -251,8 +255,16 @@ class PilotDispatchIntegrationTest {
     }
 
     private PilotDispatcher dispatcherWithRouter(PipelineRouter crashingRouter) {
-        var launcher = new PilotExecutionLauncher(crashingRouter, tasks, attempts, installations, transactionManager);
-        return new PilotDispatcher(attempts, installations, launcher);
+        var launcher = new PilotExecutionLauncher(crashingRouter, tasks, attempts, installations,
+                new PilotExecutionProperties(null), transactionManager);
+        return new PilotDispatcher(attempts, installations, launcher, outcomesProvider());
+    }
+
+    private org.springframework.beans.factory.ObjectProvider<PilotOutcomeService> outcomesProvider() {
+        org.springframework.beans.factory.ObjectProvider<PilotOutcomeService> provider =
+                mock(org.springframework.beans.factory.ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(null);
+        return provider;
     }
 
     private PipelineRouter crashingAfterCreation() {

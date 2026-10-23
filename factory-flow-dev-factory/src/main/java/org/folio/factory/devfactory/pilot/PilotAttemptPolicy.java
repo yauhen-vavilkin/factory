@@ -25,6 +25,20 @@ public interface PilotAttemptPolicy {
      */
     void recordStop(UUID executionId, String stage, String reason);
 
+    /**
+     * The whole-attempt budget persisted when preparation started, or empty for
+     * executions without a pilot deadline.
+     */
+    Optional<AttemptDeadline> deadline(UUID executionId);
+
+    /**
+     * Whether the attempt bound to the execution still owns the installation's
+     * active slot. A released or superseded attempt must start no further side
+     * effects. An execution with no persisted attempt row returns false; the
+     * standalone {@link #none()} policy always owns its slot.
+     */
+    boolean ownsActiveSlot(UUID executionId);
+
     /** Standalone workers may run without the application's pilot persistence. */
     static PilotAttemptPolicy none() {
         return new PilotAttemptPolicy() {
@@ -40,6 +54,16 @@ public interface PilotAttemptPolicy {
 
             @Override
             public void recordStop(UUID executionId, String stage, String reason) {
+            }
+
+            @Override
+            public Optional<AttemptDeadline> deadline(UUID executionId) {
+                return Optional.empty();
+            }
+
+            @Override
+            public boolean ownsActiveSlot(UUID executionId) {
+                return true;
             }
         };
     }

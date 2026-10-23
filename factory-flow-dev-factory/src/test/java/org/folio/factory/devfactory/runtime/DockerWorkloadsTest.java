@@ -125,6 +125,81 @@ class DockerWorkloadsTest {
     }
 
     @Test @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
+    void anExpiredExecLeavesTheWorkloadRunningUntilOwnedCleanupReconciles() throws Exception {
+        Files.writeString(source.resolve("source.txt"), "source");
+        try (var scope = scope();
+             var workload = scope.createSeeded("maven:3.9-eclipse-temurin-21", source, fixtureVolume, "coding")) {
+            String name = workload.name();
+            assertThatThrownBy(() -> workload.execute(List.of("sh", "-c", "sleep 30"), 2))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("exceeded 2 seconds");
+            // Killing the docker exec client did not stop the owned workload.
+            assertThat(Processes.run(null, List.of("docker", "inspect", "-f",
+                    "{{.State.Running}}", name), 30).output().strip()).isEqualTo("true");
+        }
+        new DockerWorkloads().cleanOwned(executionId, STEP);
+    }
+
+    @Test @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
+    void anActiveOwnedOperationKeepsCleanupUncertaintyUntilItIsProvenInactive() throws Exception {
+        Files.writeString(source.resolve("source.txt"), "source");
+        var docker = new DockerWorkloads();
+        var scope = docker.beginStep(executionId, STEP);
+        var workload = scope.createSeeded("maven:3.9-eclipse-temurin-21", source, fixtureVolume, "coding");
+        String name = workload.name();
+        try {
+            assertThatThrownBy(() -> docker.cleanOwned(executionId, STEP))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("still active");
+            assertThat(Processes.run(null, List.of("docker", "inspect", "-f",
+                    "{{.State.Running}}", name), 30).output().strip()).isEqualTo("true");
+        } finally {
+            workload.close();
+            scope.close();
+        }
+        new DockerWorkloads().cleanOwned(executionId, STEP);
+        assertThat(Processes.run(null, List.of("docker", "inspect", name), 30).exitCode()).isNotZero();
+    }
+
+    @Test @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
+    void executionScopedCleanupRemovesOwnedWorkloadsWhateverStepCreatedThem() {
+        String image = "maven:3.9-eclipse-temurin-21";
+        String stray = "factory-dev-" + UUID.randomUUID();
+        String other = "factory-dev-" + UUID.randomUUID();
+        UUID otherExecution = UUID.randomUUID();
+        try {
+            Processes.run(null, List.of("docker", "create", "--name", stray,
+                    "--label", "factory.dev-owned=true", "--label", "factory.dev-execution=" + executionId,
+                    "--label", "factory.dev-step=pr-feedback-" + UUID.randomUUID(),
+                    "--entrypoint", "/bin/sh", image, "-c", "sleep infinity"), 30).requireSuccess();
+            Processes.run(null, List.of("docker", "create", "--name", other,
+                    "--label", "factory.dev-owned=true", "--label", "factory.dev-execution=" + otherExecution,
+                    "--label", "factory.dev-step=" + STEP,
+                    "--entrypoint", "/bin/sh", image, "-c", "sleep infinity"), 30).requireSuccess();
+
+            new DockerWorkloads().cleanOwnedExecution(executionId);
+
+            assertThat(Processes.run(null, List.of("docker", "inspect", stray), 30).exitCode())
+                    .as("a feedback step id outside the agent chain is still removed")
+                    .isNotZero();
+            assertThat(Processes.run(null, List.of("docker", "inspect", other), 30).exitCode())
+                    .as("another execution's owned workloads are untouched")
+                    .isZero();
+        } finally {
+            Processes.run(null, List.of("docker", "rm", "--force", stray), 30);
+            Processes.run(null, List.of("docker", "rm", "--force", other), 30);
+        }
+    }
+
+    @Test @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
+    void anActiveOwnedOperationAlsoKeepsExecutionScopedCleanupUncertain() {
+        var docker = new DockerWorkloads();
+        try (var scope = docker.beginStep(executionId, STEP)) {
+            assertThatThrownBy(() -> docker.cleanOwnedExecution(executionId))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("still active");
+        }
+        new DockerWorkloads().cleanOwnedExecution(executionId);
+    }
+
+    @Test @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
     void trustedCachePersistsButSeededWorkloadCannotModifyIt() throws Exception {
         Files.writeString(source.resolve("source.txt"), "source");
         Files.writeString(source.resolve("pom.xml"), """

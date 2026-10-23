@@ -274,26 +274,28 @@ mvn -B -ntp -pl factory-app -am -Dtest=PilotAutonomousFlowIntegrationTest,Intake
 - PilotRecoveryService.reconcileActive() → void; scheduled/startup reconciliation examines the one reserved pilot attempt.
 - Outcome states distinguish PR_READY, STOPPED, NEEDS_INSPECTION and a shared processing pause. Engine COMPLETED alone is not PR_READY.
 
-- [ ] **1. Add fake-clock deadline tests.** Several individually short stages can exhaust the sixty-minute total; expiry before a next stage prevents its side effect. Queue time does not consume the budget and restart does not reset it.
-- [ ] **2. Add replay/ownership tests.** A paid-start checkpoint with no definitive finish never starts coding again automatically. Lost ownership/failed cleanup holds the reservation. Stale workers cannot publish or mark a newer attempt complete.
+- [x] **1. Add fake-clock deadline tests.** Several individually short stages can exhaust the sixty-minute total; expiry before a next stage prevents its side effect. Queue time does not consume the budget and restart does not reset it.
+- [x] **2. Add replay/ownership tests.** A paid-start checkpoint with no definitive finish never starts coding again automatically. Lost ownership/failed cleanup holds the reservation. Stale workers cannot publish or mark a newer attempt complete.
 ~~~java
 assertThat(deadline.remaining(clock)).isEqualTo(Duration.ofMinutes(5));
 assertThat(secondPaidStartClaim).isFalse();
 assertThat(nextTaskStartedWhenCleanupUnknown).isFalse();
 ~~~
-- [ ] **3. Add queue-outcome tests.** Success/failure/success advances after a task-specific inactive failure. Shared provider/auth/environment error produces one installation pause. A PR ready task releases the slot before feedback/merge. FAILED_ESCALATED is not sufficient proof of a safe terminal stop.
-- [ ] **4. Run the focused command to fail, then implement deadline and strict ownership handling.**
+- [x] **3. Add queue-outcome tests.** Success/failure/success advances after a task-specific inactive failure. Shared provider/auth/environment error produces one installation pause. A PR ready task releases the slot before feedback/merge. FAILED_ESCALATED is not sufficient proof of a safe terminal stop.
+- [x] **4. Run the focused command to fail, then implement deadline and strict ownership handling.**
 ~~~sh
 mvn -B -ntp -pl factory-app -am -Dtest=AttemptDeadlineTest,PilotLifecycleIntegrationTest,ProcessesTest,DevelopReadinessTest,ClaudeCodeCodingRuntimeTest,CandidateVerifierTest,ExecutionEngineTest -Dsurefire.failIfNoSpecifiedTests=false test
 ~~~
-- [ ] **5. Pass the remaining budget through preparation, baseline, coding, verification and publication.** A per-command timeout of 3600 seconds does not implement a total deadline. Stop later side effects when the attempt is stopped, expired or no longer owned.
-- [ ] **6. Confirm actual workload inactivity.** Reuse DockerWorkloads.cleanOwned(executionId, stepId) and the FeedbackResources cleanup pattern. Workload.close logs/swallowing cleanup failure or killing docker exec alone is not proof. Keep uncertainty visible and block another paid task until resolved.
-- [ ] **7. Exercise real local-container termination and replay fixtures.**
+- [x] **5. Pass the remaining budget through preparation, baseline, coding, verification and publication.** A per-command timeout of 3600 seconds does not implement a total deadline. Stop later side effects when the attempt is stopped, expired or no longer owned.
+- [x] **6. Confirm actual workload inactivity.** Reuse DockerWorkloads.cleanOwned(executionId, stepId) and the FeedbackResources cleanup pattern. Workload.close logs/swallowing cleanup failure or killing docker exec alone is not proof. Keep uncertainty visible and block another paid task until resolved.
+- [x] **7. Exercise real local-container termination and replay fixtures.**
 ~~~sh
 FACTORY_DOCKER_TEST=true mvn -B -ntp -pl factory-flow-dev-factory -am -Dtest=DockerWorkloadsTest,ClaudeCodeDockerTest,FeedbackDockerTest -Dsurefire.failIfNoSpecifiedTests=false test
 ~~~
 These tests use local synthetic providers; verify no configured live-provider endpoint is used.
-- [ ] **8. Review and commit S05.** Expected task failures propagate stopped artifacts. Unexpected engine retries must still encounter the durable paid-start/ownership guards, never a fresh model invocation.
+- [x] **8. Review and commit S05.** Expected task failures propagate stopped artifacts. Unexpected engine retries must still encounter the durable paid-start/ownership guards, never a fresh model invocation.
+
+**Done 2026-10-23.** AttemptDeadline persisted once in the binding transaction; every stage (baseline, coding, verification, all git/publication ops) capped at min(per-op limit, remaining); guards precede claimPaidStart, candidate freeze, verify and delivery; expired attempts never consume the paid start; legacy executions keep exact per-op timeouts. PilotOutcomeService is the sole slot writer: DELIVERED+URL → PR_READY mid-run, task-specific terminal → STOPPED, shared provider/runtime failure → one PROCESSING_PAUSED installation pause (cause persisted), FAILED_ESCALATED/COMPLETED alone never release; release requires workload inactivity proven by cleanOwned over chain steps plus execution-scoped cleanup (feedback containers included). Recovery on startup + 60s, both gated behind factory.pilot.execution.enabled (default false). Forty-turn cap = existing runtime default 40. Both mandated commands green: 93 (incl. AttemptDeadlineTest 5, PilotLifecycleIntegrationTest 7) and FACTORY_DOCKER_TEST=true 35 with real container termination. Independent critic: ACCEPT WITH FIXES, all applied.
 
 ## S06 — Official/test destinations and current publication authority
 

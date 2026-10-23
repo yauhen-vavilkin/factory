@@ -14,8 +14,10 @@ import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryReceipt;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
+import org.folio.factory.devfactory.delivery.PublicationGit;
 import org.folio.factory.devfactory.delivery.PullRequestRenderer;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
+import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.verification.VerificationPolicy;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
@@ -24,6 +26,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -40,6 +43,7 @@ public class DeliveryWorker implements AgentWorker {
     private final GitHubConnector github;
     private final FrontmatterCodec frontmatter;
     private final StateManager executionState;
+    private final PilotAttemptPolicy pilotPolicy;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public DeliveryWorker(
@@ -51,6 +55,20 @@ public class DeliveryWorker implements AgentWorker {
             GitHubConnector github,
             FrontmatterCodec frontmatter,
             StateManager executionState) {
+        this(repositories, runtime, properties, delivery, githubProperties, github,
+                frontmatter, executionState, PilotAttemptPolicy.none());
+    }
+
+    public DeliveryWorker(
+            DevFactoryProperties repositories,
+            DevRuntimeProperties runtime,
+            DevDeliveryProperties properties,
+            CandidateDelivery delivery,
+            GitHubProperties githubProperties,
+            GitHubConnector github,
+            FrontmatterCodec frontmatter,
+            StateManager executionState,
+            PilotAttemptPolicy pilotPolicy) {
         this.repositories = repositories;
         this.verificationPolicy = new VerificationPolicy(repositories, runtime);
         this.executionState = executionState;
@@ -59,6 +77,7 @@ public class DeliveryWorker implements AgentWorker {
         this.githubProperties = githubProperties;
         this.github = github;
         this.frontmatter = frontmatter;
+        this.pilotPolicy = pilotPolicy;
     }
 
     @Override
@@ -101,6 +120,11 @@ public class DeliveryWorker implements AgentWorker {
             throw new IllegalStateException(
                     "Missing trusted repository: " + candidate.repository());
         }
+        String guard = pilotStop(context);
+        if (guard != null) {
+            return blocked(previous, candidate, guard);
+        }
+        int gitTimeoutSeconds = stageTimeoutSeconds(context);
         try {
             DeliveryTarget target = properties.requireTarget(candidate.repository(), repositories);
             if (!verificationPolicy.matches(candidate, verification)) {
@@ -128,7 +152,8 @@ public class DeliveryWorker implements AgentWorker {
                                     verification,
                                     target,
                                     githubProperties.token(),
-                                    true)
+                                    true,
+                                    gitTimeoutSeconds)
                             : delivery.deliver(
                                     context.executionId().toString(),
                                     issueKey,
@@ -137,7 +162,9 @@ public class DeliveryWorker implements AgentWorker {
                                     candidate,
                                     verification,
                                     target,
-                                    githubProperties.token());
+                                    githubProperties.token(),
+                                    false,
+                                    gitTimeoutSeconds);
             String prUrl = "";
             String prTitle = "";
             if (properties.createPullRequest()) {
@@ -215,6 +242,35 @@ public class DeliveryWorker implements AgentWorker {
 
     private AgentResult blocked(JsonNode previous, Candidate candidate, String reason) {
         return blocked(previous, candidate, reason, null);
+    }
+
+    /** A stopped, expired or no-longer-owned pilot attempt must not publish. */
+    private String pilotStop(AgentContext context) {
+        if (pilotPolicy.find(context.executionId()).isEmpty()) {
+            return null;
+        }
+        if (!pilotPolicy.ownsActiveSlot(context.executionId())) {
+            String reason = "the pilot attempt no longer owns the installation's active slot;"
+                    + " a stopped, superseded or released attempt must not publish";
+            pilotPolicy.recordStop(context.executionId(), context.stepId(), reason);
+            return reason;
+        }
+        var expired = pilotPolicy.deadline(context.executionId())
+                .filter(deadline -> deadline.expired(Clock.systemUTC()));
+        if (expired.isPresent()) {
+            String reason = "the whole-attempt deadline expired before publication;"
+                    + " queue and human-review waiting are excluded from the budget";
+            pilotPolicy.recordStop(context.executionId(), context.stepId(), reason);
+            return reason;
+        }
+        return null;
+    }
+
+    private int stageTimeoutSeconds(AgentContext context) {
+        return pilotPolicy.deadline(context.executionId())
+                .map(budget -> budget.capSeconds(Clock.systemUTC(),
+                        PublicationGit.DEFAULT_TIMEOUT_SECONDS))
+                .orElse(PublicationGit.DEFAULT_TIMEOUT_SECONDS);
     }
 
     private AgentResult blocked(

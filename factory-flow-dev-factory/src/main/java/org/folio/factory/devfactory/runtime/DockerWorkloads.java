@@ -40,23 +40,44 @@ public class DockerWorkloads {
         if (activeSteps.contains(executionId + "/" + stepId))
             throw new IllegalStateException("Workload operation is still active");
         reconcile(executionId, stepId);
-        var remaining = Processes.run(null, List.of("docker", "ps", "-aq",
-                "--filter", "label=factory.dev-owned=true", "--filter", "label=factory.dev-execution=" + executionId,
-                "--filter", "label=factory.dev-step=" + stepId), 30).requireSuccess();
+        requireNoOwnedContainers(executionId, stepId);
+    }
+
+    /**
+     * Strict cleanup for a quiescent execution: every owned workload of the
+     * execution, whatever step — including feedback invocations outside the
+     * flow's agent chain. Failure must remain visible.
+     */
+    public void cleanOwnedExecution(UUID executionId) {
+        if (executionId == null)
+            throw new IllegalArgumentException("Invalid Factory workload ownership");
+        if (activeSteps.stream().anyMatch(key -> key.startsWith(executionId + "/")))
+            throw new IllegalStateException("Workload operation is still active");
+        reconcile(executionId, null);
+        requireNoOwnedContainers(executionId, null);
+    }
+
+    private void requireNoOwnedContainers(UUID executionId, String stepId) {
+        var remaining = Processes.run(null, ownedFilterCommand(executionId, stepId), 30).requireSuccess();
         if (!remaining.output().isBlank()) throw new IllegalStateException("Owned containers remain");
     }
 
     private void reconcile(UUID executionId, String stepId) {
-        var result = Processes.run(null, List.of("docker", "ps", "-aq",
-                "--filter", "label=factory.dev-owned=true",
-                "--filter", "label=factory.dev-execution=" + executionId,
-                "--filter", "label=factory.dev-step=" + stepId), 30).requireSuccess();
+        var result = Processes.run(null, ownedFilterCommand(executionId, stepId), 30).requireSuccess();
         for (String id : result.output().split("\\R")) {
             if (id.isBlank()) continue;
             if (!id.matches("[a-fA-F0-9]{12,64}")) throw new IllegalStateException("Invalid Docker workload identity");
             log.warn("Removing stale Developer workload {} for execution {} step {}", id, executionId, stepId);
             Processes.run(null, List.of("docker", "rm", "--force", id), 30).requireSuccess();
         }
+    }
+
+    private static List<String> ownedFilterCommand(UUID executionId, String stepId) {
+        var command = new ArrayList<>(List.of("docker", "ps", "-aq",
+                "--filter", "label=factory.dev-owned=true",
+                "--filter", "label=factory.dev-execution=" + executionId));
+        if (stepId != null) command.addAll(List.of("--filter", "label=factory.dev-step=" + stepId));
+        return command;
     }
 
     public final class StepScope implements AutoCloseable {
