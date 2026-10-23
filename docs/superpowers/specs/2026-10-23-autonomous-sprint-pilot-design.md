@@ -2,222 +2,279 @@
 
 **Date:** 2026-10-23
 
-**Status:** Revised design for review. Documentation only; no implementation or paid campaign is authorized by this document.
+**Status:** Revised design for review. Documentation only; no implementation, paid campaign or publication is authorized by this document.
 
 **Approach:** Develop the existing Factory, as selected in the product discussion.
 
-**Scope authority:** This revision replaces the earlier M1 definitions in this file and incorporates the user's four mandatory priorities below. The browser mockups illustrate the product direction; their particular settings forms, controls and summary cards are not M1 acceptance requirements. A friendly UI and preservation of existing tokenomics are required regardless of the chosen layout.
+**Scope authority:** This revision incorporates the product discussion and the latest comments about filters, repository destinations, manual admission and retry. It replaces earlier M1 limits of one Jira project, a mandatory label, fork-only delivery and no retry. The browser mockups illustrate the direction; this document defines the required behavior. General UI settings remain optional.
 
 ## 1. Product promise
 
-An engineer adds a label to a suitable Jira task and returns to their main work. Factory discovers the task, prepares its context, implements it, runs the required checks and creates a PR in the configured fork. If it cannot finish, it records a clear reason and estimated spending, then takes the next task. The engineer checks the results when convenient, normally once a day.
+An engineer delegates suitable Jira work and returns to their main task. Factory discovers the work, prepares its context, implements it, runs the required checks and creates a PR in the configured repository. If it cannot finish, it records a clear reason and observed usage/estimated cost, then takes the next task. The engineer checks the results when convenient, normally once a day.
 
-The value is completing the routine workflow without repeated prompts to check the code, handle NEWS, create a PR or remember an unfinished agent session. Engineers keep their preferred coding tools for deeper work. Ordinary human PR review remains part of engineering; the pilot measures additional review effort and interruptions relative to that normal workflow.
+There are two ways to delegate: select matching Jira tasks on the dashboard and press **Run selected**, or enable automatic processing for a clearly configured filter. A label can narrow that filter but is not mandatory. In automatic mode with a label condition, the familiar scenario remains **label in Jira → PR or clear stopped outcome**. Without a label condition, matching the enabled filter is delegation.
 
-The first milestone is a small usable pilot for a few engineers during one sprint. It tests whether delegation saves attention. Broad repository support, a polished configuration product and proof of commercial viability are later questions.
+The value is completing the routine workflow without repeated prompts to check code, handle NEWS, create a PR or remember an unfinished agent session. Engineers keep their preferred coding tools for deeper work. Ordinary human PR review remains part of engineering; the pilot measures additional review effort and interruptions relative to that normal workflow.
+
+The first milestone is a usable pilot for a few engineers during one sprint. It tests whether delegation saves attention. General repository support, a full configuration product and proof of commercial viability are later questions.
 
 ### Four mandatory product requirements
 
 1. **Simple first use.** A developer seeing Factory for the first time can deploy and configure it independently through a short, prepared startup path. Few required values, useful defaults and actionable errors are part of M1.
-2. **Autonomous daily operation.** After delegation, normal tasks reach a PR or a clear stopped result without intermediate prompts, stage supervision or routine maintainer intervention. Task-specific failures do not require an immediate response and do not block later work.
-3. **A friendly, readable UI.** Clear typography, result hierarchy, task-oriented wording and simple navigation are acceptance requirements. Engineers should not need to understand execution IDs or engine internals to use the product.
-4. **Preserved tokenomics.** Existing token counts, usage breakdowns, estimated costs, totals and indicators of incomplete data remain available. Reducing new analytics work must not remove existing visibility.
+2. **Autonomous daily operation.** Once a task is admitted, it reaches a PR or a clear stopped result without intermediate prompts, stage supervision or routine maintainer intervention. Task-specific failures do not need an immediate response and do not block later work.
+3. **A friendly, readable UI.** Clear typography, result hierarchy, task-oriented wording and simple navigation are acceptance requirements. Engineers should not need to understand execution IDs or engine internals.
+4. **Preserved tokenomics.** Existing token counts, usage breakdowns, estimated costs, totals and indicators of incomplete data remain available, including unsuccessful work and repeat attempts.
 
-Configuration through the UI is optional. A small, understandable environment template is sufficient if the first-use requirement is met. Optional UI settings must not delay delivery of these four requirements.
+General configuration through the UI is optional. The required mode switch, task checkboxes, Run selected and Retry are operational controls, not an optional settings editor.
 
 ## 2. The smallest useful M1
 
-**M1 is ready when a first-time engineer can independently start a prepared sprint source, label suitable tasks, and later understand each result through a friendly UI with the existing tokenomics intact. Normal execution needs no supervision between the label and the PR or stopped outcome.**
+**M1 is ready when a first-time engineer can configure a team's sprint source, choose manual or automatic admission, and later understand each result through a friendly UI with the existing tokenomics intact. Execution needs no supervision between admission and the PR or stopped outcome.**
 
-The minimum supported shape is one engineer, one local installation with persistent storage, one Jira project and explicit sprint, one prepared public source repository, one personal GitHub.com fork and one packaged execution profile. Tasks are independent and run sequentially.
+The supported shape is one engineer, one local installation with persistent storage, one team source and one explicit sprint. That source can contain several Jira projects and route independent tasks to several prepared repositories. Each task targets exactly one repository, and tasks run sequentially. M1 does not coordinate separate installations.
 
-The proposed reference repository remains folio-org/mgr-tenant-entitlements. The existing Java 21/Maven java21-unit policy runs `mvn -B -ntp test` and requires fresh executed Surefire reports. Only tasks whose required evidence fits that policy are supported. A task requiring unavailable integration infrastructure must stop; this scope does not weaken the repository's verification requirements.
+For the pilot, only one installation may process an overlapping Jira scope. Independent engineers use non-overlapping filters, for example by assignee, or share responsibility for one processing installation. The setup guide must state this limitation: local deduplication does not detect or prevent another installation taking the same task. Distributed locking is outside M1.
 
-### Required now versus optional or deferred
+Reuse the existing repository catalog. Qualify at least two prepared project-to-repository mappings so multi-project intake is real, not a future promise. Proposed reference presets are folio-org/mgr-tenant-entitlements and folio-org/mgr-applications with the existing Java 21/Maven java21-unit policy: `mvn -B -ntp test` and fresh executed Surefire reports. These are qualification candidates, not new evidence of successful runs.
+
+Only work whose required evidence fits its preset is supported. A task needing unavailable integration infrastructure stops; a preset must not weaken repository verification requirements. Other existing presets can remain available, but their presence in configuration does not prove pilot readiness.
+
+### Required now versus deferred
 
 | Area | Required for M1 | Optional or deferred |
 | --- | --- | --- |
-| Setup | A small commented environment template, one prepared repository preset and one startup path that performs necessary checks | UI settings are optional; a setup wizard, catalog import and live configuration changes are deferred |
-| Jira intake | One fixed project/sprint/assignee/status/label filter, complete polling and visible sync state | Board picker, general JQL builder, story-point rules, backlog intake, automatic sprint rollover |
-| Queue | One active task, stable ordering, persistent admission and one attempt per issue | Parallelism, drag-and-drop ordering, dependency chains, multiple installations coordinating |
-| Execution | Existing isolated coding flow, contribution instructions, required checks and verified PR delivery | New harness, general skill marketplace, automatic repair/review loops |
-| Failure | Clear stopped outcome, preserved evidence and costs; task failures release the queue | Product Retry, Stop and Take over buttons; automatic recovery from uncertain execution/publication |
-| UI | Friendly, readable task list and detail screens with clear result hierarchy and navigation; visible effective setup | New frontend stack, broad navigation redesign, new charts/search/filter suite and exact reproduction of the mockups |
-| Cost and limits | Preserve existing tokens, breakdowns, costs, totals and incomplete-data indicators; bound each task | New daily-reset budgets, hard dollar caps and cross-sprint analytics; no mandatory installation-lifetime task quota |
-| PR follow-up | Engineer reviews the delivered PR in their usual tools | Automatic comment watcher; new feedback UX or feedback work required for pilot completion |
+| Setup | Small commented template, prepared repository presets, one startup path with coordinated checks | General UI settings optional; setup wizard and live editing of all configuration deferred |
+| Jira source | Team board or saved filter, explicit sprint and eligible statuses; optional assignee, project and label restrictions | General JQL builder, dedicated story-point rules, backlog mode, automatic sprint rollover |
+| Admission | Switchable manual gate, default on for testing; checkboxes and Run selected; automatic mode for the configured scope | Rich approval workflows, per-stage approvals |
+| Queue | One active task, stable ordering, durable initial admission and explicit retry attempts | Parallelism, manual ordering, dependencies, coordination across installations |
+| Execution and PR | Existing isolated flow, repository instructions, required checks; configurable authorized official or test repository | New harness, general skill marketplace, new AI review/repair loops |
+| Failure and retry | Clear stopped result, preserved evidence/costs, next task continues; explicit bounded Retry | Automatic retry loops, general resume framework, Take over/Cancel controls |
+| UI | Readable task list and detail, clickable Jira keys, effective scope/mode/destination, required operational controls | New frontend stack, exact mockup reproduction, new charts/search suite |
+| Costs and limits | Preserve existing tokenomics; current-attempt and cumulative task costs; bound each attempt | New daily-reset budgets, hard dollar caps and cross-sprint analytics |
+| PR follow-up | Normal human review; retain existing supported feedback behavior | Automatic comment watcher, new feedback workflow or UI |
 
-Jira remains read-only. Initial PRs target personal forks. No external notifications, merge or deployment is included. The engineer's private skills and personal workflow are not shared product inputs.
+Jira remains read-only. The normal product destination is the configured official folio-org repository; personal forks are a configurable destination for our testing. No external notifications, merge or deployment is included. The engineer's private skills and personal workflow are not shared product inputs.
 
-### Approaches and the reduction
+The user selected extending the existing Factory over building a separate service. Reuse its execution, verification, delivery and accounting foundations. The deliberate new work is intake, admission controls, explicit retry, destination support and the usable task presentation. Minimal M1 means bounding those features, not removing an agreed product requirement.
 
-The user selected extending the existing Factory over building a separate service. This preserves its execution, verification, delivery and accounting foundations.
-
-Within that approach, the earlier design required editable configuration, several new task controls and broader recovery behavior. This revision uses prepared configuration, two readable screens and conservative stopping on uncertainty. The scope reduction removes new mechanisms while keeping simple onboarding, autonomous daily use, UI usability and existing tokenomics mandatory. It does not permit moving routine orchestration work onto the engineer.
-
-## 3. Setup: configure once, then use Jira
+## 3. Setup: configure once, then delegate
 
 ### 3.1 One prepared startup path
 
 1. Start the supported local CodeMie proxy.
-2. Copy the pilot environment template and fill the connection credentials, target sprint and personal fork. The prepared preset supplies repository routing, base branch, build checks and ordinary defaults.
-3. Run one documented Factory start action. It performs the necessary configuration and runtime checks, reports the effective source and destination, and enables processing when ready. The action explicitly discloses the small bounded model check; it may include one first-run confirmation of the delegated scope within the same startup path.
-4. Open the dashboard. It shows Ready/Processing or an actionable startup problem with the setting or dependency to fix. Once ready, delegate suitable tasks by adding the Jira label.
+2. Copy the pilot environment template. Set credentials/endpoints, the team's board or saved filter, the sprint, and the prepared repository/destination entries. Optional restrictions have explicit defaults. The testing example uses manual admission and personal fork destinations.
+3. Run one documented Factory start action. It validates configuration and runtime prerequisites and reports the effective Jira scope, mode and repository destinations. It explicitly discloses a small bounded model check.
+4. Open the dashboard. In manual mode, inspect the discovered tasks, select suitable ones and press Run selected. Enable automatic mode when ready to delegate all eligible current and future matches.
 
-The guide must provide exact commands for the delivered build. It must not require reading source code, editing workflow YAML, writing JQL, inventing verification commands or using APIs/database queries to discover configuration values. The sprint identifier needs a direct, documented way to obtain it. A small helper command is acceptable; a setup application is not required. The release must provide versioned images or one documented build path.
+The guide must provide exact commands for the delivered build and versioned images or one documented build path. It must not require reading source code, editing workflow YAML, writing JQL, inventing verification commands or querying a database. Accept a board/saved-filter URL or ID and provide a direct documented way to obtain the sprint ID/name; a small helper command is sufficient.
 
-Starting the product must not require a manual disable → separate checks → change flag → restart sequence. Necessary internal checks remain, but the startup path coordinates them. If a prerequisite fails, the engineer fixes the named cause and repeats the same start action; there must be no undocumented recovery ceremony.
+Starting must not require a manual disable → separate checks → change flag → restart sequence. The startup action coordinates checks. On failure, show the named setting or dependency to fix; repeat the same action after correction.
 
-Ordinary setup values are limited to connection credentials/endpoints, sprint ID, fork destination and an optional base-branch override. Advanced bounds remain documented defaults. The prepared Jira project, eligible status and delegation label are explicit in the template and effective configuration; changing them is a configuration edit followed by the same start path. An operational intake-disable control may exist, but toggling it is not a required first-use step.
+Required values are connections, one team source, one sprint and the enabled prepared repository destinations. Eligible statuses come from an explicit editable default. Assignee, project allowlist and label are optional narrowings. Presets supply project routing, source repository, base branch, build environment and verification policy; normal users should not fill these from scratch.
 
-Use the existing environment/catalog mechanism as the single configuration authority. Do not add a second settings database, import rules or runtime editing. Preserve the effective non-secret inputs used by each attempt using existing execution artifacts.
+Use the existing environment/catalog mechanism as configuration authority. A small persisted operational mode and admission history do not justify a second general settings database. Show effective non-secret configuration and save the configuration/input identity used by each attempt.
 
-### 3.2 One supported runtime
+### 3.2 Team scope and filter fields
 
-The qualification target is the current packaged Claude Code 2.1.287 profile, literal model identifier claude-sonnet-5-5 and the local CodeMie proxy, with Java 21/Maven. Record the tested image identity, instructions and verification policy in the release and attempt evidence. Pilot engineers need access to the supported CodeMie deployment/model.
+Use one existing team board or saved filter as the base scope. A team's work can span projects; neither the board's location project nor a guessed universal Jira Team field defines the whole scope. For a board, resolve its underlying saved filter. Show that source by name/link and use its query as the base, with the following additional restrictions:
 
-These are design targets taken from the inspected project, not new runtime evidence. Controlled conditions improve comparability; they do not guarantee identical output or an immutable provider model alias.
+| Field | M1 behavior |
+| --- | --- |
+| Team source | Required existing board or saved filter URL/ID; one source can cover multiple projects |
+| Sprint | Required explicit team sprint ID, displayed by name; no automatic rollover |
+| Eligible statuses | Required non-empty configured list, initially the prepared To Do status(es); not hard-coded to one project's status ID |
+| Assignee | Optional: no extra restriction by default in the testing template; support authenticated user or specified account |
+| Projects | Optional allowlist; empty adds no restriction to the team source |
+| Label | Optional existing label; empty disables Factory's additional label condition |
 
-The startup path checks readable Jira scope, repository/base/fork authorization and available Docker images. Its explicitly disclosed, bounded model check from the actual coding container verifies inference, a tool call and usable usage reporting. The check makes no Jira writes or PRs and reports its own token use/cost separately from task execution. A complete applicable rate configuration is required for the supported profile.
+All added restrictions use AND with the base scope. For example: team source + sprint + eligible status; optionally add “assigned to me” and an existing label. Neither a project nor an assignee restriction is secretly mandatory. Creating a new Jira label, custom field or shared filter is not a setup prerequisite.
 
-Both checks must pass before intake is enabled; the startup path handles this without separate operator steps. Reuse valid runtime evidence for the unchanged profile/connection so an ordinary restart does not require another paid smoke check or human approval. Recheck affected prerequisites after relevant configuration changes. No connection-test button or separate readiness management screen is required. Opening the dashboard or reading the Jira filter does not invoke a model.
+Disabling Factory's label condition does not remove a label clause already present in the saved filter. Show inherited restrictions as part of the effective scope. Unsupported projects remain visible as Not eligible with a routing explanation; do not silently drop them or guess a repository.
 
-## 4. Jira intake and execution
+The dashboard shows a plain-language scope summary, source link, sprint, optional restrictions, mode and last complete sync. Effective query details may sit behind an expandable section. Existing clauses in a saved filter can already express other conditions; M1 does not build a graphical query language, story-point adapter or team-field discovery system.
 
-### 4.1 One explicit filter
+Resolve the source and validate the generated query against the connected Jira instance. An unreadable source, invalid status/sprint or failed query is a visible configuration/source error, never a fallback to all issues. Changing the explicit sprint uses the same configuration/start path. Backlog intake and automatic sprint advance are deferred.
 
-The shipped template expresses:
+Technical references: [board configuration and its filter reference](https://developer.atlassian.com/cloud/jira/software/rest/api-group-board/), [JQL fields](https://support.atlassian.com/jira-software-cloud/docs/jql-fields/) and [issue search](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/).
 
-> Configured Jira project + explicit sprint ID + delegation label + configured To Do status + authenticated engineer as assignee.
+### 3.3 Repository routing and PR destination
 
-The proposed label is factory-ready. There is no board selector or arbitrary query editor in M1. The project narrows intake to the single prepared repository. The guide explains how to obtain the sprint ID and confirms the resulting sprint name/scope during setup.
+A Jira project maps to exactly one enabled prepared repository preset. Several projects may route to the same preset. Missing or ambiguous mapping produces Not eligible and a concrete configuration hint; no paid work starts. Tasks spanning several repositories are outside M1.
 
-The effective filter and destination are visible read-only. Enabling intake includes future matching tasks in the same sprint, not just the initial preview. Nothing silently advances to the next sprint. The engineer disables intake at the end of the pilot; changing the sprint uses the same startup path, which rechecks the changed scope. A separate sprint-lifecycle monitor is deferred.
+Keep these identities explicit:
 
-Poll every five minutes while enabled. Follow all search pages and update Last successful sync only after a complete read. A failed or partial read must show a source problem, not an empty successful result. The initial read-only match list may reuse the task table or a setup-command report; it does not require a preview modal.
+| Identity | Meaning and M1 behavior |
+| --- | --- |
+| Source repository/ref | Where the workspace starts; normally the official repository and configured base |
+| PR target repository/base | Where the PR is opened; normally the corresponding folio-org repository, configurable for testing |
+| Publication repository/branch | Where Factory pushes its owned branch; in M1 it is the same repository as the PR target |
 
-Use the supported Jira search API and validate the generated filter against the connected instance. Technical references remain the [JQL field reference](https://support.atlassian.com/jira-software-cloud/docs/jql-fields/) and [issue search API](https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/).
+The minimum delivery topology is a branch and PR in the same configured repository. Official delivery therefore requires credentials allowed to create a branch and PR there. A personal-fork test profile puts both the branch and PR in that fork. Fork-head → official-base PRs are a separate topology and are not required for this minimum pilot; an engineer without official branch permissions cannot use its official-delivery mode yet. State this limitation in setup, not after paid work.
 
-### 4.2 Minimal persistent admission
+The current code explicitly blocks folio-org delivery even though catalog defaults name official repositories. Removing that blanket restriction in favor of explicit configured destination authorization and validating the existing delivery path is necessary M1 work, not just a documentation/configuration change. Retain protections against force-push, overwriting user work and unrelated destinations.
 
-Identify issues by Jira instance and immutable issue ID. Persist admission and execution identity before launching paid work. Repeated polls, label removal/re-addition, task edits and application restarts must not create a second attempt for an already attempted issue. The existing short trigger deduplication window is insufficient.
+Show the resolved destination before manual admission or enabling automatic mode and on task details. Testing must never switch to official repositories automatically. A permission failure must not trigger an alternative destination. Configuration changes must not redirect previously admitted work silently.
 
-A task not yet attempted can leave the queue if it no longer matches; it may become eligible again before its first attempt. Completed, unsuccessful and uncertain attempts remain recorded. Clearing history or changing the sprint is not a supported way to rerun them.
+### 3.4 One supported runtime
 
-Only one active task runs. Use stable creation-time/issue-key order; reading Jira rank and manual queue ordering are deferred. Each task starts from the configured source base, never an earlier unmerged PR. Known prerequisites that make a task unsuitable are reported, not solved through a dependency scheduler.
+The qualification target is the current packaged Claude Code 2.1.287 profile, literal model identifier claude-sonnet-5-5 and local CodeMie proxy, with Java 21/Maven. Record tested image identity, instructions and verification policy in release/attempt evidence. Engineers need access to the supported deployment/model.
 
-Re-read the issue before starting. Snapshot the task inputs actually passed to the agent. Before publication, recheck delegation and those inputs. Removed delegation, changed requirements or an unavailable recheck stops publication and retains the result. A direct comparison of consumed input is enough for M1; no semantic change-analysis service is required.
+These are design targets from inspected source, not new runtime evidence. Pinning the environment improves comparability but does not guarantee identical output or an immutable provider alias.
 
-### 4.3 Complete the task without intermediate prompts
+The startup path checks readable Jira scope, enabled repository mappings, source/base access, configured publication authorization and Docker images. Its explicitly disclosed, bounded check from the actual coding container verifies inference, a tool call and usable usage reporting. It creates no Jira writes or PRs and reports its usage/cost separately. A complete applicable rate configuration is required.
+
+Prerequisites must pass before task execution. Discovery and preview can remain available with a visible execution blocker. Reuse valid runtime evidence for an unchanged profile/connection so ordinary restart requires neither another paid check nor approval. Recheck affected prerequisites after relevant changes. Opening the dashboard, syncing Jira and displaying unselected tasks never invoke a model.
+
+## 4. Intake, admission and complete execution
+
+### 4.1 Read-only discovery
+
+Poll every five minutes while discovery is enabled. Follow all search pages; update Last successful sync only after a complete read. A failed or partial read shows a source problem, not an empty successful result. Preserve the previous result with a stale indicator and do not admit or start new work from an unvalidated partial scope.
+
+Discovered tasks are not paid executions. Keep task identity, discovered input, routing/eligibility and admission state distinct from engine execution state. The list must show unsupported matches and the reason they cannot run. Discovery does not perform paid planning, coding or AI eligibility analysis.
+
+### 4.2 A switchable manual gate
+
+**Manual admission is required in M1 and enabled by default for testing.** “Optional gate” means the engineer can turn it off, not that implementing it can be postponed.
+
+In **Review before run** mode, new eligible tasks appear as Awaiting selection. Nothing is preselected. The engineer ticks tasks and presses Run selected (N); this admits exactly those tasks to the persistent queue. Ineligible, already attempted or already queued/running tasks cannot be selected for another initial attempt. Failed tasks use the separate Retry action.
+
+Show scope and per-task destination while selecting. If there is a select-all checkbox, it selects only the displayed page, with that meaning visible. Revalidate selected task identities, current inputs, scope and routing when submitting. If an individual row changed, leave it unadmitted with a clear reason; report which other selected rows were admitted. A global source/configuration problem prevents admission of the batch.
+
+The manual choice covers the task's displayed requirements and destination. If these materially change before its first execution, return that task to Awaiting selection with an explanation. A changed queued Retry follows section 5.2 instead. Scope changes clear stale checkbox selections. Once execution starts there are no additional planning, checking or PR-publication approvals in the normal flow.
+
+In **Automatic** mode, every eligible unattempted match is admitted automatically, including existing matches and future matches in the same sprint. Enabling this mode is one explicit action after showing the current filter, destinations and current eligible count. A label is not required; the UI must make the resulting delegation scope clear.
+
+Switching back to Review before run stops further automatic admission. Already admitted queued/running tasks retain their delegation; show their count and explain this behavior. The mode switch is not cancellation. An unchanged restart preserves the selected mode and admission history.
+
+A change to source scope, resolved saved-filter query, routing or destinations invalidates automatic admission authority: pause new starts, show what changed and return to Review before run. Revalidate not-yet-started work; affected initial admissions return for selection if still eligible, otherwise show Withdrawn or Not eligible. Affected retries return to their prior stopped result as described in section 5.2. Unaffected work can keep its recorded delegation. Active attempts retain their snapshot and must pass the publication recheck. No general hot-editing settings application is required.
+
+### 4.3 Durable task and attempt identity
+
+Identify a logical task by Jira instance and immutable issue ID. Persist admission and its attempt identity before paid work. One issue gets at most one initial attempt; only explicit Retry creates a subsequent attempt. Repeated polling, relabelling, editing, changing mode/sprint or restarting cannot rerun a previously attempted issue. The existing short trigger deduplication window is insufficient.
+
+Run selected and Retry must be idempotent against double clicks, stale UI and restart after submission. If an admission exists, show that admission rather than creating another paid attempt. Keep prior attempts and cumulative costs attached to the logical task.
+
+An unstarted task that stops matching the source is withdrawn from the queue. Before its first attempt it may become eligible again: automatic mode can readmit it, while manual mode requires a new selection. Never erase prior execution history to make a task eligible again.
+
+Only one task executes at a time. Use stable creation-time/issue-key ordering; Jira rank and manual ordering are deferred. Each new attempt starts from the currently configured source base, never an earlier unmerged task PR. Known dependencies produce an unsupported/stopped reason instead of a dependency scheduler.
+
+Re-read the issue before starting and snapshot the inputs actually passed to the agent. Manual admission and explicit Retry must still match the approved input/destination; an automatically admitted initial attempt can use current input within its unchanged authorized scope. Before publication, recheck task inputs, scope and destination authorization. Changed requirements, removed eligibility or an unavailable recheck stop publication and retain the result. Compare consumed input directly; no semantic change-analysis service is required.
+
+### 4.4 Complete the workflow without intermediate prompts
 
 Reuse the existing Developer Flow:
 
 > Read task and repository policy → prepare isolated workspace → check baseline → inspect and plan → implement and self-review → independently verify → deliver PR → report result.
 
-The shared context covers repository instructions, required checks, applicable NEWS/changelog rules and PR conventions. An engineer must not need to issue the remaining workflow commands. Desktop IDE automation and the author's private skills are not required.
+Shared context covers repository instructions, required checks, applicable NEWS/changelog rules and PR conventions. The engineer must not issue the remaining workflow commands. Desktop IDE automation and private personal skills are not required.
 
-PR ready means that the exact frozen candidate passed the required independent checks and was published through the trusted delivery path. The PR includes the task reference, meaningful title, change explanation and validation evidence/limits. Show the PR link and delivered identity in the report. Coding-agent claims alone are not verification; passing checks does not replace human review.
+PR ready means the exact frozen candidate passed required independent checks and was published through trusted delivery. The PR contains a Jira reference, meaningful title, change explanation and validation evidence/limits. Coding-agent claims alone are not verification. Human PR review remains.
 
-A failed required check produces a stopped outcome, not a normal ready PR. Missing integration infrastructure is not permission to replace required integration evidence with unit tests. Only the trusted delivery path publishes to the configured authorized fork/base. Existing protections against overwriting user work, force-pushing and unrelated destinations remain.
+A failed required check produces a stopped result, not a normal ready PR. Missing integration infrastructure is not permission to substitute unit tests. Only trusted delivery publishes to the explicitly configured and authorized repository/base.
 
-Initial delivery is complete when the PR is ready. Waiting for human review or merge does not hold the execution slot. Existing engine capacity behavior already supports waiting for feedback without occupying a running slot.
+Delivery finishes when the PR is ready. Human review or merge does not hold the execution slot. Existing engine behavior already allows waiting for feedback without occupying a running slot.
 
-## 5. Bounded failure instead of a recovery product
+## 5. Failure, explicit retry and operational bounds
 
-### 5.1 Limits
+### 5.1 Bounded attempts
 
-Proposed per-task defaults are forty coding turns and a sixty-minute deadline covering preparation through delivery. Preserve existing configured work limits and protection against duplicate paid attempts.
+Proposed defaults are forty coding turns and a sixty-minute deadline from preparation through delivery, for both initial and retry attempts. Preserve existing configured work limits and duplicate-work protection.
 
-There is no mandatory ten-task installation limit, new lifetime-attempt counter or routine maintainer permission to continue the sprint. A small fixed task batch may be used for a one-off validation campaign, but it is not a product activation quota. Setup smoke checks are separately bounded. Any existing configured limit that pauses work must be reported clearly; M1 does not add a new budget-management subsystem.
+There is no mandatory installation-lifetime task quota or routine maintainer unlock. A fixed batch can bound a validation campaign without becoming a product activation limit. Setup checks are separately bounded. Existing configured limits must remain visible; M1 adds no budget-management subsystem.
 
-These are work bounds, not a guaranteed dollar ceiling. The deadline must actually stop the owned workload or retain a visible blocked state until it is known inactive; marking a row failed while its coding process keeps running is not sufficient.
+These are work bounds, not a guaranteed dollar ceiling. A deadline must stop the owned workload or retain a visible blocked state until it is known inactive. Marking a row failed while its process keeps running is insufficient.
 
-### 5.2 Ordinary failures
+### 5.2 Ordinary failure and explicit Retry
 
-Ambiguous requirements, unsupported work and failed verification produce a clear reason, the last completed stage, checks and observed cost. The task stays stopped and the next eligible task proceeds once the previous workload is inactive.
+Ambiguous requirements, unsupported work and failed verification produce a reason, last completed stage, checks and observed costs. Once the workload is inactive, the failed task stays stopped and the next eligible task proceeds. Engineers can inspect it later, clarify it and retry, or finish it in their usual tool.
 
-There is no new Retry path in M1. The engineer uses the report, Jira link and any preserved changes to finish the work in their normal coding tool. Editing or relabelling the issue does not retry it. Existing manual Developer Flow entry points are not part of the pilot's retry contract.
+**Retry is required in M1.** It is an explicit action on a terminal unsuccessful task, not an automatic loop. Before admitting it, re-read Jira, validate the current source restrictions and repository setup, and use fresh requirements and the current configured source base. Display the current destination and previous result/cumulative cost. If the task or destination changed since the displayed view, refresh it and require a new deliberate click.
 
-A shared provider, authentication or repository-environment problem pauses new starts with one installation-level explanation. The user fixes the reported external cause and uses the same startup path to recheck and continue the queue. It does not rerun a failed issue. Existing bounded infrastructure recovery may be reused, without introducing per-repository circuit breakers or unsafe repeated coding/publication.
+Retry itself authorizes one new bounded attempt in either admission mode; it does not need a second manual-gate approval. The task must still match the current configured filter and have an eligible repository. If it does not, explain the restriction instead of silently overriding it. A label is only necessary when the configured filter requires it.
 
-Manual intervention is an exception for a real failure, changed scope or ambiguous publication. Normal tasks, task-specific failures and an unchanged healthy restart must not create stage approvals, routine check commands or requests to a maintainer. A stopped task remains available for later inspection while eligible work proceeds.
+If a queued retry's approved inputs, scope or destination change before it starts, withdraw that admission without running it. Preserve the withdrawn admission record, show the prior stopped result with the new explanation, and require a fresh deliberate Retry when eligible. Do not return an already attempted issue to initial checkbox selection. This rule applies in Automatic mode too; an explicit retry is not permission to execute subsequently changed requirements.
 
-### 5.3 Restart and uncertain publication
+Reject or resolve duplicate/stale retry requests to the same admitted attempt. Disable Retry while work is queued/running, workload ownership is uncertain, or a previous publication may already exist. PR ready tasks use existing feedback/manual review, not Retry to manufacture a replacement PR.
 
-Reuse recovery already proven by the engine. Do not add a general resume/reconciliation framework to M1. Where existing evidence cannot establish safe continuation, freeze that attempt and show Needs inspection.
+Preserve all attempts, evidence and costs. Show the latest result with an attempt history and a cumulative task total. New attempts must not overwrite earlier failure evidence or reset spending to zero.
 
-Before freeing the execution slot, establish that the previous owned workload is stopped or inactive. If ownership remains uncertain, pause intake rather than overlap two workloads. Once it is inactive, an uncertain task can remain stopped while unrelated eligible tasks continue.
+### 5.3 Shared problems and uncertain publication
 
-Preserve any known candidate, branch, remote commit and PR identity. If a publication response was lost, say that a PR may already exist and requires inspection. Do not automatically repeat coding or publication. A maintainer can inspect the remote outcome during the pilot; autonomous repair of that uncertainty is deferred. The daily engineer does not have to resolve it immediately.
+A shared provider, authentication or environment failure pauses new starts with one installation-level cause. Fix the external cause and use the same startup path to recheck/continue; this does not automatically retry failed issues. No new per-repository circuit-breaker framework is required.
 
-### 5.4 One operational stop procedure
+Reuse recovery already proven by the engine. If safe continuation cannot be established, freeze the attempt as Needs inspection. Before freeing its execution slot, establish that the previous owned workload is inactive; otherwise pause new starts rather than overlap workloads. Once inactive, the uncertain task can remain stopped while unrelated work continues.
 
-No new Pause, Stop or Cancel buttons are required. Supply one documented way to disable new intake through the local configuration and controlled restart/shutdown path. Where possible, let the active task finish within its deadline. If interrupted, apply the ownership and uncertainty rules above.
+Preserve known candidate, branch, remote commit and PR identities. If a publication response was lost, show that a PR may already exist. Retry is unavailable until inspection establishes the outcome. Finding a valid delivered PR records PR ready with its link; it does not create another PR. A proven incomplete delivery can use existing safe recovery, but M1 does not promise a new resume/reconciliation framework.
 
-Removing a queued issue's label withdraws that task before it starts. The publication recheck also observes removed delegation. This is not advertised as an immediate cancellation mechanism.
+A new retry must never overwrite a prior branch or create a duplicate PR. Preserve old artifacts; if fresh work is allowed after reconciliation, use a distinct Factory-owned attempt branch. Do not reuse a branch when doing so requires force-push or overwrites user work. Uncertainty requiring maintainer inspection is exceptional, not a normal daily step.
+
+### 5.4 Operational stop
+
+No new Pause, Stop or Cancel buttons are required. Supply one documented way to disable new work through local configuration and a controlled restart/shutdown. Where possible, let active work finish within its deadline; interruption follows the ownership/uncertainty rules above.
+
+A queued task leaving the effective Jira filter is withdrawn before starting. Removing the label has that effect only when label filtering is enabled. Changing admission mode alone does not cancel admitted work. These are not advertised as immediate cancellation controls.
 
 ## 6. UI: improve two existing screens
 
-Keep the current server-rendered technology. Update the existing execution list and detail templates for the pilot flow; retain technical pages for diagnosis. A read-only effective-configuration summary can reuse the current configuration page. No new frontend framework, broad navigation rebuild or standalone settings application is needed.
+Keep the current server-rendered technology. Adapt the existing list/detail views to logical Jira tasks with execution attempts underneath. Retain technical pages for diagnosis and reuse the configuration page for read-only effective settings. No new frontend framework or standalone settings application is needed.
 
-Readable typography, spacing, clear result hierarchy and a simple path between task list, details, Jira and PR are part of M1. Renaming columns while leaving the screen difficult to scan does not satisfy this requirement. At normal laptop width, a first-time engineer must be able to identify the result and next useful action without learning engine terminology. Exact colours, decoration and pixel-level matching of the mockups can wait.
+Readable typography, spacing, result hierarchy and simple navigation are mandatory. Renaming columns while leaving the screen difficult to scan does not meet M1. At normal laptop width, a first-time engineer must identify a result and the next useful action without learning engine terminology.
 
 ### 6.1 Task list
 
-The first screen must answer What happened while I was away?
+The first screen answers **What can run, and what happened while I was away?**
 
-Show the current sprint/filter, destination fork, intake state and last successful Jira sync. A shared outage, intentionally disabled intake or an existing configured limit gets a short explanation. A task-specific failure appears on its own row. Ordinary operation must not require monitoring this page.
-
-Each row needs:
+Show team source/sprint, effective restrictions, mode, destination summary and last successful sync. Include Review before run / Automatic, task checkboxes and Run selected (N). A shared outage or disabled processing has one plain explanation. Ordinary execution does not require keeping this page open.
 
 | Information | Required presentation |
 | --- | --- |
-| Task | Jira key/link and readable title |
-| Outcome | Queued, Working with stage, PR ready, Could not complete, Not eligible, or Needs inspection |
-| Time | Relative start/finish time and active duration; exact timestamp available in details |
-| Spending | Estimated model cost, explicitly partial/unknown when necessary |
-| Next useful action | Open PR or View reason/details |
+| Task | Clickable Jira key opens that issue in Jira; readable title/Details opens Factory's task detail |
+| State | Awaiting selection, Queued, Working with stage, PR ready, Could not complete, Not eligible, Needs inspection, or Withdrawn |
+| Repository | Resolved PR destination, so tasks from different projects are distinguishable before admission |
+| Time | Relative start/finish and active duration; exact timestamp in details |
+| Spending | Estimated cumulative task cost, explicitly partial/unknown; no-work-yet tasks are not mistaken for unknown usage |
+| Action | Select eligible work, Open PR, View reason/details; Retry available from task detail |
 
-Rows for withdrawn tasks show that they left the queue without implying execution. Meaning must be readable without colour alone. Keep UUIDs, step numbers and raw engine names out of the main table.
+Keys link directly to the configured Jira instance's issue page, not to internal execution routes. Ineligible rows have a disabled checkbox and a visible reason. No default selection, hidden selected tasks or colour-only meanings. UUIDs and raw step identifiers stay out of the main table.
 
-A page refresh is acceptable. Reuse existing live progress where available, but do not build a new live-update layer. New search/filter features, summary-card layouts, charts and a cross-sprint history browser are not acceptance requirements. Existing accounting totals and detail remain accessible regardless of their presentation. Pilot records persist and remain reachable through the existing list/detail routes.
+Page refresh is acceptable. Reuse existing live progress without building a new update layer. New search/filter tabs, charts and summary-card layouts are not acceptance requirements. Preserve history through the existing list/detail navigation; do not hide completed work when it leaves the current Jira filter.
 
 ### 6.2 Task detail
 
-Put the title/Jira link, result or reason, known PR link, active duration and estimated cost at the top. Below, reuse existing evidence for Preparation, Implementation, Verification and Publication, distinguishing Passed, Failed and Not run.
+Put title, clickable Jira key, result/reason, known PR link, destination, active duration and estimated cumulative cost at the top. Show Retry for an eligible terminal failure, with a clear explanation when unavailable. Below, present attempt history and existing evidence for Preparation, Implementation, Verification and Publication, distinguishing Passed, Failed and Not run.
 
-A useful failure reads:
+An example failure:
 
-> Could not complete: the task does not say whether a disabled module should be skipped or rejected. No PR was created. Estimated model cost: $0.84. Clarify the behavior and continue in your usual coding tool.
+> Could not complete: the task does not say whether a disabled module should be skipped or rejected. No PR was created. Estimated model cost: $0.84. Clarify the Jira description, then Retry, or continue in your usual coding tool.
 
-That text illustrates presentation, not a real result. Actual reasons must come from observed execution state. Plain stage/cause templates and saved agent questions are enough; do not add an LLM explanation service.
+This illustrates presentation, not an observed result. Actual reasons come from execution state. Plain cause/stage templates and saved agent questions are sufficient; do not add an LLM explanation service.
 
-Expose existing logs and artifacts below the result or through links. Retain any partial work for manual continuation, without building automatic export into another coding tool. An engine waiting for PR feedback displays PR ready for initial delivery.
+Expose logs and artifacts below the result. Retain partial work for manual continuation without building automatic export to another coding tool. An engine waiting for PR feedback displays PR ready for initial delivery.
 
-### 6.3 Preserve existing tokenomics
+### 6.3 Preserve tokenomics
 
-Preservation is mandatory. Reuse existing attempt accounting and rate snapshots, and keep the information currently available to users:
+Reuse existing attempt accounting and rate snapshots. Keep:
 
-- Total reported tokens and the existing input, output, cache-read and cache-write breakdowns.
-- Estimated costs per recorded attempt and existing cumulative totals, including unsuccessful work and already-supported feedback rounds.
-- Available runtime/model and rate context, plus the existing partial, provisional, unknown and unavailable-data indicators.
+- Total reported tokens and existing input, output, cache-read and cache-write breakdowns.
+- Estimated costs per attempt and existing cumulative totals, including unsuccessful work, retries and already-supported feedback rounds.
+- Runtime/model and rate context, plus partial, provisional, unknown and unavailable-data indicators.
 
-The task list may lead with a compact estimated cost. The detail page must provide an obvious path to the preserved totals and breakdowns, without requiring raw-log inspection. Rearranging information is allowed; dropping existing metrics or totals to simplify the new layout is not.
+A compact list cost is sufficient when details offer an obvious path to the preserved metrics without raw-log inspection. Rearranging information is allowed; dropping metrics or totals is not. Adding logical task totals must not double-count feedback rounds or retries.
 
-Missing rates or usage remain Incomplete estimate or Unknown, never zero. Duration excludes later human-review waiting time. Show setup-check usage/cost separately from task execution so it remains accounted for without pretending it belongs to a Jira task. Provider invoices may differ from estimates.
+Missing usage/rates remain Incomplete estimate or Unknown, never zero. A known unstarted task can show Not started / no execution spending. Cumulative cost stays marked incomplete if any included attempt has incomplete data. Duration excludes human-review waiting. Setup-check usage/cost is separate from task execution; provider invoices may differ.
 
-No new sprint analytics model is required. Compare the existing and revised views on the same recorded execution data, including incomplete usage and feedback history, to confirm that the redesign has not lost accounting information or changed its meaning.
+No new sprint analytics model is required. Compare old and revised views on the same execution data, including failures, incomplete usage, feedback history and retries, to demonstrate preservation.
 
 ## 7. What we deliberately do later
 
-Configuration through the UI is optional and is not a release gate. The prepared non-UI startup path must already be simple enough for a first-time developer. UI settings can be considered when their value and effort are clear, without becoming a prerequisite for the four mandatory outcomes.
+General configuration through the UI is optional. The prepared non-UI setup must already satisfy first use. Required task admission, mode and Retry controls cannot be deferred under this exception.
 
-The broader vision also includes multiple validated repository presets, optional manual task selection, explicit retry/takeover controls, bounded AI review passes, PR-comment feedback and comparative evaluations of profiles. These are possible follow-up milestones, not a hidden M1 backlog.
+Deferred: graphical JQL/settings builders, dedicated story-point filtering, broad repository/build-system support, multi-repository tasks, parallelism, dependencies, cloud hosting, private source authentication, multi-user operation and automatic sprint rollover.
 
-Existing PR-feedback functionality is retained without a new integration or acceptance requirement. Engineers can handle review comments in their usual workflow during the pilot.
+Also deferred: cross-repository fork-head/upstream-base PR delivery, automatic retry, takeover/export, configurable AI review passes, automatic PR-comment watching and comparative profile evaluations. Existing supported feedback remains; it does not become a new pilot completion dependency.
 
-Also deferred: cloud hosting, private source authentication, other build systems/providers, multi-user operation, dependency chains and automatic sprint rollover. Expansion should respond to pilot evidence.
-
-The browser mockups remain useful visual references for typography and information hierarchy. Their particular editable Settings, Retry/Pause controls, summary cards and filter tabs do not create requirements beyond this document. This does not make baseline usability or existing tokenomics optional.
+Mockups remain references for typography and hierarchy. Their editable Settings, Pause controls, summary cards and filter tabs are not extra requirements. Conversely, manual selection and Retry are now required because the user explicitly requested them.
 
 ## 8. Acceptance and the stopping point
 
@@ -225,34 +282,44 @@ These are future demonstrations on the delivered build, not checks run during th
 
 | Scenario | M1 completion evidence |
 | --- | --- |
-| Fresh setup | A developer seeing Factory for the first time independently uses the short guide/template and one start path; checks and activation are coordinated without manual flag/check/restart choreography, source-code knowledge or maintainer assistance |
-| Startup problem | A missing or invalid prerequisite gives a plain cause and concrete correction; the engineer fixes it and repeats the same start action |
-| Core workflow and autonomy | Labelled tasks reach verified fork PRs with applicable changelog work and useful descriptions without intermediate prompts, stage approvals or routine queue maintenance; healthy unchanged restart preserves that behavior |
-| Failure does not stop the sprint | A sequence containing success, ambiguous requirements or verification failure, and another success produces clear results and advances after task failures |
-| Once-only admission | Repeated scans, relabelling and restart do not start a second paid attempt for an attempted issue |
-| Interruption and uncertainty | An interrupted or uncertain attempt is either safely handled by existing recovery or visibly frozen; no overlapping owned workload or blind second publication occurs |
-| Scope and bounds | Withdrawn/changed input is respected; per-task limits and shared-outage handling bound failed work without imposing a new lifetime task quota or routine maintainer unlock |
-| Friendly UI | At normal laptop width, a first-time user can scan readable task titles/statuses, identify results and navigate between list, detail, Jira and PR; typography and hierarchy support this without decoding IDs or opening logs |
-| Tokenomics preservation | The same recorded executions retain existing token counts, input/output/cache breakdowns, cost totals, rate context and incomplete-data indicators; unsuccessful work and supported feedback history remain included |
-| External boundaries | Jira receives no writes or notifications; delivery is only to the configured fork; no merge/deployment occurs |
+| Fresh setup | A first-time developer independently uses the short guide/template and one start path without source-code knowledge, maintainer help or manual flag/check/restart choreography |
+| Startup problem | Missing/invalid prerequisites give a plain cause and correction; repeating the same start action rechecks them |
+| Team scope and filters | One team source includes at least two Jira projects mapped to prepared repositories; sprint/status restrictions and optional assignee/project/label narrow correctly; empty optional fields add no hidden conditions |
+| Independent pilot installations | Setup documents the one-processing-installation rule for overlapping scope and gives an assignee-filter example; no cross-installation deduplication is claimed |
+| No new Jira metadata | Setup and execution work using an existing board/filter without creating labels, fields or Jira writes; inherited source restrictions remain visible |
+| Manual gate | Matches appear without paid task work; selecting a subset admits only those tasks once; ineligible/changed rows explain why they did not start |
+| Automatic mode | Explicitly enabled scope admits current/future eligible matches without intermediate prompts; label addition delegates when that condition is enabled, and no-label mode also works |
+| Mode/scope changes | Returning to manual stops new automatic admission without secretly cancelling queued work; changed filter/destination cannot broaden authority or redirect work silently; unchanged restart preserves mode/history |
+| Complete workflow | Tasks reach verified PRs with applicable changelog work and useful descriptions, or a clear stopped result, without remaining workflow prompts |
+| Destination support | Normal profile resolves to explicitly authorized folio-org repositories and test overrides resolve to personal forks; setup checks required branch/PR access; destination and same-repository limitation are visible |
+| Failure and next task | Success → task-specific failure → success preserves reasons/checks/costs and advances once the failed workload is inactive |
+| Explicit retry | A corrected terminal failure starts exactly one fresh attempt on deliberate Retry; prior evidence/cumulative cost survive; stale/double submissions and running/uncertain/PR-ready states cannot create duplicate work; changed queued retry inputs require a new Retry in either mode |
+| Durable admission | Repeated scans, relabelling, source changes and restart do not implicitly rerun an attempted issue |
+| Interruption/publication | Existing recovery safely continues or visibly freezes the attempt; no overlapping owned workload, blind republication or replacement PR |
+| Bounds | Per-attempt limits and shared-outage handling bound work without a lifetime quota or routine maintainer unlock |
+| Friendly UI | At laptop width, a new user can select work, read outcomes and navigate list/detail/Jira/PR without decoding IDs or logs; Jira keys open Jira directly |
+| Tokenomics | Existing counts, input/output/cache breakdowns, rates and incomplete-data indicators survive; failed/retry/feedback costs remain included without double-counting |
+| External boundaries | Jira receives no writes/notifications; publication uses only the configured authorized destination; no merge/deployment |
 
-Simple first use, autonomous label-to-result work, friendly UI and preservation of existing tokenomics are all release gates. Pixel-perfect matching, optional UI configuration and decoration are not. Finishing the backend path alone does not complete M1.
+Initial end-to-end trials use our personal forks. Official-repository support must be demonstrated through destination authorization/routing and connector tests; a live official PR is not authorized by this design and requires a separately agreed real task. Passing a fork-only trial while official delivery remains hard-blocked does not complete destination support.
 
-After those checks pass, give the pilot to a small group for one sprint. Ask whether it reduced interruptions, which PRs were useful after normal review, how much extra review/repair it caused and where setup failed. A simple feedback conversation or form is enough; no analytics product is required.
+Simple first use, autonomous work after delegation, friendly UI and preserved tokenomics are all release gates. Pixel-perfect matching and general UI settings are not. After these checks pass, give the pilot to a small group for one sprint and ask whether it reduced interruptions, which PRs were useful, what extra review/repair they needed and where setup failed. A feedback conversation or form is sufficient.
 
-**Stop M1 work when engineers can complete that scenario independently, all four mandatory outcomes hold and the listed behavior is demonstrated.** Fix barriers to first use, unnecessary routine intervention, unreadable presentation and accounting regressions before the pilot. Defer additional convenience features and decorative refinements until actual feedback justifies them.
+**Stop M1 when engineers can complete this scenario independently and the listed behavior is demonstrated.** Fix barriers to first use, unwanted supervision, unreadable results and accounting regressions before the pilot. Defer additional convenience features and decoration until feedback justifies them.
 
 ## 9. Implementation boundary and evidence
 
-This is a product-scope update, not an implementation plan. The source inspected for the original design was main at b30da2511ed1ed4bcf89eb430a0484651317af0b; subsequent commits a1d87c9 and 137eadb changed documentation only. The tokenomics review also checked the existing task template and usage summary. No new runtime claims are made here.
+This is a product-scope update, not implementation. The original source baseline was main at b30da2511ed1ed4bcf89eb430a0484651317af0b; subsequent local documentation revisions through 8ee6278 did not change runtime behavior. This revision also checked the repository catalog and destination guard. No new runtime evidence is claimed.
 
-Reuse the existing coding, verification, delivery, usage and template foundations. The irreducible new work is fixed-filter Jira discovery, durable issue admission, bounded unattended outcomes and a readable list/detail presentation. If this exposes an engine defect that prevents safe completion, repair that defect within the contract rather than starting a general engine rewrite.
+Reuse coding, verification, accounting, queue and template foundations. Required additions are team-source discovery, persistent task/attempt admission, the switchable gate, explicit retry, official-destination support and readable UI controls/results. A necessary defect repair belongs within this contract; a general engine rewrite does not.
 
-Relevant existing anchors:
+Relevant anchors:
 
 - [Developer Flow](../../../factory-flow-dev-factory/src/main/resources/flows/dev-factory.yaml), [Jira connector](../../../factory-connectors/src/main/java/org/folio/factory/connectors/jira/JiraConnector.java), [trigger deduplication](../../../factory-core/src/main/java/org/folio/factory/core/trigger/PipelineRouter.java).
-- [Repository preset](../../../config/developer-repositories.yaml), [setup checks](../../../factory-app/src/main/java/org/folio/factory/app/developer/DeveloperPreflight.java), [read-only configuration UI](../../../factory-app/src/main/resources/templates/developer-configuration.html).
-- [Coding protocol](../../../factory-flow-dev-factory/src/main/java/org/folio/factory/devfactory/runtime/CodingProtocol.java), [independent verification](../../../factory-flow-dev-factory/src/main/java/org/folio/factory/devfactory/verification/CandidateVerifier.java), [verified delivery](../../../factory-flow-dev-factory/src/main/java/org/folio/factory/devfactory/delivery/CandidateDelivery.java).
+- [Repository presets](../../../config/developer-repositories.yaml), [startup checks](../../../factory-app/src/main/java/org/folio/factory/app/developer/DeveloperPreflight.java), [configuration UI](../../../factory-app/src/main/resources/templates/developer-configuration.html).
+- [Coding protocol](../../../factory-flow-dev-factory/src/main/java/org/folio/factory/devfactory/runtime/CodingProtocol.java), [independent verification](../../../factory-flow-dev-factory/src/main/java/org/folio/factory/devfactory/verification/CandidateVerifier.java), [delivery](../../../factory-flow-dev-factory/src/main/java/org/folio/factory/devfactory/delivery/CandidateDelivery.java), [destination guard](../../../factory-flow-dev-factory/src/main/java/org/folio/factory/devfactory/delivery/DeliveryTarget.java).
 - [Execution capacity](../../../factory-core/src/main/java/org/folio/factory/core/engine/ExecutionClaimService.java), [usage summary](../../../factory-app/src/main/java/org/folio/factory/app/web/AttemptUsageSummary.java), [task list](../../../factory-app/src/main/resources/templates/executions.html), [task detail](../../../factory-app/src/main/resources/templates/execution.html), [setup guide](../../../README.md).
 
-The builder may choose internal storage, adapters and template details within existing conventions. The builder may not silently add Jira writes, automatic retries, broader publication authority, weaker verification or access to private personal skills. The builder also may not trade away simple startup, autonomous routine operation, readable UI or existing tokenomics to reduce implementation scope. UI configuration remains optional. The one-repository choice, fixed defaults and reduced controls remain explicit design proposals rather than claims that the user specified every value.
+Builders may choose storage, adapters and template details within existing conventions. They may not silently add Jira writes, automatic retry loops, publication outside configured authority, weaker verification or private personal skills. They may not trade away simple startup, autonomy, readability or tokenomics to reduce effort.
+
+Proposed defaults and qualification presets are design choices, not claims that every value was dictated by the user. The user-required changes are explicit: multiple projects through team scope, optional label, configurable official/test destination, switchable manual admission, explicit retry and direct Jira links.
