@@ -1,6 +1,8 @@
 package org.folio.factory.connectors;
 
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.folio.factory.connectors.jira.JiraSourceModels.Kind;
+import org.folio.factory.connectors.jira.JiraSourceModels.SourceReference;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -20,7 +22,11 @@ class UnconfiguredConnectorsTest {
         List<ThrowingCallable> calls = List.of(
                 () -> jira.getIssue("ERM-42"),
                 () -> jira.addComment("ERM-42", "body"),
-                () -> jira.transitionIssue("ERM-42", "Done"));
+                () -> jira.transitionIssue("ERM-42", "Done"),
+                () -> jira.parseSourceReference("247"),
+                () -> jira.resolveSource(new SourceReference(Kind.BOARD, "247")),
+                () -> jira.getSprint("4711"),
+                () -> jira.searchIssues("sprint = 4711", null));
         for (ThrowingCallable call : calls) {
             assertThatThrownBy(call)
                     .isInstanceOf(ConnectorNotConfiguredException.class)

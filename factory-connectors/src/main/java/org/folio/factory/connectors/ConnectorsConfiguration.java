@@ -6,6 +6,7 @@ import org.folio.factory.connectors.github.GitHubRestConnector;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.jira.JiraProperties;
 import org.folio.factory.connectors.jira.JiraRestConnector;
+import org.folio.factory.connectors.jira.JiraSourceConnector;
 import org.folio.factory.connectors.testrail.TestRailConnector;
 import org.folio.factory.connectors.testrail.TestRailProperties;
 import org.folio.factory.connectors.testrail.TestRailRestConnector;
@@ -35,6 +36,11 @@ public class ConnectorsConfiguration {
         return properties.isConfigured()
                 ? new GitHubRestConnector(properties, builder.clone())
                 : new UnconfiguredConnectors.GitHub();
+    }
+
+    @Bean
+    public JiraSourceConnector jiraSourceConnector(JiraConnector connector) {
+        return (JiraSourceConnector) connector;
     }
 
     @Bean

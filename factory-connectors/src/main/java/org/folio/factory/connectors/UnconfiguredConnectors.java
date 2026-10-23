@@ -3,6 +3,11 @@ package org.folio.factory.connectors;
 import org.folio.factory.connectors.github.GitHubConnector;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.jira.JiraIssue;
+import org.folio.factory.connectors.jira.JiraSourceConnector;
+import org.folio.factory.connectors.jira.JiraSourceModels.IssuePage;
+import org.folio.factory.connectors.jira.JiraSourceModels.ResolvedSource;
+import org.folio.factory.connectors.jira.JiraSourceModels.SourceReference;
+import org.folio.factory.connectors.jira.JiraSourceModels.Sprint;
 import org.folio.factory.connectors.testrail.TestRailConnector;
 
 import java.util.List;
@@ -18,7 +23,7 @@ public final class UnconfiguredConnectors {
     private UnconfiguredConnectors() {
     }
 
-    public static final class Jira implements JiraConnector, ConnectorHealth {
+    public static final class Jira implements JiraConnector, JiraSourceConnector, ConnectorHealth {
 
         private static ConnectorNotConfiguredException notConfigured() {
             return new ConnectorNotConfiguredException("Jira connector not configured: set "
@@ -38,6 +43,26 @@ public final class UnconfiguredConnectors {
 
         @Override
         public void transitionIssue(String issueKey, String transitionName) {
+            throw notConfigured();
+        }
+
+        @Override
+        public SourceReference parseSourceReference(String raw) {
+            throw notConfigured();
+        }
+
+        @Override
+        public ResolvedSource resolveSource(SourceReference reference) {
+            throw notConfigured();
+        }
+
+        @Override
+        public Sprint getSprint(String sprintId) {
+            throw notConfigured();
+        }
+
+        @Override
+        public IssuePage searchIssues(String jql, String cursor) {
             throw notConfigured();
         }
 

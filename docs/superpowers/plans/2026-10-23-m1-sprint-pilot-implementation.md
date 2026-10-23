@@ -128,20 +128,22 @@ Assertion fragments below belong inside the named tests; fixture setup follows e
 - DiscoveredIssue contains immutable id, current key, actual project key, components, created time and JiraIssue content. Do not derive immutable identity solely from the mutable issue key.
 - PilotScopeResolver.resolve(PilotSourceProperties) → PilotScope; PilotScope is a nested immutable record containing source, sprint, effectiveQuery and authorityFingerprint.
 
-- [ ] **1. Pin the supported Jira read contract.** Inspect the configured deployment's supported board/filter/sprint/search reads or its exact documented API. Capture sanitized fixtures for the adapter. Existing getIssue uses REST v2; that alone does not establish the search API or pagination contract. Support the pilot deployment, not every Jira edition.
-- [ ] **2. Add filter/search tests.** Cover two projects, blank optional fields, configured assignee/label/project restrictions, quotes in values, inherited label clauses, grouped OR in the base query, ORDER BY preservation and all search pages. A failed later page must not become a successful empty/partial result. Assert canonical fingerprints ignore result ordering but change when authority changes.
+- [x] **1. Pin the supported Jira read contract.** Inspect the configured deployment's supported board/filter/sprint/search reads or its exact documented API. Capture sanitized fixtures for the adapter. Existing getIssue uses REST v2; that alone does not establish the search API or pagination contract. Support the pilot deployment, not every Jira edition.
+- [x] **2. Add filter/search tests.** Cover two projects, blank optional fields, configured assignee/label/project restrictions, quotes in values, inherited label clauses, grouped OR in the base query, ORDER BY preservation and all search pages. A failed later page must not become a successful empty/partial result. Assert canonical fingerprints ignore result ordering but change when authority changes.
 ~~~java
 assertThat(scope.effectiveQuery()).contains("sprint", "status");
 assertThat(scope.effectiveQuery()).doesNotContain("labels =", "assignee =");
 assertThat(allPages).extracting(DiscoveredIssue::projectKey)
     .containsExactlyInAnyOrder("MGRAPPS", "MGRENTITLE");
 ~~~
-- [ ] **3. Run the focused command and confirm the new assertions fail for the current code.**
+- [x] **3. Run the focused command and confirm the new assertions fail for the current code.**
 ~~~sh
 mvn -B -ntp -pl factory-app -am -Dtest=JiraRestConnectorTest,PilotScopeResolverTest,UnconfiguredConnectorsTest -Dsurefire.failIfNoSpecifiedTests=false test
 ~~~
-- [ ] **4. Implement the connector and resolver.** Use RestClient, existing credentials/timeouts and structured query construction. Parenthesize the inherited filter expression and append AND restrictions before its top-level ORDER BY; handle quoted/nested content, not a naive string split. Resolve a board to its existing saved filter. Accept URL/ID forms scoped to the configured Jira instance. No Jira mutations or model calls.
-- [ ] **5. Rerun the command, review source scope/error handling, and commit S01.** Done when invalid/unreadable scope fails clearly and complete fixtures yield correct matches without mandatory label/project/assignee restrictions.
+- [x] **4. Implement the connector and resolver.** Use RestClient, existing credentials/timeouts and structured query construction. Parenthesize the inherited filter expression and append AND restrictions before its top-level ORDER BY; handle quoted/nested content, not a naive string split. Resolve a board to its existing saved filter. Accept URL/ID forms scoped to the configured Jira instance. No Jira mutations or model calls.
+- [x] **5. Rerun the command, review source scope/error handling, and commit S01.** Done when invalid/unreadable scope fails clearly and complete fixtures yield correct matches without mandatory label/project/assignee restrictions.
+
+**Done 2026-10-23.** Contract pinned to the configured Jira Cloud deployment (folio-org.atlassian.net): board/filter/sprint via documented GETs, search via POST /rest/api/2/search/jql with opaque nextPageToken (legacy startAt search is deprecated on Cloud). Focused command green: JiraRestConnectorTest 18, PilotScopeResolverTest 11, UnconfiguredConnectorsTest 3 — 32 run, 0 failed/skipped. Implemented by worker, reviewed by independent critic (ACCEPT WITH FIXES; all findings applied, including the Cloud search re-pin). Live-deployment qualification remains with S12.
 
 ## S02 — Persist discovery, tasks and attempt identity
 
