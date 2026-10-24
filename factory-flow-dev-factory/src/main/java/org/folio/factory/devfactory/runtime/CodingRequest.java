@@ -33,6 +33,16 @@ public record CodingRequest(
                 acceptanceCriteria, decisions, repository, constraints);
     }
 
+    /** Tells the agent how Factory will verify the work and whether the workspace is already prepared. */
+    public CodingRequest withVerification(String command, boolean dependenciesInstalled) {
+        var c = constraints;
+        return new CodingRequest(issueKey, summary, description, comments, linkedIssues,
+                acceptanceCriteria, confirmedDecisions, repository,
+                new Constraints(c.workingDirectory(), c.allowRepositorySwitch(), c.allowPush(),
+                        c.allowExternalWrites(), c.allowGitMetadataChanges(), c.independentVerification(),
+                        command, dependenciesInstalled));
+    }
+
     public void requireReady() {
         if (issueKey.isBlank() || summary.isBlank() || repository == null
                 || repository.key().isBlank() || repository.sourceRepo().isBlank()
@@ -70,7 +80,19 @@ public record CodingRequest(
 
     public record Constraints(String workingDirectory, boolean allowRepositorySwitch, boolean allowPush,
                               boolean allowExternalWrites, boolean allowGitMetadataChanges,
-                              boolean independentVerification) {
+                              boolean independentVerification, String verificationCommand,
+                              Boolean dependenciesInstalled) {
+        public Constraints(String workingDirectory, boolean allowRepositorySwitch, boolean allowPush,
+                           boolean allowExternalWrites, boolean allowGitMetadataChanges,
+                           boolean independentVerification) {
+            this(workingDirectory, allowRepositorySwitch, allowPush, allowExternalWrites,
+                    allowGitMetadataChanges, independentVerification, "", false);
+        }
+        // Boxed so that requests stored before these fields existed still parse (Jackson rejects a missing primitive).
+        public Constraints {
+            verificationCommand = text(verificationCommand);
+            dependenciesInstalled = Boolean.TRUE.equals(dependenciesInstalled);
+        }
         public static Constraints defaults() {
             return new Constraints("/workspace", false, false, false, false, true);
         }

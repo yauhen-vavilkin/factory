@@ -11,6 +11,7 @@ import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
+import org.folio.factory.devfactory.runtime.PreparedWorkspace;
 
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -68,10 +69,19 @@ final class FeedbackCodingAttempt {
             progress.accept(start);
             try (var workload =
                     scope.createSeeded(coding.image(), source, environment, "coding")) {
-                try {
-                    outcome = coding.code(workload, request, runtime.timeoutSeconds(), progress);
-                } catch (RuntimeException e) {
-                    outcome = CodingOutcome.failed("RUNTIME_FAILURE", safe(e), Map.of());
+                var prepared = PreparedWorkspace.prepare(workload, runtime, repository.verificationPlan(), progress);
+                if (prepared.failed()) {
+                    outcome = CodingOutcome.failed("WORKSPACE_INSTALL",
+                            "Dependency install failed before any model call: " + prepared.failure(), Map.of());
+                } else {
+                    try {
+                        outcome = coding.code(workload,
+                                request.withVerification(String.join(" ", runtime.command(repository.verificationPlan())),
+                                        prepared.installed()),
+                                runtime.timeoutSeconds(), progress);
+                    } catch (RuntimeException e) {
+                        outcome = CodingOutcome.failed("RUNTIME_FAILURE", safe(e), Map.of());
+                    }
                 }
                 state.usage = outcome.metrics();
                 metrics.putAll(outcome.metrics());

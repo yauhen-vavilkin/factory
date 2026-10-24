@@ -25,7 +25,7 @@ final class BaselineBuild {
             String base,
             DevFactoryProperties.Repository repository,
             Consumer<Map<String, Object>> progress) {
-        var command = runtime.command(repository.verificationPlan());
+        var command = runtime.verificationCommand(repository.verificationPlan());
         var toolchain = runtime.toolchain(repository.verificationPlan());
         var observer =
                 toolchain.output(

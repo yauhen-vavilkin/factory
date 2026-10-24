@@ -112,4 +112,15 @@ class YarnBaselineOutputTest {
         assertThat(YarnBaselineOutput.isTransientDownloadFailure("[2/4] Fetching packages...\n" + failure)).isFalse();
         assertThat(YarnBaselineOutput.isTransientDownloadFailure(null)).isFalse();
     }
+
+    @Test
+    void lastErrorHasNoStepWordingWhileTheStartingBuildSummaryKeepsIt() {
+        String output = "[1/4] Resolving packages...\nerror Couldn't find package \"left-pad@^9\"\nerror Command failed with exit code 1.";
+
+        assertThat(YarnBaselineOutput.lastError(output)).hasValueSatisfying(error ->
+                assertThat(error).startsWith("Couldn't find package").doesNotContain("Starting build"));
+        assertThat(YarnBaselineOutput.failureSummary(output)).hasValueSatisfying(summary ->
+                assertThat(summary).startsWith("Starting build failed: Couldn't find package"));
+        assertThat(YarnBaselineOutput.lastError("ok")).isEmpty();
+    }
 }

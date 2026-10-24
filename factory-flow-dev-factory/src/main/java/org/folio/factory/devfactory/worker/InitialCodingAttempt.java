@@ -14,6 +14,7 @@ import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
+import org.folio.factory.devfactory.runtime.PreparedWorkspace;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -97,7 +98,7 @@ public final class InitialCodingAttempt {
                                 "activity",
                                 "baseline_started",
                                 "command",
-                                String.join(" ", runtime.command(repository.verificationPlan())),
+                                String.join(" ", runtime.verificationCommand(repository.verificationPlan())),
                                 "image",
                                 repository.buildImage()));
                 try (var workload =
@@ -159,6 +160,28 @@ public final class InitialCodingAttempt {
                             pristine,
                             runtime.environment(repository.verificationPlan()),
                             "coding")) {
+                var prepared =
+                        PreparedWorkspace.prepare(
+                                workload,
+                                runtime,
+                                repository.verificationPlan(),
+                                event -> progress(context, event));
+                if (prepared.failed()) {
+                    if (prepared.retryable())
+                        throw new StartingBuildNetworkException(
+                                "Workspace dependency install hit a network/download failure;"
+                                        + " coding has not started. "
+                                        + prepared.failure());
+                    return failedAttempt(
+                            "BLOCKED_ENVIRONMENT",
+                            "Workspace dependency install failed before model spend: "
+                                    + prepared.failure(),
+                            readiness);
+                }
+                var codingRequest =
+                        request.withVerification(
+                                String.join(" ", runtime.command(repository.verificationPlan())),
+                                prepared.installed());
                 var identity = new LinkedHashMap<>(coding.identity());
                 String attemptId = UUID.randomUUID().toString();
                 var rate = pricing.snapshot(Objects.toString(identity.get("model"), ""));
@@ -169,7 +192,7 @@ public final class InitialCodingAttempt {
                 outcome =
                         coding.code(
                                 workload,
-                                request,
+                                codingRequest,
                                 runtime.timeoutSeconds(),
                                 event -> {
                                     var detail = new LinkedHashMap<String, Object>(event);

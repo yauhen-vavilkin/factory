@@ -42,7 +42,7 @@ public class CandidateVerifier {
     public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate, String sourceUrl) {
         var repository = repositories.repositories().get(candidate.repository());
         if (repository == null) throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
-        var command = runtime.command(repository.verificationPlan());
+        var command = runtime.verificationCommand(repository.verificationPlan());
         var toolchain = runtime.toolchain(repository.verificationPlan());
         var requiredReports = runtime.requiredReports(repository.verificationPlan());
         // reconstruct checks the Git tree before any command can execute.

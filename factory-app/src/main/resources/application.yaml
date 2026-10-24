@@ -160,11 +160,13 @@ factory:
       yarn:
         cache-volume: ${FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME:factory-dev-yarn-cache}
         folio-registry: ${FACTORY_DEV_FACTORY_FOLIO_NPM_REGISTRY:https://repository.folio.org/repository/npm-folioci/}
+        # Run by the starting build, the coding container and verification, before the plan's test command.
+        install-command: [yarn, install, --frozen-lockfile, --ignore-scripts, --non-interactive]
       plans:
         java21-unit: [mvn, -B, -ntp, test]
         java21-roles-verify: [mvn, -B, -ntp, verify]
         # --maxWorkers keeps Jest inside the Podman VM's memory (see doc/dev-flow-ui-support.md).
-        node22-jest: [sh, -c, "yarn install --frozen-lockfile --ignore-scripts --non-interactive && yarn test --maxWorkers=2"]
+        node22-jest: [yarn, test, --maxWorkers=2]
       plan-toolchains:
         node22-jest: yarn
       required-reports:

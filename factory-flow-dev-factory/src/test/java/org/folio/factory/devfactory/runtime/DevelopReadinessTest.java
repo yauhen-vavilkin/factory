@@ -137,13 +137,92 @@ class DevelopReadinessTest {
         verifyFailedBaseline(Toolchain.YARN, "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`.", false);
     }
 
+    private record YarnScenario(DevelopWorker worker, AgentContext context, DockerWorkloads.Workload baseline,
+                                DockerWorkloads.Workload agent, CodingRuntime coding, List<String> install) { }
+
+    private YarnScenario yarnScenario(Processes.Result installResult) {
+        var repo = new DevFactoryProperties.Repository("owner/repo", "master", "node:image", "jest", List.of("TASK"), List.of());
+        var properties = new DevFactoryProperties("https://example.org", new TreeMap<>(Map.of("repo", repo)));
+        var runtime = new DevRuntimeProperties(Map.of("jest", List.of("yarn", "test", "--maxWorkers=2")), null, 60, null,
+                Map.of(), Map.of("jest", Toolchain.YARN));
+        var environment = runtime.environment("jest");
+        var install = runtime.installCommand("jest");
+        var docker = mock(DockerWorkloads.class);
+        var stepScope = mock(DockerWorkloads.StepScope.class);
+        when(docker.beginStep(any(), eq("implement"))).thenReturn(stepScope);
+        var baseline = mock(DockerWorkloads.Workload.class);
+        var agent = mock(DockerWorkloads.Workload.class);
+        var freezer = mock(CandidateFreezer.class);
+        var coding = mock(CodingRuntime.class);
+        when(coding.image()).thenReturn("pi:image");
+        when(coding.identity()).thenReturn(Map.of("runtime", "pi", "image", "pi:image", "model", "model"));
+        when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
+        when(stepScope.createTrusted("node:image", workspace, environment)).thenReturn(baseline);
+        when(stepScope.createSeeded("pi:image", workspace, environment, "coding")).thenReturn(agent);
+        when(baseline.execute(eq(runtime.verificationCommand("jest")), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
+                .thenReturn(new Processes.Result(0, "Done in 1s."));
+        when(agent.execute(install, 60)).thenReturn(installResult);
+        when(coding.code(eq(agent), any(CodingRequest.class), eq(60), any()))
+                .thenReturn(CodingOutcome.completed("Done", Map.of()));
+        when(freezer.freeze(eq("repo"), anyString(), anyString(), any(), eq(false), eq(Toolchain.YARN)))
+                .thenReturn(new org.folio.factory.devfactory.candidate.Candidate("repo", "a".repeat(40),
+                        "b".repeat(40), org.folio.factory.devfactory.candidate.Candidate.sha256("patch"), "patch", "CANDIDATE_UNVERIFIED"));
+        var codec = new FrontmatterCodec();
+        var brief = codec.render(Map.of("state", "INTAKE_READY", "repository", Map.of("key", "repo", "base_sha", "a".repeat(40))), "Task");
+        var context = new AgentContext(UUID.randomUUID(), "implement", Map.of(
+                IntakeResolveWorker.TASK_BRIEF, new ArtifactContent(IntakeResolveWorker.TASK_BRIEF, 1, "text/markdown", brief),
+                IntakeResolveWorker.CODING_REQUEST, new ArtifactContent(IntakeResolveWorker.CODING_REQUEST, 1,
+                        "application/json", tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(request()))),
+                null, Map.of(), List.of());
+        var worker = new DevelopWorker(new org.folio.factory.devfactory.worker.InitialCodingAttempt(properties, runtime, docker,
+                freezer, coding, codec, mock(AuditLog.class), model -> Map.of()), codec);
+        return new YarnScenario(worker, context, baseline, agent, coding, install);
+    }
+
+    @Test void yarnCodingContainerIsPreparedBeforeTheAgentAndTheRequestNamesTheVerificationCommand() {
+        var s = yarnScenario(new Processes.Result(0, "Done in 14s."));
+
+        var result = s.worker().execute(s.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("CANDIDATE_UNVERIFIED");
+        var request = org.mockito.ArgumentCaptor.forClass(CodingRequest.class);
+        var order = inOrder(s.agent(), s.coding());
+        order.verify(s.agent()).execute(s.install(), 60);
+        order.verify(s.coding()).code(eq(s.agent()), request.capture(), eq(60), any());
+        assertThat(request.getValue().constraints().verificationCommand()).isEqualTo("yarn test --maxWorkers=2");
+        assertThat(request.getValue().constraints().dependenciesInstalled()).isTrue();
+    }
+
+    @Test void failedInstallInTheCodingContainerStopsBeforeAnyModelCall() {
+        var s = yarnScenario(new Processes.Result(1, "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`."));
+
+        var result = s.worker().execute(s.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT")
+                .contains("Workspace dependency install failed before model spend").contains("lockfile needs to be updated");
+        verify(s.coding(), never()).code(any(), any(), anyInt(), any());
+        verify(s.agent()).close();
+    }
+
+    @Test void registryTimeoutDuringTheCodingInstallAsksTheEngineToRetryWithoutAModelCall() {
+        var s = yarnScenario(new Processes.Result(1,
+                "error An unexpected error occurred: \"https://registry.example/pkg.tgz: ETIMEDOUT\"."));
+
+        assertThatThrownBy(() -> s.worker().execute(s.context())).isInstanceOf(AgentExecutionException.class)
+                .hasMessageContaining("Workspace dependency install hit a network/download failure")
+                .hasMessageContaining("coding has not started");
+        verify(s.coding(), never()).code(any(), any(), anyInt(), any());
+        verify(s.agent()).close();
+    }
+
     private void verifyFailedBaseline(Toolchain toolchain, String failure, boolean retryable) {
         var repo = new DevFactoryProperties.Repository("owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
         var properties = new DevFactoryProperties("https://example.org", new TreeMap<>(Map.of("repo", repo)));
-        var command = toolchain == Toolchain.YARN ? List.of("yarn", "test") : List.of("mvn", "test");
-        var runtime = new DevRuntimeProperties(Map.of("unit", command), null, 60, null, Map.of(),
+        var plan = toolchain == Toolchain.YARN ? List.of("yarn", "test") : List.of("mvn", "test");
+        var runtime = new DevRuntimeProperties(Map.of("unit", plan), null, 60, null, Map.of(),
                 toolchain == Toolchain.YARN ? Map.of("unit", Toolchain.YARN) : Map.<String, Toolchain>of());
         var environment = runtime.environment("unit");
+        var command = runtime.verificationCommand("unit");
         var docker = mock(DockerWorkloads.class);
         var stepScope = mock(DockerWorkloads.StepScope.class);
         when(docker.beginStep(any(), eq("implement"))).thenReturn(stepScope);

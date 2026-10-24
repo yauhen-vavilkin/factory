@@ -65,7 +65,7 @@ class DeliveryWorkerTest {
         var delivery = mock(CandidateDelivery.class);
         var github = mock(GitHubConnector.class);
         var runtime = mock(DevRuntimeProperties.class);
-        when(runtime.command("unit")).thenReturn(List.of("mvn", "test"), List.of("mvn", "verify"));
+        when(runtime.verificationCommand("unit")).thenReturn(List.of("mvn", "test"), List.of("mvn", "verify"));
         when(runtime.requiredReports("unit")).thenReturn(List.of());
         when(runtime.toolchain("unit")).thenReturn(Toolchain.MAVEN);
         var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image", runtime);
@@ -173,9 +173,11 @@ class DeliveryWorkerTest {
     void yarnPullRequestNamesJestReportsAndNoMavenOnes() {
         var original = verifiedContext();
         var candidate = json.readValue(original.inputs().get(DevelopWorker.CANDIDATE).content(), Candidate.class);
+        var runtime = new DevRuntimeProperties(Map.of("unit", List.of("yarn", "test")), null, 60, null, Map.of(),
+                Map.of("unit", Toolchain.YARN));
         var receipt = new VerificationReceipt("00000000-0000-0000-0000-000000000001", "sidecar",
                 candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "unit", "image",
-                List.of("mvn", "test"), "fresh", Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
+                runtime.verificationCommand("unit"), "fresh", Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
                 0, 1, 7, 0, 0, "PASS", "ok", VerificationFailure.NONE, 0, List.of(), List.of(), Toolchain.YARN);
         var inputs = new java.util.HashMap<>(original.inputs());
         inputs.put(VerifyWorker.RECEIPT, new ArtifactContent(VerifyWorker.RECEIPT, 1, "application/json",
@@ -186,8 +188,6 @@ class DeliveryWorkerTest {
                 .thenReturn(new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
                         candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40)));
         when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
-        var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, Map.of(),
-                Map.of("unit", Toolchain.YARN));
         var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image", runtime);
 
         worker.execute(new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));

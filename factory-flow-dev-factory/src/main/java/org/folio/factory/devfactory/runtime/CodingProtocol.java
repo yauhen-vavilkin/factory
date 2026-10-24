@@ -18,6 +18,9 @@ final class CodingProtocol {
         If the selected repository appears wrong, do not switch it. Return the decision protocol below with kind REPOSITORY_MISMATCH.
         If a material product or requirements question cannot be resolved from the request and repository, return the protocol with kind PRODUCT_REQUIREMENTS.
         Otherwise complete the implementation. Your self-checks are diagnostic; Factory independently verifies the frozen candidate.
+        """
+                + verification(request.constraints())
+                + """
 
         For NEEDS_DECISION, the entire final response must be one line beginning FACTORY_DECISION_REQUIRED: followed by JSON:
         {"kind":"PRODUCT_REQUIREMENTS|REPOSITORY_MISMATCH","question":"one concrete question","options":["2-4 options when useful"],"evidence":"bounded repository evidence"}
@@ -25,6 +28,16 @@ final class CodingProtocol {
         Factory CodingRequest JSON:
         """
                 + JSON.writeValueAsString(request);
+    }
+
+    private static String verification(CodingRequest.Constraints constraints) {
+        if (constraints.verificationCommand().isBlank()) return "";
+        return "Factory independently verifies the frozen candidate by running: "
+                + constraints.verificationCommand() + "\n"
+                + (constraints.dependenciesInstalled()
+                        ? "The dependencies for that command are already installed in /workspace; install again only if you change the dependency manifest.\n"
+                        : "")
+                + "Run that command, or the relevant part of it, before you finish.\n";
     }
 
     static CodingOutcome answer(String summary, Map<String, Object> metrics, String runtime) {

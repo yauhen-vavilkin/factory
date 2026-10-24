@@ -69,16 +69,46 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
             case YARN -> new BuildEnvironment(Toolchain.YARN, yarn.cacheVolume(), yarn.folioRegistry());
         };
     }
-    public record Yarn(String cacheVolume, String folioRegistry) {
+    /**
+     * The yarn install, defined once: the starting build and verification run it before the
+     * plan's test command, and the coding container runs it before the agent starts.
+     */
+    public List<String> installCommand(String id) {
+        return toolchain(id) == Toolchain.YARN ? yarn.installCommand() : List.of();
+    }
+    /** What the starting build and independent verification execute: install (if any), then the plan. */
+    public List<String> verificationCommand(String id) {
+        var plan = command(id);
+        var install = installCommand(id);
+        return install.isEmpty() ? plan : List.of("sh", "-c", shell(install) + " && " + shell(plan));
+    }
+    static String shell(List<String> argv) {
+        return argv.stream().map(token -> "'" + token.replace("'", "'\\''") + "'")
+                .collect(java.util.stream.Collectors.joining(" "));
+    }
+    public record Yarn(String cacheVolume, String folioRegistry, List<String> installCommand) {
         public static final String DEFAULT_CACHE_VOLUME = "factory-dev-yarn-cache";
         public static final String DEFAULT_FOLIO_REGISTRY = "https://repository.folio.org/repository/npm-folioci/";
+        public static final List<String> DEFAULT_INSTALL_COMMAND = List.of(
+                "yarn", "install", "--frozen-lockfile", "--ignore-scripts", "--non-interactive");
+        private static final java.util.regex.Pattern INSTALL_TOKEN = java.util.regex.Pattern.compile("[A-Za-z0-9_.=:/@+,-]+");
+        public Yarn(String cacheVolume, String folioRegistry) {
+            this(cacheVolume, folioRegistry, null);
+        }
+        @org.springframework.boot.context.properties.bind.ConstructorBinding
         public Yarn {
             cacheVolume = first(cacheVolume, DEFAULT_CACHE_VOLUME);
             folioRegistry = first(folioRegistry, DEFAULT_FOLIO_REGISTRY);
+            installCommand = installCommand == null || installCommand.isEmpty()
+                    ? DEFAULT_INSTALL_COMMAND : List.copyOf(installCommand);
             if (!BuildEnvironment.VOLUME.matcher(cacheVolume).matches())
                 throw new IllegalArgumentException("Invalid yarn cache volume name");
             if (!BuildEnvironment.REGISTRY.matcher(folioRegistry).matches())
                 throw new IllegalArgumentException("Invalid FOLIO npm registry");
+            // The tokens are joined into a shell command, so only plain argument characters pass.
+            if (!installCommand.stream().allMatch(token -> token != null && INSTALL_TOKEN.matcher(token).matches())
+                    || !"yarn".equals(installCommand.get(0)))
+                throw new IllegalArgumentException("Invalid yarn install command");
         }
     }
     public record Coding(String image, String provider, String model, String baseUrl, String api, String apiKey,

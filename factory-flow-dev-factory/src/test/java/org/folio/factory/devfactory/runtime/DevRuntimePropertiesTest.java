@@ -226,4 +226,74 @@ class DevRuntimePropertiesTest {
         assertThat(runtime.environment("jest")).isEqualTo(new BuildEnvironment(Toolchain.YARN,
                 "factory-dev-yarn-cache", "https://repository.folio.org/repository/npm-folioci/"));
     }
+
+    @Test
+    void yarnInstallCommandHasADefaultBindsAndIsValidated() {
+        assertThat(new DevRuntimeProperties.Yarn(null, null).installCommand())
+                .containsExactly("yarn", "install", "--frozen-lockfile", "--ignore-scripts", "--non-interactive");
+        var source = new MapConfigurationPropertySource(Map.of(
+                "factory.dev-factory.runtime.yarn.install-command[0]", "yarn",
+                "factory.dev-factory.runtime.yarn.install-command[1]", "install",
+                "factory.dev-factory.runtime.yarn.install-command[2]", "--network-timeout=600000"));
+        assertThat(new Binder(source).bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get()
+                .yarn().installCommand()).containsExactly("yarn", "install", "--network-timeout=600000");
+
+        for (var bad : java.util.List.of(
+                java.util.List.of("yarn", "install", "--x; rm -rf /"),
+                java.util.List.of("yarn", "install", "$(id)"),
+                java.util.List.of("yarn", "in stall"),
+                java.util.List.of("npm", "install")))
+            assertThatThrownBy(() -> new DevRuntimeProperties.Yarn(null, null, bad))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("install command");
+    }
+
+    @Test
+    void verificationCommandRunsTheInstallBeforeAYarnPlanAndLeavesMavenAlone() {
+        var plans = Map.of("unit", java.util.List.of("mvn", "-B", "test"),
+                "jest", java.util.List.of("yarn", "test", "--maxWorkers=2"));
+        var runtime = new DevRuntimeProperties(plans, null, 0, null, Map.of(), Map.of("jest", Toolchain.YARN));
+
+        assertThat(runtime.verificationCommand("unit")).containsExactly("mvn", "-B", "test");
+        assertThat(runtime.installCommand("unit")).isEmpty();
+        assertThat(runtime.installCommand("jest")).isEqualTo(DevRuntimeProperties.Yarn.DEFAULT_INSTALL_COMMAND);
+        assertThat(runtime.verificationCommand("jest")).containsExactly("sh", "-c",
+                "'yarn' 'install' '--frozen-lockfile' '--ignore-scripts' '--non-interactive' && 'yarn' 'test' '--maxWorkers=2'");
+    }
+
+    @Test
+    void quotedTokensReachTheShellAsOneArgumentEach() throws Exception {
+        var probe = new ProcessBuilder("sh", "-c", "exit 0");
+        try {
+            org.junit.jupiter.api.Assumptions.assumeTrue(probe.start().waitFor() == 0, "sh is not available");
+        } catch (java.io.IOException e) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "sh is not available");
+        }
+        var tokens = java.util.List.of("printf", "<%s>\\n", "it's; echo pwned", "$(echo expanded)", "a b", "`id`");
+
+        // What the shell does with the string, not what the string looks like.
+        var process = new ProcessBuilder("sh", "-c", DevRuntimeProperties.shell(tokens)).redirectErrorStream(true).start();
+        String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+
+        assertThat(process.waitFor()).isZero();
+        assertThat(output).isEqualTo("<it's; echo pwned>\n<$(echo expanded)>\n<a b>\n<`id`>\n");
+    }
+
+    @Test
+    void verificationCommandQuotesEveryPlanTokenWithTheShellIdiomForSingleQuotes() {
+        var plans = Map.of("jest", java.util.List.of("yarn", "test", "it's"));
+        var runtime = new DevRuntimeProperties(plans, null, 0, null, Map.of(), Map.of("jest", Toolchain.YARN));
+
+        assertThat(runtime.verificationCommand("jest").get(2)).endsWith("&& 'yarn' 'test' 'it'\\''s'");
+    }
+
+    @Test
+    void changingTheInstallChangesTheCommandSoOldReceiptsNoLongerMatch() {
+        var plans = Map.of("jest", java.util.List.of("yarn", "test"));
+        var toolchains = Map.of("jest", Toolchain.YARN);
+        var before = new DevRuntimeProperties(plans, null, 0, null, Map.of(), toolchains, null);
+        var after = new DevRuntimeProperties(plans, null, 0, null, Map.of(), toolchains,
+                new DevRuntimeProperties.Yarn(null, null, java.util.List.of("yarn", "install", "--ignore-scripts")));
+
+        assertThat(after.verificationCommand("jest")).isNotEqualTo(before.verificationCommand("jest"));
+    }
 }

@@ -108,8 +108,12 @@ class DeveloperFlowRegistrationTest {
         assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
         assertThat(devRuntimeProperties.toolchain("node22-jest")).isEqualTo(Toolchain.YARN);
         assertThat(devRuntimeProperties.toolchain("java21-unit")).isEqualTo(Toolchain.MAVEN);
-        assertThat(devRuntimeProperties.command("node22-jest")).containsExactly("sh", "-c",
-                "yarn install --frozen-lockfile --ignore-scripts --non-interactive && yarn test --maxWorkers=2");
+        assertThat(devRuntimeProperties.command("node22-jest")).containsExactly("yarn", "test", "--maxWorkers=2");
+        assertThat(devRuntimeProperties.installCommand("node22-jest")).containsExactly(
+                "yarn", "install", "--frozen-lockfile", "--ignore-scripts", "--non-interactive");
+        assertThat(devRuntimeProperties.installCommand("java21-unit")).isEmpty();
+        assertThat(devRuntimeProperties.verificationCommand("node22-jest")).containsExactly("sh", "-c",
+                "'yarn' 'install' '--frozen-lockfile' '--ignore-scripts' '--non-interactive' && 'yarn' 'test' '--maxWorkers=2'");
         assertThat(devRuntimeProperties.command("java21-roles-verify"))
                 .containsExactly("mvn", "-B", "-ntp", "verify");
         assertThat(devRuntimeProperties.requiredReports("java21-roles-verify")).hasSize(134);

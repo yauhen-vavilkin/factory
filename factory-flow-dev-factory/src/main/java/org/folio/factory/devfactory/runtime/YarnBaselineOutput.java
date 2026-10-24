@@ -46,6 +46,11 @@ public final class YarnBaselineOutput implements BuildOutput {
 
     /** The last yarn error, which names the cause of an install or test-command failure. */
     public static Optional<String> failureSummary(String output) {
+        return lastError(output).map(error -> "Starting build failed: " + error);
+    }
+
+    /** The last yarn error alone, sanitized and bounded, for callers that name their own step. */
+    public static Optional<String> lastError(String output) {
         if (output == null || output.isBlank()) return Optional.empty();
         String last = null;
         for (String raw : output.lines().toList()) {
@@ -54,7 +59,7 @@ public final class YarnBaselineOutput implements BuildOutput {
         }
         if (last == null) return Optional.empty();
         String safe = MavenBaselineOutput.sanitize(last);
-        return Optional.of("Starting build failed: " + safe.substring(0, Math.min(200, safe.length())));
+        return Optional.of(safe.substring(0, Math.min(200, safe.length())));
     }
 
     /** Retry only yarn's own network errors, never network words that tests print. */

@@ -39,7 +39,7 @@ class CandidateVerifierTest {
     private DockerWorkloads.Workload workload;
     private Path original;
     private DevFactoryProperties properties;
-    private final List<String> command = List.of("mvn", "-B", "-ntp", "clean", "test");
+    private List<String> command = List.of("mvn", "-B", "-ntp", "clean", "test");
 
     @BeforeEach
     void prepare() throws Exception {
@@ -459,6 +459,7 @@ class CandidateVerifierTest {
     private void useYarn() {
         var runtime = new DevRuntimeProperties(Map.of("unit", command), null, 60, null, Map.of(),
                 Map.of("unit", Toolchain.YARN));
+        command = runtime.verificationCommand("unit");
         verifier = new CandidateVerifier(properties, runtime, new CandidateFreezer(), docker);
         when(stepScope.createSeeded(eq("trusted-java21"), any(), eq(runtime.environment("unit")), eq("verification")))
                 .thenReturn(workload);
