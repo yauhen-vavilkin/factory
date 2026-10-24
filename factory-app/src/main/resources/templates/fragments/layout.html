@@ -25,6 +25,8 @@
         </div>
         <nav class="nav-group" aria-label="Overview">
             <span class="nav-group-label">Overview</span>
+            <a class="nav-item" th:href="@{/tasks}"
+               th:attrappend="aria-current=${activeNav == 'tasks'} ? 'page'">Tasks</a>
             <a class="nav-item" th:href="@{/}"
                th:attrappend="aria-current=${activeNav == 'dashboard'} ? 'page'">Dashboard</a>
             <a class="nav-item" th:href="@{/status}"

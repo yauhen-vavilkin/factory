@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title=${task['key']}, activeNav='tasks', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <p><a th:href="@{/tasks}">All tasks</a></p>
+    <div class="page-header">
+        <h1 th:text="${task['title']}"></h1>
+        <div class="page-header-meta">
+            <a th:if="${task['jiraUrl']}" class="badge badge-outline badge-sm"
+               th:href="${task['jiraUrl']}" th:text="${task['key']}"></a>
+            <span th:unless="${task['jiraUrl']}" class="badge badge-outline badge-sm"
+                  th:text="${task['key']}"></span>
+            <span class="badge" th:classappend="'badge-status-' + ${task['state']}"
+                  th:text="${task['stateLabel']}"></span>
+            <span class="muted" th:if="${task['stageLabel']}" th:text="${task['stageLabel']}"></span>
+            <span th:text="'Destination: ' + ${task['destination']}"></span>
+            <a th:if="${task['prUrl']}" class="developer-pr-link" th:href="${task['prUrl']}"
+               th:text="'Open pull request'"></a>
+            <span class="badge badge-outline badge-sm" th:if="${task['outScope']}">Outside current filter</span>
+        </div>
+    </div>
+
+    <section class="card">
+        <div class="card-header">
+            <h2 class="card-title">Result</h2>
+        </div>
+        <div class="card-content">
+            <p th:if="${task['reason']}" th:text="${task['stateLabel']} + ': ' + ${task['reason']}"></p>
+            <p th:unless="${task['reason']}" th:text="${task['stateLabel']}"></p>
+            <div class="page-header-meta">
+                <span th:if="${task['created'] != null}">
+                    Jira created <span th:text="${task['created']}"></span>
+                </span>
+                <span th:if="${task['updated'] != null}">
+                    · updated <span th:text="${task['updated']}"></span>
+                </span>
+            </div>
+            <form method="post" th:action="@{'/tasks/' + ${task['taskId']} + '/retry'}"
+                  th:if="${task['retryAllowed']}">
+                <input type="hidden" name="expectedVersion" th:value="${task['version']}">
+                <input type="hidden" name="inputFingerprint" th:value="${task['inputFingerprint']}">
+                <input type="hidden" name="destinationFingerprint" th:value="${task['destinationFingerprint']}">
+                <button class="btn btn-primary" type="submit">Retry</button>
+                <span class="muted">Re-reads the Jira issue and starts one fresh attempt with the current
+                    destination and source. Previous results and costs stay on this page.</span>
+            </form>
+            <p class="muted" th:if="${task['retryNote'] != null}" th:text="${task['retryNote']}"></p>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-header">
+            <h2 class="card-title">Cost and usage</h2>
+            <p class="card-description">Estimated from reported model usage; actual provider charges may differ.</p>
+        </div>
+        <div class="card-content">
+            <dl class="def-list">
+                <dt>Total tokens</dt><dd th:text="${task['usageTokens']}"></dd>
+                <th:block th:each="category : ${task['usageCategories']}">
+                    <dt th:text="${category['label']} + ' tokens'"></dt>
+                    <dd th:text="${category['value']}"></dd>
+                </th:block>
+                <th:block th:each="estimate : ${task['usageEstimates']}">
+                    <dt th:text="'Estimated cost (' + ${estimate['currency']} + ')'"></dt>
+                    <dd th:text="${estimate['amount']}"></dd>
+                </th:block>
+            </dl>
+            <p class="muted" th:if="${!task['usagePresent']}">No model usage recorded yet.</p>
+            <p class="muted" th:if="${task['usageNote'] != null}" th:text="${task['usageNote']}"></p>
+            <p class="muted" th:unless="${#lists.isEmpty(task['usageModels'])}"
+               th:text="'Models: ' + ${#strings.listJoin(task['usageModels'], ', ')}"></p>
+        </div>
+    </section>
+
+    <section th:unless="${#lists.isEmpty(attempts)}">
+        <div class="page-header">
+            <h2 class="card-title">Attempts</h2>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Attempt</th><th>Kind</th><th>State</th><th>Started</th><th>Active</th>
+                    <th>Deadline</th><th>Result</th><th>Cost</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="row : ${attempts}">
+                    <td th:text="'Attempt ' + ${row['ordinal']}"></td>
+                    <td>
+                        <span th:text="${row['kind']}"></span>
+                        <div class="muted sub-tag" th:text="'via ' + ${row['admittedVia']}"></div>
+                    </td>
+                    <td>
+                        <span class="badge" th:classappend="'badge-status-' + ${row['state']}"
+                              th:text="${row['stateLabel']}"></span>
+                        <div class="muted sub-tag" th:if="${row['executionId']}">
+                            <a th:href="@{'/executions/' + ${row['executionId']}}"
+                               th:text="'run ' + ${row['executionShort']}"></a>
+                        </div>
+                    </td>
+                    <td class="muted" th:title="${row['startedTitle']}" th:text="${row['started']}"></td>
+                    <td class="muted" th:text="${row['active']}"></td>
+                    <td class="muted" th:text="${row['deadline']}"></td>
+                    <td>
+                        <a th:if="${row['prUrl']}" class="developer-pr-link" th:href="${row['prUrl']}"
+                           th:text="'Pull request'"></a>
+                        <div class="muted sub-tag" th:if="${row['reason']}" th:text="${row['reason']}"></div>
+                    </td>
+                    <td>
+                        <span th:if="${row['cost']}" th:text="${row['cost']}"></span>
+                        <span class="muted" th:if="${row['costNote']}"
+                              th:text="'(' + ${row['costNote']} + ')'"></span>
+                        <span class="muted" th:if="${row['cost'] == null}">—</span>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <details class="details-inline">
+        <summary>Technical details</summary>
+        <dl class="def-list">
+            <dt>Task id</dt><dd th:text="${task['taskId']}"></dd>
+            <dt>Project</dt><dd th:text="${task['project']}"></dd>
+            <dt>Engine runs</dt><dd><a th:href="@{/executions}">Executions</a></dd>
+        </dl>
+    </details>
+</section>
+</body>
+</html>

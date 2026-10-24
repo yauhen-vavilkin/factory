@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Tasks', activeNav='tasks', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body"
+         th:attr="data-poll-url=${pollUrl}, data-poll-fields=${pollFields}, data-poll-baseline=${pollBaseline}">
+    <div class="page-header">
+        <h1>Tasks</h1>
+        <p class="page-description">Discovered Jira work for this pilot: select what runs and check results.</p>
+        <div class="page-header-meta">
+            <span>Admission mode: <strong th:text="${modeLabel}">Review before run</strong></span>
+            <span th:if="${lastSync != null}">
+                · last full sync <span th:title="${lastSync}" th:text="${lastSyncRelative}"></span>
+            </span>
+        </div>
+    </div>
+
+    <div class="alert alert-error" role="alert" th:if="${!syncComplete}">
+        <span th:text="'Discovery has not completed a full sync'
+                + (${syncProblem} != null ? ': ' + ${syncProblem} : '')
+                + '. New work waits until a sync completes.'"></span>
+    </div>
+
+    <div class="card">
+        <div class="card-content">
+            <form method="post" th:action="@{/tasks/mode}" th:if="${modeValue == 'REVIEW_BEFORE_RUN'}">
+                <input type="hidden" name="mode" value="AUTOMATIC">
+                <input type="hidden" name="expectedAuthorityFingerprint" th:value="${authorityFingerprint}">
+                <button class="btn btn-outline" type="submit" th:disabled="${!automaticAdmissionAvailable}">
+                    Enable automatic admission</button>
+                <span class="muted" th:if="${automaticAdmissionAvailable}">
+                    Delegates every eligible current and future match in the pilot filter.</span>
+                <span class="muted" th:if="${!automaticAdmissionAvailable}">
+                    Available after discovery completes a full sync.</span>
+            </form>
+            <form method="post" th:action="@{/tasks/mode}" th:if="${modeValue == 'AUTOMATIC'}">
+                <input type="hidden" name="mode" value="REVIEW_BEFORE_RUN">
+                <button class="btn btn-outline" type="submit">Switch to review before run</button>
+                <span class="muted">Stops further automatic admission; queued and running work stays delegated.</span>
+            </form>
+        </div>
+    </div>
+
+    <form method="post" th:action="@{/tasks/run-selected}" data-task-selection>
+        <input type="hidden" name="expectedAuthorityFingerprint" th:value="${authorityFingerprint}">
+        <div class="page-header-meta">
+            <button class="btn btn-primary" type="submit" data-run-selected>Run selected</button>
+            <span class="muted" data-selected-count aria-live="polite">0 selected</span>
+            <label><input type="checkbox" data-select-all> Select page</label>
+        </div>
+
+        <div th:if="${#lists.isEmpty(tasks)}" class="empty-state">No tasks discovered yet.</div>
+        <div class="table-wrap" th:unless="${#lists.isEmpty(tasks)}">
+            <table>
+                <thead>
+                <tr>
+                    <th>Select</th><th>Task</th><th>State</th><th>Repository</th>
+                    <th>Result and cost</th><th>Updated</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="row : ${tasks}">
+                    <td>
+                        <input type="checkbox" name="taskId" th:value="${row['taskId']}"
+                               th:disabled="${!row['selectable']}"
+                               th:attr="aria-label='Select ' + ${row['key']}">
+                        <th:block th:if="${row['selectable']}">
+                            <input type="hidden" th:name="'version-' + ${row['taskId']}"
+                                   th:value="${row['version']}">
+                            <input type="hidden" th:name="'input-' + ${row['taskId']}"
+                                   th:value="${row['inputFingerprint']}">
+                            <input type="hidden" th:name="'destination-' + ${row['taskId']}"
+                                   th:value="${row['destinationFingerprint']}">
+                        </th:block>
+                    </td>
+                    <td>
+                        <a th:if="${row['jiraUrl']}" class="badge badge-outline badge-sm"
+                           th:href="${row['jiraUrl']}" th:text="${row['key']}"></a>
+                        <span th:unless="${row['jiraUrl']}" class="badge badge-outline badge-sm"
+                              th:text="${row['key']}"></span>
+                        <div>
+                            <a th:href="@{'/tasks/' + ${row['taskId']}}" th:text="${row['title']}"></a>
+                            <span class="badge badge-outline badge-sm" th:if="${row['outScope']}">
+                                Outside current filter</span>
+                        </div>
+                        <div class="muted sub-tag" th:if="${row['reason']}" th:text="${row['reason']}"></div>
+                    </td>
+                    <td>
+                        <span class="badge" th:classappend="'badge-status-' + ${row['state']}"
+                              th:text="${row['stateLabel']}"></span>
+                        <div class="muted sub-tag" th:if="${row['stageLabel']}" th:text="${row['stageLabel']}"></div>
+                    </td>
+                    <td th:text="${row['destination']}"></td>
+                    <td>
+                        <a th:if="${row['prUrl']}" class="developer-pr-link" th:href="${row['prUrl']}"
+                           th:text="'Pull request'"></a>
+                        <div th:if="${row['cost']}">
+                            <span th:text="${row['cost']}"></span>
+                            <span class="muted" th:if="${row['costNote']}"
+                                  th:text="'(' + ${row['costNote']} + ')'"></span>
+                        </div>
+                        <span class="muted" th:if="${row['prUrl'] == null and row['cost'] == null}">—</span>
+                    </td>
+                    <td class="muted" th:title="${row['updatedTitle']}" th:text="${row['updated']}"></td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </form>
+
+    <nav th:replace="~{fragments/components :: pagination(${page}, ${baseUrl})}"></nav>
+
+    <div class="alert alert-success" role="status" data-poll-notice hidden>
+        Results changed while you were reviewing — your selection is kept. Reload the page when ready.
+    </div>
+</section>
+</body>
+</html>

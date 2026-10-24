@@ -1,6 +1,12 @@
 package org.folio.factory.app;
 
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.pilot.persistence.PilotAttempt;
+import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
+import org.folio.factory.app.pilot.persistence.PilotInstallation;
+import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
+import org.folio.factory.app.pilot.persistence.PilotTask;
+import org.folio.factory.app.pilot.persistence.PilotTaskRepository;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
@@ -47,6 +53,7 @@ import static org.mockito.Mockito.when;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false",
+                "factory.connectors.jira.base-url=https://jira.example.org",
                 "factory.developer-pricing.rates.test.model=test-model",
                 "factory.developer-pricing.rates.test.currency=USD",
                 "factory.developer-pricing.rates.test.as-of=2026-09-19",
@@ -77,6 +84,15 @@ class UiRenderSmokeTest {
 
     @Autowired
     private AuditLog auditLog;
+
+    @Autowired
+    private PilotTaskRepository pilotTasks;
+
+    @Autowired
+    private PilotAttemptRepository pilotAttempts;
+
+    @Autowired
+    private PilotInstallationRepository pilotInstallations;
 
     @Autowired
     private ITemplateEngine templateEngine;
@@ -613,6 +629,295 @@ class UiRenderSmokeTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(response.getHeaders().getContentType().toString()).contains("json");
         assertThat(response.getBody()).contains("\"error\"").contains("No execution");
+    }
+
+    // ----- pilot task screens -----
+
+    private void resetPilotData() {
+        pilotAttempts.deleteAll();
+        pilotTasks.deleteAll();
+        pilotInstallations.deleteAll();
+    }
+
+    private PilotTask seedTask(String issueId, String key, String title,
+                               PilotTask.Eligibility eligibility, String routingReason) {
+        return pilotTasks.save(new PilotTask("jira.example.org", issueId, key, title, "MODBAR",
+                "{\"key\": \"" + key + "\"}", "revision-" + issueId, eligibility, routingReason));
+    }
+
+    private PilotAttempt seedAttempt(PilotTask task, int ordinal, PilotAttempt.Kind kind,
+                                     PilotAttempt.State state, String reason) {
+        PilotAttempt attempt = new PilotAttempt(task.getId(), ordinal, kind,
+                "smoke-" + task.getId() + "-" + ordinal, state);
+        attempt.setResultReason(reason);
+        return pilotAttempts.save(attempt);
+    }
+
+    private void seedSync(boolean complete, String problem) {
+        PilotInstallation installation = pilotInstallations.findById(1).orElseGet(PilotInstallation::initial);
+        installation.setSyncComplete(complete);
+        installation.setSyncProblem(problem);
+        installation.setObservedAuthorityFingerprint(complete ? "authority-1" : null);
+        pilotInstallations.save(installation);
+    }
+
+    @Test
+    void pilotTaskListRendersEveryStateWithReadableControls() {
+        resetPilotData();
+        seedTask("70001", "MODBAR-701", "Awaiting task", PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedTask("70002", "MODBAR-702", "Unsupported task", PilotTask.Eligibility.INELIGIBLE,
+                "no repository mapping for project MODX");
+        PilotTask queued = seedTask("70003", "MODBAR-703", "Queued task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(queued, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.RESERVED, null);
+        PilotTask stopped = seedTask("70004", "MODBAR-704", "Stopped task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(stopped, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.STOPPED,
+                "verification: 2 tests failed");
+        PilotTask delivered = seedTask("70005", "MODBAR-705", "Delivered task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PilotAttempt ready = seedAttempt(delivered, 1, PilotAttempt.Kind.INITIAL,
+                PilotAttempt.State.PR_READY, null);
+        ready.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/7");
+        pilotAttempts.save(ready);
+        PilotTask withdrawn = seedTask("70006", "MODBAR-706", "Withdrawn task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(withdrawn, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.WITHDRAWN,
+                "task left the pilot scope before start");
+        PilotTask uncertain = seedTask("70007", "MODBAR-707", "Uncertain task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(uncertain, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.NEEDS_INSPECTION,
+                "publish: the candidate was delivered without a known pull-request identity");
+        PilotTask paused = seedTask("70008", "MODBAR-708", "Paused task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PilotAttempt pausedAttempt = seedAttempt(paused, 1, PilotAttempt.Kind.INITIAL,
+                PilotAttempt.State.NEEDS_INSPECTION, null);
+        PilotInstallation installation =
+                pilotInstallations.findById(1).orElseGet(PilotInstallation::initial);
+        installation.setActiveAttemptId(pausedAttempt.getId());
+        pilotInstallations.save(installation);
+        PilotTask left = seedTask("70009", "MODBAR-709", "Left task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        left.setInScope(false);
+        pilotTasks.save(left);
+        seedAttempt(left, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.STOPPED,
+                "coding: verification failed");
+        PilotTask live = seedTask("70010", "MODBAR-710", "Live task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution liveExecution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        liveExecution.setStatus(ExecutionStatus.RUNNING);
+        executions.save(liveExecution);
+        PilotAttempt liveAttempt = seedAttempt(live, 1, PilotAttempt.Kind.INITIAL,
+                PilotAttempt.State.RUNNING, null);
+        liveAttempt.setExecutionId(liveExecution.getId());
+        pilotAttempts.save(liveAttempt);
+        auditLog.record(liveExecution.getId(), AuditEventType.STEP_STARTED, "implement", Map.of());
+
+        String body = assertRendered("/tasks", "Discovered Jira work");
+        assertThat(body)
+                .contains("Awaiting selection", "Not eligible", "Queued", "Could not complete",
+                        "Withdrawn", "Needs inspection", "Paused", "PR ready")
+                .contains("Implementation", "Verification")
+                .contains("href=\"https://jira.example.org/browse/MODBAR-701\"")
+                .contains("href=\"https://github.com/folio-org/mod-bar/pull/7\"")
+                .contains("href=\"/tasks/")
+                .contains("verification: 2 tests failed")
+                .contains("Outside current filter")
+                .contains("Review before run")
+                .contains("Available after discovery completes a full sync.")
+                .contains("name=\"expectedAuthorityFingerprint\"")
+                .contains("data-task-selection", "data-run-selected", "data-selected-count",
+                        "data-select-all", "data-poll-notice")
+                .contains("data-poll-url=\"/tasks/poll\"")
+                .contains("data-poll-fields=\"revision\"")
+                .contains("data-poll-baseline=")
+                .contains("Run selected")
+                .doesNotContain("Delegates every eligible current and future match");
+    }
+
+    @Test
+    void pilotTaskScreensEscapeIssueText() {
+        resetPilotData();
+        PilotTask hostile = seedTask("70011", "MODBAR-711",
+                "Fix <routing> & permissions <script>alert(1)</script>",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        String longTitle = "Modular routing regression " + "x".repeat(300);
+        PilotTask longTitled = seedTask("70012", "MODBAR-712", longTitle,
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+
+        String list = assertRendered("/tasks", "Fix &lt;routing&gt; &amp; permissions");
+        assertThat(list).doesNotContain("<script>alert(1)</script>").contains(longTitle);
+
+        String detail = assertRendered("/tasks/" + hostile.getId(), "Fix &lt;routing&gt; &amp; permissions");
+        assertThat(detail).doesNotContain("<script>alert(1)</script>").contains("MODBAR-711", "Awaiting selection");
+
+        assertThat(assertRendered("/tasks/" + longTitled.getId(), longTitle)).contains(longTitle);
+    }
+
+    @Test
+    void pilotTaskListWithoutTasksShowsEmptyState() {
+        resetPilotData();
+
+        String body = assertRendered("/tasks", "No tasks discovered yet.");
+        assertThat(body).contains("Review before run", "0 selected");
+    }
+
+    @Test
+    void pilotTaskDetailShowsResultCostAndRetry() {
+        resetPilotData();
+        PilotTask stopped = seedTask("70021", "MODBAR-721", "Stopped task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        PilotAttempt attempt = seedAttempt(stopped, 1, PilotAttempt.Kind.INITIAL,
+                PilotAttempt.State.STOPPED, "verification: 2 tests failed");
+        attempt.setExecutionId(execution.getId());
+        pilotAttempts.save(attempt);
+        auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", "smoke",
+                Map.of("attemptId", "a1", "round", -1, "model", "test-model",
+                        "inputTokens", 100_000, "cacheReadTokens", 10_000, "cacheWriteTokens", 0,
+                        "outputTokens", 10_000,
+                        "rate", Map.of("currency", "USD", "source", "card",
+                                "inputPerMillion", 0.15, "cacheReadPerMillion", 0.03, "outputPerMillion", 0.5)));
+
+        String body = assertRendered("/tasks/" + stopped.getId(), "Could not complete");
+        assertThat(body)
+                .contains("verification: 2 tests failed")
+                .contains("Verification")
+                .contains("0.0203 USD", "120,000", "Input tokens", "Output tokens")
+                .contains("Retry")
+                .contains("name=\"expectedVersion\"", "name=\"inputFingerprint\"",
+                        "name=\"destinationFingerprint\"")
+                .contains("/executions/" + execution.getId())
+                .contains(stopped.getId().toString())
+                .contains("All tasks");
+
+        PilotTask partial = seedTask("70022", "MODBAR-722", "Partial task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution partialExecution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        PilotAttempt partialAttempt = seedAttempt(partial, 1, PilotAttempt.Kind.INITIAL,
+                PilotAttempt.State.STOPPED, "verification: incomplete");
+        partialAttempt.setExecutionId(partialExecution.getId());
+        pilotAttempts.save(partialAttempt);
+        auditLog.record(partialExecution.getId(), AuditEventType.STEP_COMPLETED, "implement", "smoke",
+                Map.of("attemptId", "a1", "round", -1, "model", "test-model",
+                        "inputTokens", 50_000, "cacheReadTokens", 0, "cacheWriteTokens", 0,
+                        "rate", Map.of("currency", "USD", "inputPerMillion", 0.15)));
+
+        String partialBody = assertRendered("/tasks/" + partial.getId(), "incomplete estimate");
+        assertThat(partialBody).contains("0.0075 USD", "50,000");
+
+        PilotTask live = seedTask("70023", "MODBAR-723", "Live task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution liveExecution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        liveExecution.setStatus(ExecutionStatus.RUNNING);
+        executions.save(liveExecution);
+        PilotAttempt liveAttempt = seedAttempt(live, 1, PilotAttempt.Kind.INITIAL,
+                PilotAttempt.State.RUNNING, null);
+        liveAttempt.setExecutionId(liveExecution.getId());
+        pilotAttempts.save(liveAttempt);
+        auditLog.record(liveExecution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement", "smoke",
+                Map.of("attemptId", "a1", "round", -1, "activity", "coding_usage", "model", "test-model",
+                        "inputTokens", 10_000, "cacheReadTokens", 0, "cacheWriteTokens", 0,
+                        "rate", Map.of("currency", "USD", "inputPerMillion", 0.15)));
+        auditLog.record(liveExecution.getId(), AuditEventType.STEP_STARTED, "implement", "smoke", Map.of());
+
+        String liveBody = assertRendered("/tasks/" + live.getId(), "provisional estimate");
+        assertThat(liveBody).contains("Working", "Implementation", "Retry is unavailable");
+    }
+
+    @Test
+    void pilotTaskDetailPrReadyHidesRetryAndExplainsWhy() {
+        resetPilotData();
+        PilotTask delivered = seedTask("70031", "MODBAR-731", "Delivered task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PilotAttempt attempt = seedAttempt(delivered, 1, PilotAttempt.Kind.INITIAL,
+                PilotAttempt.State.PR_READY, null);
+        attempt.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/7");
+        pilotAttempts.save(attempt);
+
+        String body = assertRendered("/tasks/" + delivered.getId(), "PR ready");
+        assertThat(body)
+                .contains("https://github.com/folio-org/mod-bar/pull/7", "under human review")
+                .doesNotContain("name=\"expectedVersion\"");
+    }
+
+    @Test
+    void pilotTaskDetailExplainsWhyRetryIsUnavailableForHeldAndWithdrawnTasks() {
+        resetPilotData();
+        PilotTask paused = seedTask("70061", "MODBAR-761", "Paused task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PilotAttempt pausedAttempt = seedAttempt(paused, 1, PilotAttempt.Kind.INITIAL,
+                PilotAttempt.State.NEEDS_INSPECTION, null);
+        PilotInstallation installation =
+                pilotInstallations.findById(1).orElseGet(PilotInstallation::initial);
+        installation.setActiveAttemptId(pausedAttempt.getId());
+        pilotInstallations.save(installation);
+        PilotTask uncertain = seedTask("70062", "MODBAR-762", "Uncertain task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(uncertain, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.NEEDS_INSPECTION,
+                "publish: the candidate was delivered without a known pull-request identity");
+        PilotTask withdrawn = seedTask("70063", "MODBAR-763", "Withdrawn task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(withdrawn, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.WITHDRAWN,
+                "task left the pilot scope before start");
+
+        assertThat(assertRendered("/tasks/" + paused.getId(), "Paused"))
+                .contains("Retry is unavailable until the held attempt is resolved.")
+                .doesNotContain("name=\"expectedVersion\"");
+        assertThat(assertRendered("/tasks/" + uncertain.getId(), "Needs inspection"))
+                .contains("Retry is unavailable until the held attempt is resolved.");
+        assertThat(assertRendered("/tasks/" + withdrawn.getId(), "Withdrawn"))
+                .contains("The admission was withdrawn before start; select the task again.")
+                .doesNotContain("name=\"expectedVersion\"");
+    }
+
+    @Test
+    void pilotTaskDetailRendersFullAttemptHistory() {
+        resetPilotData();
+        PilotTask retried = seedTask("70041", "MODBAR-741", "Retried task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution first = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        PipelineExecution second = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        seedAttempt(retried, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.WITHDRAWN,
+                "task left the pilot scope before start");
+        PilotAttempt retry = seedAttempt(retried, 2, PilotAttempt.Kind.RETRY,
+                PilotAttempt.State.STOPPED, "verification: first failure");
+        retry.setExecutionId(first.getId());
+        pilotAttempts.save(retry);
+        PilotAttempt fresh = seedAttempt(retried, 3, PilotAttempt.Kind.RETRY,
+                PilotAttempt.State.STOPPED, "verification: second failure");
+        fresh.setExecutionId(second.getId());
+        pilotAttempts.save(fresh);
+
+        String body = assertRendered("/tasks/" + retried.getId(), "Attempt 3");
+        assertThat(body)
+                .contains("Initial attempt", "Retry")
+                .contains("task left the pilot scope before start",
+                        "verification: first failure", "verification: second failure")
+                .contains("/executions/" + first.getId(), "/executions/" + second.getId())
+                .contains("Could not complete");
+    }
+
+    @Test
+    void pilotTaskListOffersAutomaticAdmissionAfterCompleteSync() {
+        resetPilotData();
+        seedSync(true, null);
+        seedTask("70051", "MODBAR-751", "Awaiting task", PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+
+        String body = assertRendered("/tasks", "Enable automatic admission");
+        assertThat(body)
+                .contains("value=\"authority-1\"")
+                .contains("Delegates every eligible current and future match")
+                .doesNotContain("Available after discovery completes a full sync.");
+    }
+
+    @Test
+    void pilotTaskListExplainsSyncProblem() {
+        resetPilotData();
+        seedSync(false, "search page 2 failed");
+
+        String body = assertRendered("/tasks", "Discovery has not completed a full sync");
+        assertThat(body).contains("search page 2 failed");
     }
 
     private String assertRendered(String path, String marker) {

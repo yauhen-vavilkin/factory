@@ -1,5 +1,6 @@
 package org.folio.factory.app.pilot.presentation;
 
+import org.folio.factory.app.pilot.admission.PilotAdmissionService;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
@@ -10,6 +11,7 @@ import org.folio.factory.app.pilot.persistence.PilotTaskRepository;
 import org.folio.factory.app.web.AttemptUsageSummary;
 import org.folio.factory.connectors.jira.JiraProperties;
 import org.folio.factory.core.domain.AuditEvent;
+import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
@@ -90,6 +92,7 @@ public class PilotTaskQuery {
         List<PilotTaskView.AttemptHistoryEntry> entries = new ArrayList<>(history.size());
         List<AttemptUsageSummary.Totals> contributions = new ArrayList<>(history.size());
         boolean usageMissingAfterPaidStart = false;
+        String liveStage = null;
         for (PilotAttempt attempt : history) {
             PipelineExecution execution = attempt.getExecutionId() == null
                     ? null : executionsById.get(attempt.getExecutionId());
@@ -101,13 +104,17 @@ public class PilotTaskQuery {
             boolean paidStartWithoutReportedUsage = attempt.getPaidStartAt() != null
                     && totals.tokens() == 0 && !totals.tokensReported();
             usageMissingAfterPaidStart |= paidStartWithoutReportedUsage;
+            String stage = live ? liveStage(events) : stageOf(attempt.getResultReason());
+            if (live) {
+                liveStage = stage;
+            }
             entries.add(new PilotTaskView.AttemptHistoryEntry(
                     attempt.getId(),
                     attempt.getOrdinal(),
                     attempt.getKind().name(),
                     attempt.getAdmittedVia().name(),
                     attempt.getState().name(),
-                    stageOf(attempt.getResultReason()),
+                    stage,
                     attempt.getResultReason(),
                     attempt.getState() == PilotAttempt.State.PR_READY
                             ? attempt.getPublicationIdentity() : null,
@@ -129,6 +136,7 @@ public class PilotTaskQuery {
         String reason = state == PilotTaskView.TaskState.UNSUPPORTED ? task.getRoutingReason()
                 : state == PilotTaskView.TaskState.AWAITING_SELECTION ? null
                 : latest == null ? null : latest.getResultReason();
+        String stage = state == PilotTaskView.TaskState.WORKING ? liveStage : stageOf(reason);
         boolean eligible = task.getEligibility() == PilotTask.Eligibility.ELIGIBLE;
         boolean selectable = eligible && task.isInScope() && (history.isEmpty() || allWithdrawn);
         boolean retriable = eligible && task.isInScope() && latest != null
@@ -142,13 +150,16 @@ public class PilotTaskQuery {
                 task.getProjectKey(),
                 state,
                 reason,
-                stageOf(reason),
+                stage,
                 PilotRoutingReason.eligibleRepositoryKey(task.getRoutingReason()),
                 state == PilotTaskView.TaskState.PR_READY && latest != null
                         ? latest.getPublicationIdentity() : null,
                 task.isInScope(),
                 task.getEligibility().name(),
                 task.getRoutingReason(),
+                task.getVersion(),
+                PilotAdmissionService.inputFingerprint(task),
+                PilotAdmissionService.destinationFingerprint(task),
                 task.getJiraCreatedAt(),
                 task.getUpdatedAt(),
                 List.copyOf(entries),
@@ -198,6 +209,17 @@ public class PilotTaskQuery {
         }
         int boundary = reason.indexOf(": ");
         return boundary > 0 ? reason.substring(0, boundary) : null;
+    }
+
+    /** The step a live execution is on: the latest STEP_STARTED audit event of that execution. */
+    private static String liveStage(List<AuditEvent> events) {
+        for (int i = events.size() - 1; i >= 0; i--) {
+            AuditEvent event = events.get(i);
+            if (event.getEventType() == AuditEventType.STEP_STARTED) {
+                return event.getStepId();
+            }
+        }
+        return null;
     }
 
     private String jiraLink(String displayKey) {

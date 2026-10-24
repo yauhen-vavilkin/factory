@@ -275,10 +275,23 @@ class PilotTaskViewTest {
         admit(working, "run-941");
         assertThat(dispatcher.dispatchNext()).isPresent();
 
+        PilotTaskView queued = query.detail(working.getId());
+        assertThat(queued.state()).isEqualTo(PilotTaskView.TaskState.WORKING);
+        assertThat(queued.stage()).isNull();
+        assertThat(queued.attempts().getFirst().state()).isEqualTo("QUEUED");
+        assertThat(queued.attempts().getFirst().stage()).isNull();
+
+        UUID executionId = attempts.findByTaskIdOrderByOrdinalAsc(working.getId())
+                .getFirst().getExecutionId();
+        stateManager.transition(executionId, ExecutionStatus.RUNNING, null);
+        auditLog.record(executionId, AuditEventType.STEP_STARTED, "implement", Map.of());
+
         PilotTaskView view = query.detail(working.getId());
 
         assertThat(view.state()).isEqualTo(PilotTaskView.TaskState.WORKING);
+        assertThat(view.stage()).isEqualTo("implement");
         var entry = view.attempts().getFirst();
+        assertThat(entry.stage()).isEqualTo("implement");
         assertThat(entry.state()).isEqualTo("QUEUED");
         assertThat(entry.kind()).isEqualTo("INITIAL");
         assertThat(entry.startedAt()).isNotNull();

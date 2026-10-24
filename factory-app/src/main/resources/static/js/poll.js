@@ -20,6 +20,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+    initTaskSelection();
     function formatDuration(seconds) {
       var safe = Math.max(0, seconds);
       if (safe < 60) return safe + 's';
@@ -52,8 +53,41 @@
       var current = fields.map(function (f) { return String(resolve(data, f)); });
       if (baseline === null) { baseline = current; return; }
       for (var i = 0; i < current.length; i++) {
-        if (current[i] !== baseline[i]) { location.reload(); return; }
+        if (current[i] !== baseline[i]) { applyUpdate(); return; }
       }
     });
   });
+
+  function applyUpdate() {
+    var notice = document.querySelector('[data-poll-notice]');
+    if (document.querySelector('input[name="taskId"]:checked') && notice) {
+      notice.hidden = false;
+      return;
+    }
+    location.reload();
+  }
+
+  function initTaskSelection() {
+    var form = document.querySelector('[data-task-selection]');
+    if (!form) return;
+    var boxes = form.querySelectorAll('input[name="taskId"]:not(:disabled)');
+    var counter = document.querySelector('[data-selected-count]');
+    var runButton = form.querySelector('[data-run-selected]');
+    var selectAll = form.querySelector('[data-select-all]');
+    function refresh() {
+      var checked = form.querySelectorAll('input[name="taskId"]:checked').length;
+      if (counter) counter.textContent = checked + ' selected';
+      if (runButton) runButton.textContent = checked ? 'Run selected (' + checked + ')' : 'Run selected';
+      if (selectAll) {
+        selectAll.checked = checked > 0 && checked === boxes.length;
+        selectAll.indeterminate = checked > 0 && checked < boxes.length;
+      }
+    }
+    boxes.forEach(function (box) { box.addEventListener('change', refresh); });
+    if (selectAll) selectAll.addEventListener('change', function () {
+      boxes.forEach(function (box) { box.checked = selectAll.checked; });
+      refresh();
+    });
+    refresh();
+  }
 })();

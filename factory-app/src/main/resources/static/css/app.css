@@ -253,10 +253,27 @@ a:hover { text-decoration: underline; }
      --muted in the light theme, under WCAG AA for this 12px text. */
   color: hsl(var(--secondary-foreground));
 }
-.badge-status-PENDING, .badge-status-RUNNING, .badge-status-AWAITING_SUBFLOW, .badge-status-VERIFIED {
+.badge-status-PENDING, .badge-status-RUNNING, .badge-status-AWAITING_SUBFLOW, .badge-status-VERIFIED,
+.badge-status-AWAITING_SELECTION, .badge-status-WORKING, .badge-status-RESERVED, .badge-status-QUEUED {
   border-color: hsl(var(--border));
   color: hsl(var(--foreground));
   background: transparent;
+}
+.badge-status-PR_READY {
+  background: hsl(var(--success));
+  color: hsl(var(--success-foreground));
+}
+.badge-status-STOPPED, .badge-status-UNSUPPORTED {
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+}
+.badge-status-UNCERTAIN, .badge-status-NEEDS_INSPECTION, .badge-status-PROCESSING_PAUSED {
+  background: hsl(var(--warning));
+  color: hsl(var(--warning-foreground));
+}
+.badge-status-WITHDRAWN {
+  background: hsl(var(--muted));
+  color: hsl(var(--secondary-foreground));
 }
 
 /* ---------- table ---------- */
