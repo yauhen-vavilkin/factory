@@ -149,19 +149,52 @@ symlinks; verifier, policy, PR-text and config tests per toolchain. Verified on 
 risks), including the symlink tests that Windows skips.
 
 **Phase 2 — yarn workloads.**
-Toolchain-aware cache, build-output and freezer seams (with `MavenCache`/`MavenBaselineOutput`
-behind them, signatures kept), then yarn cache volume and seeding, trusted `.yarnrc`/env, yarn build-output parser (progress,
-summary, transient detection → engine retry), freezer exclusions.
-Failure classification should look for registry/network markers only in the install output:
-Jest output can legitimately contain `ENOTFOUND`, `ETIMEDOUT` or `connection refused` when
-tests mock failed requests, which today labels a real test failure `ENVIRONMENT` (safe, but
-not offered for repair).
-Workspace export must not copy `node_modules`: `docker cp <workload>:/workspace/.` would move
-0.5–1.2 GB per export (verification only needs `artifacts/jest-junit`). Verification should
-also remove `artifacts/jest-junit` before running, and the freezer must treat untracked
-`artifacts/` as generated, so a patch cannot plant a report.
-Done: `DockerWorkloadsTest`-style tests for the yarn mounts/env; freezer tests prove untracked
-`yarn.lock`/`artifacts/` never enter a candidate; cache spike result recorded here (see risks).
+`BuildEnvironment` (toolchain, cache volume, FOLIO npm registry) replaces the bare Maven
+cache-volume argument of `DockerWorkloads`; `DevRuntimeProperties.environment(plan)` supplies
+it from `runtime.yarn.cache-volume` / `runtime.yarn.folio-registry` (validated: the registry is
+written into a shell command). Yarn workloads get a trusted environment — a `.yarnrc` with
+the `@folio` registry, `YARN_CACHE_FOLDER`, `CI=true`, `JEST_JUNIT_OUTPUT_DIR`,
+`JEST_JUNIT_REPORT_TEST_SUITE_ERRORS` — and keep the Maven rule: only the trusted baseline
+writes the shared cache; coding and verification get a **private writable copy of a read-only
+seed**, so untrusted code can never poison it. `Workload.stop()` moves `node_modules` out of
+`/workspace` (a rename), so export holds sources and reports only; verification deletes
+`artifacts/jest-junit` before it runs; the freezer ignores untracked top-level `artifacts/`,
+`coverage/`, `junit.xml`, `yarn-error.log`, `yarn.lock` and `package-lock.json` for yarn
+(tracked ones are kept; nested paths and Maven repositories are unaffected, so a Java package
+named `artifacts` survives). `YarnBaselineOutput` reports install steps and results, drops the
+hundreds of peer-dependency warnings, and treats only yarn's own `error …` lines with network
+markers (`ETIMEDOUT`, `ESOCKETTIMEDOUT`, `ECONNRESET`, `ECONNREFUSED`, `EAI_AGAIN`, `ENOTFOUND`,
+`socket hang up`, registry 5xx in both the plain and the backslash-escaped quote form) as
+transient (engine retry). Classification reuses the same check and looks for network markers
+only on yarn error lines; yarn's `info There appears to be trouble…` retry notice is shown as
+progress but never classifies a failure, since the install may have recovered. The shared sanitizer now also redacts the token in `Authorization: Bearer …`.
+
+Cache spike (ui-users, node:22, Linux VM, cache 2.6 GB / `node_modules` 1.3 GB):
+
+| Strategy | Time |
+|---|---|
+| Cold install into an empty volume | 96 s |
+| Warm: shared writable volume reused | 14 s |
+| Read-only seed copied into the container, then install | 8 s + 15 s = 23 s |
+| Read-only cache used in place (`--offline` or `--prefer-offline`) | 14 s |
+
+Chosen: copy the seed. Using the read-only cache in place is 9 s faster and works, but fails
+as soon as a candidate adds a dependency that is not in the seed (yarn must write to its
+cache), and verification has to cope with exactly that.
+
+End-to-end check on a real module (ui-orders `master`, Jest with `--maxWorkers=2`, empty
+cache, a scripted stand-in for the coding agent; throwaway test, not committed): trusted
+baseline 104 s install + 82 s tests, coding container 54 s (seed copy, `yarn install`, edit),
+verification 156 s, 438 s in total; the frozen patch contained only the edit (the agent's
+`yarn.lock`, `node_modules` and a planted `artifacts/jest-junit/junit.xml` were excluded) and
+verification passed 1196 tests with a receipt of toolchain `YARN`.
+Done: command-shape and validation tests for the yarn mounts, environment and registry;
+Docker-gated tests on real containers (cache persists, seeded workloads cannot modify it,
+`.yarnrc` and environment are present, export excludes `node_modules`); freezer, build-output,
+retry and classification tests; the end-to-end run above.
+Not covered here: Jest writes `PASS`/`FAIL` to stderr and the baseline progress observer reads
+stdout only, so the test phase shows only yarn lines and heartbeats (merging stderr in the
+plan with `2>&1`, or observing stderr in `Processes`, would show suite progress).
 
 **Phase 3 — images and Compose.**
 `factory-dev-pi:0.85.1-node22` and `factory-dev-claude-code:2.1.287-node22` (the starting
@@ -190,15 +223,24 @@ published; ui-orders or ui-myprofile runs end-to-end.
 
 ## Risks and open questions
 
-- **Cache size and seeding cost.** Yarn caches are 1–2.6 GB per module and the shared cache
-  grows with every module. Copying it into each container (the Maven pattern) may cost more
-  than it saves. Spike in phase 2: read-only seed copy vs. per-repository volumes vs. a
-  `yarn-offline-mirror` of tarballs. Decide on measured container times.
+- **Cache growth.** The shared yarn cache has no eviction and grows with every module (1–2.6
+  GB each, with heavy overlap). Seeding costs about 3 s per GB (8 s for 2.5 GB), per coding
+  and verification container. If it gets large, reset it by removing the volume while the
+  stack is stopped; per-repository volumes remain an option.
 - **Flaky tests** fail verification as `UNKNOWN`/`CANDIDATE`. Accepted for the pilot; the
   operator can request another check. Revisit (e.g. bounded re-run of failed suites only) with
   real data.
-- **Container limits.** `--pids-limit 512` and no memory cap vs. Jest's parallel workers and
-  jsdom memory on large modules (ui-inventory). Check in phase 3 Docker tests.
+- **Container limits: memory.** Factory sets no memory cap on workloads. A first end-to-end
+  run on ui-orders with Jest's default of one worker per core (7) and `--coverage` exhausted the
+  8 GB Podman VM and froze it until it was restarted; with `--maxWorkers=2` the same run
+  passed. The pids limit (512) was not a problem. Size the VM for the biggest module (the
+  host here has 32 GB, so `memory=` in `.wslconfig` can be raised) and put `--maxWorkers=…` in
+  the yarn plan's command; concurrent executions multiply the pressure.
+- **Podman compatibility of the workload commands** (verified in phase 2 with the `docker`
+  CLI against Podman's compatible socket): a `--workdir` missing from the image is created and
+  a `--cap-drop ALL` container starts; all 14 `DockerWorkloadsTest` and `FeedbackDockerTest`
+  pass on real containers. The native `podman create --workdir` does not create it, which is
+  irrelevant here because Factory uses the Docker CLI.
 - **Red `master`.** Modules on `jest-config-stripes` ^3 can fail to load suites (ui-myprofile
   today). The flow correctly blocks before model spend; such modules need the upstream bump
   first.
@@ -225,8 +267,13 @@ published; ui-orders or ui-myprofile runs end-to-end.
   3 full runs (`reapStale(0)` races a same-millisecond update). Phase work is judged against
   this baseline, not against zero failures. Rootless storage is separate from the old rootful
   one (images are pulled again once). **Clean baseline on Linux:** the dev-factory module
-  passes 245/245 (14 Docker-gated tests skipped) with no Windows failures, including the
-  symlink tests Windows skips. Run it with the repo mounted read-only and a copy built inside
+  passes 288/288 (16 Docker-gated tests skipped) with no Windows failures, including the
+  symlink tests Windows skips. The Docker-gated tests run too once the container can reach
+  Podman: copy the `docker` CLI out of `docker:29-cli` into a volume, mount it and the socket
+  (`-v /run/user/1000/podman/podman.sock:/var/run/docker.sock`), and set
+  `FACTORY_DOCKER_TEST=true`; `DockerWorkloadsTest` (14) and `FeedbackDockerTest` pass this
+  way, while `ClaudeCodeDockerTest` and `PiCodingHttpContractTest` need the coding images
+  (phase 3). Run it with the repo mounted read-only and a copy built inside
   the container, so Windows `target` directories stay untouched:
   `podman run --rm -v "<repo>:/src:ro" -v "<home>\.m2:/root/.m2" maven:3.9-eclipse-temurin-21 sh -c
   'mkdir /work && cd /src && tar --exclude=target --exclude=.git --exclude=node_modules -cf - . |
@@ -239,7 +286,27 @@ published; ui-orders or ui-myprofile runs end-to-end.
   container. A patch may change `jest.config.js`, `package.json` or setup files (reporters,
   `testMatch`, skipped suites), exactly as a Maven patch may change `pom.xml`. The backstops
   are the exit code, the executed-test floor (at least one test, none skipped-only), and the
-  human review of the PR; Factory does not pin a suite list for yarn plans.
+  human review of the PR; Factory does not pin a suite list for yarn plans. The same holds
+  for the registry: the `.yarnrc` Factory writes into the container home is a default, not an
+  enforced setting. A project-level `.yarnrc`/`.npmrc` in a patch takes precedence and the
+  freezer does not exclude it, so verification could install `@folio/*` from wherever the patch
+  points (a Maven patch can likewise add `<repositories>` to `pom.xml`). Accepted: unlikely,
+  verification has no credentials, and the file shows up in the PR diff.
+- **Concurrent writes to a shared cache volume (both toolchains).** Nothing serializes the
+  starting builds that write `factory-dev-yarn-cache` / `factory-dev-m2-cache`, the root
+  `chown -R` in `ensureWritableCache` that runs before each of them, or the `cp -a` seed copies
+  of coding and verification containers (`worker-threads: 4`, `max-concurrent-executions: 8`
+  allow overlap). Yarn v1 is not safe for concurrent cache writes without `--mutex`, and
+  `--mutex` does not cover the `chown`/`cp` races; Maven tolerates them better (atomic
+  temp-file renames) and the engine retry covers a vanished file. Unobserved so far because
+  executions run one at a time. **Before more than one person uses the flow** (phase 4
+  prerequisite, as its own change): an in-process lock per cache volume in `DockerWorkloads`
+  held across the starting build and the seed copies.
+- **Seed copy size and timeout.** The seed copy has a fixed 120 s timeout and the cache is
+  shared by all UI modules: 8 s with only ui-users in it, roughly 6 GB with ui-users,
+  ui-inventory and ui-orders, copied into every coding and verification container. Measure in
+  phase 4 with several modules; switch to one cache volume per repository, or raise the
+  timeout, if the copy approaches the limit.
 - **Podman instead of Docker (pilot machine).** The VM's `/var/run/docker.sock` now points
   to the rootless socket (`/run/user/1000/podman/podman.sock`), so the Compose socket mount
   and the Factory container's Docker CLI should work; `podman compose` delegates to Docker
