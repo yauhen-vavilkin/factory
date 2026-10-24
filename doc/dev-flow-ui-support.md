@@ -73,7 +73,7 @@ factory.dev-factory:
     ui-users:
       source-repo: ${FACTORY_UI_USERS_SOURCE_REPO:folio-org/ui-users}
       base-branch: master
-      build-image: node:22-bookworm                # ships yarn 1.22; source is copied in
+      build-image: node:22.22.0-bookworm              # ships yarn 1.22; same Node as the coding images
       verification-plan: node22-jest
       jira-projects: [UIU]
   runtime:
@@ -84,9 +84,6 @@ factory.dev-factory:
     yarn:
       cache-volume: ${FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME:factory-dev-yarn-cache}
       folio-registry: ${FACTORY_DEV_FACTORY_FOLIO_NPM_REGISTRY:https://repository.folio.org/repository/npm-folioci/}
-    coding:
-      pi:          { yarn-image: ${FACTORY_PI_YARN_IMAGE:factory-dev-pi:0.85.1-node22} }
-      claude-code: { yarn-image: ${FACTORY_CLAUDE_CODE_YARN_IMAGE:factory-dev-claude-code:2.1.287-node22} }
   delivery:
     targets:
       ui-users:
@@ -196,12 +193,44 @@ Not covered here: Jest writes `PASS`/`FAIL` to stderr and the baseline progress 
 stdout only, so the test phase shows only yarn lines and heartbeats (merging stderr in the
 plan with `2>&1`, or observing stderr in `Processes`, would show suite progress).
 
-**Phase 3 — images and Compose.**
-`factory-dev-pi:0.85.1-node22` and `factory-dev-claude-code:2.1.287-node22` (the starting
-build and verification use the official `node:22-bookworm` image directly); Compose builds/checks the yarn coding image for the
-selected runtime alongside the Maven one.
-Done: images build without credentials; version checks pass; `FACTORY_DOCKER_TEST=true`
-contract tests cover a small yarn fixture repo end-to-end (baseline → code → verify).
+**Phase 3 — images and Compose** (implemented).
+The existing coding images are extended, not duplicated: `factory-dev-pi:0.85.1-java21-node22`
+and `factory-dev-claude-code:2.1.287-java21-node22`. Both Dockerfiles copy Node 22.22.0 and
+yarn 1.22.22 (`/opt/yarn-v1.22.22`, linked into `/usr/local/bin`) from the pinned
+`node:22.22.0-bookworm-slim` stage, which Pi already used for Node. This adds about 7 MB to the
+Pi image (817 → 824 MB) and 146 MB to the Claude Code one (790 → 936 MB), keeps one image per
+runtime, and needs no new settings, Java changes or Compose services: `CodingRuntime.image()`
+and the coding config are unchanged, and backend-only installs build nothing extra. The Compose
+checks now also require `node --version` = `v22.22.0` and `yarn --version` = `1.22.22`.
+The tags changed on purpose: Compose builds only when the image is missing, so an old
+`…-java21` image without yarn would otherwise be kept and UI coding would fail with
+`yarn: not found`.
+
+Compose also declares the `factory-dev-yarn-cache` volume (`FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME`)
+and passes `FACTORY_DEV_FACTORY_FOLIO_NPM_REGISTRY`; both are in `.env.example` and the README.
+
+Trade-off, accepted: the coding container is the Maven image's Ubuntu base with a copied
+Node, while the starting build and verification run on Debian `node:22.22.0-bookworm`. A
+package that compiles native code (node-gyp needs Python/make/g++, which the Maven image
+lacks) could install differently in coding than in verification; verification is independent,
+so the agent's own test run is advisory only, and the prebuilt linux-x64 glibc binaries Jest
+needs work on both. A Node bump now rebuilds the backend images too; split the images again
+if a future toolchain needs conflicting tools. Use `node:22.22.0-bookworm` (not the floating
+`node:22-bookworm`) as the UI `build-image` in phase 4 so all three stages run the same Node.
+
+Verified: both images build without credentials with Podman's Compose provider and pass the
+Compose checks. Docker-gated tests on Linux (harness recipe below), all green:
+`ClaudeCodeDockerTest` (24, including two yarn tests: the real CLI in the extended image
+with node and yarn, and a fixture repo — jest 29 + jest-junit, no lockfile — that goes trusted
+starting build → real Claude Code session against a local Messages server (`yarn install`, a
+new source and test file, `yarn test`) → export without `node_modules` → fresh verification
+workload whose Jest report shows 2 tests and 0 failures; about 52 s), `PiCodingHttpContractTest`
+(2, the second runs the same request in a yarn workload and checks node 22, yarn 1 and
+`CI=true`), `DockerWorkloadsTest` (14) and `FeedbackDockerTest` (1). One full run's wall-clock
+time (43 min instead of ~8) was inflated by the laptop sleeping; the yarn tests alone took the
+same time as before.
+The fixture goes through workloads rather than `CandidateVerifier` (which needs a Git remote);
+the verifier's yarn paths are covered by its unit tests and the phase 2 run on ui-orders.
 
 **Phase 4 — pilot: UIU-3606 on ui-users.**
 Configure `ui-users` (has `yarn.lock`) with delivery to the fork
