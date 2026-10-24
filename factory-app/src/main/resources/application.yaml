@@ -141,6 +141,12 @@ factory:
       # (factory.dev-factory.runtime.coding.claude-code.max-turns).
       deadline: ${FACTORY_PILOT_EXECUTION_DEADLINE:60m}
       recovery-poll-interval-ms: ${FACTORY_PILOT_EXECUTION_RECOVERY_POLL_INTERVAL_MS:60000}
+    startup:
+      # S11: bounds for the explicit startup smoke — one tiny tool-using model call
+      # from the pinned coding image, never repeated on an unchanged restart.
+      # The bounds are part of the reusable evidence identity.
+      smoke-max-turns: ${FACTORY_PILOT_SMOKE_MAX_TURNS:5}
+      smoke-timeout: ${FACTORY_PILOT_SMOKE_TIMEOUT:2m}
     source:
       # Team source: board or saved filter id/URL; one sprint; required statuses.
       source: ${FACTORY_PILOT_SOURCE:}

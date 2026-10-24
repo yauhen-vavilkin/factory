@@ -40,6 +40,8 @@ class ComposeConfigurationTest {
     void everyDocumentedApplicationSettingAndSpringPlaceholderHasAComposeEntry() throws IOException {
         var documented = names(Files.readString(ROOT.resolve(".env.example")),
                 "(?m)^\\s*(?:#\\s*)?([A-Z][A-Z0-9_]+)=");
+        documented.addAll(names(Files.readString(ROOT.resolve(".env.pilot.example")),
+                "(?m)^\\s*(?:#\\s*)?([A-Z][A-Z0-9_]+)="));
         for (String path : new String[]{"factory-app/src/main/resources/application.yaml",
                 "config/developer-repositories.yaml"}) {
             documented.addAll(names(Files.readString(ROOT.resolve(path)), "\\$\\{([A-Z][A-Z0-9_]+)[:}]"));
@@ -98,7 +100,7 @@ class ComposeConfigurationTest {
 
     @Test
     void copiedExampleUsesLocalProxyAndDoesNotOverrideCatalogAuthorization() throws Exception {
-        Map<String, String> example = exampleEnvironment();
+        Map<String, String> example = exampleEnvironment(".env.example");
         var config = render(example, Map.of());
         var environment = config.path("services").path("factory").path("environment");
 
@@ -110,6 +112,70 @@ class ComposeConfigurationTest {
                     .as("The example must retain catalog authorization for %s", prefix)
                     .isTrue();
         }
+    }
+
+    @Test
+    void pilotExampleEnablesThePilotKeepsRetentionOffAndStaysOnTheSupportedLocalProfile() throws Exception {
+        Map<String, String> pilot = exampleEnvironment(".env.pilot.example");
+        var config = render(pilot, Map.of());
+        var environment = config.path("services").path("factory").path("environment");
+
+        assertLocalCodeMieProfile(environment);
+        assertEnvironmentContains(environment, Map.of(
+                "FACTORY_PILOT_DISCOVERY_ENABLED", "true",
+                "FACTORY_PILOT_EXECUTION_ENABLED", "true",
+                "FACTORY_PILOT_STATUSES", "To Do",
+                "FACTORY_RETENTION_ENABLED", "false"));
+        assertThat(isUnset(environment.path("FACTORY_PILOT_SMOKE_MAX_TURNS"))).isTrue();
+        assertThat(isUnset(environment.path("FACTORY_PILOT_SMOKE_TIMEOUT"))).isTrue();
+    }
+
+    @Test
+    void startupSmokeBoundsReachTheAppWhenSet() throws Exception {
+        var environment = render(Map.of(
+                "FACTORY_PILOT_SMOKE_MAX_TURNS", "3",
+                "FACTORY_PILOT_SMOKE_TIMEOUT", "90s"), Map.of())
+                .path("services").path("factory").path("environment");
+        assertEnvironmentContains(environment, Map.of(
+                "FACTORY_PILOT_SMOKE_MAX_TURNS", "3",
+                "FACTORY_PILOT_SMOKE_TIMEOUT", "90s"));
+    }
+
+    @Test
+    void publishedPortsStayLoopbackOnlyAndTheCodingRuntimeExposesNothing() throws Exception {
+        var config = render(Map.of(), Map.of());
+        var factory = config.path("services").path("factory");
+        var coding = config.path("services").path("coding-runtime");
+
+        assertThat(coding.path("ports").isMissingNode()
+                || coding.path("ports").isEmpty()).isTrue();
+        for (JsonNode port : factory.path("ports")) {
+            assertThat(port.path("host_ip").asString()).isEqualTo("127.0.0.1");
+        }
+    }
+
+    @Test
+    void catalogAndPricingMountsAreReadOnlyAndPersistentStorageUsesNamedVolumes() throws Exception {
+        var services = render(Map.of(), Map.of()).path("services");
+        var factory = services.path("factory");
+
+        JsonNode catalog = requireVolume(factory, CATALOG_MOUNT);
+        assertThat(catalog.path("read_only").asBoolean()).isTrue();
+        JsonNode pricing = requireVolume(factory, "/application/config/developer-pricing.yaml");
+        assertThat(pricing.path("read_only").asBoolean()).isTrue();
+        assertThat(requireVolume(services.path("postgres"), "/var/lib/postgresql/data")
+                .path("source").asString()).endsWith("factory-pgdata");
+        JsonNode m2 = requireVolume(factory, "/var/lib/factory-dev-m2-cache");
+        assertThat(m2.path("read_only").asBoolean()).isTrue();
+    }
+
+    @Test
+    void theCodingRuntimeCommandStaysThePinnedVersionGateNotInferenceEvidence() throws Exception {
+        var coding = render(Map.of(), Map.of()).path("services").path("coding-runtime");
+
+        var command = new StringBuilder();
+        coding.path("command").forEach(part -> command.append(part.asString()).append(' '));
+        assertThat(command.toString()).contains("claude --version").contains("2.1.287 (Claude Code)");
     }
 
     @ParameterizedTest
@@ -178,9 +244,9 @@ class ComposeConfigurationTest {
         assertThat(environment.path("FACTORY_CLAUDE_CODE_EFFORT").asString()).isEmpty();
     }
 
-    private static Map<String, String> exampleEnvironment() throws IOException {
+    private static Map<String, String> exampleEnvironment(String fileName) throws IOException {
         Map<String, String> variables = new HashMap<>();
-        for (String line : Files.readAllLines(ROOT.resolve(".env.example"))) {
+        for (String line : Files.readAllLines(ROOT.resolve(fileName))) {
             if (line.isBlank() || line.startsWith("#")) {
                 continue;
             }

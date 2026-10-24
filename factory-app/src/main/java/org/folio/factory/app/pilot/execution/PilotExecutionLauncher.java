@@ -7,6 +7,7 @@ import org.folio.factory.app.pilot.persistence.PilotInstallation;
 import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
 import org.folio.factory.app.pilot.persistence.PilotTask;
 import org.folio.factory.app.pilot.persistence.PilotTaskRepository;
+import org.folio.factory.app.pilot.startup.PilotExecutionReadiness;
 import org.folio.factory.core.trigger.PipelineRouter;
 import org.folio.factory.core.trigger.PreparedManualTrigger;
 import org.springframework.stereotype.Service;
@@ -38,18 +39,20 @@ public class PilotExecutionLauncher {
     private final PilotAttemptRepository attempts;
     private final PilotInstallationRepository installations;
     private final PilotExecutionProperties properties;
+    private final PilotExecutionReadiness readiness;
     private final TransactionTemplate transactions;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public PilotExecutionLauncher(PipelineRouter router, PilotTaskRepository tasks,
                                   PilotAttemptRepository attempts, PilotInstallationRepository installations,
-                                  PilotExecutionProperties properties,
+                                  PilotExecutionProperties properties, PilotExecutionReadiness readiness,
                                   PlatformTransactionManager transactionManager) {
         this.router = router;
         this.tasks = tasks;
         this.attempts = attempts;
         this.installations = installations;
         this.properties = properties;
+        this.readiness = readiness;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -92,6 +95,11 @@ public class PilotExecutionLauncher {
         if (attempt.getState() != PilotAttempt.State.RESERVED) {
             throw new IllegalStateException("Pilot attempt " + attemptId + " is not dispatchable (state "
                     + attempt.getState() + ")");
+        }
+        // Only a genuinely new paid launch waits for startup readiness; returning
+        // an existing binding for live work stays available for reconciliation.
+        if (properties.enabled()) {
+            readiness.requireExecutionReady();
         }
         PilotTask task = tasks.lockById(attempt.getTaskId())
                 .orElseThrow(() -> new NoSuchElementException("No pilot task " + attempt.getTaskId()));

@@ -8,6 +8,7 @@ import org.folio.factory.app.pilot.execution.PilotDispatcher;
 import org.folio.factory.app.pilot.execution.PilotExecutionLauncher;
 import org.folio.factory.app.pilot.execution.PilotExecutionProperties;
 import org.folio.factory.app.pilot.execution.PilotOutcomeService;
+import org.folio.factory.app.pilot.startup.PilotExecutionReadiness;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
@@ -255,8 +256,10 @@ class PilotDispatchIntegrationTest {
     }
 
     private PilotDispatcher dispatcherWithRouter(PipelineRouter crashingRouter) {
+        PilotExecutionReadiness permissive = () -> {
+        };
         var launcher = new PilotExecutionLauncher(crashingRouter, tasks, attempts, installations,
-                new PilotExecutionProperties(null), transactionManager);
+                new PilotExecutionProperties(null), permissive, transactionManager);
         return new PilotDispatcher(attempts, installations, launcher, outcomesProvider());
     }
 

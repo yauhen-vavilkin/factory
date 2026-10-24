@@ -10,6 +10,7 @@ import org.folio.factory.app.pilot.execution.PilotDispatcher;
 import org.folio.factory.app.pilot.execution.PilotOutcomeService;
 import org.folio.factory.app.pilot.execution.PersistedPilotAttemptPolicy;
 import org.folio.factory.app.pilot.execution.PilotPublicationGuard;
+import org.folio.factory.app.pilot.startup.PilotReadinessGate;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
@@ -42,8 +43,6 @@ import org.folio.factory.devfactory.worker.DevelopWorker;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.folio.factory.devfactory.worker.IntakeResolveWorker;
 import org.folio.factory.devfactory.worker.VerifyWorker;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -133,6 +132,10 @@ class PilotPublicationIntegrationTest {
 
     @MockitoBean
     DockerWorkloads docker;
+
+    /** The publication tests own their attempt state; startup readiness is covered by PilotStartupTest. */
+    @MockitoBean
+    PilotReadinessGate readiness;
 
     @MockitoBean
     CandidateDelivery delivery;
