@@ -125,15 +125,41 @@ Done: existing tests unchanged and green apart from failures already present on 
 (see risks); defaults and binding covered in `DevRuntimePropertiesTest`.
 
 **Phase 1 — yarn evidence and verification.**
-`YARN` joins `Toolchain`; `JestJunitEvidence` (same XML hardening as `SurefireEvidence`, size cap, freshness by mtime),
-receipt/policy fields, Jest failure classification, `PullRequestRenderer` evidence lines.
-Done: unit tests with recorded `junit.xml` fixtures — pass, assertion failure, suite load error
-(the ui-myprofile case), zero tests, stale file, oversized/malicious XML.
+`YARN` joins `Toolchain`. `JestJunitEvidence` reads one trusted path,
+`artifacts/jest-junit/junit.xml`, and sums the per-suite counters (they equal the root
+counters in every recorded report). It shares the hardened XML parser with `SurefireEvidence`
+(`JunitXml`, `TestEvidence`), caps the file at 8 MiB (the largest recorded full run is
+0.4 MB), accepts only a fresh file, and rejects a symlink at any path component. A suite that
+fails to load (`tests="0" errors="1"`) counts as one executed, failed unit: it is a FAIL, not
+invalid evidence, and it keeps `failures + errors ≤ tests`, which `VerificationReceipt`
+enforces. Receipts gain `toolchain` (absent → `maven`, so stored receipts stay readable);
+`VerificationPolicy` treats a toolchain change like a plan change. `surefireReportCount` keeps
+its historical name and carries the primary report count for every toolchain. Failure
+classification is per toolchain (Jest: `expect(received)`/`Expected:`/`Received:` →
+repairable candidate failure; registry/network errors → environment; a timeout on its own
+→ unknown, and a suite load error is never repairable, because any error rules out
+`CANDIDATE`; a run that also contains an assertion failure is classified by that failure). PR text says "Jest reports". `required-reports` is
+rejected at startup for yarn plans. The plan's argv must run Jest with
+`JEST_JUNIT_OUTPUT_DIR=artifacts/jest-junit` and `JEST_JUNIT_REPORT_TEST_SUITE_ERRORS=true`;
+phase 2 injects them as trusted workload environment.
+Done: `JestJunitEvidenceTest` on recorded `junit.xml` fixtures (passing with skips, a real
+timeout failure, the real suite-load-error report) plus zero tests, all-skipped, stale file,
+oversized, malformed/DOCTYPE/XXE, wrong structure, missing and overflowing counters,
+symlinks; verifier, policy, PR-text and config tests per toolchain. Verified on Linux (see
+risks), including the symlink tests that Windows skips.
 
 **Phase 2 — yarn workloads.**
 Toolchain-aware cache, build-output and freezer seams (with `MavenCache`/`MavenBaselineOutput`
 behind them, signatures kept), then yarn cache volume and seeding, trusted `.yarnrc`/env, yarn build-output parser (progress,
 summary, transient detection → engine retry), freezer exclusions.
+Failure classification should look for registry/network markers only in the install output:
+Jest output can legitimately contain `ENOTFOUND`, `ETIMEDOUT` or `connection refused` when
+tests mock failed requests, which today labels a real test failure `ENVIRONMENT` (safe, but
+not offered for repair).
+Workspace export must not copy `node_modules`: `docker cp <workload>:/workspace/.` would move
+0.5–1.2 GB per export (verification only needs `artifacts/jest-junit`). Verification should
+also remove `artifacts/jest-junit` before running, and the freezer must treat untracked
+`artifacts/` as generated, so a patch cannot plant a report.
 Done: `DockerWorkloadsTest`-style tests for the yarn mounts/env; freezer tests prove untracked
 `yarn.lock`/`artifacts/` never enter a candidate; cache spike result recorded here (see risks).
 
@@ -198,7 +224,22 @@ published; ui-orders or ui-myprofile runs end-to-end.
   `ExecutionEngineIntegrationTest.reaperReturnsStaleRunningExecutionsToPending` failed in 2 of
   3 full runs (`reapStale(0)` races a same-millisecond update). Phase work is judged against
   this baseline, not against zero failures. Rootless storage is separate from the old rootful
-  one (images are pulled again once).
+  one (images are pulled again once). **Clean baseline on Linux:** the dev-factory module
+  passes 245/245 (14 Docker-gated tests skipped) with no Windows failures, including the
+  symlink tests Windows skips. Run it with the repo mounted read-only and a copy built inside
+  the container, so Windows `target` directories stay untouched:
+  `podman run --rm -v "<repo>:/src:ro" -v "<home>\.m2:/root/.m2" maven:3.9-eclipse-temurin-21 sh -c
+  'mkdir /work && cd /src && tar --exclude=target --exclude=.git --exclude=node_modules -cf - . |
+  tar -xf - -C /work && cd /work && mvn -B -ntp -o -pl factory-flow-dev-factory -am test'`.
+  The app's database-backed tests pass on Linux too (`PrFeedbackIntegrationTest` 20/20, which
+  fails 19/20 on Windows): use `-pl factory-app -am` and add `--network host`,
+  `-v /run/user/1000/podman/podman.sock:/var/run/docker.sock`,
+  `-e TESTCONTAINERS_RYUK_DISABLED=true` and `-e TESTCONTAINERS_HOST_OVERRIDE=localhost`.
+- **What the Jest evidence does not prove.** Verification trusts what Jest reports in the
+  container. A patch may change `jest.config.js`, `package.json` or setup files (reporters,
+  `testMatch`, skipped suites), exactly as a Maven patch may change `pom.xml`. The backstops
+  are the exit code, the executed-test floor (at least one test, none skipped-only), and the
+  human review of the PR; Factory does not pin a suite list for yarn plans.
 - **Podman instead of Docker (pilot machine).** The VM's `/var/run/docker.sock` now points
   to the rootless socket (`/run/user/1000/podman/podman.sock`), so the Compose socket mount
   and the Factory container's Docker CLI should work; `podman compose` delegates to Docker
