@@ -14,13 +14,24 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-/** Run with -Dfactory.pi.contract.image=factory-dev-pi:0.85.1-java21 after building the coding image. */
+/** Run with -Dfactory.pi.contract.image=factory-dev-pi:0.85.1-java21-node22 after building the coding image. */
 class PiCodingHttpContractTest {
     @TempDir Path workspace;
 
     @Test void codemieProfileSendsTheExpectedChatCompletionsRequest() throws Exception {
         String image = System.getProperty("factory.pi.contract.image", "");
         assumeTrue(!image.isBlank(), "Set factory.pi.contract.image to run the Pi HTTP contract test");
+        contract(image, BuildEnvironment.maven("factory-dev-m2-cache"));
+    }
+
+    @Test void sameImageSendsTheSameRequestInAYarnWorkloadWithNodeAndYarn() throws Exception {
+        String image = System.getProperty("factory.pi.contract.image", "");
+        assumeTrue(!image.isBlank(), "Set factory.pi.contract.image to run the Pi HTTP contract test");
+        contract(image, new BuildEnvironment(Toolchain.YARN, "factory-dev-yarn-cache",
+                DevRuntimeProperties.Yarn.DEFAULT_FOLIO_REGISTRY));
+    }
+
+    private void contract(String image, BuildEnvironment environment) throws Exception {
         var captured = new AtomicReference<RecordedRequest>();
         var server = HttpServer.create(new InetSocketAddress("0.0.0.0", 0), 0);
         server.createContext("/v1/chat/completions", exchange -> {
@@ -52,7 +63,10 @@ class PiCodingHttpContractTest {
                     List.of(), List.of(), new CodingRequest.RepositoryTarget("repo", "owner/repo", "main",
                     "a".repeat(40)), CodingRequest.Constraints.defaults());
             try (var scope = new DockerWorkloads().beginStep(java.util.UUID.randomUUID(), "coding-contract");
-                 var workload = scope.createSeeded(image, workspace, BuildEnvironment.maven("factory-dev-m2-cache"), "coding")) {
+                 var workload = scope.createSeeded(image, workspace, environment, "coding")) {
+                if (environment.toolchain() == Toolchain.YARN)
+                    assertThat(workload.execute(List.of("sh", "-c", "node --version | grep -q '^v22\\.' "
+                            + "&& yarn --version | grep -q '^1\\.' && test \"$CI\" = true"), 30).exitCode()).isZero();
                 assertThat(new PiCodingRuntime(config).code(workload, request, 90).status())
                         .isEqualTo(CodingOutcome.Status.COMPLETED);
             }

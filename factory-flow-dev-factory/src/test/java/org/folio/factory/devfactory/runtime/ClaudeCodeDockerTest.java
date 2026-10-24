@@ -28,7 +28,8 @@ import static org.assertj.core.api.Assertions.*;
 @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
 class ClaudeCodeDockerTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
-    private static final String IMAGE = "factory-dev-claude-code:2.1.287-java21";
+    private static final String IMAGE = "factory-dev-claude-code:2.1.287-java21-node22";
+    private static final String NODE_IMAGE = "node:22.22.0-bookworm";
     private static final String MODEL = "operator/Custom-Model-2026";
     private final UUID executionId = UUID.randomUUID();
     private final String volume = "factory-claude-test-" + executionId;
@@ -140,6 +141,87 @@ class ClaudeCodeDockerTest {
                 assertThat(call.path).isEqualTo("/gateway/v1/messages");
                 assertThat(call.apiKey).isEqualTo(authentication.equals("api-key") ? "mock-key" : null);
                 assertThat(call.authorization).isEqualTo(authentication.equals("bearer-token") ? "Bearer mock-token" : null);
+            }
+        }
+    }
+
+    @Test void yarnImageRunsTheRealCliWithNodeAndYarnAndExportsSourcesOnly() throws Exception {
+        try (var mock = new MessagesEndpoint(false, false);
+             var scope = new DockerWorkloads().beginStep(executionId, "claude-yarn-image");
+             var workload = scope.createSeeded(IMAGE, source, yarnEnvironment(), "coding")) {
+            mock.command = "node --version && yarn --version && mkdir node_modules && " + mock.command;
+            var outcome = new ClaudeCodeCodingRuntime(config(mock, "api-key"))
+                    .code(workload, ClaudeCodeCodingRuntimeTest.request(), 90);
+            assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
+            assertThat(mock.calls).hasSize(2);
+            assertThat(mock.calls.getLast().body.path("messages").toString()).contains("v22.").contains("1.22");
+            workload.stop();
+            workload.export(exported);
+            assertThat(Files.readString(exported.resolve("changed.txt"))).isEqualTo("edited by Claude\n");
+            assertThat(exported.resolve("node_modules")).doesNotExist();
+        }
+    }
+
+    /** Trusted baseline, a real coding session in the yarn image, then verification of the result in a fresh workload. */
+    @Test void yarnFixtureGoesFromBaselineThroughCodingToPassingJestVerification() throws Exception {
+        Files.writeString(source.resolve("package.json"), """
+                {"name":"fixture","version":"1.0.0","private":true,"scripts":{"test":"jest"},
+                 "devDependencies":{"jest":"29.7.0","jest-junit":"16.0.0"}}
+                """);
+        Files.writeString(source.resolve("jest.config.js"),
+                "module.exports = { testEnvironment: 'node', reporters: ['default', 'jest-junit'] };\n");
+        Files.createDirectories(source.resolve("src"));
+        Files.writeString(source.resolve("src/add.js"), "exports.add = (a, b) => a + b;\n");
+        Files.writeString(source.resolve("src/add.test.js"),
+                "const { add } = require('./add');\ntest('add', () => expect(add(1, 2)).toBe(3));\n");
+        var plan = List.of("sh", "-c", "yarn install --ignore-scripts --non-interactive && yarn test");
+        var environment = yarnEnvironment();
+
+        try (var scope = new DockerWorkloads().beginStep(executionId, "yarn-baseline");
+             var baseline = scope.createTrusted(NODE_IMAGE, source, environment)) {
+            var result = baseline.execute(plan, 600);
+            assertThat(result.exitCode()).as(result.diagnostics()).isZero();
+        }
+        try (var mock = new MessagesEndpoint(false, false);
+             var scope = new DockerWorkloads().beginStep(executionId, "yarn-code");
+             var workload = scope.createSeeded(IMAGE, source, environment, "coding")) {
+            mock.command = "yarn install --ignore-scripts --non-interactive >/dev/null 2>&1 "
+                    + "&& printf 'exports.sub = (a, b) => a - b;\\n' > src/sub.js "
+                    + "&& printf \"const { sub } = require('./sub');\\ntest('sub', () => expect(sub(3, 1)).toBe(2));\\n\" "
+                    + "> src/sub.test.js && yarn test 2>&1 | tail -5";
+            var outcome = new ClaudeCodeCodingRuntime(config(mock, "api-key"))
+                    .code(workload, ClaudeCodeCodingRuntimeTest.request(), 300);
+            assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
+            assertThat(mock.calls.getLast().body.path("messages").toString()).contains("Tests:");
+            workload.stop();
+            workload.export(exported);
+        }
+        assertThat(exported.resolve("src/sub.js")).exists();
+        assertThat(exported.resolve("node_modules")).doesNotExist();
+
+        Path candidate = Files.createTempDirectory("factory-yarn-candidate-");
+        copyTree(source, candidate);
+        copyTree(exported, candidate);
+        try (var scope = new DockerWorkloads().beginStep(executionId, "yarn-verify");
+             var verification = scope.createSeeded(NODE_IMAGE, candidate, environment, "verification")) {
+            assertThat(verification.execute(List.of("rm", "-rf", "artifacts/jest-junit"), 60).exitCode()).isZero();
+            var result = verification.execute(plan, 600);
+            assertThat(result.exitCode()).as(result.diagnostics()).isZero();
+            var report = verification.execute(List.of("cat", "artifacts/jest-junit/junit.xml"), 30);
+            assertThat(report.output()).contains("<testsuites").contains("tests=\"2\"").contains("failures=\"0\"");
+        }
+    }
+
+    private BuildEnvironment yarnEnvironment() {
+        return new BuildEnvironment(Toolchain.YARN, volume, DevRuntimeProperties.Yarn.DEFAULT_FOLIO_REGISTRY);
+    }
+
+    private static void copyTree(Path from, Path to) throws java.io.IOException {
+        try (var paths = Files.walk(from)) {
+            for (Path path : paths.toList()) {
+                Path target = to.resolve(from.relativize(path).toString());
+                if (Files.isDirectory(path)) Files.createDirectories(target);
+                else Files.copy(path, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
         }
     }

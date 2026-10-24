@@ -24,13 +24,13 @@ class DeveloperExecutionViewTest {
 
         var identified = runtime(Map.of("activity", "coding_starting", "runtime", "pi",
                 "model", "gemini-3.8-flash", "provider", "example-provider",
-                "image", "factory-dev-pi:0.85.1-java21"), start.plusSeconds(1));
+                "image", "factory-dev-pi:0.85.1-java21-node22"), start.plusSeconds(1));
         assertThat(view.build(execution, List.of(), List.of(identified, runtimeOnly), start.plusSeconds(2)))
                 .containsEntry("runtimeFields", List.of(
                         Map.of("label", "Model", "value", "gemini-3.8-flash"),
                         Map.of("label", "Provider", "value", "example-provider"),
                         Map.of("label", "Runtime", "value", "pi"),
-                        Map.of("label", "Image", "value", "factory-dev-pi:0.85.1-java21")));
+                        Map.of("label", "Image", "value", "factory-dev-pi:0.85.1-java21-node22")));
 
         var restarted = runtime(Map.of("activity", "pi_starting", "runtime", "pi"), start.plusSeconds(3));
         assertThat(view.build(execution, List.of(), List.of(restarted, identified), start.plusSeconds(4)))
