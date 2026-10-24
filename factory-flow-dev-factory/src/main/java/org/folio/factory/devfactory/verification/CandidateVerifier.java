@@ -60,7 +60,7 @@ public class CandidateVerifier {
                     observation = new Processes.Result(-1, Objects.toString(e.getMessage(), "Command failed without diagnostic"));
                 }
                 Instant finished = Instant.now();
-                SurefireEvidence evidence = null;
+                TestEvidence evidence = null;
                 boolean invalidEvidence = false;
                 String output = observation.diagnostics();
                 exported = CandidateFreezer.temporary("factory-dev-verification-");
