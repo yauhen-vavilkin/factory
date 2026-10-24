@@ -232,7 +232,7 @@ same time as before.
 The fixture goes through workloads rather than `CandidateVerifier` (which needs a Git remote);
 the verifier's yarn paths are covered by its unit tests and the phase 2 run on ui-orders.
 
-**Phase 4 — pilot: UIU-3606 on ui-users.**
+**Phase 4 — pilot: UIU-3606 on ui-users** (done, 2026-10-24).
 Configure `ui-users` (has `yarn.lock`) with delivery to the fork
 `FACTORY_UI_USERS_DELIVERY_REPO=Dmytro-Melnyshyn/ui-users` (set in `.env`; the fork's
 `master` must contain the base SHA — delivery blocks otherwise); run the flow end-to-end.
@@ -241,7 +241,67 @@ regression (area: `src/views/UserEdit/UserEdit.js`, `src/components/Wrappers/wit
 introduced by UIU-3586 PRs #3044/#3049) with updated tests; independent verification PASS;
 PR opened on the fork; one PR-feedback round works. Record real container timings here.
 
-**Phase 5 — modules without `yarn.lock`.**
+Result, on the pilot machine (Windows + Podman on WSL, full Compose stack, Pi + CodeMie
+`claude-sonnet-5-5`, `master` at `31d7f0f`; the intake read the ticket anonymously, so only
+`FACTORY_CONNECTORS_JIRA_BASE_URL` was needed):
+
+| Step | Run 1 (cold yarn cache) | Run 2 |
+|---|---|---|
+| Starting build: `yarn install --frozen-lockfile` + Jest | 3 min 28 s (install 110 s, Jest 82 s) | included below |
+| Intake → coding done | — | 206 s (includes the warm starting build) |
+| Independent verification (1639–1640 tests, 0 failures) | — | 86–91 s |
+| Trigger → PR on the fork | stopped, see below | 333 s |
+| PR-feedback round 1 (comment → code → verify → push) | — | 254 s (code 111 s, verify 127 s, publish 16 s) |
+
+- **Run 1** passed the starting build and verification, but delivery was blocked: Compose
+  did not forward `FACTORY_UI_USERS_DELIVERY_REPO` into the Factory container, so the target
+  fell back to `folio-org/ui-users`, which Factory refuses by design. Compose now forwards the
+  `_SOURCE_REPO` and `_DELIVERY_REPO` variables for `ui-users` and for the four backend
+  repositories (the backend eight had the same gap, so any Compose delivery to a fork was
+  blocked).
+- **Run 2** opened `Dmytro-Melnyshyn/ui-users` PR #1 (3 files, +16 −1): `UserEdit.js` skips the
+  Keycloak dialog for a Patron created on a member tenant, `withUserRoles.js` shows it when a
+  Patron is changed to another type, plus a changelog entry. Delivery is **automatic**:
+  `publish` is an agent step gated by the verification receipt and `authorized: true`, with no
+  approval gate before it. The human gates are the repository and coding questions and the PR
+  follow-up.
+- **Round 1:** a plain PR discussion comment asking for tests (UserEdit and `withUserRoles`)
+  produced commit `e1e747c` on the PR branch: two test files (+114 lines), verification PASS
+  with 1643 tests (1639 before), 0 failures. Round usage was 651k input and 14k output tokens.
+- **Model use:** about 202k–319k input and 6k–8k output tokens per initial attempt.
+  `claude-sonnet-5-5` has no entry in `config/developer-pricing.yaml`, so the estimate shows 0;
+  add a rate to price it.
+- **Agent setup:** in both initial attempts Pi reported it could not run any tests because
+  `node_modules` was missing; run 1 still added a test, run 2 added none. Once the comment said
+  "run the suite before pushing", the round added and ran its tests. A hint in the coding
+  request (the verification command, and that dependencies need installing) is the likely fix.
+- **Gateway access:** the CodeMie gateway is reached through `scripts/dev/codemie-bridge`
+  (relay container → SSH reverse forward → bridge → `codemie proxy`); see its README. The
+  gateway rejects CodeMie CLI versions older than 0.15.8 with HTTP 426.
+
+**Phase 5 — prepared coding workspace.**
+Found in the phase 4 pilot: in both initial attempts the agent reported it could not run any
+test because `node_modules` was missing, and once told to run the suite it did. Agents should
+not have to remember a setup step, and a plain `yarn test` starts one Jest worker per CPU,
+which froze the 8 GB VM in phase 2. So, for yarn plans:
+- Factory runs the trusted install inside every coding container before the agent starts
+  (initial attempt, clarification restart and every PR-feedback round) with the verification
+  flags (`--frozen-lockfile` when a lockfile exists, `--ignore-scripts`, `--non-interactive`),
+  the trusted `.yarnrc` and the seeded cache. A failed install is an environment failure
+  before any model spend, like a failed starting build; it costs about 15 s with a warm seed.
+- The install command becomes its own setting (`runtime.yarn.install-command`) instead of
+  being parsed out of the plan's `sh -c "install && test"` string; phase 6 extends the same
+  step to seed a pinned lockfile.
+- The `CodingRequest` carries one line for both toolchains: "verification runs: `<command>`"
+  (for example `yarn test --maxWorkers=2`, or `mvn verify` versus `mvn test` for Maven), so the
+  agent reproduces the real check and stays within the memory limit. An agent that edits
+  `package.json` still installs the new dependencies itself.
+Done: a ui-users run (UIU-3606 again, now with `gpt-5.6-luna-2026-07-09`, which the rate card
+prices) shows the agent running the tests without being told to in a comment; unit tests cover
+a failing install stopping before model spend; a feedback round also starts prepared; gated
+Docker tests cover the install in the coding image.
+
+**Phase 6 — modules without `yarn.lock`.**
 The starting build generates a lockfile once and stores it as a Factory artifact (with its
 SHA-256 in the readiness record). Coding and verification receive it as an untracked,
 excluded file, so all three install the same dependency versions even while npm-folioci
@@ -274,8 +334,9 @@ published; ui-orders or ui-myprofile runs end-to-end.
   today). The flow correctly blocks before model spend; such modules need the upstream bump
   first.
 - **Coding agent setup.** The prompt stays tool-neutral; the agent must run `yarn install`
-  itself in the coding container. Re-evaluate after the pilot whether a toolchain hint in the
-  `CodingRequest` is needed.
+  itself in the coding container. The pilot showed it often does not (both initial attempts
+  reported no tests run), so a toolchain hint in the `CodingRequest` (the verification command,
+  dependencies installed first) is the next change; it would help Maven tickets too.
 - **Local test baseline on the pilot machine (Windows + Podman on WSL).** Full `mvn verify`
   needs a **rootless** machine with user-mode networking
   (`podman machine set --rootful=false --user-mode-networking`) and
