@@ -35,6 +35,9 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
                 throw new IllegalArgumentException("Invalid required Maven report path");
             }
         }
+        for (var plan : requiredReports.keySet())
+            if (planToolchains.getOrDefault(plan, Toolchain.MAVEN) != Toolchain.MAVEN)
+                throw new IllegalArgumentException("required-reports apply only to Maven plans: " + plan);
         coding = coding == null ? new Coding(null, null, null, null, null, null, null, null, null) : coding;
         timeoutSeconds = timeoutSeconds <= 0 ? 1800 : timeoutSeconds;
         mavenCacheVolume = mavenCacheVolume == null || mavenCacheVolume.isBlank()

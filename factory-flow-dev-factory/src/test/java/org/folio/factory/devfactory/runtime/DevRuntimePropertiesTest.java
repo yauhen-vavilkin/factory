@@ -169,6 +169,22 @@ class DevRuntimePropertiesTest {
     }
 
     @Test
+    void bindsYarnPlansAndRejectsMavenReportPathsForThem() {
+        var plans = Map.of("jest", java.util.List.of("yarn", "test"));
+        var yarn = new DevRuntimeProperties(plans, null, 0, null, Map.of(), Map.of("jest", Toolchain.YARN));
+        assertThat(yarn.toolchain("jest")).isEqualTo(Toolchain.YARN);
+        var source = new MapConfigurationPropertySource(Map.of(
+                "factory.dev-factory.runtime.plans.jest[0]", "yarn",
+                "factory.dev-factory.runtime.plan-toolchains.jest", "yarn"));
+        assertThat(new Binder(source).bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get()
+                .toolchain("jest")).isEqualTo(Toolchain.YARN);
+        assertThatThrownBy(() -> new DevRuntimeProperties(plans, null, 0, null,
+                Map.of("jest", java.util.List.of("target/surefire-reports/TEST-a.xml")),
+                Map.of("jest", Toolchain.YARN)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("jest");
+    }
+
+    @Test
     void rejectsToolchainsForUnknownPlansOrUnknownEcosystems() {
         assertThatThrownBy(() -> new DevRuntimeProperties(Map.of("unit", java.util.List.of("mvn", "test")),
                 null, 0, null, Map.of(), Map.of("typo", Toolchain.MAVEN)))

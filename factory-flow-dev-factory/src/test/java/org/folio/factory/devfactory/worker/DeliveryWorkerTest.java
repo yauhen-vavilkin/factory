@@ -13,6 +13,8 @@ import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryReceipt;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.Toolchain;
+import org.folio.factory.devfactory.verification.VerificationFailure;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -37,7 +39,7 @@ class DeliveryWorkerTest {
     private final JsonMapper json = JsonMapper.builder().build();
 
     @ParameterizedTest
-    @ValueSource(strings = {"plan", "image", "command", "required"})
+    @ValueSource(strings = {"plan", "image", "command", "required", "toolchain"})
     void historicalMatchingCandidateReceiptCannotBypassCurrentVerificationPolicy(String changed) {
         CandidateDelivery delivery = mock(CandidateDelivery.class);
         GitHubConnector github = mock(GitHubConnector.class);
@@ -47,8 +49,9 @@ class DeliveryWorkerTest {
                 : List.of("mvn", "test"), "full", List.of("mvn", "verify"));
         var required = changed.equals("required") ? Map.of("unit", List.of("target/failsafe-reports/TEST-required.xml"))
                 : Map.<String, List<String>>of();
+        var toolchains = changed.equals("toolchain") ? Map.of("unit", Toolchain.YARN) : Map.<String, Toolchain>of();
         var worker = worker(delivery, github, new GitHubProperties(null, "token"),
-                plan, image, new DevRuntimeProperties(commands, null, 60, null, required));
+                plan, image, new DevRuntimeProperties(commands, null, 60, null, required, toolchains));
 
         var result = json.readTree(worker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
 
@@ -64,6 +67,7 @@ class DeliveryWorkerTest {
         var runtime = mock(DevRuntimeProperties.class);
         when(runtime.command("unit")).thenReturn(List.of("mvn", "test"), List.of("mvn", "verify"));
         when(runtime.requiredReports("unit")).thenReturn(List.of());
+        when(runtime.toolchain("unit")).thenReturn(Toolchain.MAVEN);
         var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image", runtime);
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString()))
                 .thenReturn(new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
@@ -163,6 +167,35 @@ class DeliveryWorkerTest {
                 .doesNotContain("Implemented MGRENTITLE-188.", "Changes: - Added", "Checks passed:",
                         "- mvn test", "h2. Purpose", "h3. Requirements", "{{flow}}", "# requirement",
                         "a/src/main/java/Foo.java b/src/main/java/Foo.java");
+    }
+
+    @Test
+    void yarnPullRequestNamesJestReportsAndNoMavenOnes() {
+        var original = verifiedContext();
+        var candidate = json.readValue(original.inputs().get(DevelopWorker.CANDIDATE).content(), Candidate.class);
+        var receipt = new VerificationReceipt("00000000-0000-0000-0000-000000000001", "sidecar",
+                candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "unit", "image",
+                List.of("mvn", "test"), "fresh", Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
+                0, 1, 7, 0, 0, "PASS", "ok", VerificationFailure.NONE, 0, List.of(), List.of(), Toolchain.YARN);
+        var inputs = new java.util.HashMap<>(original.inputs());
+        inputs.put(VerifyWorker.RECEIPT, new ArtifactContent(VerifyWorker.RECEIPT, 1, "application/json",
+                json.writeValueAsString(receipt)));
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString()))
+                .thenReturn(new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
+                        candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40)));
+        when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, Map.of(),
+                Map.of("unit", Toolchain.YARN));
+        var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image", runtime);
+
+        worker.execute(new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
+
+        var body = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
+        assertThat(body.getValue()).contains("**PASS** · 7 tests", "- Jest reports: 1")
+                .doesNotContain("Surefire reports", "Failsafe reports");
     }
 
     @Test

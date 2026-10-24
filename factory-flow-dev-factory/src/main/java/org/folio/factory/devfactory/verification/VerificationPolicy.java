@@ -19,6 +19,7 @@ public final class VerificationPolicy {
         return repository != null
                 && repository.verificationPlan().equals(receipt.planId())
                 && repository.buildImage().equals(receipt.image())
+                && runtime.toolchain(repository.verificationPlan()) == receipt.toolchain()
                 && runtime.command(repository.verificationPlan()).equals(receipt.argv())
                 && runtime.requiredReports(repository.verificationPlan())
                         .equals(receipt.requiredReports());

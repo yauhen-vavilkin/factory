@@ -72,12 +72,11 @@ public final class PullRequestRenderer {
                 .append(code(verification.image(), 300))
                 .append("`\n\n")
                 .append("<details>\n<summary>Factory verification details</summary>\n\n")
-                .append("- Surefire reports: ")
-                .append(verification.surefireReportCount())
-                .append("\n")
-                .append("- Failsafe reports: ")
-                .append(verification.failsafeReportCount())
-                .append("\n")
+                .append(switch (verification.toolchain()) {
+                    case MAVEN -> "- Surefire reports: " + verification.surefireReportCount()
+                            + "\n- Failsafe reports: " + verification.failsafeReportCount() + "\n";
+                    case YARN -> "- Jest reports: " + verification.surefireReportCount() + "\n";
+                })
                 .append("- Required suites: ")
                 .append(
                         verification.requiredReports().isEmpty()

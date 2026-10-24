@@ -1,19 +1,35 @@
 package org.folio.factory.devfactory.verification;
 
 import org.folio.factory.devfactory.candidate.Candidate;
+import org.folio.factory.devfactory.runtime.Toolchain;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
-/** Persist only as a Factory artifact, outside every workload's writable filesystem. */
+/**
+ * Persist only as a Factory artifact, outside every workload's writable filesystem.
+ * {@code surefireReportCount} is the primary test-report count of every toolchain (the name is historical).
+ */
 public record VerificationReceipt(String executionId, String repository, String baseSha, String treeSha,
                                   String patchSha256, String planId, String image, List<String> argv,
                                   String workload, Instant startedAt, Instant finishedAt, int exitCode,
                                   int surefireReportCount, Integer testCount, Integer failureCount, Integer errorCount,
                                   String result, String output, VerificationFailure failureKind,
                                   int failsafeReportCount, List<String> requiredReports,
-                                  List<String> missingRequiredReports) {
+                                  List<String> missingRequiredReports, Toolchain toolchain) {
+    /** Receipts written before toolchains existed are Maven receipts. */
+    public VerificationReceipt(String executionId, String repository, String baseSha, String treeSha,
+                               String patchSha256, String planId, String image, List<String> argv,
+                               String workload, Instant startedAt, Instant finishedAt, int exitCode,
+                               int surefireReportCount, Integer testCount, Integer failureCount, Integer errorCount,
+                               String result, String output, VerificationFailure failureKind,
+                               int failsafeReportCount, List<String> requiredReports,
+                               List<String> missingRequiredReports) {
+        this(executionId, repository, baseSha, treeSha, patchSha256, planId, image, argv, workload,
+                startedAt, finishedAt, exitCode, surefireReportCount, testCount, failureCount, errorCount,
+                result, output, failureKind, failsafeReportCount, requiredReports, missingRequiredReports, null);
+    }
     /** Historical Surefire-only receipts remain readable, but cannot opt into automatic repair. */
     public VerificationReceipt(String executionId, String repository, String baseSha, String treeSha,
                                String patchSha256, String planId, String image, List<String> argv,
@@ -27,6 +43,7 @@ public record VerificationReceipt(String executionId, String repository, String 
     public VerificationReceipt {
         Objects.requireNonNull(executionId);
         argv = List.copyOf(argv);
+        toolchain = toolchain == null ? Toolchain.MAVEN : toolchain;
         requiredReports = requiredReports == null ? List.of() : List.copyOf(requiredReports);
         missingRequiredReports = missingRequiredReports == null ? List.of() : List.copyOf(missingRequiredReports);
         failureKind = failureKind == null ? ("PASS".equals(result) ? VerificationFailure.NONE : VerificationFailure.UNKNOWN)

@@ -6,6 +6,7 @@ import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.Processes;
+import org.folio.factory.devfactory.runtime.Toolchain;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -304,6 +305,147 @@ class CandidateVerifierTest {
         var receipt = verifier.verify(executionId, "verify", candidate);
         assertThat(receipt.output()).hasSizeLessThanOrEqualTo(16000)
                 .doesNotContain("secret123", "ecret123", "cret123");
+    }
+
+    @Test
+    void yarnPlanIsAuthorizedOnlyByAFreshExecutedJestReport() {
+        useYarn();
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "Tests: 7 passed"));
+        exportJest("passing-with-skips.xml");
+
+        var receipt = verifier.verify(executionId, "verify", candidate);
+
+        assertThat(receipt.result()).isEqualTo("PASS");
+        assertThat(receipt.toolchain()).isEqualTo(Toolchain.YARN);
+        assertThat(receipt.surefireReportCount()).isEqualTo(1);
+        assertThat(receipt.failsafeReportCount()).isZero();
+        assertThat(receipt.testCount()).isEqualTo(7);
+        receipt.requireVerified(executionId.toString(), candidate);
+    }
+
+    @Test
+    void yarnZeroExitWithoutAReportIsNotPass() {
+        useYarn();
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "Done in 3.2s."));
+        doNothing().when(workload).export(any());
+
+        var receipt = verifier.verify(executionId, "verify", candidate);
+
+        assertThat(receipt.result()).isEqualTo("FAIL");
+        assertThat(receipt.testCount()).isNull();
+        assertThat(receipt.output()).contains("no fresh executed Jest tests");
+        assertThat(receipt.failureKind()).isEqualTo(VerificationFailure.INSUFFICIENT_EVIDENCE);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1})
+    void yarnSuiteThatFailsToLoadFailsWithAReceiptNotAnException(int exit) {
+        useYarn();
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(exit, "Test suite failed to run"));
+        exportJest("suite-load-error.xml");
+
+        var receipt = verifier.verify(executionId, "verify", candidate);
+
+        assertThat(receipt.result()).isEqualTo("FAIL");
+        assertThat(receipt.errorCount()).isEqualTo(1);
+        assertThat(receipt.failureCount()).isZero();
+        assertThat(receipt.failureKind()).isEqualTo(VerificationFailure.UNKNOWN);
+        assertThatThrownBy(() -> receipt.requireVerified(executionId.toString(), candidate)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void yarnAssertionFailureIdentifiesCandidateFailure() {
+        useYarn();
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+                "expect(received).toBe(expected) // Object.is equality\n\nExpected: 2\nReceived: 1"));
+        exportJest("failing-test.xml");
+
+        var receipt = verifier.verify(executionId, "verify", candidate);
+
+        assertThat(receipt.failureCount()).isEqualTo(1);
+        assertThat(receipt.failureKind()).isEqualTo(VerificationFailure.CANDIDATE);
+    }
+
+    @Test
+    void yarnTimeoutAloneIsNotRepairable() {
+        useYarn();
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+                "thrown: \"Exceeded timeout of 5000 ms for a test.\""));
+        exportJest("failing-test.xml");
+
+        var receipt = verifier.verify(executionId, "verify", candidate);
+
+        assertThat(receipt.failureKind()).isEqualTo(VerificationFailure.UNKNOWN);
+        assertThat(receipt.failureKind().repairable()).isFalse();
+    }
+
+    @Test
+    void yarnRegistryOutageIsEnvironmentEvenWithFailingTests() {
+        useYarn();
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+                "error An unexpected error occurred: \"https://registry.example/pkg: ETIMEDOUT\".\nExpected: 2\nReceived: 1"));
+        exportJest("failing-test.xml");
+
+        assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.ENVIRONMENT);
+    }
+
+    @Test
+    void yarnInvalidJestReportCannotAuthorizePass() {
+        useYarn();
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "ok"));
+        doAnswer(invocation -> {
+            Path report = ((Path) invocation.getArgument(0)).resolve("artifacts/jest-junit/junit.xml");
+            Files.createDirectories(report.getParent());
+            Files.writeString(report, "<!DOCTYPE testsuites SYSTEM 'file:///etc/passwd'><testsuites/>");
+            return null;
+        }).when(workload).export(any());
+
+        var receipt = verifier.verify(executionId, "verify", candidate);
+
+        assertThat(receipt.result()).isEqualTo("FAIL");
+        assertThat(receipt.output()).contains("Invalid or unsafe Jest XML");
+        assertThat(receipt.failureKind()).isEqualTo(VerificationFailure.INVALID_EVIDENCE);
+    }
+
+    @Test
+    void aSurefireReportCannotAuthorizeAYarnPlan() {
+        useYarn();
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "ok"));
+
+        var receipt = verifier.verify(executionId, "verify", candidate);
+
+        assertThat(receipt.result()).isEqualTo("FAIL");
+        assertThat(receipt.surefireReportCount()).isZero();
+        assertThat(receipt.testCount()).isNull();
+    }
+
+    @Test
+    void aJestReportCannotAuthorizeAMavenPlan() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "ok"));
+        exportJest("passing-with-skips.xml");
+
+        var receipt = verifier.verify(executionId, "verify", candidate);
+
+        assertThat(receipt.result()).isEqualTo("FAIL");
+        assertThat(receipt.toolchain()).isEqualTo(Toolchain.MAVEN);
+        assertThat(receipt.surefireReportCount()).isZero();
+    }
+
+    private void useYarn() {
+        var runtime = new DevRuntimeProperties(Map.of("unit", command), null, 60, null, Map.of(),
+                Map.of("unit", Toolchain.YARN));
+        verifier = new CandidateVerifier(properties, runtime, new CandidateFreezer(), docker);
+    }
+
+    private void exportJest(String fixture) {
+        doAnswer(invocation -> {
+            Path report = ((Path) invocation.getArgument(0)).resolve("artifacts/jest-junit/junit.xml");
+            Files.createDirectories(report.getParent());
+            try (var in = getClass().getResourceAsStream("/jest-junit/" + fixture)) {
+                Files.write(report, in.readAllBytes());
+            }
+            return null;
+        }).when(workload).export(any());
     }
 
     private void exportReport(String xml) {

@@ -69,6 +69,7 @@ public class CandidateVerifier {
                 try {
                     evidence = switch (toolchain) {
                         case MAVEN -> SurefireEvidence.inspect(exported, started);
+                        case YARN -> JestJunitEvidence.inspect(exported, started);
                     };
                 } catch (IllegalStateException e) {
                     invalidEvidence = true;
@@ -80,12 +81,13 @@ public class CandidateVerifier {
                 if (!missingReports.isEmpty()) output += System.lineSeparator()
                         + "Required Maven suites missing or entirely skipped: " + String.join(", ", missingReports);
                 if (evidence == null || evidence.testCount() == 0) {
-                    output += System.lineSeparator() + "Trusted verification produced no fresh executed Surefire tests";
+                    output += System.lineSeparator() + "Trusted verification produced no fresh executed "
+                            + switch (toolchain) { case MAVEN -> "Surefire"; case YARN -> "Jest"; } + " tests";
                 }
                 String result = observation.exitCode() == 0 && evidence != null && evidence.reportCount() > 0
                         && evidence.testCount() > 0 && evidence.failureCount() == 0
                         && evidence.errorCount() == 0 && missingReports.isEmpty() ? "PASS" : "FAIL";
-                var failure = VerificationFailure.classify(result, output, invalidEvidence,
+                var failure = VerificationFailure.classify(toolchain, result, output, invalidEvidence,
                         evidence == null || evidence.testCount() == 0 || !missingReports.isEmpty(),
                         evidence == null ? null : evidence.failureCount(), evidence == null ? null : evidence.errorCount());
                 return new VerificationReceipt(executionId.toString(), candidate.repository(), candidate.baseSha(),
@@ -96,7 +98,7 @@ public class CandidateVerifier {
                         evidence == null ? null : evidence.failureCount(),
                         evidence == null ? null : evidence.errorCount(), result,
                         safeOutput(output), failure,
-                        evidence == null ? 0 : evidence.failsafeReportCount(), requiredReports, missingReports);
+                        evidence == null ? 0 : evidence.failsafeReportCount(), requiredReports, missingReports, toolchain);
             }
         } finally {
             CandidateFreezer.cleanup(source);
