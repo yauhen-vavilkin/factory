@@ -154,4 +154,31 @@ class DevRuntimePropertiesTest {
                 Map.of("roles", java.util.List.of("../target/failsafe-reports/TEST-a.xml"))))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void plansDefaultToMavenAndBindAnExplicitToolchain() {
+        var plans = Map.of("unit", java.util.List.of("mvn", "test"));
+        assertThat(new DevRuntimeProperties(plans, null, 0, null).toolchain("unit")).isEqualTo(Toolchain.MAVEN);
+        var source = new MapConfigurationPropertySource(Map.of(
+                "factory.dev-factory.runtime.plans.unit[0]", "mvn",
+                "factory.dev-factory.runtime.plans.unit[1]", "test",
+                "factory.dev-factory.runtime.plan-toolchains.unit", "maven"));
+        var bound = new Binder(source).bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get();
+        assertThat(bound.planToolchains()).containsEntry("unit", Toolchain.MAVEN);
+        assertThat(bound.toolchain("unit")).isEqualTo(Toolchain.MAVEN);
+    }
+
+    @Test
+    void rejectsToolchainsForUnknownPlansOrUnknownEcosystems() {
+        assertThatThrownBy(() -> new DevRuntimeProperties(Map.of("unit", java.util.List.of("mvn", "test")),
+                null, 0, null, Map.of(), Map.of("typo", Toolchain.MAVEN)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("plan-toolchains")
+                .hasMessageContaining("typo");
+        var source = new MapConfigurationPropertySource(Map.of(
+                "factory.dev-factory.runtime.plans.unit[0]", "mvn",
+                "factory.dev-factory.runtime.plan-toolchains.unit", "gradle"));
+        assertThatThrownBy(() -> new Binder(source).bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get())
+                .isInstanceOf(org.springframework.boot.context.properties.bind.BindException.class);
+    }
 }

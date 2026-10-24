@@ -7,15 +7,25 @@ import java.util.Map;
 /** Operator-owned commands; task text never supplies executable configuration. */
 @ConfigurationProperties(prefix = "factory.dev-factory.runtime")
 public record DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
-                                   String mavenCacheVolume, Map<String, List<String>> requiredReports) {
+                                   String mavenCacheVolume, Map<String, List<String>> requiredReports,
+                                   Map<String, Toolchain> planToolchains) {
     public static final String DEFAULT_MAVEN_CACHE_VOLUME = "factory-dev-m2-cache";
     public DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
                                 String mavenCacheVolume) {
         this(plans, coding, timeoutSeconds, mavenCacheVolume, Map.of());
     }
+    public DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
+                                String mavenCacheVolume, Map<String, List<String>> requiredReports) {
+        this(plans, coding, timeoutSeconds, mavenCacheVolume, requiredReports, Map.of());
+    }
     @org.springframework.boot.context.properties.bind.ConstructorBinding
     public DevRuntimeProperties {
         plans = plans == null ? Map.of() : Map.copyOf(plans);
+        planToolchains = planToolchains == null ? Map.of() : Map.copyOf(planToolchains);
+        var unknownPlans = new java.util.TreeSet<>(planToolchains.keySet());
+        unknownPlans.removeAll(plans.keySet());
+        if (!unknownPlans.isEmpty())
+            throw new IllegalArgumentException("plan-toolchains names plans that are not configured: " + unknownPlans);
         requiredReports = requiredReports == null ? Map.of() : requiredReports.entrySet().stream()
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey,
                         entry -> List.copyOf(entry.getValue())));
@@ -36,6 +46,9 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         var command = plans.get(id);
         if (command == null || command.isEmpty()) throw new IllegalStateException("Missing trusted verification plan: " + id);
         return List.copyOf(command);
+    }
+    public Toolchain toolchain(String id) {
+        return planToolchains.getOrDefault(id, Toolchain.MAVEN);
     }
     public List<String> requiredReports(String id) {
         return requiredReports.getOrDefault(id, List.of());

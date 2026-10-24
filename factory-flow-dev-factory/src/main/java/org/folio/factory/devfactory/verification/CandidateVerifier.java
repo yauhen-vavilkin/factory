@@ -41,6 +41,7 @@ public class CandidateVerifier {
         var repository = repositories.repositories().get(candidate.repository());
         if (repository == null) throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
         var command = runtime.command(repository.verificationPlan());
+        var toolchain = runtime.toolchain(repository.verificationPlan());
         var requiredReports = runtime.requiredReports(repository.verificationPlan());
         // reconstruct checks the Git tree before any command can execute.
         Path source = candidates.reconstruct(sourceUrl, candidate);
@@ -66,7 +67,9 @@ public class CandidateVerifier {
                 workload.stop();
                 workload.export(exported);
                 try {
-                    evidence = SurefireEvidence.inspect(exported, started);
+                    evidence = switch (toolchain) {
+                        case MAVEN -> SurefireEvidence.inspect(exported, started);
+                    };
                 } catch (IllegalStateException e) {
                     invalidEvidence = true;
                     output += System.lineSeparator() + "No usable test evidence: " + e.getMessage();
