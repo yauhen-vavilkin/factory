@@ -574,3 +574,21 @@ S12's live qualification needs its own concrete bounded authorization; the templ
 ## Planning verification
 
 The plan was checked against the approved specification and current source. Source discovery was split across intake/persistence, runtime/delivery and UI/startup reviewers; final decomposition, interface consistency and specification coverage were reviewed here. All checks listed under S01–S12 are future work, not results from this planning turn.
+
+## Post-M1 next step — clean-computer qualification via computer-use
+
+Recorded 2026-10-24 from the owner's direction, to execute after S12's automated part is done. Details below are dictated so far; the concrete run is scoped together with the owner before it starts.
+
+**Goal.** An independent third-party run of the whole factory flow on a different, clean computer by an agent acting as a first-time developer — recording every friction point (hard, non-obvious, broken, working). This is explicitly an audit for accumulated junk from the very long build session, not a demo.
+
+**Deliverable of this step.** A detailed, self-contained handoff prompt for a clean-context agent (Z-code by ZipUAI, with computer-use: opens a browser, clicks through the UI) that:
+
+1. Clones this repository (it has repository access).
+2. Prepares the owner's personal GitHub forks of the involved FOLIO repositories into the required state — forks only, no official folio-org destinations.
+3. Configures the environment: provider z.ai GLM-5.3-Flash (coding-plan endpoint `api/coding/paas/v4`; the general endpoint misreports "no balance"), coding runtime claude-code.
+4. Seeds or mocks the Jira task source with a fixed set of 5–6 chosen tasks, or parameterizes discovery to the statuses the owner provides — the run must not depend on real Jira.
+5. Walks the entire flow via computer-use as if a developer does the work: prepared startup path, discovery, selection/admission, autonomous execution, results and costs, retry.
+6. Produces the friction/analytics report: what was hard, non-obvious, not working, and working.
+
+**Details still to settle with the owner before writing the prompt:** the fork list and each fork's required state; the 5–6 tasks; the Jira mock shape (fixed tickets vs status filters, and which statuses); anything else needed for a cold start from repository contents alone (README pilot guide, `.env.pilot.example`, `scripts/start-pilot.sh`).
+
