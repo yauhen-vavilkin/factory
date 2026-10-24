@@ -148,6 +148,12 @@ factory:
         build-image: maven:3.9-eclipse-temurin-21
         verification-plan: java21-unit
         jira-projects: [MGRAPPS]
+      ui-users:
+        source-repo: ${FACTORY_UI_USERS_SOURCE_REPO:folio-org/ui-users}
+        base-branch: master
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UIU]
     runtime:
       timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
@@ -157,6 +163,10 @@ factory:
       plans:
         java21-unit: [mvn, -B, -ntp, test]
         java21-roles-verify: [mvn, -B, -ntp, verify]
+        # --maxWorkers keeps Jest inside the Podman VM's memory (see doc/dev-flow-ui-support.md).
+        node22-jest: [sh, -c, "yarn install --frozen-lockfile --ignore-scripts --non-interactive && yarn test --maxWorkers=2"]
+      plan-toolchains:
+        node22-jest: yarn
       required-reports:
         # Integration requires isolated Docker support; unavailable in the current workload topology.
         java21-roles-verify:
@@ -342,6 +352,10 @@ factory:
           authorized: true
         mgr-applications:
           repository: ${FACTORY_MGR_APPLICATIONS_DELIVERY_REPO:folio-org/mgr-applications}
+          base-branch: master
+          authorized: true
+        ui-users:
+          repository: ${FACTORY_UI_USERS_DELIVERY_REPO:folio-org/ui-users}
           base-branch: master
           authorized: true
   test-factory:

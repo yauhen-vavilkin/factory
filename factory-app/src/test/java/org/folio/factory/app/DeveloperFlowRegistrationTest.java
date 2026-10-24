@@ -5,6 +5,7 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.Toolchain;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +24,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.entry;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Developer Flow is an ordinary plugin: registered next to Test Factory, visible
@@ -89,10 +91,38 @@ class DeveloperFlowRegistrationTest {
                 .contains("Developer Flow").contains("dev-intake");
     }
 
+    private static final List<String> REPOSITORY_OVERRIDES = List.of(
+            "FACTORY_SIDECAR_SOURCE_REPO", "FACTORY_SIDECAR_DELIVERY_REPO",
+            "FACTORY_MOD_ROLES_KEYCLOAK_SOURCE_REPO", "FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_REPO",
+            "FACTORY_MGR_TENANT_ENTITLEMENTS_SOURCE_REPO", "FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_REPO",
+            "FACTORY_MGR_TENANT_ENTITLEMENTS_BASE_BRANCH",
+            "FACTORY_MGR_APPLICATIONS_SOURCE_REPO", "FACTORY_MGR_APPLICATIONS_DELIVERY_REPO",
+            "FACTORY_UI_USERS_SOURCE_REPO", "FACTORY_UI_USERS_DELIVERY_REPO");
+
     @Test
-    void configuresDeveloperRepositoriesForVerificationAndDelivery() {
+    void configuresDeveloperRepositoriesPlansAndDeliveryTargets() {
         assertThat(devFactoryProperties.repositories())
-                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications");
+                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users");
+        assertThat(devDeliveryProperties.targets())
+                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users");
+        assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
+        assertThat(devRuntimeProperties.toolchain("node22-jest")).isEqualTo(Toolchain.YARN);
+        assertThat(devRuntimeProperties.toolchain("java21-unit")).isEqualTo(Toolchain.MAVEN);
+        assertThat(devRuntimeProperties.command("node22-jest")).containsExactly("sh", "-c",
+                "yarn install --frozen-lockfile --ignore-scripts --non-interactive && yarn test --maxWorkers=2");
+        assertThat(devRuntimeProperties.command("java21-roles-verify"))
+                .containsExactly("mvn", "-B", "-ntp", "verify");
+        assertThat(devRuntimeProperties.requiredReports("java21-roles-verify")).hasSize(134);
+        assertThat(devDeliveryProperties.createPullRequest()).isTrue();
+    }
+
+    /** Operators override these through the environment (the pilot points ui-users at a fork). */
+    @Test
+    void repositoriesAndDeliveryTargetsDefaultToTheUpstreamRepositories() {
+        assumeTrue(REPOSITORY_OVERRIDES.stream().noneMatch(name -> {
+            String value = System.getenv(name);
+            return value != null && !value.isBlank();
+        }), "A repository override is set in the environment");
         assertThat(devFactoryProperties.repositories().get("sidecar"))
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "folio-org/folio-module-sidecar", "master", "maven:3.9-eclipse-temurin-21",
@@ -105,22 +135,19 @@ class DeveloperFlowRegistrationTest {
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "folio-org/mgr-tenant-entitlements", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-unit", List.of("MGRENTITLE"), List.of()));
-        assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
         assertThat(devFactoryProperties.repositories().get("mgr-applications"))
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "folio-org/mgr-applications", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-unit", List.of("MGRAPPS"), List.of()));
-        assertThat(devRuntimeProperties.command("java21-roles-verify"))
-                .containsExactly("mvn", "-B", "-ntp", "verify");
-        assertThat(devRuntimeProperties.requiredReports("java21-roles-verify")).hasSize(134);
-        assertThat(devDeliveryProperties.createPullRequest()).isTrue();
+        assertThat(devFactoryProperties.repositories().get("ui-users"))
+                .isEqualTo(new DevFactoryProperties.Repository(
+                        "folio-org/ui-users", "master", "node:22.22.0-bookworm",
+                        "node22-jest", List.of("UIU"), List.of()));
         assertThat(devDeliveryProperties.targets()).containsOnly(
                 entry("sidecar", new DeliveryTarget("folio-org/folio-module-sidecar", "master", true)),
-                entry("mod-roles-keycloak", new DeliveryTarget(
-                        "folio-org/mod-roles-keycloak", "master", true)),
-                entry("mgr-tenant-entitlements", new DeliveryTarget(
-                        "folio-org/mgr-tenant-entitlements", "master", true)),
-                entry("mgr-applications", new DeliveryTarget(
-                        "folio-org/mgr-applications", "master", true)));
+                entry("mod-roles-keycloak", new DeliveryTarget("folio-org/mod-roles-keycloak", "master", true)),
+                entry("mgr-tenant-entitlements", new DeliveryTarget("folio-org/mgr-tenant-entitlements", "master", true)),
+                entry("mgr-applications", new DeliveryTarget("folio-org/mgr-applications", "master", true)),
+                entry("ui-users", new DeliveryTarget("folio-org/ui-users", "master", true)));
     }
 }
