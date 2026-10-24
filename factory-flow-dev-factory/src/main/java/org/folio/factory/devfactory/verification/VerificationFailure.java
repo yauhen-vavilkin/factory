@@ -1,21 +1,23 @@
 package org.folio.factory.devfactory.verification;
 
 import org.folio.factory.devfactory.runtime.Toolchain;
+import org.folio.factory.devfactory.runtime.YarnBaselineOutput;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /** Conservative repair gate, separate from the independent verification verdict. */
 public enum VerificationFailure {
     NONE, CANDIDATE, CANDIDATE_COMPILE, ENVIRONMENT, INVALID_EVIDENCE, INSUFFICIENT_EVIDENCE, UNKNOWN;
 
-    private static final List<String> ENVIRONMENT_MARKERS = List.of("could not find a valid docker environment",
-            "cannot connect to the docker daemon", "connection refused", "connection timed out", "read timed out",
-            "unknownhostexception", "could not resolve dependencies", "could not transfer artifact",
-            "no space left on device", "command exceeded", "docker: error", "unable to pull",
+    private static final Pattern ANSI = Pattern.compile("\\u001B\\[[;\\d]*m");
+    private static final List<String> INFRASTRUCTURE_MARKERS = List.of("could not find a valid docker environment",
+            "cannot connect to the docker daemon", "no space left on device", "command exceeded", "docker: error",
+            "unable to pull");
+    private static final List<String> NETWORK_MARKERS = List.of("connection refused", "connection timed out",
+            "read timed out", "unknownhostexception", "could not resolve dependencies", "could not transfer artifact",
             "network is unreachable", "accessdeniedexception");
-    private static final List<String> YARN_ENVIRONMENT_MARKERS = List.of("etimedout", "econnreset", "eai_again",
-            "enotfound", "socket hang up", "trouble with your network connection");
 
     public boolean repairable() { return this == CANDIDATE; }
 
@@ -29,14 +31,18 @@ public enum VerificationFailure {
         if ("PASS".equals(result)) return NONE;
         if (invalid) return INVALID_EVIDENCE;
         String text = diagnostics.toLowerCase(Locale.ROOT);
-        boolean environment = ENVIRONMENT_MARKERS.stream().anyMatch(text::contains) || switch (toolchain) {
-            case MAVEN -> false;
-            case YARN -> YARN_ENVIRONMENT_MARKERS.stream().anyMatch(text::contains);
+        boolean environment = INFRASTRUCTURE_MARKERS.stream().anyMatch(text::contains) || switch (toolchain) {
+            case MAVEN -> NETWORK_MARKERS.stream().anyMatch(text::contains);
+            // Jest output can legitimately mention network errors, so only yarn's own error lines count.
+            case YARN -> YarnBaselineOutput.isTransientDownloadFailure(diagnostics)
+                    || text.lines().map(line -> ANSI.matcher(line).replaceAll(""))
+                    .filter(line -> line.startsWith("error "))
+                    .anyMatch(line -> NETWORK_MARKERS.stream().anyMatch(line::contains));
         };
         if (environment) return ENVIRONMENT;
         boolean compileError = switch (toolchain) {
             case MAVEN -> text.contains("[error] compilation error")
-                    && java.util.regex.Pattern.compile("(?m).*\\.java:\\[[0-9]+,[0-9]+].*").matcher(text).find();
+                    && Pattern.compile("(?m).*\\.java:\\[[0-9]+,[0-9]+].*").matcher(text).find();
             case YARN -> false;
         };
         if (compileError) return CANDIDATE_COMPILE;

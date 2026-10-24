@@ -26,8 +26,9 @@ final class BaselineBuild {
             DevFactoryProperties.Repository repository,
             Consumer<Map<String, Object>> progress) {
         var command = runtime.command(repository.verificationPlan());
+        var toolchain = runtime.toolchain(repository.verificationPlan());
         var observer =
-                new MavenBaselineOutput(
+                toolchain.output(
                         line ->
                                 progress.accept(
                                         Map.of("activity", "baseline_progress", "message", line)));
@@ -44,7 +45,7 @@ final class BaselineBuild {
             observer.close();
             heartbeat.shutdownNow();
         }
-        String summary = MavenBaselineOutput.failureSummary(result.diagnostics()).orElse("");
+        String summary = toolchain.failureSummary(result.diagnostics()).orElse("");
         var details = new LinkedHashMap<String, Object>();
         details.put("state", result.exitCode() == 0 ? "BASELINE_PASSED" : "BASELINE_FAILED");
         details.put("baseSha", base);

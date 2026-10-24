@@ -14,7 +14,6 @@ import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
-import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -123,8 +122,8 @@ public final class InitialCodingAttempt {
                                     "summary",
                                     summary));
                     if (baseline.process().exitCode() != 0
-                            && MavenBaselineOutput.isTransientDownloadFailure(
-                                    baseline.process().diagnostics())) {
+                            && runtime.toolchain(repository.verificationPlan())
+                                    .isTransientDownloadFailure(baseline.process().diagnostics())) {
                         String detail =
                                 summary.isBlank() ? "Maven artifact transfer failed." : summary;
                         String reason =
