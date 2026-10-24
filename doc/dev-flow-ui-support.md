@@ -78,12 +78,13 @@ factory.dev-factory:
       jira-projects: [UIU]
   runtime:
     plans:
-      node22-jest: [sh, -c, "yarn install --frozen-lockfile --ignore-scripts --non-interactive && yarn test"]
+      node22-jest: [yarn, test, --maxWorkers=2]   # the install is runtime.yarn.install-command (phase 5)
     plan-toolchains:
       node22-jest: yarn                            # absent → maven
     yarn:
       cache-volume: ${FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME:factory-dev-yarn-cache}
       folio-registry: ${FACTORY_DEV_FACTORY_FOLIO_NPM_REGISTRY:https://repository.folio.org/repository/npm-folioci/}
+      install-command: [yarn, install, --frozen-lockfile, --ignore-scripts, --non-interactive]
   delivery:
     targets:
       ui-users:
@@ -273,8 +274,9 @@ Result, on the pilot machine (Windows + Podman on WSL, full Compose stack, Pi + 
   add a rate to price it.
 - **Agent setup:** in both initial attempts Pi reported it could not run any tests because
   `node_modules` was missing; run 1 still added a test, run 2 added none. Once the comment said
-  "run the suite before pushing", the round added and ran its tests. A hint in the coding
-  request (the verification command, and that dependencies need installing) is the likely fix.
+  "run the suite before pushing", the round added and ran its tests. Resolved by phase 5: Factory
+  installs the dependencies before the agent starts and the request names the verification
+  command.
 - **Gateway access:** the CodeMie gateway is reached through `scripts/dev/codemie-bridge`
   (relay container → SSH reverse forward → bridge → `codemie proxy`); see its README. The
   gateway rejects CodeMie CLI versions older than 0.15.8 with HTTP 426.
@@ -284,22 +286,36 @@ Found in the phase 4 pilot: in both initial attempts the agent reported it could
 test because `node_modules` was missing, and once told to run the suite it did. Agents should
 not have to remember a setup step, and a plain `yarn test` starts one Jest worker per CPU,
 which froze the 8 GB VM in phase 2. So, for yarn plans:
-- Factory runs the trusted install inside every coding container before the agent starts
-  (initial attempt, clarification restart and every PR-feedback round) with the verification
-  flags (`--frozen-lockfile` when a lockfile exists, `--ignore-scripts`, `--non-interactive`),
-  the trusted `.yarnrc` and the seeded cache. A failed install is an environment failure
-  before any model spend, like a failed starting build; it costs about 15 s with a warm seed.
-- The install command becomes its own setting (`runtime.yarn.install-command`) instead of
-  being parsed out of the plan's `sh -c "install && test"` string; phase 6 extends the same
-  step to seed a pinned lockfile.
-- The `CodingRequest` carries one line for both toolchains: "verification runs: `<command>`"
-  (for example `yarn test --maxWorkers=2`, or `mvn verify` versus `mvn test` for Maven), so the
-  agent reproduces the real check and stays within the memory limit. An agent that edits
-  `package.json` still installs the new dependencies itself.
-Done: a ui-users run (UIU-3606 again, now with `gpt-5.6-luna-2026-07-09`, which the rate card
-prices) shows the agent running the tests without being told to in a comment; unit tests cover
-a failing install stopping before model spend; a feedback round also starts prepared; gated
-Docker tests cover the install in the coding image.
+- **One definition of the install.** The install is its own setting,
+  `runtime.yarn.install-command` (default `yarn install --frozen-lockfile --ignore-scripts
+  --non-interactive`, tokens validated because they are joined into a shell command). The
+  plan shrinks to the test command (`yarn test --maxWorkers=2`). The starting build and
+  independent verification run `install && test` as one command built from those two
+  settings, and the coding container runs the install alone before the agent starts, so
+  coding, the starting build and verification cannot drift apart. The receipt's `argv` is
+  that effective command, so changing either setting already invalidates old receipts
+  through the existing `VerificationPolicy` comparison; no receipt schema change. Phase 6
+  extends the same install step to seed a pinned lockfile.
+- **Prepared coding container.** Factory runs the install in every coding container before
+  the agent starts (initial attempt, clarification restart and every PR-feedback round) with
+  the trusted `.yarnrc` and the seeded cache; about 15 s with a warm seed. A failed install
+  stops before any model call: a download failure asks the engine to retry, anything else is
+  an environment failure, like a failed starting build.
+- **Verification command in the request.** The `CodingRequest` constraints carry
+  "verification runs: `<command>`" (the plan's test command: `yarn test --maxWorkers=2`, or
+  for Maven `mvn -B -ntp test` versus `mvn … verify`) and whether dependencies are already
+  installed. The agent reproduces the real check and stays within the memory limit. The
+  install line applies to yarn only (Maven resolves dependencies itself during the build); an
+  agent that edits `package.json` still installs the new dependencies itself.
+
+Done, independent of the model: unit tests show the install runs before the agent in the
+initial attempt and in a feedback round, that a failing install stops before a model call
+(retryable on download errors), that the request carries the command, and that the starting
+build, the coding container and verification use the same install command; a gated Docker
+test runs the install in the coding image. Then one end-to-end UIU-3606 run, recorded with
+its model name: first with `claude-sonnet-5-5` (the phase 4 model, so a change in the
+agent's behavior can be attributed to the prepared workspace), then once with
+`gpt-5.6-luna-2026-07-09` as a separate data point.
 
 **Phase 6 — modules without `yarn.lock`.**
 The starting build generates a lockfile once and stores it as a Factory artifact (with its
@@ -333,10 +349,10 @@ published; ui-orders or ui-myprofile runs end-to-end.
 - **Red `master`.** Modules on `jest-config-stripes` ^3 can fail to load suites (ui-myprofile
   today). The flow correctly blocks before model spend; such modules need the upstream bump
   first.
-- **Coding agent setup.** The prompt stays tool-neutral; the agent must run `yarn install`
-  itself in the coding container. The pilot showed it often does not (both initial attempts
-  reported no tests run), so a toolchain hint in the `CodingRequest` (the verification command,
-  dependencies installed first) is the next change; it would help Maven tickets too.
+- **Coding agent setup.** The pilot showed the agent often does not run `yarn install` itself
+  (both initial attempts reported no tests run). Phase 5 removes the dependency on it: Factory
+  prepares the workspace and the request names the verification command. Only that command line
+  helps Maven tickets (which of `mvn test` / `mvn verify` to run); the install is yarn-only.
 - **Local test baseline on the pilot machine (Windows + Podman on WSL).** Full `mvn verify`
   needs a **rootless** machine with user-mode networking
   (`podman machine set --rootful=false --user-mode-networking`) and
