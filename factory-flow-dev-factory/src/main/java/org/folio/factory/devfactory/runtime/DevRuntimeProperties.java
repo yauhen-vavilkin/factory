@@ -136,7 +136,7 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
                              String apiKey, String authToken, Integer maxTurns, Integer maxOutputTokens,
                              String effort) {
         public ClaudeCode {
-            image = first(image, "factory-dev-claude-code:2.1.287-java21");
+            image = first(image, "factory-dev-claude-code:2.1.287-java21-node22");
             api = first(api, "anthropic-messages");
             maxTurns = maxTurns == null ? 40 : maxTurns;
             maxOutputTokens = maxOutputTokens == null ? 16384 : maxOutputTokens;

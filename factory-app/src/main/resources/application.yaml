@@ -296,7 +296,7 @@ factory:
           - target/failsafe-reports/TEST-org.folio.roles.repository.UserRoleRepositoryIT.xml
       coding:
         runtime: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:pi}
-        image: ${FACTORY_DEV_FACTORY_CODING_IMAGE:factory-dev-pi:0.85.1-java21}
+        image: ${FACTORY_DEV_FACTORY_CODING_IMAGE:factory-dev-pi:0.85.1-java21-node22}
         provider: ${FACTORY_MODEL_PROVIDER:}
         model: ${FACTORY_MODEL_ID:}
         base-url: ${FACTORY_MODEL_BASE_URL:}
@@ -315,7 +315,7 @@ factory:
           reasoning-effort: ${FACTORY_PI_REASONING_EFFORT:}
           max-output-tokens: ${FACTORY_PI_MAX_OUTPUT_TOKENS:}
         claude-code:
-          image: ${FACTORY_CLAUDE_CODE_IMAGE:factory-dev-claude-code:2.1.287-java21}
+          image: ${FACTORY_CLAUDE_CODE_IMAGE:factory-dev-claude-code:2.1.287-java21-node22}
           api: ${FACTORY_CLAUDE_CODE_API:anthropic-messages}
           base-url: ${FACTORY_CLAUDE_CODE_BASE_URL:}
           model: ${FACTORY_CLAUDE_CODE_MODEL:}

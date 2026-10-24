@@ -56,7 +56,7 @@ services:
       FACTORY_PI_API_KEY: ${FACTORY_PI_API_KEY:-}
       FACTORY_PI_REASONING_EFFORT: ${FACTORY_PI_REASONING_EFFORT:-}
       FACTORY_PI_MAX_OUTPUT_TOKENS: ${FACTORY_PI_MAX_OUTPUT_TOKENS:-}
-      FACTORY_CLAUDE_CODE_IMAGE: ${FACTORY_CLAUDE_CODE_IMAGE:-factory-dev-claude-code:2.1.287-java21}
+      FACTORY_CLAUDE_CODE_IMAGE: ${FACTORY_CLAUDE_CODE_IMAGE:-factory-dev-claude-code:2.1.287-java21-node22}
       FACTORY_CLAUDE_CODE_API: ${FACTORY_CLAUDE_CODE_API:-anthropic-messages}
       FACTORY_CLAUDE_CODE_BASE_URL: ${FACTORY_CLAUDE_CODE_BASE_URL:-}
       FACTORY_CLAUDE_CODE_MODEL: ${FACTORY_CLAUDE_CODE_MODEL:-}
@@ -66,10 +66,12 @@ services:
       FACTORY_CLAUDE_CODE_MAX_TURNS: ${FACTORY_CLAUDE_CODE_MAX_TURNS:-40}
       FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS: ${FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS:-16384}
       FACTORY_CLAUDE_CODE_EFFORT: ${FACTORY_CLAUDE_CODE_EFFORT:-}
-      FACTORY_DEV_FACTORY_CODING_IMAGE: ${FACTORY_DEV_FACTORY_CODING_IMAGE:-factory-dev-pi:0.85.1-java21}
+      FACTORY_DEV_FACTORY_CODING_IMAGE: ${FACTORY_DEV_FACTORY_CODING_IMAGE:-factory-dev-pi:0.85.1-java21-node22}
       FACTORY_DEV_FACTORY_CODING_RUNTIME: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:-pi}
       FACTORY_DEV_FACTORY_TIMEOUT_SECONDS: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:-1800}
       FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:-factory-dev-m2-cache}
+      FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME: ${FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME:-factory-dev-yarn-cache}
+      FACTORY_DEV_FACTORY_FOLIO_NPM_REGISTRY: ${FACTORY_DEV_FACTORY_FOLIO_NPM_REGISTRY:-https://repository.folio.org/repository/npm-folioci/}
       FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS: ${FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS:-7200}
       SPRING_CONFIG_IMPORT: optional:file:/application/config/developer-pricing.yaml
     ports:
@@ -77,9 +79,12 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - factory-dev-m2-cache:/var/lib/factory-dev-m2-cache:ro
+      - factory-dev-yarn-cache:/var/lib/factory-dev-yarn-cache:ro
       - ./config/developer-pricing.yaml:/application/config/developer-pricing.yaml:ro
 
 volumes:
   factory-pgdata:
   factory-dev-m2-cache:
     name: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:-factory-dev-m2-cache}
+  factory-dev-yarn-cache:
+    name: ${FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME:-factory-dev-yarn-cache}
