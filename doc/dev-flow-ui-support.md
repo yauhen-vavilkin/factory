@@ -1,6 +1,6 @@
 # Developer Flow: UI (yarn + Jest) support — plan
 
-Status: draft for review · Pilot: [UIU-3606](https://folio-org.atlassian.net/browse/UIU-3606) on `folio-org/ui-users`
+Operations: [dev-flow-ui-runbook.md](dev-flow-ui-runbook.md) · Status: draft for review · Pilot: [UIU-3606](https://folio-org.atlassian.net/browse/UIU-3606) on `folio-org/ui-users`
 
 ## Goal and scope
 

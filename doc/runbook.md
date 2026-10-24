@@ -2,7 +2,8 @@
 
 Operational procedures for running the Factory in production. Pairs with
 [backup-dr.md](backup-dr.md) (data durability) and [performance.md](performance.md)
-(pool/engine sizing). Everything here is grounded in the current control plane —
+(pool/engine sizing); UI (yarn + Jest) tickets have their own page,
+[dev-flow-ui-runbook.md](dev-flow-ui-runbook.md). Everything here is grounded in the current control plane —
 statuses, config keys, and metrics named below are real.
 
 > Scope note: this runbook covers **operations**, not the security hardening that
