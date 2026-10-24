@@ -159,7 +159,11 @@ verification receipt: required Maven suites must produce fresh, executed reports
 cannot approve a plan that requires integration reports. The trusted build reuses
 the `factory-dev-m2-cache` Docker volume, repairing cache entry ownership before
 each build; reset it with `docker volume rm factory-dev-m2-cache` while the stack
-is stopped.
+is stopped. UI (yarn + Jest) plans work the same way with `factory-dev-yarn-cache`.
+Their dependency install is configured once, as `runtime.yarn.install-command`: the
+starting build and independent verification run it before the plan's test command, and
+Factory runs it in each coding container before the agent starts. The coding request
+also tells the agent which command verification runs. See `doc/dev-flow-ui-support.md`.
 
 Execution pages estimate API cost from the operator-owned
 `config/developer-pricing.yaml` rate card. The YAML records public list prices

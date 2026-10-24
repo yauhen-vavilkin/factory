@@ -281,7 +281,7 @@ Result, on the pilot machine (Windows + Podman on WSL, full Compose stack, Pi + 
   (relay container → SSH reverse forward → bridge → `codemie proxy`); see its README. The
   gateway rejects CodeMie CLI versions older than 0.15.8 with HTTP 426.
 
-**Phase 5 — prepared coding workspace.**
+**Phase 5 — prepared coding workspace** (done).
 Found in the phase 4 pilot: in both initial attempts the agent reported it could not run any
 test because `node_modules` was missing, and once told to run the suite it did. Agents should
 not have to remember a setup step, and a plain `yarn test` starts one Jest worker per CPU,
@@ -299,8 +299,10 @@ which froze the 8 GB VM in phase 2. So, for yarn plans:
 - **Prepared coding container.** Factory runs the install in every coding container before
   the agent starts (initial attempt, clarification restart and every PR-feedback round) with
   the trusted `.yarnrc` and the seeded cache; about 15 s with a warm seed. A failed install
-  stops before any model call: a download failure asks the engine to retry, anything else is
-  an environment failure, like a failed starting build.
+  stops before any model call. In the initial attempt a download failure asks the engine to
+  retry (the same classification as the starting build) and anything else is an environment
+  failure; a PR-feedback round has an operator-driven retry, so any install failure ends that
+  round before a model call and the operator repeats it.
 - **Verification command in the request.** The `CodingRequest` constraints carry
   "verification runs: `<command>`" (the plan's test command: `yarn test --maxWorkers=2`, or
   for Maven `mvn -B -ntp test` versus `mvn … verify`) and whether dependencies are already
@@ -316,6 +318,38 @@ test runs the install in the coding image. Then one end-to-end UIU-3606 run, rec
 its model name: first with `claude-sonnet-5-5` (the phase 4 model, so a change in the
 agent's behavior can be attributed to the prepared workspace), then once with
 `gpt-5.6-luna-2026-07-09` as a separate data point.
+
+Result (implemented 2026-10-24). Unit tests cover the install order and the failure paths in
+both coding paths; the gated fixture test (Linux, real images) runs `PreparedWorkspace`, then a
+Claude Code session that finds `node_modules` ready and runs `yarn test` without installing,
+then fresh verification (58 s). The full Linux suite is clean (Developer Flow module 317 tests,
+`PrFeedbackIntegrationTest` 20/20). A compatibility test found that a stored coding request
+without the new constraint fields failed to parse (Jackson 3 rejects a missing primitive), so
+`dependenciesInstalled` is a normalized `Boolean`.
+
+End-to-end run on ui-users, UIU-3606, **`gpt-5.6-luna-2026-07-09` (reasoning `max`)**, PR #2 on
+the fork. This changed the model as well as the workspace, so on its own it could not show
+what caused the improvement; the same-model run below does.
+- Starting build 113 s; coding container ready: 32 s for the cache seed copy, then the install
+  in the coding container **17 s**; the agent ran from there.
+- The agent ran `yarn test --maxWorkers=2` itself (296 suites, 1641 tests passed), the targeted
+  tests, and ESLint, and reported them; in both phase 4 initial attempts it had run nothing.
+- Independent verification: PASS, 1641 tests (1639 at baseline plus 2 new), 107 s.
+- Trigger to PR: 575 s. PR #2: 3 files, +64 −5, including 42 lines of tests.
+- Usage: 48 uncached input, 942,891 cache-read, 180,350 cache-write and 15,878 output tokens;
+  about $0.08 at the rate card's list prices (my calculation; Factory's own estimate appears on
+  the execution page).
+
+Same-model run, `claude-sonnet-5-5` with the phase 4 settings (PR #3, trigger to PR 350 s):
+starting build 107 s; coding container ready 26 s later (cache seed copy), install **12 s**.
+The agent found `node_modules` ready and ran the `src/views/UserEdit` tests, including the one
+it added, and said plainly that it had not run the full `yarn test --maxWorkers=2`; in the
+phase 4 initial attempts with this model it ran nothing because dependencies were missing.
+Independent verification PASS, 1640 tests (1639 + 1 new), 92 s. 266,558 input and 6,197 output
+tokens (the gateway reported no cache split for this model). PR #3: 3 files, +24 −1. So the
+change in behavior is attributable to the prepared workspace and the verification-command line,
+not to the model. Model quality still differs: Sonnet again left the Patron-to-Staff edit
+scenario of the ticket unaddressed (it said so and explained why), which Luna covered.
 
 **Phase 6 — modules without `yarn.lock`.**
 The starting build generates a lockfile once and stores it as a Factory artifact (with its
