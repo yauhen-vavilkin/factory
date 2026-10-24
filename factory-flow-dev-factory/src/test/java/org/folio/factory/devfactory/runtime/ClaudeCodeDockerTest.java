@@ -174,8 +174,13 @@ class ClaudeCodeDockerTest {
         Files.writeString(source.resolve("src/add.js"), "exports.add = (a, b) => a + b;\n");
         Files.writeString(source.resolve("src/add.test.js"),
                 "const { add } = require('./add');\ntest('add', () => expect(add(1, 2)).toBe(3));\n");
-        var plan = List.of("sh", "-c", "yarn install --ignore-scripts --non-interactive && yarn test");
-        var environment = yarnEnvironment();
+        // The fixture has no lockfile, so its install omits --frozen-lockfile (lockfile-less modules are phase 6).
+        var runtime = new DevRuntimeProperties(Map.of("jest", List.of("yarn", "test")), null, 600, null, Map.of(),
+                Map.of("jest", Toolchain.YARN), new DevRuntimeProperties.Yarn(volume,
+                        DevRuntimeProperties.Yarn.DEFAULT_FOLIO_REGISTRY,
+                        List.of("yarn", "install", "--ignore-scripts", "--non-interactive")));
+        var environment = runtime.environment("jest");
+        var plan = runtime.verificationCommand("jest");
 
         try (var scope = new DockerWorkloads().beginStep(executionId, "yarn-baseline");
              var baseline = scope.createTrusted(NODE_IMAGE, source, environment)) {
@@ -185,13 +190,19 @@ class ClaudeCodeDockerTest {
         try (var mock = new MessagesEndpoint(false, false);
              var scope = new DockerWorkloads().beginStep(executionId, "yarn-code");
              var workload = scope.createSeeded(IMAGE, source, environment, "coding")) {
-            mock.command = "yarn install --ignore-scripts --non-interactive >/dev/null 2>&1 "
-                    + "&& printf 'exports.sub = (a, b) => a - b;\\n' > src/sub.js "
+            // Factory prepares the workspace before the agent starts, so the agent finds it ready.
+            var prepared = PreparedWorkspace.prepare(workload, runtime, "jest", event -> { });
+            assertThat(prepared.failure()).isNull();
+            assertThat(prepared.installed()).isTrue();
+            assertThat(workload.execute(List.of("test", "-d", "node_modules/jest"), 30).exitCode()).isZero();
+            mock.command = "printf 'exports.sub = (a, b) => a - b;\\n' > src/sub.js "
                     + "&& printf \"const { sub } = require('./sub');\\ntest('sub', () => expect(sub(3, 1)).toBe(2));\\n\" "
                     + "> src/sub.test.js && yarn test 2>&1 | tail -5";
             var outcome = new ClaudeCodeCodingRuntime(config(mock, "api-key"))
-                    .code(workload, ClaudeCodeCodingRuntimeTest.request(), 300);
+                    .code(workload, ClaudeCodeCodingRuntimeTest.request().withVerification("yarn test", true), 300);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
+            assertThat(mock.calls.getFirst().body.toString()).contains("by running: yarn test")
+                    .contains("already installed in /workspace");
             assertThat(mock.calls.getLast().body.path("messages").toString()).contains("Tests:");
             workload.stop();
             workload.export(exported);
