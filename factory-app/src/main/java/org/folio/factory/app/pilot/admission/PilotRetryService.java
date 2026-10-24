@@ -156,7 +156,7 @@ public class PilotRetryService {
             dispatcher.dispatchNext();
         } catch (RuntimeException e) {
             return new RetryResult(attemptId, null, PilotAttempt.State.RESERVED.name(),
-                    "the retry attempt is queued; dispatch could not start it: " + e.getMessage());
+                    "the retry attempt is queued; dispatch could not start it: " + cause(e));
         }
         PilotAttempt attempt = attempts.findById(attemptId).orElseThrow();
         if (attempt.getExecutionId() != null) {
@@ -198,5 +198,11 @@ public class PilotRetryService {
         }
         PilotAttempt latest = history.getLast();
         return new RetryResult(latest.getId(), latest.getExecutionId(), latest.getState().name(), reason);
+    }
+
+    private static String cause(RuntimeException e) {
+        return e.getMessage() == null || e.getMessage().isBlank()
+                ? e.getClass().getSimpleName()
+                : e.getMessage();
     }
 }

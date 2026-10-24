@@ -260,7 +260,8 @@ class PilotDispatchIntegrationTest {
         };
         var launcher = new PilotExecutionLauncher(crashingRouter, tasks, attempts, installations,
                 new PilotExecutionProperties(null), permissive, transactionManager);
-        return new PilotDispatcher(attempts, installations, launcher, outcomesProvider());
+        return new PilotDispatcher(attempts, installations, launcher,
+                new PilotExecutionProperties(null, false), outcomesProvider());
     }
 
     private org.springframework.beans.factory.ObjectProvider<PilotOutcomeService> outcomesProvider() {

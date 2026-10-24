@@ -43,6 +43,15 @@ public class PilotInstallation {
     @Column(name = "sync_problem", columnDefinition = "text")
     private String syncProblem;
 
+    @Column(name = "source_name", length = 500)
+    private String sourceName;
+
+    @Column(name = "source_url", length = 1000)
+    private String sourceUrl;
+
+    @Column(name = "sprint_name", length = 500)
+    private String sprintName;
+
     @Column(name = "active_attempt_id")
     private UUID activeAttemptId;
 
@@ -124,6 +133,30 @@ public class PilotInstallation {
 
     public void setSyncProblem(String syncProblem) {
         this.syncProblem = syncProblem;
+    }
+
+    public String getSourceName() {
+        return sourceName;
+    }
+
+    public void setSourceName(String sourceName) {
+        this.sourceName = sourceName;
+    }
+
+    public String getSourceUrl() {
+        return sourceUrl;
+    }
+
+    public void setSourceUrl(String sourceUrl) {
+        this.sourceUrl = sourceUrl;
+    }
+
+    public String getSprintName() {
+        return sprintName;
+    }
+
+    public void setSprintName(String sprintName) {
+        this.sprintName = sprintName;
     }
 
     public UUID getActiveAttemptId() {

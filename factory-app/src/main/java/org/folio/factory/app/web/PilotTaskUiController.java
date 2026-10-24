@@ -9,6 +9,7 @@ import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
 import org.folio.factory.app.pilot.presentation.PilotTaskQuery;
 import org.folio.factory.app.pilot.presentation.PilotTaskUsage;
 import org.folio.factory.app.pilot.presentation.PilotTaskView;
+import org.folio.factory.app.pilot.source.PilotSourceProperties;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Controller;
@@ -48,15 +49,17 @@ public class PilotTaskUiController {
     private final PilotAdmissionService admissions;
     private final PilotModeService modes;
     private final PilotRetryService retries;
+    private final PilotSourceProperties source;
 
     public PilotTaskUiController(PilotTaskQuery taskQuery, PilotInstallationRepository installations,
                                  PilotAdmissionService admissions, PilotModeService modes,
-                                 PilotRetryService retries) {
+                                 PilotRetryService retries, PilotSourceProperties source) {
         this.taskQuery = taskQuery;
         this.installations = installations;
         this.admissions = admissions;
         this.modes = modes;
         this.retries = retries;
+        this.source = source;
     }
 
     @GetMapping("/tasks")
@@ -198,12 +201,52 @@ public class PilotTaskUiController {
         model.addAttribute("syncProblem", installation.getSyncProblem());
         model.addAttribute("lastSync", UiFormat.format(installation.getLastSuccessfulSyncAt()));
         model.addAttribute("lastSyncRelative", relative(installation.getLastSuccessfulSyncAt()));
+        model.addAttribute("sourceName", installation.getSourceName());
+        model.addAttribute("sourceUrl", installation.getSourceUrl());
+        model.addAttribute("sprintName", installation.getSprintName());
+        model.addAttribute("scopeStatuses", joined(source.statuses()));
+        model.addAttribute("scopeRestrictions", restrictions(source));
+        model.addAttribute("enableScopeContext", enableScopeContext(installation, source));
         model.addAttribute("authorityFingerprint", observed);
         model.addAttribute("automaticAdmissionAvailable",
                 observed != null && installation.isSyncComplete() && installation.getSyncProblem() == null);
         model.addAttribute("pollUrl", "/tasks/poll");
         model.addAttribute("pollFields", "revision");
         model.addAttribute("pollBaseline", revision(installation, taskCount));
+    }
+
+    private static String joined(List<String> values) {
+        return values.isEmpty() ? null : String.join(", ", values);
+    }
+
+    /** The configured AND narrowings over the inherited team filter, in plain language. */
+    private static String restrictions(PilotSourceProperties source) {
+        List<String> parts = new ArrayList<>();
+        if (source.assignee() != null) {
+            parts.add("assignee " + source.assignee());
+        }
+        if (!source.projects().isEmpty()) {
+            parts.add("projects " + String.join(", ", source.projects()));
+        }
+        if (source.label() != null) {
+            parts.add("label " + source.label());
+        }
+        return parts.isEmpty() ? null : "Only: " + String.join(", ", parts);
+    }
+
+    /** What automatic admission would delegate: the resolved source, sprint and statuses. */
+    private static String enableScopeContext(PilotInstallation installation, PilotSourceProperties source) {
+        List<String> parts = new ArrayList<>();
+        if (installation.getSourceName() != null) {
+            parts.add(installation.getSourceName());
+        }
+        if (installation.getSprintName() != null) {
+            parts.add("sprint " + installation.getSprintName());
+        }
+        if (!source.statuses().isEmpty()) {
+            parts.add("statuses " + String.join(", ", source.statuses()));
+        }
+        return parts.isEmpty() ? null : String.join(", ", parts);
     }
 
     /** Compact installation identity for live refresh; comma-free so poll.js can split fields safely. */

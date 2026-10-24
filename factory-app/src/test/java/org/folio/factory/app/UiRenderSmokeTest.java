@@ -54,6 +54,8 @@ import static org.mockito.Mockito.when;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false",
                 "factory.connectors.jira.base-url=https://jira.example.org",
+                "factory.pilot.source.statuses[0]=To Do",
+                "factory.pilot.source.assignee=jane",
                 "factory.developer-pricing.rates.test.model=test-model",
                 "factory.developer-pricing.rates.test.currency=USD",
                 "factory.developer-pricing.rates.test.as-of=2026-09-19",
@@ -661,6 +663,34 @@ class UiRenderSmokeTest {
         pilotInstallations.save(installation);
     }
 
+    private void seedSyncedScope() {
+        PilotInstallation installation = pilotInstallations.findById(1).orElseGet(PilotInstallation::initial);
+        installation.setSyncComplete(true);
+        installation.setObservedAuthorityFingerprint("authority-1");
+        installation.setSourceName("Team board");
+        installation.setSourceUrl("https://jira.example.org/jira/software/c/boards/981");
+        installation.setSprintName("Sprint 12");
+        pilotInstallations.save(installation);
+    }
+
+    @Test
+    void pilotTaskListShowsTheResolvedScopeAndTheEnableContext() {
+        resetPilotData();
+        seedTask("70031", "MODBAR-731", "Scoped task", PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedSyncedScope();
+
+        String body = assertRendered("/tasks", "Discovered Jira work");
+        assertThat(body)
+                .contains("Team board")
+                .contains("href=\"https://jira.example.org/jira/software/c/boards/981\"")
+                .contains("Sprint:")
+                .contains("Sprint 12")
+                .contains("Statuses: To Do")
+                .contains("Only: assignee jane")
+                .contains("Team board, sprint Sprint 12, statuses To Do")
+                .contains("Delegates every eligible current and future match in the pilot filter");
+    }
+
     @Test
     void pilotTaskListRendersEveryStateWithReadableControls() {
         resetPilotData();
@@ -725,6 +755,9 @@ class UiRenderSmokeTest {
                 .contains("Outside current filter")
                 .contains("Review before run")
                 .contains("Available after discovery completes a full sync.")
+                .contains("Statuses: To Do")
+                .doesNotContain("Sprint:")
+                .doesNotContain("Team board")
                 .contains("name=\"expectedAuthorityFingerprint\"")
                 .contains("data-task-selection", "data-run-selected", "data-selected-count",
                         "data-select-all", "data-poll-notice")

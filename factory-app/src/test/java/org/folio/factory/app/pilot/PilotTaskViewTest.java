@@ -66,6 +66,7 @@ import static org.mockito.Mockito.doThrow;
         "factory.engine.enabled=false",
         "factory.pilot.execution.enabled=true",
         "factory.pilot.execution.deadline=PT30M",
+        "factory.pilot.execution.dispatch-interval-ms=3600000",
         "factory.connectors.jira.base-url=https://jira.example.org"})
 @Import(StubLlmConfiguration.class)
 @Testcontainers
@@ -266,6 +267,11 @@ class PilotTaskViewTest {
         admit(uncertain, "run-933");
         forceState(uncertain, PilotAttempt.State.NEEDS_INSPECTION,
                 "publish: the candidate was delivered without a known pull-request identity");
+        // An uncertain attempt projects distinctly because it does not own the
+        // installation's pause slot; detach the admission's launch binding.
+        PilotInstallation installation = installations.findById(1).orElseThrow();
+        installation.setActiveAttemptId(null);
+        installations.save(installation);
 
         PilotTaskView uncertainView = query.detail(uncertain.getId());
         assertThat(uncertainView.state()).isEqualTo(PilotTaskView.TaskState.UNCERTAIN);

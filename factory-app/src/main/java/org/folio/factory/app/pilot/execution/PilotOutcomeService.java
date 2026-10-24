@@ -27,10 +27,11 @@ import java.util.UUID;
 
 /**
  * Resolves one pilot attempt into an understandable outcome and decides the
- * installation's active slot: a task-specific terminal outcome with proven
- * workload inactivity releases the slot, a shared provider/auth/environment
- * failure holds it as one installation pause, and any unproven cleanup or
- * unresolved publication identity holds it for inspection. Engine COMPLETED
+ * installation's active slot: a terminal outcome with proven workload
+ * inactivity releases the slot — a task-specific failure and a shared
+ * provider/auth/environment failure alike stop as readable results (the shared
+ * cause keeps its "shared" marker) — while any unproven cleanup or unresolved
+ * publication identity holds the attempt for inspection. Engine COMPLETED
  * alone is never PR_READY — the delivered pull-request identity is the
  * evidence. Only this service releases installation.activeAttemptId.
  */
@@ -136,7 +137,12 @@ public class PilotOutcomeService {
             return hold(attempt, uncertainty);
         }
         if (classification.shared()) {
-            return holdShared(attempt, classification);
+            // Design 5.3: once inactivity is proven, a shared outage stops this
+            // attempt with its persisted cause while the queue continues; the
+            // same startup path rechecks the provider for the next attempts.
+            return release(attempt, new Classification(AttemptOutcome.State.STOPPED,
+                    classification.stage(), "shared: " + classification.reason(),
+                    classification.publicationIdentity(), false));
         }
         if (classification.state() == AttemptOutcome.State.NEEDS_INSPECTION) {
             return hold(attempt, classification.reason());
@@ -217,12 +223,6 @@ public class PilotOutcomeService {
         });
     }
 
-    private AttemptOutcome holdShared(PilotAttempt attempt, Classification classification) {
-        markNeedsInspection(attempt, classification.reason());
-        return new AttemptOutcome(AttemptOutcome.State.PROCESSING_PAUSED, classification.stage(),
-                classification.reason(), classification.publicationIdentity(), true, null);
-    }
-
     private AttemptOutcome hold(PilotAttempt attempt, String uncertainty) {
         markNeedsInspection(attempt, null);
         return new AttemptOutcome(AttemptOutcome.State.NEEDS_INSPECTION, null,
@@ -255,14 +255,18 @@ public class PilotOutcomeService {
                 .orElseGet(json::createObjectNode);
     }
 
-    private static String stageOf(String resultReason, String resultState) {
+    /**
+     * The leading {@code stage: reason} label the outcome service composes, when
+     * present; the task screens parse the same persisted reason with this rule.
+     */
+    public static String stageOf(String resultReason, String resultState) {
         if (resultReason != null) {
             int boundary = resultReason.indexOf(": ");
             if (boundary > 0) {
                 return resultReason.substring(0, boundary);
             }
         }
-        return resultState.isBlank() ? null : resultState;
+        return resultState == null || resultState.isBlank() ? null : resultState;
     }
 
     private static String firstNonBlank(String... values) {

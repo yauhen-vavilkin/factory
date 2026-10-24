@@ -544,6 +544,14 @@ disabled for the pilot; the start action refuses pilot execution while
 `FACTORY_RETENTION_ENABLED` is true instead of deleting attempt or evidence
 history.
 
+When a task needs inspection: an attempt lands in **Needs inspection** when
+Factory could not prove what happened — for example, the publication response
+was lost after a push, or workload cleanup could not be confirmed. The queue
+stops at that task and Retry stays refused while the attempt is held. Inspect
+the run's artifacts and executions from the task detail page; resolving the
+hold requires maintainer action, and there is intentionally no automatic
+unlock.
+
 ## Operations
 
 Production procedures live under `doc/`:

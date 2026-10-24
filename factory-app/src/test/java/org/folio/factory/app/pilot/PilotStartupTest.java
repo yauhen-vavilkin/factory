@@ -4,6 +4,7 @@ import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.pilot.admission.PilotAdmissionService;
 import org.folio.factory.app.pilot.admission.PilotCommands;
+import org.folio.factory.app.pilot.execution.PilotDispatchPoller;
 import org.folio.factory.app.pilot.execution.PilotDispatcher;
 import org.folio.factory.app.pilot.execution.PilotExecutionProperties;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
@@ -68,6 +69,7 @@ import static org.mockito.Mockito.when;
         "factory.engine.enabled=false",
         "factory.limits.dedup.window=PT0S",
         "factory.pilot.execution.enabled=true",
+        "factory.pilot.execution.dispatch-interval-ms=3600000",
         "factory.pilot.source.source=981",
         "factory.pilot.source.sprint-id=4711",
         "factory.pilot.source.statuses[0]=To Do"})
@@ -123,6 +125,9 @@ class PilotStartupTest {
 
     @Autowired
     PilotDispatcher dispatcher;
+
+    @Autowired
+    PilotDispatchPoller dispatchPoller;
 
     @Autowired
     PipelineExecutionRepository executions;
@@ -362,11 +367,45 @@ class PilotStartupTest {
     }
 
     @Test
-    void staleSourceSyncStillBlocksDispatchBeforeReadinessIsConsulted() {
+    void admissionSucceedsAndThePollerStaysQuietWhileReadinessIsMissing() {
+        ratesKnown();
+        syncDiscovered();
+        UUID taskId = admit("60003", "MODBAR-603");
+
+        dispatchPoller.poll();
+
+        assertThat(attempts.findLiveByTaskId(taskId))
+                .singleElement()
+                .satisfies(attempt -> {
+                    assertThat(attempt.getState()).isEqualTo(PilotAttempt.State.RESERVED);
+                    assertThat(attempt.getExecutionId()).isNull();
+                });
+        assertThat(executions.count()).isZero();
+    }
+
+    @Test
+    void admissionAloneLaunchesTheQueueOnceReadinessHolds() {
         smokePasses();
         ratesKnown();
         syncDiscovered();
         assertThat(startup.start().executionReady()).isTrue();
+
+        UUID taskId = admit("60004", "MODBAR-604");
+
+        PilotAttempt attempt = attempts.findLiveByTaskId(taskId).getFirst();
+        assertThat(attempt.getState())
+                .as("admission itself dispatches best-effort; no test-side dispatchNext is involved")
+                .isEqualTo(PilotAttempt.State.QUEUED);
+        assertThat(attempt.getExecutionId()).isNotNull();
+        assertThat(stateManager.get(attempt.getExecutionId()).getFlowId()).isEqualTo(FLOW_ID);
+        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isEqualTo(attempt.getId());
+    }
+
+    @Test
+    void staleSourceSyncStillBlocksDispatchBeforeReadinessIsConsulted() {
+        syncDiscovered();
+        // Admitted before any start action: the readiness refusal keeps the
+        // admission's own best-effort dispatch quiet, so the attempt stays queued.
         admit("60011", "MODBAR-611");
         PilotInstallation installation = installations.findById(1).orElseThrow();
         installation.setSyncComplete(false);
@@ -375,6 +414,7 @@ class PilotStartupTest {
 
         assertThatThrownBy(dispatcher::dispatchNext)
                 .isInstanceOf(IllegalStateException.class)
+                .as("the stale sync is reported even though readiness is also missing")
                 .hasMessageContaining("sync is incomplete");
         assertThat(executions.count()).isZero();
     }

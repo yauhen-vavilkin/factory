@@ -1,12 +1,9 @@
 package org.folio.factory.app.pilot.startup;
 
+import org.folio.factory.app.pilot.Digests;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -32,13 +29,13 @@ public record RuntimeFingerprint(
 
     /** SHA-256 hex of an identity string; used for instructions and credential identities. */
     public static String identityOf(String value) {
-        return sha256Hex(value);
+        return Digests.sha256Hex(value);
     }
 
     public static RuntimeFingerprint of(DevRuntimeProperties.ClaudeCode profile, int smokeTurns,
                                         int smokeTimeoutSeconds, String instructionsFingerprint) {
         return new RuntimeFingerprint("claude-code", profile.image(), profile.model(),
-                origin(profile.baseUrl()), profile.authentication(), sha256Hex(profile.secret()),
+                origin(profile.baseUrl()), profile.authentication(), Digests.sha256Hex(profile.secret()),
                 smokeTurns, smokeTimeoutSeconds, instructionsFingerprint);
     }
 
@@ -53,7 +50,7 @@ public record RuntimeFingerprint(
     }
 
     public String identity() {
-        return sha256Hex(String.join("\n", runtime, image, model, endpointOrigin, authentication,
+        return Digests.sha256Hex(String.join("\n", runtime, image, model, endpointOrigin, authentication,
                 credentialIdentity, String.valueOf(smokeTurns), String.valueOf(smokeTimeoutSeconds),
                 instructionsFingerprint));
     }
@@ -92,14 +89,5 @@ public record RuntimeFingerprint(
 
     private static String nonBlank(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
-    }
-
-    private static String sha256Hex(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 digest is unavailable", e);
-        }
     }
 }

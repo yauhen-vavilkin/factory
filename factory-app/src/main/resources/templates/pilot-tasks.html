@@ -9,6 +9,16 @@
         <p class="page-description">Discovered Jira work for this pilot: select what runs and check results.</p>
         <div class="page-header-meta">
             <span>Admission mode: <strong th:text="${modeLabel}">Review before run</strong></span>
+            <span th:if="${sourceName != null}">
+                · Source:
+                <a th:if="${sourceUrl != null}" th:href="${sourceUrl}" th:text="${sourceName}"></a><span
+                    th:if="${sourceUrl == null}" th:text="${sourceName}"></span>
+            </span>
+            <span th:if="${sprintName != null}">
+                · Sprint: <strong th:text="${sprintName}"></strong>
+            </span>
+            <span th:if="${scopeStatuses != null}" th:text="${'· Statuses: ' + scopeStatuses}"></span>
+            <span th:if="${scopeRestrictions != null}" th:text="${'· ' + scopeRestrictions}"></span>
             <span th:if="${lastSync != null}">
                 · last full sync <span th:title="${lastSync}" th:text="${lastSyncRelative}"></span>
             </span>
@@ -29,7 +39,9 @@
                 <button class="btn btn-outline" type="submit" th:disabled="${!automaticAdmissionAvailable}">
                     Enable automatic admission</button>
                 <span class="muted" th:if="${automaticAdmissionAvailable}">
-                    Delegates every eligible current and future match in the pilot filter.</span>
+                    Delegates every eligible current and future match in the pilot filter<span
+                        th:if="${enableScopeContext != null}"
+                        th:text="${' — ' + enableScopeContext}"></span>.</span>
                 <span class="muted" th:if="${!automaticAdmissionAvailable}">
                     Available after discovery completes a full sync.</span>
             </form>

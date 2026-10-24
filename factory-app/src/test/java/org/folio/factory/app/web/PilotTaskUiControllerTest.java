@@ -9,6 +9,7 @@ import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
 import org.folio.factory.app.pilot.presentation.PilotTaskQuery;
 import org.folio.factory.app.pilot.presentation.PilotTaskUsage;
 import org.folio.factory.app.pilot.presentation.PilotTaskView;
+import org.folio.factory.app.pilot.source.PilotSourceProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -77,12 +78,15 @@ class PilotTaskUiControllerTest {
     @Captor
     private ArgumentCaptor<Pageable> pageableCaptor;
 
+    private final PilotSourceProperties source = new PilotSourceProperties("981", "4711",
+            List.of("To Do"), "jane", List.of("MODBAR"), "team-ready");
+
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders.standaloneSetup(
-                        new PilotTaskUiController(taskQuery, installations, admissions, modes, retries))
+                        new PilotTaskUiController(taskQuery, installations, admissions, modes, retries, source))
                 .setControllerAdvice(new UiExceptionHandler())
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
@@ -194,6 +198,43 @@ class PilotTaskUiControllerTest {
                 .andExpect(status().isOk());
 
         verifyNoInteractions(admissions, modes, retries);
+    }
+
+    // ----- scope display -----
+
+    @Test
+    void tasks_projectResolvedScopeWithConfiguredStatusesAndRestrictions() throws Exception {
+        when(taskQuery.list(any(Pageable.class))).thenReturn(pageOf());
+        when(installations.findById(1)).thenReturn(Optional.of(installationWithScope()));
+
+        var result = mvc.perform(get("/tasks"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        assertThat(result.getModelAndView().getModel())
+                .containsEntry("sourceName", "Team board")
+                .containsEntry("sourceUrl", "https://jira.example.org/jira/software/c/boards/981")
+                .containsEntry("sprintName", "Sprint 12")
+                .containsEntry("scopeStatuses", "To Do")
+                .containsEntry("scopeRestrictions", "Only: assignee jane, projects MODBAR, label team-ready")
+                .containsEntry("enableScopeContext", "Team board, sprint Sprint 12, statuses To Do");
+    }
+
+    @Test
+    void tasks_withoutSyncedScopeShowOnlyLiveConfiguration() throws Exception {
+        when(taskQuery.list(any(Pageable.class))).thenReturn(pageOf());
+        when(installations.findById(1)).thenReturn(Optional.of(installation(true, null)));
+
+        var result = mvc.perform(get("/tasks"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        assertThat(result.getModelAndView().getModel())
+                .containsEntry("sourceName", null)
+                .containsEntry("sourceUrl", null)
+                .containsEntry("sprintName", null)
+                .containsEntry("scopeStatuses", "To Do")
+                .containsEntry("enableScopeContext", "statuses To Do");
     }
 
     // ----- run selected -----
@@ -393,6 +434,14 @@ class PilotTaskUiControllerTest {
         installation.setSyncComplete(syncComplete);
         installation.setSyncProblem(problem);
         installation.setObservedAuthorityFingerprint("authority-1");
+        return installation;
+    }
+
+    private static PilotInstallation installationWithScope() {
+        PilotInstallation installation = installation(true, null);
+        installation.setSourceName("Team board");
+        installation.setSourceUrl("https://jira.example.org/jira/software/c/boards/981");
+        installation.setSprintName("Sprint 12");
         return installation;
     }
 

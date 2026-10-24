@@ -1,5 +1,7 @@
 package org.folio.factory.app.pilot.admission;
 
+import org.folio.factory.app.pilot.Digests;
+import org.folio.factory.app.pilot.execution.PilotDispatcher;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
@@ -12,11 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,8 +28,9 @@ import java.util.UUID;
  * observed source authority against the current rows and reserves one live
  * attempt. A repeated request id resolves
  * to the existing admission instead of creating anything. Approval accepts the
- * installation's observed source authority. Admission never creates engine
- * executions.
+ * installation's observed source authority. After a batch admits work it asks
+ * the dispatcher to start the queue head — best-effort, so a refused dispatch
+ * only leaves the attempts queued for the scheduled poller.
  */
 @Service
 public class PilotAdmissionService {
@@ -45,14 +44,16 @@ public class PilotAdmissionService {
     private final PilotTaskRepository tasks;
     private final PilotAttemptRepository attempts;
     private final PilotInstallationRepository installations;
+    private final PilotDispatcher dispatcher;
     private final TransactionTemplate transactions;
 
     public PilotAdmissionService(PilotTaskRepository tasks, PilotAttemptRepository attempts,
-                                 PilotInstallationRepository installations,
+                                 PilotInstallationRepository installations, PilotDispatcher dispatcher,
                                  PlatformTransactionManager transactionManager) {
         this.tasks = tasks;
         this.attempts = attempts;
         this.installations = installations;
+        this.dispatcher = dispatcher;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -86,6 +87,11 @@ public class PilotAdmissionService {
             } else {
                 admitEach(requestId, run.expectedAuthorityFingerprint(), fresh, admittedVia, admitted, rejected);
             }
+        }
+        if (!admitted.isEmpty()) {
+            // Admitted work must not wait for the poller when a dispatch can start
+            // now; a refusal keeps the attempts queued for the scheduled retry.
+            dispatcher.dispatchNextQuietly();
         }
         return new AdmissionResult(admitted, rejected);
     }
@@ -218,15 +224,6 @@ public class PilotAdmissionService {
 
     /** Identity of the task's routing decision; a re-mapped project yields a different value. */
     public static String destinationFingerprint(PilotTask task) {
-        return sha256Hex(task.getRoutingReason());
-    }
-
-    private static String sha256Hex(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 digest is unavailable", e);
-        }
+        return Digests.sha256Hex(task.getRoutingReason());
     }
 }

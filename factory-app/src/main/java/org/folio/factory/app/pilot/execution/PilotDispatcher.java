@@ -4,6 +4,8 @@ import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
 import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
@@ -25,17 +27,21 @@ import java.util.UUID;
 @Component
 public class PilotDispatcher {
 
+    private static final Logger log = LoggerFactory.getLogger(PilotDispatcher.class);
+
     private final PilotAttemptRepository attempts;
     private final PilotInstallationRepository installations;
     private final PilotExecutionLauncher launcher;
+    private final PilotExecutionProperties properties;
     private final ObjectProvider<PilotOutcomeService> outcomes;
 
     public PilotDispatcher(PilotAttemptRepository attempts, PilotInstallationRepository installations,
-                           PilotExecutionLauncher launcher,
+                           PilotExecutionLauncher launcher, PilotExecutionProperties properties,
                            ObjectProvider<PilotOutcomeService> outcomes) {
         this.attempts = attempts;
         this.installations = installations;
         this.launcher = launcher;
+        this.properties = properties;
         this.outcomes = outcomes;
     }
 
@@ -59,6 +65,24 @@ public class PilotDispatcher {
             return Optional.empty();
         }
         return Optional.ofNullable(launcher.launch(candidates.getFirst().getId()));
+    }
+
+    /**
+     * Best-effort dispatch for admission and scheduling call sites: a refusal
+     * (readiness not passed, stale sync) or a launch failure only logs, and the
+     * attempt stays queued for the scheduled poller to retry. It never fails the
+     * caller's admission or poll tick.
+     */
+    public void dispatchNextQuietly() {
+        if (!properties.enabled()) {
+            return;
+        }
+        try {
+            dispatchNext();
+        } catch (RuntimeException e) {
+            log.warn("Pilot dispatch deferred ({}); the attempt stays queued and the"
+                    + " scheduled poller retries", e.getMessage());
+        }
     }
 
     private UUID activeBinding(UUID attemptId) {

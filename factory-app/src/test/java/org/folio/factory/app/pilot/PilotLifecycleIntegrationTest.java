@@ -4,6 +4,7 @@ import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.pilot.admission.PilotAdmissionService;
 import org.folio.factory.app.pilot.admission.PilotCommands;
+import org.folio.factory.app.pilot.execution.PilotDispatchPoller;
 import org.folio.factory.app.pilot.execution.PilotOutcomeService;
 import org.folio.factory.app.pilot.execution.PilotRecoveryService;
 import org.folio.factory.app.pilot.execution.PilotDispatcher;
@@ -49,15 +50,18 @@ import static org.mockito.Mockito.doThrow;
  * Whole-attempt bounds, ownership and queue progress against real PostgreSQL:
  * the deadline is persisted once when preparation starts and never reset, a
  * terminal outcome releases the active slot only with proven workload
- * inactivity, a shared failure holds one installation pause, and a delivered
- * pull request releases the slot before feedback or merge. The engine is
- * disabled, so execution states and artifacts are driven directly.
+ * inactivity — a proven shared failure stops with its persisted cause and lets
+ * the queue continue, an unproven one holds — and a delivered pull request
+ * releases the slot before feedback or merge. The dispatch poller advances the
+ * queue after a release. The engine is disabled, so execution states and
+ * artifacts are driven directly.
  */
 @SpringBootTest(properties = {
         "spring.ai.model.chat=none",
         "factory.engine.enabled=false",
         "factory.pilot.execution.enabled=true",
-        "factory.pilot.execution.deadline=PT30M"})
+        "factory.pilot.execution.deadline=PT30M",
+        "factory.pilot.execution.dispatch-interval-ms=3600000"})
 @Import(StubLlmConfiguration.class)
 @Testcontainers
 @DirtiesContext
@@ -109,6 +113,9 @@ class PilotLifecycleIntegrationTest {
 
     @Autowired
     PilotRecoveryService recovery;
+
+    @Autowired
+    PilotDispatchPoller dispatchPoller;
 
     @Autowired
     PilotAttemptPolicy pilotPolicy;
@@ -213,7 +220,7 @@ class PilotLifecycleIntegrationTest {
     }
 
     @Test
-    void sharedProviderFailureProducesOneInstallationPauseInsteadOfPerTaskStops() {
+    void provenSharedFailureStopsTheAttemptWithItsCauseAndReleasesTheQueue() {
         admit("50031", "MODBAR-531");
         admit("50032", "MODBAR-532");
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
@@ -226,19 +233,80 @@ class PilotLifecycleIntegrationTest {
 
         PilotOutcomeService.AttemptOutcome outcome = outcomes.refresh(attempt.getId());
 
-        assertThat(outcome.state()).isEqualTo(PilotOutcomeService.AttemptOutcome.State.PROCESSING_PAUSED);
+        assertThat(outcome.state())
+                .as("with proven inactivity a shared outage is a readable stop, not a wedged hold")
+                .isEqualTo(PilotOutcomeService.AttemptOutcome.State.STOPPED);
         assertThat(outcome.workloadInactive()).isTrue();
         assertThat(attempts.findById(attempt.getId()).orElseThrow().getState())
-                .isEqualTo(PilotAttempt.State.NEEDS_INSPECTION);
+                .isEqualTo(PilotAttempt.State.STOPPED);
         assertThat(attempts.findById(attempt.getId()).orElseThrow().getResultReason())
-                .as("the shared-pause cause is persisted on the attempt, not only in artifacts")
+                .as("the shared cause is persisted on the attempt, not only in artifacts")
                 .isNotBlank()
-                .contains("DEVELOPMENT_FAILED: provider unreachable");
+                .contains("shared:", "DEVELOPMENT_FAILED: provider unreachable");
+        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
+
+        UUID nextExecutionId = dispatcher.dispatchNext().orElseThrow();
+        assertThat(nextExecutionId).isNotEqualTo(executionId);
+        assertThat(attempts.findByExecutionId(nextExecutionId).orElseThrow().getState())
+                .isEqualTo(PilotAttempt.State.QUEUED);
+    }
+
+    @Test
+    void unprovenSharedFailureStillHoldsUntilInactivityIsProvenThenTheQueueContinues() {
+        admit("50033", "MODBAR-533");
+        admit("50034", "MODBAR-534");
+        UUID executionId = dispatcher.dispatchNext().orElseThrow();
+        PilotAttempt attempt = attempts.findByExecutionId(executionId).orElseThrow();
+        stateManager.transition(executionId, ExecutionStatus.COMPLETED, null);
+        writeArtifact(executionId, DevelopWorker.OUTCOME,
+                "{\"status\":\"FAILED\",\"failure\":{\"code\":\"PROVIDER_FAILED\",\"message\":\"provider unreachable\"}}");
+        writeArtifact(executionId, VerifyWorker.RESULT,
+                "{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"provider unreachable\"}");
+        doThrow(new IllegalStateException("docker ps failed")).when(docker).cleanOwned(any(), anyString());
+
+        PilotOutcomeService.AttemptOutcome held = outcomes.refresh(attempt.getId());
+
+        assertThat(held.state()).isEqualTo(PilotOutcomeService.AttemptOutcome.State.NEEDS_INSPECTION);
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isEqualTo(attempt.getId());
         assertThat(dispatcher.dispatchNext()).contains(executionId);
-        assertThat(attempts.findDispatchable(PilotAttempt.State.RESERVED, org.springframework.data.domain.PageRequest.of(0, 10)))
-                .as("the next task stays queued while the installation is paused")
+        assertThat(attempts.findDispatchable(PilotAttempt.State.RESERVED,
+                        org.springframework.data.domain.PageRequest.of(0, 10)))
+                .as("the next task stays queued while inactivity is unproven")
                 .hasSize(1);
+
+        org.mockito.Mockito.doNothing().when(docker).cleanOwned(any(), anyString());
+        PilotOutcomeService.AttemptOutcome resolved = outcomes.refresh(attempt.getId());
+
+        assertThat(resolved.state()).isEqualTo(PilotOutcomeService.AttemptOutcome.State.STOPPED);
+        assertThat(attempts.findById(attempt.getId()).orElseThrow().getResultReason())
+                .contains("shared:", "provider unreachable");
+        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
+
+        UUID nextExecutionId = dispatcher.dispatchNext().orElseThrow();
+        assertThat(attempts.findByExecutionId(nextExecutionId).orElseThrow().getState())
+                .isEqualTo(PilotAttempt.State.QUEUED);
+    }
+
+    @Test
+    void dispatchPollerLaunchesTheNextQueuedAttemptAfterATerminalOutcome() {
+        admit("50035", "MODBAR-535");
+        UUID secondTaskId = admit("50036", "MODBAR-536");
+        UUID executionId = dispatcher.dispatchNext().orElseThrow();
+        PilotAttempt attempt = attempts.findByExecutionId(executionId).orElseThrow();
+        failExecution(executionId, "{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"syntax\"}");
+        assertThat(outcomes.refresh(attempt.getId()).state())
+                .isEqualTo(PilotOutcomeService.AttemptOutcome.State.STOPPED);
+        assertThat(attempts.findLiveByTaskId(secondTaskId).getFirst().getState())
+                .isEqualTo(PilotAttempt.State.RESERVED);
+        long executionsBefore = executions.count();
+
+        dispatchPoller.poll();
+
+        PilotAttempt launched = attempts.findLiveByTaskId(secondTaskId).getFirst();
+        assertThat(launched.getState()).isEqualTo(PilotAttempt.State.QUEUED);
+        assertThat(launched.getExecutionId()).isNotNull();
+        assertThat(executions.count()).isEqualTo(executionsBefore + 1);
+        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isEqualTo(launched.getId());
     }
 
     @Test

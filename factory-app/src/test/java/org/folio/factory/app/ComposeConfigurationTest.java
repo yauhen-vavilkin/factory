@@ -128,6 +128,7 @@ class ComposeConfigurationTest {
                 "FACTORY_RETENTION_ENABLED", "false"));
         assertThat(isUnset(environment.path("FACTORY_PILOT_SMOKE_MAX_TURNS"))).isTrue();
         assertThat(isUnset(environment.path("FACTORY_PILOT_SMOKE_TIMEOUT"))).isTrue();
+        assertThat(isUnset(environment.path("FACTORY_PILOT_EXECUTION_DISPATCH_INTERVAL_MS"))).isTrue();
     }
 
     @Test

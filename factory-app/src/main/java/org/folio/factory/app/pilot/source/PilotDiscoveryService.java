@@ -1,5 +1,6 @@
 package org.folio.factory.app.pilot.source;
 
+import org.folio.factory.app.pilot.Digests;
 import org.folio.factory.app.pilot.admission.PilotAutomaticAdmission;
 import org.folio.factory.app.pilot.admission.PilotModeService;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
@@ -21,13 +22,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -53,6 +50,9 @@ public class PilotDiscoveryService {
     private static final int MAX_PROBLEM_LENGTH = 2000;
     private static final int MAX_TITLE_LENGTH = 500;
     private static final int MAX_REASON_LENGTH = 500;
+    private static final int MAX_SOURCE_NAME_LENGTH = 500;
+    private static final int MAX_SOURCE_URL_LENGTH = 1000;
+    private static final int MAX_SPRINT_NAME_LENGTH = 500;
     private static final int MAX_PAGES = 100;
 
     private final JiraSourceConnector connector;
@@ -142,7 +142,10 @@ public class PilotDiscoveryService {
     }
 
     private Instant applyCompleteSync(PilotScopeResolver.PilotScope scope, List<DiscoveredIssue> discovered) {
-        PilotInstallation installation = currentInstallation();
+        // The row lock serializes this write against the startup action's
+        // installation save, so a first-boot sync and start cannot collide on the
+        // optimistic version and surface a spurious sync problem.
+        PilotInstallation installation = installations.lockById(1).orElseGet(PilotInstallation::initial);
         Set<String> discoveredIds = new HashSet<>();
         for (DiscoveredIssue issue : discovered) {
             discoveredIds.add(issue.id());
@@ -154,6 +157,10 @@ public class PilotDiscoveryService {
             }
         }
         installation.setObservedAuthorityFingerprint(observedAuthority(scope));
+        installation.setSourceName(truncated(scope.source().name(), MAX_SOURCE_NAME_LENGTH));
+        installation.setSourceUrl(scope.source().link() == null
+                ? null : truncated(scope.source().link().toString(), MAX_SOURCE_URL_LENGTH));
+        installation.setSprintName(truncated(scope.sprint().name(), MAX_SPRINT_NAME_LENGTH));
         installation.setSyncComplete(true);
         installation.setLastSuccessfulSyncAt(Instant.now());
         installation.setSyncProblem(null);
@@ -168,7 +175,7 @@ public class PilotDiscoveryService {
      * destination change is detectable as a fingerprint change.
      */
     private String observedAuthority(PilotScopeResolver.PilotScope scope) {
-        return sha256Hex(scope.authorityFingerprint() + "\n" + destinationAuthority());
+        return Digests.sha256Hex(scope.authorityFingerprint() + "\n" + destinationAuthority());
     }
 
     private String destinationAuthority() {
@@ -181,7 +188,7 @@ public class PilotDiscoveryService {
                 .append('|').append(repository.delivery() == null ? "" : repository.delivery().repository())
                 .append('|').append(repository.delivery() != null && repository.delivery().authorized())
                 .append('\n'));
-        return sha256Hex(canonical.toString());
+        return Digests.sha256Hex(canonical.toString());
     }
 
     private void upsertTask(DiscoveredIssue issue) {
@@ -252,7 +259,7 @@ public class PilotDiscoveryService {
     }
 
     private String revision(Map<String, Object> snapshot) {
-        return sha256Hex(json.writeValueAsString(snapshot));
+        return Digests.sha256Hex(json.writeValueAsString(snapshot));
     }
 
     private static String join(List<String> values) {
@@ -262,15 +269,6 @@ public class PilotDiscoveryService {
     private static String truncated(String value, int max) {
         String stripped = value == null ? "" : value.strip();
         return stripped.length() <= max ? stripped : stripped.substring(0, max);
-    }
-
-    private static String sha256Hex(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 digest is unavailable", e);
-        }
     }
 
     private record Evaluation(PilotTask.Eligibility eligibility, String reason) {

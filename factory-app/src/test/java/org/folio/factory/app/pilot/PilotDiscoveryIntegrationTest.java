@@ -18,6 +18,8 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -26,6 +28,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
@@ -102,6 +106,9 @@ class PilotDiscoveryIntegrationTest {
     @Autowired
     PipelineExecutionRepository executions;
 
+    @Autowired
+    PlatformTransactionManager transactionManager;
+
     private final JsonMapper json = JsonMapper.builder().build();
 
     @BeforeEach
@@ -147,7 +154,58 @@ class PilotDiscoveryIntegrationTest {
         assertThat(installation.getObservedAuthorityFingerprint()).hasSize(64);
         assertThat(installation.getAcceptedAuthorityFingerprint()).isNull();
         assertThat(installation.getSyncProblem()).isNull();
+        assertThat(installation.getSourceName()).isEqualTo("Team board");
+        assertThat(installation.getSourceUrl()).endsWith("/issues/?filter=2001");
+        assertThat(installation.getSprintName()).isEqualTo("Sprint 12");
         assertThat(executions.count()).isZero();
+    }
+
+    @Test
+    void concurrentInstallationSaveDuringSyncDoesNotSurfaceAsSyncProblem() throws Exception {
+        stubSource();
+        stubFullSearch();
+        // The scheduled poller performs the first, row-creating sync; everything
+        // racing below only ever updates the singleton row.
+        awaitSyncComplete();
+        var concurrentSave = new TransactionTemplate(transactionManager);
+        AtomicBoolean running = new AtomicBoolean(true);
+        AtomicReference<Exception> writerFailure = new AtomicReference<>();
+        // A startup-style installation save (lockById then save) races every sync.
+        Thread writer = new Thread(() -> {
+            while (running.get()) {
+                try {
+                    concurrentSave.executeWithoutResult(status -> {
+                        PilotInstallation installation = installations.lockById(1).orElse(null);
+                        if (installation == null) {
+                            return;
+                        }
+                        installation.setLastSuccessfulSyncAt(Instant.now());
+                        installations.save(installation);
+                    });
+                } catch (Exception e) {
+                    writerFailure.set(e);
+                    return;
+                }
+            }
+        });
+        writer.start();
+        try {
+            for (int round = 0; round < 5; round++) {
+                PilotDiscoveryService.SyncResult result = discovery.sync();
+                assertThat(result.complete())
+                        .as("sync round %d must not surface the concurrent save as a sync problem: %s",
+                                round, result.problem())
+                        .isTrue();
+            }
+        } finally {
+            running.set(false);
+            writer.join(Duration.ofSeconds(10));
+        }
+
+        assertThat(writerFailure).hasValue(null);
+        PilotInstallation installation = installations.findById(1).orElseThrow();
+        assertThat(installation.isSyncComplete()).isTrue();
+        assertThat(installation.getSyncProblem()).isNull();
     }
 
     @Test

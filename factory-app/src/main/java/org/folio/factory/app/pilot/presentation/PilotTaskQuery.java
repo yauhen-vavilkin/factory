@@ -1,6 +1,7 @@
 package org.folio.factory.app.pilot.presentation;
 
 import org.folio.factory.app.pilot.admission.PilotAdmissionService;
+import org.folio.factory.app.pilot.execution.PilotOutcomeService;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
@@ -104,7 +105,8 @@ public class PilotTaskQuery {
             boolean paidStartWithoutReportedUsage = attempt.getPaidStartAt() != null
                     && totals.tokens() == 0 && !totals.tokensReported();
             usageMissingAfterPaidStart |= paidStartWithoutReportedUsage;
-            String stage = live ? liveStage(events) : stageOf(attempt.getResultReason());
+            String stage = live ? liveStage(events)
+                    : PilotOutcomeService.stageOf(attempt.getResultReason(), null);
             if (live) {
                 liveStage = stage;
             }
@@ -136,7 +138,8 @@ public class PilotTaskQuery {
         String reason = state == PilotTaskView.TaskState.UNSUPPORTED ? task.getRoutingReason()
                 : state == PilotTaskView.TaskState.AWAITING_SELECTION ? null
                 : latest == null ? null : latest.getResultReason();
-        String stage = state == PilotTaskView.TaskState.WORKING ? liveStage : stageOf(reason);
+        String stage = state == PilotTaskView.TaskState.WORKING ? liveStage
+                : PilotOutcomeService.stageOf(reason, null);
         boolean eligible = task.getEligibility() == PilotTask.Eligibility.ELIGIBLE;
         boolean selectable = eligible && task.isInScope() && (history.isEmpty() || allWithdrawn);
         boolean retriable = eligible && task.isInScope() && latest != null
@@ -200,15 +203,6 @@ public class PilotTaskQuery {
                 && installation.isSyncComplete()
                 && installation.getSyncProblem() == null
                 && installation.getObservedAuthorityFingerprint() != null;
-    }
-
-    /** The leading {@code stage: reason} label the outcome service composes, when present. */
-    private static String stageOf(String reason) {
-        if (reason == null) {
-            return null;
-        }
-        int boundary = reason.indexOf(": ");
-        return boundary > 0 ? reason.substring(0, boundary) : null;
     }
 
     /** The step a live execution is on: the latest STEP_STARTED audit event of that execution. */

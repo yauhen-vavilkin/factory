@@ -141,6 +141,10 @@ factory:
       # (factory.dev-factory.runtime.coding.claude-code.max-turns).
       deadline: ${FACTORY_PILOT_EXECUTION_DEADLINE:60m}
       recovery-poll-interval-ms: ${FACTORY_PILOT_EXECUTION_RECOVERY_POLL_INTERVAL_MS:60000}
+      # Dispatch poller: retries queued attempts after a refused or failed
+      # dispatch and advances the queue when a terminal outcome frees the slot.
+      # Admission itself also dispatches best-effort; this is the safety net.
+      dispatch-interval-ms: ${FACTORY_PILOT_EXECUTION_DISPATCH_INTERVAL_MS:30000}
     startup:
       # S11: bounds for the explicit startup smoke — one tiny tool-using model call
       # from the pinned coding image, never repeated on an unchanged restart.

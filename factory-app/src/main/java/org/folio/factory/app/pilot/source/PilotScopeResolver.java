@@ -1,14 +1,11 @@
 package org.folio.factory.app.pilot.source;
 
+import org.folio.factory.app.pilot.Digests;
 import org.folio.factory.connectors.jira.JiraSourceConnector;
 import org.folio.factory.connectors.jira.JiraSourceModels.ResolvedSource;
 import org.folio.factory.connectors.jira.JiraSourceModels.Sprint;
 import org.folio.factory.connectors.jira.JiraSourceModels.SourceReference;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -162,15 +159,6 @@ public class PilotScopeResolver {
                 source.filterId(),
                 sprint.id(),
                 effectiveQuery);
-        return sha256Hex(canonical);
-    }
-
-    private static String sha256Hex(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 digest is unavailable", e);
-        }
+        return Digests.sha256Hex(canonical);
     }
 }

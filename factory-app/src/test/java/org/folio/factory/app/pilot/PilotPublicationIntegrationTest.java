@@ -100,6 +100,7 @@ import static org.mockito.Mockito.when;
         "factory.engine.enabled=false",
         "factory.pilot.execution.enabled=true",
         "factory.pilot.execution.deadline=PT30M",
+        "factory.pilot.execution.dispatch-interval-ms=3600000",
         "factory.dev-factory.repositories.sidecar.delivery.authorized=true",
         "factory.connectors.github.token=fixture-github-token"})
 @Import(StubLlmConfiguration.class)
