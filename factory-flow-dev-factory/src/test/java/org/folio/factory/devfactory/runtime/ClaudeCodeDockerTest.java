@@ -46,7 +46,7 @@ class ClaudeCodeDockerTest {
     void cliAliasesAndContextSuffixesRemainLiteralOperatorModelIds(String model) throws Exception {
         try (var mock = new MessagesEndpoint(false, false);
              var scope = new DockerWorkloads().beginStep(executionId, "claude-literal-model");
-             var workload = scope.createSeeded(IMAGE, source, volume, "coding")) {
+             var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
             mock.model = model;
             var outcome = new ClaudeCodeCodingRuntime(config(mock, "api-key"))
                     .code(workload, ClaudeCodeCodingRuntimeTest.request(), 60);
@@ -66,7 +66,7 @@ class ClaudeCodeDockerTest {
                 """);
         try (var mock = new MessagesEndpoint(false, false);
              var scope = new DockerWorkloads().beginStep(executionId, "claude-maven-permissions");
-             var workload = scope.createSeeded(IMAGE, source, volume, "coding")) {
+             var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
             mock.command = "mvn -B -ntp -o validate && " + mock.command;
             var outcome = new ClaudeCodeCodingRuntime(config(mock, "api-key"))
                     .code(workload, ClaudeCodeCodingRuntimeTest.request(), 90);
@@ -86,7 +86,7 @@ class ClaudeCodeDockerTest {
     void omittedProviderUsageStaysIncompleteEvenWhenOtherTurnsReportTokens(String omitted) throws Exception {
         try (var mock = new MessagesEndpoint(false, false);
              var scope = new DockerWorkloads().beginStep(executionId, "claude-missing-usage");
-             var workload = scope.createSeeded(IMAGE, source, volume, "coding")) {
+             var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
             mock.missingInputUsage = switch (omitted) {
                 case "first" -> Set.of(1);
                 case "last", "last-input" -> Set.of(2);
@@ -113,7 +113,7 @@ class ClaudeCodeDockerTest {
     void realCliEditsExportsAndReportsUsageWithExactModelAndSelectedAuthentication(String authentication) throws Exception {
         try (var mock = new MessagesEndpoint(false, false);
              var scope = new DockerWorkloads().beginStep(executionId, "claude-contract");
-             var workload = scope.createSeeded(IMAGE, source, volume, "coding")) {
+             var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
             var runtime = new ClaudeCodeCodingRuntime(config(mock, authentication));
             var events = new CopyOnWriteArrayList<Map<String, Object>>();
             assertThat(workload.execute(List.of("sh", "-c", "test \"$HOME\" = /tmp/factory-home && "
@@ -147,7 +147,7 @@ class ClaudeCodeDockerTest {
     @Test void providerFailureKeepsPartialEditsAvailableForTheFeedbackOrchestrator() throws Exception {
         try (var mock = new MessagesEndpoint(true, false);
              var scope = new DockerWorkloads().beginStep(executionId, "claude-failure");
-             var workload = scope.createSeeded(IMAGE, source, volume, "coding")) {
+             var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
             var outcome = new ClaudeCodeCodingRuntime(config(mock, "api-key"))
                     .code(workload, ClaudeCodeCodingRuntimeTest.request(), 60);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.FAILED);
@@ -163,13 +163,13 @@ class ClaudeCodeDockerTest {
             var runtime = new ClaudeCodeCodingRuntime(config(mock, "bearer-token"));
             var request = ClaudeCodeCodingRuntimeTest.request();
             try (var scope = new DockerWorkloads().beginStep(executionId, "clarify");
-                 var workload = scope.createSeeded(IMAGE, source, volume, "coding")) {
+                 var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
                 var outcome = runtime.code(workload, request, 60);
                 assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
                 assertThat(outcome.decision().kind()).isEqualTo(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS);
             }
             try (var scope = new DockerWorkloads().beginStep(executionId, "continue");
-                 var workload = scope.createSeeded(IMAGE, source, volume, "coding")) {
+                 var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
                 var outcome = runtime.code(workload, request.withDecision(new CodingRequest.ConfirmedDecision(
                         "decision-1", "PRODUCT_REQUIREMENTS", "Which API?", "Use public API")), 60);
                 assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);

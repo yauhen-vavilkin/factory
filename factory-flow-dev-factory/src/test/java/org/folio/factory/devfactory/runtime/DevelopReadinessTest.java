@@ -41,8 +41,8 @@ class DevelopReadinessTest {
         when(coding.identity()).thenReturn(Map.of("runtime", "pi", "image", "pi:image",
                 "provider", "provider", "model", "model"));
         when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
-        when(stepScope.createTrusted("build:image", workspace, "factory-dev-m2-cache")).thenReturn(baseline);
-        when(stepScope.createSeeded("pi:image", workspace, "factory-dev-m2-cache", "coding")).thenReturn(pi);
+        when(stepScope.createTrusted("build:image", workspace, BuildEnvironment.maven("factory-dev-m2-cache"))).thenReturn(baseline);
+        when(stepScope.createSeeded("pi:image", workspace, BuildEnvironment.maven("factory-dev-m2-cache"), "coding")).thenReturn(pi);
         when(baseline.execute(eq(List.of("mvn", "test")), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
                 .thenReturn(new Processes.Result(1, "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: Read timed out"),
                         new Processes.Result(0, "[INFO] BUILD SUCCESS"));
@@ -59,7 +59,7 @@ class DevelopReadinessTest {
             when(coding.code(eq(pi), any(CodingRequest.class), eq(60), any())).thenReturn(CodingOutcome.completed("Done", Map.of(
                     "inputTokens", 10L, "cacheReadTokens", 2L, "cacheWriteTokens", 1L,
                     "outputTokens", 3L, "costUsd", new java.math.BigDecimal("0.125"))));
-            when(freezer.freeze(eq("repo"), anyString(), anyString(), any()))
+            when(freezer.freeze(eq("repo"), anyString(), anyString(), any(), eq(false), eq(org.folio.factory.devfactory.runtime.Toolchain.MAVEN)))
                     .thenReturn(new org.folio.factory.devfactory.candidate.Candidate("repo", "a".repeat(40),
                             "b".repeat(40), org.folio.factory.devfactory.candidate.Candidate.sha256("patch"), "patch", "CANDIDATE_UNVERIFIED"));
         }
@@ -95,34 +95,55 @@ class DevelopReadinessTest {
                 .containsEntry("promptTokens", 13L)
                 .containsEntry("completionTokens", 3L);
         verify(coding).code(eq(pi), any(CodingRequest.class), eq(60), any());
-        verify(stepScope, times(2)).createTrusted("build:image", workspace, "factory-dev-m2-cache");
+        verify(stepScope, times(2)).createTrusted("build:image", workspace, BuildEnvironment.maven("factory-dev-m2-cache"));
         verify(baseline, times(2)).close();
         verify(pi).close();
     }
 
     @Test void transientBaselineSignalsEngineRetryAndMakesZeroCodingCalls() {
-        verifyFailedBaseline("[ERROR] Could not transfer artifact net.sf.saxon:Saxon-HE:jar:12.9 "
+        verifyFailedBaseline(Toolchain.MAVEN, "[ERROR] Could not transfer artifact net.sf.saxon:Saxon-HE:jar:12.9 "
                 + "from/to central (https://repo.maven.apache.org/maven2): "
                 + "Premature end of Content-Length delimited message body", true);
     }
 
     @Test void compilationFailureDoesNotRetryOrStartPi() {
-        verifyFailedBaseline("[ERROR] Compilation failure: cannot find symbol", false);
+        verifyFailedBaseline(Toolchain.MAVEN, "[ERROR] Compilation failure: cannot find symbol", false);
     }
 
     @Test void testFailureDoesNotRetryOrStartPi() {
-        verifyFailedBaseline("[ERROR] There are test failures", false);
+        verifyFailedBaseline(Toolchain.MAVEN, "[ERROR] There are test failures", false);
     }
 
     @Test void repositoryNotFoundDoesNotRetryOrStartPi() {
-        verifyFailedBaseline("[ERROR] Could not find artifact org.example:missing:jar:1 in folio-nexus\n"
+        verifyFailedBaseline(Toolchain.MAVEN, "[ERROR] Could not find artifact org.example:missing:jar:1 in folio-nexus\n"
                 + "[ERROR] Could not find artifact org.example:missing:jar:1 in index-data-nexus", false);
     }
 
-    private void verifyFailedBaseline(String failure, boolean retryable) {
+    @Test void transientYarnInstallSignalsEngineRetryAndMakesZeroCodingCalls() {
+        verifyFailedBaseline(Toolchain.YARN, "error An unexpected error occurred: "
+                + "\"https://repository.folio.org/repository/npm-folioci/@folio%2fstripes/-/stripes.tgz: ETIMEDOUT\".", true);
+    }
+
+    @Test void yarnTestFailureDoesNotRetryOrStartPi() {
+        verifyFailedBaseline(Toolchain.YARN, "FAIL src/api.test.js\n  Error: getaddrinfo ENOTFOUND api.example\n"
+                + "Tests:       1 failed, 3 passed, 4 total\nerror Command failed with exit code 1.", false);
+    }
+
+    @Test void yarnPackageNotFoundDoesNotRetryOrStartPi() {
+        verifyFailedBaseline(Toolchain.YARN, "error Couldn't find package \"left-pad@^9\" required by \"app\" on the \"npm\" registry.", false);
+    }
+
+    @Test void yarnLockfileErrorDoesNotRetryOrStartPi() {
+        verifyFailedBaseline(Toolchain.YARN, "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`.", false);
+    }
+
+    private void verifyFailedBaseline(Toolchain toolchain, String failure, boolean retryable) {
         var repo = new DevFactoryProperties.Repository("owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
         var properties = new DevFactoryProperties("https://example.org", new TreeMap<>(Map.of("repo", repo)));
-        var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var command = toolchain == Toolchain.YARN ? List.of("yarn", "test") : List.of("mvn", "test");
+        var runtime = new DevRuntimeProperties(Map.of("unit", command), null, 60, null, Map.of(),
+                toolchain == Toolchain.YARN ? Map.of("unit", Toolchain.YARN) : Map.<String, Toolchain>of());
+        var environment = runtime.environment("unit");
         var docker = mock(DockerWorkloads.class);
         var stepScope = mock(DockerWorkloads.StepScope.class);
         when(docker.beginStep(any(), eq("implement"))).thenReturn(stepScope);
@@ -130,12 +151,12 @@ class DevelopReadinessTest {
         var freezer = mock(CandidateFreezer.class);
         var coding = mock(CodingRuntime.class);
         when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
-        when(stepScope.createTrusted("build:image", workspace, "factory-dev-m2-cache")).thenReturn(workload);
-        when(workload.execute(eq(List.of("mvn", "test")), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
+        when(stepScope.createTrusted("build:image", workspace, environment)).thenReturn(workload);
+        when(workload.execute(eq(command), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
                 .thenAnswer(invocation -> {
                     @SuppressWarnings("unchecked")
                     java.util.function.Consumer<String> observer = invocation.getArgument(3);
-                    observer.accept("[INFO] --- compiler:3.16.0:compile (default-compile) @ module ---");
+                    observer.accept(toolchain == Toolchain.YARN ? "[2/4] Fetching packages..." : "[INFO] --- compiler:3.16.0:compile (default-compile) @ module ---");
                     return new Processes.Result(1, failure);
                 });
         var codec = new FrontmatterCodec();
@@ -153,10 +174,10 @@ class DevelopReadinessTest {
                 assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class)
                         .hasMessageContaining("Starting build hit a network/download failure")
                         .hasMessageContaining("coding has not started")
-                        .hasMessageContaining("Saxon-HE").hasMessageContaining("incomplete download");
+                        .hasMessageContaining(toolchain == Toolchain.YARN ? "ETIMEDOUT" : "Saxon-HE");
             }
-            verify(stepScope, times(2)).createTrusted("build:image", workspace, "factory-dev-m2-cache");
-            verify(workload, times(2)).execute(eq(List.of("mvn", "test")), eq(60), eq(Processes.OUTPUT_LIMIT), any());
+            verify(stepScope, times(2)).createTrusted("build:image", workspace, environment);
+            verify(workload, times(2)).execute(eq(command), eq(60), eq(Processes.OUTPUT_LIMIT), any());
         } else {
             var result = worker.execute(context);
             assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT");

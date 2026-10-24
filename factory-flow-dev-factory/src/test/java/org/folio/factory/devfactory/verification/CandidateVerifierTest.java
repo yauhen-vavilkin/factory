@@ -3,6 +3,7 @@ package org.folio.factory.devfactory.verification;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
+import org.folio.factory.devfactory.runtime.BuildEnvironment;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.Processes;
@@ -24,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.folio.factory.devfactory.candidate.CandidateFreezer.git;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -61,7 +63,7 @@ class CandidateVerifierTest {
         when(docker.beginStep(executionId, "verify")).thenReturn(stepScope);
         workload = mock(DockerWorkloads.Workload.class);
         when(workload.name()).thenReturn("fresh-verifier");
-        when(stepScope.createSeeded(eq("trusted-java21"), any(), eq("factory-dev-m2-cache"), eq("verification"))).thenAnswer(invocation -> {
+        when(stepScope.createSeeded(eq("trusted-java21"), any(), eq(BuildEnvironment.maven("factory-dev-m2-cache")), eq("verification"))).thenAnswer(invocation -> {
             Path fresh = invocation.getArgument(1);
             assertThat(fresh).isNotEqualTo(original);
             assertThat(git(fresh, "write-tree").strip()).isEqualTo(candidate.treeSha());
@@ -389,6 +391,29 @@ class CandidateVerifierTest {
         assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.ENVIRONMENT);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "error An unexpected error occurred: \"https://registry.example/pkg: ESOCKETTIMEDOUT\".",
+            "error An unexpected error occurred: \"https://registry.example/pkg: Request failed \\\"503 Service Unavailable\\\"\"."})
+    void yarnRegistryTimeoutAndEscaped5xxAreEnvironment(String registryError) {
+        useYarn();
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, registryError));
+        exportJest("failing-test.xml");
+
+        assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.ENVIRONMENT);
+    }
+
+    @Test
+    void yarnRecoveredNetworkRetryDoesNotHideARealAssertionFailure() {
+        useYarn();
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+                "info There appears to be trouble with your network connection. Retrying...\n"
+                        + "expect(received).toBe(expected) // Object.is equality\n\nExpected: 2\nReceived: 1"));
+        exportJest("failing-test.xml");
+
+        assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.CANDIDATE);
+    }
+
     @Test
     void yarnInvalidJestReportCannotAuthorizePass() {
         useYarn();
@@ -435,6 +460,8 @@ class CandidateVerifierTest {
         var runtime = new DevRuntimeProperties(Map.of("unit", command), null, 60, null, Map.of(),
                 Map.of("unit", Toolchain.YARN));
         verifier = new CandidateVerifier(properties, runtime, new CandidateFreezer(), docker);
+        when(stepScope.createSeeded(eq("trusted-java21"), any(), eq(runtime.environment("unit")), eq("verification")))
+                .thenReturn(workload);
     }
 
     private void exportJest(String fixture) {
@@ -455,5 +482,56 @@ class CandidateVerifierTest {
             Files.writeString(reports.resolve("TEST-example.xml"), xml);
             return null;
         }).when(workload).export(any());
+    }
+
+    @Test
+    void yarnPlanRemovesAStaleReportBeforeRunningAndMavenPlansDoNot() {
+        useYarn();
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "ok"));
+        exportJest("passing-with-skips.xml");
+
+        verifier.verify(executionId, "verify", candidate);
+
+        var order = inOrder(workload);
+        order.verify(workload).execute(List.of("rm", "-rf", "artifacts/jest-junit"), 60);
+        order.verify(workload).execute(command, 60);
+
+        reset(workload);
+        when(workload.name()).thenReturn("fresh-verifier");
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "ok"));
+        exportReport("<testsuite tests='3' skipped='0' failures='0' errors='0'/>");
+        new CandidateVerifier(properties, new DevRuntimeProperties(Map.of("unit", command), null, 60, null),
+                new CandidateFreezer(), docker).verify(executionId, "verify", candidate);
+        verify(workload, never()).execute(eq(List.of("rm", "-rf", "artifacts/jest-junit")), anyInt());
+    }
+
+    @Test
+    void yarnNetworkTextInTestOutputDoesNotHideARealAssertionFailure() {
+        useYarn();
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+                "console.error\n    Error: connection refused while calling the api\n"
+                        + "expect(received).toBe(expected) // Object.is equality\n\nExpected: 2\nReceived: 1"));
+        exportJest("failing-test.xml");
+
+        assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.CANDIDATE);
+    }
+
+    @Test
+    void yarnInfrastructureFailuresAreStillEnvironmentAnywhereInTheOutput() {
+        useYarn();
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+                "Expected: 2\nReceived: 1\nno space left on device"));
+        exportJest("failing-test.xml");
+
+        assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.ENVIRONMENT);
+    }
+
+    @Test
+    void mavenNetworkTextAnywhereInTheOutputIsStillEnvironment() {
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+                "AssertionFailedError: expected: <1> but was: <2>\nConnection refused"));
+        exportReport("<testsuite tests='3' skipped='0' failures='1' errors='0'/>");
+
+        assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.ENVIRONMENT);
     }
 }

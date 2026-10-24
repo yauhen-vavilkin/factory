@@ -197,4 +197,33 @@ class DevRuntimePropertiesTest {
         assertThatThrownBy(() -> new Binder(source).bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get())
                 .isInstanceOf(org.springframework.boot.context.properties.bind.BindException.class);
     }
+
+    @Test
+    void yarnSettingsHaveDefaultsBindAndAreValidated() {
+        var defaults = new DevRuntimeProperties(null, null, 0, null);
+        assertThat(defaults.yarn().cacheVolume()).isEqualTo("factory-dev-yarn-cache");
+        assertThat(defaults.yarn().folioRegistry()).isEqualTo("https://repository.folio.org/repository/npm-folioci/");
+        var source = new MapConfigurationPropertySource(Map.of(
+                "factory.dev-factory.runtime.yarn.cache-volume", "ops-yarn",
+                "factory.dev-factory.runtime.yarn.folio-registry", "https://npm.example.org/folio/"));
+        var yarn = new Binder(source).bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get().yarn();
+        assertThat(yarn.cacheVolume()).isEqualTo("ops-yarn");
+        assertThat(yarn.folioRegistry()).isEqualTo("https://npm.example.org/folio/");
+        assertThatThrownBy(() -> new DevRuntimeProperties.Yarn("bad/name", null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new DevRuntimeProperties.Yarn(null, "https://npm.example.org/'; rm -rf /"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new DevRuntimeProperties.Yarn(null, "ftp://npm.example.org/"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void environmentFollowsThePlansToolchain() {
+        var plans = Map.of("unit", java.util.List.of("mvn", "test"), "jest", java.util.List.of("yarn", "test"));
+        var runtime = new DevRuntimeProperties(plans, null, 0, "operator-m2", Map.of(), Map.of("jest", Toolchain.YARN));
+
+        assertThat(runtime.environment("unit")).isEqualTo(BuildEnvironment.maven("operator-m2"));
+        assertThat(runtime.environment("jest")).isEqualTo(new BuildEnvironment(Toolchain.YARN,
+                "factory-dev-yarn-cache", "https://repository.folio.org/repository/npm-folioci/"));
+    }
 }

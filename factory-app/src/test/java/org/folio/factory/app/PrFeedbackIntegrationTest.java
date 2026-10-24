@@ -102,7 +102,7 @@ class PrFeedbackIntegrationTest {
         when(coding.redact(anyString())).thenAnswer(i->i.getArgument(0));
         var scope=mock(DockerWorkloads.StepScope.class); var workload=mock(DockerWorkloads.Workload.class);
         when(docker.beginStep(any(),anyString())).thenReturn(scope);
-        when(scope.createSeeded(anyString(),any(),anyString(),anyString())).thenAnswer(i->{codingSource=i.getArgument(1);return workload;});
+        when(scope.createSeeded(anyString(),any(),any(),anyString())).thenAnswer(i->{codingSource=i.getArgument(1);return workload;});
         doAnswer(i->{ if(exportFails) throw new IllegalStateException("Export unavailable");
             Path target=i.getArgument(0); try(var paths=Files.walk(codingSource)) {for(Path p:paths.toList()) {
                 var relative=codingSource.relativize(p); if(relative.toString().isEmpty() || relative.startsWith(".git"))continue;

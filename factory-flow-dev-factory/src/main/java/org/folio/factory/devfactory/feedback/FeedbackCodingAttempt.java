@@ -3,6 +3,7 @@ package org.folio.factory.devfactory.feedback;
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
 
 import org.folio.factory.core.agent.AgentContext;
+import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
@@ -19,6 +20,7 @@ import java.util.function.Consumer;
 
 /** One feedback attempt. Saves partial edits before returning a question or failure. */
 final class FeedbackCodingAttempt {
+    private final DevFactoryProperties repositories;
     private final CandidateFreezer freezer;
     private final CodingRuntime coding;
     private final DockerWorkloads docker;
@@ -26,11 +28,13 @@ final class FeedbackCodingAttempt {
     private final AttemptPricing pricing;
 
     FeedbackCodingAttempt(
+            DevFactoryProperties repositories,
             CandidateFreezer freezer,
             CodingRuntime coding,
             DockerWorkloads docker,
             DevRuntimeProperties runtime,
             AttemptPricing pricing) {
+        this.repositories = repositories;
         this.freezer = freezer;
         this.coding = coding;
         this.docker = docker;
@@ -48,6 +52,9 @@ final class FeedbackCodingAttempt {
             Map<String, String> outputs,
             Map<String, Object> metrics,
             Consumer<Map<String, Object>> progress) {
+        var repository = repositories.repositories().get(request.repository().key());
+        if (repository == null) throw new IllegalStateException("Repository is no longer configured");
+        var environment = runtime.environment(repository.verificationPlan());
         Path source = freezer.reconstruct(sourceUrl, candidate);
         Path exported = CandidateFreezer.temporary("factory-pr-export-");
         CodingOutcome outcome = null;
@@ -60,8 +67,7 @@ final class FeedbackCodingAttempt {
             start.put("rate", state.rate);
             progress.accept(start);
             try (var workload =
-                    scope.createSeeded(
-                            coding.image(), source, runtime.mavenCacheVolume(), "coding")) {
+                    scope.createSeeded(coding.image(), source, environment, "coding")) {
                 try {
                     outcome = coding.code(workload, request, runtime.timeoutSeconds(), progress);
                 } catch (RuntimeException e) {
@@ -85,7 +91,8 @@ final class FeedbackCodingAttempt {
                                             sourceUrl,
                                             state.pr.headSha(),
                                             exported,
-                                            true)));
+                                            true,
+                                            environment.toolchain())));
                 } catch (RuntimeException lost) {
                     throw new IllegalStateException(
                             "Latest edits could not be saved; the previous confirmed patch is"

@@ -7,9 +7,11 @@ import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.runtime.Processes;
+import org.folio.factory.devfactory.runtime.Toolchain;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -50,7 +52,11 @@ public class CandidateVerifier {
             // New container storage; DockerWorkloads supplies no model/Jira/GitHub environment.
             // The checkout contains source only, without the coding workspace's target output.
             try (var workload = stepScope.createSeeded(repository.buildImage(), source,
-                    runtime.mavenCacheVolume(), "verification")) {
+                    runtime.environment(repository.verificationPlan()), "verification")) {
+                // A report left in the checkout must never stand in for this run's evidence.
+                if (toolchain == Toolchain.YARN) {
+                    workload.execute(List.of("rm", "-rf", "artifacts/jest-junit"), 60);
+                }
                 Instant started = Instant.now();
                 Processes.Result observation;
                 try {

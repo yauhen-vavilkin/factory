@@ -8,7 +8,7 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "factory.dev-factory.runtime")
 public record DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
                                    String mavenCacheVolume, Map<String, List<String>> requiredReports,
-                                   Map<String, Toolchain> planToolchains) {
+                                   Map<String, Toolchain> planToolchains, Yarn yarn) {
     public static final String DEFAULT_MAVEN_CACHE_VOLUME = "factory-dev-m2-cache";
     public DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
                                 String mavenCacheVolume) {
@@ -17,6 +17,11 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
     public DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
                                 String mavenCacheVolume, Map<String, List<String>> requiredReports) {
         this(plans, coding, timeoutSeconds, mavenCacheVolume, requiredReports, Map.of());
+    }
+    public DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
+                                String mavenCacheVolume, Map<String, List<String>> requiredReports,
+                                Map<String, Toolchain> planToolchains) {
+        this(plans, coding, timeoutSeconds, mavenCacheVolume, requiredReports, planToolchains, null);
     }
     @org.springframework.boot.context.properties.bind.ConstructorBinding
     public DevRuntimeProperties {
@@ -44,6 +49,7 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
                 ? DEFAULT_MAVEN_CACHE_VOLUME : mavenCacheVolume;
         if (!mavenCacheVolume.matches("[A-Za-z0-9][A-Za-z0-9_.-]*"))
             throw new IllegalArgumentException("Invalid Maven cache volume name");
+        yarn = yarn == null ? new Yarn(null, null) : yarn;
     }
     public List<String> command(String id) {
         var command = plans.get(id);
@@ -55,6 +61,25 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
     }
     public List<String> requiredReports(String id) {
         return requiredReports.getOrDefault(id, List.of());
+    }
+    /** The trusted dependency cache and tool configuration for workloads that run this plan. */
+    public BuildEnvironment environment(String id) {
+        return switch (toolchain(id)) {
+            case MAVEN -> BuildEnvironment.maven(mavenCacheVolume);
+            case YARN -> new BuildEnvironment(Toolchain.YARN, yarn.cacheVolume(), yarn.folioRegistry());
+        };
+    }
+    public record Yarn(String cacheVolume, String folioRegistry) {
+        public static final String DEFAULT_CACHE_VOLUME = "factory-dev-yarn-cache";
+        public static final String DEFAULT_FOLIO_REGISTRY = "https://repository.folio.org/repository/npm-folioci/";
+        public Yarn {
+            cacheVolume = first(cacheVolume, DEFAULT_CACHE_VOLUME);
+            folioRegistry = first(folioRegistry, DEFAULT_FOLIO_REGISTRY);
+            if (!BuildEnvironment.VOLUME.matcher(cacheVolume).matches())
+                throw new IllegalArgumentException("Invalid yarn cache volume name");
+            if (!BuildEnvironment.REGISTRY.matcher(folioRegistry).matches())
+                throw new IllegalArgumentException("Invalid FOLIO npm registry");
+        }
     }
     public record Coding(String image, String provider, String model, String baseUrl, String api, String apiKey,
                          String runtime, String reasoningEffort, Integer maxOutputTokens,

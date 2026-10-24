@@ -13,6 +13,10 @@ import org.slf4j.LoggerFactory;
 public class DockerWorkloads {
     private static final Logger log = LoggerFactory.getLogger(DockerWorkloads.class);
     private static final String MAVEN_REPOSITORY = "/tmp/factory-home/.m2/repository";
+    private static final String MAVEN_SEED = "/tmp/factory-m2-seed";
+    private static final String YARN_CACHE = "/tmp/factory-home/.yarn-cache";
+    private static final String YARN_SEED = "/tmp/factory-yarn-seed";
+    private static final String PARKED_NODE_MODULES = "/tmp/factory-parked-node_modules";
     private final Set<String> activeSteps = ConcurrentHashMap.newKeySet();
 
     /** Claims this step within this process before looking for crashed predecessors. */
@@ -71,17 +75,17 @@ public class DockerWorkloads {
             this.key = key;
         }
 
-        public Workload createTrusted(String image, Path source, String mavenCacheVolume) {
+        public Workload createTrusted(String image, Path source, BuildEnvironment environment) {
             if (closed) throw new IllegalStateException("Developer step scope is closed");
-            return DockerWorkloads.this.createTrusted(image, source, mavenCacheVolume, executionId, stepId);
+            return DockerWorkloads.this.createTrusted(image, source, environment, executionId, stepId);
         }
 
-        public Workload createSeeded(String image, Path source, String mavenCacheVolume, String role) {
+        public Workload createSeeded(String image, Path source, BuildEnvironment environment, String role) {
             if (closed) throw new IllegalStateException("Developer step scope is closed");
             if (!role.equals("coding") && !role.equals("verification"))
                 throw new IllegalArgumentException("Invalid Factory workload role");
-            return DockerWorkloads.this.create(image, source, MavenCache.READ_ONLY_SEED,
-                    mavenCacheVolume, executionId, stepId, role);
+            return DockerWorkloads.this.create(image, source, environment, CacheMode.READ_ONLY_SEED,
+                    executionId, stepId, role);
         }
 
         @Override public void close() {
@@ -90,22 +94,21 @@ public class DockerWorkloads {
         }
     }
 
-    private Workload createTrusted(String image, Path source, String mavenCacheVolume,
+    private Workload createTrusted(String image, Path source, BuildEnvironment environment,
                                    UUID executionId, String stepId) {
-        ensureWritableCache(image, mavenCacheVolume, workloadUser(source), executionId, stepId);
-        return create(image, source, MavenCache.TRUSTED_WRITABLE, mavenCacheVolume,
-                executionId, stepId, "baseline");
+        ensureWritableCache(image, environment.cacheVolume(), workloadUser(source), executionId, stepId);
+        return create(image, source, environment, CacheMode.TRUSTED_WRITABLE, executionId, stepId, "baseline");
     }
-    private Workload create(String image, Path source, MavenCache cache, String mavenCacheVolume,
+    private Workload create(String image, Path source, BuildEnvironment environment, CacheMode mode,
                             UUID executionId, String stepId, String role) {
         String name = "factory-dev-" + UUID.randomUUID();
         String user = workloadUser(source);
-        Processes.run(null, createCommand(image, name, user, cache, mavenCacheVolume,
+        Processes.run(null, createCommand(image, name, user, environment, mode,
                 executionId, stepId, role), 120).requireSuccess();
-        var workload = new Workload(name);
+        var workload = new Workload(name, environment.toolchain());
         try {
             Processes.run(null, List.of("docker", "start", name), 60).requireSuccess();
-            if (cache == MavenCache.READ_ONLY_SEED) seedMavenRepository(name);
+            if (mode == CacheMode.READ_ONLY_SEED) seedCache(name, environment.toolchain());
             workload.copy(source.resolve(".").toString(), "/workspace");
             // Docker creates WORKDIR as root even when the workload runs as the
             // trusted checkout UID/GID. Allow that user to create build output and
@@ -119,7 +122,7 @@ public class DockerWorkloads {
     private static void ensureWritableCache(String image, String volume, String user,
                                             UUID executionId, String stepId) {
         // This short-lived Factory-controlled helper touches only the configured
-        // Factory-owned Maven volume, before a trusted baseline mounts it writable.
+        // Factory-owned dependency cache volume, before a trusted baseline mounts it writable.
         // The root directory alone is insufficient: cached artifacts and nested
         // directories can belong to a previous UID and block the checkout user.
         Processes.run(null, List.of("docker", "run", "--rm", "--user", "0:0",
@@ -130,42 +133,68 @@ public class DockerWorkloads {
                 "-c", "chown -R \"$1\" /cache && chmod -R u+rwX /cache", "--", user), 120).requireSuccess();
     }
 
-    private static void seedMavenRepository(String name) {
+    private static void seedCache(String name, Toolchain toolchain) {
+        String cache = cachePath(toolchain);
         Processes.run(null, List.of("docker", "exec", name, "/bin/sh", "-c",
-                "mkdir -p /tmp/factory-home/.m2/repository "
-                        + "&& cp -a /tmp/factory-m2-seed/. /tmp/factory-home/.m2/repository/"), 120)
+                "mkdir -p " + cache + " && cp -a " + seedPath(toolchain) + "/. " + cache + "/"), 120)
                 .requireSuccess();
     }
 
-    static List<String> createCommand(String image, String name, String user, MavenCache cache, String volume,
-                                      UUID executionId, String stepId, String role) {
+    static List<String> createCommand(String image, String name, String user, BuildEnvironment environment,
+                                      CacheMode mode, UUID executionId, String stepId, String role) {
         var command = new ArrayList<>(List.of("docker", "create", "--name", name,
                 "--label", "factory.dev-owned=true",
                 "--label", "factory.dev-execution=" + executionId,
                 "--label", "factory.dev-step=" + stepId,
                 "--label", "factory.dev-role=" + role,
                 "--pids-limit", "512", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-                "--user", user, "--env", "HOME=/tmp/factory-home", "--env",
-                "MAVEN_OPTS=-Dmaven.repo.local=" + MAVEN_REPOSITORY, "--workdir", "/workspace"));
-        if (cache == MavenCache.TRUSTED_WRITABLE) {
-            command.addAll(List.of("--mount", "type=volume,source=" + volume
-                    + ",target=/tmp/factory-home/.m2/repository"));
-        } else if (cache == MavenCache.READ_ONLY_SEED) {
-            command.addAll(List.of("--mount", "type=volume,source=" + volume
-                    + ",target=/tmp/factory-m2-seed,readonly"));
+                "--user", user, "--env", "HOME=/tmp/factory-home"));
+        for (String variable : variables(environment.toolchain())) command.addAll(List.of("--env", variable));
+        command.addAll(List.of("--workdir", "/workspace"));
+        if (mode == CacheMode.TRUSTED_WRITABLE) {
+            command.addAll(List.of("--mount", "type=volume,source=" + environment.cacheVolume()
+                    + ",target=" + cachePath(environment.toolchain())));
+        } else if (mode == CacheMode.READ_ONLY_SEED) {
+            command.addAll(List.of("--mount", "type=volume,source=" + environment.cacheVolume()
+                    + ",target=" + seedPath(environment.toolchain()) + ",readonly"));
         }
-        command.addAll(List.of("--entrypoint", "/bin/sh", image, "-c", cache.startupCommand()));
+        command.addAll(List.of("--entrypoint", "/bin/sh", image, "-c", startupCommand(environment, mode)));
         return List.copyOf(command);
     }
 
-    enum MavenCache {
-        NONE("mkdir -p /tmp/factory-home; exec sleep infinity"),
-        TRUSTED_WRITABLE("mkdir -p /tmp/factory-home/.m2/repository; exec sleep infinity"),
-        READ_ONLY_SEED("mkdir -p /tmp/factory-home; exec sleep infinity");
-        private final String startupCommand;
-        MavenCache(String startupCommand) { this.startupCommand = startupCommand; }
-        String startupCommand() { return startupCommand; }
+    private static List<String> variables(Toolchain toolchain) {
+        return switch (toolchain) {
+            case MAVEN -> List.of("MAVEN_OPTS=-Dmaven.repo.local=" + MAVEN_REPOSITORY);
+            case YARN -> List.of("YARN_CACHE_FOLDER=" + YARN_CACHE, "CI=true",
+                    "JEST_JUNIT_OUTPUT_DIR=artifacts/jest-junit", "JEST_JUNIT_REPORT_TEST_SUITE_ERRORS=true");
+        };
     }
+
+    private static String cachePath(Toolchain toolchain) {
+        return switch (toolchain) {
+            case MAVEN -> MAVEN_REPOSITORY;
+            case YARN -> YARN_CACHE;
+        };
+    }
+
+    private static String seedPath(Toolchain toolchain) {
+        return switch (toolchain) {
+            case MAVEN -> MAVEN_SEED;
+            case YARN -> YARN_SEED;
+        };
+    }
+
+    private static String startupCommand(BuildEnvironment environment, CacheMode mode) {
+        String prepare = switch (environment.toolchain()) {
+            case MAVEN -> mode == CacheMode.TRUSTED_WRITABLE
+                    ? "mkdir -p " + MAVEN_REPOSITORY : "mkdir -p /tmp/factory-home";
+            case YARN -> "mkdir -p " + YARN_CACHE + "; printf '\"@folio:registry\" \"%s\"\\n' '"
+                    + environment.npmRegistry() + "' > /tmp/factory-home/.yarnrc";
+        };
+        return prepare + "; exec sleep infinity";
+    }
+
+    enum CacheMode { NONE, TRUSTED_WRITABLE, READ_ONLY_SEED }
 
     private static String workloadUser(Path source) {
         try {
@@ -178,8 +207,9 @@ public class DockerWorkloads {
     }
     public static final class Workload implements AutoCloseable {
         private final String name;
+        private final Toolchain toolchain;
         private boolean stopped;
-        private Workload(String name) { this.name = name; }
+        private Workload(String name, Toolchain toolchain) { this.name = name; this.toolchain = toolchain; }
         public String name() { return name; }
         public void copy(String local, String destination) {
             Processes.run(null, List.of("docker", "cp", local, name + ":" + destination), 120).requireSuccess();
@@ -197,8 +227,16 @@ public class DockerWorkloads {
             command.addAll(argv);
             return Processes.run(null, command, timeout, java.util.Map.of(), outputLimit, stdoutLine);
         }
+        /** Stops the workload for export; yarn's installed dependencies are moved out of /workspace first. */
         public void stop() {
-            if (!stopped) Processes.run(null, List.of("docker", "stop", "--time", "2", name), 30).requireSuccess();
+            if (!stopped) {
+                if (toolchain == Toolchain.YARN) {
+                    Processes.run(null, List.of("docker", "exec", "--workdir", "/workspace", name, "/bin/sh", "-c",
+                            "if [ -e node_modules ] || [ -L node_modules ]; then mv node_modules "
+                                    + PARKED_NODE_MODULES + "; fi"), 120);
+                }
+                Processes.run(null, List.of("docker", "stop", "--time", "2", name), 30).requireSuccess();
+            }
             stopped = true;
         }
         public void export(Path destination) {

@@ -102,7 +102,9 @@ public final class InitialCodingAttempt {
                                 repository.buildImage()));
                 try (var workload =
                         stepScope.createTrusted(
-                                repository.buildImage(), pristine, runtime.mavenCacheVolume())) {
+                                repository.buildImage(),
+                                pristine,
+                                runtime.environment(repository.verificationPlan()))) {
                     var baseline =
                             new BaselineBuild(runtime)
                                     .run(
@@ -153,7 +155,10 @@ public final class InitialCodingAttempt {
             CodingOutcome outcome;
             try (var workload =
                     stepScope.createSeeded(
-                            coding.image(), pristine, runtime.mavenCacheVolume(), "coding")) {
+                            coding.image(),
+                            pristine,
+                            runtime.environment(repository.verificationPlan()),
+                            "coding")) {
                 var identity = new LinkedHashMap<>(coding.identity());
                 String attemptId = UUID.randomUUID().toString();
                 var rate = pricing.snapshot(Objects.toString(identity.get("model"), ""));
@@ -184,7 +189,15 @@ public final class InitialCodingAttempt {
             }
             String candidate;
             if (outcome.status() == CodingOutcome.Status.COMPLETED) {
-                candidate = json.writeValueAsString(freezer.freeze(key, url, base, exported));
+                candidate =
+                        json.writeValueAsString(
+                                freezer.freeze(
+                                        key,
+                                        url,
+                                        base,
+                                        exported,
+                                        false,
+                                        runtime.toolchain(repository.verificationPlan())));
             } else if (outcome.status() == CodingOutcome.Status.NEEDS_DECISION) {
                 candidate = placeholder("NEEDS_DECISION", outcome.decision().question());
             } else {

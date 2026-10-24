@@ -67,7 +67,7 @@ public class FeedbackWorker implements AgentWorker {
         this.resources = new FeedbackResources(audit, docker);
         this.git = git;
         this.executions = executions;
-        this.codingAttempt = new FeedbackCodingAttempt(freezer, coding, docker, runtime, pricing);
+        this.codingAttempt = new FeedbackCodingAttempt(repositories, freezer, coding, docker, runtime, pricing);
         this.verificationPolicy = new VerificationPolicy(repositories, runtime);
     }
 
