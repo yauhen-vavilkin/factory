@@ -409,20 +409,22 @@ mvn -B -ntp -pl factory-app -am -Dtest=PilotRetryIntegrationTest,PilotAutomaticA
 - PilotTaskView contains task identity/Jira link, title, state/reason/stage, destination, PR link, relevant times, attempt history, allowed actions and PilotTaskUsage.
 - PilotTaskUsage contains reported token categories, per-currency BigDecimal estimates and completeness/provisional flags. Aggregate typed accounting contributions by execution/attempt; never parse formatted UI strings.
 
-- [ ] **1. Add state-projection tests.** Awaiting selection, withdrawn, unsupported, working, stopped, uncertain and PR ready have distinct meaning. Engine COMPLETED with failed verification is stopped. Keep history accessible after the task leaves the Jira filter.
-- [ ] **2. Add numerical preservation tests using existing fixtures.** Cover legacy step accounting, current attempts, feedback rounds, retries, streamed cumulative snapshots, mixed currencies, cache-write TTL, unknown rates and partial usage. Any incomplete component keeps the task total incomplete.
+- [x] **1. Add state-projection tests.** Awaiting selection, withdrawn, unsupported, working, stopped, uncertain and PR ready have distinct meaning. Engine COMPLETED with failed verification is stopped. Keep history accessible after the task leaves the Jira filter.
+- [x] **2. Add numerical preservation tests using existing fixtures.** Cover legacy step accounting, current attempts, feedback rounds, retries, streamed cumulative snapshots, mixed currencies, cache-write TTL, unknown rates and partial usage. Any incomplete component keeps the task total incomplete.
 ~~~java
 assertThat(taskUsage.estimatesByCurrency().get("USD"))
     .isEqualByComparingTo("1.24");
 assertThat(taskUsage.complete()).isFalse();
 assertThat(unstartedUsage.estimatesByCurrency()).isEmpty();
 ~~~
-- [ ] **3. Run the focused command to fail, then implement typed projection/aggregation.**
+- [x] **3. Run the focused command to fail, then implement typed projection/aggregation.**
 ~~~sh
 mvn -B -ntp -pl factory-app -am -Dtest=PilotTaskViewTest,PilotTaskUsageTest,AttemptUsageSummaryTest,DeveloperExecutionViewTest,DeveloperCostEstimatorTest,ExecutionUiControllerTest -Dsurefire.failIfNoSpecifiedTests=false test
 ~~~
-- [ ] **4. Compare old and new execution views on identical recorded fixtures.** Preserve input/output/cache breakdowns, rates, totals and feedback. Task totals sum each contribution once; duration excludes human review. Setup smoke is a separate account, not a fake Jira task.
-- [ ] **5. Rerun, review and commit S09.** No new pricing model or sprint analytics.
+- [x] **4. Compare old and new execution views on identical recorded fixtures.** Preserve input/output/cache breakdowns, rates, totals and feedback. Task totals sum each contribution once; duration excludes human review. Setup smoke is a separate account, not a fake Jira task.
+- [x] **5. Rerun, review and commit S09.** No new pricing model or sprint analytics.
+
+**Done 2026-10-24.** PilotTaskQuery projects each logical task read-only from its persisted attempt history, the bound executions' audit accounting and the installation record — no new state. Seven distinct task states verified against real PostgreSQL; engine COMPLETED with failed verification reads as STOPPED with retry available; PROCESSING_PAUSED vs UNCERTAIN distinguished by the installation's active attempt; history survives leaving the Jira filter (inScope=false). Tokenomics: AttemptUsageSummary gained a typed Totals record (token categories, per-currency BigDecimal estimates, reported/complete flags) and PilotTaskUsage aggregates per-attempt contributions exactly once across INITIAL/feedback rounds/RETRY; any incomplete component keeps the task total incomplete; activeSeconds excludes human-review waiting. Jira links are null for invalid base URLs and malformed display keys (pattern `[A-Z][A-Z0-9]*-[0-9]+`). Independent critic re-derived the arithmetic and found no double-count; ACCEPT WITH FIXES — both nits applied (unused imports/field removed, key-pattern validation + test). Focused command green: PilotTaskViewTest 9, PilotTaskUsageTest 4, AttemptUsageSummaryTest 10, DeveloperExecutionViewTest 28, DeveloperCostEstimatorTest 21, ExecutionUiControllerTest 25 — 97 run, 0 failed/skipped.
 
 ## S10 — Two readable screens and task controls
 
