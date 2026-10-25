@@ -20,6 +20,16 @@ public class DockerWorkloads {
     private static final String PARKED_NODE_MODULES = "/tmp/factory-parked-node_modules";
     private static final String STAGED_LOCKFILE = "/tmp/factory-pinned-yarn.lock";
     private final Set<String> activeSteps = ConcurrentHashMap.newKeySet();
+    private final int seedTimeoutSeconds;
+
+    public DockerWorkloads() {
+        this(DevRuntimeProperties.DEFAULT_SEED_TIMEOUT_SECONDS);
+    }
+
+    public DockerWorkloads(int seedTimeoutSeconds) {
+        if (seedTimeoutSeconds < 1) throw new IllegalArgumentException("Seed timeout must be positive");
+        this.seedTimeoutSeconds = seedTimeoutSeconds;
+    }
 
     /** Claims this step within this process before looking for crashed predecessors. */
     public StepScope beginStep(UUID executionId, String stepId) {
@@ -110,7 +120,7 @@ public class DockerWorkloads {
         var workload = new Workload(name, environment.toolchain());
         try {
             Processes.run(null, List.of("docker", "start", name), 60).requireSuccess();
-            if (mode == CacheMode.READ_ONLY_SEED) seedCache(name, environment.toolchain());
+            if (mode == CacheMode.READ_ONLY_SEED) seedCache(name, environment);
             workload.copy(source.resolve(".").toString(), "/workspace");
             // Docker creates WORKDIR as root even when the workload runs as the
             // trusted checkout UID/GID. Allow that user to create build output and
@@ -135,11 +145,49 @@ public class DockerWorkloads {
                 "-c", "chown -R \"$1\" /cache && chmod -R u+rwX /cache", "--", user), 120).requireSuccess();
     }
 
-    private static void seedCache(String name, Toolchain toolchain) {
+    private void seedCache(String name, BuildEnvironment environment) {
+        Toolchain toolchain = environment.toolchain();
         String cache = cachePath(toolchain);
-        Processes.run(null, List.of("docker", "exec", name, "/bin/sh", "-c",
-                "mkdir -p " + cache + " && cp -a " + seedPath(toolchain) + "/. " + cache + "/"), 120)
-                .requireSuccess();
+        try {
+            Processes.run(null, List.of("docker", "exec", name, "/bin/sh", "-c",
+                    "mkdir -p " + cache + " && cp -a " + seedPath(toolchain) + "/. " + cache + "/"), seedTimeoutSeconds)
+                    .requireSuccess();
+        } catch (IllegalStateException e) {
+            throw new CacheSeedException(seedFailure(seedTimeoutSeconds, environment.cacheVolume(),
+                    cacheSizeKilobytes(name, seedPath(toolchain)), e.getMessage()), e);
+        }
+    }
+
+    /** The seed copy could not finish; an environment problem, never a candidate or model failure. */
+    public static final class CacheSeedException extends IllegalStateException {
+        public CacheSeedException(String message, Throwable cause) { super(message, cause); }
+    }
+
+    /** Best effort: the size is only there to explain the failure, so a failing measurement is left out. */
+    private static long cacheSizeKilobytes(String name, String seed) {
+        try {
+            var result = Processes.run(null, List.of("docker", "exec", name, "du", "-sk", seed), 60);
+            if (result.exitCode() == 0) return parseDuKilobytes(result.output());
+            log.warn("Could not measure the seed volume (exit {}): {}", result.exitCode(), result.diagnostics());
+        } catch (RuntimeException e) {
+            log.warn("Could not measure the seed volume: {}", e.toString());
+        }
+        return -1;
+    }
+
+    /** First field of {@code du -sk} output, which separates size and path with a tab. */
+    static long parseDuKilobytes(String output) {
+        return Long.parseLong(output.strip().split("\\s+")[0]);
+    }
+
+    static String seedFailure(int timeoutSeconds, String volume, long sizeKilobytes, String cause) {
+        String size = sizeKilobytes < 0 ? "unknown size"
+                : sizeKilobytes >= 1024 * 1024 ? String.format(java.util.Locale.ROOT, "%.1f GB", sizeKilobytes / (1024.0 * 1024))
+                : sizeKilobytes / 1024 + " MB";
+        String shortCause = cause == null ? "" : cause.substring(0, Math.min(300, cause.length()));
+        return "Copying the dependency cache volume '" + volume + "' (" + size + ") into a new workload failed (limit "
+                + timeoutSeconds + " s): " + shortCause + ". Raise factory.dev-factory.runtime.seed-timeout-seconds"
+                + " (FACTORY_DEV_FACTORY_SEED_TIMEOUT_SECONDS) or reduce the cache.";
     }
 
     static List<String> createCommand(String image, String name, String user, BuildEnvironment environment,

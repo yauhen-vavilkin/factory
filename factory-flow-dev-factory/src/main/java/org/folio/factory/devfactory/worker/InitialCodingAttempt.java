@@ -304,6 +304,13 @@ public final class InitialCodingAttempt {
             throw e;
         } catch (DockerWorkloads.ActiveStepException e) {
             throw e;
+        } catch (DockerWorkloads.CacheSeedException e) {
+            return failedAttempt(
+                    "BLOCKED_ENVIRONMENT",
+                    safeRedact(e.getMessage()),
+                    readiness,
+                    metrics,
+                    lockfileArtifact);
         } catch (RuntimeException e) {
             String reason =
                     safeRedact(

@@ -228,6 +228,17 @@ class DevRuntimePropertiesTest {
     }
 
     @Test
+    void seedTimeoutDefaultsBindsAndFallsBackWhenNotPositive() {
+        assertThat(new DevRuntimeProperties(Map.of(), null, 0, null).seedTimeoutSeconds()).isEqualTo(300);
+        assertThat(bind(Map.of("factory.dev-factory.runtime.seed-timeout-seconds", "900")).seedTimeoutSeconds())
+                .isEqualTo(900);
+        assertThat(bind(Map.of("factory.dev-factory.runtime.seed-timeout-seconds", "0")).seedTimeoutSeconds())
+                .isEqualTo(DevRuntimeProperties.DEFAULT_SEED_TIMEOUT_SECONDS);
+        assertThat(bind(Map.of("factory.dev-factory.runtime.timeout-seconds", "60")).seedTimeoutSeconds())
+                .isEqualTo(300);
+    }
+
+    @Test
     void yarnInstallCommandHasADefaultBindsAndIsValidated() {
         assertThat(new DevRuntimeProperties.Yarn(null, null).installCommand())
                 .containsExactly("yarn", "install", "--frozen-lockfile", "--ignore-scripts", "--non-interactive");

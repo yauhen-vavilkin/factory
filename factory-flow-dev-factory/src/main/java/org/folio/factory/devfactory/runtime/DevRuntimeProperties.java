@@ -8,8 +8,10 @@ import java.util.Map;
 @ConfigurationProperties(prefix = "factory.dev-factory.runtime")
 public record DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
                                    String mavenCacheVolume, Map<String, List<String>> requiredReports,
-                                   Map<String, Toolchain> planToolchains, Yarn yarn) {
+                                   Map<String, Toolchain> planToolchains, Yarn yarn, int seedTimeoutSeconds) {
     public static final String DEFAULT_MAVEN_CACHE_VOLUME = "factory-dev-m2-cache";
+    /** Time allowed for copying the shared dependency cache into one new coding or verification workload. */
+    public static final int DEFAULT_SEED_TIMEOUT_SECONDS = 300;
     public DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
                                 String mavenCacheVolume) {
         this(plans, coding, timeoutSeconds, mavenCacheVolume, Map.of());
@@ -22,6 +24,11 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
                                 String mavenCacheVolume, Map<String, List<String>> requiredReports,
                                 Map<String, Toolchain> planToolchains) {
         this(plans, coding, timeoutSeconds, mavenCacheVolume, requiredReports, planToolchains, null);
+    }
+    public DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
+                                String mavenCacheVolume, Map<String, List<String>> requiredReports,
+                                Map<String, Toolchain> planToolchains, Yarn yarn) {
+        this(plans, coding, timeoutSeconds, mavenCacheVolume, requiredReports, planToolchains, yarn, 0);
     }
     @org.springframework.boot.context.properties.bind.ConstructorBinding
     public DevRuntimeProperties {
@@ -50,6 +57,7 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         if (!mavenCacheVolume.matches("[A-Za-z0-9][A-Za-z0-9_.-]*"))
             throw new IllegalArgumentException("Invalid Maven cache volume name");
         yarn = yarn == null ? new Yarn(null, null) : yarn;
+        seedTimeoutSeconds = seedTimeoutSeconds <= 0 ? DEFAULT_SEED_TIMEOUT_SECONDS : seedTimeoutSeconds;
     }
     public List<String> command(String id) {
         var command = plans.get(id);

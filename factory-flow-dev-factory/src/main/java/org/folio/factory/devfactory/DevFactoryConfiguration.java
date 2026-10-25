@@ -73,8 +73,8 @@ import java.util.Map;
 public class DevFactoryConfiguration {
 
     @Bean
-    public DockerWorkloads devDockerWorkloads() {
-        return new DockerWorkloads();
+    public DockerWorkloads devDockerWorkloads(DevRuntimeProperties runtime) {
+        return new DockerWorkloads(runtime.seedTimeoutSeconds());
     }
 
     @Bean

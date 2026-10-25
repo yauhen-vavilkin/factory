@@ -107,6 +107,7 @@ class DeveloperFlowRegistrationTest {
         assertThat(devDeliveryProperties.targets())
                 .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users", "ui-circulation");
         assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
+        assertThat(devRuntimeProperties.seedTimeoutSeconds()).isEqualTo(300);
         assertThat(devRuntimeProperties.toolchain("node22-jest")).isEqualTo(Toolchain.YARN);
         assertThat(devRuntimeProperties.toolchain("java21-unit")).isEqualTo(Toolchain.MAVEN);
         assertThat(devRuntimeProperties.command("node22-jest")).containsExactly("yarn", "test", "--maxWorkers=2");

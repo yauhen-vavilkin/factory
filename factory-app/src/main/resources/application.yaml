@@ -163,6 +163,8 @@ factory:
     runtime:
       timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
+      # Copying the shared dependency cache into one new coding or verification workload.
+      seed-timeout-seconds: ${FACTORY_DEV_FACTORY_SEED_TIMEOUT_SECONDS:300}
       yarn:
         cache-volume: ${FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME:factory-dev-yarn-cache}
         folio-registry: ${FACTORY_DEV_FACTORY_FOLIO_NPM_REGISTRY:https://repository.folio.org/repository/npm-folioci/}

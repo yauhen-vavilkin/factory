@@ -279,6 +279,20 @@ class DevelopReadinessTest {
         verify(s.coding(), never()).code(any(), any(), anyInt(), any());
     }
 
+    @Test void seedCopyFailureBlocksTheEnvironmentWithoutModelSpendAndKeepsThePin() {
+        var s = yarnScenario(new Processes.Result(0, "Done in 14s."), false);
+        var message = DockerWorkloads.seedFailure(300, "factory-dev-yarn-cache", 9L * 1024 * 1024, "Command exceeded 300 seconds");
+        var scope = s.docker().beginStep(UUID.randomUUID(), "implement");
+        when(scope.createSeeded(any(), any(), any(), eq("coding")))
+                .thenThrow(new DockerWorkloads.CacheSeedException(message, new IllegalStateException("x")));
+
+        var result = s.worker().execute(s.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT", "(9.0 GB)", "limit 300 s");
+        assertThat(PinnedLockfile.parse(result.outputs().get(DevelopWorker.LOCKFILE))).isPresent();
+        verify(s.coding(), never()).code(any(), any(), anyInt(), any());
+    }
+
     @Test void failedInstallInTheCodingContainerStopsBeforeAnyModelCall() {
         var s = yarnScenario(new Processes.Result(1, "error Your lockfile needs to be updated, but yarn was run with `--frozen-lockfile`."));
 

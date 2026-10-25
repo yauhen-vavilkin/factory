@@ -318,6 +318,51 @@ class DockerWorkloadsTest {
         }
     }
 
+    @Test
+    void seedFailureNamesTheLimitTheCacheSizeAndTheSetting() {
+        String gb = DockerWorkloads.seedFailure(120, "factory-dev-yarn-cache", 3_565_158L, "Command exceeded 120 seconds");
+        assertThat(gb).contains("'factory-dev-yarn-cache'", "(3.4 GB)", "limit 120 s", "Command exceeded 120 seconds",
+                "factory.dev-factory.runtime.seed-timeout-seconds", "FACTORY_DEV_FACTORY_SEED_TIMEOUT_SECONDS");
+        assertThat(DockerWorkloads.seedFailure(300, "v", 512 * 1024L, "x")).contains("(512 MB)");
+        assertThat(DockerWorkloads.seedFailure(300, "v", -1, "x")).contains("(unknown size)");
+        assertThat(DockerWorkloads.seedFailure(300, "v", 1, "y".repeat(5000)).length()).isLessThan(700);
+    }
+
+    @Test
+    void duOutputWithATabBetweenSizeAndPathIsParsed() {
+        assertThat(DockerWorkloads.parseDuKilobytes("3145736\t/tmp/factory-yarn-seed\n")).isEqualTo(3145736L);
+        assertThat(DockerWorkloads.parseDuKilobytes("12 /tmp/x")).isEqualTo(12L);
+    }
+
+    @Test
+    void seedTimeoutMustBePositive() {
+        assertThatThrownBy(() -> new DockerWorkloads(0)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
+    void aSeedCopyThatExceedsTheConfiguredTimeoutFailsWithTheCacheSizeAndLeavesNoContainer() throws Exception {
+        String volume = "factory-dev-seed-timeout-test-" + java.util.UUID.randomUUID();
+        var environment = new BuildEnvironment(Toolchain.YARN, volume, REGISTRY);
+        try {
+            assertThat(Processes.run(null, List.of("docker", "run", "--rm", "--mount",
+                    "type=volume,source=" + volume + ",target=/c", "--entrypoint", "sh", "alpine:3.21", "-c",
+                    "dd if=/dev/zero of=/c/big bs=1M count=3072 2>/dev/null"), 300).exitCode()).isZero();
+
+            assertThatThrownBy(() -> {
+                try (var scope = new DockerWorkloads(1).beginStep(executionId, STEP)) {
+                    scope.createSeeded("alpine:3.21", source, environment, "coding");
+                }
+            }).isInstanceOf(DockerWorkloads.CacheSeedException.class)
+                    .hasMessageContaining("limit 1 s").hasMessageContaining("GB)")
+                    .hasMessageContaining(volume);
+
+            assertThat(Processes.run(null, List.of("docker", "ps", "-aq", "--filter",
+                    "label=factory.dev-execution=" + executionId), 30).requireSuccess().output()).isBlank();
+        } finally {
+            Processes.run(null, List.of("docker", "volume", "rm", volume), 60);
+        }
+    }
+
     @Test @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
     void yarnWorkloadParksInstalledDependenciesSoExportHasSourcesAndReportsOnly() throws Exception {
         Files.writeString(source.resolve("src.txt"), "source");

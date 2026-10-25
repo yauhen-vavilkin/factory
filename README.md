@@ -305,6 +305,7 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_LLM_BASE_URL` / `_COMPLETIONS_PATH` | OpenAI-compatible endpoint (defaults target Groq: `https://api.groq.com/openai/v1` + `/chat/completions`) |
 | `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (default `jdbc:postgresql://localhost:5432/factory`) |
 | `FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME` | Persistent trusted Developer Flow Maven cache volume (default `factory-dev-m2-cache`) |
+| `FACTORY_DEV_FACTORY_SEED_TIMEOUT_SECONDS` | Seconds allowed for copying the shared dependency cache into one coding or verification workload (default `300`); a timeout blocks the run with the cache size in the message |
 | `FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME` / `FACTORY_DEV_FACTORY_FOLIO_NPM_REGISTRY` | Trusted yarn cache volume for UI (yarn + Jest) plans (default `factory-dev-yarn-cache`) and the registry serving `@folio/*` packages (default `https://repository.folio.org/repository/npm-folioci/`); see `doc/dev-flow-ui-support.md` |
 | `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `pi`) |
 | `FACTORY_MODEL_PROVIDER` / `_ID` / `_BASE_URL` / `_API` / `_API_KEY` | Legacy Pi profile settings; nonblank `FACTORY_PI_*` values override them |
