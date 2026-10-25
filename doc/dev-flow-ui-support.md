@@ -574,10 +574,12 @@ policy page") on `ui-circulation` (base `fb569e5`, fork `Dmytro-Melnyshyn/ui-cir
   so the limit is reached at roughly 7 GB, about twice today's size; an earlier estimate of
   15–30 GB, taken from the faster phase 2 spike, was wrong for this machine. In real runs the
   coding container was ready 26–32 s after the starting build, so a workload copy may be faster
-  than this test, but that is not measured. Hardening, in this order, as its own change: (1) a
-  `runtime.seed-timeout-seconds` setting (default 300, explicit `${ENV_VAR:}` placeholder in
-  `application.yaml`, forwarded in Compose) and a `BLOCKED_ENVIRONMENT` message that includes
-  the cache size instead of a generic process failure; (2) the cache lock above; (3) one yarn
+  than this test, but that is not measured. Hardening, in this order, as its own change: (1)
+  **done**: `runtime.seed-timeout-seconds` (`FACTORY_DEV_FACTORY_SEED_TIMEOUT_SECONDS`, default
+  300, `DockerWorkloads` takes it in its constructor) and a `CacheSeedException` whose message
+  names the volume, its size, the limit and the setting; the initial attempt reports it as
+  `BLOCKED_ENVIRONMENT` before any model call, a feedback round shows it as the round's failure,
+  verification fails the step with it; (2) the cache lock above; (3) one yarn
   cache volume per repository (`factory-dev-yarn-cache-<repo>`), with a recorded trigger of
   about 5 GB total or real concurrency across modules, accepting duplicate disk for the shared
   stripes tree and a Compose and runbook change. Maven's `repo.local.tail` (zero-copy seeding)
