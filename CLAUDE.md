@@ -13,8 +13,9 @@ versioned artifacts**, and every consequential step passes a
 The full product spec ("FOLIO AI SDLC Factory") defines five flows: A — Test
 Factory, B — Kong & Keycloak Release Automation, C — Release Pipeline
 Orchestrator, D — AI Junior Developer, E — Grails-to-Java Rewrite Orchestrator
-(which composes A and D as sub-flows). **Milestone 1 (this repo today) ships
-the shared framework plus the Test Factory flow only.** New flows must be added as plugins —
+(which composes A and D as sub-flows). **This repo ships the shared framework,
+the Test Factory flow, and the Developer Flow (`factory-flow-dev-factory`,
+including the M1 sprint pilot machinery).** New flows must be added as plugins —
 never by modifying the control plane.
 
 ## Commands
@@ -65,6 +66,8 @@ factory-connectors          Jira / GitHub / TestRail REST clients + graceful fal
 factory-agents              LLM worker base (Spring AI ChatClient), prompt loading,
                             frontmatter codec, secret-scan post-processor
 factory-flow-test-factory   Test Factory plugin: flows/test-factory.yaml + 5 workers + prompts
+factory-flow-dev-factory    Developer Flow plugin: dev-factory.yaml, Claude Code / Pi coding
+                            runtimes, verification, delivery, PR feedback, sprint pilot
 factory-app                 Spring Boot composition root: management console (server-rendered
                             Thymeleaf UI), REST API, Flyway
 ```

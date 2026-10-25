@@ -572,7 +572,7 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | Environment variable | Purpose |
 |---|---|
 | `ANTHROPIC_API_KEY` | LLM provider key (Spring AI Anthropic starter) |
-| `FACTORY_LLM_MODEL` | Chat model id (default `claude-sonnet-4-5`, or `llama-3.3-70b-versatile` with the `openai` provider) |
+| `FACTORY_LLM_MODEL` | Chat model id (default `claude-sonnet-5-5`, or `llama-3.3-70b-versatile` with the `openai` provider) |
 | `FACTORY_LLM_PROVIDER` | `anthropic` (default) or `openai` for any OpenAI-compatible endpoint (Groq, Gemini, OpenRouter, local Ollama) |
 | `FACTORY_LLM_API_KEY` | API key for the OpenAI-compatible provider |
 | `FACTORY_LLM_BASE_URL` / `_COMPLETIONS_PATH` | OpenAI-compatible endpoint (defaults target Groq: `https://api.groq.com/openai/v1` + `/chat/completions`) |

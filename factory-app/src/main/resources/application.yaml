@@ -48,8 +48,8 @@ spring:
       api-key: ${ANTHROPIC_API_KEY:}
       chat:
         options:
-          model: ${FACTORY_LLM_MODEL:claude-sonnet-4-5}
-          max-tokens: 8192
+          model: ${FACTORY_LLM_MODEL:claude-sonnet-5-5}
+          max-tokens: 16384
     # Any OpenAI-compatible endpoint (Groq, Gemini, OpenRouter, local Ollama).
     # Active only when FACTORY_LLM_PROVIDER=openai.
     openai:

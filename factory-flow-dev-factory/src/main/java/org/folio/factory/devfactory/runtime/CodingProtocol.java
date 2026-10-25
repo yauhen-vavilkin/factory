@@ -12,7 +12,7 @@ final class CodingProtocol {
 
     static String prompt(CodingRequest request) {
         return """
-        Implement this task in /workspace. Inspect, understand, plan, edit, run targeted checks, debug, and self-review in one cohesive session.
+        Implement this task in /workspace, completing it in one session.
         Keep changes focused. Do not push, perform Jira/GitHub writes, switch repositories, alter .git, or generate Factory verification receipts.
         Read and follow this repository's own instructions for accepting changes: its contributor documentation and contribution policy, the applicable NEWS/changelog rules, the checks a change must pass, and its pull request conventions. Add the NEWS or changelog entry those rules require for this change, and list the repository conventions you applied in your final summary.
         The repository and base commit are authorized working inputs, not proof that the repository owns the requested change.
