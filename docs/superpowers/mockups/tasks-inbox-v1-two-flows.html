@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<!-- STATIC MOCKUP — stress variant, REFERENCE ONLY: how the same Tasks screen absorbs a
+     second delegatable flow. No implementation is proposed for this today (Test Factory is
+     interactive: one story + QA gates, triggered from its flow page).
+     Session journal: docs/superpowers/plans/2026-10-25-ux-design-decisions.md (item 1) -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tasks — AI Factory (mockup v1, two flows)</title>
+    <link rel="stylesheet" href="../../../factory-app/src/main/resources/static/css/tokens.css">
+    <link rel="stylesheet" href="../../../factory-app/src/main/resources/static/css/app.css">
+    <style>
+        /* mockup-only annotation, not part of the design system */
+        .mockup-note { background: #f3f0ff; border-bottom: 1px solid #d8d2f0; color: #4a3f80;
+            font: 12px/1.5 ui-monospace, monospace; padding: 6px 16px; text-align: center; }
+    </style>
+</head>
+<body>
+<div class="mockup-note">MOCKUP v1 · STRESS VARIANT · reference only — same screen with two delegatable flows · not planned for implementation</div>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="app-shell">
+    <aside class="sidebar" aria-label="Main navigation">
+        <div class="sidebar-brand">
+            <strong>AI Factory</strong>
+            <span>FOLIO SDLC</span>
+        </div>
+        <nav class="nav-group" aria-label="Overview">
+            <span class="nav-group-label">Overview</span>
+            <a class="nav-item" href="/tasks" aria-current="page">Tasks</a>
+            <a class="nav-item" href="/">Dashboard</a>
+            <a class="nav-item" href="/status">Status</a>
+            <a class="nav-item" href="/audit">Audit</a>
+        </nav>
+        <nav class="nav-group" aria-label="Pipelines">
+            <span class="nav-group-label">Pipelines</span>
+            <a class="nav-item" href="/flows">Flows</a>
+            <a class="nav-item" href="/executions">Executions</a>
+            <a class="nav-item" href="/artifacts">Artifacts</a>
+            <a class="nav-item" href="/reviews">Reviews</a>
+        </nav>
+        <nav class="nav-group" aria-label="Agents">
+            <span class="nav-group-label">Agents</span>
+            <a class="nav-item" href="/workers">Workers</a>
+            <a class="nav-item" href="/prompts">Prompts</a>
+        </nav>
+        <div class="sidebar-footer">
+            <button type="button" class="btn btn-ghost btn-sm"><span aria-hidden="true">☾</span> Dark</button>
+        </div>
+    </aside>
+    <main id="main" class="main">
+        <section class="page-body">
+            <div class="page-header">
+                <h1>Tasks</h1>
+                <p class="page-description">Delegated work per flow. Each flow that can run on backlog
+                    autonomously gets a section here; interactive flows are triggered from
+                    <a href="/flows">Flows</a>.</p>
+                <div class="page-header-meta">
+                    <span>Sprint: <strong>Sprint 42</strong> · Core Platform Team board · last full sync 3 minutes ago</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title"><a href="/flows/dev-factory">Developer Factory</a></h2>
+                    <span class="badge badge-outline">implements a task end to end → pull request</span>
+                </div>
+                <div class="card-content">
+                    <dl class="def-list">
+                        <dt>Scope</dt>
+                        <dd>Statuses: To Do · MGRTEM → mgr-tenant-entitlements · MGRAPP → mgr-applications · Mode: Review before run</dd>
+                    </dl>
+                    <form>
+                        <div class="page-header-meta">
+                            <button class="btn btn-primary" type="button">Run selected (1)</button>
+                            <span class="muted">runs one task at a time, bounded attempts</span>
+                            <label><input type="checkbox"> Select page</label>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                <tr><th>Select</th><th>Task</th><th>State</th><th>Repository</th><th>Result and cost</th></tr>
+                                </thead>
+                                <tbody>
+                                <tr>
+                                    <td><input type="checkbox" checked aria-label="Select MGRTEM-204"></td>
+                                    <td>
+                                        <a class="badge badge-outline badge-sm" href="#">MGRTEM-204</a>
+                                        <div><a href="#">Skip modules without routing when regenerating entitlements</a></div>
+                                    </td>
+                                    <td><span class="badge badge-status-AWAITING_SELECTION">Awaiting selection</span></td>
+                                    <td>mgr-tenant-entitlements</td>
+                                    <td><span class="muted">—</span></td>
+                                </tr>
+                                <tr>
+                                    <td></td>
+                                    <td>
+                                        <a class="badge badge-outline badge-sm" href="#">MGRTEM-190</a>
+                                        <div><a href="#">Cache entitlement lookups per tenant</a></div>
+                                    </td>
+                                    <td>
+                                        <span class="badge badge-status-WORKING">Working</span>
+                                        <div class="muted sub-tag">Implementation · 18 min</div>
+                                    </td>
+                                    <td>mgr-tenant-entitlements</td>
+                                    <td><span class="muted">in progress</span></td>
+                                </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h2 class="card-title"><a href="/flows/test-factory">Test Factory</a></h2>
+                    <span class="badge badge-outline">generates Karate API tests for a story → pull request</span>
+                    <span class="badge badge-outline">appears only once this flow supports delegation</span>
+                </div>
+                <div class="card-content">
+                    <dl class="def-list">
+                        <dt>Scope</dt>
+                        <dd>Statuses: In Progress · Mode: Automatic</dd>
+                    </dl>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                            <tr><th>Select</th><th>Task</th><th>State</th><th>Repository</th><th>Result and cost</th></tr>
+                            </thead>
+                            <tbody>
+                            <tr>
+                                <td><input type="checkbox" disabled aria-label="automatic mode"></td>
+                                <td>
+                                    <a class="badge badge-outline badge-sm" href="#">CIRC-311</a>
+                                    <div><a href="#">Check-in API: renewals block on overdue fines</a></div>
+                                </td>
+                                    <td><span class="badge badge-status-AWAITING_SELECTION">Queued</span></td>
+                                <td>circulation-tests</td>
+                                <td><span class="muted">—</span></td>
+                            </tr>
+                            <tr>
+                                <td></td>
+                                <td>
+                                    <a class="badge badge-outline badge-sm" href="#">CIRC-298</a>
+                                    <div><a href="#">Loan history endpoint paging</a></div>
+                                </td>
+                                <td><span class="badge badge-status-PR_READY">PR ready</span></td>
+                                <td>circulation-tests</td>
+                                <td>
+                                    <a class="developer-pr-link" href="#">Pull request</a>
+                                    <div>$0.41</div>
+                                </td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-content">
+                    <p class="card-description muted">
+                        What this variant proves: a second delegatable flow lands as another section with its
+                        own scope line and admission mode — same page, same controls, no new navigation and no
+                        flow picker. Developer effort when it actually happens: one config entry (flow id in
+                        the pilot scope) plus this page rendering sections. Nothing is built for it in M1.
+                    </p>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+</body>
+</html>

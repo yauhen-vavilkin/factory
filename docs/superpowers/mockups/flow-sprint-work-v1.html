@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<!-- STATIC MOCKUP — flow-centric entry, accepted direction (journal item 1, decision 2026-10-25):
+     delegation is a flow capability; the flow page of a delegatable flow owns the sprint-work section.
+     Global Tasks nav item is removed. Rejected inbox direction: tasks-inbox-v1*.html.
+     Session journal: docs/superpowers/plans/2026-10-25-ux-design-decisions.md -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Developer Factory — AI Factory (mockup v1)</title>
+    <link rel="stylesheet" href="../../../factory-app/src/main/resources/static/css/tokens.css">
+    <link rel="stylesheet" href="../../../factory-app/src/main/resources/static/css/app.css">
+    <style>
+        /* mockup-only annotation, not part of the design system */
+        .mockup-note { background: #f3f0ff; border-bottom: 1px solid #d8d2f0; color: #4a3f80;
+            font: 12px/1.5 ui-monospace, monospace; padding: 6px 16px; text-align: center; }
+    </style>
+</head>
+<body>
+<div class="mockup-note">MOCKUP v1 · flow-centric entry · /flows/dev-factory gains a “Sprint work” section · note: no Tasks item in the sidebar anymore</div>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="app-shell">
+    <aside class="sidebar" aria-label="Main navigation">
+        <div class="sidebar-brand">
+            <strong>AI Factory</strong>
+            <span>FOLIO SDLC</span>
+        </div>
+        <nav class="nav-group" aria-label="Overview">
+            <span class="nav-group-label">Overview</span>
+            <a class="nav-item" href="/">Dashboard</a>
+            <a class="nav-item" href="/status">Status</a>
+            <a class="nav-item" href="/audit">Audit</a>
+        </nav>
+        <nav class="nav-group" aria-label="Pipelines">
+            <span class="nav-group-label">Pipelines</span>
+            <a class="nav-item" href="/flows" aria-current="page">Flows</a>
+            <a class="nav-item" href="/executions">Executions</a>
+            <a class="nav-item" href="/artifacts">Artifacts</a>
+            <a class="nav-item" href="/reviews">Reviews</a>
+        </nav>
+        <nav class="nav-group" aria-label="Agents">
+            <span class="nav-group-label">Agents</span>
+            <a class="nav-item" href="/workers">Workers</a>
+            <a class="nav-item" href="/prompts">Prompts</a>
+        </nav>
+        <div class="sidebar-footer">
+            <button type="button" class="btn btn-ghost btn-sm"><span aria-hidden="true">☾</span> Dark</button>
+        </div>
+    </aside>
+    <main id="main" class="main">
+        <section class="page-body">
+            <div class="page-header">
+                <h1>Developer Factory</h1>
+                <div class="page-header-meta">
+                    <span>dev-factory</span>
+                    <span class="badge badge-outline">v1</span>
+                    <a class="btn btn-outline btn-sm" href="#">Check configuration</a>
+                    <button type="button" class="btn btn-outline btn-sm" data-dialog-open="trigger-dialog">Trigger flow</button>
+                </div>
+            </div>
+
+            <div class="stack">
+                <section>
+                    <div class="page-header">
+                        <h2 class="card-title">Sprint work</h2>
+                        <span class="badge badge-outline">delegation · this flow works the backlog autonomously</span>
+                    </div>
+                    <div class="card">
+                        <div class="card-content">
+                            <dl class="def-list">
+                                <dt>Source</dt>
+                                <dd><a href="#">Core Platform Team · board</a> (saved filter)</dd>
+                                <dt>Sprint</dt>
+                                <dd>Sprint 42 · Oct 20 – Oct 31</dd>
+                                <dt>Statuses</dt>
+                                <dd>To Do</dd>
+                                <dt>Destinations</dt>
+                                <dd>MGRTEM → mgr-tenant-entitlements · MGRAPP → mgr-applications</dd>
+                            </dl>
+                        </div>
+                        <div class="card-content">
+                            <button class="btn btn-outline btn-sm" type="button">Enable automatic admission</button>
+                            <span class="muted">Delegates every eligible current and future match in this scope.
+                                Switching back stops new admissions; queued and running work stays delegated.</span>
+                        </div>
+                        <div class="card-content">
+                            <span class="muted">Discovery polls every 5 minutes · last full sync
+                                <strong>3 minutes ago</strong></span>
+                            <button class="btn btn-outline btn-sm" type="button">Rescan now</button>
+                            <span class="badge badge-outline badge-sm">open question — manual rescan vs auto-poll only</span>
+                        </div>
+                    </div>
+                    <form>
+                        <div class="page-header-meta">
+                            <button class="btn btn-primary" type="button">Run selected (2)</button>
+                            <span class="muted">2 selected · each task = one bounded attempt, tasks run one at a time</span>
+                            <label><input type="checkbox" checked> Select page</label>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                <tr>
+                                    <th>Select</th><th>Task</th><th>State</th><th>Repository</th>
+                                    <th>Result and cost</th><th>Updated</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <tr>
+                                    <td><input type="checkbox" checked aria-label="Select MGRTEM-204"></td>
+                                    <td>
+                                        <a class="badge badge-outline badge-sm" href="#">MGRTEM-204</a>
+                                        <div><a href="#">Skip modules without routing when regenerating entitlements</a></div>
+                                    </td>
+                                    <td><span class="badge badge-status-AWAITING_SELECTION">Awaiting selection</span></td>
+                                    <td>mgr-tenant-entitlements</td>
+                                    <td><span class="muted">—</span></td>
+                                    <td class="muted">12 minutes ago</td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" checked aria-label="Select MGRAPP-95"></td>
+                                    <td>
+                                        <a class="badge badge-outline badge-sm" href="#">MGRAPP-95</a>
+                                        <div><a href="#">Recalculate application constraints on module upgrade</a></div>
+                                    </td>
+                                    <td><span class="badge badge-status-AWAITING_SELECTION">Awaiting selection</span></td>
+                                    <td>mgr-applications</td>
+                                    <td><span class="muted">—</span></td>
+                                    <td class="muted">12 minutes ago</td>
+                                </tr>
+                                <tr>
+                                    <td><input type="checkbox" disabled aria-label="KB-331 not eligible"></td>
+                                    <td>
+                                        <span class="badge badge-outline badge-sm">KB-331</span>
+                                        <div><a href="#">Update Kubernetes deployment manifests</a></div>
+                                        <div class="muted sub-tag">Not eligible: no repository mapping for project KB</div>
+                                    </td>
+                                    <td><span class="badge badge-status-UNSUPPORTED">Not eligible</span></td>
+                                    <td class="muted">unrouted</td>
+                                    <td><span class="muted">—</span></td>
+                                    <td class="muted">1 hour ago</td>
+                                </tr>
+                                <tr>
+                                    <td></td>
+                                    <td>
+                                        <a class="badge badge-outline badge-sm" href="#">MGRTEM-190</a>
+                                        <div><a href="#">Cache entitlement lookups per tenant</a></div>
+                                    </td>
+                                    <td>
+                                        <span class="badge badge-status-WORKING">Working</span>
+                                        <div class="muted sub-tag">Implementation · 18 min</div>
+                                    </td>
+                                    <td>mgr-tenant-entitlements</td>
+                                    <td><span class="muted">in progress</span></td>
+                                    <td class="muted">just now</td>
+                                </tr>
+                                <tr>
+                                    <td></td>
+                                    <td>
+                                        <a class="badge badge-outline badge-sm" href="#">MGRAPP-88</a>
+                                        <div><a href="#">Publish application descriptor v2 schema</a></div>
+                                    </td>
+                                    <td><span class="badge badge-status-PR_READY">PR ready</span></td>
+                                    <td>mgr-applications</td>
+                                    <td>
+                                        <a class="developer-pr-link" href="#">Pull request</a>
+                                        <div>$1.12 <span class="muted">(partial)</span></div>
+                                    </td>
+                                    <td class="muted">2 hours ago</td>
+                                </tr>
+                                <tr>
+                                    <td></td>
+                                    <td>
+                                        <a class="badge badge-outline badge-sm" href="#">MGRTEM-171</a>
+                                        <div><a href="#">Validate module descriptor against schema</a></div>
+                                        <div class="muted sub-tag">Could not complete: verification failed — 2 tests in error. Retry available on the task page.</div>
+                                    </td>
+                                    <td><span class="badge badge-status-STOPPED">Could not complete</span></td>
+                                    <td>mgr-tenant-entitlements</td>
+                                    <td>$0.84</td>
+                                    <td class="muted">yesterday</td>
+                                </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="page-header-meta">
+                            <a href="#">All tasks (21) →</a>
+                            <span class="muted">full history: withdrawn, needs inspection, past sprints</span>
+                        </div>
+                    </form>
+                </section>
+
+                <section>
+                    <div class="page-header">
+                        <h2 class="card-title">Pipeline</h2>
+                    </div>
+                    <ol class="stepper">
+                        <li class="step"><span class="step-marker" aria-hidden="true"></span>
+                            <div class="step-body"><span class="step-label">Read task</span></div></li>
+                        <li class="step"><span class="step-marker" aria-hidden="true"></span>
+                            <div class="step-body"><span class="step-label">Select repository</span></div></li>
+                        <li class="step"><span class="step-marker" aria-hidden="true"></span>
+                            <div class="step-body"><span class="step-label">Prepare task</span></div></li>
+                        <li class="step"><span class="step-marker" aria-hidden="true"></span>
+                            <div class="step-body"><span class="step-label">Implement</span></div></li>
+                        <li class="step"><span class="step-marker" aria-hidden="true"></span>
+                            <div class="step-body"><span class="step-label">Verify</span></div></li>
+                        <li class="step"><span class="step-marker" aria-hidden="true"></span>
+                            <div class="step-body"><span class="step-label">Publish</span></div></li>
+                        <li class="step"><span class="step-marker" aria-hidden="true"></span>
+                            <div class="step-body"><span class="step-label">PR feedback</span></div></li>
+                    </ol>
+                </section>
+
+                <section>
+                    <div class="page-header">
+                        <h2 class="card-title">Steps</h2>
+                        <span class="muted">unchanged — as today</span>
+                    </div>
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">Step 1 · Read task</h3>
+                            <div class="badge-row">
+                                <span class="badge badge-outline">AGENT</span>
+                                <span class="badge badge-outline">read-task</span>
+                            </div>
+                        </div>
+                        <div class="card-content">
+                            <dl class="def-list">
+                                <dt>Worker</dt><dd><a href="/workers">dev-intake</a></dd>
+                            </dl>
+                        </div>
+                    </div>
+                    <p class="muted">… 9 more steps, as today</p>
+                </section>
+
+                <section>
+                    <div class="page-header">
+                        <h2 class="card-title">Triggers</h2>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                            <tr><th>Event type</th><th>Filter (JSON pointer)</th><th>Expected value</th></tr>
+                            </thead>
+                            <tbody>
+                            <tr>
+                                <td><span class="badge badge-outline">manual</span></td>
+                                <td class="muted" colspan="2">Any payload</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </section>
+    </main>
+</div>
+</body>
+</html>
