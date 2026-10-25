@@ -18,6 +18,12 @@ the Test Factory flow, and the Developer Flow (`factory-flow-dev-factory`,
 including the M1 sprint pilot machinery).** New flows must be added as plugins —
 never by modifying the control plane.
 
+## Product postulates
+
+Simple. Transparent. Easy to configure. These outrank feature ambitions: a design
+that adds layers, packages or configuration surface carries that cost explicitly
+in the plan — it is never assumed away by "the feature needs it".
+
 ## Commands
 
 ```bash
@@ -209,6 +215,14 @@ No engine, router, or gateway changes — if a change seems to require touching
 - The best code is the code you never wrote. Before writing, climb the ladder: does this
   need to exist? Is there a stdlib / platform / existing-dependency answer? Can it be one
   line? Then write the minimum that works — nothing speculative.
+- The ladder starts at planning, not coding: a plan proposes the minimal version and
+  extends existing packages/components; every new package or layer carries an explicit
+  justification. By the time code exists, its complexity is already approved — the plan
+  is where slop is stopped.
+- A UI-bearing feature enters a plan only with a static mockup (HTML or screenshots) in
+  the repo next to the spec, reviewed by the operator before plan approval.
+- Plans and significant changes get an adversarial review pass from a fresh-context
+  sub-agent critic (which layer does this add, and why) before implementation starts.
 - Surgical changes: touch only what the task needs; clean up only your own mess. Don't
   refactor unrelated code.
 - Never cut corners on: input validation at trust boundaries, error handling, security,
