@@ -358,14 +358,124 @@ excluded file, so all three install the same dependency versions even while npm-
 publishes new snapshots. Verification installs with it seeded (frozen when `package.json` is
 unchanged from base); the receipt records the lockfile hash.
 Done: a no-lockfile fixture verifies with the pinned versions after a newer snapshot is
-published; ui-orders or ui-myprofile runs end-to-end.
+published; a no-lockfile module runs end-to-end (ui-circulation stands in for the ui-orders or
+ui-myprofile named when this phase was planned: ui-myprofile `master` is red and ui-circulation has
+the same shape, no lockfile and Jest).
+
+Design (settled before implementation). Spike with yarn 1.22.22 on `node:22.22.0-bookworm`:
+`yarn install --frozen-lockfile` **succeeds without creating a lockfile** when none exists, so
+today a no-lockfile module installs fresh versions in the starting build, in the coding
+container and again in verification, and each stage can see a different npm-folioci snapshot.
+`yarn install` without the flag creates `yarn.lock`; with a lockfile present and `package.json`
+changed, `--frozen-lockfile` fails ("lockfile needs to be updated") while a plain install keeps
+the pinned versions and adds only what is new.
+- **Pin once, at the starting build.** If the base checkout has no `yarn.lock`, the starting
+  build runs the install **without** `--frozen-lockfile` (the configured install command with
+  that one token dropped; nothing new to configure), then reads `/workspace/yarn.lock` out of
+  the trusted workload. A lockfile is accepted only if it is UTF-8, starts with
+  `# yarn lockfile v1` and is at most 4 MiB (the largest recorded one, `ui-users`, is 0.75 MB).
+  A module whose base tracks `yarn.lock`, and Maven modules, are unchanged (tracked lockfile is
+  already the pin).
+- **One artifact, `dev_lockfile.json`**: `{"state":"PINNED","sha256":…,"content":…}`, or
+  `{"state":"NOT_NEEDED"|"NOT_RUN",…}` (plus `packageJsonBlob`, below). `implement` writes it, `continue-implementation` passes
+  it through (a clarification restart does not run the starting build again), `verify` and
+  `pr-follow-up` read it. `dev_readiness.json` gains `lockfile` (`PINNED`, `TRACKED`, `NONE`)
+  and `lockfileSha256`. The artifact is immutable like every other, so every stage of an
+  execution sees byte-identical content. Flow version stays 0.9.0, so parked PR follow-ups
+  keep running. The engine requires every declared input to exist, so an execution that is
+  between `implement` and `verify` (or parked at the PR follow-up) when this change is
+  deployed fails on the missing artifact: finish or drain executions first (runbook).
+- **Seeded, never tracked.** A pinned lockfile is copied into `/workspace/yarn.lock` of the
+  coding container (before the install, so the prepared workspace is the pinned one), of every
+  PR-feedback coding container and of the verification container, as a file owned by the
+  workload user (copied to a temp path, then `cp`, because `docker cp` creates root-owned
+  files and a later non-frozen install must be able to rewrite it). The freezer already
+  excludes an untracked `yarn.lock`, so it never reaches a patch, a PR or the receipt's tree.
+- **Install mode of verification.** `FROZEN` when the pinned lockfile is seeded and the
+  candidate's `package.json` is the one the lockfile was generated for, so any drift is an
+  error. `RESOLVE` (the install command without `--frozen-lockfile`) when it differs: pinned
+  versions are kept, only added or changed dependencies are resolved. "The one it was generated
+  for" is the Git blob id of `package.json` at the base commit, stored in `dev_lockfile.json`
+  (`packageJsonBlob`) and compared with the blob in the reconstructed candidate
+  (`git ls-files --stage package.json`). It is compared with the pin, not with the candidate's
+  own base, because a PR-feedback round's candidate is based on the PR head: a `package.json`
+  change from an earlier round would otherwise look "unchanged" and fail the frozen install.
+  The same rule (`PinnedLockfile.installMode(checkout)`) chooses the install of every coding
+  container before the agent starts, not only verification: a feedback round starts from the PR
+  head, and after a round that added a dependency a frozen install there would fail with
+  `WORKSPACE_INSTALL` before any model call, on every retry. (Found in review; the live pilot
+  stopped one round short of it.) The agent's own installs in the container are not restricted:
+  a non-frozen install also keeps the pins.
+- **Receipt and policy.** The receipt gains `lockfileSha256` (null when no lockfile was
+  pinned); `argv` stays the effective command, so the two install modes give two argv values.
+  `VerificationPolicy` accepts a receipt whose `argv` is the frozen variant, or the resolving
+  variant only when the receipt carries a `lockfileSha256` (a plain install is legitimate only
+  against a pinned lockfile), both built from the current settings, so changing the install
+  command still invalidates old receipts. The generated `yarn.lock` is read out of the workload
+  only if it is a regular file (a symlink at that path is refused, because code in the workload
+  decides what is there). The PR text states the pinned lockfile's short hash.
+- **Limit.** Pins hold within one execution because the starting build leaves every tarball in
+  the shared yarn cache that coding and verification are seeded from. If the cache volume is
+  reset and npm-folioci has since pruned a pinned snapshot, the install fails with a registry
+  404 (an environment failure): run the ticket again to pin a new lockfile.
+
+Result (implemented 2026-10-25). Unit tests cover
+the install modes and their commands, lockfile validation and digest, seeding before the coding
+install in the initial attempt, the clarification restart and a feedback round, a blocked start
+on an unusable lockfile, the frozen/resolving choice in verification, the receipt hash, policy
+acceptance of both argv variants and the PR line. Docker-gated, Linux harness, real containers:
+`PinnedLockfileDockerTest` starts a throwaway npm registry container, the starting build pins
+`@folio/pinned-fixture` 1.0.0, 1.1.0 is published, an unpinned install now yields 1.1.0 and
+fails the check, and `CandidateVerifier` with the pinned lockfile installs frozen, passes, and
+records the lockfile hash (policy matches); a second test shows a seeded `yarn.lock` is owned by
+the workload user. The Claude Code yarn fixture (jest, no lockfile) now goes baseline → pinned →
+coding → verification through the same path. The first version of the lockfile check required
+`# yarn lockfile v1` on the first line; real yarn writes `# THIS IS AN AUTOGENERATED FILE…` first,
+which only the gated test could show. Full `mvn verify` on Linux: Developer Flow module 337
+tests (21 gated skipped), app module 245, no failures.
+End-to-end on a real no-lockfile module: UICIRC-1390 ("Add Automatic renewals section to Loan
+policy page") on `ui-circulation` (base `fb569e5`, fork `Dmytro-Melnyshyn/ui-circulation`),
+`gpt-5.6-luna-2026-07-09`, reasoning `max`.
+- **Run 1 (no PR).** Starting build: "No lockfile found", install without `--frozen-lockfile`,
+  lockfile read out and pinned (766 KB, `lockfile: PINNED`, SHA-256 `d07e4cb0…`), Jest passed in
+  16 s. Coding container: frozen install against the seeded lockfile, 12 s. The agent then ran
+  the module's full `yarn test`, whose script is `jest --ci --coverage --colors`: a coloured
+  coverage table per source file, which Pi streams as cumulative partial tool output. The event
+  stream passed `EVENT_STREAM_LIMIT` (16 MiB) 27 s into that command, Factory killed the
+  session (`RUNTIME_ERROR`, "Command exceeded output limit") and the attempt, 2.3 minutes of
+  work, was lost. `ui-users` never hit this because its output is plainer. Fix: the
+  verification line of the coding prompt now says the output can be thousands of lines, the
+  session has a hard size limit, and to send it to a file and read the tail
+  (`(<command>) > /tmp/factory-check.log 2>&1; echo "exit=$?"; tail -n 80 …`); the limit stays.
+- **Run 2.** Trigger to PR 5 min 30 s. The same lockfile hash was pinned (no newer snapshot in
+  between). The agent ran targeted tests (72) and the full suite (192 suites, 2153 tests), moved
+  the section, normalised a blank retry value and updated tests. Independent verification: frozen
+  install against the pinned lockfile, PASS, 2153 tests, receipt `lockfileSha256` set. PR #1 on the
+  fork: 3 files (+87 −83), no `yarn.lock`, the PR text states the pinned hash. 742k cache-read
+  and 227k cache-write tokens, 12.6k output.
+- **PR feedback with the pin.** Round 1, inline comment "add unit tests for the retry-period
+  normalization": 2 min 20 s from click to push, `normalize.test.js` added (+5 tests), verification
+  PASS with 2158 tests, frozen install, receipt `lockfileSha256` `d07e4cb0…` (same pin). Round 2,
+  PR comment "raise the minimum `lodash` to `^4.17.21`": the patch changes only `package.json`, so
+  the candidate's `package.json` blob differs from the pinned one; verification took the
+  resolving path (receipt command `yarn install --ignore-scripts --non-interactive && yarn test
+  --maxWorkers=2`, no `--frozen-lockfile`), PASS with 2158 tests, same lockfile hash, no
+  `yarn.lock` in the PR (3 commits, 5 files). The first attempt at round 2 stopped at
+  `REFRESH_REQUIRED` without any container or model call: the selection came from the snapshot
+  taken before round 1 pushed, which the flow rejects by design; "Check PR comments" and a new
+  selection fixed it.
 
 ## Risks and open questions
 
 - **Cache growth.** The shared yarn cache has no eviction and grows with every module (1–2.6
-  GB each, with heavy overlap). Seeding costs about 3 s per GB (8 s for 2.5 GB), per coding
-  and verification container. If it gets large, reset it by removing the volume while the
-  stack is stopped; per-repository volumes remain an option.
+  GB each, with heavy overlap); it was 3.4 GB on 2026-10-25 after ui-users, ui-circulation and
+  the test fixtures. Seeding costs per coding and verification container: the phase 2 spike
+  measured about 3 s per GB (8 s for 2.5 GB), but a plain `cp -a` of the real 3.4 GB volume on
+  the pilot machine took 57 s (about 17 s per GB). See "Seed copy size and timeout". If it gets
+  large, reset it by removing the volume while the stack is stopped; per-repository volumes
+  remain an option. Since phase 6 an execution's pinned lockfile also depends on the cache
+  keeping its tarballs: after a reset, npm-folioci may have pruned an old snapshot (runbook:
+  run the ticket again).
 - **Flaky tests** fail verification as `UNKNOWN`/`CANDIDATE`. Accepted for the pilot; the
   operator can request another check. Revisit (e.g. bounded re-run of failed suites only) with
   real data.
@@ -418,6 +528,14 @@ published; ui-orders or ui-myprofile runs end-to-end.
   `podman run --rm -v "<repo>:/src:ro" -v "<home>\.m2:/root/.m2" maven:3.9-eclipse-temurin-21 sh -c
   'mkdir /work && cd /src && tar --exclude=target --exclude=.git --exclude=node_modules -cf - . |
   tar -xf - -C /work && cd /work && mvn -B -ntp -o -pl factory-flow-dev-factory -am test'`.
+  The Docker-gated tests that run a mock model endpoint inside the test JVM
+  (`ClaudeCodeDockerTest`, `PiCodingHttpContractTest`) also need `--network host` on this
+  harness container: the coding containers call back to `host.docker.internal:<port>`, which
+  must reach the JVM's own network namespace. Without it every such case fails with
+  `RUNTIME_ERROR` after a 60-100 s timeout (a 24-case class then takes half an hour). Run only the
+  classes you need (`-Dtest=Class#method`) and keep the full Maven output until the end, because
+  piping it through `grep | head` hides results. `PinnedLockfileDockerTest` needs neither: its
+  throwaway registry is a container reached by IP.
   The app's database-backed tests pass on Linux too (`PrFeedbackIntegrationTest` 20/20, which
   fails 19/20 on Windows): use `-pl factory-app -am` and add `--network host`,
   `-v /run/user/1000/podman/podman.sock:/var/run/docker.sock`,
@@ -439,14 +557,31 @@ published; ui-orders or ui-myprofile runs end-to-end.
   allow overlap). Yarn v1 is not safe for concurrent cache writes without `--mutex`, and
   `--mutex` does not cover the `chown`/`cp` races; Maven tolerates them better (atomic
   temp-file renames) and the engine retry covers a vanished file. Unobserved so far because
-  executions run one at a time. **Before more than one person uses the flow** (phase 4
-  prerequisite, as its own change): an in-process lock per cache volume in `DockerWorkloads`
-  held across the starting build and the seed copies.
+  executions run one at a time (the runbook says to run one UI ticket at a time). **Before more
+  than one person uses the flow**, as its own change: an in-process lock per cache volume in
+  `DockerWorkloads`, one permit per volume (a semaphore, not a reentrant lock, because the
+  workload need not be closed on the thread that opened it), taken before
+  `ensureWritableCache` so the `chown -R` is covered, released in the trusted workload's
+  `close()` (safe to call twice) so every exit path releases it, with a `cache_lock_waiting`
+  progress event so a queued starting build does not look hung. Seed copies only read and need
+  no lock. Decided against, for now: yarn `--mutex file:` and Maven's `file-lock` named locks
+  (finer-grained and they work across containers, but they change the trusted command and
+  invalidate old receipts, and the Maven resolver setting is untested on these volumes), and the
+  narrower `find … ! -user … chown` (the walk dominates, not the writes).
 - **Seed copy size and timeout.** The seed copy has a fixed 120 s timeout and the cache is
-  shared by all UI modules: 8 s with only ui-users in it, roughly 6 GB with ui-users,
-  ui-inventory and ui-orders, copied into every coding and verification container. Measure in
-  phase 4 with several modules; switch to one cache volume per repository, or raise the
-  timeout, if the copy approaches the limit.
+  shared by all UI modules, copied into every coding and verification container. Measured
+  2026-10-25 on the pilot machine: `cp -a` of the 3.4 GB volume took 57 s (about 17 s per GB),
+  so the limit is reached at roughly 7 GB, about twice today's size; an earlier estimate of
+  15–30 GB, taken from the faster phase 2 spike, was wrong for this machine. In real runs the
+  coding container was ready 26–32 s after the starting build, so a workload copy may be faster
+  than this test, but that is not measured. Hardening, in this order, as its own change: (1) a
+  `runtime.seed-timeout-seconds` setting (default 300, explicit `${ENV_VAR:}` placeholder in
+  `application.yaml`, forwarded in Compose) and a `BLOCKED_ENVIRONMENT` message that includes
+  the cache size instead of a generic process failure; (2) the cache lock above; (3) one yarn
+  cache volume per repository (`factory-dev-yarn-cache-<repo>`), with a recorded trigger of
+  about 5 GB total or real concurrency across modules, accepting duplicate disk for the shared
+  stripes tree and a Compose and runbook change. Maven's `repo.local.tail` (zero-copy seeding)
+  is skipped: the Maven cache is empty here, so there is no measured problem.
 - **Podman instead of Docker (pilot machine).** The VM's `/var/run/docker.sock` now points
   to the rootless socket (`/run/user/1000/podman/podman.sock`), so the Compose socket mount
   and the Factory container's Docker CLI should work; `podman compose` delegates to Docker

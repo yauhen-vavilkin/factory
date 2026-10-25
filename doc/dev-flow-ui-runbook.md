@@ -54,8 +54,10 @@ anonymously, so `FACTORY_CONNECTORS_JIRA_BASE_URL` alone is enough.
    delivery target falls back to the upstream repository.
 3. `.env`: `FACTORY_<KEY>_DELIVERY_REPO=<your-fork>/<repo>`. The fork's base branch must contain
    the base commit (sync the fork first), or delivery is blocked.
-4. The module must use Jest through `@folio/jest-config-stripes` and have a `yarn.lock`
-   (modules without one wait for phase 6). BigTest/Karma modules are not supported.
+4. The module must use Jest through `@folio/jest-config-stripes`. A `yarn.lock` is optional: if the
+   base commit has none (most FOLIO UI modules), the starting build generates one and Factory
+   pins it for that execution (readiness shows `lockfile: PINNED` and its SHA-256; the PR text
+   repeats the hash). The pin is not part of the PR. BigTest/Karma modules are not supported.
 5. Recreate the container (`podman compose up -d`) and run the ticket.
 
 ## 4. Model and gateway
@@ -86,6 +88,8 @@ client key: delete `bridge-client-key`, run `start-bridge.ps1 -Stop`, start it a
 | Starting build fails, `BASELINE_FAILED` / `BLOCKED_ENVIRONMENT` | Upstream `master` is red, a suite fails to load, or a flaky test failed | Read the output in the readiness artifact. Red or unloadable suites need an upstream fix; for a flake, run the ticket again |
 | "Starting build hit a network/download failure" or "Workspace dependency install hit a network/download failure" | npm registry timeout or reset | Nothing: the engine retries (3 attempts) and then escalates to the review inbox |
 | "Workspace dependency install failed before model spend: …" | The yarn error is quoted; usually an out-of-date lockfile | Fix the lockfile upstream. No model call was made |
+| "Starting build could not pin the dependency lockfile: …" | The generated `yarn.lock` is larger than 4 MiB or is not yarn v1 text | The message says which. No model call was made; a lockfile that large needs a decision (raise the limit in `PinnedLockfile`) |
+| Install fails with a registry `404` for a package that is in the pinned lockfile | The yarn cache volume was reset and npm-folioci has since pruned that snapshot | Run the ticket again: the new starting build pins a fresh lockfile |
 | Delivery blocked: "requires a configured user-owned GitHub fork" | The delivery repository resolved to `folio-org/…` | Set `FACTORY_<KEY>_DELIVERY_REPO`, make sure Compose forwards it (section 3), recreate the container |
 | Delivery blocked: base commit not in the fork | The fork is behind upstream | Sync the fork's base branch, run the ticket again |
 | "Configure factory.dev-factory.runtime.coding.pi …" | Pi settings missing or empty | Fix `.env`, recreate the container |
@@ -109,8 +113,15 @@ page. The bridge logs only method, path and status.
 
 ## 7. Known limits
 
-- Modules without `yarn.lock` (phase 6); BigTest/Karma modules; visual or E2E checks; lint;
-  tickets that span a backend and a UI repository.
+- BigTest/Karma modules; visual or E2E checks; lint; tickets that span a backend and a UI
+  repository.
+- **Upgrading to the lockfile pin (phase 6).** The flow steps `implement`, `continue-implementation`,
+  `verify` and `pr-follow-up` now exchange `dev_lockfile.json`, and the engine requires every declared
+  input to exist. An execution that is already past `implement`, or waiting at the PR follow-up, when the
+  new version is deployed fails with "requires artifact 'dev_lockfile.json' which does not exist". Finish
+  or cancel those executions first (merge or close their PRs), then deploy.
+- A pinned lockfile only fixes versions inside one execution. A new execution of the same ticket
+  pins again and can see newer npm-folioci snapshots.
 - Jest tests can be flaky (`ui-users` has one that times out now and then); the flow does not
   re-run them.
 - Delivery has no approval gate; the control is the `authorized` flag and the fork-only rule.
