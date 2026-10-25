@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -101,8 +101,8 @@ Flow modules plug in via the `AgentWorker` SPI and a YAML descriptor; only
    (amendments are validated per-flow via `ArtifactAmendmentValidator`).
 6. **SUB_FLOW** steps (`SubFlowInvoker`) start a child execution of any
    registered flow; the parent waits — including through the child's HITL
-   gates — then collects mapped output artifacts. Built now; Flow E will use
-   it to compose Flows A and D.
+   gates — then collects mapped output artifacts. Flow E will use it to
+   compose Flows A and D.
 
 ### Framework invariants (enforced, don't work around them)
 
