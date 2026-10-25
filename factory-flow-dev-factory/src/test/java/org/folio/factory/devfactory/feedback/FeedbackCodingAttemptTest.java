@@ -9,6 +9,8 @@ import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
+import org.folio.factory.devfactory.runtime.InstallMode;
 import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.runtime.Toolchain;
 import org.junit.jupiter.api.Test;
@@ -19,6 +21,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
 
@@ -40,6 +43,10 @@ class FeedbackCodingAttemptTest {
     private final Map<String, String> outputs = new HashMap<>();
 
     private CodingOutcome run() {
+        return run(Optional.empty());
+    }
+
+    private CodingOutcome run(Optional<PinnedLockfile> pinned) {
         var repo = new DevFactoryProperties.Repository("owner/repo", "master", "node:image", "jest", List.of("TASK"), List.of());
         var properties = new DevFactoryProperties("https://example.org", new TreeMap<>(Map.of("repo", repo)));
         var docker = mock(DockerWorkloads.class);
@@ -57,7 +64,7 @@ class FeedbackCodingAttemptTest {
                 CodingRequest.Constraints.defaults());
         var attempt = new FeedbackCodingAttempt(properties, freezer, coding, docker, runtime, model -> Map.of());
         var context = new AgentContext(UUID.randomUUID(), "round-1", Map.of(), null, Map.of(), List.of());
-        return attempt.run(context, state, request, candidate, "https://example.org/owner/repo.git", "round-1",
+        return attempt.run(context, state, request, candidate, pinned, "https://example.org/owner/repo.git", "round-1",
                 outputs, new HashMap<>(), event -> { });
     }
 
@@ -76,6 +83,46 @@ class FeedbackCodingAttemptTest {
         order.verify(coding).code(eq(workload), request.capture(), eq(60), any());
         assertThat(request.getValue().constraints().verificationCommand()).isEqualTo("yarn test --maxWorkers=2");
         assertThat(request.getValue().constraints().dependenciesInstalled()).isTrue();
+    }
+
+    private PinnedLockfile pinForPackageJsonOf(String packageJson, boolean sameAsCheckout) throws Exception {
+        CandidateFreezer.git(source, "init", "--quiet");
+        java.nio.file.Files.writeString(source.resolve("package.json"), packageJson);
+        CandidateFreezer.git(source, "add", "package.json");
+        String blob = sameAsCheckout ? CandidateFreezer.trackedBlob(source, "package.json") : "e".repeat(40);
+        return PinnedLockfile.of("# yarn lockfile v1\n".getBytes()).forPackageJson(blob);
+    }
+
+    @Test
+    void roundOnAPrHeadWhosePackageJsonMovedPastThePinInstallsWithoutFrozenLockfile() throws Exception {
+        var pin = pinForPackageJsonOf("{\"name\":\"fixture\",\"dependencies\":{\"lodash\":\"^4.17.21\"}}", false);
+        var resolving = runtime.installCommand("jest", InstallMode.RESOLVE);
+        when(workload.execute(resolving, 60)).thenReturn(new Processes.Result(0, "Done in 14s."));
+        when(coding.code(eq(workload), any(CodingRequest.class), eq(60), any()))
+                .thenReturn(CodingOutcome.completed("Done", Map.of()));
+
+        var outcome = run(Optional.of(pin));
+
+        assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(resolving).doesNotContain("--frozen-lockfile");
+        var order = inOrder(workload, coding);
+        order.verify(workload).seedLockfile(pin);
+        order.verify(workload).execute(resolving, 60);
+        order.verify(coding).code(eq(workload), any(CodingRequest.class), eq(60), any());
+        verify(workload, never()).execute(install, 60);
+    }
+
+    @Test
+    void roundOnAPrHeadWithThePinnedPackageJsonStaysFrozen() throws Exception {
+        var pin = pinForPackageJsonOf("{\"name\":\"fixture\"}", true);
+        when(workload.execute(install, 60)).thenReturn(new Processes.Result(0, "Done in 14s."));
+        when(coding.code(eq(workload), any(CodingRequest.class), eq(60), any()))
+                .thenReturn(CodingOutcome.completed("Done", Map.of()));
+
+        run(Optional.of(pin));
+
+        verify(workload).seedLockfile(pin);
+        verify(workload).execute(install, 60);
     }
 
     @Test

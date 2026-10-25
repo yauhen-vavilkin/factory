@@ -261,6 +261,21 @@ class DevRuntimePropertiesTest {
     }
 
     @Test
+    void resolvingInstallIsTheConfiguredInstallWithoutTheFrozenFlagAndMavenIsUnaffected() {
+        var plans = Map.of("unit", java.util.List.of("mvn", "-B", "test"),
+                "jest", java.util.List.of("yarn", "test", "--maxWorkers=2"));
+        var runtime = new DevRuntimeProperties(plans, null, 0, null, Map.of(), Map.of("jest", Toolchain.YARN));
+
+        assertThat(runtime.installCommand("jest", InstallMode.FROZEN)).isEqualTo(runtime.installCommand("jest"));
+        assertThat(runtime.installCommand("jest", InstallMode.RESOLVE))
+                .containsExactly("yarn", "install", "--ignore-scripts", "--non-interactive");
+        assertThat(runtime.verificationCommand("jest", InstallMode.RESOLVE)).containsExactly("sh", "-c",
+                "'yarn' 'install' '--ignore-scripts' '--non-interactive' && 'yarn' 'test' '--maxWorkers=2'");
+        assertThat(runtime.verificationCommand("jest", InstallMode.FROZEN)).isEqualTo(runtime.verificationCommand("jest"));
+        assertThat(runtime.verificationCommand("unit", InstallMode.RESOLVE)).containsExactly("mvn", "-B", "test");
+    }
+
+    @Test
     void quotedTokensReachTheShellAsOneArgumentEach() throws Exception {
         var probe = new ProcessBuilder("sh", "-c", "exit 0");
         try {

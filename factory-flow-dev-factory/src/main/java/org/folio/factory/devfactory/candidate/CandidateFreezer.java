@@ -112,6 +112,11 @@ public class CandidateFreezer {
         }
         return tracked;
     }
+    /** Git blob id of a tracked file in the checkout's index, or empty when the file is not tracked. */
+    public static String trackedBlob(Path checkout, String file) {
+        String[] fields = git(checkout, "ls-files", "--stage", "--", file).strip().split("\\s+");
+        return fields.length >= 2 ? fields[1] : "";
+    }
     public static String git(Path directory, String... args) {
         var command = new java.util.ArrayList<>(List.of("git", "-c", "core.hooksPath=/dev/null", "-c", "core.autocrlf=false"));
         command.addAll(List.of(args));

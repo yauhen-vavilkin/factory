@@ -138,9 +138,16 @@ class DevelopReadinessTest {
     }
 
     private record YarnScenario(DevelopWorker worker, AgentContext context, DockerWorkloads.Workload baseline,
+                                DevFactoryProperties properties, DevRuntimeProperties runtime, DockerWorkloads docker,
+                                CandidateFreezer freezer,
                                 DockerWorkloads.Workload agent, CodingRuntime coding, List<String> install) { }
 
     private YarnScenario yarnScenario(Processes.Result installResult) {
+        return yarnScenario(installResult, true);
+    }
+
+    private YarnScenario yarnScenario(Processes.Result installResult, boolean trackedLockfile) {
+        gitWorkspace(trackedLockfile);
         var repo = new DevFactoryProperties.Repository("owner/repo", "master", "node:image", "jest", List.of("TASK"), List.of());
         var properties = new DevFactoryProperties("https://example.org", new TreeMap<>(Map.of("repo", repo)));
         var runtime = new DevRuntimeProperties(Map.of("jest", List.of("yarn", "test", "--maxWorkers=2")), null, 60, null,
@@ -159,7 +166,9 @@ class DevelopReadinessTest {
         when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
         when(stepScope.createTrusted("node:image", workspace, environment)).thenReturn(baseline);
         when(stepScope.createSeeded("pi:image", workspace, environment, "coding")).thenReturn(agent);
-        when(baseline.execute(eq(runtime.verificationCommand("jest")), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
+        var mode = trackedLockfile ? InstallMode.FROZEN : InstallMode.RESOLVE;
+        when(baseline.readLockfile()).thenReturn(trackedLockfile ? java.util.Optional.empty() : java.util.Optional.of(LOCKFILE));
+        when(baseline.execute(eq(runtime.verificationCommand("jest", mode)), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
                 .thenReturn(new Processes.Result(0, "Done in 1s."));
         when(agent.execute(install, 60)).thenReturn(installResult);
         when(coding.code(eq(agent), any(CodingRequest.class), eq(60), any()))
@@ -176,7 +185,7 @@ class DevelopReadinessTest {
                 null, Map.of(), List.of());
         var worker = new DevelopWorker(new org.folio.factory.devfactory.worker.InitialCodingAttempt(properties, runtime, docker,
                 freezer, coding, codec, mock(AuditLog.class), model -> Map.of()), codec);
-        return new YarnScenario(worker, context, baseline, agent, coding, install);
+        return new YarnScenario(worker, context, baseline, properties, runtime, docker, freezer, agent, coding, install);
     }
 
     @Test void yarnCodingContainerIsPreparedBeforeTheAgentAndTheRequestNamesTheVerificationCommand() {
@@ -191,6 +200,83 @@ class DevelopReadinessTest {
         order.verify(s.coding()).code(eq(s.agent()), request.capture(), eq(60), any());
         assertThat(request.getValue().constraints().verificationCommand()).isEqualTo("yarn test --maxWorkers=2");
         assertThat(request.getValue().constraints().dependenciesInstalled()).isTrue();
+    }
+
+    private static final PinnedLockfile LOCKFILE = PinnedLockfile.of("# yarn lockfile v1\n\nleft-pad@^1.3.0:\n  version \"1.3.0\"\n"
+            .getBytes());
+
+    /**
+     * The base checkout: with a tracked lockfile, just that file; without one, a real Git repository,
+     * so the package.json blob is the one a pinned lockfile records. The worker removes it afterwards.
+     */
+    private void gitWorkspace(boolean trackedLockfile) {
+        try {
+            java.nio.file.Files.createDirectories(workspace);
+            if (trackedLockfile) {
+                java.nio.file.Files.writeString(workspace.resolve("yarn.lock"), "# yarn lockfile v1\n");
+                return;
+            }
+            CandidateFreezer.git(workspace, "init", "--quiet");
+            java.nio.file.Files.writeString(workspace.resolve("package.json"), "{\"name\":\"fixture\"}");
+            CandidateFreezer.git(workspace, "add", "--all");
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    @Test void moduleWithoutALockfileIsPinnedByTheStartingBuildAndSeededBeforeTheCodingInstall() {
+        var s = yarnScenario(new Processes.Result(0, "Done in 14s."), false);
+        String blob = CandidateFreezer.trackedBlob(workspace, "package.json");
+
+        var result = s.worker().execute(s.context());
+
+        var pinned = PinnedLockfile.parse(result.outputs().get(DevelopWorker.LOCKFILE)).orElseThrow();
+        assertThat(pinned.sha256()).isEqualTo(LOCKFILE.sha256());
+        assertThat(pinned.packageJsonBlob()).isEqualTo(blob).hasSize(40);
+        assertThat(result.outputs().get(DevelopWorker.READINESS))
+                .contains("\"lockfile\":\"PINNED\"", "\"lockfileSha256\":\"" + LOCKFILE.sha256() + "\"")
+                .doesNotContain("--frozen-lockfile'");
+        var order = inOrder(s.agent(), s.coding());
+        order.verify(s.agent()).seedLockfile(pinned);
+        order.verify(s.agent()).execute(s.install(), 60);
+        order.verify(s.coding()).code(eq(s.agent()), any(CodingRequest.class), eq(60), any());
+    }
+
+    @Test void moduleThatTracksALockfileIsInstalledFrozenAndPinsNothing() {
+        var s = yarnScenario(new Processes.Result(0, "Done in 14s."));
+
+        var result = s.worker().execute(s.context());
+
+        assertThat(PinnedLockfile.parse(result.outputs().get(DevelopWorker.LOCKFILE))).isEmpty();
+        assertThat(result.outputs().get(DevelopWorker.LOCKFILE)).contains("NOT_NEEDED");
+        assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("\"lockfile\":\"TRACKED\"")
+                .doesNotContain("lockfileSha256");
+        verify(s.agent(), never()).seedLockfile(any());
+    }
+
+    @Test void clarificationRestartSeedsTheLockfileFromTheArtifactWithoutANewStartingBuild() {
+        var s = yarnScenario(new Processes.Result(0, "Done in 14s."), false);
+        var attempt = new org.folio.factory.devfactory.worker.InitialCodingAttempt(
+                s.properties(), s.runtime(), s.docker(), s.freezer(), s.coding(), new FrontmatterCodec(),
+                mock(AuditLog.class), model -> Map.of());
+        var pinned = LOCKFILE.forPackageJson(CandidateFreezer.trackedBlob(workspace, "package.json"));
+
+        attempt.retry(s.context(), request(), tools.jackson.databind.json.JsonMapper.builder().build().readTree("{}"),
+                pinned.toArtifact());
+
+        verify(s.agent()).seedLockfile(pinned);
+        verify(s.baseline(), never()).execute(any(), anyInt(), anyInt(), any());
+    }
+
+    @Test void unusableGeneratedLockfileBlocksBeforeModelSpend() {
+        var s = yarnScenario(new Processes.Result(0, "Done in 14s."), false);
+        when(s.baseline().readLockfile()).thenThrow(new IllegalStateException("The generated yarn.lock is unusable: Not a usable yarn lockfile"));
+
+        var result = s.worker().execute(s.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT")
+                .contains("could not pin the dependency lockfile");
+        verify(s.coding(), never()).code(any(), any(), anyInt(), any());
     }
 
     @Test void failedInstallInTheCodingContainerStopsBeforeAnyModelCall() {
@@ -222,6 +308,7 @@ class DevelopReadinessTest {
         var runtime = new DevRuntimeProperties(Map.of("unit", plan), null, 60, null, Map.of(),
                 toolchain == Toolchain.YARN ? Map.of("unit", Toolchain.YARN) : Map.<String, Toolchain>of());
         var environment = runtime.environment("unit");
+        if (toolchain == Toolchain.YARN) gitWorkspace(true);
         var command = runtime.verificationCommand("unit");
         var docker = mock(DockerWorkloads.class);
         var stepScope = mock(DockerWorkloads.StepScope.class);
@@ -250,6 +337,7 @@ class DevelopReadinessTest {
         if (retryable) {
             // Repeated worker attempts retain the configured repository and do not add a global -U.
             for (int attempt = 0; attempt < 2; attempt++) {
+                if (toolchain == Toolchain.YARN) gitWorkspace(true);
                 assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class)
                         .hasMessageContaining("Starting build hit a network/download failure")
                         .hasMessageContaining("coding has not started")

@@ -76,10 +76,19 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
     public List<String> installCommand(String id) {
         return toolchain(id) == Toolchain.YARN ? yarn.installCommand() : List.of();
     }
+    /** The install for a lockfile mode: RESOLVE is the configured install without {@code --frozen-lockfile}. */
+    public List<String> installCommand(String id, InstallMode mode) {
+        var install = installCommand(id);
+        return mode == InstallMode.FROZEN ? install
+                : install.stream().filter(token -> !"--frozen-lockfile".equals(token)).toList();
+    }
     /** What the starting build and independent verification execute: install (if any), then the plan. */
     public List<String> verificationCommand(String id) {
+        return verificationCommand(id, InstallMode.FROZEN);
+    }
+    public List<String> verificationCommand(String id, InstallMode mode) {
         var plan = command(id);
-        var install = installCommand(id);
+        var install = installCommand(id, mode);
         return install.isEmpty() ? plan : List.of("sh", "-c", shell(install) + " && " + shell(plan));
     }
     static String shell(List<String> argv) {

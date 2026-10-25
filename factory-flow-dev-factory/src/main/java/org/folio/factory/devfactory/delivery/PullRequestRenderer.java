@@ -77,6 +77,8 @@ public final class PullRequestRenderer {
                             + "\n- Failsafe reports: " + verification.failsafeReportCount() + "\n";
                     case YARN -> "- Jest reports: " + verification.surefireReportCount() + "\n";
                 })
+                .append(verification.lockfileSha256() == null ? ""
+                        : "- Pinned yarn.lock (not part of this PR): sha256 " + verification.lockfileSha256() + "\n")
                 .append("- Required suites: ")
                 .append(
                         verification.requiredReports().isEmpty()

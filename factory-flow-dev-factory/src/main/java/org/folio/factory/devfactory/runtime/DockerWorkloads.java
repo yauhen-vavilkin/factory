@@ -3,6 +3,7 @@ package org.folio.factory.devfactory.runtime;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,6 +18,7 @@ public class DockerWorkloads {
     private static final String YARN_CACHE = "/tmp/factory-home/.yarn-cache";
     private static final String YARN_SEED = "/tmp/factory-yarn-seed";
     private static final String PARKED_NODE_MODULES = "/tmp/factory-parked-node_modules";
+    private static final String STAGED_LOCKFILE = "/tmp/factory-pinned-yarn.lock";
     private final Set<String> activeSteps = ConcurrentHashMap.newKeySet();
 
     /** Claims this step within this process before looking for crashed predecessors. */
@@ -213,6 +215,49 @@ public class DockerWorkloads {
         public String name() { return name; }
         public void copy(String local, String destination) {
             Processes.run(null, List.of("docker", "cp", local, name + ":" + destination), 120).requireSuccess();
+        }
+        /**
+         * Places the pinned lockfile at /workspace/yarn.lock, owned by the workload user: {@code docker cp}
+         * would make it root-owned and a later non-frozen install could not rewrite it.
+         */
+        public void seedLockfile(PinnedLockfile lockfile) {
+            Path staged = null;
+            try {
+                staged = java.nio.file.Files.createTempFile("factory-lockfile-", ".lock");
+                java.nio.file.Files.writeString(staged, lockfile.content());
+                copy(staged.toString(), STAGED_LOCKFILE);
+                Processes.run(null, List.of("docker", "exec", "--workdir", "/workspace", name, "cp",
+                        STAGED_LOCKFILE, PinnedLockfile.FILE), 30).requireSuccess();
+            } catch (java.io.IOException e) {
+                throw new IllegalStateException("Cannot stage the pinned lockfile", e);
+            } finally {
+                if (staged != null) try { java.nio.file.Files.deleteIfExists(staged); } catch (java.io.IOException ignored) { }
+            }
+        }
+        /** The lockfile yarn left in /workspace, if any; rejects one that is not usable text within the size limit. */
+        public Optional<PinnedLockfile> readLockfile() {
+            // Code in the workload decides what sits at this path, so only a plain file is read.
+            boolean link = execute(List.of("test", "-L", PinnedLockfile.FILE), 30).exitCode() == 0;
+            if (!link && execute(List.of("test", "-e", PinnedLockfile.FILE), 30).exitCode() != 0) return Optional.empty();
+            if (link || execute(List.of("test", "-f", PinnedLockfile.FILE), 30).exitCode() != 0)
+                throw new IllegalStateException("yarn.lock is not a regular file");
+            Path staged = null;
+            try {
+                staged = java.nio.file.Files.createTempFile("factory-lockfile-", ".lock");
+                Processes.run(null, List.of("docker", "cp", name + ":/workspace/" + PinnedLockfile.FILE,
+                        staged.toString()), 60).requireSuccess();
+                if (!java.nio.file.Files.isRegularFile(staged, java.nio.file.LinkOption.NOFOLLOW_LINKS))
+                    throw new IllegalStateException("yarn.lock is not a regular file");
+                if (java.nio.file.Files.size(staged) > PinnedLockfile.MAX_BYTES)
+                    throw new IllegalStateException("yarn.lock exceeds " + PinnedLockfile.MAX_BYTES / (1024 * 1024) + " MiB");
+                return Optional.of(PinnedLockfile.of(java.nio.file.Files.readAllBytes(staged)));
+            } catch (java.io.IOException e) {
+                throw new IllegalStateException("Cannot read the generated yarn.lock", e);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalStateException("The generated yarn.lock is unusable: " + e.getMessage(), e);
+            } finally {
+                if (staged != null) try { java.nio.file.Files.deleteIfExists(staged); } catch (java.io.IOException ignored) { }
+            }
         }
         public Processes.Result execute(List<String> argv, int timeout) {
             return execute(argv, timeout, Processes.OUTPUT_LIMIT);

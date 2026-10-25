@@ -6,6 +6,8 @@ import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.runtime.BuildEnvironment;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
+import org.folio.factory.devfactory.runtime.InstallMode;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
 import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.runtime.Toolchain;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
 
@@ -454,6 +457,58 @@ class CandidateVerifierTest {
         assertThat(receipt.result()).isEqualTo("FAIL");
         assertThat(receipt.toolchain()).isEqualTo(Toolchain.MAVEN);
         assertThat(receipt.surefireReportCount()).isZero();
+    }
+
+    private static PinnedLockfile pinnedFor(String packageJsonBlob) {
+        return PinnedLockfile.of("# yarn lockfile v1\n".getBytes()).forPackageJson(packageJsonBlob);
+    }
+
+    @Test
+    void pinnedLockfileIsSeededAndTheInstallIsFrozenWhileTheCandidateKeepsPackageJson() {
+        useYarn();
+        var pinned = pinnedFor("");
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "Tests: 7 passed"));
+        exportJest("passing-with-skips.xml");
+
+        var receipt = verifier.verify(executionId, "verify", candidate, Optional.of(pinned));
+
+        var order = inOrder(workload);
+        order.verify(workload).seedLockfile(pinned);
+        order.verify(workload).execute(command, 60);
+        assertThat(receipt.result()).isEqualTo("PASS");
+        assertThat(receipt.lockfileSha256()).isEqualTo(pinned.sha256());
+        assertThat(receipt.argv().get(2)).contains("'--frozen-lockfile'");
+    }
+
+    @Test
+    void candidateThatChangesPackageJsonKeepsThePinsButMayResolveNewDependencies() {
+        var plan = command;
+        useYarn();
+        var pinned = pinnedFor("c".repeat(40));
+        var resolving = new DevRuntimeProperties(Map.of("unit", plan), null, 60, null, Map.of(),
+                Map.of("unit", Toolchain.YARN)).verificationCommand("unit", InstallMode.RESOLVE);
+        when(workload.execute(resolving, 60)).thenReturn(new Processes.Result(0, "Tests: 7 passed"));
+        exportJest("passing-with-skips.xml");
+
+        var receipt = verifier.verify(executionId, "verify", candidate, Optional.of(pinned));
+
+        verify(workload).seedLockfile(pinned);
+        assertThat(receipt.result()).isEqualTo("PASS");
+        assertThat(receipt.argv()).isEqualTo(resolving);
+        assertThat(receipt.argv().get(2)).doesNotContain("--frozen-lockfile");
+        assertThat(receipt.lockfileSha256()).isEqualTo(pinned.sha256());
+    }
+
+    @Test
+    void withoutAPinnedLockfileNothingIsSeededAndTheReceiptCarriesNoHash() {
+        useYarn();
+        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "Tests: 7 passed"));
+        exportJest("passing-with-skips.xml");
+
+        var receipt = verifier.verify(executionId, "verify", candidate);
+
+        verify(workload, never()).seedLockfile(any());
+        assertThat(receipt.lockfileSha256()).isNull();
     }
 
     private void useYarn() {

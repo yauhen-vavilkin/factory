@@ -5,6 +5,8 @@ import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
+import org.folio.factory.devfactory.runtime.InstallMode;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.runtime.Toolchain;
@@ -14,6 +16,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Independent acceptance authority. No coding output or task text supplies executable policy. */
@@ -32,27 +35,43 @@ public class CandidateVerifier {
     }
 
     public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate) {
+        return verify(executionId, stepId, candidate, Optional.empty());
+    }
+
+    public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate,
+                                      Optional<PinnedLockfile> lockfile) {
         var repository = repositories.repositories().get(candidate.repository());
         if (repository == null) throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
         return verify(executionId, stepId, candidate,
-                repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git");
+                repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git", lockfile);
     }
 
     /** Source is supplied by Factory's authorized PR adapter, never by model output. */
     public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate, String sourceUrl) {
+        return verify(executionId, stepId, candidate, sourceUrl, Optional.empty());
+    }
+
+    /**
+     * A pinned lockfile is seeded as the workspace's yarn.lock. The install is frozen against it unless the
+     * candidate changes package.json, where pinned versions are kept and only new dependencies are resolved.
+     */
+    public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate, String sourceUrl,
+                                      Optional<PinnedLockfile> lockfile) {
         var repository = repositories.repositories().get(candidate.repository());
         if (repository == null) throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
-        var command = runtime.verificationCommand(repository.verificationPlan());
         var toolchain = runtime.toolchain(repository.verificationPlan());
         var requiredReports = runtime.requiredReports(repository.verificationPlan());
         // reconstruct checks the Git tree before any command can execute.
         Path source = candidates.reconstruct(sourceUrl, candidate);
         Path exported = null;
         try (var stepScope = docker.beginStep(executionId, stepId)) {
+            var install = lockfile.map(pin -> pin.installMode(source)).orElse(InstallMode.FROZEN);
+            var command = runtime.verificationCommand(repository.verificationPlan(), install);
             // New container storage; DockerWorkloads supplies no model/Jira/GitHub environment.
             // The checkout contains source only, without the coding workspace's target output.
             try (var workload = stepScope.createSeeded(repository.buildImage(), source,
                     runtime.environment(repository.verificationPlan()), "verification")) {
+                lockfile.ifPresent(workload::seedLockfile);
                 // A report left in the checkout must never stand in for this run's evidence.
                 if (toolchain == Toolchain.YARN) {
                     workload.execute(List.of("rm", "-rf", "artifacts/jest-junit"), 60);
@@ -104,7 +123,8 @@ public class CandidateVerifier {
                         evidence == null ? null : evidence.failureCount(),
                         evidence == null ? null : evidence.errorCount(), result,
                         safeOutput(output), failure,
-                        evidence == null ? 0 : evidence.failsafeReportCount(), requiredReports, missingReports, toolchain);
+                        evidence == null ? 0 : evidence.failsafeReportCount(), requiredReports, missingReports, toolchain,
+                        lockfile.map(PinnedLockfile::sha256).orElse(null));
             }
         } finally {
             CandidateFreezer.cleanup(source);

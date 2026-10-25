@@ -11,12 +11,15 @@ import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
+import org.folio.factory.devfactory.runtime.InstallMode;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
 import org.folio.factory.devfactory.runtime.PreparedWorkspace;
 
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 /** One feedback attempt. Saves partial edits before returning a question or failure. */
@@ -48,6 +51,7 @@ final class FeedbackCodingAttempt {
             FeedbackState state,
             CodingRequest request,
             Candidate candidate,
+            Optional<PinnedLockfile> lockfile,
             String sourceUrl,
             String operation,
             Map<String, String> outputs,
@@ -69,7 +73,10 @@ final class FeedbackCodingAttempt {
             progress.accept(start);
             try (var workload =
                     scope.createSeeded(coding.image(), source, environment, "coding")) {
-                var prepared = PreparedWorkspace.prepare(workload, runtime, repository.verificationPlan(), progress);
+                lockfile.ifPresent(workload::seedLockfile);
+                // The PR head may carry a package.json change from an earlier round; the pin then needs a plain install.
+                var install = lockfile.map(pin -> pin.installMode(source)).orElse(InstallMode.FROZEN);
+                var prepared = PreparedWorkspace.prepare(workload, runtime, repository.verificationPlan(), install, progress);
                 if (prepared.failed()) {
                     outcome = CodingOutcome.failed("WORKSPACE_INSTALL",
                             "Dependency install failed before any model call: " + prepared.failure(), Map.of());

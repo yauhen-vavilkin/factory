@@ -43,6 +43,19 @@ class PreparedWorkspaceTest {
         assertThat(events.get(0)).containsEntry("command", String.join(" ", install));
     }
 
+    @Test
+    void resolvingModeRunsTheInstallWithoutTheFrozenFlag() {
+        var resolving = runtime.installCommand("jest", InstallMode.RESOLVE);
+        when(workload.execute(resolving, 60)).thenReturn(new Processes.Result(0, "Done in 14s."));
+
+        var result = PreparedWorkspace.prepare(workload, runtime, "jest", InstallMode.RESOLVE, events::add);
+
+        assertThat(result.installed()).isTrue();
+        assertThat(resolving).isNotEqualTo(install).doesNotContain("--frozen-lockfile");
+        verify(workload).execute(resolving, 60);
+        assertThat(events.get(0)).containsEntry("command", String.join(" ", resolving));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "error An unexpected error occurred: \"https://registry.example/pkg.tgz: ETIMEDOUT\".",

@@ -37,7 +37,10 @@ final class CodingProtocol {
                 + (constraints.dependenciesInstalled()
                         ? "The dependencies for that command are already installed in /workspace; install again only if you change the dependency manifest.\n"
                         : "")
-                + "Run that command, or the relevant part of it, before you finish.\n";
+                + "Run that command, or the relevant part of it, before you finish.\n"
+                + "Its output can run to thousands of lines (coverage tables, build logs) and a session has a hard size limit: "
+                + "send it to a file and read only the end, for example: "
+                + "(" + constraints.verificationCommand() + ") > /tmp/factory-check.log 2>&1; echo \"exit=$?\"; tail -n 80 /tmp/factory-check.log\n";
     }
 
     static CodingOutcome answer(String summary, Map<String, Object> metrics, String runtime) {

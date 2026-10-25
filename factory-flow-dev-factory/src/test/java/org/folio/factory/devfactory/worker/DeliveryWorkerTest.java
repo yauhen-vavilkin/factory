@@ -13,6 +13,7 @@ import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryReceipt;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.InstallMode;
 import org.folio.factory.devfactory.runtime.Toolchain;
 import org.folio.factory.devfactory.verification.VerificationFailure;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
@@ -65,7 +66,9 @@ class DeliveryWorkerTest {
         var delivery = mock(CandidateDelivery.class);
         var github = mock(GitHubConnector.class);
         var runtime = mock(DevRuntimeProperties.class);
-        when(runtime.verificationCommand("unit")).thenReturn(List.of("mvn", "test"), List.of("mvn", "verify"));
+        when(runtime.verificationCommand("unit", InstallMode.FROZEN))
+                .thenReturn(List.of("mvn", "test"), List.of("mvn", "verify"));
+        when(runtime.verificationCommand("unit", InstallMode.RESOLVE)).thenReturn(List.of("mvn", "verify"));
         when(runtime.requiredReports("unit")).thenReturn(List.of());
         when(runtime.toolchain("unit")).thenReturn(Toolchain.MAVEN);
         var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image", runtime);
@@ -196,6 +199,38 @@ class DeliveryWorkerTest {
         verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
         assertThat(body.getValue()).contains("**PASS** · 7 tests", "- Jest reports: 1")
                 .doesNotContain("Surefire reports", "Failsafe reports");
+    }
+
+    @Test
+    void receiptVerifiedWithAPinnedLockfileIsAcceptedInEitherInstallModeAndTheHashReachesThePr() {
+        var original = verifiedContext();
+        var candidate = json.readValue(original.inputs().get(DevelopWorker.CANDIDATE).content(), Candidate.class);
+        var runtime = new DevRuntimeProperties(Map.of("unit", List.of("yarn", "test")), null, 60, null, Map.of(),
+                Map.of("unit", Toolchain.YARN));
+        String lockfileSha = "d".repeat(64);
+        for (var mode : InstallMode.values()) {
+            var receipt = new VerificationReceipt("00000000-0000-0000-0000-000000000001", "sidecar",
+                    candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "unit", "image",
+                    runtime.verificationCommand("unit", mode), "fresh", Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
+                    0, 1, 7, 0, 0, "PASS", "ok", VerificationFailure.NONE, 0, List.of(), List.of(), Toolchain.YARN,
+                    lockfileSha);
+            var inputs = new java.util.HashMap<>(original.inputs());
+            inputs.put(VerifyWorker.RECEIPT, new ArtifactContent(VerifyWorker.RECEIPT, 1, "application/json",
+                    json.writeValueAsString(receipt)));
+            CandidateDelivery delivery = mock(CandidateDelivery.class);
+            GitHubConnector github = mock(GitHubConnector.class);
+            when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString()))
+                    .thenReturn(new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
+                            candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40)));
+            when(github.findOpenPullRequest(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+            var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image", runtime);
+
+            worker.execute(new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
+
+            var body = org.mockito.ArgumentCaptor.forClass(String.class);
+            verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
+            assertThat(body.getValue()).contains("- Pinned yarn.lock (not part of this PR): sha256 " + lockfileSha);
+        }
     }
 
     @Test

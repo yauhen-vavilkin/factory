@@ -21,7 +21,12 @@ public final class PreparedWorkspace {
 
     public static Result prepare(DockerWorkloads.Workload workload, DevRuntimeProperties runtime, String plan,
                                  Consumer<Map<String, Object>> progress) {
-        var install = runtime.installCommand(plan);
+        return prepare(workload, runtime, plan, InstallMode.FROZEN, progress);
+    }
+
+    public static Result prepare(DockerWorkloads.Workload workload, DevRuntimeProperties runtime, String plan,
+                                 InstallMode mode, Consumer<Map<String, Object>> progress) {
+        var install = runtime.installCommand(plan, mode);
         if (install.isEmpty()) return new Result(false, false, null);
         var toolchain = runtime.toolchain(plan);
         progress.accept(Map.of("activity", "workspace_install_started", "command", String.join(" ", install)));

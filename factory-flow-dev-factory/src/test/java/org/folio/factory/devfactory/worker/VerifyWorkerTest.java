@@ -5,6 +5,7 @@ import org.folio.factory.core.agent.ArtifactContent;
 import org.folio.factory.connectors.github.GitHubConnector;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
 import org.folio.factory.devfactory.verification.VerificationFailure;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
@@ -14,6 +15,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,6 +24,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class VerifyWorkerTest {
+    private static final ArtifactContent NO_LOCKFILE = new ArtifactContent(DevelopWorker.LOCKFILE, 1, "application/json",
+            PinnedLockfile.none("NOT_NEEDED", "No lockfile to pin"));
+
     @Test
     void eligibleCandidateFailureExplicitlyDefersRepairAndCannotReachDelivery() {
         var verifier = mock(CandidateVerifier.class);
@@ -36,8 +41,8 @@ class VerifyWorkerTest {
                 "workload", Instant.EPOCH, Instant.EPOCH.plusSeconds(10), 1, 1, 3, 1, 0, "FAIL",
                 "AssertionFailedError: expected: <ready> but was: <failed>", VerificationFailure.CANDIDATE,
                 0, List.of("target/surefire-reports/TEST-Example.xml"), List.of());
-        when(verifier.verify(execution, "verify", candidate)).thenReturn(receipt);
-        var context = new AgentContext(execution, "verify", Map.of(DevelopWorker.CANDIDATE,
+        when(verifier.verify(execution, "verify", candidate, Optional.empty())).thenReturn(receipt);
+        var context = new AgentContext(execution, "verify", Map.of(DevelopWorker.LOCKFILE, NO_LOCKFILE, DevelopWorker.CANDIDATE,
                 new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json", json.writeValueAsString(candidate))),
                 null, Map.of(), List.of());
 
@@ -76,9 +81,9 @@ class VerifyWorkerTest {
         var receipt = new VerificationReceipt(execution.toString(), candidate.repository(), candidate.baseSha(),
                 candidate.treeSha(), candidate.patchSha256(), "unit", "image", List.of("mvn", "test"),
                 "workload", Instant.EPOCH, Instant.EPOCH, 1, 0, null, null, null, "FAIL", "No usable test evidence");
-        when(verifier.verify(execution, "verify", candidate)).thenReturn(receipt);
+        when(verifier.verify(execution, "verify", candidate, Optional.empty())).thenReturn(receipt);
         var input = new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json", json.writeValueAsString(candidate));
-        var context = new AgentContext(execution, "verify", Map.of(DevelopWorker.CANDIDATE, input),
+        var context = new AgentContext(execution, "verify", Map.of(DevelopWorker.LOCKFILE, NO_LOCKFILE, DevelopWorker.CANDIDATE, input),
                 null, Map.of(), List.of());
 
         var result = new VerifyWorker(verifier).execute(context);
@@ -107,6 +112,32 @@ class VerifyWorkerTest {
         assertThat(result.outputs().get(VerifyWorker.RECEIPT)).contains("NOT_RUN");
         assertThat(result.outputs().get(VerifyWorker.RESULT)).contains("DEVELOPMENT_FAILED", "provider unavailable");
         verifyNoInteractions(verifier);
+    }
+
+    @Test
+    void pinnedLockfileReachesTheVerifierAndItsHashIsInTheReceipt() {
+        var verifier = mock(CandidateVerifier.class);
+        var json = JsonMapper.builder().build();
+        var execution = UUID.randomUUID();
+        var candidate = new Candidate("source", "a".repeat(40), "b".repeat(40),
+                Candidate.sha256(""), "", "CANDIDATE_UNVERIFIED");
+        var pinned = PinnedLockfile.of("# yarn lockfile v1\n".getBytes()).forPackageJson("c".repeat(40));
+        var receipt = new VerificationReceipt(execution.toString(), candidate.repository(), candidate.baseSha(),
+                candidate.treeSha(), candidate.patchSha256(), "unit", "image", List.of("yarn", "test"),
+                "workload", Instant.EPOCH, Instant.EPOCH, 0, 1, 3, 0, 0, "PASS", "ok", VerificationFailure.NONE,
+                0, List.of(), List.of(), org.folio.factory.devfactory.runtime.Toolchain.YARN, pinned.sha256());
+        when(verifier.verify(execution, "verify", candidate, Optional.of(pinned))).thenReturn(receipt);
+        var context = new AgentContext(execution, "verify", Map.of(
+                DevelopWorker.LOCKFILE, new ArtifactContent(DevelopWorker.LOCKFILE, 1, "application/json", pinned.toArtifact()),
+                DevelopWorker.CANDIDATE, new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json",
+                        json.writeValueAsString(candidate))), null, Map.of(), List.of());
+
+        var result = new VerifyWorker(verifier).execute(context);
+
+        assertThat(json.readTree(result.outputs().get(VerifyWorker.RECEIPT)).path("lockfileSha256").asString())
+                .isEqualTo(pinned.sha256());
+        assertThat(json.readTree(result.outputs().get(VerifyWorker.RESULT)).path("state").asString())
+                .isEqualTo("VERIFIED");
     }
 
     @Test

@@ -25,6 +25,15 @@ class CodingProtocolTest {
     }
 
     @Test
+    void promptTellsTheAgentToKeepLongCheckOutputOutOfTheSession() {
+        String prompt = CodingProtocol.prompt(request().withVerification("yarn test --maxWorkers=2", true));
+
+        assertThat(prompt).contains("a session has a hard size limit")
+                .contains("(yarn test --maxWorkers=2) > /tmp/factory-check.log 2>&1; echo \"exit=$?\"; tail -n 80 /tmp/factory-check.log");
+        assertThat(CodingProtocol.prompt(request())).doesNotContain("factory-check.log");
+    }
+
+    @Test
     void promptOmitsTheInstallLineWhenNothingWasInstalled() {
         String prompt = CodingProtocol.prompt(request().withVerification("mvn -B -ntp verify", false));
 

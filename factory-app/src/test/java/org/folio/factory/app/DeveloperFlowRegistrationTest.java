@@ -97,14 +97,15 @@ class DeveloperFlowRegistrationTest {
             "FACTORY_MGR_TENANT_ENTITLEMENTS_SOURCE_REPO", "FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_REPO",
             "FACTORY_MGR_TENANT_ENTITLEMENTS_BASE_BRANCH",
             "FACTORY_MGR_APPLICATIONS_SOURCE_REPO", "FACTORY_MGR_APPLICATIONS_DELIVERY_REPO",
-            "FACTORY_UI_USERS_SOURCE_REPO", "FACTORY_UI_USERS_DELIVERY_REPO");
+            "FACTORY_UI_USERS_SOURCE_REPO", "FACTORY_UI_USERS_DELIVERY_REPO",
+            "FACTORY_UI_CIRCULATION_SOURCE_REPO", "FACTORY_UI_CIRCULATION_DELIVERY_REPO");
 
     @Test
     void configuresDeveloperRepositoriesPlansAndDeliveryTargets() {
         assertThat(devFactoryProperties.repositories())
-                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users");
+                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users", "ui-circulation");
         assertThat(devDeliveryProperties.targets())
-                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users");
+                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users", "ui-circulation");
         assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
         assertThat(devRuntimeProperties.toolchain("node22-jest")).isEqualTo(Toolchain.YARN);
         assertThat(devRuntimeProperties.toolchain("java21-unit")).isEqualTo(Toolchain.MAVEN);
@@ -147,11 +148,16 @@ class DeveloperFlowRegistrationTest {
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "folio-org/ui-users", "master", "node:22.22.0-bookworm",
                         "node22-jest", List.of("UIU"), List.of()));
+        assertThat(devFactoryProperties.repositories().get("ui-circulation"))
+                .isEqualTo(new DevFactoryProperties.Repository(
+                        "folio-org/ui-circulation", "master", "node:22.22.0-bookworm",
+                        "node22-jest", List.of("UICIRC"), List.of()));
         assertThat(devDeliveryProperties.targets()).containsOnly(
                 entry("sidecar", new DeliveryTarget("folio-org/folio-module-sidecar", "master", true)),
                 entry("mod-roles-keycloak", new DeliveryTarget("folio-org/mod-roles-keycloak", "master", true)),
                 entry("mgr-tenant-entitlements", new DeliveryTarget("folio-org/mgr-tenant-entitlements", "master", true)),
                 entry("mgr-applications", new DeliveryTarget("folio-org/mgr-applications", "master", true)),
-                entry("ui-users", new DeliveryTarget("folio-org/ui-users", "master", true)));
+                entry("ui-users", new DeliveryTarget("folio-org/ui-users", "master", true)),
+                entry("ui-circulation", new DeliveryTarget("folio-org/ui-circulation", "master", true)));
     }
 }

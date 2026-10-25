@@ -174,23 +174,25 @@ class ClaudeCodeDockerTest {
         Files.writeString(source.resolve("src/add.js"), "exports.add = (a, b) => a + b;\n");
         Files.writeString(source.resolve("src/add.test.js"),
                 "const { add } = require('./add');\ntest('add', () => expect(add(1, 2)).toBe(3));\n");
-        // The fixture has no lockfile, so its install omits --frozen-lockfile (lockfile-less modules are phase 6).
+        // The fixture has no lockfile: the starting build resolves and pins one, every later stage installs from it.
         var runtime = new DevRuntimeProperties(Map.of("jest", List.of("yarn", "test")), null, 600, null, Map.of(),
                 Map.of("jest", Toolchain.YARN), new DevRuntimeProperties.Yarn(volume,
-                        DevRuntimeProperties.Yarn.DEFAULT_FOLIO_REGISTRY,
-                        List.of("yarn", "install", "--ignore-scripts", "--non-interactive")));
+                        DevRuntimeProperties.Yarn.DEFAULT_FOLIO_REGISTRY));
         var environment = runtime.environment("jest");
         var plan = runtime.verificationCommand("jest");
+        PinnedLockfile pinned;
 
         try (var scope = new DockerWorkloads().beginStep(executionId, "yarn-baseline");
              var baseline = scope.createTrusted(NODE_IMAGE, source, environment)) {
-            var result = baseline.execute(plan, 600);
+            var result = baseline.execute(runtime.verificationCommand("jest", InstallMode.RESOLVE), 600);
             assertThat(result.exitCode()).as(result.diagnostics()).isZero();
+            pinned = baseline.readLockfile().orElseThrow();
         }
         try (var mock = new MessagesEndpoint(false, false);
              var scope = new DockerWorkloads().beginStep(executionId, "yarn-code");
              var workload = scope.createSeeded(IMAGE, source, environment, "coding")) {
             // Factory prepares the workspace before the agent starts, so the agent finds it ready.
+            workload.seedLockfile(pinned);
             var prepared = PreparedWorkspace.prepare(workload, runtime, "jest", event -> { });
             assertThat(prepared.failure()).isNull();
             assertThat(prepared.installed()).isTrue();
@@ -215,6 +217,7 @@ class ClaudeCodeDockerTest {
         copyTree(exported, candidate);
         try (var scope = new DockerWorkloads().beginStep(executionId, "yarn-verify");
              var verification = scope.createSeeded(NODE_IMAGE, candidate, environment, "verification")) {
+            verification.seedLockfile(pinned);
             assertThat(verification.execute(List.of("rm", "-rf", "artifacts/jest-junit"), 60).exitCode()).isZero();
             var result = verification.execute(plan, 600);
             assertThat(result.exitCode()).as(result.diagnostics()).isZero();

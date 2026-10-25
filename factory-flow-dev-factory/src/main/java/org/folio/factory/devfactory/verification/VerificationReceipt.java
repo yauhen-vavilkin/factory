@@ -17,7 +17,20 @@ public record VerificationReceipt(String executionId, String repository, String 
                                   int surefireReportCount, Integer testCount, Integer failureCount, Integer errorCount,
                                   String result, String output, VerificationFailure failureKind,
                                   int failsafeReportCount, List<String> requiredReports,
-                                  List<String> missingRequiredReports, Toolchain toolchain) {
+                                  List<String> missingRequiredReports, Toolchain toolchain, String lockfileSha256) {
+    /** Receipts written before lockfiles were pinned carry none; {@code lockfileSha256} is null when nothing was pinned. */
+    public VerificationReceipt(String executionId, String repository, String baseSha, String treeSha,
+                               String patchSha256, String planId, String image, List<String> argv,
+                               String workload, Instant startedAt, Instant finishedAt, int exitCode,
+                               int surefireReportCount, Integer testCount, Integer failureCount, Integer errorCount,
+                               String result, String output, VerificationFailure failureKind,
+                               int failsafeReportCount, List<String> requiredReports,
+                               List<String> missingRequiredReports, Toolchain toolchain) {
+        this(executionId, repository, baseSha, treeSha, patchSha256, planId, image, argv, workload,
+                startedAt, finishedAt, exitCode, surefireReportCount, testCount, failureCount, errorCount,
+                result, output, failureKind, failsafeReportCount, requiredReports, missingRequiredReports,
+                toolchain, null);
+    }
     /** Receipts written before toolchains existed are Maven receipts. */
     public VerificationReceipt(String executionId, String repository, String baseSha, String treeSha,
                                String patchSha256, String planId, String image, List<String> argv,
@@ -44,6 +57,8 @@ public record VerificationReceipt(String executionId, String repository, String 
         Objects.requireNonNull(executionId);
         argv = List.copyOf(argv);
         toolchain = toolchain == null ? Toolchain.MAVEN : toolchain;
+        if (lockfileSha256 != null && !lockfileSha256.matches("[a-f0-9]{64}"))
+            throw new IllegalArgumentException("Invalid lockfile digest");
         requiredReports = requiredReports == null ? List.of() : List.copyOf(requiredReports);
         missingRequiredReports = missingRequiredReports == null ? List.of() : List.copyOf(missingRequiredReports);
         failureKind = failureKind == null ? ("PASS".equals(result) ? VerificationFailure.NONE : VerificationFailure.UNKNOWN)
