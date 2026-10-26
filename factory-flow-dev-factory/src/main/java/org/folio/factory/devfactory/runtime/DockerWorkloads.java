@@ -108,7 +108,7 @@ public class DockerWorkloads {
 
     private Workload createTrusted(String image, Path source, BuildEnvironment environment,
                                    UUID executionId, String stepId) {
-        ensureWritableCache(image, environment.cacheVolume(), workloadUser(source), executionId, stepId);
+        ensureWritableCache(image, environment, workloadUser(source), executionId, stepId);
         return create(image, source, environment, CacheMode.TRUSTED_WRITABLE, executionId, stepId, "baseline");
     }
     private Workload create(String image, Path source, BuildEnvironment environment, CacheMode mode,
@@ -131,8 +131,9 @@ public class DockerWorkloads {
         } catch (RuntimeException e) { workload.close(); throw e; }
     }
 
-    private static void ensureWritableCache(String image, String volume, String user,
+    private static void ensureWritableCache(String image, BuildEnvironment environment, String user,
                                             UUID executionId, String stepId) {
+        String volume = environment.cacheVolume();
         // This short-lived Factory-controlled helper touches only the configured
         // Factory-owned dependency cache volume, before a trusted baseline mounts it writable.
         // The root directory alone is insufficient: cached artifacts and nested
@@ -142,7 +143,28 @@ public class DockerWorkloads {
                 "--label", "factory.dev-step=" + stepId, "--label", "factory.dev-role=baseline-cache",
                 "--entrypoint", "/bin/sh",
                 "--mount", "type=volume,source=" + volume + ",target=/cache", image,
-                "-c", "chown -R \"$1\" /cache && chmod -R u+rwX /cache", "--", user), 120).requireSuccess();
+                "-c", writableCacheScript(environment.toolchain(), "/cache"), "--", user), 120).requireSuccess();
+    }
+
+    /**
+     * Yarn's {@code --mutex} lock directory sits in the cache root and vanishes whenever an install ends, which
+     * fails a recursive walk of the root while another build installs; only yarn's version directory is walked.
+     */
+    static String writableCacheScript(Toolchain toolchain, String cache) {
+        return switch (toolchain) {
+            case MAVEN -> "chown -R \"$1\" " + cache + " && chmod -R u+rwX " + cache;
+            case YARN -> "chown \"$1\" " + cache + " && chmod u+rwX " + cache + " && for d in " + cache
+                    + "/v[0-9]*; do [ -e \"$d\" ] || continue; chown -R \"$1\" \"$d\" && chmod -R u+rwX \"$d\" || exit 1; done";
+        };
+    }
+
+    /** The same lock directory would make {@code cp -a} of the whole yarn cache root fail, so only the version directory is copied. */
+    static String seedScript(Toolchain toolchain, String seed, String cache) {
+        String copy = switch (toolchain) {
+            case MAVEN -> "cp -a " + seed + "/. " + cache + "/";
+            case YARN -> "for d in " + seed + "/v[0-9]*; do [ -e \"$d\" ] || continue; cp -a \"$d\" " + cache + "/ || exit 1; done";
+        };
+        return "mkdir -p " + cache + " && " + copy;
     }
 
     private void seedCache(String name, BuildEnvironment environment) {
@@ -150,7 +172,7 @@ public class DockerWorkloads {
         String cache = cachePath(toolchain);
         try {
             Processes.run(null, List.of("docker", "exec", name, "/bin/sh", "-c",
-                    "mkdir -p " + cache + " && cp -a " + seedPath(toolchain) + "/. " + cache + "/"), seedTimeoutSeconds)
+                    seedScript(toolchain, seedPath(toolchain), cache)), seedTimeoutSeconds)
                     .requireSuccess();
         } catch (IllegalStateException e) {
             throw new CacheSeedException(seedFailure(seedTimeoutSeconds, environment.cacheVolume(),

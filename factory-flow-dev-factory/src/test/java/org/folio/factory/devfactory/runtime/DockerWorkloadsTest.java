@@ -295,23 +295,23 @@ class DockerWorkloadsTest {
                                 + "&& test \"$JEST_JUNIT_REPORT_TEST_SUITE_ERRORS\" = true "
                                 + "&& grep -q '@folio:registry' $HOME/.yarnrc && grep -q npm-folioci $HOME/.yarnrc "
                                 + "&& test \"$(yarn config get @folio:registry)\" = " + REGISTRY
-                                + " && printf cached > $YARN_CACHE_FOLDER/cached.txt"), 60).exitCode()).isZero();
+                                + " && mkdir -p $YARN_CACHE_FOLDER/v6 && printf cached > $YARN_CACHE_FOLDER/v6/cached.txt"), 60).exitCode()).isZero();
             }
             try (var repeated = scope.createTrusted(image, source, environment)) {
                 assertThat(repeated.execute(List.of("sh", "-c",
-                        "test \"$(cat $YARN_CACHE_FOLDER/cached.txt)\" = cached"), 30).exitCode()).isZero();
+                        "test \"$(cat $YARN_CACHE_FOLDER/v6/cached.txt)\" = cached"), 30).exitCode()).isZero();
             }
             try (var seeded = scope.createSeeded(image, source, environment, "coding")) {
                 // createSeeded returns only after the private copy is complete.
                 assertThat(seeded.execute(List.of("sh", "-c",
-                        "test -f $YARN_CACHE_FOLDER/cached.txt "
+                        "test -f $YARN_CACHE_FOLDER/v6/cached.txt "
                                 + "&& printf private > $YARN_CACHE_FOLDER/private.txt "
                                 + "&& ! touch /tmp/factory-yarn-seed/forbidden"), 30).exitCode()).isZero();
             }
             var persistent = Processes.run(null, List.of("docker", "run", "--rm", "--mount",
                     "type=volume,source=" + volume + ",target=/cache,readonly",
                     "--entrypoint", "sh", image, "-c",
-                    "test -f /cache/cached.txt && test ! -e /cache/private.txt && test ! -e /cache/forbidden"), 60);
+                    "test -f /cache/v6/cached.txt && test ! -e /cache/private.txt && test ! -e /cache/forbidden"), 60);
             assertThat(persistent.exitCode()).isZero();
         } finally {
             Processes.run(null, List.of("docker", "volume", "rm", volume), 30);
@@ -346,7 +346,7 @@ class DockerWorkloadsTest {
         try {
             assertThat(Processes.run(null, List.of("docker", "run", "--rm", "--mount",
                     "type=volume,source=" + volume + ",target=/c", "--entrypoint", "sh", "alpine:3.21", "-c",
-                    "dd if=/dev/zero of=/c/big bs=1M count=3072 2>/dev/null"), 300).exitCode()).isZero();
+                    "mkdir -p /c/v6 && dd if=/dev/zero of=/c/v6/big bs=1M count=3072 2>/dev/null"), 300).exitCode()).isZero();
 
             assertThatThrownBy(() -> {
                 try (var scope = new DockerWorkloads(1).beginStep(executionId, STEP)) {
@@ -381,5 +381,71 @@ class DockerWorkloadsTest {
         assertThat(Files.readString(exported.resolve("src.txt"))).isEqualTo("changed");
         assertThat(Files.readString(exported.resolve("artifacts/jest-junit/junit.xml"))).isEqualTo("report");
         assertThat(exported.resolve("node_modules")).doesNotExist();
+    }
+
+    private static int sh(String script, String... arguments) throws Exception {
+        var command = new java.util.ArrayList<>(List.of("sh", "-c", script, "--"));
+        command.addAll(List.of(arguments));
+        try {
+            return new ProcessBuilder(command).redirectErrorStream(true).start().waitFor();
+        } catch (java.io.IOException e) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "sh is not available");
+            return -1;
+        }
+    }
+
+    @Test
+    void yarnSeedCopiesTheVersionDirectoryAndLeavesTheLockAndTempEntriesBehind(@TempDir Path root) throws Exception {
+        Path seed = root.resolve("seed"), cache = root.resolve("cache");
+        Files.createDirectories(seed.resolve("v6/npm-a-1.0.0-abc-integrity"));
+        Files.writeString(seed.resolve("v6/npm-a-1.0.0-abc-integrity/index.js"), "x");
+        Files.createDirectories(seed.resolve(".yarn-mutex.lock"));
+        Files.createDirectories(seed.resolve(".tmp/pkg"));
+        Files.writeString(seed.resolve(".yarn-mutex"), "");
+
+        int exit = sh(DockerWorkloads.seedScript(Toolchain.YARN, seed.toString(), cache.toString()));
+
+        assertThat(exit).isZero();
+        assertThat(cache.resolve("v6/npm-a-1.0.0-abc-integrity/index.js")).hasContent("x");
+        assertThat(cache.resolve(".yarn-mutex.lock")).doesNotExist();
+        assertThat(cache.resolve(".yarn-mutex")).doesNotExist();
+        assertThat(cache.resolve(".tmp")).doesNotExist();
+    }
+
+    @Test
+    void yarnSeedOfAnEmptyCacheSucceedsAndMavenStillCopiesEverything(@TempDir Path root) throws Exception {
+        Path empty = Files.createDirectories(root.resolve("empty")), emptyCache = root.resolve("empty-cache");
+        Path seed = root.resolve("m2"), cache = root.resolve("m2-cache");
+        Files.createDirectories(seed.resolve("org/example"));
+        Files.writeString(seed.resolve("org/example/a.jar"), "jar");
+
+        assertThat(sh(DockerWorkloads.seedScript(Toolchain.YARN, empty.toString(), emptyCache.toString()))).isZero();
+        assertThat(emptyCache).isDirectory();
+        assertThat(sh(DockerWorkloads.seedScript(Toolchain.MAVEN, seed.toString(), cache.toString()))).isZero();
+        assertThat(cache.resolve("org/example/a.jar")).hasContent("jar");
+    }
+
+    @Test
+    void yarnWritableCacheWalksOnlyTheVersionDirectoryAndMavenKeepsTheRecursiveWalk(@TempDir Path root) throws Exception {
+        Path cache = Files.createDirectories(root.resolve("cache"));
+        Files.createDirectories(cache.resolve("v6/npm-a-1.0.0-abc-integrity"));
+        Path lock = Files.createDirectories(cache.resolve(".yarn-mutex.lock"));
+        try {
+            Files.setPosixFilePermissions(lock, java.util.Set.of());
+        } catch (UnsupportedOperationException e) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "POSIX permissions are not available");
+        }
+        String owner = String.valueOf(Files.getAttribute(cache, "unix:uid")) + ":" + Files.getAttribute(cache, "unix:gid");
+        try {
+            // An unreadable root entry stands for one that vanishes mid-walk: the root is never recursed into.
+            assertThat(sh(DockerWorkloads.writableCacheScript(Toolchain.YARN, cache.toString()), owner)).isZero();
+            Path fresh = Files.createDirectories(root.resolve("fresh"));
+            assertThat(sh(DockerWorkloads.writableCacheScript(Toolchain.YARN, fresh.toString()), owner))
+                    .as("a cache without a version directory yet").isZero();
+        } finally {
+            Files.setPosixFilePermissions(lock, java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
+        }
+        assertThat(DockerWorkloads.writableCacheScript(Toolchain.MAVEN, "/cache"))
+                .isEqualTo("chown -R \"$1\" /cache && chmod -R u+rwX /cache");
     }
 }
