@@ -69,7 +69,7 @@ public class PilotDispatcher {
 
     /**
      * Best-effort dispatch for admission and scheduling call sites: a refusal
-     * (readiness not passed, stale sync) or a launch failure only logs, and the
+     * (retention enabled, stale sync) or a launch failure only logs, and the
      * attempt stays queued for the scheduled poller to retry. It never fails the
      * caller's admission or poll tick.
      */

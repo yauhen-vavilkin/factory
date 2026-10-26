@@ -132,8 +132,9 @@ factory:
       enabled: ${FACTORY_PILOT_DISCOVERY_ENABLED:false}
       poll-interval-ms: ${FACTORY_PILOT_DISCOVERY_POLL_INTERVAL_MS:300000}
     execution:
-      # M1 sprint pilot processing: opt-in until startup readiness (S11) enables it.
-      # Gates the outcome/recovery wiring; the engine itself is never pilot-aware.
+      # M1 sprint pilot processing: opt-in; new launches are refused while retention
+      # is enabled. Gates the outcome/recovery wiring; the engine itself is never
+      # pilot-aware.
       enabled: ${FACTORY_PILOT_EXECUTION_ENABLED:false}
       # Whole-attempt budget from preparation through delivery (forty coding turns
       # and sixty minutes are the M1 defaults; queue and review waiting excluded).
@@ -145,12 +146,6 @@ factory:
       # dispatch and advances the queue when a terminal outcome frees the slot.
       # Admission itself also dispatches best-effort; this is the safety net.
       dispatch-interval-ms: ${FACTORY_PILOT_EXECUTION_DISPATCH_INTERVAL_MS:30000}
-    startup:
-      # S11: bounds for the explicit startup smoke — one tiny tool-using model call
-      # from the pinned coding image, never repeated on an unchanged restart.
-      # The bounds are part of the reusable evidence identity.
-      smoke-max-turns: ${FACTORY_PILOT_SMOKE_MAX_TURNS:5}
-      smoke-timeout: ${FACTORY_PILOT_SMOKE_TIMEOUT:2m}
     source:
       # Team source: board or saved filter id/URL; one sprint; required statuses.
       source: ${FACTORY_PILOT_SOURCE:}

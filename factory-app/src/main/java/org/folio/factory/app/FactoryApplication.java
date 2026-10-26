@@ -8,7 +8,6 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.folio.factory.app.pilot.execution.PilotExecutionProperties;
 import org.folio.factory.app.pilot.source.PilotSourceProperties;
-import org.folio.factory.app.pilot.startup.PilotStartupProperties;
 import org.folio.factory.app.web.DeveloperPricingProperties;
 
 @SpringBootApplication(scanBasePackages = "org.folio.factory")
@@ -16,7 +15,7 @@ import org.folio.factory.app.web.DeveloperPricingProperties;
 @EnableJpaRepositories(basePackages = {"org.folio.factory.core", "org.folio.factory.app.pilot.persistence"})
 @EnableScheduling
 @EnableConfigurationProperties({DeveloperPricingProperties.class, PilotSourceProperties.class,
-        PilotExecutionProperties.class, PilotStartupProperties.class})
+        PilotExecutionProperties.class})
 public class FactoryApplication {
 
     public static void main(String[] args) {

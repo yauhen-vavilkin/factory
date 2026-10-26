@@ -492,12 +492,12 @@ Spring Boot does not load `.env` automatically. The coding container still uses
 `host.docker.internal` to reach the host proxy. No Java edits are needed to switch
 runtimes or endpoints.
 
-### Sprint pilot quick start (one prepared path)
+### Sprint pilot quick start
 
 The M1 sprint pilot delegates a team's Jira sprint to Factory: read-only
 discovery, selected or automatic admission, autonomous coding and PR delivery
-to destinations you authorize. Everything below is one command from a fresh
-clone; no source reading, JQL writing, workflow editing or database access.
+to destinations you authorize. No source reading, JQL writing, workflow editing
+or database access is needed.
 
 Prerequisites: Docker Desktop with Compose 2.20+, a local CodeMie proxy on port
 4001, a Jira account that can read the team board, and a GitHub token with push
@@ -508,41 +508,22 @@ cp .env.pilot.example .env
 # Fill in the required values (marked in the template): Jira connection,
 # GitHub token, team board/filter, sprint ID and eligible statuses, and the
 # prepared repository destination(s) you enable.
-scripts/start-pilot.sh
+docker compose up -d
 ```
 
 The template documents how to obtain the sprint ID (backlog URL or the board
 sprint REST call), why same-repository branch creation needs push permission on
 the destination, and why each installation must use its own team source. The
 pilot path pins Claude Code with Sonnet 5.5 through the local CodeMie proxy.
+After editing `.env`, run `docker compose up -d` again to apply the change.
 
-`scripts/start-pilot.sh` builds and starts the Compose stack, waits for health,
-prints the current readiness, and runs the explicit startup action
-(`POST /api/pilot/start`). The startup action validates configuration, Docker,
-the pinned coding image, the team source and the rate card, then — only if the
-recorded evidence does not already cover the current runtime — runs the
-disclosed bounded smoke: **one tiny tool-using model call from the actual
-pinned coding image (an `echo` through the Bash tool), at most 5 turns and 2
-minutes, in a throwaway container with no task repository, no Jira writes and
-no publication.** Its usage is recorded separately from task usage; missing
-rates, failed or unrun inference or unknown usage are never execution-ready.
-
-If a prerequisite fails, the report names the setting or dependency to fix;
-repeat the same command after the correction — no manual disable/check/flag
-choreography. An unchanged restart reuses the recorded evidence and makes no
-model call; a relevant runtime, endpoint, credential or instructions change
-invalidates it and the next start re-runs the smoke. Only the explicit start
-action and a confirmed dispatch can trigger paid work; page views, discovery
-and `GET /api/pilot/status` never invoke a model.
-
-When the report says execution is ready, open <http://localhost:8080/tasks>:
-inspect discovered tasks, select suitable ones and press **Run selected**, or
-enable automatic admission. Manual mode and personal-fork destinations are the
-testing default. The same readiness is available read-only at any time as JSON:
-`GET <http://localhost:8080/api/pilot/status>`. Destructive retention must stay
-disabled for the pilot; the start action refuses pilot execution while
-`FACTORY_RETENTION_ENABLED` is true instead of deleting attempt or evidence
-history.
+Then open <http://localhost:8080/tasks>: inspect discovered tasks, select
+suitable ones and press **Run selected**, or enable automatic admission. Manual
+mode and personal-fork destinations are the testing default. Destructive
+retention must stay disabled for the pilot: while `FACTORY_RETENTION_ENABLED` is
+true, pilot execution refuses to start tasks (the reason is logged, see
+`docker compose logs factory`) instead of letting retention purge attempt
+history and costs.
 
 When a task needs inspection: an attempt lands in **Needs inspection** when
 Factory could not prove what happened — for example, the publication response
@@ -595,9 +576,8 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_TEST_FACTORY_JIRA_TRANSITION` | Optional Jira transition on completion |
 | `FACTORY_TEST_FACTORY_EXECUTION_BASE_URL` + `_KARATE_JAR` | Enable real Karate execution (otherwise advisory mode) |
 | `FACTORY_LIMITS_MAX_CONCURRENT_EXECUTIONS` / `_MAX_EXECUTIONS_PER_DAY` | Concurrency cap / daily budget (`0` disables; defaults `8` / `200`, 429 on budget) |
-| `FACTORY_PILOT_SOURCE` / `_SPRINT_ID` / `_STATUSES` (+ `_ASSIGNEE` / `_PROJECTS` / `_LABEL`) | Sprint-pilot team source: board/saved filter, sprint and eligible statuses; optional AND narrowings — see [Sprint pilot quick start](#sprint-pilot-quick-start-one-prepared-path) |
+| `FACTORY_PILOT_SOURCE` / `_SPRINT_ID` / `_STATUSES` (+ `_ASSIGNEE` / `_PROJECTS` / `_LABEL`) | Sprint-pilot team source: board/saved filter, sprint and eligible statuses; optional AND narrowings — see [Sprint pilot quick start](#sprint-pilot-quick-start) |
 | `FACTORY_PILOT_DISCOVERY_ENABLED` / `FACTORY_PILOT_EXECUTION_ENABLED` | Read-only discovery poll / pilot processing (both opt-in, default off) |
-| `FACTORY_PILOT_SMOKE_MAX_TURNS` / `_TIMEOUT` | Bounded startup smoke limits (defaults `5` turns / `2m`; part of the reusable evidence identity) |
 | `FACTORY_LIMITS_DEDUP_ENABLED` / `_DEDUP_WINDOW` / `_DEDUP_ID_POINTERS` | Trigger dedup (default on, `10m`, `/issueKey`) |
 | `FACTORY_LIMITS_MAX_ARTIFACT_BYTES` / `_MAX_TRIGGER_PAYLOAD_BYTES` | Write-time size caps (defaults `5000000` / `262144`) |
 | `FACTORY_RETENTION_ENABLED` / `_TTL_DAYS` / `_RUN_CRON` | Purge of old terminal runs (**off** by default; audit is never purged) |

@@ -22,7 +22,6 @@ import org.folio.factory.app.pilot.presentation.PilotTaskView;
 import org.folio.factory.app.pilot.source.PilotDiscoveryPoller;
 import org.folio.factory.app.pilot.source.PilotDiscoveryService;
 import org.folio.factory.app.pilot.source.PilotJiraInstance;
-import org.folio.factory.app.pilot.startup.PilotReadinessGate;
 import org.folio.factory.app.web.DeveloperPricingProperties;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.registry.FlowRegistry;
@@ -205,10 +204,6 @@ class PilotEndToEndTest {
     @MockitoBean
     CandidateDelivery delivery;
 
-    /** The end-to-end tests own their attempt state; startup readiness is covered by PilotStartupTest. */
-    @MockitoBean
-    PilotReadinessGate readiness;
-
     /** Syncs are explicit here; the scheduled first fire would race the first insert-only sync. */
     @MockitoBean
     PilotDiscoveryPoller discoveryPoller;
@@ -304,10 +299,10 @@ class PilotEndToEndTest {
     @Test
     @Order(2)
     void manualSubsetAdmitsExactlyTheSelectedEligibleTasksOnce() {
-        // No startup action has run in this scenario, so admission's best-effort
-        // dispatch is refused and the attempts stay queued for the poller.
-        doThrow(new IllegalStateException("Pilot execution is blocked: Runtime check has not completed"))
-                .when(readiness).requireExecutionReady();
+        // A refused preflight holds admission's best-effort dispatch, so the
+        // attempts stay queued for the poller.
+        doThrow(new IllegalArgumentException("coding runtime not ready"))
+                .when(preflight).requireReady(eq("dev-factory"), any());
         String authority = observed();
         var selections = List.of(
                 selectionFor("8101"), selectionFor("8103"), selectionFor("8102"),
@@ -477,10 +472,10 @@ class PilotEndToEndTest {
     @Test
     @Order(6)
     void automaticModeDelegatesAFutureMatchWhileTheAuthorityHolds() {
-        // Keep the delegation queued (no startup action yet) so the next scenario
-        // can prove that a filter change still invalidates a queued approval.
-        doThrow(new IllegalStateException("Pilot execution is blocked: Runtime check has not completed"))
-                .when(readiness).requireExecutionReady();
+        // Keep the delegation queued (a refused preflight holds dispatch) so the next
+        // scenario can prove that a filter change still invalidates a queued approval.
+        doThrow(new IllegalArgumentException("coding runtime not ready"))
+                .when(preflight).requireReady(eq("dev-factory"), any());
         var enabled = modeService.setMode(PilotModeService.AdmissionMode.AUTOMATIC, observed());
 
         assertThat(enabled.mode()).isEqualTo(PilotModeService.AdmissionMode.AUTOMATIC);

@@ -8,7 +8,6 @@ import org.folio.factory.app.pilot.execution.PilotDispatcher;
 import org.folio.factory.app.pilot.execution.PilotExecutionLauncher;
 import org.folio.factory.app.pilot.execution.PilotExecutionProperties;
 import org.folio.factory.app.pilot.execution.PilotOutcomeService;
-import org.folio.factory.app.pilot.startup.PilotExecutionReadiness;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
@@ -19,6 +18,7 @@ import org.folio.factory.core.limits.DedupKeyDeriver;
 import org.folio.factory.core.limits.LimitsProperties;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
+import org.folio.factory.core.retention.RetentionProperties;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.core.trigger.PipelineRouter;
@@ -57,7 +57,8 @@ import static org.mockito.Mockito.when;
  * dispatch returns the same binding. The router dedup window is disabled, so the
  * repeated-dispatch assertions prove the active-slot mechanism, not router
  * dedup. A crash after execution creation rolls the execution, binding and
- * reservation back together.
+ * reservation back together. Enabled retention refuses a new launch before any
+ * execution exists.
  */
 @SpringBootTest(properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false",
         "factory.limits.dedup.window=PT0S"})
@@ -102,6 +103,9 @@ class PilotDispatchIntegrationTest {
 
     @Autowired
     PilotDispatcher dispatcher;
+
+    @Autowired
+    PipelineRouter router;
 
     @Autowired
     PlatformTransactionManager transactionManager;
@@ -250,16 +254,34 @@ class PilotDispatchIntegrationTest {
     }
 
     @Test
+    void enabledRetentionRefusesANewLaunchBeforeAnyExecution() {
+        UUID taskId = admit("30051", "MODBAR-251");
+        var enabled = new PilotExecutionProperties(null, true);
+        var launcher = new PilotExecutionLauncher(router, tasks, attempts, installations, enabled,
+                new RetentionProperties(true, null, null, null), transactionManager);
+        var guarded = new PilotDispatcher(attempts, installations, launcher, enabled, outcomesProvider());
+
+        assertThatThrownBy(guarded::dispatchNext)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("FACTORY_RETENTION_ENABLED=true");
+
+        assertThat(executions.count()).isZero();
+        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(taskId))
+                .singleElement()
+                .satisfies(attempt -> assertThat(attempt.getState()).isEqualTo(PilotAttempt.State.RESERVED));
+        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
+    }
+
+    @Test
     void emptyQueueDispatchesNothing() {
         assertThat(dispatcher.dispatchNext()).isEmpty();
         assertThat(executions.count()).isZero();
     }
 
     private PilotDispatcher dispatcherWithRouter(PipelineRouter crashingRouter) {
-        PilotExecutionReadiness permissive = () -> {
-        };
         var launcher = new PilotExecutionLauncher(crashingRouter, tasks, attempts, installations,
-                new PilotExecutionProperties(null), permissive, transactionManager);
+                new PilotExecutionProperties(null), new RetentionProperties(null, null, null, null),
+                transactionManager);
         return new PilotDispatcher(attempts, installations, launcher,
                 new PilotExecutionProperties(null, false), outcomesProvider());
     }

@@ -8,7 +8,6 @@ import org.folio.factory.app.pilot.execution.PilotDispatchPoller;
 import org.folio.factory.app.pilot.execution.PilotOutcomeService;
 import org.folio.factory.app.pilot.execution.PilotRecoveryService;
 import org.folio.factory.app.pilot.execution.PilotDispatcher;
-import org.folio.factory.app.pilot.startup.PilotReadinessGate;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
@@ -79,10 +78,6 @@ class PilotLifecycleIntegrationTest {
 
     @MockitoBean
     DockerWorkloads docker;
-
-    /** The lifecycle tests own their attempt state; startup readiness is covered by PilotStartupTest. */
-    @MockitoBean
-    PilotReadinessGate readiness;
 
     @Autowired
     StateManager stateManager;

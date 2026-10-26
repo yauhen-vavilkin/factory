@@ -14,8 +14,8 @@ import java.util.UUID;
 
 /**
  * The single local pilot installation record (row id is always 1): admission
- * mode, the accepted source authority, discovery sync health, the active attempt
- * slot and the runtime-readiness evidence reference.
+ * mode, the accepted source authority, discovery sync health and the active
+ * attempt slot.
  */
 @Entity
 @Table(name = "pilot_installation")
@@ -54,9 +54,6 @@ public class PilotInstallation {
 
     @Column(name = "active_attempt_id")
     private UUID activeAttemptId;
-
-    @Column(name = "runtime_readiness_ref")
-    private String runtimeReadinessRef;
 
     @Version
     @Column(nullable = false)
@@ -165,14 +162,6 @@ public class PilotInstallation {
 
     public void setActiveAttemptId(UUID activeAttemptId) {
         this.activeAttemptId = activeAttemptId;
-    }
-
-    public String getRuntimeReadinessRef() {
-        return runtimeReadinessRef;
-    }
-
-    public void setRuntimeReadinessRef(String runtimeReadinessRef) {
-        this.runtimeReadinessRef = runtimeReadinessRef;
     }
 
     public long getVersion() {

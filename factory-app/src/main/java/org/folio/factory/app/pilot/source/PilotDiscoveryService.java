@@ -142,9 +142,9 @@ public class PilotDiscoveryService {
     }
 
     private Instant applyCompleteSync(PilotScopeResolver.PilotScope scope, List<DiscoveredIssue> discovered) {
-        // The row lock serializes this write against the startup action's
-        // installation save, so a first-boot sync and start cannot collide on the
-        // optimistic version and surface a spurious sync problem.
+        // The row lock serializes this write against other installation saves, so
+        // a first-boot sync and a concurrent dispatch or mode change cannot collide
+        // on the optimistic version and surface a spurious sync problem.
         PilotInstallation installation = installations.lockById(1).orElseGet(PilotInstallation::initial);
         Set<String> discoveredIds = new HashSet<>();
         for (DiscoveredIssue issue : discovered) {

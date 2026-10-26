@@ -7,7 +7,7 @@ import org.folio.factory.app.pilot.persistence.PilotInstallation;
 import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
 import org.folio.factory.app.pilot.persistence.PilotTask;
 import org.folio.factory.app.pilot.persistence.PilotTaskRepository;
-import org.folio.factory.app.pilot.startup.PilotExecutionReadiness;
+import org.folio.factory.core.retention.RetentionProperties;
 import org.folio.factory.core.trigger.PipelineRouter;
 import org.folio.factory.core.trigger.PreparedManualTrigger;
 import org.springframework.stereotype.Service;
@@ -39,20 +39,20 @@ public class PilotExecutionLauncher {
     private final PilotAttemptRepository attempts;
     private final PilotInstallationRepository installations;
     private final PilotExecutionProperties properties;
-    private final PilotExecutionReadiness readiness;
+    private final RetentionProperties retention;
     private final TransactionTemplate transactions;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public PilotExecutionLauncher(PipelineRouter router, PilotTaskRepository tasks,
                                   PilotAttemptRepository attempts, PilotInstallationRepository installations,
-                                  PilotExecutionProperties properties, PilotExecutionReadiness readiness,
+                                  PilotExecutionProperties properties, RetentionProperties retention,
                                   PlatformTransactionManager transactionManager) {
         this.router = router;
         this.tasks = tasks;
         this.attempts = attempts;
         this.installations = installations;
         this.properties = properties;
-        this.readiness = readiness;
+        this.retention = retention;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -96,10 +96,13 @@ public class PilotExecutionLauncher {
             throw new IllegalStateException("Pilot attempt " + attemptId + " is not dispatchable (state "
                     + attempt.getState() + ")");
         }
-        // Only a genuinely new paid launch waits for startup readiness; returning
-        // an existing binding for live work stays available for reconciliation.
-        if (properties.enabled()) {
-            readiness.requireExecutionReady();
+        // Retention purges attempt history and costs, so a genuinely new launch is
+        // refused while it is on; returning an existing binding for live work stays
+        // available for reconciliation.
+        if (properties.enabled() && retention.enabled()) {
+            throw new IllegalStateException("Pilot execution is refused: FACTORY_RETENTION_ENABLED=true would"
+                    + " purge pilot attempt history and costs. Set FACTORY_RETENTION_ENABLED=false in .env"
+                    + " and run docker compose up -d again.");
         }
         PilotTask task = tasks.lockById(attempt.getTaskId())
                 .orElseThrow(() -> new NoSuchElementException("No pilot task " + attempt.getTaskId()));

@@ -10,8 +10,8 @@ import java.time.Duration;
  * sixty-minute deadline from preparation through delivery are the defaults.
  * Queue and human-review waiting are excluded. Consumed only by the pilot
  * wiring, never by the engine. {@code enabled} is the S04 opt-in that gates
- * the pilot outcome/recovery wiring and, with it, the S11 readiness precondition
- * for paid starts.
+ * the pilot outcome/recovery wiring and, with it, the launcher's refusal of new
+ * paid starts while destructive retention is enabled.
  */
 @ConfigurationProperties(prefix = "factory.pilot.execution")
 public record PilotExecutionProperties(Duration deadline, boolean enabled) {

@@ -126,20 +126,7 @@ class ComposeConfigurationTest {
                 "FACTORY_PILOT_EXECUTION_ENABLED", "true",
                 "FACTORY_PILOT_STATUSES", "To Do",
                 "FACTORY_RETENTION_ENABLED", "false"));
-        assertThat(isUnset(environment.path("FACTORY_PILOT_SMOKE_MAX_TURNS"))).isTrue();
-        assertThat(isUnset(environment.path("FACTORY_PILOT_SMOKE_TIMEOUT"))).isTrue();
         assertThat(isUnset(environment.path("FACTORY_PILOT_EXECUTION_DISPATCH_INTERVAL_MS"))).isTrue();
-    }
-
-    @Test
-    void startupSmokeBoundsReachTheAppWhenSet() throws Exception {
-        var environment = render(Map.of(
-                "FACTORY_PILOT_SMOKE_MAX_TURNS", "3",
-                "FACTORY_PILOT_SMOKE_TIMEOUT", "90s"), Map.of())
-                .path("services").path("factory").path("environment");
-        assertEnvironmentContains(environment, Map.of(
-                "FACTORY_PILOT_SMOKE_MAX_TURNS", "3",
-                "FACTORY_PILOT_SMOKE_TIMEOUT", "90s"));
     }
 
     @Test
