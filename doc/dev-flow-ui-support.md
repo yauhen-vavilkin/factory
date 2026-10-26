@@ -504,9 +504,9 @@ through the pin. Same model and settings as above.
   both succeed (the second waits: 198 s), and an offline frozen re-install from that cache works.
   So the default install command now carries `--mutex file:<yarn cache path>/.yarn-mutex`
   (`DevRuntimeProperties.Yarn.DEFAULT_INSTALL_COMMAND`, `application.yaml`). It serializes only the
-  `yarn install` step. It does not cover the root `chown -R` before a trusted workload or the
-  `cp -a` seed copy of another build's coding/verification container while a build writes the
-  cache; those remain the in-process lock item under Risks. The command change alters the
+  `yarn install` step. The root `chown -R` before a trusted workload and the `cp -a` seed copy of a
+  coding/verification container were not covered and could fail on the lock directory itself;
+  they now stay out of the cache root (see the cache lock item under Risks). The command change alters the
   receipt's command, so an execution that verified before the deploy and has not published yet
   fails at delivery with "Verification policy changed"; deploy when none is between `verify` and
   `publish`. End to end through the Factory on a cold cache (an empty volume set through
@@ -620,16 +620,26 @@ through the pin. Same model and settings as above.
   progress event so a queued starting build does not look hung. Seed copies only read and need
   no lock. Yarn `--mutex file:` is now in the default install command (see "Concurrent starting
   builds" above), because two concurrent installs into a cold cache were shown to corrupt it; it
-  does not replace this lock, and the lock is now the next item rather than an optional one.
-  Measured 2026-10-26: while one `yarn install --mutex` filled an empty volume, repeating the exact
-  `chown -R` / `chmod -R u+rwX` of `ensureWritableCache` failed in 1 of 110 passes with `chown:
-  cannot access '/cache/.yarn-mutex.lock': No such file or directory` (the lock directory itself
-  vanishing mid-walk; temporary entries do the same). `requireSuccess` then throws, so **a starting
-  build that begins while another build's install is running can fail in the cache `chown`, before
-  any model spend**. The same-second cold-cache run above passed because both `chown`s finished
-  before either install wrote anything; a staggered start is the untested, likelier case. The seed
-  `cp -a` of a coding or verification container has the same exposure ("cannot stat") and surfaces
-  as a `CacheSeedException`. Until the lock exists, a rerun fixes it. Decided against, for now: Maven's `file-lock` named locks (the
+  does not replace this lock. Measured 2026-10-26 while one `yarn install --mutex` filled an empty
+  volume: the exact `chown -R` / `chmod -R u+rwX` of `ensureWritableCache` failed in 1 of 110 passes
+  and a seed-style `cp -a` of the cache root in 1 of 49 filled-cache copies, both with `No such file
+  or directory` on `/cache/.yarn-mutex.lock`, the lock directory the mutex creates and removes. A
+  watcher that listed the cache every 0.3 s saw no other entry appear and vanish, and none of the
+  48 other copies (71 MB up to 2.7 GB, so through the fetch phase) failed. Left alone, a build
+  starting during another build's install would fail in the `chown` before model spend, and a
+  coding or verification container in the copy (`CacheSeedException`). **Fixed at the source**
+  (`DockerWorkloads.writableCacheScript` / `seedScript`): for yarn, the `chown`/`chmod` and the seed
+  copy work on the cache's version directory (`v[0-9]*`, i.e. `v6`) and never walk the root, so the
+  lock directory is never visited; Maven keeps its commands. Yarn's own `.tmp` is inside `v6`, so it
+  is still walked and copied; it was empty at the end and a 0.2 s watcher saw no path in it during
+  an install. Replayed with the new commands during cold installs, the loops running only while
+  the install ran: 262 and then 14,535 back-to-back `chown`/`chmod` passes, and 32 and then 35
+  copies of a cache growing from 72 MB to 2.7 GB, none failed. A yarn release that moves the cache
+  to another `vN` directory is covered by the glob.
+  The per-volume writer lock is therefore no longer needed for these races; revisit it only if a
+  starting build fails in the cache again. Only the cache root is re-owned now, not a `.yarn-mutex`
+  file left in it; if the workload uid (the checkout owner) ever changes, look there first for an
+  install that cannot take the lock. Decided against, for now: Maven's `file-lock` named locks (the
   resolver setting is untested on these volumes) and the narrower `find … ! -user … chown`
   (the walk dominates, not the writes).
 - **Seed copy size and timeout.** The seed copy has a fixed 120 s timeout and the cache is
@@ -643,7 +653,8 @@ through the pin. Same model and settings as above.
   300, `DockerWorkloads` takes it in its constructor) and a `CacheSeedException` whose message
   names the volume, its size, the limit and the setting; the initial attempt reports it as
   `BLOCKED_ENVIRONMENT` before any model call, a feedback round shows it as the round's failure,
-  verification fails the step with it; (2) the cache lock above; (3) one yarn
+  verification fails the step with it; (2) **done** for yarn: the `chown` and the copy stay out of
+  the cache root (the cache lock item above); (3) one yarn
   cache volume per repository (`factory-dev-yarn-cache-<repo>`), with a recorded trigger of
   about 5 GB total or real concurrency across modules, accepting duplicate disk for the shared
   stripes tree and a Compose and runbook change. Maven's `repo.local.tail` (zero-copy seeding)
