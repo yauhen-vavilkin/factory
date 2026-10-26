@@ -116,10 +116,15 @@ class DeveloperFlowRegistrationTest {
         assertThat(devRuntimeProperties.toolchain("java21-unit")).isEqualTo(Toolchain.MAVEN);
         assertThat(devRuntimeProperties.command("node22-jest")).containsExactly("yarn", "test", "--maxWorkers=2");
         assertThat(devRuntimeProperties.installCommand("node22-jest")).containsExactly(
-                "yarn", "install", "--frozen-lockfile", "--ignore-scripts", "--non-interactive");
+                "yarn", "install", "--frozen-lockfile", "--ignore-scripts", "--non-interactive",
+                "--mutex", "file:/tmp/factory-home/.yarn-cache/.yarn-mutex");
+        // The deployed command and the Java default must lock the same path, or the lock silently does nothing.
+        assertThat(devRuntimeProperties.installCommand("node22-jest"))
+                .isEqualTo(DevRuntimeProperties.Yarn.DEFAULT_INSTALL_COMMAND);
         assertThat(devRuntimeProperties.installCommand("java21-unit")).isEmpty();
         assertThat(devRuntimeProperties.verificationCommand("node22-jest")).containsExactly("sh", "-c",
-                "'yarn' 'install' '--frozen-lockfile' '--ignore-scripts' '--non-interactive' && 'yarn' 'test' '--maxWorkers=2'");
+                "'yarn' 'install' '--frozen-lockfile' '--ignore-scripts' '--non-interactive'"
+                        + " '--mutex' 'file:/tmp/factory-home/.yarn-cache/.yarn-mutex' && 'yarn' 'test' '--maxWorkers=2'");
         assertThat(devRuntimeProperties.command("java21-roles-verify"))
                 .containsExactly("mvn", "-B", "-ntp", "verify");
         assertThat(devRuntimeProperties.requiredReports("java21-roles-verify")).hasSize(134);

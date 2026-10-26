@@ -40,8 +40,9 @@ anonymously, so `FACTORY_CONNECTORS_JIRA_BASE_URL` alone is enough.
 - **PR feedback.** The execution waits at the PR follow-up. On its page: **Check PR comments**,
   select the comments, **Fix selected comments**. One round (code, verify, push) takes about 4
   minutes. Closing the PR without merging cancels the execution; merging completes it.
-- **Several tickets.** Run one UI ticket at a time for now: concurrent starting builds share one
-  writable yarn cache and nothing serializes them (see the risks in the plan).
+- **Several tickets.** Installs are serialized by a lock in the shared yarn cache, and two tickets at
+  once have worked on a warm cache. On a fresh or reset cache run one at a time; the other cache
+  races are in the risks of the plan.
 
 ## 3. Add a UI repository
 
@@ -129,6 +130,15 @@ page. The bridge logs only method, path and status.
 - The starting build and the independent verification keep only the last 2 MiB of each output
   stream; a very verbose suite is not a failure.
 - Delivery has no approval gate; the control is the `authorized` flag and the fork-only rule.
-- The shared yarn cache is not locked against concurrent writers: run one ticket's starting build at a
-  time (a feedback round alongside a build has worked). With six modules the cache is 3.8 GB and the
-  seed copy takes about 35 s against a 300 s limit (plan, risks).
+- `yarn install` takes a lock in the shared cache (`--mutex`), so two starting builds no longer corrupt
+  it; the `chown` before a build and the cache copy into a coding or verification container are still
+  not locked. Two tickets at once have worked on a warm cache; for a fresh or reset cache run one
+  starting build at a time (plan, risks). With six modules the cache is 3.8 GB and the seed copy takes
+  about 35 s against a 300 s limit.
+- A build that starts while another build's install is running can fail in the cache `chown` (or a
+  coding or verification container in the cache copy) with "No such file or directory"; run the ticket
+  again. A cache copy taken during an install also copies the lock directory; its old timestamp makes
+  it stale at once, so at worst an install in that container waits about 10 s.
+- **Upgrading to the install lock.** The install command is part of the verification receipt. An
+  execution that verified before the deploy and has not published yet fails at delivery with
+  "Verification policy changed"; deploy when none is between `verify` and `publish`.

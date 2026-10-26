@@ -493,7 +493,28 @@ through the pin. Same model and settings as above.
   module: +296 MB (ui-inventory), +13 MB, +1 MB, +33 MB. No duplicate name+version entries. Seed
   copy 33–35 s for 3.7 GB (an earlier measurement gave 57 s for 3.4 GB). A feedback round ran
   while another ticket's starting build was writing the cache, with no copy or integrity error
-  (one sample; two concurrent starting builds are untested).
+  (one sample).
+- **Concurrent starting builds.** Two real tickets started in the same second on the warm cache
+  (UIEH-1523 on ui-eholdings, UIIN-3294 on ui-inventory) both delivered with the same lockfile
+  pins as their solo runs; the cache did not change (3898228 KB, 3015 entries, every entry has its
+  metadata), so nothing was written and nothing was tested about writes. A controlled test with
+  throwaway containers and an empty shared cache did test writes: one install alone is fine (90 s);
+  two at once (ui-eholdings and ui-inventory) **both fail** with "Extracting tar content … the file
+  appears to be corrupt: ENOENT …/cache/v6/…"; the same pair with `--mutex file:/cache/.yarn-mutex`
+  both succeed (the second waits: 198 s), and an offline frozen re-install from that cache works.
+  So the default install command now carries `--mutex file:<yarn cache path>/.yarn-mutex`
+  (`DevRuntimeProperties.Yarn.DEFAULT_INSTALL_COMMAND`, `application.yaml`). It serializes only the
+  `yarn install` step. It does not cover the root `chown -R` before a trusted workload or the
+  `cp -a` seed copy of another build's coding/verification container while a build writes the
+  cache; those remain the in-process lock item under Risks. The command change alters the
+  receipt's command, so an execution that verified before the deploy and has not published yet
+  fails at delivery with "Verification policy changed"; deploy when none is between `verify` and
+  `publish`. End to end through the Factory on a cold cache (an empty volume set through
+  `FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME`, removed afterwards): UICHKIN-516 (ui-checkin) and
+  UIEH-1514 (ui-eholdings) started in the same second, both starting builds passed with the
+  mutex in their command, both were verified (348 and 1273 tests, the mutex in the receipts) and
+  delivered in about 11 and 14 minutes. The cold cache ended at 2.7 GB with 2428 entries, none
+  without metadata, and the ui-eholdings pin (`22c19417…`) equals the one from the warm-cache runs.
 - **Bridge.** After a CodeMie proxy restart `start-bridge.ps1` could see the old bridge's closing
   listener, skip starting a new one and fail its smoke check with HTTP 000. It now waits until the
   old listener is gone.
@@ -597,10 +618,20 @@ through the pin. Same model and settings as above.
   `ensureWritableCache` so the `chown -R` is covered, released in the trusted workload's
   `close()` (safe to call twice) so every exit path releases it, with a `cache_lock_waiting`
   progress event so a queued starting build does not look hung. Seed copies only read and need
-  no lock. Decided against, for now: yarn `--mutex file:` and Maven's `file-lock` named locks
-  (finer-grained and they work across containers, but they change the trusted command and
-  invalidate old receipts, and the Maven resolver setting is untested on these volumes), and the
-  narrower `find … ! -user … chown` (the walk dominates, not the writes).
+  no lock. Yarn `--mutex file:` is now in the default install command (see "Concurrent starting
+  builds" above), because two concurrent installs into a cold cache were shown to corrupt it; it
+  does not replace this lock, and the lock is now the next item rather than an optional one.
+  Measured 2026-10-26: while one `yarn install --mutex` filled an empty volume, repeating the exact
+  `chown -R` / `chmod -R u+rwX` of `ensureWritableCache` failed in 1 of 110 passes with `chown:
+  cannot access '/cache/.yarn-mutex.lock': No such file or directory` (the lock directory itself
+  vanishing mid-walk; temporary entries do the same). `requireSuccess` then throws, so **a starting
+  build that begins while another build's install is running can fail in the cache `chown`, before
+  any model spend**. The same-second cold-cache run above passed because both `chown`s finished
+  before either install wrote anything; a staggered start is the untested, likelier case. The seed
+  `cp -a` of a coding or verification container has the same exposure ("cannot stat") and surfaces
+  as a `CacheSeedException`. Until the lock exists, a rerun fixes it. Decided against, for now: Maven's `file-lock` named locks (the
+  resolver setting is untested on these volumes) and the narrower `find … ! -user … chown`
+  (the walk dominates, not the writes).
 - **Seed copy size and timeout.** The seed copy has a fixed 120 s timeout and the cache is
   shared by all UI modules, copied into every coding and verification container. Measured
   2026-10-25 on the pilot machine: `cp -a` of the 3.4 GB volume took 57 s (about 17 s per GB),

@@ -106,8 +106,10 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
     public record Yarn(String cacheVolume, String folioRegistry, List<String> installCommand) {
         public static final String DEFAULT_CACHE_VOLUME = "factory-dev-yarn-cache";
         public static final String DEFAULT_FOLIO_REGISTRY = "https://repository.folio.org/repository/npm-folioci/";
+        /** Two starting builds installing into the shared cache at once corrupt each other's entries; the lock lives in the cache. */
         public static final List<String> DEFAULT_INSTALL_COMMAND = List.of(
-                "yarn", "install", "--frozen-lockfile", "--ignore-scripts", "--non-interactive");
+                "yarn", "install", "--frozen-lockfile", "--ignore-scripts", "--non-interactive",
+                "--mutex", "file:" + DockerWorkloads.YARN_CACHE + "/.yarn-mutex");
         private static final java.util.regex.Pattern INSTALL_TOKEN = java.util.regex.Pattern.compile("[A-Za-z0-9_.=:/@+,-]+");
         public Yarn(String cacheVolume, String folioRegistry) {
             this(cacheVolume, folioRegistry, null);

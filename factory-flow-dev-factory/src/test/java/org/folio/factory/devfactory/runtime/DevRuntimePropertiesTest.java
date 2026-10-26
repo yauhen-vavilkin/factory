@@ -241,7 +241,8 @@ class DevRuntimePropertiesTest {
     @Test
     void yarnInstallCommandHasADefaultBindsAndIsValidated() {
         assertThat(new DevRuntimeProperties.Yarn(null, null).installCommand())
-                .containsExactly("yarn", "install", "--frozen-lockfile", "--ignore-scripts", "--non-interactive");
+                .containsExactly("yarn", "install", "--frozen-lockfile", "--ignore-scripts", "--non-interactive",
+                        "--mutex", "file:/tmp/factory-home/.yarn-cache/.yarn-mutex");
         var source = new MapConfigurationPropertySource(Map.of(
                 "factory.dev-factory.runtime.yarn.install-command[0]", "yarn",
                 "factory.dev-factory.runtime.yarn.install-command[1]", "install",
@@ -268,7 +269,15 @@ class DevRuntimePropertiesTest {
         assertThat(runtime.installCommand("unit")).isEmpty();
         assertThat(runtime.installCommand("jest")).isEqualTo(DevRuntimeProperties.Yarn.DEFAULT_INSTALL_COMMAND);
         assertThat(runtime.verificationCommand("jest")).containsExactly("sh", "-c",
-                "'yarn' 'install' '--frozen-lockfile' '--ignore-scripts' '--non-interactive' && 'yarn' 'test' '--maxWorkers=2'");
+                "'yarn' 'install' '--frozen-lockfile' '--ignore-scripts' '--non-interactive'"
+                        + " '--mutex' 'file:/tmp/factory-home/.yarn-cache/.yarn-mutex' && 'yarn' 'test' '--maxWorkers=2'");
+    }
+
+    @Test
+    void theDefaultInstallLocksInsideTheCachePathTheWorkloadsMount() {
+        var install = DevRuntimeProperties.Yarn.DEFAULT_INSTALL_COMMAND;
+
+        assertThat(install).containsSequence("--mutex", "file:" + DockerWorkloads.YARN_CACHE + "/.yarn-mutex");
     }
 
     @Test
@@ -279,9 +288,11 @@ class DevRuntimePropertiesTest {
 
         assertThat(runtime.installCommand("jest", InstallMode.FROZEN)).isEqualTo(runtime.installCommand("jest"));
         assertThat(runtime.installCommand("jest", InstallMode.RESOLVE))
-                .containsExactly("yarn", "install", "--ignore-scripts", "--non-interactive");
+                .containsExactly("yarn", "install", "--ignore-scripts", "--non-interactive",
+                        "--mutex", "file:/tmp/factory-home/.yarn-cache/.yarn-mutex");
         assertThat(runtime.verificationCommand("jest", InstallMode.RESOLVE)).containsExactly("sh", "-c",
-                "'yarn' 'install' '--ignore-scripts' '--non-interactive' && 'yarn' 'test' '--maxWorkers=2'");
+                "'yarn' 'install' '--ignore-scripts' '--non-interactive'"
+                        + " '--mutex' 'file:/tmp/factory-home/.yarn-cache/.yarn-mutex' && 'yarn' 'test' '--maxWorkers=2'");
         assertThat(runtime.verificationCommand("jest", InstallMode.FROZEN)).isEqualTo(runtime.verificationCommand("jest"));
         assertThat(runtime.verificationCommand("unit", InstallMode.RESOLVE)).containsExactly("mvn", "-B", "test");
     }

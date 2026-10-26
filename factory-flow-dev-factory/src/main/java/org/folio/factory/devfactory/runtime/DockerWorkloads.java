@@ -15,7 +15,7 @@ public class DockerWorkloads {
     private static final Logger log = LoggerFactory.getLogger(DockerWorkloads.class);
     private static final String MAVEN_REPOSITORY = "/tmp/factory-home/.m2/repository";
     private static final String MAVEN_SEED = "/tmp/factory-m2-seed";
-    private static final String YARN_CACHE = "/tmp/factory-home/.yarn-cache";
+    static final String YARN_CACHE = "/tmp/factory-home/.yarn-cache";
     private static final String YARN_SEED = "/tmp/factory-yarn-seed";
     private static final String PARKED_NODE_MODULES = "/tmp/factory-parked-node_modules";
     private static final String STAGED_LOCKFILE = "/tmp/factory-pinned-yarn.lock";

@@ -193,7 +193,8 @@ factory:
         cache-volume: ${FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME:factory-dev-yarn-cache}
         folio-registry: ${FACTORY_DEV_FACTORY_FOLIO_NPM_REGISTRY:https://repository.folio.org/repository/npm-folioci/}
         # Run by the starting build, the coding container and verification, before the plan's test command.
-        install-command: [yarn, install, --frozen-lockfile, --ignore-scripts, --non-interactive]
+        # --mutex serializes installs into the shared cache; two at once corrupt each other's entries.
+        install-command: [yarn, install, --frozen-lockfile, --ignore-scripts, --non-interactive, --mutex, "file:/tmp/factory-home/.yarn-cache/.yarn-mutex"]
       plans:
         java21-unit: [mvn, -B, -ntp, test]
         java21-roles-verify: [mvn, -B, -ntp, verify]
