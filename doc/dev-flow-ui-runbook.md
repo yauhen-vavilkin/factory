@@ -123,8 +123,12 @@ page. The bridge logs only method, path and status.
   or cancel those executions first (merge or close their PRs), then deploy.
 - A pinned lockfile only fixes versions inside one execution. A new execution of the same ticket
   pins again and can see newer npm-folioci snapshots.
-- Jest tests can be flaky (`ui-users` has one that times out now and then); the flow does not
-  re-run them.
+- Jest tests can be flaky (`ui-users` has one that times out now and then; ui-inventory's
+  `InstancesList › Reset all` fails in about a third of full runs, so about half of its tickets fail
+  in the starting build or in verification); the flow does not re-run them. Run the ticket again.
+- The starting build and the independent verification keep only the last 2 MiB of each output
+  stream; a very verbose suite is not a failure.
 - Delivery has no approval gate; the control is the `authorized` flag and the fork-only rule.
-- The shared yarn cache is not locked against concurrent writers, and the 120 s seed copy limit has
-  not been tested with several large modules (plan, risks).
+- The shared yarn cache is not locked against concurrent writers: run one ticket's starting build at a
+  time (a feedback round alongside a build has worked). With six modules the cache is 3.8 GB and the
+  seed copy takes about 35 s against a 300 s limit (plan, risks).

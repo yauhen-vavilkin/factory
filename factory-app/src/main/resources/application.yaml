@@ -160,6 +160,30 @@ factory:
         build-image: node:22.22.0-bookworm
         verification-plan: node22-jest
         jira-projects: [UICIRC]
+      ui-inventory:
+        source-repo: ${FACTORY_UI_INVENTORY_SOURCE_REPO:folio-org/ui-inventory}
+        base-branch: master
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UIIN]
+      ui-marc-authorities:
+        source-repo: ${FACTORY_UI_MARC_AUTHORITIES_SOURCE_REPO:folio-org/ui-marc-authorities}
+        base-branch: master
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UIMARCAUTH]
+      ui-checkin:
+        source-repo: ${FACTORY_UI_CHECKIN_SOURCE_REPO:folio-org/ui-checkin}
+        base-branch: master
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UICHKIN]
+      ui-eholdings:
+        source-repo: ${FACTORY_UI_EHOLDINGS_SOURCE_REPO:folio-org/ui-eholdings}
+        base-branch: master
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UIEH]
     runtime:
       timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
@@ -370,6 +394,22 @@ factory:
           authorized: true
         ui-circulation:
           repository: ${FACTORY_UI_CIRCULATION_DELIVERY_REPO:folio-org/ui-circulation}
+          base-branch: master
+          authorized: true
+        ui-inventory:
+          repository: ${FACTORY_UI_INVENTORY_DELIVERY_REPO:folio-org/ui-inventory}
+          base-branch: master
+          authorized: true
+        ui-marc-authorities:
+          repository: ${FACTORY_UI_MARC_AUTHORITIES_DELIVERY_REPO:folio-org/ui-marc-authorities}
+          base-branch: master
+          authorized: true
+        ui-checkin:
+          repository: ${FACTORY_UI_CHECKIN_DELIVERY_REPO:folio-org/ui-checkin}
+          base-branch: master
+          authorized: true
+        ui-eholdings:
+          repository: ${FACTORY_UI_EHOLDINGS_DELIVERY_REPO:folio-org/ui-eholdings}
           base-branch: master
           authorized: true
   test-factory:

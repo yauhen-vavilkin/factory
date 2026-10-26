@@ -465,6 +465,39 @@ policy page") on `ui-circulation` (base `fb569e5`, fork `Dmytro-Melnyshyn/ui-cir
   taken before round 1 pushed, which the flow rejects by design; "Check PR comments" and a new
   selection fixed it.
 
+**More modules (2026-10-26).** Four more UI repositories registered the same way (`ui-inventory`,
+`ui-marc-authorities`, `ui-checkin`, `ui-eholdings`); none has a tracked `yarn.lock`, so each went
+through the pin. Same model and settings as above.
+
+| Ticket | Module | Outcome | Verification |
+|---|---|---|---|
+| UIIN-3294 | ui-inventory | not delivered (flaky upstream test, below) | 1514 of 1515 on the failing attempt |
+| UIMARCAUTH-473 | ui-marc-authorities | PR delivered; feedback round 1 pushed, PASS | 189 tests |
+| UICHKIN-516 | ui-checkin | PR delivered | 348 tests |
+| UIEH-1514 | ui-eholdings | PR delivered | 1273 tests |
+
+- **Output limit on the plan's own command.** ui-inventory's `yarn test` writes 16.3 MB to stderr
+  (45 s install, 153 s suite); the 2 MiB command limit killed the starting build with "Command
+  exceeded output limit" before any model spend. The starting build and the independent
+  verification now consume everything and keep the last `Processes.OUTPUT_LIMIT` bytes of each
+  stream (`Workload.executeKeepingTail`); the exit status decides. The limit still kills the Pi
+  and Claude event streams, installs and git, where a truncated stream is a corrupt stream. A
+  failed starting build now keeps stderr in the readiness output (Jest reports there).
+- **Flaky upstream test.** `InstancesList › Reset all` in ui-inventory fails in about a third of
+  full runs on unmodified `master` (seen on the baseline, on verification of a correct candidate,
+  and twice in two throwaway runs of plain `master`). With one verification attempt and no retry
+  about half of the tickets on that module fail (the baseline and the verification must both pass).
+  Not handled: the option of re-running only the failed test files once, recorded in the receipt,
+  was declined for now.
+- **Cache.** After six modules 3.8 GB and 3015 entries (2675 before ui-inventory). Growth per new
+  module: +296 MB (ui-inventory), +13 MB, +1 MB, +33 MB. No duplicate name+version entries. Seed
+  copy 33–35 s for 3.7 GB (an earlier measurement gave 57 s for 3.4 GB). A feedback round ran
+  while another ticket's starting build was writing the cache, with no copy or integrity error
+  (one sample; two concurrent starting builds are untested).
+- **Bridge.** After a CodeMie proxy restart `start-bridge.ps1` could see the old bridge's closing
+  listener, skip starting a new one and fail its smoke check with HTTP 000. It now waits until the
+  old listener is gone.
+
 ## Risks and open questions
 
 - **Cache growth.** The shared yarn cache has no eviction and grows with every module (1–2.6

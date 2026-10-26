@@ -98,14 +98,18 @@ class DeveloperFlowRegistrationTest {
             "FACTORY_MGR_TENANT_ENTITLEMENTS_BASE_BRANCH",
             "FACTORY_MGR_APPLICATIONS_SOURCE_REPO", "FACTORY_MGR_APPLICATIONS_DELIVERY_REPO",
             "FACTORY_UI_USERS_SOURCE_REPO", "FACTORY_UI_USERS_DELIVERY_REPO",
-            "FACTORY_UI_CIRCULATION_SOURCE_REPO", "FACTORY_UI_CIRCULATION_DELIVERY_REPO");
+            "FACTORY_UI_CIRCULATION_SOURCE_REPO", "FACTORY_UI_CIRCULATION_DELIVERY_REPO",
+            "FACTORY_UI_INVENTORY_SOURCE_REPO", "FACTORY_UI_INVENTORY_DELIVERY_REPO",
+            "FACTORY_UI_MARC_AUTHORITIES_SOURCE_REPO", "FACTORY_UI_MARC_AUTHORITIES_DELIVERY_REPO",
+            "FACTORY_UI_CHECKIN_SOURCE_REPO", "FACTORY_UI_CHECKIN_DELIVERY_REPO",
+            "FACTORY_UI_EHOLDINGS_SOURCE_REPO", "FACTORY_UI_EHOLDINGS_DELIVERY_REPO");
 
     @Test
     void configuresDeveloperRepositoriesPlansAndDeliveryTargets() {
         assertThat(devFactoryProperties.repositories())
-                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users", "ui-circulation");
+                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users", "ui-circulation", "ui-inventory", "ui-marc-authorities", "ui-checkin", "ui-eholdings");
         assertThat(devDeliveryProperties.targets())
-                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users", "ui-circulation");
+                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users", "ui-circulation", "ui-inventory", "ui-marc-authorities", "ui-checkin", "ui-eholdings");
         assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
         assertThat(devRuntimeProperties.seedTimeoutSeconds()).isEqualTo(300);
         assertThat(devRuntimeProperties.toolchain("node22-jest")).isEqualTo(Toolchain.YARN);
@@ -153,12 +157,32 @@ class DeveloperFlowRegistrationTest {
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "folio-org/ui-circulation", "master", "node:22.22.0-bookworm",
                         "node22-jest", List.of("UICIRC"), List.of()));
+        assertThat(devFactoryProperties.repositories().get("ui-inventory"))
+                .isEqualTo(new DevFactoryProperties.Repository(
+                        "folio-org/ui-inventory", "master", "node:22.22.0-bookworm",
+                        "node22-jest", List.of("UIIN"), List.of()));
+        assertThat(devFactoryProperties.repositories().get("ui-marc-authorities"))
+                .isEqualTo(new DevFactoryProperties.Repository(
+                        "folio-org/ui-marc-authorities", "master", "node:22.22.0-bookworm",
+                        "node22-jest", List.of("UIMARCAUTH"), List.of()));
+        assertThat(devFactoryProperties.repositories().get("ui-checkin"))
+                .isEqualTo(new DevFactoryProperties.Repository(
+                        "folio-org/ui-checkin", "master", "node:22.22.0-bookworm",
+                        "node22-jest", List.of("UICHKIN"), List.of()));
+        assertThat(devFactoryProperties.repositories().get("ui-eholdings"))
+                .isEqualTo(new DevFactoryProperties.Repository(
+                        "folio-org/ui-eholdings", "master", "node:22.22.0-bookworm",
+                        "node22-jest", List.of("UIEH"), List.of()));
         assertThat(devDeliveryProperties.targets()).containsOnly(
                 entry("sidecar", new DeliveryTarget("folio-org/folio-module-sidecar", "master", true)),
                 entry("mod-roles-keycloak", new DeliveryTarget("folio-org/mod-roles-keycloak", "master", true)),
                 entry("mgr-tenant-entitlements", new DeliveryTarget("folio-org/mgr-tenant-entitlements", "master", true)),
                 entry("mgr-applications", new DeliveryTarget("folio-org/mgr-applications", "master", true)),
                 entry("ui-users", new DeliveryTarget("folio-org/ui-users", "master", true)),
-                entry("ui-circulation", new DeliveryTarget("folio-org/ui-circulation", "master", true)));
+                entry("ui-circulation", new DeliveryTarget("folio-org/ui-circulation", "master", true)),
+                entry("ui-inventory", new DeliveryTarget("folio-org/ui-inventory", "master", true)),
+                entry("ui-marc-authorities", new DeliveryTarget("folio-org/ui-marc-authorities", "master", true)),
+                entry("ui-checkin", new DeliveryTarget("folio-org/ui-checkin", "master", true)),
+                entry("ui-eholdings", new DeliveryTarget("folio-org/ui-eholdings", "master", true)));
     }
 }
