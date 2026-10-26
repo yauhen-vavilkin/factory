@@ -81,7 +81,7 @@ class CandidateVerifierTest {
     @ParameterizedTest
     @ValueSource(ints = {0, 17})
     void actualExitControlsAcceptanceOfFreshExactCandidate(int exit) {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(exit, "Pi said PASS"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(exit, "Pi said PASS"));
         var receipt = verifier.verify(executionId, "verify", candidate);
         assertThat(receipt.exitCode()).isEqualTo(exit);
         assertThat(receipt.result()).isEqualTo(exit == 0 ? "PASS" : "FAIL");
@@ -92,13 +92,13 @@ class CandidateVerifierTest {
         assertThat(receipt.finishedAt()).isAfterOrEqualTo(receipt.startedAt());
         if (exit == 0) receipt.requireVerified(executionId.toString(), candidate);
         else assertThatThrownBy(() -> receipt.requireVerified(executionId.toString(), candidate)).isInstanceOf(IllegalStateException.class);
-        verify(workload).execute(command, 60);
+        verify(workload).executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null);
         verify(workload).close();
     }
 
     @Test
     void zeroExitWithoutFreshExecutedTestsIsNotPass() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "Tests are skipped."));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "Tests are skipped."));
         doNothing().when(workload).export(any());
 
         var receipt = verifier.verify(executionId, "verify", candidate);
@@ -115,7 +115,7 @@ class CandidateVerifierTest {
 
     @Test
     void allSkippedSurefireSuiteIsNotPass() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "BUILD SUCCESS"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "BUILD SUCCESS"));
         exportReport("<testsuite tests=\"3\" skipped=\"3\" failures=\"0\" errors=\"0\"></testsuite>");
 
         var receipt = verifier.verify(executionId, "verify", candidate);
@@ -126,7 +126,7 @@ class CandidateVerifierTest {
 
     @Test
     void ignoredSurefireFailureIsNotPassEvenWithZeroExit() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "BUILD SUCCESS"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "BUILD SUCCESS"));
         exportReport("<testsuite tests=\"3\" skipped=\"0\" failures=\"1\" errors=\"0\"></testsuite>");
 
         var receipt = verifier.verify(executionId, "verify", candidate);
@@ -138,7 +138,7 @@ class CandidateVerifierTest {
 
     @Test
     void failingCommandPreservesFreshTestFailuresAndErrors() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "BUILD FAILURE"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1, "BUILD FAILURE"));
         exportReport("<testsuite tests='5' skipped='1' failures='2' errors='1'/>");
 
         var receipt = verifier.verify(executionId, "verify", candidate);
@@ -153,7 +153,7 @@ class CandidateVerifierTest {
 
     @Test
     void buildFailureWithoutReportsHasNoUsableEvidence() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "Compilation failed"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1, "Compilation failed"));
         doNothing().when(workload).export(any());
 
         var receipt = verifier.verify(executionId, "verify", candidate);
@@ -168,7 +168,7 @@ class CandidateVerifierTest {
     @ParameterizedTest
     @ValueSource(ints = {0, 1})
     void invalidEvidenceCannotAuthorizePassAndRetainsDiagnostic(int exit) {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(exit, "x".repeat(20000)));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(exit, "x".repeat(20000)));
         exportReport("<testsuite tests='3' skipped='0' failures='0' errors='0'>");
 
         var receipt = verifier.verify(executionId, "verify", candidate);
@@ -183,7 +183,7 @@ class CandidateVerifierTest {
 
     @Test
     void runtimeFailureStillClosesVerificationWorkload() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "BUILD SUCCESS"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "BUILD SUCCESS"));
         doThrow(new IllegalStateException("Docker export failed")).when(workload).export(any());
 
         assertThatThrownBy(() -> verifier.verify(executionId, "verify", candidate))
@@ -201,7 +201,7 @@ class CandidateVerifierTest {
 
     @Test
     void receiptCannotAuthorizeAnotherCandidateOrExecution() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "OK"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "OK"));
         var receipt = verifier.verify(executionId, "verify", candidate);
         var other = new Candidate(candidate.repository(), candidate.baseSha(), "a".repeat(40),
                 candidate.patchSha256(), candidate.patch(), candidate.state());
@@ -216,7 +216,7 @@ class CandidateVerifierTest {
         var runtime = new DevRuntimeProperties(Map.of("unit", command), null, 60, null,
                 Map.of("unit", List.of(required)));
         verifier = new CandidateVerifier(properties, runtime, new CandidateFreezer(), docker);
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "BUILD SUCCESS"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "BUILD SUCCESS"));
         doAnswer(invocation -> {
             Path exported = invocation.getArgument(0);
             Path unit = Files.createDirectories(exported.resolve("target/surefire-reports"));
@@ -246,14 +246,14 @@ class CandidateVerifierTest {
 
     @Test
     void assertionDiagnosticAndValidEvidenceIdentifyCandidateFailure() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "AssertionFailedError: expected: <1> but was: <2>"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1, "AssertionFailedError: expected: <1> but was: <2>"));
         exportReport("<testsuite tests='3' skipped='0' failures='1' errors='0'/>");
         assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.CANDIDATE);
     }
 
     @Test
     void dockerFailureIsNeverCandidateFailureEvenWithAssertionFailures() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1,
                 "AssertionFailedError; Could not find a valid Docker environment"));
         exportReport("<testsuite tests='3' skipped='0' failures='1' errors='0'/>");
         assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.ENVIRONMENT);
@@ -261,7 +261,7 @@ class CandidateVerifierTest {
 
     @Test
     void timeoutRetainsEvidenceButCannotAuthorizeDeliveryOrRepair() {
-        when(workload.execute(command, 60)).thenThrow(new IllegalStateException("Command exceeded 60 seconds"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenThrow(new IllegalStateException("Command exceeded 60 seconds"));
         var receipt = verifier.verify(executionId, "verify", candidate);
         assertThat(receipt.exitCode()).isEqualTo(-1);
         assertThat(receipt.testCount()).isEqualTo(3);
@@ -272,7 +272,7 @@ class CandidateVerifierTest {
 
     @Test
     void compilerDiagnosticIsInformationalWithoutInventingTestEvidence() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1,
                 "[ERROR] COMPILATION ERROR :\n[ERROR] /workspace/src/main/java/Example.java:[12,3] cannot find symbol"));
         doNothing().when(workload).export(any());
         var receipt = verifier.verify(executionId, "verify", candidate);
@@ -283,20 +283,20 @@ class CandidateVerifierTest {
 
     @Test
     void unrecognizedFailureWithPassingReportsRemainsUnknown() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "BUILD FAILURE"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1, "BUILD FAILURE"));
         assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.UNKNOWN);
     }
 
     @Test
     void assertionTextWithoutEvidenceCannotAuthorizeRepair() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, "AssertionFailedError"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1, "AssertionFailedError"));
         doNothing().when(workload).export(any());
         assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.INSUFFICIENT_EVIDENCE);
     }
 
     @Test
     void persistedDiagnosticRedactsCredentials() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1,
                 "Authorization: Bearer secret123 https://user:password@example.org/artifact token=secret456"));
         var receipt = verifier.verify(executionId, "verify", candidate);
         assertThat(receipt.output()).contains("[REDACTED]")
@@ -305,7 +305,7 @@ class CandidateVerifierTest {
 
     @Test
     void credentialCrossingDiagnosticTailBoundaryIsRedactedBeforeTruncation() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1,
                 "x".repeat(4000) + "token=secret123" + "y".repeat(15994)));
         var receipt = verifier.verify(executionId, "verify", candidate);
         assertThat(receipt.output()).hasSizeLessThanOrEqualTo(16000)
@@ -315,7 +315,7 @@ class CandidateVerifierTest {
     @Test
     void yarnPlanIsAuthorizedOnlyByAFreshExecutedJestReport() {
         useYarn();
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "Tests: 7 passed"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "Tests: 7 passed"));
         exportJest("passing-with-skips.xml");
 
         var receipt = verifier.verify(executionId, "verify", candidate);
@@ -331,7 +331,7 @@ class CandidateVerifierTest {
     @Test
     void yarnZeroExitWithoutAReportIsNotPass() {
         useYarn();
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "Done in 3.2s."));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "Done in 3.2s."));
         doNothing().when(workload).export(any());
 
         var receipt = verifier.verify(executionId, "verify", candidate);
@@ -346,7 +346,7 @@ class CandidateVerifierTest {
     @ValueSource(ints = {0, 1})
     void yarnSuiteThatFailsToLoadFailsWithAReceiptNotAnException(int exit) {
         useYarn();
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(exit, "Test suite failed to run"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(exit, "Test suite failed to run"));
         exportJest("suite-load-error.xml");
 
         var receipt = verifier.verify(executionId, "verify", candidate);
@@ -361,7 +361,7 @@ class CandidateVerifierTest {
     @Test
     void yarnAssertionFailureIdentifiesCandidateFailure() {
         useYarn();
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1,
                 "expect(received).toBe(expected) // Object.is equality\n\nExpected: 2\nReceived: 1"));
         exportJest("failing-test.xml");
 
@@ -374,7 +374,7 @@ class CandidateVerifierTest {
     @Test
     void yarnTimeoutAloneIsNotRepairable() {
         useYarn();
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1,
                 "thrown: \"Exceeded timeout of 5000 ms for a test.\""));
         exportJest("failing-test.xml");
 
@@ -387,7 +387,7 @@ class CandidateVerifierTest {
     @Test
     void yarnRegistryOutageIsEnvironmentEvenWithFailingTests() {
         useYarn();
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1,
                 "error An unexpected error occurred: \"https://registry.example/pkg: ETIMEDOUT\".\nExpected: 2\nReceived: 1"));
         exportJest("failing-test.xml");
 
@@ -400,7 +400,7 @@ class CandidateVerifierTest {
             "error An unexpected error occurred: \"https://registry.example/pkg: Request failed \\\"503 Service Unavailable\\\"\"."})
     void yarnRegistryTimeoutAndEscaped5xxAreEnvironment(String registryError) {
         useYarn();
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1, registryError));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1, registryError));
         exportJest("failing-test.xml");
 
         assertThat(verifier.verify(executionId, "verify", candidate).failureKind()).isEqualTo(VerificationFailure.ENVIRONMENT);
@@ -409,7 +409,7 @@ class CandidateVerifierTest {
     @Test
     void yarnRecoveredNetworkRetryDoesNotHideARealAssertionFailure() {
         useYarn();
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1,
                 "info There appears to be trouble with your network connection. Retrying...\n"
                         + "expect(received).toBe(expected) // Object.is equality\n\nExpected: 2\nReceived: 1"));
         exportJest("failing-test.xml");
@@ -420,7 +420,7 @@ class CandidateVerifierTest {
     @Test
     void yarnInvalidJestReportCannotAuthorizePass() {
         useYarn();
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "ok"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "ok"));
         doAnswer(invocation -> {
             Path report = ((Path) invocation.getArgument(0)).resolve("artifacts/jest-junit/junit.xml");
             Files.createDirectories(report.getParent());
@@ -438,7 +438,7 @@ class CandidateVerifierTest {
     @Test
     void aSurefireReportCannotAuthorizeAYarnPlan() {
         useYarn();
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "ok"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "ok"));
 
         var receipt = verifier.verify(executionId, "verify", candidate);
 
@@ -449,7 +449,7 @@ class CandidateVerifierTest {
 
     @Test
     void aJestReportCannotAuthorizeAMavenPlan() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "ok"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "ok"));
         exportJest("passing-with-skips.xml");
 
         var receipt = verifier.verify(executionId, "verify", candidate);
@@ -467,14 +467,14 @@ class CandidateVerifierTest {
     void pinnedLockfileIsSeededAndTheInstallIsFrozenWhileTheCandidateKeepsPackageJson() {
         useYarn();
         var pinned = pinnedFor("");
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "Tests: 7 passed"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "Tests: 7 passed"));
         exportJest("passing-with-skips.xml");
 
         var receipt = verifier.verify(executionId, "verify", candidate, Optional.of(pinned));
 
         var order = inOrder(workload);
         order.verify(workload).seedLockfile(pinned);
-        order.verify(workload).execute(command, 60);
+        order.verify(workload).executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null);
         assertThat(receipt.result()).isEqualTo("PASS");
         assertThat(receipt.lockfileSha256()).isEqualTo(pinned.sha256());
         assertThat(receipt.argv().get(2)).contains("'--frozen-lockfile'");
@@ -487,7 +487,7 @@ class CandidateVerifierTest {
         var pinned = pinnedFor("c".repeat(40));
         var resolving = new DevRuntimeProperties(Map.of("unit", plan), null, 60, null, Map.of(),
                 Map.of("unit", Toolchain.YARN)).verificationCommand("unit", InstallMode.RESOLVE);
-        when(workload.execute(resolving, 60)).thenReturn(new Processes.Result(0, "Tests: 7 passed"));
+        when(workload.executeKeepingTail(resolving, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "Tests: 7 passed"));
         exportJest("passing-with-skips.xml");
 
         var receipt = verifier.verify(executionId, "verify", candidate, Optional.of(pinned));
@@ -502,7 +502,7 @@ class CandidateVerifierTest {
     @Test
     void withoutAPinnedLockfileNothingIsSeededAndTheReceiptCarriesNoHash() {
         useYarn();
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "Tests: 7 passed"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "Tests: 7 passed"));
         exportJest("passing-with-skips.xml");
 
         var receipt = verifier.verify(executionId, "verify", candidate);
@@ -543,18 +543,18 @@ class CandidateVerifierTest {
     @Test
     void yarnPlanRemovesAStaleReportBeforeRunningAndMavenPlansDoNot() {
         useYarn();
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "ok"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "ok"));
         exportJest("passing-with-skips.xml");
 
         verifier.verify(executionId, "verify", candidate);
 
         var order = inOrder(workload);
         order.verify(workload).execute(List.of("rm", "-rf", "artifacts/jest-junit"), 60);
-        order.verify(workload).execute(command, 60);
+        order.verify(workload).executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null);
 
         reset(workload);
         when(workload.name()).thenReturn("fresh-verifier");
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(0, "ok"));
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "ok"));
         exportReport("<testsuite tests='3' skipped='0' failures='0' errors='0'/>");
         new CandidateVerifier(properties, new DevRuntimeProperties(Map.of("unit", command), null, 60, null),
                 new CandidateFreezer(), docker).verify(executionId, "verify", candidate);
@@ -564,7 +564,7 @@ class CandidateVerifierTest {
     @Test
     void yarnNetworkTextInTestOutputDoesNotHideARealAssertionFailure() {
         useYarn();
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1,
                 "console.error\n    Error: connection refused while calling the api\n"
                         + "expect(received).toBe(expected) // Object.is equality\n\nExpected: 2\nReceived: 1"));
         exportJest("failing-test.xml");
@@ -575,7 +575,7 @@ class CandidateVerifierTest {
     @Test
     void yarnInfrastructureFailuresAreStillEnvironmentAnywhereInTheOutput() {
         useYarn();
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1,
                 "Expected: 2\nReceived: 1\nno space left on device"));
         exportJest("failing-test.xml");
 
@@ -584,7 +584,7 @@ class CandidateVerifierTest {
 
     @Test
     void mavenNetworkTextAnywhereInTheOutputIsStillEnvironment() {
-        when(workload.execute(command, 60)).thenReturn(new Processes.Result(1,
+        when(workload.executeKeepingTail(command, 60, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(1,
                 "AssertionFailedError: expected: <1> but was: <2>\nConnection refused"));
         exportReport("<testsuite tests='3' skipped='0' failures='1' errors='0'/>");
 

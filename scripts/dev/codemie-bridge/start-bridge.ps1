@@ -136,7 +136,11 @@ if (-not (Test-Path -LiteralPath $keyFile)) {
 $clientKey = (Get-Content -LiteralPath $keyFile -Raw).Trim()
 
 # A new proxy daemon has a new key, which the running bridge does not know.
-if ($proxyRestarted) { Stop-Bridge }
+if ($proxyRestarted) {
+  Stop-Bridge
+  # The old listener can still accept for a moment after the kill; starting before it is gone would skip the new bridge.
+  if (-not (Wait-Until { -not (Test-Loopback $BridgePort) } 15)) { throw "The old bridge is still listening on $BridgePort" }
+}
 if (-not (Test-Loopback $BridgePort)) {
   $daemon = Get-Daemon
   if (-not $daemon) { throw "No proxy daemon file at $daemonFile" }

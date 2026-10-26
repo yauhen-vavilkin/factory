@@ -44,7 +44,7 @@ final class BaselineBuild {
         try {
             heartbeat.scheduleAtFixedRate(observer::heartbeat, 15, 30, TimeUnit.SECONDS);
             result =
-                    baseline.execute(
+                    baseline.executeKeepingTail(
                             command, runtime.timeoutSeconds(), Processes.OUTPUT_LIMIT, observer);
         } finally {
             observer.close();
@@ -59,7 +59,9 @@ final class BaselineBuild {
         details.put("command", command);
         details.put("exitCode", result.exitCode());
         if (!summary.isBlank()) details.put("summary", summary);
-        details.put("output", tail(MavenBaselineOutput.sanitize(result.output())));
+        // Jest reports to stderr, so a failed run is only explained by both streams.
+        details.put("output", tail(MavenBaselineOutput.sanitize(
+                result.exitCode() == 0 ? result.output() : result.diagnostics())));
 
         Optional<PinnedLockfile> lockfile = Optional.empty();
         String lockfileError = null;

@@ -320,6 +320,14 @@ public class DockerWorkloads {
             command.addAll(argv);
             return Processes.run(null, command, timeout, java.util.Map.of(), outputLimit, stdoutLine);
         }
+        /** For the plan's own build and test command: a verbose suite is not a failure, so only the output tail is kept. */
+        public Processes.Result executeKeepingTail(List<String> argv, int timeout, int tailLimit,
+                                                   java.util.function.Consumer<String> stdoutLine) {
+            if (stopped) throw new IllegalStateException("Workload is stopped");
+            var command = new ArrayList<>(List.of("docker", "exec", "--workdir", "/workspace", name));
+            command.addAll(argv);
+            return Processes.runKeepingTail(null, command, timeout, java.util.Map.of(), tailLimit, stdoutLine);
+        }
         /** Stops the workload for export; yarn's installed dependencies are moved out of /workspace first. */
         public void stop() {
             if (!stopped) {

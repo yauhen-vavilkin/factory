@@ -43,7 +43,7 @@ class DevelopReadinessTest {
         when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
         when(stepScope.createTrusted("build:image", workspace, BuildEnvironment.maven("factory-dev-m2-cache"))).thenReturn(baseline);
         when(stepScope.createSeeded("pi:image", workspace, BuildEnvironment.maven("factory-dev-m2-cache"), "coding")).thenReturn(pi);
-        when(baseline.execute(eq(List.of("mvn", "test")), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
+        when(baseline.executeKeepingTail(eq(List.of("mvn", "test")), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
                 .thenReturn(new Processes.Result(1, "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: Read timed out"),
                         new Processes.Result(0, "[INFO] BUILD SUCCESS"));
         if (piFails) when(coding.code(eq(pi), any(CodingRequest.class), eq(60), any()))
@@ -168,7 +168,7 @@ class DevelopReadinessTest {
         when(stepScope.createSeeded("pi:image", workspace, environment, "coding")).thenReturn(agent);
         var mode = trackedLockfile ? InstallMode.FROZEN : InstallMode.RESOLVE;
         when(baseline.readLockfile()).thenReturn(trackedLockfile ? java.util.Optional.empty() : java.util.Optional.of(LOCKFILE));
-        when(baseline.execute(eq(runtime.verificationCommand("jest", mode)), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
+        when(baseline.executeKeepingTail(eq(runtime.verificationCommand("jest", mode)), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
                 .thenReturn(new Processes.Result(0, "Done in 1s."));
         when(agent.execute(install, 60)).thenReturn(installResult);
         when(coding.code(eq(agent), any(CodingRequest.class), eq(60), any()))
@@ -265,7 +265,7 @@ class DevelopReadinessTest {
                 pinned.toArtifact());
 
         verify(s.agent()).seedLockfile(pinned);
-        verify(s.baseline(), never()).execute(any(), anyInt(), anyInt(), any());
+        verify(s.baseline(), never()).executeKeepingTail(any(), anyInt(), anyInt(), any());
     }
 
     @Test void unusableGeneratedLockfileBlocksBeforeModelSpend() {
@@ -332,7 +332,7 @@ class DevelopReadinessTest {
         var coding = mock(CodingRuntime.class);
         when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
         when(stepScope.createTrusted("build:image", workspace, environment)).thenReturn(workload);
-        when(workload.execute(eq(command), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
+        when(workload.executeKeepingTail(eq(command), eq(60), eq(Processes.OUTPUT_LIMIT), any()))
                 .thenAnswer(invocation -> {
                     @SuppressWarnings("unchecked")
                     java.util.function.Consumer<String> observer = invocation.getArgument(3);
@@ -358,7 +358,7 @@ class DevelopReadinessTest {
                         .hasMessageContaining(toolchain == Toolchain.YARN ? "ETIMEDOUT" : "Saxon-HE");
             }
             verify(stepScope, times(2)).createTrusted("build:image", workspace, environment);
-            verify(workload, times(2)).execute(eq(command), eq(60), eq(Processes.OUTPUT_LIMIT), any());
+            verify(workload, times(2)).executeKeepingTail(eq(command), eq(60), eq(Processes.OUTPUT_LIMIT), any());
         } else {
             var result = worker.execute(context);
             assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT");

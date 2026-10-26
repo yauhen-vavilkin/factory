@@ -79,7 +79,7 @@ public class CandidateVerifier {
                 Instant started = Instant.now();
                 Processes.Result observation;
                 try {
-                    observation = workload.execute(command, runtime.timeoutSeconds());
+                    observation = workload.executeKeepingTail(command, runtime.timeoutSeconds(), Processes.OUTPUT_LIMIT, null);
                 } catch (IllegalStateException e) {
                     // Transport failure has no process exit status. Still preserve available reports.
                     observation = new Processes.Result(-1, Objects.toString(e.getMessage(), "Command failed without diagnostic"));

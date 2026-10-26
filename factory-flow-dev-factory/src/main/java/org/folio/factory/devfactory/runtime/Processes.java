@@ -44,6 +44,19 @@ public final class Processes {
     }
     public static Result run(Path directory, List<String> argv, int seconds, Map<String, String> extraEnvironment,
                              int outputLimit, java.util.function.Consumer<String> stdoutLine) {
+        return run(directory, argv, seconds, extraEnvironment, outputLimit, stdoutLine, false);
+    }
+    /**
+     * For a command whose verbosity is not a fault (a test suite): all output is consumed, only the last
+     * {@code tailLimit} bytes of each stream are kept, and the exit status stays authoritative.
+     */
+    public static Result runKeepingTail(Path directory, List<String> argv, int seconds,
+                                        Map<String, String> extraEnvironment, int tailLimit,
+                                        java.util.function.Consumer<String> stdoutLine) {
+        return run(directory, argv, seconds, extraEnvironment, tailLimit, stdoutLine, true);
+    }
+    private static Result run(Path directory, List<String> argv, int seconds, Map<String, String> extraEnvironment,
+                              int outputLimit, java.util.function.Consumer<String> stdoutLine, boolean keepTail) {
         if (outputLimit < 1) throw new IllegalArgumentException("Output limit must be positive");
         try {
             var builder = new ProcessBuilder(argv);
@@ -58,12 +71,13 @@ public final class Processes {
             builder.environment().put("GIT_CONFIG_GLOBAL", "/dev/null");
             var process = builder.start();
             process.getOutputStream().close();
-            var stdout = new ByteArrayOutputStream();
-            var stderr = new ByteArrayOutputStream();
+            var stdout = keepTail ? new TailBuffer(outputLimit) : new ByteArrayOutputStream();
+            var stderr = keepTail ? new TailBuffer(outputLimit) : new ByteArrayOutputStream();
             var total = new AtomicInteger();
             var overflow = new AtomicBoolean();
-            Thread stdoutReader = reader(process, process.getInputStream(), stdout, outputLimit, total, overflow, stdoutLine);
-            Thread stderrReader = reader(process, process.getErrorStream(), stderr, outputLimit, total, overflow, null);
+            int hardLimit = keepTail ? Integer.MAX_VALUE : outputLimit;
+            Thread stdoutReader = reader(process, process.getInputStream(), stdout, hardLimit, total, overflow, stdoutLine);
+            Thread stderrReader = reader(process, process.getErrorStream(), stderr, hardLimit, total, overflow, null);
             if (!process.waitFor(seconds, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
                 process.waitFor(5, TimeUnit.SECONDS);
@@ -111,6 +125,22 @@ public final class Processes {
                     if (observer != null && !oversized && line.size() > 0) observe(observer, line);
                 } catch (IOException ignored) { /* Exit and size checks below remain authoritative. */ }
             });
+    }
+    /** Holds at most twice {@code limit} bytes and reports the last {@code limit} of everything written. */
+    private static final class TailBuffer extends ByteArrayOutputStream {
+        private final int limit;
+        TailBuffer(int limit) { this.limit = limit; }
+        @Override public synchronized void write(byte[] bytes, int offset, int length) {
+            super.write(bytes, offset, length);
+            if (count > 2L * limit) {
+                System.arraycopy(buf, count - limit, buf, 0, limit);
+                count = limit;
+            }
+        }
+        @Override public synchronized String toString(java.nio.charset.Charset charset) {
+            int skip = Math.max(0, count - limit);
+            return new String(buf, skip, count - skip, charset);
+        }
     }
     private static void observe(java.util.function.Consumer<String> observer, ByteArrayOutputStream line) {
         try { observer.accept(line.toString(StandardCharsets.UTF_8)); }
