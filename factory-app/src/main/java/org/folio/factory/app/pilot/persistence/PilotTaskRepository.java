@@ -16,10 +16,17 @@ public interface PilotTaskRepository extends JpaRepository<PilotTask, UUID> {
 
     List<PilotTask> findByJiraInstanceAndInScopeTrue(String jiraInstance);
 
-    List<PilotTask> findByJiraInstanceAndInScopeTrueAndEligibility(String jiraInstance,
-                                                                   PilotTask.Eligibility eligibility);
-
     long countByJiraInstance(String jiraInstance);
+
+    /** My tasks on the configured Jira never started (or only withdrawn before start), newest Jira task first. */
+    @Query("""
+            select t from PilotTask t
+            where t.jiraInstance = :jiraInstance and t.inScope = true
+              and not exists (select a from PilotAttempt a where a.taskId = t.id and a.state <> :withdrawn)
+            order by t.jiraCreatedAt desc, t.displayKey asc
+            """)
+    List<PilotTask> findAvailable(@Param("jiraInstance") String jiraInstance,
+                                  @Param("withdrawn") PilotAttempt.State withdrawn);
 
     /**
      * Locks the logical task row so admission can reserve the initial attempt

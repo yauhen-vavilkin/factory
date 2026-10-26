@@ -6,7 +6,7 @@ import java.util.UUID;
 /**
  * The approved admission view granted to one pilot execution: the immutable
  * attempt identity, the bounded approved issue snapshot, the admitted repository
- * and the input/scope/destination identity fingerprints. Workers consume this
+ * and the input/destination identity fingerprints. Workers consume this
  * view instead of re-reading mutable external state.
  */
 public record PilotExecutionContext(
@@ -15,7 +15,6 @@ public record PilotExecutionContext(
         String repositoryKey,
         Kind admissionKind,
         String inputFingerprint,
-        String scopeFingerprint,
         String destinationFingerprint) {
 
     public enum Kind { INITIAL, RETRY }

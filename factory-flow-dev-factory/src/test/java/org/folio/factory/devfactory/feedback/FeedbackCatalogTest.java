@@ -67,8 +67,8 @@ class FeedbackCatalogTest {
 
     @ParameterizedTest
     @CsvSource({"true, false", "false, false", "true, true", "false, true"})
-    void followsCurrentCatalogAuthorizationDespiteAnUnrelatedIncompleteDestination(
-            boolean authorized, boolean incompleteOtherTarget) {
+    void followsCurrentCatalogDestinationDespiteAnUnrelatedIncompleteDestination(
+            boolean configured, boolean incompleteOtherTarget) {
         var comment = new PrFeedbackGateway.Comment(
                 "inline:1", "reviewer", "Correct value", "value.txt", 1, false, "now", "url");
         var state = new FeedbackState();
@@ -90,10 +90,10 @@ class FeedbackCatalogTest {
                 .thenReturn(new PrFeedbackGateway.Snapshot("changed", pullRequest, List.of(comment)));
         when(coding.redact(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        var result = worker(authorized, incompleteOtherTarget).execute(context(saved));
+        var result = worker(configured, incompleteOtherTarget).execute(context(saved));
         var observed = JSON.readValue(result.outputs().get(STATE), FeedbackState.class);
 
-        if (authorized) {
+        if (configured) {
             assertThat(observed.phase()).isEqualTo(FeedbackState.Phase.REFRESH_REQUIRED);
             verify(gateway).comments(pullRequest);
         } else {
@@ -107,19 +107,19 @@ class FeedbackCatalogTest {
         verifyNoInteractions(freezer);
     }
 
-    private FeedbackWorker worker(boolean authorized) {
-        return worker(authorized, false);
+    private FeedbackWorker worker(boolean configured) {
+        return worker(configured, false);
     }
 
-    private FeedbackWorker worker(boolean authorized, boolean incompleteOtherTarget) {
+    private FeedbackWorker worker(boolean configured, boolean incompleteOtherTarget) {
         var repository = new DevFactoryProperties.Repository(
                 "source/repo", "main", "build:image", "unit", List.of("TASK"), List.of(),
-                new DeliveryTarget(pullRequest.repository(), "main", authorized));
+                new DeliveryTarget(configured ? pullRequest.repository() : "other/repository", "main"));
         var catalog = new TreeMap<>(Map.of("fixture", repository));
         if (incompleteOtherTarget) {
             var unrelatedRepository = new DevFactoryProperties.Repository(
                     "source/other", "main", "build:image", "unit", List.of("OTHER"), List.of(),
-                    new DeliveryTarget(null, null, true));
+                    new DeliveryTarget(null, null));
             catalog.put("unrelated", unrelatedRepository);
         }
         var repositories = new DevFactoryProperties(null, catalog);

@@ -4,16 +4,11 @@ import org.folio.factory.connectors.ConnectorHealth;
 import org.folio.factory.connectors.ConnectorNotConfiguredException;
 import org.folio.factory.connectors.jira.JiraSourceModels.DiscoveredIssue;
 import org.folio.factory.connectors.jira.JiraSourceModels.IssuePage;
-import org.folio.factory.connectors.jira.JiraSourceModels.ResolvedSource;
-import org.folio.factory.connectors.jira.JiraSourceModels.SourceReference;
-import org.folio.factory.connectors.jira.JiraSourceModels.Sprint;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.JsonNode;
 
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -32,7 +27,8 @@ public class JiraRestConnector implements JiraConnector, JiraSourceConnector, Co
 
     private static final int SEARCH_PAGE_SIZE = 50;
     private static final List<String> SEARCH_FIELDS = List.of(
-            "summary", "description", "status", "issuetype", "labels", "project", "components", "created");
+            "summary", "description", "status", "issuetype", "labels", "project", "components", "created",
+            "issuelinks", "comment");
 
     private final RestClient restClient;
     private final boolean authenticated;
@@ -112,65 +108,6 @@ public class JiraRestConnector implements JiraConnector, JiraSourceConnector, Co
             throw new ConnectorNotConfiguredException("Jira connector is read-only: set "
                     + "FACTORY_CONNECTORS_JIRA_EMAIL and FACTORY_CONNECTORS_JIRA_API_TOKEN to enable writes");
         }
-    }
-
-    @Override
-    public SourceReference parseSourceReference(String raw) {
-        return SourceReference.parse(raw, baseUrl);
-    }
-
-    @Override
-    public ResolvedSource resolveSource(SourceReference reference) {
-        return switch (reference.kind()) {
-            case BOARD -> resolveBoard(reference.id());
-            case FILTER -> resolveFilter(reference.id());
-        };
-    }
-
-    private ResolvedSource resolveBoard(String boardId) {
-        JsonNode filter;
-        try {
-            filter = requireBody(restClient.get()
-                    .uri("/rest/agile/1.0/board/{id}/filter", boardId)
-                    .retrieve()
-                    .body(JsonNode.class), "board " + boardId + " filter");
-        } catch (RestClientException e) {
-            throw new IllegalStateException("Board " + boardId + " could not be resolved; if it is a saved "
-                    + "filter id, use the 'filter:" + boardId + "' form", e);
-        }
-        String filterId = requiredField(filter, "id", "board " + boardId + " filter");
-        return new ResolvedSource(boardId,
-                requiredField(filter, "name", "board " + boardId + " filter"),
-                filterLink(filterId),
-                filterId,
-                requiredField(filter, "jql", "board " + boardId + " filter"));
-    }
-
-    private ResolvedSource resolveFilter(String filterId) {
-        JsonNode filter = requireBody(restClient.get()
-                .uri("/rest/api/2/filter/{id}", filterId)
-                .retrieve()
-                .body(JsonNode.class), "saved filter " + filterId);
-        return new ResolvedSource(filterId,
-                requiredField(filter, "name", "saved filter " + filterId),
-                filterLink(filterId),
-                requiredField(filter, "id", "saved filter " + filterId),
-                requiredField(filter, "jql", "saved filter " + filterId));
-    }
-
-    private URI filterLink(String filterId) {
-        String base = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
-        return URI.create(base + "/issues/?filter=" + filterId);
-    }
-
-    @Override
-    public Sprint getSprint(String sprintId) {
-        JsonNode sprint = requireBody(restClient.get()
-                .uri("/rest/agile/1.0/sprint/{id}", sprintId)
-                .retrieve()
-                .body(JsonNode.class), "sprint " + sprintId);
-        return new Sprint(requiredField(sprint, "id", "sprint " + sprintId),
-                requiredField(sprint, "name", "sprint " + sprintId));
     }
 
     @Override

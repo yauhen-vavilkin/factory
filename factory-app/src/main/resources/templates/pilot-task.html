@@ -1,133 +1,115 @@
 <!DOCTYPE html>
-<html th:replace="~{fragments/layout :: page(title=${task['key']}, activeNav='tasks', content=~{:: .page-body}, scripts=~{})}"
+<html th:replace="~{fragments/layout :: page(title=${task['key']}, activeNav='flows', content=~{:: .dev-page}, scripts=~{})}"
       xmlns:th="http://www.thymeleaf.org" lang="en">
 <body>
-<section class="page-body">
-    <p><a th:href="@{/tasks}">All tasks</a></p>
-    <div class="page-header">
-        <h1 th:text="${task['title']}"></h1>
-        <div class="page-header-meta">
-            <a th:if="${task['jiraUrl']}" class="badge badge-outline badge-sm"
-               th:href="${task['jiraUrl']}" th:text="${task['key']}"></a>
-            <span th:unless="${task['jiraUrl']}" class="badge badge-outline badge-sm"
-                  th:text="${task['key']}"></span>
-            <span class="badge" th:classappend="'badge-status-' + ${task['state']}"
-                  th:text="${task['stateLabel']}"></span>
-            <span class="muted" th:if="${task['stageLabel']}" th:text="${task['stageLabel']}"></span>
-            <span th:text="'Destination: ' + ${task['destination']}"></span>
-            <a th:if="${task['prUrl']}" class="developer-pr-link" th:href="${task['prUrl']}"
-               th:text="'Open pull request'"></a>
-            <span class="badge badge-outline badge-sm" th:if="${task['outScope']}">Outside current filter</span>
+<div class="dev-page dev-page-narrow">
+    <div class="dev-heading">
+        <a class="dev-back" th:href="@{/flows/dev-factory}">← Developer Flow · My tasks</a>
+        <h1 class="dev-title" th:text="${task['title']}">Task</h1>
+        <div class="dev-meta">
+            <a class="task-key" th:href="${task['jiraUrl']}" th:text="${task['key']}">KEY-1</a>
+            <span th:class="${task['stateClass']}" th:text="${task['stateLabel']}">State</span>
+            <span th:if="${task['repository'] != null}" th:text="'→ ' + ${task['repository']}">→ repository</span>
         </div>
     </div>
 
-    <section class="card">
-        <div class="card-header">
-            <h2 class="card-title">Result</h2>
+    <section class="result-card" aria-labelledby="result-title">
+        <div class="result-head">
+            <h2 class="dev-label-title" id="result-title">Result</h2>
+            <p class="result-sentence" th:text="${task['result']}">Result</p>
         </div>
-        <div class="card-content">
-            <p th:if="${task['reason']}" th:text="${task['stateLabel']} + ': ' + ${task['reason']}"></p>
-            <p th:unless="${task['reason']}" th:text="${task['stateLabel']}"></p>
-            <div class="page-header-meta">
-                <span th:if="${task['created'] != null}">
-                    Jira created <span th:text="${task['created']}"></span>
-                </span>
-                <span th:if="${task['updated'] != null}">
-                    · updated <span th:text="${task['updated']}"></span>
-                </span>
-            </div>
-            <form method="post" th:action="@{'/tasks/' + ${task['taskId']} + '/retry'}"
-                  th:if="${task['retryAllowed']}">
+        <div class="result-chips" th:unless="${#lists.isEmpty(task['chips'])}">
+            <span th:each="chip : ${task['chips']}" th:text="${chip}">chip</span>
+        </div>
+        <div class="result-actions"
+             th:if="${task['retryAllowed'] or task['prUrl'] != null or task['lastRunUrl'] != null or task['markStoppedAttemptId'] != null}">
+            <a class="btn btn-primary btn-md btn-roomy" th:if="${task['prUrl'] != null}" th:href="${task['prUrl']}"
+               th:text="${task['prAction']}">Open pull request</a>
+            <form method="post" th:if="${task['retryAllowed']}" th:action="@{'/tasks/' + ${task['taskId']} + '/retry'}">
                 <input type="hidden" name="expectedVersion" th:value="${task['version']}">
                 <input type="hidden" name="inputFingerprint" th:value="${task['inputFingerprint']}">
                 <input type="hidden" name="destinationFingerprint" th:value="${task['destinationFingerprint']}">
-                <button class="btn btn-primary" type="submit">Retry</button>
-                <span class="muted">Re-reads the Jira issue and starts one fresh attempt with the current
-                    destination and source. Previous results and costs stay on this page.</span>
+                <button type="submit" class="btn btn-primary btn-md btn-roomy">Retry</button>
             </form>
-            <p class="muted" th:if="${task['retryNote'] != null}" th:text="${task['retryNote']}"></p>
+            <form method="post" th:if="${task['markStoppedAttemptId'] != null}"
+                  th:action="@{'/tasks/' + ${task['taskId']} + '/attempts/' + ${task['markStoppedAttemptId']} + '/mark-stopped'}">
+                <button type="submit" class="btn btn-outline btn-md"
+                        th:attr="data-confirm-title='Mark ' + ${task['key']} + ' as stopped?'"
+                        data-confirm-ok="Mark as stopped" data-confirm-style="compact"
+                        data-confirm="Do this only if its run is really over: no factory container is running for it. If it was opening a pull request, check the repository first. The task becomes Could not complete, its cost so far stays, and the queue starts the next task.">Mark as stopped…</button>
+            </form>
+            <a class="dev-link" th:if="${task['lastRunUrl'] != null}"
+               th:href="${task['prUrl'] != null} ? ${task['lastRunUrl'] + '#pr-feedback'} : ${task['lastRunUrl']}"
+               th:text="${task['prUrl'] != null} ? 'Work on PR feedback'
+                        : (${task['stateLabel'] == 'Working'} ? 'Open live run' : 'Open last run')">Open last run</a>
+            <span class="dev-note" th:if="${task['retryAllowed']}">Retry starts one fresh attempt and puts it in the
+                queue. Earlier attempts and their cost stay on this page.</span>
         </div>
     </section>
 
-    <section class="card">
-        <div class="card-header">
-            <h2 class="card-title">Cost and usage</h2>
-            <p class="card-description">Estimated from reported model usage; actual provider charges may differ.</p>
-        </div>
-        <div class="card-content">
-            <dl class="def-list">
-                <dt>Total tokens</dt><dd th:text="${task['usageTokens']}"></dd>
-                <th:block th:each="category : ${task['usageCategories']}">
-                    <dt th:text="${category['label']} + ' tokens'"></dt>
-                    <dd th:text="${category['value']}"></dd>
-                </th:block>
-                <th:block th:each="estimate : ${task['usageEstimates']}">
-                    <dt th:text="'Estimated cost (' + ${estimate['currency']} + ')'"></dt>
-                    <dd th:text="${estimate['amount']}"></dd>
-                </th:block>
-            </dl>
-            <p class="muted" th:if="${!task['usagePresent']}">No model usage recorded yet.</p>
-            <p class="muted" th:if="${task['usageNote'] != null}" th:text="${task['usageNote']}"></p>
-            <p class="muted" th:unless="${#lists.isEmpty(task['usageModels'])}"
-               th:text="'Models: ' + ${#strings.listJoin(task['usageModels'], ', ')}"></p>
-        </div>
-    </section>
-
-    <section th:unless="${#lists.isEmpty(attempts)}">
-        <div class="page-header">
-            <h2 class="card-title">Attempts</h2>
-        </div>
-        <div class="table-wrap">
-            <table>
-                <thead>
-                <tr>
-                    <th>Attempt</th><th>Kind</th><th>State</th><th>Started</th><th>Active</th>
-                    <th>Deadline</th><th>Result</th><th>Cost</th>
-                </tr>
-                </thead>
-                <tbody>
-                <tr th:each="row : ${attempts}">
-                    <td th:text="'Attempt ' + ${row['ordinal']}"></td>
-                    <td>
-                        <span th:text="${row['kind']}"></span>
-                        <div class="muted sub-tag" th:text="'via ' + ${row['admittedVia']}"></div>
-                    </td>
-                    <td>
-                        <span class="badge" th:classappend="'badge-status-' + ${row['state']}"
-                              th:text="${row['stateLabel']}"></span>
-                        <div class="muted sub-tag" th:if="${row['executionId']}">
-                            <a th:href="@{'/executions/' + ${row['executionId']}}"
-                               th:text="'run ' + ${row['executionShort']}"></a>
-                        </div>
-                    </td>
-                    <td class="muted" th:title="${row['startedTitle']}" th:text="${row['started']}"></td>
-                    <td class="muted" th:text="${row['active']}"></td>
-                    <td class="muted" th:text="${row['deadline']}"></td>
-                    <td>
-                        <a th:if="${row['prUrl']}" class="developer-pr-link" th:href="${row['prUrl']}"
-                           th:text="'Pull request'"></a>
-                        <div class="muted sub-tag" th:if="${row['reason']}" th:text="${row['reason']}"></div>
-                    </td>
-                    <td>
-                        <span th:if="${row['cost']}" th:text="${row['cost']}"></span>
-                        <span class="muted" th:if="${row['costNote']}"
-                              th:text="'(' + ${row['costNote']} + ')'"></span>
-                        <span class="muted" th:if="${row['cost'] == null}">—</span>
-                    </td>
-                </tr>
-                </tbody>
-            </table>
+    <section class="dev-block" aria-labelledby="attempts-title" th:unless="${#lists.isEmpty(attempts)}">
+        <h2 class="dev-section-title" id="attempts-title">Attempts <span class="dev-count"
+                th:text="${#lists.size(attempts)}">1</span></h2>
+        <div class="task-grid task-grid-attempts">
+            <div class="task-grid-rows">
+                <div class="task-row task-row-head">
+                    <span>Attempt</span>
+                    <span>Result</span>
+                    <span>Started</span>
+                    <span>Active</span>
+                    <span>Cost</span>
+                </div>
+                <div class="task-row" th:each="attempt : ${attempts}">
+                    <span class="attempt-cell">
+                        <strong th:text="${attempt['label']}">1 · first run</strong>
+                        <a th:if="${attempt['executionId'] != null}" th:href="@{'/executions/' + ${attempt['executionId']}}"
+                           th:text="'run ' + ${attempt['executionShort']}">run</a>
+                    </span>
+                    <span th:text="${attempt['result']}">Result</span>
+                    <span th:title="${attempt['startedTitle']}" th:text="${attempt['started']}">Started</span>
+                    <span th:text="${attempt['active']}">Active</span>
+                    <span class="value-cell">
+                        <span th:text="${attempt['cost'] != null} ? ${attempt['cost']} : '—'">—</span>
+                        <span class="dev-note" th:if="${attempt['costNote'] != null}" th:text="${attempt['costNote']}">note</span>
+                    </span>
+                </div>
+            </div>
         </div>
     </section>
 
-    <details class="details-inline">
+    <section class="dev-block" aria-labelledby="cost-title" th:if="${task['usagePresent']}">
+        <div class="usage-head">
+            <h2 class="dev-section-title" id="cost-title">Cost and usage</h2>
+            <span>Estimated from model usage reported by the coding runtime; provider charges may differ.</span>
+        </div>
+        <dl class="usage-figures usage-box">
+            <dt>Total tokens</dt>
+            <dd th:text="${task['usageTokens']}">0</dd>
+            <th:block th:each="category : ${task['usageCategories']}">
+                <dt th:text="${category['label']}">Input</dt>
+                <dd th:text="${category['value']}">0</dd>
+            </th:block>
+            <th:block th:if="${task['usageCost'] != null}">
+                <dt class="usage-total">Estimated cost</dt>
+                <dd class="usage-total" th:text="${task['usageCost']}">$0.00</dd>
+            </th:block>
+        </dl>
+        <span class="dev-note" th:if="${task['usageNote'] != null}" th:text="${task['usageNote']}">note</span>
+    </section>
+
+    <details class="tech-details" open>
         <summary>Technical details</summary>
-        <dl class="def-list">
-            <dt>Task id</dt><dd th:text="${task['taskId']}"></dd>
-            <dt>Project</dt><dd th:text="${task['project']}"></dd>
-            <dt>Engine runs</dt><dd><a th:href="@{/executions}">Executions</a></dd>
+        <dl class="tech-grid">
+            <dt>Task id</dt>
+            <dd><code th:text="${task['taskId']}">id</code></dd>
+            <dt>Jira project</dt>
+            <dd th:text="${task['project']}">PROJECT</dd>
+            <th:block th:if="${task['destination'] != null}">
+                <dt>Destination</dt>
+                <dd th:text="${task['destination']}">owner/repository · base master</dd>
+            </th:block>
         </dl>
     </details>
-</section>
+</div>
 </body>
 </html>

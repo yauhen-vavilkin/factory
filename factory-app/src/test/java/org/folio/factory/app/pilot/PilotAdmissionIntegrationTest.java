@@ -1,6 +1,7 @@
 package org.folio.factory.app.pilot;
 
 import org.folio.factory.app.StubLlmConfiguration;
+import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.pilot.admission.PilotAdmissionService;
 import org.folio.factory.app.pilot.admission.PilotCommands;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
@@ -16,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -25,11 +27,15 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * Manual admission against real PostgreSQL: only the selected eligible rows are
- * admitted, a changed row or a stale/incomplete source rejects clearly, and a
- * repeated request resolves to the existing admission instead of new attempts.
+ * admitted, a changed row or a token without push access rejects clearly before
+ * anything is queued, a failed scan does not block the tasks already shown, and
+ * a repeated request resolves to the existing admission instead of new attempts.
  */
 @SpringBootTest(properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false"})
 @Import(StubLlmConfiguration.class)
@@ -38,7 +44,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PilotAdmissionIntegrationTest {
 
     private static final String INSTANCE = "jira.example.org";
-    private static final String AUTHORITY = "authority-1";
 
     @Container
     @ServiceConnection
@@ -56,12 +61,15 @@ class PilotAdmissionIntegrationTest {
     @Autowired
     PilotAdmissionService admissions;
 
+    @MockitoBean
+    DeveloperPreflight preflight;
+
     @BeforeEach
     void resetPilotState() {
         attempts.deleteAll();
         tasks.deleteAll();
         installations.deleteAll();
-        completeSync(AUTHORITY);
+        completeSync();
     }
 
     @Test
@@ -84,7 +92,7 @@ class PilotAdmissionIntegrationTest {
                     assertThat(admitted.getKind()).isEqualTo(PilotAttempt.Kind.INITIAL);
                     assertThat(admitted.getRequestId()).isEqualTo("run-1#" + selected.getId());
                     assertThat(admitted.getInputFingerprint()).isEqualTo(PilotAdmissionService.inputFingerprint(selected));
-                    assertThat(admitted.getScopeFingerprint()).isEqualTo(AUTHORITY);
+                    assertThat(admitted.getAdmittedVia()).isEqualTo(PilotAttempt.AdmittedVia.MANUAL);
                     assertThat(admitted.getDestinationFingerprint())
                             .isEqualTo(PilotAdmissionService.destinationFingerprint(selected));
                     assertThat(admitted.getApprovedSnapshot()).isEqualTo(selected.getIssueSnapshot());
@@ -122,35 +130,33 @@ class PilotAdmissionIntegrationTest {
     }
 
     @Test
-    void staleOrIncompleteSyncRejectsWholeBatch() {
+    void failedScanDoesNotBlockRunningTheTasksAlreadyShown() {
         PilotTask first = task("20021", "MODBAR-121");
-        PilotTask second = task("20022", "MODBAR-122");
         PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
-        installation.setAcceptedAuthorityFingerprint(AUTHORITY);
-        installation.setObservedAuthorityFingerprint(AUTHORITY);
         installation.setSyncComplete(false);
         installation.setSyncProblem("search page 2 failed");
         installations.save(installation);
 
-        var result = run("run-4", first, second);
+        var result = run("run-4", first);
 
-        assertThat(result.admittedTaskIds()).isEmpty();
-        assertThat(result.rejectedReasons()).containsOnlyKeys(first.getId(), second.getId());
-        assertThat(result.rejectedReasons().get(first.getId())).contains("sync is incomplete", "search page 2 failed");
-        assertThat(attempts.count()).isZero();
+        assertThat(result.admittedTaskIds()).containsExactly(first.getId());
+        assertThat(attempts.findLiveByTaskId(first.getId())).hasSize(1);
     }
 
     @Test
-    void changedSourceAuthorityRejectsWholeBatch() {
+    void tokenWithoutPushAccessRejectsTheTaskBeforeAnythingIsQueued() {
         PilotTask first = task("20031", "MODBAR-131");
         PilotTask second = task("20032", "MODBAR-132");
-        completeSync("changed-authority");
+        doThrow(new IllegalStateException("Your GitHub token cannot push to folio-org/mod-bar"))
+                .when(preflight).requirePushAccess("mod-bar");
 
         var result = run("run-5", first, second);
 
         assertThat(result.admittedTaskIds()).isEmpty();
         assertThat(result.rejectedReasons()).containsOnlyKeys(first.getId(), second.getId());
-        assertThat(result.rejectedReasons().get(first.getId())).contains("changed");
+        assertThat(result.rejectedReasons().get(first.getId()))
+                .isEqualTo("Your GitHub token cannot push to folio-org/mod-bar");
+        verify(preflight, times(1)).requirePushAccess("mod-bar");
         assertThat(attempts.count()).isZero();
     }
 
@@ -187,7 +193,7 @@ class PilotAdmissionIntegrationTest {
         var result = run("run-9", outOfScopeSaved);
 
         assertThat(result.admittedTaskIds()).isEmpty();
-        assertThat(result.rejectedReasons().get(outOfScope.getId())).contains("scope");
+        assertThat(result.rejectedReasons().get(outOfScope.getId())).contains("no longer assigned to you");
         assertThat(attempts.count()).isZero();
     }
 
@@ -197,7 +203,7 @@ class PilotAdmissionIntegrationTest {
         run("run-10", selected);
         PilotAttempt withdrawn = attempts.findByTaskIdOrderByOrdinalAsc(selected.getId()).getFirst();
         withdrawn.setState(PilotAttempt.State.WITHDRAWN);
-        withdrawn.setResultReason("task left the pilot scope before start");
+        withdrawn.setResultReason("withdrawn before start");
         attempts.save(withdrawn);
 
         var result = run("run-11", selected);
@@ -251,13 +257,11 @@ class PilotAdmissionIntegrationTest {
     }
 
     private PilotAdmissionService.AdmissionResult run(String requestId, List<PilotCommands.Selection> selections) {
-        return admissions.runSelected(new PilotCommands.RunSelected(requestId, AUTHORITY, selections));
+        return admissions.runSelected(new PilotCommands.RunSelected(requestId, selections));
     }
 
-    private void completeSync(String authority) {
+    private void completeSync() {
         PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
-        installation.setAcceptedAuthorityFingerprint(authority);
-        installation.setObservedAuthorityFingerprint(authority);
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
         installations.save(installation);

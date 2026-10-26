@@ -3,16 +3,18 @@ package org.folio.factory.app.pilot.admission;
 import org.folio.factory.app.pilot.execution.PilotDispatcher;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
-import org.folio.factory.app.pilot.persistence.PilotInstallation;
-import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
 import org.folio.factory.app.pilot.persistence.PilotTask;
 import org.folio.factory.app.pilot.persistence.PilotTaskRepository;
+import org.folio.factory.app.pilot.source.PilotDiscoveryService;
+import org.folio.factory.app.pilot.source.PilotJiraInstance;
+import org.folio.factory.connectors.jira.JiraSourceModels.DiscoveredIssue;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 
@@ -24,29 +26,37 @@ import java.util.UUID;
  * holds a withdrawn retry or any earlier non-withdrawn attempt; only a history
  * of nothing but withdrawn admissions sends the task back to selection. Queued,
  * running, held and PR-ready work never restarts from here and nothing retries
- * automatically. The new RETRY attempt
- * freezes the current bounded issue input and the current source authority as
- * its approval, reuses the serial dispatch path for a new execution on a new
- * owned branch, and keeps the previous attempts' history and costs. The
- * request id and the task's live-slot lock make duplicate and stale clicks
- * resolve without creating a second attempt.
+ * automatically. A retry does not depend on whether the task is still assigned
+ * to the developer in Jira, and it is refused up front when the GitHub token
+ * cannot push to the delivery repository. The click re-reads the task from Jira
+ * when it can, so a task added by key or not scanned since an answer was added
+ * retries on what Jira says now. The new RETRY attempt freezes that bounded
+ * issue input as its approval, reuses the serial dispatch path
+ * for a new execution on a new owned branch, and keeps the previous attempts'
+ * history and costs. The request id and the task's live-slot lock make
+ * duplicate and stale clicks resolve without creating a second attempt.
  */
 @Service
 public class PilotRetryService {
 
     private final PilotTaskRepository tasks;
     private final PilotAttemptRepository attempts;
-    private final PilotInstallationRepository installations;
     private final PilotDispatcher dispatcher;
+    private final PilotAdmissionService admission;
+    private final PilotDiscoveryService discovery;
+    private final PilotJiraInstance jiraInstance;
     private final TransactionTemplate transactions;
 
     public PilotRetryService(PilotTaskRepository tasks, PilotAttemptRepository attempts,
-                             PilotInstallationRepository installations, PilotDispatcher dispatcher,
+                             PilotDispatcher dispatcher, PilotAdmissionService admission,
+                             PilotDiscoveryService discovery, PilotJiraInstance jiraInstance,
                              PlatformTransactionManager transactionManager) {
         this.tasks = tasks;
         this.attempts = attempts;
-        this.installations = installations;
         this.dispatcher = dispatcher;
+        this.admission = admission;
+        this.discovery = discovery;
+        this.jiraInstance = jiraInstance;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -63,9 +73,15 @@ public class PilotRetryService {
         if (stored != null) {
             return stored;
         }
+        PilotTask current = tasks.findById(command.taskId()).orElse(null);
+        String pushProblem = current == null ? null : admission.pushProblem(current.getRoutingReason(), new HashMap<>());
+        if (pushProblem != null) {
+            return rejection(command.taskId(), pushProblem);
+        }
+        DiscoveredIssue fresh = current == null ? null : freshIssue(current);
         try {
             Reservation reservation =
-                    transactions.execute(status -> reserve(requestId, attemptRequestId, command));
+                    transactions.execute(status -> reserve(requestId, attemptRequestId, command, fresh));
             if (reservation.rejectionReason() != null) {
                 return rejection(command.taskId(), reservation.rejectionReason());
             }
@@ -76,14 +92,27 @@ public class PilotRetryService {
             // live slot was taken concurrently.
             return resolveConcurrent(attemptRequestId, command.taskId(), "task already has a live attempt");
         } catch (OptimisticLockingFailureException e) {
-            // The singleton installation row was saved concurrently (mode or
-            // authority change); this retry is stale, not lost.
+            // A scan saved the task concurrently; this retry is stale, not lost.
             return resolveConcurrent(attemptRequestId, command.taskId(),
-                    "pilot installation changed concurrently; review the task and retry again");
+                    "task changed at the same moment; review the task and retry again");
         }
     }
 
-    private Reservation reserve(String requestId, String attemptRequestId, PilotCommands.Retry command) {
+    /** The task as Jira shows it now, or null when Jira cannot be read and the stored snapshot is used. */
+    private DiscoveredIssue freshIssue(PilotTask task) {
+        if (!task.getJiraInstance().equals(jiraInstance.current())) {
+            return null;
+        }
+        try {
+            DiscoveredIssue issue = discovery.fetch(jiraInstance.issueKey(task.getDisplayKey()));
+            return issue != null && issue.id().equals(task.getIssueId()) ? issue : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private Reservation reserve(String requestId, String attemptRequestId, PilotCommands.Retry command,
+                                DiscoveredIssue fresh) {
         PilotTask task = tasks.lockById(command.taskId()).orElse(null);
         if (task == null) {
             return new Reservation(null, "task " + command.taskId() + " no longer exists");
@@ -92,25 +121,24 @@ public class PilotRetryService {
         if (problem != null) {
             return new Reservation(null, problem);
         }
-        PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
-        if (!installation.isSyncComplete() || installation.getSyncProblem() != null) {
-            return new Reservation(null, "pilot source sync is incomplete"
-                    + (installation.getSyncProblem() == null ? "" : ": " + installation.getSyncProblem())
-                    + "; refresh discovery and retry again");
+        if (fresh != null) {
+            String checkedDestination = PilotAdmissionService.destinationFingerprint(task);
+            task = discovery.upsert(fresh, false);
+            if (task.getEligibility() != PilotTask.Eligibility.ELIGIBLE) {
+                return new Reservation(null, "task is not eligible: " + task.getRoutingReason());
+            }
+            if (!checkedDestination.equals(PilotAdmissionService.destinationFingerprint(task))) {
+                return new Reservation(null, "the task now routes to another repository in Jira; review it and retry");
+            }
         }
-        String authority = installation.getObservedAuthorityFingerprint();
         PilotAttempt attempt = new PilotAttempt(task.getId(),
                 PilotAdmissionService.nextOrdinal(attempts, task.getId()),
                 PilotAttempt.Kind.RETRY, attemptRequestId, PilotAttempt.State.RESERVED);
         attempt.setInputFingerprint(PilotAdmissionService.inputFingerprint(task));
-        attempt.setScopeFingerprint(authority);
         attempt.setDestinationFingerprint(PilotAdmissionService.destinationFingerprint(task));
         attempt.setApprovedSnapshot(task.getIssueSnapshot());
         attempt.setAdmittedVia(PilotAttempt.AdmittedVia.MANUAL);
         attempts.save(attempt);
-        // An explicit retry approval accepts the observed source authority.
-        installation.setAcceptedAuthorityFingerprint(authority);
-        installations.save(installation);
         return new Reservation(attempt.getId(), null);
     }
 
@@ -123,9 +151,6 @@ public class PilotRetryService {
         }
         if (task.getEligibility() != PilotTask.Eligibility.ELIGIBLE) {
             return "task is not eligible: " + task.getRoutingReason();
-        }
-        if (!task.isInScope()) {
-            return "task is outside the current pilot scope; refresh discovery and retry again";
         }
         List<PilotAttempt> history = attempts.findByTaskIdOrderByOrdinalAsc(task.getId());
         if (history.isEmpty()) {

@@ -126,11 +126,6 @@ factory:
       api-key: ${FACTORY_CONNECTORS_TESTRAIL_API_KEY:}
       project-id: ${FACTORY_CONNECTORS_TESTRAIL_PROJECT_ID:0}
   pilot:
-    # M1 sprint pilot discovery: opt-in. Disabled by default so existing installs
-    # see no new background behavior; the callback only discovers, never admits.
-    discovery:
-      enabled: ${FACTORY_PILOT_DISCOVERY_ENABLED:false}
-      poll-interval-ms: ${FACTORY_PILOT_DISCOVERY_POLL_INTERVAL_MS:300000}
     execution:
       # M1 sprint pilot processing: opt-in; new launches are refused while retention
       # is enabled. Gates the outcome/recovery wiring; the engine itself is never
@@ -147,14 +142,8 @@ factory:
       # Admission itself also dispatches best-effort; this is the safety net.
       dispatch-interval-ms: ${FACTORY_PILOT_EXECUTION_DISPATCH_INTERVAL_MS:30000}
     source:
-      # Team source: board or saved filter id/URL; one sprint; required statuses.
-      source: ${FACTORY_PILOT_SOURCE:}
-      sprint-id: ${FACTORY_PILOT_SPRINT_ID:}
-      statuses: ${FACTORY_PILOT_STATUSES:}
-      # Optional AND restrictions on top of the inherited team filter.
+      # Whose open Jira tasks Scan Jira finds: the name as Jira shows it, or an accountId.
       assignee: ${FACTORY_PILOT_ASSIGNEE:}
-      projects: ${FACTORY_PILOT_PROJECTS:}
-      label: ${FACTORY_PILOT_LABEL:}
   dev-factory:
     git-base-url: ${FACTORY_DEV_FACTORY_GIT_BASE_URL:https://github.com}
     runtime:

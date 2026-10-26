@@ -1,36 +1,39 @@
 package org.folio.factory.app.pilot.admission;
 
+import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.pilot.Digests;
 import org.folio.factory.app.pilot.execution.PilotDispatcher;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
-import org.folio.factory.app.pilot.persistence.PilotInstallation;
-import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
+import org.folio.factory.app.pilot.persistence.PilotRoutingReason;
 import org.folio.factory.app.pilot.persistence.PilotTask;
 import org.folio.factory.app.pilot.persistence.PilotTaskRepository;
+import org.folio.factory.app.pilot.source.PilotDiscoveryService;
+import org.folio.factory.app.pilot.source.PilotJiraInstance;
+import org.folio.factory.connectors.jira.JiraSourceModels.DiscoveredIssue;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.client.HttpClientErrorException;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 /**
- * Admission of a selected task subset — manual selection or automatic
- * delegation — into the durable pilot queue. The request id and global source
- * health are checked without locking; each selected row is then admitted in its
- * own short transaction that locks the task, revalidates the selection and the
- * observed source authority against the current rows and reserves one live
- * attempt. A repeated request id resolves
- * to the existing admission instead of creating anything. Approval accepts the
- * installation's observed source authority. After a batch admits work it asks
- * the dispatcher to start the queue head — best-effort, so a refused dispatch
- * only leaves the attempts queued for the scheduled poller.
+ * Admission into the durable pilot queue: tasks selected in My tasks, or one task
+ * added by its Jira key. Before anything is reserved, the GitHub token's push
+ * access to the task's delivery repository is checked. Each admission then runs
+ * in its own short transaction that locks the task, revalidates what the
+ * developer saw and reserves one live attempt; a repeated request id resolves to
+ * the existing admission instead of creating anything. After admitting work it
+ * asks the dispatcher to start the queue head — best-effort, so a refused
+ * dispatch only leaves the attempts queued for the scheduled poller.
  */
 @Service
 public class PilotAdmissionService {
@@ -43,17 +46,22 @@ public class PilotAdmissionService {
 
     private final PilotTaskRepository tasks;
     private final PilotAttemptRepository attempts;
-    private final PilotInstallationRepository installations;
     private final PilotDispatcher dispatcher;
+    private final PilotDiscoveryService discovery;
+    private final PilotJiraInstance jiraInstance;
+    private final DeveloperPreflight preflight;
     private final TransactionTemplate transactions;
 
     public PilotAdmissionService(PilotTaskRepository tasks, PilotAttemptRepository attempts,
-                                 PilotInstallationRepository installations, PilotDispatcher dispatcher,
+                                 PilotDispatcher dispatcher, PilotDiscoveryService discovery,
+                                 PilotJiraInstance jiraInstance, DeveloperPreflight preflight,
                                  PlatformTransactionManager transactionManager) {
         this.tasks = tasks;
         this.attempts = attempts;
-        this.installations = installations;
         this.dispatcher = dispatcher;
+        this.discovery = discovery;
+        this.jiraInstance = jiraInstance;
+        this.preflight = preflight;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -64,28 +72,30 @@ public class PilotAdmissionService {
         }
     }
 
-    public AdmissionResult runSelected(PilotCommands.RunSelected run) {
-        return runSelected(run, PilotAttempt.AdmittedVia.MANUAL);
+    /** The task a run by key queued, or the reason nothing was queued. */
+    public record KeyResult(String issueKey, UUID taskId, String problem) {
     }
 
-    public AdmissionResult runSelected(PilotCommands.RunSelected run, PilotAttempt.AdmittedVia admittedVia) {
+    public AdmissionResult runSelected(PilotCommands.RunSelected run) {
         String requestId = requireRequestId(run.requestId());
         List<UUID> admitted = new ArrayList<>();
         Map<UUID, String> rejected = new LinkedHashMap<>();
-        List<PilotCommands.Selection> fresh = new ArrayList<>();
+        Map<String, String> pushProblems = new HashMap<>();
         for (PilotCommands.Selection selection : run.selections()) {
             if (attempts.findByRequestId(attemptRequestId(requestId, selection.taskId())).isPresent()) {
                 admitted.add(selection.taskId());
-            } else {
-                fresh.add(selection);
+                continue;
             }
-        }
-        if (!fresh.isEmpty()) {
-            String batchProblem = batchProblem(run.expectedAuthorityFingerprint());
-            if (batchProblem != null) {
-                fresh.forEach(selection -> rejected.put(selection.taskId(), batchProblem));
+            String reason = tasks.findById(selection.taskId())
+                    .map(task -> pushProblem(task.getRoutingReason(), pushProblems))
+                    .orElse(null);
+            if (reason == null) {
+                reason = admitSelection(requestId, selection);
+            }
+            if (reason == null) {
+                admitted.add(selection.taskId());
             } else {
-                admitEach(requestId, run.expectedAuthorityFingerprint(), fresh, admittedVia, admitted, rejected);
+                rejected.put(selection.taskId(), reason);
             }
         }
         if (!admitted.isEmpty()) {
@@ -96,47 +106,91 @@ public class PilotAdmissionService {
         return new AdmissionResult(admitted, rejected);
     }
 
-    private void admitEach(String requestId, String expectedAuthorityFingerprint,
-                           List<PilotCommands.Selection> selections, PilotAttempt.AdmittedVia admittedVia,
-                           List<UUID> admitted, Map<UUID, String> rejected) {
-        for (PilotCommands.Selection selection : selections) {
-            String reason = admitSelection(requestId, expectedAuthorityFingerprint, selection, admittedVia);
-            if (reason == null) {
-                admitted.add(selection.taskId());
-            } else {
-                rejected.put(selection.taskId(), reason);
-            }
+    /**
+     * Queues one task by its Jira key or link, whatever its Jira status or
+     * assignee, also after an earlier pull request. Nothing is written for a key
+     * that cannot run; a task that is already queued or running is refused
+     * before its row is touched.
+     */
+    public KeyResult runByKey(String requestId, String input) {
+        String run = requireRequestId(requestId);
+        String issueKey;
+        try {
+            issueKey = jiraInstance.issueKey(input);
+        } catch (IllegalArgumentException e) {
+            return new KeyResult(null, null, e.getMessage());
         }
+        DiscoveredIssue issue;
+        try {
+            issue = discovery.fetch(issueKey);
+        } catch (HttpClientErrorException e) {
+            issue = null;
+        } catch (RuntimeException e) {
+            return new KeyResult(issueKey, null, "Jira could not be read: " + e.getMessage());
+        }
+        if (issue == null) {
+            return new KeyResult(issueKey, null, "Jira has no task " + issueKey + " that Factory can read");
+        }
+        PilotDiscoveryService.Routing routing = discovery.routing(issue);
+        if (routing.eligibility() != PilotTask.Eligibility.ELIGIBLE) {
+            return new KeyResult(issueKey, null, routing.reason());
+        }
+        String pushProblem = pushProblem(routing.reason(), new HashMap<>());
+        if (pushProblem != null) {
+            return new KeyResult(issueKey, null, pushProblem);
+        }
+        DiscoveredIssue fetched = issue;
+        KeyResult result;
+        try {
+            result = transactions.execute(status -> admitKey(run, fetched));
+        } catch (DataIntegrityViolationException | OptimisticLockingFailureException e) {
+            return new KeyResult(issueKey, null,
+                    "Jira was being scanned at the same moment; add " + issueKey + " again");
+        }
+        if (result.problem() == null) {
+            dispatcher.dispatchNextQuietly();
+        }
+        return result;
     }
 
-    private String admitSelection(String requestId, String expectedAuthorityFingerprint,
-                                  PilotCommands.Selection selection, PilotAttempt.AdmittedVia admittedVia) {
+    private KeyResult admitKey(String requestId, DiscoveredIssue issue) {
+        PilotTask existing = tasks.findByJiraInstanceAndIssueId(jiraInstance.current(), issue.id())
+                .flatMap(task -> tasks.lockById(task.getId()))
+                .orElse(null);
+        if (existing != null) {
+            if (attempts.findByRequestId(attemptRequestId(requestId, existing.getId())).isPresent()) {
+                return new KeyResult(issue.key(), existing.getId(), null);
+            }
+            if (!attempts.findLiveByTaskId(existing.getId()).isEmpty()) {
+                return new KeyResult(issue.key(), existing.getId(),
+                        issue.key() + " is already queued or running");
+            }
+        }
+        PilotTask task = discovery.upsert(issue, false);
+        PilotAttempt.Kind kind = attempts.findByTaskIdOrderByOrdinalAsc(task.getId()).isEmpty()
+                ? PilotAttempt.Kind.INITIAL : PilotAttempt.Kind.RETRY;
+        reserve(task, kind, attemptRequestId(requestId, task.getId()), PilotAttempt.AdmittedVia.BY_KEY,
+                inputFingerprint(task), destinationFingerprint(task));
+        return new KeyResult(issue.key(), task.getId(), null);
+    }
+
+    private String admitSelection(String requestId, PilotCommands.Selection selection) {
         try {
-            return transactions.execute(status ->
-                    admitOnce(requestId, expectedAuthorityFingerprint, selection, admittedVia));
-        } catch (DataIntegrityViolationException e) {
-            // A concurrent admission won a unique constraint. When it holds our
-            // request id, resolve to that stored admission; otherwise the task's
-            // live slot was taken concurrently.
+            return transactions.execute(status -> admitOnce(requestId, selection));
+        } catch (DataIntegrityViolationException | OptimisticLockingFailureException e) {
+            // A concurrent admission or scan won the row. When it holds our request
+            // id, resolve to that stored admission; otherwise this click is stale.
             if (attempts.findByRequestId(attemptRequestId(requestId, selection.taskId())).isPresent()) {
                 return null;
             }
-            return "task already has a live admission";
-        } catch (OptimisticLockingFailureException e) {
-            // The singleton installation row was saved concurrently (mode or
-            // authority change); this approval is stale, not lost.
-            if (attempts.findByRequestId(attemptRequestId(requestId, selection.taskId())).isPresent()) {
-                return null;
-            }
-            return "pilot installation changed concurrently; review and select again";
+            return "task changed at the same moment; review and select again";
         }
     }
 
     /**
      * @return null when the attempt was reserved, otherwise the rejection reason
      */
-    private String admitOnce(String requestId, String expectedAuthorityFingerprint,
-                             PilotCommands.Selection selection, PilotAttempt.AdmittedVia admittedVia) {
+    private String admitOnce(String requestId, PilotCommands.Selection selection) {
         PilotTask task = tasks.lockById(selection.taskId()).orElse(null);
         if (task == null) {
             return "task " + selection.taskId() + " no longer exists";
@@ -150,7 +204,7 @@ public class PilotAdmissionService {
             return "task is not eligible: " + task.getRoutingReason();
         }
         if (!task.isInScope()) {
-            return "task is outside the current pilot scope; refresh discovery and select again";
+            return "task is no longer assigned to you in Jira; scan again";
         }
         if (!attempts.findLiveByTaskId(task.getId()).isEmpty()) {
             return "task already has a live admission";
@@ -159,35 +213,37 @@ public class PilotAdmissionService {
                 .anyMatch(attempt -> attempt.getState() != PilotAttempt.State.WITHDRAWN)) {
             return "task already has an attempt; use Retry";
         }
-        PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
-        String authority = installation.getObservedAuthorityFingerprint();
-        if (!matches(expectedAuthorityFingerprint, authority)) {
-            return "pilot source changed since selection; review and select again";
-        }
-        PilotAttempt attempt = new PilotAttempt(task.getId(), nextOrdinal(attempts, task.getId()),
-                PilotAttempt.Kind.INITIAL, attemptRequestId(requestId, task.getId()), PilotAttempt.State.RESERVED);
-        attempt.setInputFingerprint(selection.inputFingerprint());
-        attempt.setScopeFingerprint(authority);
-        attempt.setDestinationFingerprint(selection.destinationFingerprint());
-        attempt.setApprovedSnapshot(task.getIssueSnapshot());
-        attempt.setAdmittedVia(admittedVia);
-        attempts.save(attempt);
-        // An approved admission explicitly accepts the observed source authority.
-        installation.setAcceptedAuthorityFingerprint(authority);
-        installations.save(installation);
+        reserve(task, PilotAttempt.Kind.INITIAL, attemptRequestId(requestId, task.getId()),
+                PilotAttempt.AdmittedVia.MANUAL, selection.inputFingerprint(), selection.destinationFingerprint());
         return null;
     }
 
-    private String batchProblem(String expectedAuthorityFingerprint) {
-        PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
-        if (!installation.isSyncComplete() || installation.getSyncProblem() != null) {
-            return "pilot source sync is incomplete"
-                    + (installation.getSyncProblem() == null ? "" : ": " + installation.getSyncProblem());
+    private void reserve(PilotTask task, PilotAttempt.Kind kind, String attemptRequestId,
+                         PilotAttempt.AdmittedVia admittedVia, String input, String destination) {
+        PilotAttempt attempt = new PilotAttempt(task.getId(), nextOrdinal(attempts, task.getId()),
+                kind, attemptRequestId, PilotAttempt.State.RESERVED);
+        attempt.setInputFingerprint(input);
+        attempt.setDestinationFingerprint(destination);
+        attempt.setApprovedSnapshot(task.getIssueSnapshot());
+        attempt.setAdmittedVia(admittedVia);
+        attempts.save(attempt);
+    }
+
+    /** Null when the token can push to the routed repository; the refusal otherwise (cached per repository). */
+    String pushProblem(String routingReason, Map<String, String> checked) {
+        String repositoryKey = PilotRoutingReason.eligibleRepositoryKey(routingReason);
+        if (repositoryKey == null) {
+            return null;
         }
-        if (!matches(expectedAuthorityFingerprint, installation.getObservedAuthorityFingerprint())) {
-            return "pilot source changed since selection; review and select again";
-        }
-        return null;
+        String problem = checked.computeIfAbsent(repositoryKey, key -> {
+            try {
+                preflight.requirePushAccess(key);
+                return "";
+            } catch (RuntimeException e) {
+                return e.getMessage() == null ? "GitHub push access could not be checked" : e.getMessage();
+            }
+        });
+        return problem.isEmpty() ? null : problem;
     }
 
     static int nextOrdinal(PilotAttemptRepository attempts, UUID taskId) {

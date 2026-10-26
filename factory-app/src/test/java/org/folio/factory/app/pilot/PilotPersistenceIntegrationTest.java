@@ -7,7 +7,6 @@ import org.folio.factory.app.pilot.persistence.PilotInstallation;
 import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
 import org.folio.factory.app.pilot.persistence.PilotTask;
 import org.folio.factory.app.pilot.persistence.PilotTaskRepository;
-import org.folio.factory.app.pilot.source.PilotDiscoveryPoller;
 import org.folio.factory.app.pilot.source.PilotDiscoveryService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -66,9 +65,6 @@ class PilotPersistenceIntegrationTest {
 
     @Autowired
     ObjectProvider<PilotDiscoveryService> discoveryService;
-
-    @Autowired
-    ObjectProvider<PilotDiscoveryPoller> discoveryPoller;
 
     @Test
     void renamedKeyWithSameIssueIdUpdatesOneTask() {
@@ -204,16 +200,15 @@ class PilotPersistenceIntegrationTest {
     }
 
     @Test
-    void installationStartsInReviewBeforeRunAndBackgroundDiscoveryIsDisabledByDefault() {
-        PilotInstallation saved = installations.save(PilotInstallation.initial());
+    void migrationSeedsTheSingleInstallationAndScanIsAlwaysAvailable() {
+        PilotInstallation initial = PilotInstallation.initial();
 
-        assertThat(saved.getId()).isEqualTo(1);
-        assertThat(saved.getMode()).isEqualTo(PilotInstallation.Mode.REVIEW_BEFORE_RUN);
-        assertThat(saved.isSyncComplete()).isFalse();
-        assertThat(saved.getLastSuccessfulSyncAt()).isNull();
-        assertThat(saved.getActiveAttemptId()).isNull();
-        assertThat(discoveryPoller.getIfAvailable()).isNull();
-        assertThat(discoveryService.getIfAvailable()).isNull();
+        assertThat(installations.findById(1)).isPresent();
+        assertThat(initial.getId()).isEqualTo(1);
+        assertThat(initial.isSyncComplete()).isFalse();
+        assertThat(initial.getLastSuccessfulSyncAt()).isNull();
+        assertThat(initial.getActiveAttemptId()).isNull();
+        assertThat(discoveryService.getIfAvailable()).isNotNull();
     }
 
     private UUID reserve(UUID taskId, int ordinal, String requestId) {

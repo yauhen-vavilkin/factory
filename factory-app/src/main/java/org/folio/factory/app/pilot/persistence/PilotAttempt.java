@@ -49,9 +49,6 @@ public class PilotAttempt {
     @Column(name = "input_fingerprint", length = 64)
     private String inputFingerprint;
 
-    @Column(name = "scope_fingerprint", length = 64)
-    private String scopeFingerprint;
-
     @Column(name = "destination_fingerprint", length = 64)
     private String destinationFingerprint;
 
@@ -146,14 +143,6 @@ public class PilotAttempt {
         this.inputFingerprint = inputFingerprint;
     }
 
-    public String getScopeFingerprint() {
-        return scopeFingerprint;
-    }
-
-    public void setScopeFingerprint(String scopeFingerprint) {
-        this.scopeFingerprint = scopeFingerprint;
-    }
-
     public String getDestinationFingerprint() {
         return destinationFingerprint;
     }
@@ -242,9 +231,9 @@ public class PilotAttempt {
         INITIAL, RETRY
     }
 
-    /** How the admission was approved: manual selection or automatic delegation. */
+    /** How the run was started: selected in My tasks or added by its Jira key. */
     public enum AdmittedVia {
-        MANUAL, AUTOMATIC
+        MANUAL, BY_KEY
     }
 
     public enum State {

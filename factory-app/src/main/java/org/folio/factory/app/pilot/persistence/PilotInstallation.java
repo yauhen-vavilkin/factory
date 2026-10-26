@@ -2,8 +2,6 @@ package org.folio.factory.app.pilot.persistence;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -13,9 +11,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * The single local pilot installation record (row id is always 1): admission
- * mode, the accepted source authority, discovery sync health and the active
- * attempt slot.
+ * The single local pilot installation record (row id is always 1, created by
+ * migration V12): the last scan's health and the active attempt slot.
  */
 @Entity
 @Table(name = "pilot_installation")
@@ -23,16 +20,6 @@ public class PilotInstallation {
 
     @Id
     private int id = 1;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
-    private Mode mode = Mode.REVIEW_BEFORE_RUN;
-
-    @Column(name = "accepted_authority_fingerprint", length = 64)
-    private String acceptedAuthorityFingerprint;
-
-    @Column(name = "observed_authority_fingerprint", length = 64)
-    private String observedAuthorityFingerprint;
 
     @Column(name = "sync_complete", nullable = false)
     private boolean syncComplete;
@@ -42,15 +29,6 @@ public class PilotInstallation {
 
     @Column(name = "sync_problem", columnDefinition = "text")
     private String syncProblem;
-
-    @Column(name = "source_name", length = 500)
-    private String sourceName;
-
-    @Column(name = "source_url", length = 1000)
-    private String sourceUrl;
-
-    @Column(name = "sprint_name", length = 500)
-    private String sprintName;
 
     @Column(name = "active_attempt_id")
     private UUID activeAttemptId;
@@ -84,30 +62,6 @@ public class PilotInstallation {
         return id;
     }
 
-    public Mode getMode() {
-        return mode;
-    }
-
-    public void setMode(Mode mode) {
-        this.mode = mode;
-    }
-
-    public String getAcceptedAuthorityFingerprint() {
-        return acceptedAuthorityFingerprint;
-    }
-
-    public void setAcceptedAuthorityFingerprint(String acceptedAuthorityFingerprint) {
-        this.acceptedAuthorityFingerprint = acceptedAuthorityFingerprint;
-    }
-
-    public String getObservedAuthorityFingerprint() {
-        return observedAuthorityFingerprint;
-    }
-
-    public void setObservedAuthorityFingerprint(String observedAuthorityFingerprint) {
-        this.observedAuthorityFingerprint = observedAuthorityFingerprint;
-    }
-
     public boolean isSyncComplete() {
         return syncComplete;
     }
@@ -132,30 +86,6 @@ public class PilotInstallation {
         this.syncProblem = syncProblem;
     }
 
-    public String getSourceName() {
-        return sourceName;
-    }
-
-    public void setSourceName(String sourceName) {
-        this.sourceName = sourceName;
-    }
-
-    public String getSourceUrl() {
-        return sourceUrl;
-    }
-
-    public void setSourceUrl(String sourceUrl) {
-        this.sourceUrl = sourceUrl;
-    }
-
-    public String getSprintName() {
-        return sprintName;
-    }
-
-    public void setSprintName(String sprintName) {
-        this.sprintName = sprintName;
-    }
-
     public UUID getActiveAttemptId() {
         return activeAttemptId;
     }
@@ -174,9 +104,5 @@ public class PilotInstallation {
 
     public Instant getUpdatedAt() {
         return updatedAt;
-    }
-
-    public enum Mode {
-        REVIEW_BEFORE_RUN, AUTOMATIC
     }
 }

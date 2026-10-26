@@ -58,9 +58,11 @@
     });
   });
 
+  // A reload must not drop what the developer is doing: a selection or a half-typed key.
   function applyUpdate() {
     var notice = document.querySelector('[data-poll-notice]');
-    if (document.querySelector('input[name="taskId"]:checked') && notice) {
+    var typedKey = document.querySelector('input[name="key"]');
+    if (notice && (document.querySelector('input[name="taskId"]:checked') || (typedKey && typedKey.value.trim()))) {
       notice.hidden = false;
       return;
     }
@@ -70,24 +72,85 @@
   function initTaskSelection() {
     var form = document.querySelector('[data-task-selection]');
     if (!form) return;
-    var boxes = form.querySelectorAll('input[name="taskId"]:not(:disabled)');
-    var counter = document.querySelector('[data-selected-count]');
+    var rows = Array.prototype.slice.call(form.querySelectorAll('[data-status]'));
+    var chips = Array.prototype.slice.call(form.querySelectorAll('[data-status-chip]'));
+    var counter = form.querySelector('[data-selected-count]');
+    var shownCount = form.querySelector('[data-available-count]');
+    var filterEmpty = form.querySelector('[data-filter-empty]');
     var runButton = form.querySelector('[data-run-selected]');
     var selectAll = form.querySelector('[data-select-all]');
+    var storageKey = 'myTasks.statuses';
+
+    function box(row) { return row.querySelector('input[name="taskId"]'); }
+    function shownBoxes() {
+      return rows.filter(function (row) { return !row.hidden && box(row); }).map(box);
+    }
     function refresh() {
-      var checked = form.querySelectorAll('input[name="taskId"]:checked').length;
-      if (counter) counter.textContent = checked + ' selected';
-      if (runButton) runButton.textContent = checked ? 'Run selected (' + checked + ')' : 'Run selected';
+      var boxes = shownBoxes();
+      var checked = boxes.filter(function (b) { return b.checked; }).length;
+      if (counter) counter.textContent = boxes.length ? checked + ' of ' + boxes.length + ' selected' : '';
+      if (runButton) {
+        runButton.textContent = checked ? 'Run ' + checked + (checked === 1 ? ' task' : ' tasks') : 'Run';
+        runButton.disabled = checked === 0;
+      }
       if (selectAll) {
+        selectAll.disabled = boxes.length === 0;
         selectAll.checked = checked > 0 && checked === boxes.length;
         selectAll.indeterminate = checked > 0 && checked < boxes.length;
       }
     }
-    boxes.forEach(function (box) { box.addEventListener('change', refresh); });
+    // A hidden row never runs: it is unchecked and disabled until its status is shown again.
+    function applyFilter() {
+      var pressed = chips.filter(function (chip) { return chip.getAttribute('aria-pressed') === 'true'; })
+        .map(statusOf);
+      var shown = 0;
+      rows.forEach(function (row) {
+        var visible = !chips.length || pressed.indexOf(row.getAttribute('data-status')) >= 0;
+        row.hidden = !visible;
+        var b = box(row);
+        if (b) {
+          if (!visible) b.checked = false;
+          b.disabled = !visible;
+        }
+        if (visible) shown++;
+      });
+      if (shownCount) shownCount.textContent = shown;
+      if (filterEmpty) filterEmpty.hidden = !(rows.length && shown === 0);
+      refresh();
+    }
+    function statusOf(chip) { return chip.getAttribute('data-status-chip'); }
+    function remembered() {
+      try {
+        var saved = JSON.parse(sessionStorage.getItem(storageKey));
+        return saved && Array.isArray(saved.pressed) && Array.isArray(saved.known) ? saved : null;
+      } catch (e) { return null; }
+    }
+    // Statuses first seen after the last toggle keep the server default.
+    var saved = remembered();
+    if (saved) chips.forEach(function (chip) {
+      if (saved.known.indexOf(statusOf(chip)) >= 0)
+        chip.setAttribute('aria-pressed', saved.pressed.indexOf(statusOf(chip)) >= 0 ? 'true' : 'false');
+    });
+    chips.forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        chip.setAttribute('aria-pressed', chip.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+        try {
+          sessionStorage.setItem(storageKey, JSON.stringify({
+            pressed: chips.filter(function (c) { return c.getAttribute('aria-pressed') === 'true'; }).map(statusOf),
+            known: chips.map(statusOf)
+          }));
+        } catch (e) { /* the filter still works for this page */ }
+        applyFilter();
+      });
+    });
+    rows.forEach(function (row) {
+      var b = box(row);
+      if (b) b.addEventListener('change', refresh);
+    });
     if (selectAll) selectAll.addEventListener('change', function () {
-      boxes.forEach(function (box) { box.checked = selectAll.checked; });
+      shownBoxes().forEach(function (b) { b.checked = selectAll.checked; });
       refresh();
     });
-    refresh();
+    applyFilter();
   }
 })();

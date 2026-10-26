@@ -70,8 +70,7 @@ public class PersistedPilotAttemptPolicy implements PilotAttemptPolicy {
     private PilotExecutionContext context(PilotAttempt attempt) {
         return new PilotExecutionContext(attempt.getId(), approvedSnapshot(attempt), repositoryKey(attempt),
                 PilotExecutionContext.Kind.valueOf(attempt.getKind().name()),
-                attempt.getInputFingerprint(), attempt.getScopeFingerprint(),
-                attempt.getDestinationFingerprint());
+                attempt.getInputFingerprint(), attempt.getDestinationFingerprint());
     }
 
     @SuppressWarnings("unchecked")

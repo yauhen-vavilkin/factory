@@ -20,11 +20,12 @@ import java.util.UUID;
 
 /**
  * Rechecks current publication authority immediately before a remote mutation:
- * the consumed request must still be the approved normalized input, the task
- * must still be eligible and in scope, and the destination must still be the
- * authorized operator configuration. A mismatch, a revoked destination or an
- * unavailable recheck stops publication — it never falls back to another
- * destination or continues on changed requirements.
+ * the consumed request must still be the approved issue and repository, the
+ * task's routing must be unchanged, and the destination must still be a valid
+ * operator configuration. A mismatch or an unavailable recheck stops
+ * publication and never falls back to another destination. Jira changes after
+ * the click (status, assignee, comments) do not stop it: the run works on the
+ * snapshot approved at the click.
  */
 @Component
 public class PilotPublicationGuard {
@@ -71,12 +72,8 @@ public class PilotPublicationGuard {
         if (repositoryKey == null || !repositoryKey.equals(consumedRequest.repository().key())) {
             throw blocked("the consumed repository no longer matches the admitted routing");
         }
-        if (task.getEligibility() != PilotTask.Eligibility.ELIGIBLE || !task.isInScope()) {
-            throw blocked("the task is no longer eligible or in the pilot scope");
-        }
-        if (!attempt.getInputFingerprint().equals(PilotAdmissionService.inputFingerprint(task))) {
-            throw blocked("the task's requirements changed after admission; the approved input is"
-                    + " no longer current");
+        if (task.getEligibility() != PilotTask.Eligibility.ELIGIBLE) {
+            throw blocked("the task is no longer eligible");
         }
         if (!attempt.getDestinationFingerprint().equals(PilotAdmissionService.destinationFingerprint(task))) {
             throw blocked("the task's destination routing changed after admission");
@@ -84,7 +81,7 @@ public class PilotPublicationGuard {
         if (destination == null) {
             throw blocked("the resolved delivery destination is missing");
         }
-        destination.requireAuthorized();
+        destination.requireValid();
         if (!destination.baseBranch().equals(consumedRequest.repository().baseBranch())) {
             throw blocked("the delivery base branch does not match the base the candidate was"
                     + " prepared on");

@@ -67,7 +67,6 @@ import static org.mockito.Mockito.doThrow;
 class PilotLifecycleIntegrationTest {
 
     private static final String INSTANCE = "jira.example.org";
-    private static final String AUTHORITY = "authority-1";
 
     @Container
     @ServiceConnection
@@ -404,12 +403,10 @@ class PilotLifecycleIntegrationTest {
                 "MODBAR", "{\"key\": \"" + displayKey + "\"}", "revision-" + issueId,
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar"));
         PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
-        installation.setAcceptedAuthorityFingerprint(AUTHORITY);
-        installation.setObservedAuthorityFingerprint(AUTHORITY);
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
         installations.save(installation);
-        var result = admissions.runSelected(new PilotCommands.RunSelected("run-" + issueId, AUTHORITY,
+        var result = admissions.runSelected(new PilotCommands.RunSelected("run-" + issueId,
                 List.of(new PilotCommands.Selection(task.getId(), task.getVersion(),
                         PilotAdmissionService.inputFingerprint(task),
                         PilotAdmissionService.destinationFingerprint(task)))));

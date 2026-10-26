@@ -51,7 +51,6 @@ class PrFeedbackIntegrationTest {
         r.add("factory.dev-factory.runtime.plans.fixture-checks[0]",()->"fixture-check");
         r.add("factory.dev-factory.delivery.targets.fixture.repository",()->"fork/repo");
         r.add("factory.dev-factory.delivery.targets.fixture.base-branch",()->"main");
-        r.add("factory.dev-factory.delivery.targets.fixture.authorized",()->"true");
         for(String model:List.of("fixture-model","second-fixture-model")) {
             String prefix="factory.developer-pricing.rates."+model+".";
             r.add(prefix+"model",()->model); r.add(prefix+"currency",()->"USD");
@@ -165,7 +164,7 @@ class PrFeedbackIntegrationTest {
         assertThat(calls).isEqualTo(12); assertThat(git(bare,"rev-list","--count",branch).strip()).isEqualTo("13");
         assertThat(git(bare,"for-each-ref","--format=%(refname)","refs/heads").lines()).containsExactly("refs/heads/"+branch);
         var html=RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class);
-        assertThat(html).contains("Round 1","Round 12","Total cost","Factory time","fixture-model","second-fixture-model","0.0072 USD","Work on feedback");
+        assertThat(html).contains("Round 1","Round 12","0.0072 USD so far"," active</span>","fixture-model","second-fixture-model","Work on feedback");
         assertThat(html).doesNotContain("Download current patch", "Download diagnostics", "Rate-card estimate", "Finish task");
         assertThatThrownBy(()->action(FINISH)).isInstanceOf(IllegalArgumentException.class);
         merged=true; actions.reconcilePr(id); drive(); assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);

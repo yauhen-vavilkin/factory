@@ -88,6 +88,24 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         }
     }
 
+    /**
+     * Refuses a My tasks run before it is queued when the GitHub token cannot push
+     * to the repository's effective delivery destination, so no paid work starts
+     * that could only fail at the pull request.
+     */
+    public void requirePushAccess(String repositoryKey) {
+        DeliveryTarget target = delivery.requireTarget(repositoryKey, repositories);
+        if (!github.isConfigured()) {
+            throw new IllegalStateException("Set FACTORY_CONNECTORS_GITHUB_TOKEN to a token that can push to "
+                    + target.repository());
+        }
+        try {
+            probe.requirePushAccess(target);
+        } catch (RestClientException | IllegalStateException e) {
+            throw new IllegalStateException("Your GitHub token cannot push to " + target.repository());
+        }
+    }
+
     @Override
     public void requireRepositoryReady(String repositoryKey, String frozenBaseSha) {
         if (!repositories.repositories().containsKey(repositoryKey)
@@ -328,7 +346,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
                     "Token reports push permission and destination contains the source base for " + key + ".");
         } catch (RestClientException | IllegalStateException | IllegalArgumentException e) {
             return new Check(checkName, Status.FAIL,
-                    "Check delivery authorization, GitHub token push permission and matching base for " + key + ".");
+                    "Check the delivery destination, GitHub token push permission and matching base for " + key + ".");
         }
     }
 
@@ -391,7 +409,6 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
             row.put("verificationPlan", repository.verificationPlan());
             row.put("jiraProjects", repository.jiraProjects());
             row.put("delivery", deliveryRepository(target));
-            row.put("authorized", target != null && target.authorized());
             rows.add(Map.copyOf(row));
         }
         return List.copyOf(rows);

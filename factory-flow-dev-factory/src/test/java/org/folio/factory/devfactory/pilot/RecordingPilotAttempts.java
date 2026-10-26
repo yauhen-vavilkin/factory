@@ -44,7 +44,7 @@ public final class RecordingPilotAttempts implements PilotAttemptPolicy {
                         "components", List.of(), "comments", List.of(), "links", List.of()),
                 repositoryKey,
                 PilotExecutionContext.Kind.INITIAL,
-                "input-fingerprint", "scope-fingerprint", "destination-fingerprint");
+                "input-fingerprint", "destination-fingerprint");
     }
 
     @Override

@@ -3,6 +3,7 @@ package org.folio.factory.app.pilot.execution;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
+import org.folio.factory.app.pilot.persistence.PilotPublicationIntentRepository;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.registry.FlowRegistry;
@@ -41,6 +42,7 @@ public class PilotOutcomeService {
 
     private final PilotAttemptRepository attempts;
     private final PilotInstallationRepository installations;
+    private final PilotPublicationIntentRepository intents;
     private final PipelineExecutionRepository executions;
     private final ArtifactStore artifacts;
     private final DockerWorkloads docker;
@@ -50,6 +52,7 @@ public class PilotOutcomeService {
 
     public PilotOutcomeService(PilotAttemptRepository attempts,
                                PilotInstallationRepository installations,
+                               PilotPublicationIntentRepository intents,
                                PipelineExecutionRepository executions,
                                ArtifactStore artifacts,
                                DockerWorkloads docker,
@@ -57,12 +60,19 @@ public class PilotOutcomeService {
                                PlatformTransactionManager transactionManager) {
         this.attempts = attempts;
         this.installations = installations;
+        this.intents = intents;
         this.executions = executions;
         this.artifacts = artifacts;
         this.docker = docker;
         this.flows = flows;
         this.transactions = new TransactionTemplate(transactionManager);
     }
+
+    /** The reason prefix of an attempt the developer marked as stopped. */
+    public static final String MARKED_STOPPED = "Marked as stopped by the operator";
+
+    /** Part of the reason when the stopped run may already have opened a pull request. */
+    public static final String PULL_REQUEST_MAY_EXIST = "a pull request may already exist";
 
     public record AttemptOutcome(State state, String stage, String reason, String publicationIdentity,
                                  boolean workloadInactive, String uncertainty) {
@@ -205,6 +215,9 @@ public class PilotOutcomeService {
     }
 
     private void releaseLocked(UUID attemptId, Classification classification) {
+        // Installation first, then the attempt: the same order as markStopped, launch and
+        // admission, so a release and a concurrent mark-as-stopped cannot deadlock.
+        var installation = installations.lockById(1);
         PilotAttempt current = attempts.findById(attemptId).orElseThrow();
         current.setState(PilotAttempt.State.valueOf(classification.state().name()));
         if (classification.publicationIdentity() != null) {
@@ -215,11 +228,48 @@ public class PilotOutcomeService {
             current.setResultReason(capReason(classification.reason()));
         }
         attempts.save(current);
-        installations.lockById(1).ifPresent(installation -> {
-            if (attemptId.equals(installation.getActiveAttemptId())) {
-                installation.setActiveAttemptId(null);
-                installations.save(installation);
+        installation.ifPresent(locked -> {
+            if (attemptId.equals(locked.getActiveAttemptId())) {
+                locked.setActiveAttemptId(null);
+                installations.save(locked);
             }
+        });
+    }
+
+    /**
+     * The developer's explicit stop of an attempt held for inspection: it becomes
+     * STOPPED with the operator's note and frees the slot only when it holds it,
+     * so the queue continues and the old run can no longer publish. Any other
+     * state is refused, so a stale page never stops newer work.
+     *
+     * @return null when the attempt was stopped, otherwise the refusal
+     */
+    public String markStopped(UUID attemptId) {
+        return transactions.execute(status -> {
+            var installation = installations.lockById(1);
+            PilotAttempt attempt = attempts.findById(attemptId).orElse(null);
+            if (attempt == null || attempt.getState() != PilotAttempt.State.NEEDS_INSPECTION) {
+                return "Only a task that needs inspection can be marked as stopped";
+            }
+            String previous = attempt.getResultReason();
+            // A held run that reached publication may have opened a pull request whose
+            // response was lost; the reason names the branch so nobody assumes there is none.
+            String publication = attempt.getExecutionId() == null ? null
+                    : intents.findByExecutionId(attempt.getExecutionId())
+                            .map(intent -> "; " + PULL_REQUEST_MAY_EXIST + " from " + intent.getHeadBranch()
+                                    + " to " + intent.getRepository())
+                            .orElse(null);
+            attempt.setState(PilotAttempt.State.STOPPED);
+            attempt.setResultReason(capReason(MARKED_STOPPED
+                    + (publication == null ? "" : publication)
+                    + (previous == null || previous.isBlank() ? "" : ": " + previous)));
+            attempts.save(attempt);
+            installation.filter(current -> attemptId.equals(current.getActiveAttemptId()))
+                    .ifPresent(current -> {
+                        current.setActiveAttemptId(null);
+                        installations.save(current);
+                    });
+            return null;
         });
     }
 

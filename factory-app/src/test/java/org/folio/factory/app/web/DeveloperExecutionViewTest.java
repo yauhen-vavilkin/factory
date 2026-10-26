@@ -373,7 +373,7 @@ class DeveloperExecutionViewTest {
         assertThat(model).containsEntry("currentPhase", "Complete");
         assertThat(((List<?>) model.get("activity")).getFirst().toString()).contains("Editing Foo.java");
         assertThat(phases(model)).extracting(phase -> phase.get("stateLabel"))
-                .containsExactly("Done", "Done", "Done", "Done");
+                .containsExactly("Passed", "Passed", "Passed", "Passed");
     }
 
     @Test void verificationFailureIsMoreUsefulThanSkippedDelivery() {

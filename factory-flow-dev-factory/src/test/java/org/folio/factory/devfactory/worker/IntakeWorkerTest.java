@@ -146,7 +146,7 @@ class IntakeWorkerTest {
                         "components", List.of("storage"), "comments", List.of(), "links", List.of()),
                 repositoryKey,
                 PilotExecutionContext.Kind.INITIAL,
-                "input-fingerprint", "scope-fingerprint", "destination-fingerprint");
+                "input-fingerprint", "destination-fingerprint");
     }
 
     private static CodingRuntime codingRuntime() {

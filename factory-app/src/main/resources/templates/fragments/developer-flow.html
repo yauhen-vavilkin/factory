@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+
+<th:block th:fragment="header(flow, tab)">
+    <header class="dev-header">
+        <h1 class="dev-title" th:text="${flow['name']}">Developer Flow</h1>
+        <div class="dev-header-meta">
+            <span th:text="${flow['id']}">dev-factory</span>
+            <span class="dev-version" th:text="'v' + ${flow['version']}">v1</span>
+            <a class="btn btn-outline btn-md" th:href="@{/developer/configuration}">Check configuration</a>
+        </div>
+    </header>
+    <nav class="dev-tabs" aria-label="Flow views">
+        <a th:href="@{/flows/dev-factory}" th:attrappend="aria-current=${tab == 'tasks'} ? 'page'">My tasks</a>
+        <a th:href="@{/flows/dev-factory(view='definition')}"
+           th:attrappend="aria-current=${tab == 'definition'} ? 'page'">Definition</a>
+    </nav>
+</th:block>
+
+</body>
+</html>

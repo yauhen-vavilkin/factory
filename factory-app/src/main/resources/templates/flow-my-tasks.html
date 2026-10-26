@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title=${flow['name']}, activeNav='flows', content=~{:: .dev-page}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<div class="dev-page"
+     th:attr="data-poll-url=${pollUrl}, data-poll-fields=${pollFields}, data-poll-baseline=${pollBaseline}">
+    <th:block th:replace="~{fragments/developer-flow :: header(${flow}, 'tasks')}"></th:block>
+
+    <section class="source-card" aria-labelledby="source-title">
+        <div class="source-card-main">
+            <div class="source-card-identity">
+                <h2 class="dev-card-title" id="source-title">My Jira tasks</h2>
+                <span class="source-card-scope" th:if="${source['assignee'] != null}">Assigned to
+                    <strong th:text="${source['assignee']}">Jane Developer</strong> · not done<th:block
+                            th:if="${source['jiraHost'] != null}" th:text="' · ' + ${source['jiraHost']}"></th:block></span>
+                <span class="source-card-scope" th:if="${source['assignee'] == null}">Set
+                    <code>FACTORY_PILOT_ASSIGNEE</code> in <code>.env</code> to your name as shown in Jira, then
+                    <code>docker compose up -d</code>.</span>
+                <span class="source-card-problem" th:if="${source['problem'] != null}"
+                      th:text="'Last scan failed: ' + ${source['problem']}"></span>
+            </div>
+            <div class="source-card-actions">
+                <span th:if="${source['lastScan'] != null}">Last scan
+                    <strong th:title="${source['lastScanTitle']}" th:text="${source['lastScan']}">3 min ago</strong></span>
+                <span th:if="${source['lastScan'] == null}">Not scanned yet</span>
+                <form method="post" th:action="@{/flows/dev-factory/scan}">
+                    <button type="submit" class="btn btn-outline btn-md">Scan Jira</button>
+                </form>
+            </div>
+        </div>
+        <details class="source-details">
+            <summary>What exactly is scanned</summary>
+            <div class="source-details-grid">
+                <span class="muted">Query</span>
+                <div class="source-details-query">
+                    <pre th:text="${source['query'] != null} ? ${source['query']} : 'Set FACTORY_PILOT_ASSIGNEE first'">query</pre>
+                    <span th:if="${source['searchUrl'] != null}"><a class="dev-link" th:href="${source['searchUrl']}">Open
+                        this search in Jira</a> <span class="muted">· shows the same issues Factory sees</span></span>
+                </div>
+                <span class="muted">Repositories</span>
+                <span th:text="${repositoryMap}">Projects</span>
+                <span class="muted">Change it</span>
+                <span><code>FACTORY_PILOT_ASSIGNEE</code> in <code>.env</code>, then <code>docker compose up -d</code>.
+                    Projects: <code>config/developer-repositories.yaml</code></span>
+            </div>
+        </details>
+    </section>
+
+    <section class="task-section" aria-labelledby="available-title">
+        <form class="task-section" method="post" th:action="@{/tasks/run-selected}" data-task-selection>
+            <div class="task-section-head">
+                <h3 class="dev-section-title" id="available-title">Available <span class="dev-count"
+                        data-available-count th:text="${availableShown}">0</span></h3>
+                <div class="task-section-tools">
+                    <span data-poll-notice hidden>Tasks changed; reload to see them.</span>
+                    <span aria-live="polite" data-selected-count></span>
+                    <button type="submit" class="btn btn-primary btn-md btn-roomy" data-run-selected>Run</button>
+                </div>
+            </div>
+
+            <div class="status-chips" role="group" aria-label="Show tasks by Jira status"
+                 th:unless="${#lists.isEmpty(statusChips)}">
+                <span class="muted">Status in Jira:</span>
+                <button type="button" class="status-chip" th:each="chip : ${statusChips}"
+                        th:attr="aria-pressed=${chip['pressed']}, data-status-chip=${chip['status']}"
+                        th:text="${chip['status']} + ' ' + ${chip['count']}">Open 1</button>
+            </div>
+
+            <div class="task-grid task-grid-available">
+                <div class="task-grid-rows">
+                    <div class="task-row task-row-head">
+                        <input type="checkbox" class="task-check" aria-label="Select all shown eligible tasks"
+                               data-select-all>
+                        <span>Task</span>
+                        <span>In Jira</span>
+                    </div>
+                    <div class="task-row" th:each="row : ${available}"
+                         th:attr="data-status=${row['jiraStatus']}, hidden=${row['shown']} ? null : 'hidden'">
+                        <input type="checkbox" class="task-check" name="taskId" th:if="${row['selectable']}"
+                               th:value="${row['taskId']}" th:attr="aria-label='Select ' + ${row['key']}">
+                        <input type="checkbox" class="task-check" disabled th:unless="${row['selectable']}"
+                               th:attr="aria-label=${row['key']} + ' is not eligible'">
+                        <input type="hidden" th:if="${row['selectable']}" th:name="'version-' + ${row['taskId']}"
+                               th:value="${row['version']}">
+                        <input type="hidden" th:if="${row['selectable']}" th:name="'input-' + ${row['taskId']}"
+                               th:value="${row['inputFingerprint']}">
+                        <input type="hidden" th:if="${row['selectable']}" th:name="'destination-' + ${row['taskId']}"
+                               th:value="${row['destinationFingerprint']}">
+                        <div class="task-cell" th:classappend="${row['notEligibleReason'] != null} ? 'task-cell-blocked'">
+                            <div class="task-line">
+                                <a class="task-key" th:href="${row['jiraUrl']}" th:text="${row['key']}">KEY-1</a>
+                                <a class="task-title" th:href="@{'/tasks/' + ${row['taskId']}}"
+                                   th:text="${row['title']}">Title</a>
+                            </div>
+                            <span class="task-sub" th:if="${row['notEligibleReason'] == null and row['repository'] != null}"
+                                  th:text="'→ ' + ${row['repository']}">→ repository</span>
+                            <div class="task-blocked" th:if="${row['notEligibleReason'] != null}">
+                                <span class="task-blocked-tag">Not eligible</span>
+                                <span th:text="${row['notEligibleReason']}">reason</span>
+                            </div>
+                        </div>
+                        <span class="task-jira-status" th:text="${row['jiraStatus']}">Open</span>
+                    </div>
+                    <div class="task-row-empty" th:if="${#lists.isEmpty(available)}"
+                         th:text="${source['lastScan'] == null} ? 'Press Scan Jira to load the tasks assigned to you.'
+                                  : 'No open tasks are assigned to you in Jira.'">No tasks.</div>
+                    <div class="task-row-empty" data-filter-empty hidden>No tasks with the selected statuses.</div>
+                </div>
+            </div>
+        </form>
+
+        <form class="key-form" method="post" th:action="@{/flows/dev-factory/run-by-key}">
+            <label for="run-key">Not in your list? Run a task by key</label>
+            <input id="run-key" name="key" type="text" placeholder="MGRAPPS-101 or a Jira link" required
+                   autocomplete="off">
+            <button type="submit" class="btn btn-outline btn-md">Add to run</button>
+            <span class="key-form-hint">Any status, any assignee. The task joins the queue below.</span>
+        </form>
+    </section>
+
+    <section class="task-section" aria-labelledby="triggered-title">
+        <div class="task-section-head">
+            <h3 class="dev-section-title" id="triggered-title">Triggered <span class="dev-count"
+                    th:text="${page.totalElements}">0</span></h3>
+            <span class="task-section-tools"
+                  th:text="${workingCount} + ' working · ' + ${queuedCount} + ' queued'">0 working · 0 queued</span>
+        </div>
+
+        <div class="queue-waiting" role="status" th:if="${queueWaiting != null}">
+            <strong>Queue is waiting.</strong>
+            <span th:text="${queueWaiting['key']} + ' needs inspection: Factory could not confirm how its run ended. It rechecks every minute.'">
+                KEY needs inspection.</span>
+            <form method="post"
+                  th:action="@{'/tasks/' + ${queueWaiting['taskId']} + '/attempts/' + ${queueWaiting['attemptId']} + '/mark-stopped'}">
+                <input type="hidden" name="returnTo" value="flow">
+                <button type="submit" class="btn btn-sm btn-notice"
+                        th:attr="data-confirm-title='Mark ' + ${queueWaiting['key']} + ' as stopped?'"
+                        data-confirm-ok="Mark as stopped" data-confirm-style="compact"
+                        data-confirm="Do this only if its run is really over: no factory container is running for it. If it was opening a pull request, check the repository first. The task becomes Could not complete, its cost so far stays, and the queue starts the next task.">Mark as stopped…</button>
+            </form>
+        </div>
+
+        <div class="queue-waiting" role="status" th:if="${queueProblem != null}">
+            <strong>Queued tasks are not starting.</strong>
+            <span th:text="${queueProblem}">reason</span>
+        </div>
+
+        <div class="task-grid task-grid-triggered" th:classappend="${triggeredWide} ? 'task-grid-wide'">
+            <div class="task-grid-rows">
+                <div class="task-row task-row-head">
+                    <span>Task</span>
+                    <span>Status</span>
+                    <span>Cost</span>
+                    <span>When</span>
+                </div>
+                <div class="task-row" th:each="row : ${triggered}">
+                    <div class="task-cell">
+                        <div class="task-line">
+                            <a class="task-key" th:href="${row['jiraUrl']}" th:text="${row['key']}">KEY-1</a>
+                            <a class="task-title" th:href="${row['link']}" th:text="${row['title']}">Title</a>
+                        </div>
+                        <div class="task-sub">
+                            <span th:if="${row['repository'] != null}" th:text="'→ ' + ${row['repository']}">→ repository</span>
+                            <span class="task-tag" th:if="${row['addedByKey']}">added by key</span>
+                        </div>
+                    </div>
+                    <div class="state-cell">
+                        <span th:class="${row['stateClass']}" th:text="${row['stateLabel']}">State</span>
+                        <a class="state-detail" th:if="${row['prUrl'] != null}" th:href="${row['prUrl']}"
+                           th:text="${row['prLabel']}">Pull request</a>
+                        <div class="state-detail state-detail-action"
+                             th:if="${row['retryAllowed'] or row['markStoppedAttemptId'] != null}">
+                            <span class="state-detail-text" th:text="${row['detail']}" th:title="${row['detail']}">detail</span>
+                            <span class="state-detail-sep"> · </span>
+                            <form method="post" th:if="${row['retryAllowed']}"
+                                  th:action="@{'/tasks/' + ${row['taskId']} + '/retry'}">
+                                <input type="hidden" name="expectedVersion" th:value="${row['version']}">
+                                <input type="hidden" name="inputFingerprint" th:value="${row['inputFingerprint']}">
+                                <input type="hidden" name="destinationFingerprint" th:value="${row['destinationFingerprint']}">
+                                <input type="hidden" name="returnTo" value="flow">
+                                <button type="submit" class="btn-inline">Retry</button>
+                            </form>
+                            <form method="post" th:if="${row['markStoppedAttemptId'] != null}"
+                                  th:action="@{'/tasks/' + ${row['taskId']} + '/attempts/' + ${row['markStoppedAttemptId']} + '/mark-stopped'}">
+                                <input type="hidden" name="returnTo" value="flow">
+                                <button type="submit" class="btn-inline"
+                                        th:attr="data-confirm-title='Mark ' + ${row['key']} + ' as stopped?'"
+                                        data-confirm-ok="Mark as stopped" data-confirm-style="compact"
+                                        data-confirm="Do this only if its run is really over: no factory container is running for it. If it was opening a pull request, check the repository first. The task becomes Could not complete, its cost so far stays, and the queue starts the next task.">Mark as stopped…</button>
+                            </form>
+                        </div>
+                        <span class="state-detail"
+                              th:if="${row['detail'] != null and !row['retryAllowed'] and row['markStoppedAttemptId'] == null}"
+                              th:text="${row['detail']}">detail</span>
+                    </div>
+                    <div class="value-cell" th:classappend="${row['cost'] == null} ? 'value-cell-quiet'">
+                        <span th:text="${row['cost'] != null} ? ${row['cost']} : '—'">—</span>
+                        <span class="dev-note" th:if="${row['costNote'] != null}" th:text="${row['costNote']}">note</span>
+                    </div>
+                    <div class="value-cell">
+                        <span th:title="${row['whenTitle']}" th:text="${row['when']}">when</span>
+                        <span class="dev-note" th:text="${row['whenNote']}">note</span>
+                    </div>
+                </div>
+                <div class="task-row-empty" th:if="${#lists.isEmpty(triggered)}">Nothing has run yet. Select
+                    tasks above and press Run, or add one by key.</div>
+            </div>
+        </div>
+        <th:block th:if="${page.totalPages > 1}">
+            <nav th:replace="~{fragments/components :: pagination(${page}, ${baseUrl})}"></nav>
+        </th:block>
+    </section>
+</div>
+</body>
+</html>

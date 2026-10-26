@@ -3,9 +3,7 @@ package org.folio.factory.app.pilot;
 import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.pilot.admission.PilotAdmissionService;
-import org.folio.factory.app.pilot.admission.PilotAutomaticAdmission;
 import org.folio.factory.app.pilot.admission.PilotCommands;
-import org.folio.factory.app.pilot.admission.PilotModeService;
 import org.folio.factory.app.pilot.admission.PilotRetryService;
 import org.folio.factory.app.pilot.execution.PilotDispatcher;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
@@ -19,12 +17,8 @@ import org.folio.factory.app.pilot.source.PilotJiraInstance;
 import org.folio.factory.app.pilot.source.PilotSourceProperties;
 import org.folio.factory.connectors.jira.JiraIssue;
 import org.folio.factory.connectors.jira.JiraSourceConnector;
-import org.folio.factory.connectors.jira.JiraSourceModels;
 import org.folio.factory.connectors.jira.JiraSourceModels.DiscoveredIssue;
 import org.folio.factory.connectors.jira.JiraSourceModels.IssuePage;
-import org.folio.factory.connectors.jira.JiraSourceModels.ResolvedSource;
-import org.folio.factory.connectors.jira.JiraSourceModels.SourceReference;
-import org.folio.factory.connectors.jira.JiraSourceModels.Sprint;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.devfactory.DevFactoryProperties;
@@ -42,25 +36,25 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
 
 /**
  * Explicit fresh Retry against real PostgreSQL: a STOPPED latest attempt can
  * retry, and a withdrawn latest attempt stays retriable once earlier real work
- * exists. The retry freezes the current bounded input and source authority
- * into a new RETRY attempt whose launch reuses the serial dispatch path for a
- * new execution, and duplicate or stale clicks never create a second attempt.
- * A queued retry whose approved input/destination/scope changed before start
- * stops instead of launching, in both admission modes, and only another
- * explicit Retry admits fresh work.
+ * exists. The retry freezes the current bounded input into a new RETRY attempt
+ * whose launch reuses the serial dispatch path for a new execution, and
+ * duplicate or stale clicks never create a second attempt. Started work holds
+ * whatever happens in Jira; only a destination change before start stops a
+ * queued retry, and a token without push access refuses it up front.
  */
 @SpringBootTest(properties = {
         "spring.ai.model.chat=none",
@@ -79,8 +73,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class PilotRetryIntegrationTest {
 
     private static final String INSTANCE = "jira.example.org";
-    private static final String BASE_QUERY = "labels = \"team-ready\" ORDER BY created DESC";
-    private static final String CHANGED_QUERY = "labels = \"team-ready\" AND priority = High ORDER BY created DESC";
     private static final Instant EARLIER = Instant.parse("2026-10-01T09:00:00Z");
     private static final Instant LATER = Instant.parse("2026-10-01T10:00:00Z");
 
@@ -90,6 +82,10 @@ class PilotRetryIntegrationTest {
 
     @MockitoBean
     DeveloperPreflight preflight;
+
+    /** The application's Jira reads go to the same stub the tests drive. */
+    @MockitoBean
+    JiraSourceConnector jira;
 
     @Autowired
     PilotTaskRepository tasks;
@@ -102,12 +98,6 @@ class PilotRetryIntegrationTest {
 
     @Autowired
     PilotAdmissionService admissions;
-
-    @Autowired
-    PilotAutomaticAdmission automaticAdmission;
-
-    @Autowired
-    PilotModeService modeService;
 
     @Autowired
     PilotRetryService retries;
@@ -141,6 +131,28 @@ class PilotRetryIntegrationTest {
         executions.deleteAll();
         source.reset();
         discovery = discovery(devFactory);
+        when(jira.searchIssues(any(), any())).thenAnswer(call -> source.searchIssues(call.getArgument(0),
+                call.getArgument(1)));
+    }
+
+    @Test
+    void retryOfATaskAddedByKeyRunsOnWhatJiraSaysAtTheClick() {
+        source.issues = List.of(issueWithSummary("50091", "MODBAR-591", EARLIER, "Which limit applies?"));
+        var added = admissions.runByKey("by-key-591", "MODBAR-591");
+        assertThat(added.problem()).isNull();
+        PilotTask task = tasks.findById(added.taskId()).orElseThrow();
+        forceState(task, PilotAttempt.State.STOPPED, "coding: the limit is not specified");
+        source.issues = List.of(issueWithSummary("50091", "MODBAR-591", EARLIER, "The limit is 100 per page"));
+
+        var click = retries.retry(new PilotCommands.Retry("retry-591", task.getId(), task.getVersion(),
+                PilotAdmissionService.inputFingerprint(task), PilotAdmissionService.destinationFingerprint(task)));
+
+        PilotAttempt retry = attempts.findById(click.attemptId()).orElseThrow();
+        assertThat(retry.getKind()).isEqualTo(PilotAttempt.Kind.RETRY);
+        assertThat(retry.getApprovedSnapshot()).contains("The limit is 100 per page");
+        PilotTask refreshed = tasks.findById(task.getId()).orElseThrow();
+        assertThat(refreshed.getTitle()).isEqualTo("The limit is 100 per page");
+        assertThat(refreshed.isInScope()).as("a task added by key stays outside My tasks").isFalse();
     }
 
     @Test
@@ -173,7 +185,6 @@ class PilotRetryIntegrationTest {
         assertThat(retry.getOrdinal()).isEqualTo(2);
         assertThat(retry.getAdmittedVia()).isEqualTo(PilotAttempt.AdmittedVia.MANUAL);
         assertThat(retry.getInputFingerprint()).isEqualTo(PilotAdmissionService.inputFingerprint(task));
-        assertThat(retry.getScopeFingerprint()).isEqualTo(observed());
         assertThat(retry.getDestinationFingerprint())
                 .isEqualTo(PilotAdmissionService.destinationFingerprint(task));
         assertThat(retry.getApprovedSnapshot()).isEqualTo(task.getIssueSnapshot());
@@ -208,7 +219,7 @@ class PilotRetryIntegrationTest {
     }
 
     @Test
-    void retryEligibilityFollowsTheLatestAttemptStateAndCurrentScope() {
+    void retryEligibilityFollowsTheLatestAttemptState() {
         source.issues = List.of(issue("50021", "MODBAR-521", EARLIER));
         discovery.sync();
 
@@ -228,11 +239,6 @@ class PilotRetryIntegrationTest {
         admit(withdrawn, "run-526");
         forceState(withdrawn, PilotAttempt.State.WITHDRAWN, "task left the pilot scope before start");
         PilotTask neverAttempted = directTask("50027", "MODBAR-527");
-        PilotTask outOfScope = directTask("50028", "MODBAR-528");
-        stopWithFailedInitialAttempt(outOfScope, "run-528");
-        PilotTask saved = tasks.findById(outOfScope.getId()).orElseThrow();
-        saved.setInScope(false);
-        outOfScope = tasks.save(saved);
         PilotTask unsupported = directTask("50029", "MODBAR-529");
         stopWithFailedInitialAttempt(unsupported, "run-529");
         PilotTask routed = tasks.findById(unsupported.getId()).orElseThrow();
@@ -245,7 +251,6 @@ class PilotRetryIntegrationTest {
         assertThat(retryRejected(delivered, "delivered a pull request")).isEqualTo("PR_READY");
         assertThat(retryRejected(withdrawn, "select the task again")).isEqualTo("WITHDRAWN");
         assertThat(retryRejected(neverAttempted, "never been attempted")).isNull();
-        assertThat(retryRejected(outOfScope, "outside the current pilot scope")).isEqualTo("STOPPED");
         assertThat(retryRejected(unsupported, "not eligible")).isEqualTo("STOPPED");
 
         PilotTask stale = directTask("50030", "MODBAR-530");
@@ -257,220 +262,102 @@ class PilotRetryIntegrationTest {
                 .isEqualTo(attempts.findByTaskIdOrderByOrdinalAsc(stale.getId()).getFirst().getId());
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(stale.getId())).hasSize(1);
 
-        assertThat(attempts.count()).isEqualTo(8);
+        assertThat(attempts.count()).isEqualTo(7);
         assertThat(executions.count()).isZero();
     }
 
     @Test
-    void staleDiscoveryBlocksRetryAdmission() {
-        source.issues = List.of(issue("50041", "MODBAR-541", EARLIER));
+    void failedScanAndATaskNoLongerAssignedDoNotBlockARetry() {
+        source.issues = List.of(issue("50041", "MODBAR-541", EARLIER), issue("50042", "MODBAR-542", LATER));
         discovery.sync();
-        PilotTask task = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50041").orElseThrow();
-        stopWithFailedInitialAttempt(task, "run-541");
+        PilotTask target = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50041").orElseThrow();
+        PilotTask holder = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50042").orElseThrow();
+        stopWithFailedInitialAttempt(target, "run-541");
+        admitAndDispatch(holder, "run-542");
+        PilotTask unassigned = tasks.findById(target.getId()).orElseThrow();
+        unassigned.setInScope(false);
+        unassigned = tasks.save(unassigned);
         PilotInstallation installation = installations.findById(1).orElseThrow();
         installation.setSyncComplete(false);
         installation.setSyncProblem("search page 2 failed");
         installations.save(installation);
 
-        var click = retries.retry(new PilotCommands.Retry("retry-541", task.getId(), task.getVersion(),
-                PilotAdmissionService.inputFingerprint(task),
-                PilotAdmissionService.destinationFingerprint(task)));
+        var click = retries.retry(new PilotCommands.Retry("retry-541", unassigned.getId(), unassigned.getVersion(),
+                PilotAdmissionService.inputFingerprint(unassigned),
+                PilotAdmissionService.destinationFingerprint(unassigned)));
+        assertThat(click.state()).isEqualTo("RESERVED");
 
-        assertThat(click.attemptId())
-                .isEqualTo(attempts.findByTaskIdOrderByOrdinalAsc(task.getId()).getFirst().getId());
-        assertThat(click.explanation()).contains("sync is incomplete", "search page 2 failed");
-        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(task.getId())).hasSize(1);
-        assertThat(executions.count()).isZero();
+        releaseSlot();
+        assertThat(dispatcher.dispatchNext()).isPresent();
+        PilotAttempt started = attempts.findById(click.attemptId()).orElseThrow();
+        assertThat(started.getState()).isEqualTo(PilotAttempt.State.QUEUED);
+        assertThat(started.getExecutionId()).isNotNull();
     }
 
     @Test
-    void changedQueuedRetryStopsInsteadOfStartingInManualModeAndRequiresAnotherExplicitRetry() {
+    void queuedRetryStartsOnTheSnapshotApprovedAtTheClickEvenAfterJiraChanged() {
         source.issues = List.of(issue("50051", "MODBAR-551", EARLIER), issue("50052", "MODBAR-552", LATER));
         discovery.sync();
         PilotTask target = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50051").orElseThrow();
         PilotTask holder = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50052").orElseThrow();
         stopWithFailedInitialAttempt(target, "run-551");
         admitAndDispatch(holder, "run-552");
-        String approvedInput = PilotAdmissionService.inputFingerprint(target);
+        String approvedSnapshot = target.getIssueSnapshot();
 
-        var firstClick = retries.retry(new PilotCommands.Retry("retry-551", target.getId(), target.getVersion(),
-                approvedInput, PilotAdmissionService.destinationFingerprint(target)));
-        assertThat(firstClick.state()).isEqualTo("RESERVED");
-        assertThat(firstClick.executionId()).isNull();
+        var click = retries.retry(new PilotCommands.Retry("retry-551", target.getId(), target.getVersion(),
+                PilotAdmissionService.inputFingerprint(target), PilotAdmissionService.destinationFingerprint(target)));
+        assertThat(click.state()).isEqualTo("RESERVED");
 
         source.issues = List.of(issueWithSummary("50051", "MODBAR-551", EARLIER, "Revised summary of 551"),
                 issue("50052", "MODBAR-552", LATER));
         discovery.sync();
-        PilotTask changed = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50051").orElseThrow();
-        assertThat(changed.getSourceRevision()).isNotEqualTo(approvedInput);
+        assertThat(tasks.findById(target.getId()).orElseThrow().getIssueSnapshot()).isNotEqualTo(approvedSnapshot);
 
         releaseSlot();
-        assertThat(dispatcher.dispatchNext()).isEmpty();
-
-        PilotAttempt queuedRetry = attempts.findById(firstClick.attemptId()).orElseThrow();
-        assertThat(queuedRetry.getState()).isEqualTo(PilotAttempt.State.STOPPED);
-        assertThat(queuedRetry.getResultReason()).contains("input changed", "run a fresh explicit Retry");
-        assertThat(queuedRetry.getExecutionId()).isNull();
-        assertThat(executions.count()).isEqualTo(1);
-        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(changed.getId()))
-                .satisfiesExactly(attempt -> assertThat(attempt.getState()).isEqualTo(PilotAttempt.State.STOPPED),
-                        attempt -> assertThat(attempt.getState()).isEqualTo(PilotAttempt.State.STOPPED));
-
-        var changedQueuedRetry = retries.retry(new PilotCommands.Retry("retry-551", changed.getId(),
-                changed.getVersion(), approvedInput, PilotAdmissionService.destinationFingerprint(changed)));
-        assertThat(changedQueuedRetry.state()).isEqualTo("STOPPED");
-        assertThat(changedQueuedRetry.attemptId()).isEqualTo(firstClick.attemptId());
-        assertThat(changedQueuedRetry.executionId()).isNull();
-        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(changed.getId())).hasSize(2);
-
-        var freshRetry = retries.retry(new PilotCommands.Retry("retry-551-again", changed.getId(),
-                changed.getVersion(), PilotAdmissionService.inputFingerprint(changed),
-                PilotAdmissionService.destinationFingerprint(changed)));
-        assertThat(freshRetry.state()).isEqualTo("QUEUED");
-        assertThat(freshRetry.executionId()).isNotNull();
-        assertThat(attempts.findById(freshRetry.attemptId()).orElseThrow().getInputFingerprint())
-                .isEqualTo(changed.getSourceRevision());
-        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(changed.getId())).hasSize(3);
+        assertThat(dispatcher.dispatchNext()).isPresent();
+        PilotAttempt started = attempts.findById(click.attemptId()).orElseThrow();
+        assertThat(started.getState()).isEqualTo(PilotAttempt.State.QUEUED);
+        assertThat(started.getApprovedSnapshot()).isEqualTo(approvedSnapshot);
     }
 
     @Test
-    void changedQueuedRetryAlsoStopsInAutomaticModeAndAttemptedTasksStayOutOfInitialSelection() {
+    void queuedRetryStopsWhenTheDestinationChangedBeforeStart() {
         source.issues = List.of(issue("50061", "MODBAR-561", EARLIER), issue("50062", "MODBAR-562", LATER));
         discovery.sync();
         PilotTask target = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50061").orElseThrow();
         PilotTask holder = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50062").orElseThrow();
         stopWithFailedInitialAttempt(target, "run-561");
         admitAndDispatch(holder, "run-562");
-        enableAutomatic();
+        var click = retries.retry(new PilotCommands.Retry("retry-561", target.getId(), target.getVersion(),
+                PilotAdmissionService.inputFingerprint(target), PilotAdmissionService.destinationFingerprint(target)));
+        assertThat(click.state()).isEqualTo("RESERVED");
 
-        var firstClick = retries.retry(new PilotCommands.Retry("retry-561", target.getId(), target.getVersion(),
-                PilotAdmissionService.inputFingerprint(target),
-                PilotAdmissionService.destinationFingerprint(target)));
-        assertThat(firstClick.state()).isEqualTo("RESERVED");
-        PilotAttempt queuedRetry = attempts.findById(firstClick.attemptId()).orElseThrow();
-        assertThat(queuedRetry.getKind()).isEqualTo(PilotAttempt.Kind.RETRY);
-        assertThat(queuedRetry.getAdmittedVia()).isEqualTo(PilotAttempt.AdmittedVia.MANUAL);
-
-        source.issues = List.of(issueWithSummary("50061", "MODBAR-561", EARLIER, "Revised summary of 561"),
-                issue("50062", "MODBAR-562", LATER));
-        discovery.sync();
-        assertThat(installations.findById(1).orElseThrow().getMode())
-                .isEqualTo(PilotInstallation.Mode.AUTOMATIC);
-
-        var delegated = automaticAdmission.admitEligible();
-        assertThat(delegated.admittedTaskIds()).doesNotContain(target.getId());
-        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(target.getId())).hasSize(2);
-
+        PilotTask rerouted = tasks.findById(target.getId()).orElseThrow();
+        rerouted.setRoutingReason("repository mod-baz");
+        tasks.save(rerouted);
         releaseSlot();
         assertThat(dispatcher.dispatchNext()).isEmpty();
 
-        PilotAttempt stopped = attempts.findById(firstClick.attemptId()).orElseThrow();
+        PilotAttempt stopped = attempts.findById(click.attemptId()).orElseThrow();
         assertThat(stopped.getState()).isEqualTo(PilotAttempt.State.STOPPED);
-        assertThat(stopped.getResultReason()).contains("no longer matches", "run a fresh explicit Retry");
+        assertThat(stopped.getResultReason()).contains("destination changed", "run a fresh explicit Retry");
         assertThat(stopped.getExecutionId()).isNull();
         assertThat(executions.count()).isEqualTo(1);
-        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
     }
 
     @Test
-    void invalidatedQueuedRetryRequiresAndAllowsAFreshExplicitRetry() {
-        source.issues = List.of(issue("50071", "MODBAR-571", EARLIER), issue("50072", "MODBAR-572", LATER));
-        discovery.sync();
-        PilotTask target = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50071").orElseThrow();
-        PilotTask holder = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50072").orElseThrow();
-        stopWithFailedInitialAttempt(target, "run-571");
-        admitAndDispatch(holder, "run-572");
-        enableAutomatic();
+    void tokenWithoutPushAccessRefusesTheRetryBeforeAnythingIsQueued() {
+        PilotTask task = directTask("50071", "MODBAR-571");
+        stopWithFailedInitialAttempt(task, "run-571");
+        doThrow(new IllegalStateException("Your GitHub token cannot push to folio-org/mod-bar"))
+                .when(preflight).requirePushAccess("mod-bar");
 
-        var firstClick = retries.retry(new PilotCommands.Retry("retry-571", target.getId(), target.getVersion(),
-                PilotAdmissionService.inputFingerprint(target),
-                PilotAdmissionService.destinationFingerprint(target)));
-        assertThat(firstClick.state()).isEqualTo("RESERVED");
+        var click = retries.retry(new PilotCommands.Retry("retry-571", task.getId(), task.getVersion(),
+                PilotAdmissionService.inputFingerprint(task), PilotAdmissionService.destinationFingerprint(task)));
 
-        source.query = CHANGED_QUERY;
-        discovery.sync();
-        assertThat(installations.findById(1).orElseThrow().getMode())
-                .isEqualTo(PilotInstallation.Mode.REVIEW_BEFORE_RUN);
-        PilotAttempt invalidated = attempts.findById(firstClick.attemptId()).orElseThrow();
-        assertThat(invalidated.getState()).isEqualTo(PilotAttempt.State.STOPPED);
-        assertThat(invalidated.getResultReason()).contains("authority changed", "run a fresh explicit Retry");
-        assertThat(invalidated.getExecutionId()).isNull();
-
-        PilotTask current = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50071").orElseThrow();
-        var freshClick = retries.retry(new PilotCommands.Retry("retry-571-again", current.getId(),
-                current.getVersion(), PilotAdmissionService.inputFingerprint(current),
-                PilotAdmissionService.destinationFingerprint(current)));
-        assertThat(freshClick.state()).isEqualTo("RESERVED");
-        assertThat(freshClick.executionId()).isNull();
-
-        releaseSlot();
-        assertThat(dispatcher.dispatchNext()).isPresent();
-        List<PilotAttempt> attemptHistory = attempts.findByTaskIdOrderByOrdinalAsc(current.getId());
-        assertThat(attemptHistory).hasSize(3);
-        PilotAttempt third = attemptHistory.get(2);
-        assertThat(third.getKind()).isEqualTo(PilotAttempt.Kind.RETRY);
-        assertThat(third.getOrdinal()).isEqualTo(3);
-        assertThat(third.getState()).isEqualTo(PilotAttempt.State.QUEUED);
-        assertThat(third.getScopeFingerprint()).isEqualTo(observed());
-        assertThat(third.getExecutionId()).isNotNull();
-        assertThat(attemptHistory.get(0).getState()).isEqualTo(PilotAttempt.State.STOPPED);
-        assertThat(attemptHistory.get(1).getState()).isEqualTo(PilotAttempt.State.STOPPED);
-    }
-
-    @Test
-    void withdrawnQueuedRetryKeepsTheTaskRetriableWhenItReturnsToScope() {
-        source.issues = List.of(issue("50081", "MODBAR-581", EARLIER), issue("50082", "MODBAR-582", LATER));
-        discovery.sync();
-        PilotTask target = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50081").orElseThrow();
-        PilotTask holder = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50082").orElseThrow();
-        stopWithFailedInitialAttempt(target, "run-581");
-        admitAndDispatch(holder, "run-582");
-
-        var firstRetry = retries.retry(new PilotCommands.Retry("retry-581", target.getId(), target.getVersion(),
-                PilotAdmissionService.inputFingerprint(target),
-                PilotAdmissionService.destinationFingerprint(target)));
-        assertThat(firstRetry.state()).isEqualTo("RESERVED");
-
-        PilotTask left = tasks.findById(target.getId()).orElseThrow();
-        left.setInScope(false);
-        tasks.save(left);
-        releaseSlot();
-        assertThat(dispatcher.dispatchNext()).isEmpty();
-
-        PilotAttempt withdrawnRetry = attempts.findById(firstRetry.attemptId()).orElseThrow();
-        assertThat(withdrawnRetry.getState()).isEqualTo(PilotAttempt.State.WITHDRAWN);
-        assertThat(withdrawnRetry.getResultReason()).isEqualTo("task left the pilot scope before start");
-        assertThat(withdrawnRetry.getExecutionId()).isNull();
-        assertThat(executions.count()).isEqualTo(1);
-
-        PilotTask returned = tasks.findById(target.getId()).orElseThrow();
-        returned.setInScope(true);
-        PilotTask backInScope = tasks.save(returned);
-        var freshRetry = retries.retry(new PilotCommands.Retry("retry-581-again", backInScope.getId(),
-                backInScope.getVersion(), PilotAdmissionService.inputFingerprint(backInScope),
-                PilotAdmissionService.destinationFingerprint(backInScope)));
-        assertThat(freshRetry.attemptId()).isNotEqualTo(firstRetry.attemptId());
-        assertThat(freshRetry.state()).isEqualTo("QUEUED");
-        assertThat(freshRetry.executionId()).isNotNull();
-
-        List<PilotAttempt> attemptHistory = attempts.findByTaskIdOrderByOrdinalAsc(target.getId());
-        assertThat(attemptHistory).hasSize(3);
-        PilotAttempt initial = attemptHistory.get(0);
-        assertThat(initial.getOrdinal()).isEqualTo(1);
-        assertThat(initial.getState()).isEqualTo(PilotAttempt.State.STOPPED);
-        assertThat(initial.getResultReason()).isEqualTo("coding: verification failed");
-        assertThat(initial.getExecutionId()).isNull();
-        PilotAttempt withdrawn = attemptHistory.get(1);
-        assertThat(withdrawn.getKind()).isEqualTo(PilotAttempt.Kind.RETRY);
-        assertThat(withdrawn.getOrdinal()).isEqualTo(2);
-        assertThat(withdrawn.getState()).isEqualTo(PilotAttempt.State.WITHDRAWN);
-        assertThat(withdrawn.getResultReason()).isEqualTo("task left the pilot scope before start");
-        assertThat(withdrawn.getExecutionId()).isNull();
-        PilotAttempt fresh = attemptHistory.get(2);
-        assertThat(fresh.getId()).isEqualTo(freshRetry.attemptId());
-        assertThat(fresh.getKind()).isEqualTo(PilotAttempt.Kind.RETRY);
-        assertThat(fresh.getOrdinal()).isEqualTo(3);
-        assertThat(fresh.getState()).isEqualTo(PilotAttempt.State.QUEUED);
+        assertThat(click.explanation()).isEqualTo("Your GitHub token cannot push to folio-org/mod-bar");
+        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(task.getId())).hasSize(1);
+        assertThat(executions.count()).isZero();
     }
 
     @Test
@@ -508,7 +395,7 @@ class PilotRetryIntegrationTest {
     }
 
     private void admit(PilotTask task, String runId) {
-        var result = admissions.runSelected(new PilotCommands.RunSelected(runId, observed(),
+        var result = admissions.runSelected(new PilotCommands.RunSelected(runId,
                 List.of(new PilotCommands.Selection(task.getId(), task.getVersion(),
                         PilotAdmissionService.inputFingerprint(task),
                         PilotAdmissionService.destinationFingerprint(task)))));
@@ -545,17 +432,8 @@ class PilotRetryIntegrationTest {
     }
 
     private PilotDiscoveryService discovery(DevFactoryProperties repositories) {
-        return new PilotDiscoveryService(source, new PilotSourceProperties("981", "4711",
-                List.of("To Do"), null, null, null), new RepositoryPolicy(repositories), repositories,
-                tasks, installations, transactionManager, modeService, automaticAdmission, jiraInstance);
-    }
-
-    private PilotModeService.ModeResult enableAutomatic() {
-        return modeService.setMode(PilotModeService.AdmissionMode.AUTOMATIC, observed());
-    }
-
-    private String observed() {
-        return installations.findById(1).orElseThrow().getObservedAuthorityFingerprint();
+        return new PilotDiscoveryService(source, new PilotSourceProperties("Jane Developer"),
+                new RepositoryPolicy(repositories), tasks, installations, transactionManager, jiraInstance);
     }
 
     private static DiscoveredIssue issue(String id, String key, Instant createdAt) {
@@ -571,35 +449,14 @@ class PilotRetryIntegrationTest {
 
     private static final class StubSource implements JiraSourceConnector {
 
-        private String query = BASE_QUERY;
         private List<DiscoveredIssue> issues = List.of();
-        private final List<String> issuedQueries = new ArrayList<>();
 
         void reset() {
-            query = BASE_QUERY;
             issues = List.of();
-            issuedQueries.clear();
-        }
-
-        @Override
-        public SourceReference parseSourceReference(String raw) {
-            return new SourceReference(JiraSourceModels.Kind.BOARD, "981");
-        }
-
-        @Override
-        public ResolvedSource resolveSource(SourceReference reference) {
-            return new ResolvedSource("981", "Team board",
-                    URI.create("https://jira.example.org/jira/software/c/boards/981"), "2001", query);
-        }
-
-        @Override
-        public Sprint getSprint(String sprintId) {
-            return new Sprint("4711", "Sprint 12");
         }
 
         @Override
         public IssuePage searchIssues(String jql, String cursor) {
-            issuedQueries.add(jql);
             return new IssuePage(issues, null);
         }
     }

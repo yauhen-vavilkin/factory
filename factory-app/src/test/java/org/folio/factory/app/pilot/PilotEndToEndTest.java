@@ -5,13 +5,12 @@ import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.pilot.admission.PilotAdmissionService;
 import org.folio.factory.app.pilot.admission.PilotCommands;
-import org.folio.factory.app.pilot.admission.PilotModeService;
 import org.folio.factory.app.pilot.admission.PilotRetryService;
+import org.folio.factory.app.pilot.execution.PersistedPilotAttemptPolicy;
 import org.folio.factory.app.pilot.execution.PilotDispatcher;
 import org.folio.factory.app.pilot.execution.PilotOutcomeService;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
-import org.folio.factory.app.pilot.persistence.PilotInstallation;
 import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
 import org.folio.factory.app.pilot.persistence.PilotPublicationIntent;
 import org.folio.factory.app.pilot.persistence.PilotPublicationIntentRepository;
@@ -19,7 +18,6 @@ import org.folio.factory.app.pilot.persistence.PilotTask;
 import org.folio.factory.app.pilot.persistence.PilotTaskRepository;
 import org.folio.factory.app.pilot.presentation.PilotTaskQuery;
 import org.folio.factory.app.pilot.presentation.PilotTaskView;
-import org.folio.factory.app.pilot.source.PilotDiscoveryPoller;
 import org.folio.factory.app.pilot.source.PilotDiscoveryService;
 import org.folio.factory.app.pilot.source.PilotJiraInstance;
 import org.folio.factory.app.web.DeveloperPricingProperties;
@@ -50,7 +48,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -104,28 +101,22 @@ import static org.mockito.Mockito.when;
  * projects to different repositories and keeps unsupported matches visible, a
  * manual subset is admitted exactly once, one task reaches a ready pull request
  * while a failed task stops with a readable reason and the queue continues, an
- * explicit retry reaches a new outcome, automatic admission delegates a future
- * match until a saved-filter change reverts the mode, a changed input stops a
- * queued retry at launch, a lost publication response holds the attempt for
- * inspection, and an incomplete usage component keeps the task projection
- * incomplete. Jira stays read-only, no pilot attempt opens an intermediate
+ * explicit retry reaches a new outcome, a task added by its key joins the same
+ * queue without a scan, started work holds after the task leaves My tasks and
+ * changes in Jira, a lost publication response holds the attempt for inspection
+ * until the developer marks it as stopped, and an incomplete usage component
+ * keeps the task projection incomplete. Jira stays read-only, no pilot attempt opens an intermediate
  * review, coding starts once per attempt and no pull request is duplicated.
  */
 @SpringBootTest(properties = {
         "spring.ai.model.chat=none",
         "factory.engine.poll-interval-ms=250",
         "factory.limits.dedup.window=PT0S",
-        "factory.pilot.discovery.enabled=true",
-        "factory.pilot.discovery.poll-interval-ms=3600000",
         "factory.pilot.execution.enabled=true",
         "factory.pilot.execution.deadline=PT30M",
         "factory.pilot.execution.recovery-poll-interval-ms=3600000",
         "factory.pilot.execution.dispatch-interval-ms=3600000",
-        "factory.pilot.source.source=981",
-        "factory.pilot.source.sprint-id=4711",
-        "factory.pilot.source.statuses[0]=To Do",
-        "factory.connectors.jira.email=bot@example.org",
-        "factory.connectors.jira.api-token=token",
+        "factory.pilot.source.assignee=Jane Developer",
         "factory.connectors.github.token=fixture-github-token",
         "factory.dev-factory.runtime.plans.java21-unit[0]=mvn",
         "factory.dev-factory.runtime.plans.java21-unit[1]=test",
@@ -135,14 +126,12 @@ import static org.mockito.Mockito.when;
         "factory.dev-factory.repositories.mod-bar.verification-plan=java21-unit",
         "factory.dev-factory.repositories.mod-bar.jira-projects[0]=MODBAR",
         "factory.dev-factory.repositories.mod-bar.delivery.repository=folio-org/mod-bar",
-        "factory.dev-factory.repositories.mod-bar.delivery.authorized=true",
         "factory.dev-factory.repositories.mod-foo.source-repo=folio-org/mod-foo",
         "factory.dev-factory.repositories.mod-foo.base-branch=master",
         "factory.dev-factory.repositories.mod-foo.build-image=maven:3.9-eclipse-temurin-21",
         "factory.dev-factory.repositories.mod-foo.verification-plan=java21-unit",
         "factory.dev-factory.repositories.mod-foo.jira-projects[0]=MODFOO",
-        "factory.dev-factory.repositories.mod-foo.delivery.repository=folio-org/mod-foo",
-        "factory.dev-factory.repositories.mod-foo.delivery.authorized=true"})
+        "factory.dev-factory.repositories.mod-foo.delivery.repository=folio-org/mod-foo"})
 @Import(StubLlmConfiguration.class)
 @Testcontainers
 @DirtiesContext
@@ -153,8 +142,6 @@ class PilotEndToEndTest {
     private static final String FOO = "folio-org/mod-foo";
     private static final String BAR_PR = "https://github.com/" + BAR + "/pull/11";
     private static final String FOO_PR = "https://github.com/" + FOO + "/pull/21";
-    private static final String BASE_QUERY = "labels = \"team-ready\" ORDER BY created DESC";
-    private static final String CHANGED_QUERY = "labels = \"team-ready\" AND priority = High ORDER BY created DESC";
     private static final Map<String, Object> COMPLETE_USAGE = Map.of(
             "inputTokens", 100_000L, "outputTokens", 20_000L, "cacheReadTokens", 0L, "cacheWriteTokens", 0L);
     private static final Map<String, Object> REPEAT_USAGE = Map.of(
@@ -204,10 +191,6 @@ class PilotEndToEndTest {
     @MockitoBean
     CandidateDelivery delivery;
 
-    /** Syncs are explicit here; the scheduled first fire would race the first insert-only sync. */
-    @MockitoBean
-    PilotDiscoveryPoller discoveryPoller;
-
     @MockitoBean
     DeveloperPricingProperties pricing;
 
@@ -218,7 +201,7 @@ class PilotEndToEndTest {
     PilotAdmissionService admissions;
 
     @Autowired
-    PilotModeService modeService;
+    PersistedPilotAttemptPolicy attemptPolicy;
 
     @Autowired
     PilotRetryService retries;
@@ -268,7 +251,6 @@ class PilotEndToEndTest {
     @Test
     @Order(1)
     void discoveryRoutesTwoProjectsAndKeepsUnsupportedMatchesVisible() {
-        stubTeamSource(BASE_QUERY);
         stubSearch(
                 issue("8101", "MODBAR-101", "MODBAR", "Add validation to mod-bar", "2026-10-01T09:00:00.000+0000", ""),
                 issue("8103", "MODFOO-103", "MODFOO", "Refactor the mod-foo exporter", "2026-10-01T09:15:00.000+0000", ""),
@@ -286,11 +268,9 @@ class PilotEndToEndTest {
         assertThat(eligibility("8103")).isEqualTo(PilotTask.Eligibility.ELIGIBLE);
         assertThat(routingReason("8103")).isEqualTo("repository mod-foo");
         assertThat(eligibility("8104")).isEqualTo(PilotTask.Eligibility.INELIGIBLE);
-        assertThat(routingReason("8104")).isEqualTo("no repository mapping for project OTHERP");
-        assertThat(eligibility("8105")).isEqualTo(PilotTask.Eligibility.INELIGIBLE);
-        assertThat(routingReason("8105")).isEqualTo("known dependency: MODBAR-999");
-        assertThat(installations.findById(1).orElseThrow().getMode())
-                .isEqualTo(PilotInstallation.Mode.REVIEW_BEFORE_RUN);
+        assertThat(routingReason("8104"))
+                .isEqualTo("Project OTHERP is not configured: no repository for it in config/developer-repositories.yaml");
+        assertThat(eligibility("8105")).as("links never block a task").isEqualTo(PilotTask.Eligibility.ELIGIBLE);
         assertThat(attempts.count()).isZero();
         assertThat(executions.count()).isZero();
         assertThat(jiraStayedReadOnly()).isTrue();
@@ -303,18 +283,15 @@ class PilotEndToEndTest {
         // attempts stay queued for the poller.
         doThrow(new IllegalArgumentException("coding runtime not ready"))
                 .when(preflight).requireReady(eq("dev-factory"), any());
-        String authority = observed();
         var selections = List.of(
-                selectionFor("8101"), selectionFor("8103"), selectionFor("8102"),
-                selectionFor("8104"), selectionFor("8105"));
+                selectionFor("8101"), selectionFor("8103"), selectionFor("8102"), selectionFor("8104"));
 
-        var result = admissions.runSelected(new PilotCommands.RunSelected("e2e-run-1", authority, selections));
+        var result = admissions.runSelected(new PilotCommands.RunSelected("e2e-run-1", selections));
 
         assertThat(result.admittedTaskIds()).as(String.valueOf(result)).containsExactlyInAnyOrder(
                 taskId("8101"), taskId("8103"), taskId("8102"));
-        assertThat(result.rejectedReasons()).containsKeys(taskId("8104"), taskId("8105"));
+        assertThat(result.rejectedReasons()).containsOnlyKeys(taskId("8104"));
         assertThat(result.rejectedReasons().get(taskId("8104"))).contains("not eligible");
-        assertThat(result.rejectedReasons().get(taskId("8105"))).contains("known dependency");
         for (String issueId : List.of("8101", "8102", "8103")) {
             assertThat(attempts.findByTaskIdOrderByOrdinalAsc(taskId(issueId)))
                     .singleElement()
@@ -322,14 +299,11 @@ class PilotEndToEndTest {
                         assertThat(attempt.getState()).isEqualTo(PilotAttempt.State.RESERVED);
                         assertThat(attempt.getKind()).isEqualTo(PilotAttempt.Kind.INITIAL);
                         assertThat(attempt.getAdmittedVia()).isEqualTo(PilotAttempt.AdmittedVia.MANUAL);
-                        assertThat(attempt.getScopeFingerprint()).isEqualTo(authority);
                     });
         }
-        assertThat(installations.findById(1).orElseThrow().getAcceptedAuthorityFingerprint())
-                .isEqualTo(authority);
         assertThat(executions.count()).isZero();
 
-        var repeated = admissions.runSelected(new PilotCommands.RunSelected("e2e-run-1", authority,
+        var repeated = admissions.runSelected(new PilotCommands.RunSelected("e2e-run-1",
                 List.of(selectionFor("8101"))));
         assertThat(repeated.admittedTaskIds()).containsExactly(taskId("8101"));
         assertThat(attempts.count()).isEqualTo(3);
@@ -471,74 +445,41 @@ class PilotEndToEndTest {
 
     @Test
     @Order(6)
-    void automaticModeDelegatesAFutureMatchWhileTheAuthorityHolds() {
-        // Keep the delegation queued (a refused preflight holds dispatch) so the next
-        // scenario can prove that a filter change still invalidates a queued approval.
+    void taskAddedByKeyJoinsTheQueueWithoutAScanAndCannotBeAddedTwice() {
+        // Keep the run queued (a refused preflight holds dispatch) so the next
+        // scenario starts it after the task leaves My tasks.
         doThrow(new IllegalArgumentException("coding runtime not ready"))
                 .when(preflight).requireReady(eq("dev-factory"), any());
-        var enabled = modeService.setMode(PilotModeService.AdmissionMode.AUTOMATIC, observed());
+        stubSearch(issue("8106", "MODBAR-106", "MODBAR", "Expose the new endpoint", "2026-10-01T10:00:00.000+0000", ""));
 
-        assertThat(enabled.mode()).isEqualTo(PilotModeService.AdmissionMode.AUTOMATIC);
-        assertThat(enabled.admittedQueueCount()).isZero();
+        var added = admissions.runByKey("e2e-key-106", jira.baseUrl() + "/browse/MODBAR-106");
 
-        stubSearch(
-                issue("8101", "MODBAR-101", "MODBAR", "Add validation to mod-bar", "2026-10-01T09:00:00.000+0000", ""),
-                issue("8103", "MODFOO-103", "MODFOO", "Refactor the mod-foo exporter", "2026-10-01T09:15:00.000+0000", ""),
-                issue("8102", "MODBAR-102", "MODBAR", "Clarify the limit handling", "2026-10-01T09:30:00.000+0000", ""),
-                issue("8106", "MODBAR-106", "MODBAR", "Expose the new endpoint", "2026-10-01T10:00:00.000+0000", ""));
-        assertThat(discovery.sync().complete()).isTrue();
-
-        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(taskId("8106")))
+        assertThat(added.problem()).isNull();
+        assertThat(added.issueKey()).isEqualTo("MODBAR-106");
+        PilotTask task = tasks.findById(added.taskId()).orElseThrow();
+        assertThat(task.isInScope()).as("a key does not put the task into My tasks").isFalse();
+        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(task.getId()))
                 .singleElement()
                 .satisfies(attempt -> {
                     assertThat(attempt.getState()).isEqualTo(PilotAttempt.State.RESERVED);
-                    assertThat(attempt.getAdmittedVia()).isEqualTo(PilotAttempt.AdmittedVia.AUTOMATIC);
-                    assertThat(attempt.getScopeFingerprint()).isEqualTo(observed());
+                    assertThat(attempt.getKind()).isEqualTo(PilotAttempt.Kind.INITIAL);
+                    assertThat(attempt.getAdmittedVia()).isEqualTo(PilotAttempt.AdmittedVia.BY_KEY);
                 });
-        PilotInstallation installation = installations.findById(1).orElseThrow();
-        assertThat(installation.getMode()).isEqualTo(PilotInstallation.Mode.AUTOMATIC);
-        assertThat(installation.getAcceptedAuthorityFingerprint()).isEqualTo(observed());
-        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(taskId("8103")))
-                .last()
-                .satisfies(attempt -> assertThat(attempt.getState()).isEqualTo(PilotAttempt.State.PR_READY));
+        var again = admissions.runByKey("e2e-key-106-again", "modbar-106");
+        assertThat(again.problem()).isEqualTo("MODBAR-106 is already queued or running");
+        assertThat(admissions.runByKey("e2e-key-bad", "not a key").problem()).startsWith("Enter a Jira key");
+        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(task.getId())).hasSize(1);
         assertThat(jiraStayedReadOnly()).isTrue();
     }
 
     @Test
     @Order(7)
-    void changedFilterRevertsAutomaticModeAndInvalidatesTheQueuedApproval() {
-        String acceptedBefore = installations.findById(1).orElseThrow().getAcceptedAuthorityFingerprint();
-
-        stubTeamSource(CHANGED_QUERY);
-        assertThat(discovery.sync().complete()).isTrue();
-
-        PilotInstallation installation = installations.findById(1).orElseThrow();
-        assertThat(installation.getMode()).isEqualTo(PilotInstallation.Mode.REVIEW_BEFORE_RUN);
-        assertThat(installation.getObservedAuthorityFingerprint()).isNotEqualTo(acceptedBefore);
-        assertThat(installation.getAcceptedAuthorityFingerprint()).isEqualTo(acceptedBefore);
-        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(taskId("8106")))
-                .singleElement()
-                .satisfies(withdrawn -> {
-                    assertThat(withdrawn.getState()).isEqualTo(PilotAttempt.State.WITHDRAWN);
-                    assertThat(withdrawn.getResultReason()).contains("authority changed");
-                    assertThat(withdrawn.getExecutionId()).isNull();
-                });
-        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(taskId("8103")))
-                .last()
-                .satisfies(delegated -> assertThat(delegated.getState()).isEqualTo(PilotAttempt.State.PR_READY));
-        assertThat(dispatcher.dispatchNext()).isEmpty();
-        assertThat(jiraStayedReadOnly()).isTrue();
-    }
-
-    @Test
-    @Order(8)
-    void changedInputStopsAQueuedRetryAtLaunchAndRequiresAFreshExplicitRetry() {
-        var readmitted = admissions.runSelected(new PilotCommands.RunSelected("e2e-run-106", observed(),
-                List.of(selectionFor("8106"))));
-        assertThat(readmitted.admittedTaskIds()).containsExactly(taskId("8106"));
+    void startedWorkHoldsWhenTheTaskLeavesMyTasksAndChangesInJira() {
         UUID holderExecutionId = dispatcher.dispatchNext().orElseThrow();
         UUID holderAttemptId = attempts.findByExecutionId(holderExecutionId).orElseThrow().getId();
+        assertThat(attempts.findById(holderAttemptId).orElseThrow().getTaskId()).isEqualTo(taskId("8106"));
         PilotTask retryTarget = tasks.findById(taskId("8102")).orElseThrow();
+        String approvedSnapshot = retryTarget.getIssueSnapshot();
 
         var queuedRetry = retries.retry(new PilotCommands.Retry("e2e-retry-102", retryTarget.getId(),
                 retryTarget.getVersion(), PilotAdmissionService.inputFingerprint(retryTarget),
@@ -551,38 +492,32 @@ class PilotEndToEndTest {
                 issue("8103", "MODFOO-103", "MODFOO", "Refactor the mod-foo exporter", "2026-10-01T09:15:00.000+0000", ""),
                 issue("8102", "MODBAR-102", "MODBAR", "Revised: the limit handling is now specified",
                         "2026-10-01T09:30:00.000+0000", ""),
-                issue("8106", "MODBAR-106", "MODBAR", "Expose the new endpoint", "2026-10-01T10:00:00.000+0000", ""));
+                issue("8104", "OTHERP-104", "OTHERP", "Task in an unmapped project", "2026-10-01T09:40:00.000+0000", ""),
+                issue("8105", "MODBAR-105", "MODBAR", "Blocked by preparation", "2026-10-01T09:45:00.000+0000",
+                        linked("MODBAR-999")));
         assertThat(discovery.sync().complete()).isTrue();
+        assertThat(tasks.findById(taskId("8106")).orElseThrow().isInScope()).isFalse();
 
         awaitTerminal(holderExecutionId);
         assertThat(outcomes.refresh(holderAttemptId).state())
                 .isEqualTo(PilotOutcomeService.AttemptOutcome.State.STOPPED);
 
-        assertThat(dispatcher.dispatchNext()).isEmpty();
-        PilotAttempt invalidated = attempts.findById(queuedRetry.attemptId()).orElseThrow();
-        assertThat(invalidated.getState()).isEqualTo(PilotAttempt.State.STOPPED);
-        assertThat(invalidated.getResultReason()).contains("input changed", "fresh explicit Retry");
-        assertThat(invalidated.getExecutionId()).isNull();
-        assertThat(executions.count()).isEqualTo(5);
-
-        PilotTask revised = tasks.findById(taskId("8102")).orElseThrow();
-        var freshRetry = retries.retry(new PilotCommands.Retry("e2e-retry-102-again", revised.getId(),
-                revised.getVersion(), PilotAdmissionService.inputFingerprint(revised),
-                PilotAdmissionService.destinationFingerprint(revised)));
-        assertThat(freshRetry.state()).isEqualTo("QUEUED");
-        assertThat(freshRetry.executionId()).isNotNull();
-        awaitTerminal(freshRetry.executionId());
-        assertThat(outcomes.refresh(freshRetry.attemptId()).state())
+        UUID retryExecutionId = dispatcher.dispatchNext().orElseThrow();
+        PilotAttempt started = attempts.findById(queuedRetry.attemptId()).orElseThrow();
+        assertThat(started.getExecutionId()).isEqualTo(retryExecutionId);
+        assertThat(started.getApprovedSnapshot()).isEqualTo(approvedSnapshot);
+        awaitTerminal(retryExecutionId);
+        assertThat(outcomes.refresh(queuedRetry.attemptId()).state())
                 .isEqualTo(PilotOutcomeService.AttemptOutcome.State.STOPPED);
         List<PilotAttempt> history = attempts.findByTaskIdOrderByOrdinalAsc(taskId("8102"));
-        assertThat(history).hasSize(3);
-        assertThat(history.get(1).getResultReason()).contains("input changed");
-        assertThat(history.get(2).getResultReason()).contains("Which acceptance criterion defines the limit?");
+        assertThat(history).hasSize(2);
+        assertThat(history.get(1).getResultReason()).contains("Which acceptance criterion defines the limit?");
+        assertThat(executions.count()).isEqualTo(6);
         assertThat(jiraStayedReadOnly()).isTrue();
     }
 
     @Test
-    @Order(9)
+    @Order(8)
     void lostPublicationResponseHoldsTheAttemptForInspectionWithoutARetry() {
         GITHUB.stubFor(post(urlPathEqualTo("/repos/" + BAR + "/pulls")).willReturn(okJson("{}")));
         PilotTask uncertainTask = tasks.findById(taskId("8106")).orElseThrow();
@@ -619,16 +554,43 @@ class PilotEndToEndTest {
     }
 
     @Test
+    @Order(9)
+    void markAsStoppedReleasesTheQueueAndTheHeldRunCanNoLongerPublish() {
+        PilotAttempt held = attempts.findByTaskIdOrderByOrdinalAsc(taskId("8106")).getLast();
+        assertThat(held.getState()).isEqualTo(PilotAttempt.State.NEEDS_INSPECTION);
+        assertThat(outcomes.markStopped(attempts.findByTaskIdOrderByOrdinalAsc(taskId("8101")).getFirst().getId()))
+                .as("only an attempt that needs inspection can be stopped")
+                .isNotNull();
+
+        assertThat(outcomes.markStopped(held.getId())).isNull();
+
+        PilotAttempt stopped = attempts.findById(held.getId()).orElseThrow();
+        assertThat(stopped.getState()).isEqualTo(PilotAttempt.State.STOPPED);
+        assertThat(stopped.getResultReason())
+                .as("the held run lost its publication response, so the reason warns about a possible pull request")
+                .startsWith(PilotOutcomeService.MARKED_STOPPED + "; " + PilotOutcomeService.PULL_REQUEST_MAY_EXIST);
+        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
+        assertThat(attemptPolicy.ownsActiveSlot(held.getExecutionId())).isFalse();
+        assertThat(dispatcher.dispatchNext()).isEmpty();
+        assertThat(outcomes.markStopped(held.getId())).isNotNull();
+    }
+
+    @Test
     @Order(10)
     void taskProjectionPreservesHistoryAndTokenomicsIncludingIncompleteUsage() {
-        Page<PilotTaskView> page = queries.list(PageRequest.of(0, 10));
+        PilotTaskQuery.MyTasks myTasks = queries.myTasks(PageRequest.of(0, 10));
 
-        assertThat(page.getContent()).hasSize(6);
-        assertThat(projectedState(page, "8101")).isEqualTo(PilotTaskView.TaskState.PR_READY);
-        assertThat(projectedState(page, "8103")).isEqualTo(PilotTaskView.TaskState.PR_READY);
-        assertThat(projectedState(page, "8102")).isEqualTo(PilotTaskView.TaskState.STOPPED);
-        assertThat(projectedState(page, "8106")).isEqualTo(PilotTaskView.TaskState.PROCESSING_PAUSED);
-        assertThat(projectedState(page, "8105")).isEqualTo(PilotTaskView.TaskState.UNSUPPORTED);
+        assertThat(myTasks.available()).extracting(PilotTaskView::displayKey)
+                .containsExactlyInAnyOrder("OTHERP-104", "MODBAR-105");
+        assertThat(myTasks.triggered().getContent()).extracting(PilotTaskView::displayKey)
+                .containsExactlyInAnyOrder("MODBAR-101", "MODFOO-103", "MODBAR-102", "MODBAR-106");
+        assertThat(queries.detail(taskId("8101")).state()).isEqualTo(PilotTaskView.TaskState.PR_READY);
+        assertThat(queries.detail(taskId("8103")).state()).isEqualTo(PilotTaskView.TaskState.PR_READY);
+        assertThat(queries.detail(taskId("8102")).state()).isEqualTo(PilotTaskView.TaskState.STOPPED);
+        assertThat(queries.detail(taskId("8106")).state()).isEqualTo(PilotTaskView.TaskState.STOPPED);
+        assertThat(queries.detail(taskId("8105")).state()).isEqualTo(PilotTaskView.TaskState.AWAITING_SELECTION);
+        assertThat(queries.detail(taskId("8104")).state()).isEqualTo(PilotTaskView.TaskState.UNSUPPORTED);
+        assertThat(queries.detail(taskId("8105")).jiraStatus()).isEqualTo("To Do");
 
         PilotTaskView completeTask = queries.detail(taskId("8103"));
         assertThat(completeTask.attempts()).hasSize(2);
@@ -649,7 +611,7 @@ class PilotEndToEndTest {
         assertThat(unstartedTask.usage().estimatesByCurrency()).isEmpty();
         assertThat(unstartedTask.usage().complete()).isTrue();
 
-        assertThat(attempts.count()).isEqualTo(9);
+        assertThat(attempts.count()).isEqualTo(7);
         assertThat(executions.count()).isEqualTo(7);
         assertThat(codingCalls).containsEntry("MODBAR-101", 1)
                 .containsEntry("MODFOO-103", 2)
@@ -666,10 +628,7 @@ class PilotEndToEndTest {
 
     private boolean jiraStayedReadOnly() {
         assertThat(jira.getAllServeEvents()).allSatisfy(event ->
-                assertThat(event.getRequest().getUrl()).containsAnyOf(
-                        "/rest/agile/1.0/board/981/filter",
-                        "/rest/agile/1.0/sprint/4711",
-                        "/rest/api/2/search/jql"));
+                assertThat(event.getRequest().getUrl()).isEqualTo("/rest/api/2/search/jql"));
         return true;
     }
 
@@ -763,14 +722,6 @@ class PilotEndToEndTest {
                 });
     }
 
-    private void stubTeamSource(String jql) {
-        jira.stubFor(get(urlEqualTo("/rest/agile/1.0/board/981/filter"))
-                .willReturn(okJson("{\"id\": \"2001\", \"name\": \"Team board\", \"jql\": \""
-                        + jql.replace("\"", "\\\"") + "\"}")));
-        jira.stubFor(get(urlEqualTo("/rest/agile/1.0/sprint/4711"))
-                .willReturn(okJson("{\"id\": \"4711\", \"name\": \"Sprint 12\"}")));
-    }
-
     private void stubSearch(String... issues) {
         jira.stubFor(post(urlEqualTo("/rest/api/2/search/jql"))
                 .withRequestBody(matchingJsonPath("$[?(!@.nextPageToken)]"))
@@ -809,10 +760,6 @@ class PilotEndToEndTest {
         return tasks.findByJiraInstanceAndIssueId(jiraInstance.current(), issueId).orElseThrow().getId();
     }
 
-    private String observed() {
-        return installations.findById(1).orElseThrow().getObservedAuthorityFingerprint();
-    }
-
     private PilotTask.Eligibility eligibility(String issueId) {
         return tasks.findByJiraInstanceAndIssueId(jiraInstance.current(), issueId).orElseThrow().getEligibility();
     }
@@ -826,12 +773,6 @@ class PilotEndToEndTest {
         return new PilotCommands.Selection(task.getId(), task.getVersion(),
                 PilotAdmissionService.inputFingerprint(task),
                 PilotAdmissionService.destinationFingerprint(task));
-    }
-
-    private PilotTaskView.TaskState projectedState(Page<PilotTaskView> page, String issueId) {
-        return page.getContent().stream()
-                .filter(view -> view.taskId().equals(taskId(issueId)))
-                .findFirst().orElseThrow().state();
     }
 
     private static String issue(String id, String key, String project, String summary, String created,

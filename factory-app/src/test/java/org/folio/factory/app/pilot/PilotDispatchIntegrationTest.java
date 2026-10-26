@@ -68,7 +68,6 @@ import static org.mockito.Mockito.when;
 class PilotDispatchIntegrationTest {
 
     private static final String INSTANCE = "jira.example.org";
-    private static final String AUTHORITY = "authority-1";
     private static final String FLOW_ID = "dev-factory";
     private static final Instant JIRA_LATER = Instant.parse("2026-10-01T10:00:00Z");
     private static final Instant JIRA_EARLIER = Instant.parse("2026-10-01T09:00:00Z");
@@ -135,11 +134,10 @@ class PilotDispatchIntegrationTest {
 
     @Test
     void dispatchLaunchesOnlyTheNextAttemptAndRepeatsTheSameBinding() {
-        UUID firstTask = admit("30001", "MODBAR-201");
-        UUID secondTask = admit("30002", "MODBAR-202");
-        // Jira creation times disagree with insertion order and with display-key
-        // order, so dispatching the second-inserted task proves the queue follows
-        // jira_created_at.
+        UUID firstTask = admit("30001", "MODBAR-202");
+        UUID secondTask = admit("30002", "MODBAR-201");
+        // Jira creation times and display keys disagree with the click order, so
+        // dispatching the first-clicked task proves the queue follows the clicks.
         setJiraCreated(firstTask, JIRA_LATER);
         setJiraCreated(secondTask, JIRA_EARLIER);
 
@@ -150,12 +148,12 @@ class PilotDispatchIntegrationTest {
         assertThat(execution.getFlowId()).isEqualTo(FLOW_ID);
         assertThat(execution.getTriggerPayload()).contains("MODBAR-202");
         PilotAttempt active = attempts.findByExecutionId(executionId.get()).orElseThrow();
-        assertThat(active.getTaskId()).isEqualTo(secondTask);
+        assertThat(active.getTaskId()).isEqualTo(firstTask);
         assertThat(active.getState()).isEqualTo(PilotAttempt.State.QUEUED);
         assertThat(execution.getDedupKey()).isEqualTo("pilot-attempt=" + active.getId());
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isEqualTo(active.getId());
 
-        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(firstTask))
+        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(secondTask))
                 .singleElement()
                 .satisfies(queued -> {
                     assertThat(queued.getState()).isEqualTo(PilotAttempt.State.RESERVED);
@@ -191,53 +189,31 @@ class PilotDispatchIntegrationTest {
     }
 
     @Test
-    void staleSyncBlocksDispatchInsideTheTransaction() {
+    void failedScanDoesNotBlockDispatch() {
         admit("30021", "MODBAR-221");
         PilotInstallation installation = installations.findById(1).orElseThrow();
         installation.setSyncComplete(false);
         installation.setSyncProblem("search page 2 failed");
         installations.save(installation);
 
-        assertThatThrownBy(dispatcher::dispatchNext)
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("sync is incomplete");
-
-        assertThat(executions.count()).isZero();
-        assertThat(attempts.findLiveByTaskId(tasks.findByJiraInstanceAndIssueId(INSTANCE, "30021").orElseThrow().getId()))
-                .singleElement()
-                .satisfies(attempt -> assertThat(attempt.getState()).isEqualTo(PilotAttempt.State.RESERVED));
+        assertThat(dispatcher.dispatchNext()).isPresent();
+        assertThat(executions.count()).isEqualTo(1);
     }
 
     @Test
-    void taskThatLeftScopeIsWithdrawnInsteadOfLaunchedAndCanBeReadmitted() {
+    void taskNoLongerAssignedStillStartsItsQueuedRun() {
         UUID taskId = admit("30031", "MODBAR-231");
         PilotTask task = tasks.findById(taskId).orElseThrow();
         task.setInScope(false);
-        PilotTask outOfScope = tasks.save(task);
+        tasks.save(task);
 
-        assertThat(dispatcher.dispatchNext()).isEmpty();
+        Optional<UUID> executionId = dispatcher.dispatchNext();
 
-        PilotAttempt withdrawn = attempts.findByTaskIdOrderByOrdinalAsc(taskId).getFirst();
-        assertThat(withdrawn.getState()).isEqualTo(PilotAttempt.State.WITHDRAWN);
-        assertThat(withdrawn.getResultReason()).contains("scope");
-        assertThat(executions.count()).isZero();
-        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
-
-        assertThat(admissions.runSelected(new PilotCommands.RunSelected(
-                "run-still-out", AUTHORITY, List.of(selectionFor(outOfScope))))
-                .admittedTaskIds()).isEmpty();
-
-        PilotTask backInScope = tasks.findById(taskId).orElseThrow();
-        backInScope.setInScope(true);
-        PilotTask readmitted = tasks.save(backInScope);
-        var result = admissions.runSelected(new PilotCommands.RunSelected(
-                "run-readmit", AUTHORITY, List.of(selectionFor(readmitted))));
-        assertThat(result.rejectedReasons()).isEmpty();
-        assertThat(result.admittedTaskIds()).containsExactly(taskId);
-        List<PilotAttempt> history = attempts.findByTaskIdOrderByOrdinalAsc(taskId);
-        assertThat(history).hasSize(2);
-        assertThat(history.get(0).getState()).isEqualTo(PilotAttempt.State.WITHDRAWN);
-        assertThat(history.get(1).getState()).isEqualTo(PilotAttempt.State.RESERVED);
+        assertThat(executionId).isPresent();
+        PilotAttempt started = attempts.findByTaskIdOrderByOrdinalAsc(taskId).getFirst();
+        assertThat(started.getState()).isEqualTo(PilotAttempt.State.QUEUED);
+        assertThat(started.getExecutionId()).isEqualTo(executionId.get());
+        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isEqualTo(started.getId());
     }
 
     @Test
@@ -251,6 +227,8 @@ class PilotDispatchIntegrationTest {
 
         assertThat(executions.count()).isZero();
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
+        // With execution switched off the page says so instead of leaving the task queued silently.
+        assertThat(dispatcher.queueProblem()).contains("FACTORY_PILOT_EXECUTION_ENABLED=true");
     }
 
     @Test
@@ -261,9 +239,12 @@ class PilotDispatchIntegrationTest {
                 new RetentionProperties(true, null, null, null), transactionManager);
         var guarded = new PilotDispatcher(attempts, installations, launcher, enabled, outcomesProvider());
 
+        assertThat(guarded.queueProblem()).isNull();
         assertThatThrownBy(guarded::dispatchNext)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("FACTORY_RETENTION_ENABLED=true");
+        // The refusal reaches the page until a later dispatch succeeds.
+        assertThat(guarded.queueProblem()).contains("FACTORY_RETENTION_ENABLED=true", "tries again");
 
         assertThat(executions.count()).isZero();
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(taskId))
@@ -309,12 +290,10 @@ class PilotDispatchIntegrationTest {
                 "{\"key\": \"" + displayKey + "\"}", "revision-" + issueId,
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar"));
         PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
-        installation.setAcceptedAuthorityFingerprint(AUTHORITY);
-        installation.setObservedAuthorityFingerprint(AUTHORITY);
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
         installations.save(installation);
-        admissions.runSelected(new PilotCommands.RunSelected("run-" + issueId, AUTHORITY, List.of(selectionFor(task))));
+        admissions.runSelected(new PilotCommands.RunSelected("run-" + issueId, List.of(selectionFor(task))));
         return task.getId();
     }
 

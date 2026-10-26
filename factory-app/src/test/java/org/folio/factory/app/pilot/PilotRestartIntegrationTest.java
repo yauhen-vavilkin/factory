@@ -62,9 +62,7 @@ import static org.mockito.Mockito.doThrow;
         "factory.pilot.execution.deadline=PT30M",
         "factory.pilot.execution.recovery-poll-interval-ms=3600000",
         "factory.pilot.execution.dispatch-interval-ms=3600000",
-        "factory.pilot.source.source=981",
-        "factory.pilot.source.sprint-id=4711",
-        "factory.pilot.source.statuses[0]=To Do",
+        "factory.pilot.source.assignee=Jane Developer",
         "factory.connectors.jira.base-url=https://jira.example.org",
         "factory.dev-factory.repositories.mod-bar.source-repo=folio-org/mod-bar",
         "factory.dev-factory.repositories.mod-bar.base-branch=master",
@@ -77,7 +75,6 @@ import static org.mockito.Mockito.doThrow;
 class PilotRestartIntegrationTest {
 
     private static final String INSTANCE = "jira.example.org";
-    private static final String AUTHORITY = "authority-1";
 
     @Container
     @ServiceConnection
@@ -208,14 +205,14 @@ class PilotRestartIntegrationTest {
         new PilotRecoveryService(installations, outcomes).onStartup();
         PilotTask task = tasks.findById(taskId).orElseThrow();
 
-        var repeat = admissions.runSelected(new PilotCommands.RunSelected("run-90021", AUTHORITY,
+        var repeat = admissions.runSelected(new PilotCommands.RunSelected("run-90021",
                 List.of(new PilotCommands.Selection(task.getId(), task.getVersion(),
                         PilotAdmissionService.inputFingerprint(task),
                         PilotAdmissionService.destinationFingerprint(task)))));
         assertThat(repeat.admittedTaskIds()).containsExactly(taskId);
         assertThat(attempts.count()).isEqualTo(1);
 
-        var conflicting = admissions.runSelected(new PilotCommands.RunSelected("run-90021-late", AUTHORITY,
+        var conflicting = admissions.runSelected(new PilotCommands.RunSelected("run-90021-late",
                 List.of(new PilotCommands.Selection(task.getId(), task.getVersion(),
                         PilotAdmissionService.inputFingerprint(task),
                         PilotAdmissionService.destinationFingerprint(task)))));
@@ -245,7 +242,6 @@ class PilotRestartIntegrationTest {
         PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
-        installation.setObservedAuthorityFingerprint(AUTHORITY);
         installations.save(installation);
     }
 
@@ -254,7 +250,7 @@ class PilotRestartIntegrationTest {
                 "MODBAR", "{\"key\": \"" + displayKey + "\"}", "revision-" + issueId,
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar"));
         syncReady();
-        var result = admissions.runSelected(new PilotCommands.RunSelected("run-" + issueId, AUTHORITY,
+        var result = admissions.runSelected(new PilotCommands.RunSelected("run-" + issueId,
                 List.of(new PilotCommands.Selection(task.getId(), task.getVersion(),
                         PilotAdmissionService.inputFingerprint(task),
                         PilotAdmissionService.destinationFingerprint(task)))));

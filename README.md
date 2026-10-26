@@ -158,24 +158,23 @@ container and has no `/v1` suffix: the CLI appends `/v1/messages`.
 
 Fill in the empty access values before triggering a task:
 
-- Jira base URL, email and API token for reading the requested issue.
-- A GitHub token with write access to the personal delivery repository. Source
-  repositories must be public; source checkout does not use this token.
-- Source/delivery repositories and an existing shared base branch. The bundled
-  targets have delivery disabled; choose your own fork and authorize it explicitly.
-  Verification is followed by automatic push/PR publication to the authorized
-  target. `create-pull-request=false` does not disable git push.
+- Jira base URL for reading the requested issue (public Jira needs no email or
+  API token).
+- A GitHub token that can push to the delivery repository. Source repositories
+  must be public; source checkout does not use this token.
+- Source/delivery repositories and an existing shared base branch. The delivery
+  repository decides where the pull request goes: each bundled entry delivers to
+  its official folio-org repository unless you point it at your fork.
+  Verification is followed by automatic push/PR publication to that repository.
+  `create-pull-request=false` does not disable git push.
 
-For example, enable only your sidecar target (replace `your-github-user`):
+For example, send the sidecar's pull requests to your fork (replace
+`your-github-user`):
 
 ```dotenv
 FACTORY_SIDECAR_SOURCE_REPO=your-github-user/folio-module-sidecar
 FACTORY_SIDECAR_DELIVERY_REPO=your-github-user/folio-module-sidecar
 FACTORY_SIDECAR_BASE_BRANCH=master
-FACTORY_SIDECAR_DELIVERY_AUTHORIZED=true
-FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_AUTHORIZED=false
-FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_AUTHORIZED=false
-FACTORY_MGR_APPLICATIONS_DELIVERY_AUTHORIZED=false
 ```
 
 Repository policy lives in [`config/developer-repositories.yaml`](config/developer-repositories.yaml):
@@ -492,46 +491,35 @@ Spring Boot does not load `.env` automatically. The coding container still uses
 `host.docker.internal` to reach the host proxy. No Java edits are needed to switch
 runtimes or endpoints.
 
-### Sprint pilot quick start
+### My tasks quick start
 
-The M1 sprint pilot delegates a team's Jira sprint to Factory: read-only
-discovery, selected or automatic admission, autonomous coding and PR delivery
-to destinations you authorize. No source reading, JQL writing, workflow editing
-or database access is needed.
+Developer Flow turns the Jira tasks assigned to you into pull requests under your
+name. Factory reads Jira anonymously and never writes to it.
 
 Prerequisites: Docker Desktop with Compose 2.20+, a local CodeMie proxy on port
-4001, a Jira account that can read the team board, and a GitHub token with push
-access to the repositories you authorize.
+4001, and a GitHub token that can push to the delivery repositories.
 
 ```bash
 cp .env.pilot.example .env
-# Fill in the required values (marked in the template): Jira connection,
-# GitHub token, team board/filter, sprint ID and eligible statuses, and the
-# prepared repository destination(s) you enable.
+# Set FACTORY_PILOT_ASSIGNEE (your name as Jira shows it) and FACTORY_CONNECTORS_GITHUB_TOKEN.
 docker compose up -d
 ```
 
-The template documents how to obtain the sprint ID (backlog URL or the board
-sprint REST call), why same-repository branch creation needs push permission on
-the destination, and why each installation must use its own team source. The
-pilot path pins Claude Code with Sonnet 5.5 through the local CodeMie proxy.
-After editing `.env`, run `docker compose up -d` again to apply the change.
+Open <http://localhost:8080/flows/dev-factory> and press **Scan Jira** to load your
+open tasks; the status chips filter them on the page (Open and In Progress by
+default). Select tasks and press **Run**, or add any task by key under the list.
+A task can run when its Jira project maps to exactly one repository in
+`config/developer-repositories.yaml`. Before a task is queued, Factory checks that
+your token can push to its delivery repository: folio-org by default, or your
+fork when you set both `<REPO>_SOURCE_REPO` and `<REPO>_DELIVERY_REPO`.
 
-Then open <http://localhost:8080/tasks>: inspect discovered tasks, select
-suitable ones and press **Run selected**, or enable automatic admission. Manual
-mode and personal-fork destinations are the testing default. Destructive
-retention must stay disabled for the pilot: while `FACTORY_RETENTION_ENABLED` is
-true, pilot execution refuses to start tasks (the reason is logged, see
-`docker compose logs factory`) instead of letting retention purge attempt
-history and costs.
-
-When a task needs inspection: an attempt lands in **Needs inspection** when
-Factory could not prove what happened — for example, the publication response
-was lost after a push, or workload cleanup could not be confirmed. The queue
-stops at that task and Retry stays refused while the attempt is held. Inspect
-the run's artifacts and executions from the task detail page; resolving the
-hold requires maintainer action, and there is intentionally no automatic
-unlock.
+One task runs at a time, in the order you clicked; Retry joins the same queue. A
+failed task releases the queue. A task in **Needs inspection** holds it: Factory
+could not confirm how the run ended (for example, workload cleanup or a lost
+publication response) and rechecks every minute. If the run is really over, use
+**Mark as stopped…**: the task becomes Could not complete and the queue moves on.
+Destructive retention must stay disabled: while `FACTORY_RETENTION_ENABLED` is
+true, pilot execution refuses to start tasks (see `docker compose logs factory`).
 
 ## Operations
 
@@ -576,8 +564,8 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_TEST_FACTORY_JIRA_TRANSITION` | Optional Jira transition on completion |
 | `FACTORY_TEST_FACTORY_EXECUTION_BASE_URL` + `_KARATE_JAR` | Enable real Karate execution (otherwise advisory mode) |
 | `FACTORY_LIMITS_MAX_CONCURRENT_EXECUTIONS` / `_MAX_EXECUTIONS_PER_DAY` | Concurrency cap / daily budget (`0` disables; defaults `8` / `200`, 429 on budget) |
-| `FACTORY_PILOT_SOURCE` / `_SPRINT_ID` / `_STATUSES` (+ `_ASSIGNEE` / `_PROJECTS` / `_LABEL`) | Sprint-pilot team source: board/saved filter, sprint and eligible statuses; optional AND narrowings — see [Sprint pilot quick start](#sprint-pilot-quick-start) |
-| `FACTORY_PILOT_DISCOVERY_ENABLED` / `FACTORY_PILOT_EXECUTION_ENABLED` | Read-only discovery poll / pilot processing (both opt-in, default off) |
+| `FACTORY_PILOT_ASSIGNEE` | Whose open Jira tasks **Scan Jira** finds: the name as Jira shows it, or an accountId; see [My tasks quick start](#my-tasks-quick-start) |
+| `FACTORY_PILOT_EXECUTION_ENABLED` | Runs the My tasks queue (opt-in, default off) |
 | `FACTORY_LIMITS_DEDUP_ENABLED` / `_DEDUP_WINDOW` / `_DEDUP_ID_POINTERS` | Trigger dedup (default on, `10m`, `/issueKey`) |
 | `FACTORY_LIMITS_MAX_ARTIFACT_BYTES` / `_MAX_TRIGGER_PAYLOAD_BYTES` | Write-time size caps (defaults `5000000` / `262144`) |
 | `FACTORY_RETENTION_ENABLED` / `_TTL_DAYS` / `_RUN_CRON` | Purge of old terminal runs (**off** by default; audit is never purged) |

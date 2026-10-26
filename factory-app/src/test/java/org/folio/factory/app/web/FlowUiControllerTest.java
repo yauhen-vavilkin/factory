@@ -226,6 +226,17 @@ class FlowUiControllerTest {
                         .contains("issueKey"));
     }
 
+    @Test
+    void trigger_developerFlowIsRefusedAndSendsTheDeveloperToMyTasks() throws Exception {
+        mvc.perform(post("/flows/{id}/trigger", "dev-factory")
+                        .param("payload", "{\"issueKey\": \"MODBAR-1\"}"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/flows/dev-factory?error=Developer+Flow+runs+start+from+My+tasks%3A"
+                        + "+select+your+tasks+or+add+one+by+key."));
+
+        verifyNoInteractions(router);
+    }
+
     // ----- workers -----
 
     @Test

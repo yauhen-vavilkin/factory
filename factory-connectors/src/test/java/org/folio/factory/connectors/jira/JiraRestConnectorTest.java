@@ -3,19 +3,13 @@ package org.folio.factory.connectors.jira;
 import org.folio.factory.connectors.ConnectorNotConfiguredException;
 import org.folio.factory.connectors.jira.JiraSourceModels.DiscoveredIssue;
 import org.folio.factory.connectors.jira.JiraSourceModels.IssuePage;
-import org.folio.factory.connectors.jira.JiraSourceModels.Kind;
-import org.folio.factory.connectors.jira.JiraSourceModels.ResolvedSource;
-import org.folio.factory.connectors.jira.JiraSourceModels.Sprint;
-import org.folio.factory.connectors.jira.JiraSourceModels.SourceReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
-import java.net.URI;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,7 +24,6 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.http.HttpMethod.GET;
 import static org.springframework.http.HttpMethod.POST;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withBadRequest;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
@@ -190,134 +183,19 @@ class JiraRestConnectorTest {
     }
 
     @Test
-    void parseSourceReferenceAcceptsNumericPrefixAndUrlForms() {
-        assertThat(connector.parseSourceReference("247"))
-                .isEqualTo(new SourceReference(Kind.BOARD, "247"));
-        assertThat(connector.parseSourceReference("board:247"))
-                .isEqualTo(new SourceReference(Kind.BOARD, "247"));
-        assertThat(connector.parseSourceReference("filter:981"))
-                .isEqualTo(new SourceReference(Kind.FILTER, "981"));
-        assertThat(connector.parseSourceReference(
-                "https://jira.example.org/jira/software/c/projects/MGRAPPS/boards/247?swift=false"))
-                .isEqualTo(new SourceReference(Kind.BOARD, "247"));
-        assertThat(connector.parseSourceReference(
-                "https://jira.example.org/secure/RapidBoard.jspa?rapidView=247&projectKey=MGRAPPS"))
-                .isEqualTo(new SourceReference(Kind.BOARD, "247"));
-        assertThat(connector.parseSourceReference("https://jira.example.org/issues/?filter=981"))
-                .isEqualTo(new SourceReference(Kind.FILTER, "981"));
-        assertThat(connector.parseSourceReference(
-                "https://jira.example.org/secure/IssueNavigator.jspa?mode=hide&requestId=981"))
-                .isEqualTo(new SourceReference(Kind.FILTER, "981"));
-    }
-
-    @Test
-    void parseSourceReferenceRejectsForeignInstancesAndUnknownForms() {
-        assertThatThrownBy(() -> connector.parseSourceReference(
-                "https://other.example.org/jira/software/c/projects/MGRAPPS/boards/247"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("different Jira instance")
-                .hasMessageContaining("other.example.org");
-        assertThatThrownBy(() -> connector.parseSourceReference("https://jira.example.org/browse/ERM-42"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("board")
-                .hasMessageContaining("saved filter");
-        assertThatThrownBy(() -> connector.parseSourceReference(" "))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Team source is required");
-    }
-
-    @Test
-    void resolveBoardToSavedFilter() {
-        server.expect(requestTo("https://jira.example.org/rest/agile/1.0/board/247/filter"))
-                .andExpect(method(GET))
-                .andRespond(withSuccess("""
-                        {"id": 981, "name": "Team board filter",
-                         "jql": "project in (MGRAPPS, MGRENTITLE)"}""", MediaType.APPLICATION_JSON));
-
-        ResolvedSource source = connector.resolveSource(connector.parseSourceReference(
-                "https://jira.example.org/jira/software/c/projects/MGRAPPS/boards/247"));
-
-        assertThat(source.id()).isEqualTo("247");
-        assertThat(source.name()).isEqualTo("Team board filter");
-        assertThat(source.link()).isEqualTo(URI.create("https://jira.example.org/issues/?filter=981"));
-        assertThat(source.filterId()).isEqualTo("981");
-        assertThat(source.query()).isEqualTo("project in (MGRAPPS, MGRENTITLE)");
-        server.verify();
-    }
-
-    @Test
-    void resolveFilterById() {
-        server.expect(requestTo("https://jira.example.org/rest/api/2/filter/981"))
-                .andExpect(method(GET))
-                .andRespond(withSuccess("""
-                        {"id": 981, "name": "Team saved filter",
-                         "jql": "project = MGRAPPS AND labels = \\"team-ready\\""}""",
-                        MediaType.APPLICATION_JSON));
-
-        ResolvedSource source = connector.resolveSource(connector.parseSourceReference("filter:981"));
-
-        assertThat(source.id()).isEqualTo("981");
-        assertThat(source.filterId()).isEqualTo("981");
-        assertThat(source.name()).isEqualTo("Team saved filter");
-        assertThat(source.query()).isEqualTo("project = MGRAPPS AND labels = \"team-ready\"");
-        server.verify();
-    }
-
-    @Test
-    void resolveSourceFailsClearlyOnUnexpectedShape() {
-        server.expect(requestTo("https://jira.example.org/rest/api/2/filter/981"))
-                .andRespond(withSuccess("{\"id\": 981, \"name\": \"Team saved filter\"}",
-                        MediaType.APPLICATION_JSON));
-
-        assertThatThrownBy(() -> connector.resolveSource(connector.parseSourceReference("filter:981")))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("jql");
-        server.verify();
-    }
-
-    @Test
-    void unresolvedNumericBoardHintsAtFilterForm() {
-        server.expect(requestTo("https://jira.example.org/rest/agile/1.0/board/981/filter"))
-                .andRespond(withBadRequest());
-
-        assertThatThrownBy(() -> connector.resolveSource(connector.parseSourceReference("981")))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("filter:981")
-                .hasCauseInstanceOf(HttpClientErrorException.class);
-        server.verify();
-    }
-
-    @Test
-    void filterLinkStripsTrailingSlashFromBaseUrl() {
+    void baseUrlOnlySearchesAnonymously() {
         RestClient.Builder builder = RestClient.builder();
-        MockRestServiceServer slashServer = MockRestServiceServer.bindTo(builder).build();
-        JiraRestConnector slashConnector = new JiraRestConnector(
-                new JiraProperties("https://jira.example.org/", "bot@example.org", "secret"), builder);
-        slashServer.expect(requestTo("https://jira.example.org/rest/api/2/filter/981"))
-                .andRespond(withSuccess(
-                        "{\"id\": 981, \"name\": \"Team saved filter\", \"jql\": \"project = MGRAPPS\"}",
-                        MediaType.APPLICATION_JSON));
+        MockRestServiceServer anonymousServer = MockRestServiceServer.bindTo(builder).build();
+        JiraRestConnector anonymous = new JiraRestConnector(
+                new JiraProperties("https://jira.example.org", null, null), builder);
+        anonymousServer.expect(requestTo("https://jira.example.org/rest/api/2/search/jql"))
+                .andExpect(method(POST))
+                .andExpect(headerDoesNotExist("Authorization"))
+                .andExpect(jsonPath("$.jql").value("key = MGRAPPS-11"))
+                .andRespond(withSuccess(SEARCH_PAGE_TWO, MediaType.APPLICATION_JSON));
 
-        ResolvedSource source = slashConnector.resolveSource(slashConnector.parseSourceReference("filter:981"));
-
-        assertThat(source.link()).isEqualTo(URI.create("https://jira.example.org/issues/?filter=981"));
-        slashServer.verify();
-    }
-
-    @Test
-    void getSprintMapsIdAndName() {
-        server.expect(requestTo("https://jira.example.org/rest/agile/1.0/sprint/4711"))
-                .andExpect(method(GET))
-                .andRespond(withSuccess("""
-                        {"id": 4711, "name": "Sprint 12", "state": "active",
-                         "startDate": "2026-10-01T00:00:00.000+0000"}""",
-                        MediaType.APPLICATION_JSON));
-
-        Sprint sprint = connector.getSprint("4711");
-
-        assertThat(sprint.id()).isEqualTo("4711");
-        assertThat(sprint.name()).isEqualTo("Sprint 12");
-        server.verify();
+        assertThat(anonymous.searchIssues("key = MGRAPPS-11", null).issues()).hasSize(1);
+        anonymousServer.verify();
     }
 
     @Test
@@ -327,7 +205,8 @@ class JiraRestConnectorTest {
                 .andExpect(content().json("""
                         {"jql": "sprint = 4711 ORDER BY created ASC", "maxResults": 50,
                          "fields": ["summary", "description", "status", "issuetype",
-                                    "labels", "project", "components", "created"]}
+                                    "labels", "project", "components", "created",
+                                    "issuelinks", "comment"]}
                         """))
                 .andExpect(jsonPath("$.nextPageToken").doesNotExist())
                 .andRespond(withSuccess(SEARCH_PAGE_ONE, MediaType.APPLICATION_JSON));

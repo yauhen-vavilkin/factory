@@ -4,8 +4,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Immutable admission commands shared by the manual selection UI, the API,
- * automatic admission (S07) and explicit Retry (S08). Selections carry the task
+ * Immutable admission commands of My tasks: running selected tasks and an
+ * explicit Retry. Selections carry the task
  * version and input/destination identity the user selected against; admission
  * revalidates all of them against the current task before reserving an attempt.
  */
@@ -18,7 +18,7 @@ public final class PilotCommands {
                             String destinationFingerprint) {
     }
 
-    public record RunSelected(String requestId, String expectedAuthorityFingerprint, List<Selection> selections) {
+    public record RunSelected(String requestId, List<Selection> selections) {
         public RunSelected {
             selections = selections == null ? List.of() : List.copyOf(selections);
         }

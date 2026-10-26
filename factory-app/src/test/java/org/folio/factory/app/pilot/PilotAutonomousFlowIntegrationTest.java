@@ -96,7 +96,6 @@ import static org.mockito.Mockito.when;
 class PilotAutonomousFlowIntegrationTest {
 
     private static final String INSTANCE = "jira.example.org";
-    private static final String AUTHORITY = "authority-1";
     private static final String DESCRIPTION = "As an operator I want X. AC1: X happens.";
 
     @Container
@@ -339,7 +338,6 @@ class PilotAutonomousFlowIntegrationTest {
         PilotAttempt attempt = new PilotAttempt(task.getId(), 1, PilotAttempt.Kind.INITIAL,
                 "request-port", PilotAttempt.State.QUEUED);
         attempt.setInputFingerprint("revision-40011");
-        attempt.setScopeFingerprint(AUTHORITY);
         attempt.setDestinationFingerprint("destination-hash");
         attempt.setApprovedSnapshot(task.getIssueSnapshot());
         attempt.setExecutionId(executionId);
@@ -350,7 +348,6 @@ class PilotAutonomousFlowIntegrationTest {
         assertThat(context.repositoryKey()).isEqualTo("mod-bar");
         assertThat(context.admissionKind()).isEqualTo(org.folio.factory.devfactory.pilot.PilotExecutionContext.Kind.INITIAL);
         assertThat(context.inputFingerprint()).isEqualTo("revision-40011");
-        assertThat(context.scopeFingerprint()).isEqualTo(AUTHORITY);
         assertThat(context.destinationFingerprint()).isEqualTo("destination-hash");
         assertThat(context.approvedSnapshot()).containsEntry("key", "MODBAR-411");
 
@@ -437,12 +434,10 @@ class PilotAutonomousFlowIntegrationTest {
                 "MODBAR", snapshotJson(displayKey), "revision-" + issueId,
                 PilotTask.Eligibility.ELIGIBLE, routingReason));
         PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
-        installation.setAcceptedAuthorityFingerprint(AUTHORITY);
-        installation.setObservedAuthorityFingerprint(AUTHORITY);
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
         installations.save(installation);
-        var result = admissions.runSelected(new PilotCommands.RunSelected("run-" + issueId, AUTHORITY,
+        var result = admissions.runSelected(new PilotCommands.RunSelected("run-" + issueId,
                 List.of(new PilotCommands.Selection(task.getId(), task.getVersion(),
                         PilotAdmissionService.inputFingerprint(task),
                         PilotAdmissionService.destinationFingerprint(task)))));

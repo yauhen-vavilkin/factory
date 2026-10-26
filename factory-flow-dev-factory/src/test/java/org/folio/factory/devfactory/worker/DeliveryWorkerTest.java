@@ -529,29 +529,13 @@ class DeliveryWorkerTest {
     }
 
     @Test
-    void revokingDestinationAuthorityStopsBeforeAnyRemoteWrite() {
-        CandidateDelivery delivery = mock(CandidateDelivery.class);
-        GitHubConnector github = mock(GitHubConnector.class);
-        var pilotWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
-                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null),
-                org.folio.factory.devfactory.pilot.RecordingPilotAttempts.none(),
-                new DeliveryTarget("folio-org/folio-module-sidecar", "master", false));
-
-        var result = json.readTree(pilotWorker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
-
-        assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
-        assertThat(result.path("reason").asString()).contains("explicit operator authorization");
-        verifyNoInteractions(delivery, github);
-    }
-
-    @Test
-    void anAuthorizedFolioOrgDestinationPublishesBranchAndPullRequestThere() {
+    void aFolioOrgDestinationPublishesBranchAndPullRequestThere() {
         CandidateDelivery delivery = mock(CandidateDelivery.class);
         GitHubConnector github = mock(GitHubConnector.class);
         var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
                 new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null),
                 org.folio.factory.devfactory.pilot.RecordingPilotAttempts.none(),
-                new DeliveryTarget("folio-org/folio-module-sidecar", "master", true));
+                new DeliveryTarget("folio-org/folio-module-sidecar", "master"));
         var delivered = new DeliveryReceipt("execution", "folio-org/folio-module-sidecar", "factory/final",
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
@@ -566,7 +550,7 @@ class DeliveryWorkerTest {
         assertThat(result.path("pullRequestUrl").asString())
                 .isEqualTo("https://github.com/folio-org/folio-module-sidecar/pull/11");
         verify(delivery).deliver(anyString(), anyString(), anyString(), anyString(), any(), any(),
-                eq(new DeliveryTarget("folio-org/folio-module-sidecar", "master", true)),
+                eq(new DeliveryTarget("folio-org/folio-module-sidecar", "master")),
                 anyString(), anyBoolean(), anyInt());
         verify(github).createPullRequest(eq("folio-org/folio-module-sidecar"), eq("factory/final"),
                 eq("master"), anyString(), anyString());
@@ -717,7 +701,7 @@ class DeliveryWorkerTest {
                                          DevRuntimeProperties runtime,
                                          org.folio.factory.devfactory.pilot.PilotAttemptPolicy pilotPolicy) {
         return worker(delivery, github, githubProperties, plan, image, runtime, pilotPolicy,
-                new DeliveryTarget("user/folio-module-sidecar", "master", true));
+                new DeliveryTarget("user/folio-module-sidecar", "master"));
     }
 
     private static DeliveryWorker worker(CandidateDelivery delivery, GitHubConnector github,

@@ -95,7 +95,7 @@ class DeveloperPreflightTest {
     }
 
     @Test
-    void readyTaskChecksSourceAndAuthorizedDestinationWithoutClaimingInferenceCoverage() {
+    void readyTaskChecksSourceAndDestinationWithoutClaimingInferenceCoverage() {
         var report = service().check("TASK-1");
 
         assertThat(report.ready()).isTrue();
@@ -105,8 +105,8 @@ class DeveloperPreflightTest {
         assertThat(report.runtime()).containsEntry("model", "exact-model");
         assertThat(report.repositories()).singleElement().satisfies(row -> assertThat(row)
                 .containsEntry("source", "source/module").containsEntry("baseBranch", "campaign/base")
-                .containsEntry("delivery", "fork/module").containsEntry("authorized", true));
-        verify(probe).requireDeliveryAccess(new DeliveryTarget("fork/module", "campaign/base", true), SHA);
+                .containsEntry("delivery", "fork/module"));
+        verify(probe).requireDeliveryAccess(new DeliveryTarget("fork/module", "campaign/base"), SHA);
         assertThatCode(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
                 .doesNotThrowAnyException();
     }
@@ -270,7 +270,7 @@ class DeveloperPreflightTest {
     @Test
     void incompleteDestinationCanStillBeInspectedSafely() {
         var repository = new DevFactoryProperties.Repository("source/module", "campaign/base", "build:image", "unit",
-                List.of("TASK"), List.of(), new DeliveryTarget(null, null, false));
+                List.of("TASK"), List.of(), new DeliveryTarget(null, null));
         repositories = catalog(Map.of("fixture", repository));
 
         var report = service().check("TASK-1");
@@ -328,7 +328,7 @@ class DeveloperPreflightTest {
     }
 
     @Test
-    void disabledAuthorizationCannotReachDeliveryProbe() {
+    void invalidDestinationCannotReachDeliveryProbe() {
         repositories = catalog(Map.of("fixture", repository("source/module", false)));
 
         var report = service().check("TASK-1");
@@ -340,7 +340,7 @@ class DeveloperPreflightTest {
 
     @Test
     void legacyTargetWithDifferentBaseCannotReachDeliveryProbe() {
-        delivery = new DevDeliveryProperties(Map.of("fixture", new DeliveryTarget("fork/module", "other-base", true)), true);
+        delivery = new DevDeliveryProperties(Map.of("fixture", new DeliveryTarget("fork/module", "other-base")), true);
 
         var report = service().check("TASK-1");
 
@@ -406,7 +406,7 @@ class DeveloperPreflightTest {
 
         service().requireRepositoryReady("fixture", frozenBase);
 
-        verify(probe).requireDeliveryAccess(new DeliveryTarget("fork/module", "campaign/base", true), frozenBase);
+        verify(probe).requireDeliveryAccess(new DeliveryTarget("fork/module", "campaign/base"), frozenBase);
         verify(probe, never()).sourceBase(anyString(), anyString(), anyString());
         verifyNoInteractions(jira);
     }
@@ -460,9 +460,9 @@ class DeveloperPreflightTest {
         return new DevFactoryProperties("https://github.com", new TreeMap<>(entries));
     }
 
-    private static DevFactoryProperties.Repository repository(String source, boolean authorized) {
+    private static DevFactoryProperties.Repository repository(String source, boolean deliverable) {
         return new DevFactoryProperties.Repository(source, "campaign/base", "build:image", "unit", List.of("TASK"),
-                List.of(), new DeliveryTarget("fork/module", null, authorized));
+                List.of(), new DeliveryTarget(deliverable ? "fork/module" : "not-a-repository", null));
     }
 
     private static JiraIssue issue(String key) {

@@ -84,16 +84,22 @@ public class DeveloperPreflightProbe {
     }
 
     public void requireDeliveryAccess(DeliveryTarget target, String sourceSha) {
-        target.requireAuthorized();
+        requirePushAccess(target);
         String[] repository = target.repository().split("/");
         String owner = repository[0];
         String name = repository[1];
-        requirePushPermission(owner, name);
 
         String destinationSha = destinationBase(owner, name, target.baseBranch());
         if (!sourceSha.equals(destinationSha)) {
             requireSourceAncestor(owner, name, sourceSha, destinationSha);
         }
+    }
+
+    /** The configured token can push to the delivery repository. */
+    public void requirePushAccess(DeliveryTarget target) {
+        target.requireValid();
+        String[] repository = target.repository().split("/");
+        requirePushPermission(repository[0], repository[1]);
     }
 
     private void requirePushPermission(String owner, String repository) {

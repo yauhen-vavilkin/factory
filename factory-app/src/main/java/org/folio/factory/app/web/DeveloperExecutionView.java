@@ -140,6 +140,9 @@ final class DeveloperExecutionView {
         view.put("repository", first(repo.path("source_repo"), repo.path("key"), candidate.path("repository")));
         view.put("branch", repo.path("base_branch").asString(""));
         view.put("technicalFields", technicalFields);
+        Map<String, String> techFacts = new LinkedHashMap<>();
+        technicalFields.forEach(field -> techFacts.putIfAbsent(field.get("label"), field.get("value")));
+        view.put("techFacts", techFacts);
         List<Map<String, String>> runtimeFields = new ArrayList<>();
         add(runtimeFields, "Model", config.path("model"));
         add(runtimeFields, "Provider", config.path("provider"));
@@ -160,6 +163,8 @@ final class DeveloperExecutionView {
         view.put("startingBuildOutput", readiness.path("output").asString(""));
         view.put("phases", phases);
         view.put("currentPhase", currentPhase(phases));
+        view.put("livePhase", phases.stream().filter(phase -> "current".equals(phase.get("state")))
+                .findFirst().orElse(null));
         view.put("startingBuild", outcomeState(startingBuildState(readiness.path("state").asString("")), phases, 1));
         view.put("verification", outcomeState(first(verification.path("result"), verification.path("state")), phases, 2));
         view.put("testCount", verification.isEmpty() ? "" : counter(verification, "testCount"));
@@ -329,11 +334,11 @@ final class DeveloperExecutionView {
 
     private static String phaseStateLabel(String state, PipelineExecution execution) {
         return switch (state) {
-            case "done" -> "Done";
+            case "done" -> "Passed";
             case "failed" -> "Failed";
-            case "pending" -> "Pending";
+            case "pending" -> "Waiting";
             case "current" -> switch (execution.getStatus()) {
-                case RUNNING -> "Running";
+                case RUNNING -> "Working";
                 case PENDING -> "Retry pending";
                 case AWAITING_HITL -> "Awaiting decision";
                 default -> "Current";

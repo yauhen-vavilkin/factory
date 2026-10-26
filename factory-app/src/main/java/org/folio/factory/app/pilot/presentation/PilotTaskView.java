@@ -17,9 +17,12 @@ public record PilotTaskView(
         String jiraUrl,
         String title,
         String projectKey,
+        String jiraStatus,
         TaskState state,
+        Integer queuePosition,
         String reason,
         String stage,
+        Instant stageStartedAt,
         String destinationRepository,
         String pullRequestUrl,
         boolean inScope,
@@ -54,6 +57,7 @@ public record PilotTaskView(
             String pullRequestUrl,
             UUID executionId,
             String executionStatus,
+            Instant createdAt,
             Instant startedAt,
             Instant deadlineAt,
             boolean paidStart,
@@ -62,13 +66,12 @@ public record PilotTaskView(
     }
 
     /**
-     * Projected from the same state facts the admission, retry and mode services
+     * Projected from the same state facts the admission and retry services
      * revalidate: selection is possible only for a never-attempted or
-     * all-withdrawn task, Retry only for a stopped latest attempt or a
-     * withdrawal after earlier real work, and automatic admission only from
-     * manual mode with a complete sync. Fingerprint drift, stale versions and
-     * source problems are still rejected by the services on submit.
+     * all-withdrawn task in My tasks, Retry only for a stopped latest attempt or
+     * a withdrawal after earlier real work. Fingerprint drift and stale versions
+     * are still rejected by the services on submit.
      */
-    public record AllowedActions(boolean select, boolean retry, boolean enableAutomaticAdmission) {
+    public record AllowedActions(boolean select, boolean retry) {
     }
 }

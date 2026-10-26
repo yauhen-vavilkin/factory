@@ -362,8 +362,7 @@ public class FeedbackWorker implements AgentWorker {
 
     private boolean isDestinationAuthorized(PrFeedbackGateway.PullRequest pullRequest) {
         for (DeliveryTarget target : delivery.effectiveTargets(repositories).values()) {
-            if (target.authorized()
-                    && pullRequest.repository().equals(target.repository())
+            if (pullRequest.repository().equals(target.repository())
                     && pullRequest.baseBranch().equals(target.baseBranch())) {
                 return true;
             }

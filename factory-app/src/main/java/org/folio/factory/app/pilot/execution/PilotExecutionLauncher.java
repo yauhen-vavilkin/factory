@@ -57,8 +57,8 @@ public class PilotExecutionLauncher {
     }
 
     /**
-     * @return the bound execution id, or null when the attempt was withdrawn
-     *         because its task left the pilot scope before start
+     * @return the bound execution id, or null when a queued retry stopped because
+     *         its approved destination changed before start
      */
     public UUID launch(UUID attemptId) {
         PilotAttempt attempt = attempts.findById(attemptId)
@@ -76,11 +76,6 @@ public class PilotExecutionLauncher {
 
     private UUID launchLocked(UUID attemptId, PreparedManualTrigger prepared) {
         PilotInstallation installation = installations.lockById(1).orElseGet(PilotInstallation::initial);
-        if (!installation.isSyncComplete() || installation.getSyncProblem() != null) {
-            throw new IllegalStateException("Pilot dispatch is blocked: pilot source sync is incomplete"
-                    + (installation.getSyncProblem() == null ? "" : ": " + installation.getSyncProblem())
-                    + "; refresh discovery first");
-        }
         if (installation.getActiveAttemptId() != null && !installation.getActiveAttemptId().equals(attemptId)) {
             return attempts.findById(installation.getActiveAttemptId())
                     .map(PilotAttempt::getExecutionId)
@@ -106,14 +101,8 @@ public class PilotExecutionLauncher {
         }
         PilotTask task = tasks.lockById(attempt.getTaskId())
                 .orElseThrow(() -> new NoSuchElementException("No pilot task " + attempt.getTaskId()));
-        if (!task.isInScope()) {
-            attempt.setState(PilotAttempt.State.WITHDRAWN);
-            attempt.setResultReason("task left the pilot scope before start");
-            attempts.save(attempt);
-            return null;
-        }
         if (attempt.getKind() == PilotAttempt.Kind.RETRY) {
-            String change = approvedRetryChange(installation, attempt, task);
+            String change = approvedRetryChange(attempt, task);
             if (change != null) {
                 attempt.setState(PilotAttempt.State.STOPPED);
                 attempt.setResultReason(change);
@@ -121,7 +110,6 @@ public class PilotExecutionLauncher {
                 return null;
             }
         }
-        refreshAutomaticInput(installation, attempt, task);
         UUID executionId = router.routePrepared(prepared);
         attempt.setState(PilotAttempt.State.QUEUED);
         attempt.setExecutionId(executionId);
@@ -138,54 +126,17 @@ public class PilotExecutionLauncher {
     }
 
     /**
-     * A queued retry keeps the frozen input, destination and scope it was
-     * explicitly approved under. If any of them changed before start, the
-     * attempt stops with the S07 invalidation outcome instead of launching,
-     * and only another explicit Retry may admit fresh work.
+     * A queued retry keeps the destination it was explicitly approved for. If the
+     * routing changed before start, the attempt stops instead of launching, and
+     * only another explicit Retry may admit fresh work. Changes in Jira after
+     * the click do not matter: the run uses the snapshot approved at the click.
      */
-    private String approvedRetryChange(PilotInstallation installation, PilotAttempt attempt, PilotTask task) {
-        if (!Objects.equals(attempt.getScopeFingerprint(), installation.getObservedAuthorityFingerprint())) {
-            return "the pilot source authority changed after the retry was approved; the approved retry"
-                    + " no longer matches; run a fresh explicit Retry";
-        }
-        if (!Objects.equals(attempt.getInputFingerprint(), PilotAdmissionService.inputFingerprint(task))) {
-            return "the approved task input changed after the retry was approved; the approved retry"
-                    + " no longer matches; run a fresh explicit Retry";
-        }
+    private String approvedRetryChange(PilotAttempt attempt, PilotTask task) {
         if (!Objects.equals(attempt.getDestinationFingerprint(),
                 PilotAdmissionService.destinationFingerprint(task))) {
             return "the approved destination changed after the retry was approved; the approved retry"
                     + " no longer matches; run a fresh explicit Retry";
         }
         return null;
-    }
-
-    /**
-     * An automatically delegated initial attempt may consume refreshed input at
-     * dispatch, but only within the authority it was admitted under and with
-     * unchanged destination routing; manual initial attempts and retries keep
-     * the frozen approved input, so a later publication recheck stops them on
-     * changed requirements.
-     */
-    private void refreshAutomaticInput(PilotInstallation installation, PilotAttempt attempt, PilotTask task) {
-        if (attempt.getAdmittedVia() != PilotAttempt.AdmittedVia.AUTOMATIC
-                || attempt.getKind() != PilotAttempt.Kind.INITIAL
-                || !installation.isSyncComplete()) {
-            return;
-        }
-        String accepted = installation.getAcceptedAuthorityFingerprint();
-        if (accepted == null || !accepted.equals(attempt.getScopeFingerprint())) {
-            return;
-        }
-        if (!PilotAdmissionService.destinationFingerprint(task).equals(attempt.getDestinationFingerprint())) {
-            return;
-        }
-        String currentInput = PilotAdmissionService.inputFingerprint(task);
-        if (currentInput.equals(attempt.getInputFingerprint())) {
-            return;
-        }
-        attempt.setInputFingerprint(currentInput);
-        attempt.setApprovedSnapshot(task.getIssueSnapshot());
-        attempts.save(attempt);
     }
 }

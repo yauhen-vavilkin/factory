@@ -54,8 +54,7 @@ import static org.mockito.Mockito.when;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false",
                 "factory.connectors.jira.base-url=https://jira.example.org",
-                "factory.pilot.source.statuses[0]=To Do",
-                "factory.pilot.source.assignee=jane",
+                "factory.pilot.source.assignee=Jane Developer",
                 "factory.developer-pricing.rates.test.model=test-model",
                 "factory.developer-pricing.rates.test.currency=USD",
                 "factory.developer-pricing.rates.test.as-of=2026-09-19",
@@ -155,8 +154,7 @@ class UiRenderSmokeTest {
                 "buildImage", "maven:3.9-eclipse-temurin-21",
                 "verificationPlan", "java21-unit",
                 "jiraProjects", List.of("MODSIDECAR"),
-                "delivery", "owner/folio-module-sidecar",
-                "authorized", true);
+                "delivery", "owner/folio-module-sidecar");
         var deliveryCheck = new DeveloperPreflight.Check("delivery:sidecar", deliveryStatus,
                 "Push permission check <read-only> & base alignment.");
         var inferenceCheck = new DeveloperPreflight.Check("inference", DeveloperPreflight.Status.NOT_RUN,
@@ -330,7 +328,7 @@ class UiRenderSmokeTest {
                             + "\",\"pullRequestTitle\":\"" + title + "\"}", "publish");
             String body = assertRendered("/executions/" + execution.getId(), "Pull request");
             String label = title.isEmpty() ? url : "TASK-1: Fix &lt;routing&gt; &amp; permissions";
-            assertThat(body).contains("class=\"developer-pr-link\"", "href=\"" + url + "\">" + label + "</a>")
+            assertThat(body).contains("href=\"" + url + "\">" + label + "</a>", ">Pull request #42</a>")
                     .doesNotContain("Open pull request", "<routing>");
         }
     }
@@ -357,13 +355,13 @@ class UiRenderSmokeTest {
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of("costUsd", 0));
         String body = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(body).contains("MODSIDECAR-196", "17 tests executed", "mvn test", "DELIVERY_BLOCKED",
-                "Safe destination missing", "class=\"badge badge-outline developer-task-key\">MODSIDECAR-196</span>",
+                "Safe destination missing", "class=\"task-key\">MODSIDECAR-196</span>",
                 "auditTrail.length,artifacts.length", "Prepare task", "Implement changes", "Verify changes",
                 "Create pull request", "Technical details", "Prepare task checkout", "Starting build output",
                 "Compiling 42 source files", "transfer failed", "Artifacts", "Execution history",
-                "Open full append-only audit log");
-        assertThat(body).containsOnlyOnce("class=\"developer-stages\"")
-                .contains("aria-label=\"Technical steps\"", "Implementation", "Not started")
+                "Full audit log", "Now · updates live");
+        assertThat(body).containsOnlyOnce("class=\"run-stages\"")
+                .contains("Engine steps", "Implementation", "Waiting")
                 .doesNotContain("class=\"developer-runtime-facts\"", "Coding runtime-reported cost", "Cost evidence", "class=\"stepper\"",
                         "SOURCE_CONTENT_SENTINEL", "HIDDEN_MESSAGE_SENTINEL",
                         "HIDDEN_REASONING_SENTINEL", ">Baseline<",
@@ -380,25 +378,25 @@ class UiRenderSmokeTest {
                 Map.of("activity", "pi_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
                         "cacheWriteTokens", 0, "outputTokens", 10_000, "costUsd", 0));
 
-        String body = assertRendered("/executions/" + execution.getId(), "Cost evidence");
-        String currentPanel = body.substring(body.indexOf("<section class=\"developer-panel developer-current\""),
-                body.indexOf("<section class=\"developer-panel developer-usage\""));
-        String usagePanel = body.substring(body.indexOf("<section class=\"developer-panel developer-usage\""),
-                body.indexOf("<div class=\"developer-debug\""));
-        assertThat(currentPanel).doesNotContain("developer-runtime-facts", "<dt>Model</dt>", "<dt>Provider</dt>",
+        String body = assertRendered("/executions/" + execution.getId(), "<summary>Pricing</summary>");
+        String currentPanel = body.substring(body.indexOf("<section class=\"run-panel run-activity\""),
+                body.indexOf("<section class=\"run-panel run-usage\""));
+        String usagePanel = body.substring(body.indexOf("<section class=\"run-panel run-usage\""),
+                body.indexOf("<details class=\"tech-details\""));
+        assertThat(currentPanel).doesNotContain("run-facts", "<dt>Model</dt>", "<dt>Provider</dt>",
                 "<dt>Runtime</dt>", "<dt>Image</dt>");
-        assertThat(usagePanel).contains("Runtime &amp; usage", "<dt>Model</dt>", ">test-model</dd>",
+        assertThat(usagePanel).contains("Runtime and usage", "<dt>Model</dt>", ">test-model</dd>",
                         "<dt>Provider</dt>", ">test-provider</dd>", "<dt>Runtime</dt>", ">pi</dd>",
-                        "<dt>Image</dt>", ">factory-dev-pi:0.85.1-java21</dd>",
-                        "total usage tokens", "Input tokens (uncached)", "Cache read tokens",
-                        "Cache creation tokens", "Output tokens", "<dt>Estimated cost</dt>", "0.0203 USD")
+                        "<dt>Image</dt>", ">factory-dev-pi:0.85.1-java21</code>",
+                        "tokens so far", "Input (uncached)", "Cache read",
+                        "Cache write", "Output", ">Estimated cost</dt>", "0.0203 USD")
                 .doesNotContain("Configured rate card ·", "Actual provider or proxy charges may differ");
         assertThat(body)
                 .containsOnlyOnce("<dt>Model</dt>").containsOnlyOnce("<dt>Provider</dt>")
                 .containsOnlyOnce("<dt>Runtime</dt>").containsOnlyOnce("<dt>Image</dt>")
-                .contains("Estimated coding API cost", "0.0203 USD", "using rates dated 2026-09-19",
+                .contains("0.0203 USD so far", "2026-09-19",
                         "href=\"https://example.test/pricing\"", ">https://example.test/pricing</a>",
-                        "Rate-card estimate; actual provider or proxy charges may differ")
+                        "Rate-card estimate;")
                 .doesNotContain("Coding runtime-reported cost", "<dt>Coding runtime</dt>", "<dt>Coding image</dt>");
     }
 
@@ -415,11 +413,11 @@ class UiRenderSmokeTest {
             execution.setStatus(ExecutionStatus.RUNNING);
             execution = executions.save(execution);
             String body = assertRendered("/executions/" + execution.getId(), "planned-model");
-            String currentPanel = body.substring(body.indexOf("<section class=\"developer-panel developer-current\""),
-                    body.indexOf("<section class=\"developer-panel developer-usage\""));
-            assertThat(currentPanel).contains("class=\"developer-recent\"", "Starting build started · mvn test");
-            assertThat(body).containsOnlyOnce("class=\"developer-recent\"")
-                    .contains("No token usage reported yet.", ">coding-image</dd>")
+            String currentPanel = body.substring(body.indexOf("<section class=\"run-panel run-activity\""),
+                    body.indexOf("<section class=\"run-panel run-usage\""));
+            assertThat(currentPanel).contains("class=\"run-log\"", "Starting build started · mvn test");
+            assertThat(body).containsOnlyOnce("class=\"run-log\"")
+                    .contains("No token usage reported yet.", ">coding-image</code>")
                     .doesNotContain("Latest reported activity", "Recent meaningful activity", "coding configured");
         }
     }
@@ -430,12 +428,12 @@ class UiRenderSmokeTest {
         for (String field : List.of("model", "provider", "runtime", "image")) {
             auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                     Map.of("activity", "coding_starting", field, "reported-" + field));
-            String body = assertRendered("/executions/" + execution.getId(), "Runtime &amp; usage");
-            String usagePanel = body.substring(body.indexOf("<section class=\"developer-panel developer-usage\""),
-                    body.indexOf("<div class=\"developer-debug\""));
-            assertThat(usagePanel).contains("class=\"developer-runtime-facts\"", ">reported-" + field + "</dd>",
+            String body = assertRendered("/executions/" + execution.getId(), "Runtime and usage");
+            String usagePanel = body.substring(body.indexOf("<section class=\"run-panel run-usage\""),
+                    body.indexOf("<details class=\"tech-details\""));
+            assertThat(usagePanel).contains("class=\"run-facts\"", ">reported-" + field + "<",
                             "No token usage reported yet.")
-                    .doesNotContain("total usage tokens", "<dt>Estimated cost</dt>");
+                    .doesNotContain("tokens so far", "Estimated cost");
             for (String absent : List.of("model", "provider", "runtime", "image")) {
                 if (!absent.equals(field))
                     assertThat(usagePanel).doesNotContain("<dt>" + Character.toUpperCase(absent.charAt(0))
@@ -453,9 +451,9 @@ class UiRenderSmokeTest {
                 Map.of("activity", "coding_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
                         "cacheWriteTokens", 0, "outputTokens", 10_000, "usageIncomplete", true));
 
-        String body = assertRendered("/executions/" + execution.getId(), "Runtime &amp; usage");
-        assertThat(body).contains("Cost estimate unavailable: Pi did not report enough usage for every response.")
-                .doesNotContain("Cost evidence", "No matching configured rate card.", "<dt>Estimated cost</dt>");
+        String body = assertRendered("/executions/" + execution.getId(), "Runtime and usage");
+        assertThat(body).contains("Cost estimate unavailable: the runtime did not report enough usage for every response.")
+                .doesNotContain("<summary>Pricing</summary>", "No matching configured rate card.", ">Estimated cost</dt>");
     }
 
     @Test
@@ -501,9 +499,9 @@ class UiRenderSmokeTest {
 
         assertThat(body)
                 .containsOnlyOnce("data-developer-history")
-                .containsOnlyOnce("id=\"developer-recent-heading\"")
-                .contains("No activity reported yet.", "Open full append-only audit log")
-                .doesNotContain("Raw audit history", "<details data-developer-history open");
+                .containsOnlyOnce("id=\"activity-title\"")
+                .contains("No activity reported yet.", "Full audit log")
+                .doesNotContain("Raw audit history", "data-developer-history open");
     }
 
     @Test
@@ -524,11 +522,11 @@ class UiRenderSmokeTest {
             }
             String detail = assertRendered("/executions/" + execution.getId(), "Developer Flow");
             assertThat(detail).contains("badge-status-" + outcome, ">" + outcome + "</span>",
-                            "Workflow engine status: COMPLETED")
+                            "<dt>Engine status</dt>", ">COMPLETED</dd>", "id=\"now-title\">Result</h2>")
                     .doesNotContain("badge-status-COMPLETED");
             if (outcome.equals("DEVELOPMENT_FAILED"))
-                assertThat(detail).contains(">16</strong>", "total usage tokens", "Input tokens (uncached)",
-                                "Cache read tokens", "Cache creation tokens", "Output tokens")
+                assertThat(detail).contains(">16</strong>", "<span>tokens</span>", "Input (uncached)",
+                                "Cache read", "Cache write", ">Output</dt>")
                         .doesNotContain("pi usage", "Coding runtime-reported cost");
             String list = assertRendered("/executions?flow=dev-factory", "Executions");
             assertThat(list).contains("badge-status-" + outcome, ">" + outcome + "</span>")
@@ -545,7 +543,7 @@ class UiRenderSmokeTest {
                 "{\"state\":\"DEVELOPMENT_FAILED\"}", "test");
         assertThat(assertRendered("/executions/" + execution.getId(), "Execution"))
                 .contains("badge-status-COMPLETED", ">COMPLETED</span>")
-                .doesNotContain("badge-status-DEVELOPMENT_FAILED", "Workflow engine status:");
+                .doesNotContain("badge-status-DEVELOPMENT_FAILED", "Engine status");
         assertThat(assertRendered("/executions?flow=test-factory", "Executions"))
                 .contains("badge-status-COMPLETED", ">COMPLETED</span>")
                 .doesNotContain("badge-status-DEVELOPMENT_FAILED");
@@ -639,12 +637,19 @@ class UiRenderSmokeTest {
         pilotAttempts.deleteAll();
         pilotTasks.deleteAll();
         pilotInstallations.deleteAll();
+        pilotInstallations.save(PilotInstallation.initial());
     }
 
     private PilotTask seedTask(String issueId, String key, String title,
                                PilotTask.Eligibility eligibility, String routingReason) {
+        return seedTask(issueId, key, title, "Open", eligibility, routingReason);
+    }
+
+    private PilotTask seedTask(String issueId, String key, String title, String jiraStatus,
+                               PilotTask.Eligibility eligibility, String routingReason) {
         return pilotTasks.save(new PilotTask("jira.example.org", issueId, key, title, "MODBAR",
-                "{\"key\": \"" + key + "\"}", "revision-" + issueId, eligibility, routingReason));
+                "{\"key\": \"" + key + "\", \"status\": \"" + jiraStatus + "\"}", "revision-" + issueId,
+                eligibility, routingReason));
     }
 
     private PilotAttempt seedAttempt(PilotTask task, int ordinal, PilotAttempt.Kind kind,
@@ -655,117 +660,108 @@ class UiRenderSmokeTest {
         return pilotAttempts.save(attempt);
     }
 
-    private void seedSync(boolean complete, String problem) {
-        PilotInstallation installation = pilotInstallations.findById(1).orElseGet(PilotInstallation::initial);
-        installation.setSyncComplete(complete);
-        installation.setSyncProblem(problem);
-        installation.setObservedAuthorityFingerprint(complete ? "authority-1" : null);
+    private void holdTheSlot(PilotAttempt attempt) {
+        PilotInstallation installation = pilotInstallations.findById(1).orElseThrow();
+        installation.setActiveAttemptId(attempt.getId());
         pilotInstallations.save(installation);
     }
 
-    private void seedSyncedScope() {
-        PilotInstallation installation = pilotInstallations.findById(1).orElseGet(PilotInstallation::initial);
-        installation.setSyncComplete(true);
-        installation.setObservedAuthorityFingerprint("authority-1");
-        installation.setSourceName("Team board");
-        installation.setSourceUrl("https://jira.example.org/jira/software/c/boards/981");
-        installation.setSprintName("Sprint 12");
-        pilotInstallations.save(installation);
+    private PipelineExecution runningExecution() {
+        PipelineExecution execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        execution.setStatus(ExecutionStatus.RUNNING);
+        return executions.save(execution);
     }
 
     @Test
-    void pilotTaskListShowsTheResolvedScopeAndTheEnableContext() {
-        resetPilotData();
-        seedTask("70031", "MODBAR-731", "Scoped task", PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        seedSyncedScope();
-
-        String body = assertRendered("/tasks", "Discovered Jira work");
-        assertThat(body)
-                .contains("Team board")
-                .contains("href=\"https://jira.example.org/jira/software/c/boards/981\"")
-                .contains("Sprint:")
-                .contains("Sprint 12")
-                .contains("Statuses: To Do")
-                .contains("Only: assignee jane")
-                .contains("Team board, sprint Sprint 12, statuses To Do")
-                .contains("Delegates every eligible current and future match in the pilot filter");
-    }
-
-    @Test
-    void pilotTaskListRendersEveryStateWithReadableControls() {
+    void myTasksRendersAvailableTriggeredAndTheWaitingQueue() {
         resetPilotData();
         seedTask("70001", "MODBAR-701", "Awaiting task", PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
         seedTask("70002", "MODBAR-702", "Unsupported task", PilotTask.Eligibility.INELIGIBLE,
-                "no repository mapping for project MODX");
-        PilotTask queued = seedTask("70003", "MODBAR-703", "Queued task",
+                "Project MODX is not configured: no repository for it in config/developer-repositories.yaml");
+        seedTask("70003", "MODBAR-703", "Reviewed task", "In Review", PilotTask.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+        PilotTask queued = seedTask("70004", "MODBAR-704", "Queued task",
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
         seedAttempt(queued, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.RESERVED, null);
-        PilotTask stopped = seedTask("70004", "MODBAR-704", "Stopped task",
+        PilotTask stopped = seedTask("70005", "MODBAR-705", "Stopped task",
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
         seedAttempt(stopped, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.STOPPED,
-                "verification: 2 tests failed");
-        PilotTask delivered = seedTask("70005", "MODBAR-705", "Delivered task",
+                "VERIFICATION_FAILED: 2 tests in error");
+        PilotTask delivered = seedTask("70006", "MODBAR-706", "Delivered task",
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
         PilotAttempt ready = seedAttempt(delivered, 1, PilotAttempt.Kind.INITIAL,
                 PilotAttempt.State.PR_READY, null);
         ready.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/7");
         pilotAttempts.save(ready);
-        PilotTask withdrawn = seedTask("70006", "MODBAR-706", "Withdrawn task",
+        PilotTask held = seedTask("70007", "MODBAR-707", "Held task",
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        seedAttempt(withdrawn, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.WITHDRAWN,
-                "task left the pilot scope before start");
-        PilotTask uncertain = seedTask("70007", "MODBAR-707", "Uncertain task",
+        holdTheSlot(seedAttempt(held, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.NEEDS_INSPECTION, null));
+        PilotTask byKey = seedTask("70008", "MODBAR-708", "Task added by key",
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        seedAttempt(uncertain, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.NEEDS_INSPECTION,
-                "publish: the candidate was delivered without a known pull-request identity");
-        PilotTask paused = seedTask("70008", "MODBAR-708", "Paused task",
+        byKey.setInScope(false);
+        pilotTasks.save(byKey);
+        PilotAttempt byKeyAttempt = seedAttempt(byKey, 1, PilotAttempt.Kind.INITIAL,
+                PilotAttempt.State.RESERVED, null);
+        byKeyAttempt.setAdmittedVia(PilotAttempt.AdmittedVia.BY_KEY);
+        pilotAttempts.save(byKeyAttempt);
+        PilotTask live = seedTask("70009", "MODBAR-709", "Live task",
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        PilotAttempt pausedAttempt = seedAttempt(paused, 1, PilotAttempt.Kind.INITIAL,
-                PilotAttempt.State.NEEDS_INSPECTION, null);
-        PilotInstallation installation =
-                pilotInstallations.findById(1).orElseGet(PilotInstallation::initial);
-        installation.setActiveAttemptId(pausedAttempt.getId());
-        pilotInstallations.save(installation);
-        PilotTask left = seedTask("70009", "MODBAR-709", "Left task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        left.setInScope(false);
-        pilotTasks.save(left);
-        seedAttempt(left, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.STOPPED,
-                "coding: verification failed");
-        PilotTask live = seedTask("70010", "MODBAR-710", "Live task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        PipelineExecution liveExecution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
-        liveExecution.setStatus(ExecutionStatus.RUNNING);
-        executions.save(liveExecution);
+        PipelineExecution liveExecution = runningExecution();
         PilotAttempt liveAttempt = seedAttempt(live, 1, PilotAttempt.Kind.INITIAL,
                 PilotAttempt.State.RUNNING, null);
         liveAttempt.setExecutionId(liveExecution.getId());
         pilotAttempts.save(liveAttempt);
         auditLog.record(liveExecution.getId(), AuditEventType.STEP_STARTED, "implement", Map.of());
 
-        String body = assertRendered("/tasks", "Discovered Jira work");
+        String body = assertRendered("/flows/dev-factory", "My Jira tasks");
         assertThat(body)
-                .contains("Awaiting selection", "Not eligible", "Queued", "Could not complete",
-                        "Withdrawn", "Needs inspection", "Paused", "PR ready")
-                .contains("Implementation", "Verification")
-                .contains("href=\"https://jira.example.org/browse/MODBAR-701\"")
-                .contains("href=\"https://github.com/folio-org/mod-bar/pull/7\"")
-                .contains("href=\"/tasks/")
-                .contains("verification: 2 tests failed")
-                .contains("Outside current filter")
-                .contains("Review before run")
-                .contains("Available after discovery completes a full sync.")
-                .contains("Statuses: To Do")
-                .doesNotContain("Sprint:")
-                .doesNotContain("Team board")
-                .contains("name=\"expectedAuthorityFingerprint\"")
+                .contains("aria-current=\"page\">My tasks</a>", "href=\"/flows/dev-factory?view=definition\"")
+                .contains("Assigned to", "Jane Developer", "jira.example.org",
+                        "assignee = &quot;Jane Developer&quot; AND statusCategory != Done ORDER BY updated DESC",
+                        "href=\"https://jira.example.org/issues/?jql=")
+                .contains("action=\"/flows/dev-factory/scan\"", "action=\"/tasks/run-selected\"",
+                        "action=\"/flows/dev-factory/run-by-key\"", "Not in your list? Run a task by key")
+                .contains("data-status-chip=\"Open\"", "data-status-chip=\"In Review\"",
+                        "aria-pressed=\"false\"", "data-status=\"In Review\" hidden=\"hidden\"")
+                .contains("Not eligible", "Project MODX is not configured")
+                .contains("href=\"https://jira.example.org/browse/MODBAR-701\"", "href=\"/tasks/")
+                .contains("Queued", "next in line", "2nd in line", "Could not complete",
+                        "Verification failed: 2 tests in error", "PR ready", "Pull request #7",
+                        "href=\"https://github.com/folio-org/mod-bar/pull/7\"", "Needs inspection",
+                        "outcome not confirmed", "Working", "Implementation", "added by key")
+                .contains("href=\"/executions/" + liveExecution.getId() + "\"")
+                .contains("Queue is waiting.", "MODBAR-707 needs inspection", "/mark-stopped",
+                        "data-confirm-title=\"Mark MODBAR-707 as stopped?\"", "task-grid-wide")
+                .contains(">Retry</button>", "name=\"returnTo\" value=\"flow\"")
+                .contains("Queued tasks are not starting.", "FACTORY_PILOT_EXECUTION_ENABLED=true")
                 .contains("data-task-selection", "data-run-selected", "data-selected-count",
-                        "data-select-all", "data-poll-notice")
-                .contains("data-poll-url=\"/tasks/poll\"")
-                .contains("data-poll-fields=\"revision\"")
-                .contains("data-poll-baseline=")
-                .contains("Run selected")
-                .doesNotContain("Delegates every eligible current and future match");
+                        "data-select-all", "data-poll-notice", "data-poll-url=\"/tasks/poll\"",
+                        "data-poll-fields=\"revision\"", "data-poll-baseline=")
+                .doesNotContain("Trigger flow", "Outside current filter", "Enable automatic admission",
+                        "Withdrawn", "Sprint");
+        assertThat(rest.get().uri("/tasks").retrieve().toEntity(String.class).getBody()).contains("My Jira tasks");
+    }
+
+    @Test
+    void myTasksShowsEmptyStatesAndTheLastScanProblem() {
+        resetPilotData();
+
+        String body = assertRendered("/flows/dev-factory", "Press Scan Jira to load the tasks assigned to you.");
+        assertThat(body).contains("Not scanned yet", "Nothing has run yet.");
+
+        PilotInstallation installation = pilotInstallations.findById(1).orElseThrow();
+        installation.setSyncProblem("search page 2 failed");
+        pilotInstallations.save(installation);
+        assertThat(assertRendered("/flows/dev-factory", "Last scan failed: search page 2 failed"))
+                .contains("My Jira tasks");
+    }
+
+    @Test
+    void developerFlowDefinitionTabHasNoJsonTrigger() {
+        String body = assertRendered("/flows/dev-factory?view=definition", "Retry policy");
+        assertThat(body).contains("aria-current=\"page\">Definition</a>", "Check configuration")
+                .doesNotContain("trigger-dialog", "Trigger flow");
+        assertThat(assertRendered("/flows/test-factory", "Retry policy")).contains("Trigger flow");
     }
 
     @Test
@@ -778,31 +774,23 @@ class UiRenderSmokeTest {
         PilotTask longTitled = seedTask("70012", "MODBAR-712", longTitle,
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
 
-        String list = assertRendered("/tasks", "Fix &lt;routing&gt; &amp; permissions");
+        String list = assertRendered("/flows/dev-factory", "Fix &lt;routing&gt; &amp; permissions");
         assertThat(list).doesNotContain("<script>alert(1)</script>").contains(longTitle);
 
         String detail = assertRendered("/tasks/" + hostile.getId(), "Fix &lt;routing&gt; &amp; permissions");
-        assertThat(detail).doesNotContain("<script>alert(1)</script>").contains("MODBAR-711", "Awaiting selection");
+        assertThat(detail).doesNotContain("<script>alert(1)</script>").contains("MODBAR-711", "Not started");
 
         assertThat(assertRendered("/tasks/" + longTitled.getId(), longTitle)).contains(longTitle);
     }
 
     @Test
-    void pilotTaskListWithoutTasksShowsEmptyState() {
-        resetPilotData();
-
-        String body = assertRendered("/tasks", "No tasks discovered yet.");
-        assertThat(body).contains("Review before run", "0 selected");
-    }
-
-    @Test
-    void pilotTaskDetailShowsResultCostAndRetry() {
+    void taskSummaryShowsResultCostAttemptsAndRetry() {
         resetPilotData();
         PilotTask stopped = seedTask("70021", "MODBAR-721", "Stopped task",
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
         PipelineExecution execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
         PilotAttempt attempt = seedAttempt(stopped, 1, PilotAttempt.Kind.INITIAL,
-                PilotAttempt.State.STOPPED, "verification: 2 tests failed");
+                PilotAttempt.State.STOPPED, "VERIFICATION_FAILED: 2 tests in error");
         attempt.setExecutionId(execution.getId());
         pilotAttempts.save(attempt);
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", "smoke",
@@ -814,15 +802,14 @@ class UiRenderSmokeTest {
 
         String body = assertRendered("/tasks/" + stopped.getId(), "Could not complete");
         assertThat(body)
-                .contains("verification: 2 tests failed")
-                .contains("Verification")
-                .contains("0.0203 USD", "120,000", "Input tokens", "Output tokens")
-                .contains("Retry")
-                .contains("name=\"expectedVersion\"", "name=\"inputFingerprint\"",
-                        "name=\"destinationFingerprint\"")
-                .contains("/executions/" + execution.getId())
-                .contains(stopped.getId().toString())
-                .contains("All tasks");
+                .contains("← Developer Flow · My tasks",
+                        "Verification failed: 2 tests in error. No pull request was created.")
+                .contains("$0.02 total", "1 attempt", "Cost and usage", "120,000", "Input (uncached)", "Output",
+                        ">Estimated cost</dt>")
+                .contains(">Retry</button>", "name=\"expectedVersion\"", "name=\"inputFingerprint\"",
+                        "name=\"destinationFingerprint\"", "Retry starts one fresh attempt")
+                .contains("href=\"/executions/" + execution.getId() + "\">Open last run</a>",
+                        "1 · first run", "Technical details", stopped.getId().toString());
 
         PilotTask partial = seedTask("70022", "MODBAR-722", "Partial task",
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
@@ -836,14 +823,12 @@ class UiRenderSmokeTest {
                         "inputTokens", 50_000, "cacheReadTokens", 0, "cacheWriteTokens", 0,
                         "rate", Map.of("currency", "USD", "inputPerMillion", 0.15)));
 
-        String partialBody = assertRendered("/tasks/" + partial.getId(), "incomplete estimate");
-        assertThat(partialBody).contains("0.0075 USD", "50,000");
+        assertThat(assertRendered("/tasks/" + partial.getId(), "total · incomplete"))
+                .contains("Incomplete: some usage has no reported tokens or rate yet.", "50,000");
 
         PilotTask live = seedTask("70023", "MODBAR-723", "Live task",
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        PipelineExecution liveExecution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
-        liveExecution.setStatus(ExecutionStatus.RUNNING);
-        executions.save(liveExecution);
+        PipelineExecution liveExecution = runningExecution();
         PilotAttempt liveAttempt = seedAttempt(live, 1, PilotAttempt.Kind.INITIAL,
                 PilotAttempt.State.RUNNING, null);
         liveAttempt.setExecutionId(liveExecution.getId());
@@ -854,58 +839,48 @@ class UiRenderSmokeTest {
                         "rate", Map.of("currency", "USD", "inputPerMillion", 0.15)));
         auditLog.record(liveExecution.getId(), AuditEventType.STEP_STARTED, "implement", "smoke", Map.of());
 
-        String liveBody = assertRendered("/tasks/" + live.getId(), "provisional estimate");
-        assertThat(liveBody).contains("Working", "Implementation", "Retry is unavailable");
+        assertThat(assertRendered("/tasks/" + live.getId(), "In progress: Implementation."))
+                .contains("Working", "Open live run", "Includes live usage that can still change.")
+                .doesNotContain("name=\"expectedVersion\"");
     }
 
     @Test
-    void pilotTaskDetailPrReadyHidesRetryAndExplainsWhy() {
+    void taskSummaryForPrReadyLinksThePullRequestAndItsFeedback() {
         resetPilotData();
         PilotTask delivered = seedTask("70031", "MODBAR-731", "Delivered task",
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
         PilotAttempt attempt = seedAttempt(delivered, 1, PilotAttempt.Kind.INITIAL,
                 PilotAttempt.State.PR_READY, null);
         attempt.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/7");
+        attempt.setExecutionId(execution.getId());
         pilotAttempts.save(attempt);
 
-        String body = assertRendered("/tasks/" + delivered.getId(), "PR ready");
+        String body = assertRendered("/tasks/" + delivered.getId(), "Pull request #7 is ready for review.");
         assertThat(body)
-                .contains("https://github.com/folio-org/mod-bar/pull/7", "under human review")
+                .contains("href=\"https://github.com/folio-org/mod-bar/pull/7\">Open pull request #7</a>",
+                        "href=\"/executions/" + execution.getId() + "#pr-feedback\">Work on PR feedback</a>",
+                        "state-pill-success")
                 .doesNotContain("name=\"expectedVersion\"");
     }
 
     @Test
-    void pilotTaskDetailExplainsWhyRetryIsUnavailableForHeldAndWithdrawnTasks() {
+    void taskSummaryOffersMarkAsStoppedOnlyForAHeldTask() {
         resetPilotData();
-        PilotTask paused = seedTask("70061", "MODBAR-761", "Paused task",
+        PilotTask held = seedTask("70061", "MODBAR-761", "Held task",
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        PilotAttempt pausedAttempt = seedAttempt(paused, 1, PilotAttempt.Kind.INITIAL,
+        PilotAttempt heldAttempt = seedAttempt(held, 1, PilotAttempt.Kind.INITIAL,
                 PilotAttempt.State.NEEDS_INSPECTION, null);
-        PilotInstallation installation =
-                pilotInstallations.findById(1).orElseGet(PilotInstallation::initial);
-        installation.setActiveAttemptId(pausedAttempt.getId());
-        pilotInstallations.save(installation);
-        PilotTask uncertain = seedTask("70062", "MODBAR-762", "Uncertain task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        seedAttempt(uncertain, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.NEEDS_INSPECTION,
-                "publish: the candidate was delivered without a known pull-request identity");
-        PilotTask withdrawn = seedTask("70063", "MODBAR-763", "Withdrawn task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        seedAttempt(withdrawn, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.WITHDRAWN,
-                "task left the pilot scope before start");
+        holdTheSlot(heldAttempt);
 
-        assertThat(assertRendered("/tasks/" + paused.getId(), "Paused"))
-                .contains("Retry is unavailable until the held attempt is resolved.")
-                .doesNotContain("name=\"expectedVersion\"");
-        assertThat(assertRendered("/tasks/" + uncertain.getId(), "Needs inspection"))
-                .contains("Retry is unavailable until the held attempt is resolved.");
-        assertThat(assertRendered("/tasks/" + withdrawn.getId(), "Withdrawn"))
-                .contains("The admission was withdrawn before start; select the task again.")
+        assertThat(assertRendered("/tasks/" + held.getId(), "Needs inspection"))
+                .contains("Factory could not confirm how the last run ended.", "Mark as stopped…",
+                        "/attempts/" + heldAttempt.getId() + "/mark-stopped", "data-confirm-style=\"compact\"")
                 .doesNotContain("name=\"expectedVersion\"");
     }
 
     @Test
-    void pilotTaskDetailRendersFullAttemptHistory() {
+    void taskSummaryRendersFullAttemptHistoryNewestFirst() {
         resetPilotData();
         PilotTask retried = seedTask("70041", "MODBAR-741", "Retried task",
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
@@ -922,35 +897,32 @@ class UiRenderSmokeTest {
         fresh.setExecutionId(second.getId());
         pilotAttempts.save(fresh);
 
-        String body = assertRendered("/tasks/" + retried.getId(), "Attempt 3");
+        String body = assertRendered("/tasks/" + retried.getId(), "Attempts");
         assertThat(body)
-                .contains("Initial attempt", "Retry")
-                .contains("task left the pilot scope before start",
-                        "verification: first failure", "verification: second failure")
-                .contains("/executions/" + first.getId(), "/executions/" + second.getId())
+                .contains("3 · retry", "2 · retry", "1 · first run", "Withdrawn before start",
+                        "Verification failed: first failure", "Verification failed: second failure")
+                .contains("href=\"/executions/" + first.getId() + "\"", "href=\"/executions/" + second.getId() + "\"")
                 .contains("Could not complete");
+        assertThat(body.indexOf("3 · retry")).isLessThan(body.indexOf("1 · first run"));
     }
 
     @Test
-    void pilotTaskListOffersAutomaticAdmissionAfterCompleteSync() {
+    void runPageLinksBackToItsTaskAndShowsTheAttemptState() {
         resetPilotData();
-        seedSync(true, null);
-        seedTask("70051", "MODBAR-751", "Awaiting task", PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PilotTask task = seedTask("70071", "MODBAR-771", "Running task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution execution = runningExecution();
+        PilotAttempt attempt = seedAttempt(task, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.RUNNING, null);
+        attempt.setExecutionId(execution.getId());
+        pilotAttempts.save(attempt);
 
-        String body = assertRendered("/tasks", "Enable automatic admission");
+        String body = assertRendered("/executions/" + execution.getId(), "Now · updates live");
         assertThat(body)
-                .contains("value=\"authority-1\"")
-                .contains("Delegates every eligible current and future match")
-                .doesNotContain("Available after discovery completes a full sync.");
-    }
-
-    @Test
-    void pilotTaskListExplainsSyncProblem() {
-        resetPilotData();
-        seedSync(false, "search page 2 failed");
-
-        String body = assertRendered("/tasks", "Discovery has not completed a full sync");
-        assertThat(body).contains("search page 2 failed");
+                .contains(">Running task</h1>", "href=\"/flows/dev-factory\">Developer Flow</a>",
+                        "href=\"/tasks/" + task.getId() + "\">MODBAR-771</a>",
+                        "href=\"https://jira.example.org/browse/MODBAR-771\"",
+                        "class=\"state-pill\">Working</span>", "Runtime and usage", "Engine steps")
+                .doesNotContain("badge-status-RUNNING");
     }
 
     private String assertRendered(String path, String marker) {

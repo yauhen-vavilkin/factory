@@ -23,7 +23,7 @@ class DeveloperPreflightProbeTest {
     private static final String REPOSITORY_URL = "/repos/fork/module";
     private static final String BRANCH_URL = REPOSITORY_URL + "/branches/campaign%2Fbase";
     private static final String COMPARE_URL = REPOSITORY_URL + "/compare/" + SOURCE + "..." + DESTINATION;
-    private static final DeliveryTarget TARGET = new DeliveryTarget("fork/module", "campaign/base", true);
+    private static final DeliveryTarget TARGET = new DeliveryTarget("fork/module", "campaign/base");
     private WireMockServer server;
     private DeveloperPreflightProbe probe;
 
@@ -94,22 +94,22 @@ class DeveloperPreflightProbeTest {
     }
 
     @Test
-    void unauthorizedDestinationIsRejectedBeforeAnyGitHubProbe() {
-        var revoked = new DeliveryTarget("fork/module", "campaign/base", false);
+    void invalidDestinationIsRejectedBeforeAnyGitHubProbe() {
+        var invalid = new DeliveryTarget("not-a-repository", "campaign/base");
 
-        assertThatThrownBy(() -> probe.requireDeliveryAccess(revoked, SOURCE))
+        assertThatThrownBy(() -> probe.requireDeliveryAccess(invalid, SOURCE))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("explicit operator authorization");
+                .hasMessageContaining("GitHub owner/repository destination");
         assertThat(server.getAllServeEvents()).isEmpty();
     }
 
     @Test
-    void anAuthorizedOfficialFolioOrgDestinationIsProbedLikeAnyConfiguredDestination() {
+    void anOfficialFolioOrgDestinationIsProbedLikeAnyConfiguredDestination() {
         String repositoryUrl = "/repos/folio-org/module";
         String branchUrl = repositoryUrl + "/branches/campaign%2Fbase";
         stub(repositoryUrl, "{\"permissions\":{\"push\":true}}");
         stub(branchUrl, branch(SOURCE));
-        var official = new DeliveryTarget("folio-org/module", "campaign/base", true);
+        var official = new DeliveryTarget("folio-org/module", "campaign/base");
 
         assertThatCode(() -> probe.requireDeliveryAccess(official, SOURCE)).doesNotThrowAnyException();
         server.verify(getRequestedFor(urlEqualTo(repositoryUrl)));

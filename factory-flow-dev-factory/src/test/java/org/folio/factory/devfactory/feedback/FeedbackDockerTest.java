@@ -31,7 +31,7 @@ class FeedbackDockerTest {
         CandidateFreezer.git(work,"push",bare.toString(),"feedback");
         String base=CandidateFreezer.git(work,"rev-parse","HEAD").strip();
         var repositories=new DevFactoryProperties(root.toString(),new TreeMap<>(Map.of("fixture",new DevFactoryProperties.Repository("upstream/repo","main","alpine:3.21","checks",List.of("TEST"),List.of()))));
-        var delivery=new DevDeliveryProperties(Map.of("fixture",new DeliveryTarget("fork/repo","main",true)),true);
+        var delivery=new DevDeliveryProperties(Map.of("fixture",new DeliveryTarget("fork/repo","main")),true);
         var command=List.of("/bin/sh","-c","test \"$(cat value.txt)\" = corrected && mkdir -p target/surefire-reports && printf '%s' '<testsuite tests=\"1\" failures=\"0\" errors=\"0\" skipped=\"0\"><testcase name=\"behavior\"/></testsuite>' > target/surefire-reports/TEST-fixture.xml");
         var runtime=new DevRuntimeProperties(Map.of("checks",command),null,60,volume);
         var docker=new DockerWorkloads(); var freezer=new CandidateFreezer();

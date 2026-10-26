@@ -34,6 +34,8 @@ public class PilotDispatcher {
     private final PilotExecutionLauncher launcher;
     private final PilotExecutionProperties properties;
     private final ObjectProvider<PilotOutcomeService> outcomes;
+    /** Why the queue head could not start, until a dispatch succeeds or finds nothing to start. */
+    private volatile String deferral;
 
     public PilotDispatcher(PilotAttemptRepository attempts, PilotInstallationRepository installations,
                            PilotExecutionLauncher launcher, PilotExecutionProperties properties,
@@ -48,9 +50,34 @@ public class PilotDispatcher {
     /**
      * @return the execution bound to the active attempt, the newly launched
      *         execution for the next queued attempt, or empty when the queue is
-     *         empty or the head of the queue was withdrawn as out of scope
+     *         empty or the head of the queue stopped before start
      */
     public Optional<UUID> dispatchNext() {
+        try {
+            Optional<UUID> executionId = dispatchNextOrThrow();
+            deferral = null;
+            return executionId;
+        } catch (RuntimeException e) {
+            deferral = e.getMessage() == null || e.getMessage().isBlank()
+                    ? e.getClass().getSimpleName() : e.getMessage();
+            throw e;
+        }
+    }
+
+    /**
+     * Why queued work is not starting, for the page: execution is switched off, or
+     * the last dispatch was refused (retention on, a failed preflight, Docker down).
+     * Null when the queue can move.
+     */
+    public String queueProblem() {
+        if (!properties.enabled()) {
+            return "Pilot execution is off. Set FACTORY_PILOT_EXECUTION_ENABLED=true in .env and run"
+                    + " docker compose up -d.";
+        }
+        return deferral == null ? null : deferral + " Factory tries again on its next dispatch poll.";
+    }
+
+    private Optional<UUID> dispatchNextOrThrow() {
         PilotInstallation installation = installations.findById(1).orElse(null);
         if (installation != null && installation.getActiveAttemptId() != null) {
             PilotOutcomeService outcomeService = outcomes.getIfAvailable();

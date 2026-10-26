@@ -32,26 +32,27 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
-import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.absent;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 
 /**
- * Pilot discovery against real PostgreSQL and a fixture Jira: all pages are read
- * before one transaction replaces the visible snapshot, a failed page marks the
- * sync stale without touching previous rows, eligibility stays visible data, and
- * the enabled five-minute callback only discovers. The scheduler runs at 250 ms;
- * every awaited state is only reachable once the fixture stubs are in place.
+ * My tasks discovery against real PostgreSQL and a fixture Jira: one anonymous
+ * search for the developer's unfinished tasks, all pages read before one
+ * transaction replaces the visible snapshot, a failed page marks the scan stale
+ * without touching previous rows, and routing stays visible data. There is no
+ * background scan; every scan here is an explicit call, as the Scan Jira button
+ * makes it.
  */
 @SpringBootTest(properties = {
         "spring.ai.model.chat=none",
         "factory.engine.enabled=false",
-        "factory.pilot.discovery.enabled=true",
-        "factory.pilot.discovery.poll-interval-ms=250"})
+        "factory.pilot.source.assignee=Jane Developer"})
 @Import(StubLlmConfiguration.class)
 @Testcontainers
 @DirtiesContext
@@ -59,6 +60,8 @@ class PilotDiscoveryIntegrationTest {
 
     private static final String INSTANCE = "localhost";
     private static final String FIXTURE_CREATED = "2026-10-01T09:30:00.000+0000";
+    private static final String QUERY =
+            "assignee = \"Jane Developer\" AND statusCategory != Done ORDER BY updated DESC";
 
     @Container
     @ServiceConnection
@@ -70,11 +73,6 @@ class PilotDiscoveryIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         jira.start();
         registry.add("factory.connectors.jira.base-url", jira::baseUrl);
-        registry.add("factory.connectors.jira.email", () -> "bot@example.org");
-        registry.add("factory.connectors.jira.api-token", () -> "token");
-        registry.add("factory.pilot.source.source", () -> "981");
-        registry.add("factory.pilot.source.sprint-id", () -> "4711");
-        registry.add("factory.pilot.source.statuses[0]", () -> "To Do");
         repository(registry, "mod-bar", "MODBAR");
         repository(registry, "mod-foo", "MODFOO");
         repository(registry, "mod-foo2", "MODFOO");
@@ -117,11 +115,9 @@ class PilotDiscoveryIntegrationTest {
     }
 
     @Test
-    void completeSyncPersistsTasksWithEligibilityAndRoutingVisibleAsData() {
-        stubSource();
+    void completeScanPersistsMyTasksWithRoutingVisibleAsData() {
         stubFullSearch();
 
-        awaitSyncComplete();
         PilotDiscoveryService.SyncResult result = discovery.sync();
 
         assertThat(result.complete()).isTrue();
@@ -130,9 +126,10 @@ class PilotDiscoveryIntegrationTest {
         assertThat(result.problem()).isNull();
         assertThat(tasks.countByJiraInstance(INSTANCE)).isEqualTo(5);
         assertEligible("10001", "MODBAR-1", "repository mod-bar");
-        assertIneligible("10002", "MODFOO-2", "ambiguous repository mapping: mod-foo, mod-foo2");
-        assertIneligible("10003", "OTHERP-3", "no repository mapping for project OTHERP");
-        assertIneligible("10004", "MODBAR-4", "known dependency: MODBAR-9");
+        assertIneligible("10002", "MODFOO-2", "Project MODFOO maps to several repositories: mod-foo, mod-foo2");
+        assertIneligible("10003", "OTHERP-3",
+                "Project OTHERP is not configured: no repository for it in config/developer-repositories.yaml");
+        assertEligible("10004", "MODBAR-4", "repository mod-bar");
         assertEligible("10005", "MODBAR-5", "repository mod-bar");
 
         PilotTask first = tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow();
@@ -143,34 +140,57 @@ class PilotDiscoveryIntegrationTest {
         JsonNode snapshot = json.readTree(first.getIssueSnapshot());
         assertThat(snapshot.path("key").asString()).isEqualTo("MODBAR-1");
         assertThat(snapshot.path("summary").asString()).isEqualTo("Summary of MODBAR-1");
+        assertThat(snapshot.path("status").asString()).isEqualTo("Open");
         assertThat(snapshot.path("components").get(0).asString()).isEqualTo("api");
         assertThat(snapshot.path("truncated")).isEmpty();
         assertThat(first.getSourceRevision()).hasSize(64);
 
         PilotInstallation installation = installations.findById(1).orElseThrow();
-        assertThat(installation.getMode()).isEqualTo(PilotInstallation.Mode.REVIEW_BEFORE_RUN);
         assertThat(installation.isSyncComplete()).isTrue();
         assertThat(installation.getLastSuccessfulSyncAt()).isNotNull();
-        assertThat(installation.getObservedAuthorityFingerprint()).hasSize(64);
-        assertThat(installation.getAcceptedAuthorityFingerprint()).isNull();
         assertThat(installation.getSyncProblem()).isNull();
-        assertThat(installation.getSourceName()).isEqualTo("Team board");
-        assertThat(installation.getSourceUrl()).endsWith("/issues/?filter=2001");
-        assertThat(installation.getSprintName()).isEqualTo("Sprint 12");
         assertThat(executions.count()).isZero();
     }
 
     @Test
-    void concurrentInstallationSaveDuringSyncDoesNotSurfaceAsSyncProblem() throws Exception {
-        stubSource();
+    void scanSearchesMyTasksAnonymouslyWithLinksAndCommentsAndNeverWritesToJira() {
         stubFullSearch();
-        // The scheduled poller performs the first, row-creating sync; everything
-        // racing below only ever updates the singleton row.
-        awaitSyncComplete();
+
+        discovery.sync();
+
+        jira.verify(postRequestedFor(urlEqualTo("/rest/api/2/search/jql"))
+                .withHeader("Authorization", absent())
+                .withRequestBody(matchingJsonPath("$.jql", equalTo(QUERY)))
+                .withRequestBody(matchingJsonPath("$.fields[?(@ == 'issuelinks')]"))
+                .withRequestBody(matchingJsonPath("$.fields[?(@ == 'comment')]")));
+        assertThat(jira.getAllServeEvents()).allSatisfy(event -> {
+            assertThat(event.getRequest().getMethod().getName()).isEqualTo("POST");
+            assertThat(event.getRequest().getUrl()).isEqualTo("/rest/api/2/search/jql");
+        });
+        assertThat(executions.count()).isZero();
+    }
+
+    @Test
+    void linkedTaskStaysEligibleAndKeepsItsLinksForTheAgent() {
+        stubFullSearch();
+
+        discovery.sync();
+
+        PilotTask linked = tasks.findByJiraInstanceAndIssueId(INSTANCE, "10004").orElseThrow();
+        assertThat(linked.getEligibility()).isEqualTo(PilotTask.Eligibility.ELIGIBLE);
+        JsonNode links = json.readTree(linked.getIssueSnapshot()).path("links");
+        assertThat(links).hasSize(1);
+        assertThat(links.get(0).path("key").asString()).isEqualTo("MODBAR-9");
+    }
+
+    @Test
+    void concurrentInstallationSaveDuringScanDoesNotSurfaceAsScanProblem() throws Exception {
+        stubFullSearch();
+        assertThat(discovery.sync().complete()).isTrue();
         var concurrentSave = new TransactionTemplate(transactionManager);
         AtomicBoolean running = new AtomicBoolean(true);
         AtomicReference<Exception> writerFailure = new AtomicReference<>();
-        // A startup-style installation save (lockById then save) races every sync.
+        // A dispatch-style installation save (lockById then save) races every scan.
         Thread writer = new Thread(() -> {
             while (running.get()) {
                 try {
@@ -193,7 +213,7 @@ class PilotDiscoveryIntegrationTest {
             for (int round = 0; round < 5; round++) {
                 PilotDiscoveryService.SyncResult result = discovery.sync();
                 assertThat(result.complete())
-                        .as("sync round %d must not surface the concurrent save as a sync problem: %s",
+                        .as("scan round %d must not surface the concurrent save as a scan problem: %s",
                                 round, result.problem())
                         .isTrue();
             }
@@ -210,13 +230,11 @@ class PilotDiscoveryIntegrationTest {
 
     @Test
     void renamedKeyWithSameImmutableIssueIdUpdatesOneTask() {
-        stubSource();
         stubFullSearch();
-        awaitSyncComplete();
+        discovery.sync();
         PilotTask original = tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow();
 
         jira.resetAll();
-        stubSource();
         stubSinglePageSearch(issue("10001", "MODBAR-100", "MODBAR", "Renamed summary", ""),
                 issue("10005", "MODBAR-5", "MODBAR", "Summary of MODBAR-5", ""));
         PilotDiscoveryService.SyncResult result = discovery.sync();
@@ -234,16 +252,14 @@ class PilotDiscoveryIntegrationTest {
     }
 
     @Test
-    void failedLaterPagePreservesRowsAndLastSuccessAndMarksSyncStale() {
-        stubSource();
+    void failedLaterPagePreservesRowsAndLastSuccessAndMarksScanStale() {
         stubFullSearch();
-        awaitSyncComplete();
+        discovery.sync();
         PilotInstallation healthy = installations.findById(1).orElseThrow();
         Instant lastSync = healthy.getLastSuccessfulSyncAt();
         String revision = tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow().getSourceRevision();
 
         jira.resetAll();
-        stubSource();
         jira.stubFor(post(urlEqualTo("/rest/api/2/search/jql"))
                 .willReturn(okJson("{\"nextPageToken\": \"CURSOR-2\", \"issues\": ["
                         + issue("10001", "MODBAR-1", "MODBAR", "Summary of MODBAR-1", "") + "]}")));
@@ -262,21 +278,18 @@ class PilotDiscoveryIntegrationTest {
         assertThat(stale.isSyncComplete()).isFalse();
         assertThat(stale.getSyncProblem()).contains("500");
         assertThat(stale.getLastSuccessfulSyncAt()).isEqualTo(lastSync);
-        assertThat(stale.getAcceptedAuthorityFingerprint()).isEqualTo(healthy.getAcceptedAuthorityFingerprint());
         assertThat(tasks.countByJiraInstance(INSTANCE)).isEqualTo(5);
         assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow().getSourceRevision())
                 .isEqualTo(revision);
     }
 
     @Test
-    void taskLeavingTheFilterKeepsItsHistoryWithoutDeletion() {
-        stubSource();
+    void taskNoLongerAssignedKeepsItsHistoryWithoutDeletion() {
         stubFullSearch();
-        awaitSyncComplete();
+        discovery.sync();
         PilotTask original = tasks.findByJiraInstanceAndIssueId(INSTANCE, "10002").orElseThrow();
 
         jira.resetAll();
-        stubSource();
         stubSinglePageSearch(issue("10001", "MODBAR-1", "MODBAR", "Summary of MODBAR-1", ""),
                 issue("10005", "MODBAR-5", "MODBAR", "Summary of MODBAR-5", ""));
         PilotDiscoveryService.SyncResult result = discovery.sync();
@@ -293,37 +306,14 @@ class PilotDiscoveryIntegrationTest {
     }
 
     @Test
-    void routingReasonBeyondTheColumnLimitStillSyncsAndIsTruncated() {
-        stubSource();
+    void failedApplyTransactionPreservesRowsAndLastSuccessAndMarksScanStale() {
         stubFullSearch();
-        jira.stubFor(post(urlEqualTo("/rest/api/2/search/jql"))
-                .withRequestBody(matchingJsonPath("$.nextPageToken"))
-                .willReturn(okJson("{\"issues\": ["
-                        + issue("10005", "MODBAR-5", "MODBAR", "Summary of MODBAR-5", linkedDependencies(20))
-                        + "]}")));
-
-        awaitSyncComplete();
-        PilotDiscoveryService.SyncResult result = discovery.sync();
-
-        assertThat(result.complete()).isTrue();
-        assertThat(result.problem()).isNull();
-        assertThat(tasks.countByJiraInstance(INSTANCE)).isEqualTo(5);
-        PilotTask task = tasks.findByJiraInstanceAndIssueId(INSTANCE, "10005").orElseThrow();
-        assertThat(task.getEligibility()).isEqualTo(PilotTask.Eligibility.INELIGIBLE);
-        assertThat(task.getRoutingReason()).startsWith("known dependency: ").hasSize(500);
-    }
-
-    @Test
-    void failedApplyTransactionPreservesRowsAndLastSuccessAndMarksSyncStale() {
-        stubSource();
-        stubFullSearch();
-        awaitSyncComplete();
+        discovery.sync();
         PilotInstallation healthy = installations.findById(1).orElseThrow();
         Instant lastSync = healthy.getLastSuccessfulSyncAt();
         String revision = tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow().getSourceRevision();
 
         jira.resetAll();
-        stubSource();
         stubSinglePageSearch(issue("10001", "MODBAR-1", "MODBAR", "Summary of MODBAR-1", ""),
                 issue("10006", "MODBAR-" + "X".repeat(70), "MODBAR", "Summary of MODBAR-6", ""));
 
@@ -338,48 +328,10 @@ class PilotDiscoveryIntegrationTest {
         assertThat(stale.isSyncComplete()).isFalse();
         assertThat(stale.getSyncProblem()).isNotBlank();
         assertThat(stale.getLastSuccessfulSyncAt()).isEqualTo(lastSync);
-        assertThat(stale.getAcceptedAuthorityFingerprint()).isEqualTo(healthy.getAcceptedAuthorityFingerprint());
         assertThat(tasks.countByJiraInstance(INSTANCE)).isEqualTo(5);
         assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow().getSourceRevision())
                 .isEqualTo(revision);
         assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10006")).isEmpty();
-    }
-
-    @Test
-    void scheduledPollerDiscoversWithoutAdmittingOrWritingToJira() {
-        stubSource();
-        stubFullSearch();
-        markSyncStale();
-
-        awaitSyncComplete();
-
-        assertThat(executions.count()).isZero();
-        assertThat(jira.getAllServeEvents()).isNotEmpty();
-        assertThat(jira.getAllServeEvents()).allSatisfy(event ->
-                assertThat(event.getRequest().getUrl()).containsAnyOf(
-                        "/rest/agile/1.0/board/981/filter",
-                        "/rest/agile/1.0/sprint/4711",
-                        "/rest/api/2/search/jql"));
-    }
-
-    private void awaitSyncComplete() {
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
-                assertThat(installations.findById(1).orElseThrow().isSyncComplete()).isTrue());
-    }
-
-    private void markSyncStale() {
-        PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
-        installation.setSyncComplete(false);
-        installations.save(installation);
-    }
-
-    private void stubSource() {
-        jira.stubFor(get(urlEqualTo("/rest/agile/1.0/board/981/filter"))
-                .willReturn(okJson("""
-                        {"id": "2001", "name": "Team board",
-                         "jql": "labels = \\"team-ready\\" ORDER BY created DESC"}""")));
-        jira.stubFor(get(urlEqualTo("/rest/agile/1.0/sprint/4711"))
-                .willReturn(okJson("{\"id\": \"4711\", \"name\": \"Sprint 12\"}")));
     }
 
     private void stubFullSearch() {
@@ -406,31 +358,16 @@ class PilotDiscoveryIntegrationTest {
     private static String issue(String id, String key, String project, String summary, String extraFields) {
         return """
                 {"id": "%s", "key": "%s", "fields": {"summary": "%s", "description": "Description of %s", \
-                "status": {"name": "To Do"}, "issuetype": {"name": "Story"}, "labels": ["backend"], \
+                "status": {"name": "Open"}, "issuetype": {"name": "Story"}, "labels": ["backend"], \
                 "created": "%s", "components": [{"name": "api"}], \
                 "project": {"key": "%s"}%s}}""".formatted(id, key, summary, key, FIXTURE_CREATED, project, extraFields);
     }
 
     private static String linked(String otherKey) {
-        return ", \"issuelinks\": [" + linkJson(otherKey) + "]";
-    }
-
-    private static String linkJson(String otherKey) {
         return """
-                {"type": {"inward": "is blocked by", "outward": "blocks"}, \
+                , "issuelinks": [{"type": {"inward": "relates to", "outward": "relates to"}, \
                 "inwardIssue": {"key": "%s", "fields": {"summary": "Preparation", \
-                "status": {"name": "Done"}}}}""".formatted(otherKey);
-    }
-
-    private static String linkedDependencies(int count) {
-        StringBuilder links = new StringBuilder(", \"issuelinks\": [");
-        for (int i = 1; i <= count; i++) {
-            if (i > 1) {
-                links.append(", ");
-            }
-            links.append(linkJson("VERYLONGDEPENDENCYKEYPREFIX" + i));
-        }
-        return links.append("]").toString();
+                "status": {"name": "Done"}}}}]""".formatted(otherKey);
     }
 
     private void assertEligible(String issueId, String displayKey, String reason) {

@@ -85,7 +85,9 @@ class ExecutionUiControllerTest {
         var estimator = new DeveloperCostEstimator(new DeveloperPricingProperties(Map.of("flash", rate)));
         mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(executions, artifactStore, auditLog,
                 flowRegistry, reviews, json, estimator,
-                new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class))))
+                new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class)),
+                mock(org.folio.factory.app.pilot.persistence.PilotAttemptRepository.class),
+                mock(org.folio.factory.app.pilot.presentation.PilotTaskQuery.class)))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }

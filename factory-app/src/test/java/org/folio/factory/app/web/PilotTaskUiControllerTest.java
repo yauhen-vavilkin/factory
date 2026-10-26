@@ -2,14 +2,24 @@ package org.folio.factory.app.web;
 
 import org.folio.factory.app.pilot.admission.PilotAdmissionService;
 import org.folio.factory.app.pilot.admission.PilotCommands;
-import org.folio.factory.app.pilot.admission.PilotModeService;
 import org.folio.factory.app.pilot.admission.PilotRetryService;
+import org.folio.factory.app.pilot.execution.PilotDispatcher;
+import org.folio.factory.app.pilot.execution.PilotOutcomeService;
+import org.folio.factory.app.pilot.persistence.PilotAttempt;
+import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
 import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
 import org.folio.factory.app.pilot.presentation.PilotTaskQuery;
 import org.folio.factory.app.pilot.presentation.PilotTaskUsage;
 import org.folio.factory.app.pilot.presentation.PilotTaskView;
+import org.folio.factory.app.pilot.source.PilotDiscoveryService;
+import org.folio.factory.app.pilot.source.PilotJiraInstance;
 import org.folio.factory.app.pilot.source.PilotSourceProperties;
+import org.folio.factory.core.registry.FlowRegistry;
+import org.folio.factory.core.registry.model.FlowDescriptor;
+import org.folio.factory.devfactory.DevFactoryProperties;
+import org.folio.factory.devfactory.delivery.DeliveryTarget;
+import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,10 +27,12 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.data.domain.Page;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.view.InternalResourceViewResolver;
@@ -36,7 +48,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -52,7 +66,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PilotTaskUiControllerTest {
 
     private static final UUID TASK_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+    private static final UUID OTHER_TASK_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");
     private static final UUID EXECUTION_ID = UUID.fromString("00000000-0000-0000-0000-000000000003");
+    private static final UUID ATTEMPT_ID = UUID.fromString("00000000-0000-0000-0000-000000000004");
+    private static final String FLOW_PAGE = "/flows/dev-factory";
 
     @Mock
     private PilotTaskQuery taskQuery;
@@ -61,13 +78,31 @@ class PilotTaskUiControllerTest {
     private PilotInstallationRepository installations;
 
     @Mock
+    private PilotAttemptRepository attempts;
+
+    @Mock
     private PilotAdmissionService admissions;
 
     @Mock
-    private PilotModeService modes;
+    private PilotRetryService retries;
 
     @Mock
-    private PilotRetryService retries;
+    private PilotDiscoveryService discovery;
+
+    @Mock
+    private PilotDispatcher dispatcher;
+
+    @Mock
+    private ObjectProvider<PilotOutcomeService> outcomes;
+
+    @Mock
+    private PilotOutcomeService outcomeService;
+
+    @Mock
+    private PilotJiraInstance jira;
+
+    @Mock
+    private FlowRegistry flows;
 
     @Captor
     private ArgumentCaptor<PilotCommands.RunSelected> runCaptor;
@@ -78,105 +113,167 @@ class PilotTaskUiControllerTest {
     @Captor
     private ArgumentCaptor<Pageable> pageableCaptor;
 
-    private final PilotSourceProperties source = new PilotSourceProperties("981", "4711",
-            List.of("To Do"), "jane", List.of("MODBAR"), "team-ready");
-
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
-        mvc = MockMvcBuilders.standaloneSetup(
-                        new PilotTaskUiController(taskQuery, installations, admissions, modes, retries, source))
+        var repositories = new DevFactoryProperties("https://github.com", new TreeMap<>(Map.of("mod-bar",
+                new DevFactoryProperties.Repository("folio-org/mod-bar", "master", "build:image", "unit",
+                        List.of("MODBAR"), List.of(), new DeliveryTarget("folio-org/mod-bar", null)))));
+        var controller = new PilotTaskUiController(taskQuery, installations, attempts, admissions, retries,
+                discovery, dispatcher, outcomes, new PilotSourceProperties("Jane Developer"), jira, flows,
+                repositories, new DevDeliveryProperties(Map.of(), true));
+        mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new UiExceptionHandler())
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
+        lenient().when(flows.find("dev-factory")).thenReturn(Optional.of(
+                new FlowDescriptor("dev-factory", "Developer Flow", "1.0.0", null, null, null, null, null)));
+        lenient().when(jira.baseUrl()).thenReturn("https://jira.example.org");
+        lenient().when(jira.current()).thenReturn("jira.example.org");
+        lenient().when(installations.findById(1)).thenReturn(Optional.of(PilotInstallation.initial()));
+        lenient().when(attempts.findLatestUpdate()).thenReturn(Optional.empty());
     }
 
     // ----- GET routes are read-only -----
 
     @Test
-    void tasks_rendersListFromQueryOnly() throws Exception {
-        when(taskQuery.list(any(Pageable.class))).thenReturn(pageOf(
-                taskView(TASK_ID, "MODBAR-901", PilotTaskView.TaskState.AWAITING_SELECTION, true, false)));
-        when(installations.findById(1)).thenReturn(Optional.of(installation(false, null)));
+    void myTasks_rendersAvailableAndTriggeredFromQueryOnly() throws Exception {
+        PilotTaskView available = taskView(TASK_ID, "MODBAR-901", "Open",
+                PilotTaskView.TaskState.AWAITING_SELECTION, true, false);
+        PilotTaskView stopped = taskView(OTHER_TASK_ID, "MODBAR-911", "In Progress",
+                PilotTaskView.TaskState.STOPPED, false, true, attempt("STOPPED", "MANUAL"));
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(available), stopped));
 
-        mvc.perform(get("/tasks"))
+        MvcResult result = mvc.perform(get(FLOW_PAGE))
                 .andExpect(status().isOk())
-                .andExpect(view().name("pilot-tasks"))
-                .andExpect(model().attributeExists("tasks", "page", "modeValue", "authorityFingerprint"));
+                .andExpect(view().name("flow-my-tasks"))
+                .andExpect(model().attributeExists("flow", "source", "repositoryMap", "available", "statusChips",
+                        "triggered", "page", "pollUrl", "pollBaseline"))
+                .andReturn();
 
-        verify(taskQuery).list(pageableCaptor.capture());
+        verify(taskQuery).myTasks(pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(20);
-        verifyNoInteractions(admissions, modes, retries);
+        Map<String, Object> model = result.getModelAndView().getModel();
+        assertThat(rows(model, "available").getFirst())
+                .containsEntry("key", "MODBAR-901")
+                .containsEntry("repository", "mod-bar")
+                .containsEntry("jiraStatus", "Open")
+                .containsEntry("selectable", true);
+        assertThat(rows(model, "triggered").getFirst())
+                .containsEntry("stateLabel", "Could not complete")
+                .containsEntry("stateClass", "state-pill state-pill-danger")
+                .containsEntry("retryAllowed", true)
+                .containsEntry("addedByKey", false)
+                .containsEntry("link", "/tasks/" + OTHER_TASK_ID)
+                .containsEntry("markStoppedAttemptId", null);
+        assertThat(model.get("repositoryMap")).isEqualTo("1 Jira project configured: MODBAR → mod-bar");
+        @SuppressWarnings("unchecked")
+        var source = (Map<String, Object>) model.get("source");
+        assertThat(source)
+                .containsEntry("assignee", "Jane Developer")
+                .containsEntry("jiraHost", "jira.example.org")
+                .containsEntry("query", "assignee = \"Jane Developer\" AND statusCategory != Done"
+                        + " ORDER BY updated DESC");
+        assertThat((String) source.get("searchUrl")).startsWith("https://jira.example.org/issues/?jql=");
+        verifyNoInteractions(admissions, retries, discovery, outcomes);
+        verify(dispatcher, never()).dispatchNext();
+        verify(dispatcher, never()).dispatchNextQuietly();
     }
 
     @Test
-    void tasks_clampsLenientPageSize() throws Exception {
-        when(taskQuery.list(any(Pageable.class))).thenReturn(pageOf());
-        when(installations.findById(1)).thenReturn(Optional.of(installation(false, null)));
+    void myTasks_statusChipsPressOpenAndInProgressByDefault() throws Exception {
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(
+                taskView(TASK_ID, "MODBAR-901", "In Review", PilotTaskView.TaskState.AWAITING_SELECTION, true, false),
+                taskView(OTHER_TASK_ID, "MODBAR-902", "In Progress",
+                        PilotTaskView.TaskState.AWAITING_SELECTION, true, false),
+                taskView(UUID.randomUUID(), "MODBAR-903", "Open",
+                        PilotTaskView.TaskState.AWAITING_SELECTION, true, false))));
 
-        mvc.perform(get("/tasks").param("size", "5000"));
+        var chips = rows(mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel(), "statusChips");
 
-        verify(taskQuery).list(pageableCaptor.capture());
-        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(200);
+        assertThat(chips).extracting(chip -> chip.get("status"))
+                .containsExactly("Open", "In Progress", "In Review");
+        assertThat(chips).extracting(chip -> chip.get("pressed")).containsExactly(true, true, false);
     }
 
     @Test
-    void taskDetail_rendersProjectionOnly() throws Exception {
-        when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-911", PilotTaskView.TaskState.STOPPED,
-                false, true, attempt("STOPPED")));
+    void myTasks_pressesEveryChipWhenNoDefaultStatusIsPresent() throws Exception {
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(
+                taskView(TASK_ID, "MODBAR-901", "To Do", PilotTaskView.TaskState.AWAITING_SELECTION, true, false))));
 
-        var result = mvc.perform(get("/tasks/{taskId}", TASK_ID))
+        var chips = rows(mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel(), "statusChips");
+
+        assertThat(chips).singleElement().satisfies(chip -> assertThat(chip).containsEntry("pressed", true));
+    }
+
+    @Test
+    void myTasks_showsQueueIsWaitingWhileAnInspectionHoldsTheSlot() throws Exception {
+        PilotTaskView held = taskView(TASK_ID, "MODBAR-921", "Open", PilotTaskView.TaskState.PROCESSING_PAUSED,
+                false, false, attempt("NEEDS_INSPECTION", "BY_KEY"));
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), held));
+        PilotInstallation installation = PilotInstallation.initial();
+        installation.setActiveAttemptId(ATTEMPT_ID);
+        when(installations.findById(1)).thenReturn(Optional.of(installation));
+        PilotAttempt attempt = new PilotAttempt(TASK_ID, 1, PilotAttempt.Kind.INITIAL, "run#1",
+                PilotAttempt.State.NEEDS_INSPECTION);
+        ReflectionTestUtils.setField(attempt, "id", ATTEMPT_ID);
+        when(attempts.findById(ATTEMPT_ID)).thenReturn(Optional.of(attempt));
+
+        Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
+
+        assertThat(model.get("queueWaiting")).isEqualTo(Map.of("key", "MODBAR-921", "taskId", TASK_ID,
+                "attemptId", ATTEMPT_ID));
+        assertThat(rows(model, "triggered").getFirst())
+                .containsEntry("stateLabel", "Needs inspection")
+                .containsEntry("addedByKey", true)
+                .containsEntry("markStoppedAttemptId", ATTEMPT_ID);
+    }
+
+    @Test
+    void myTasks_explainsWhyQueuedTasksAreNotStarting() throws Exception {
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of()));
+        when(attempts.countByStateIn(List.of(PilotAttempt.State.RESERVED))).thenReturn(2L);
+        when(dispatcher.queueProblem()).thenReturn("Developer Flow preflight failed: Docker is not running.");
+
+        Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
+
+        assertThat(model)
+                .containsEntry("queuedCount", 2L)
+                .containsEntry("queueProblem", "Developer Flow preflight failed: Docker is not running.");
+    }
+
+    @Test
+    void tasks_redirectsToTheFlowPage() throws Exception {
+        mvc.perform(get("/tasks"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl(FLOW_PAGE));
+    }
+
+    @Test
+    void taskDetail_rendersSummaryWithAttemptsNewestFirst() throws Exception {
+        when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-911", "Open",
+                PilotTaskView.TaskState.STOPPED, false, true,
+                attempt("STOPPED", "MANUAL", 1), attempt("STOPPED", "BY_KEY", 2)));
+
+        MvcResult result = mvc.perform(get("/tasks/{taskId}", TASK_ID))
                 .andExpect(status().isOk())
                 .andExpect(view().name("pilot-task"))
                 .andReturn();
 
-        @SuppressWarnings("unchecked")
-        var task = (Map<String, Object>) result.getModelAndView().getModel().get("task");
-        assertThat(task)
+        assertThat(detail(result))
                 .containsEntry("stateLabel", "Could not complete")
                 .containsEntry("retryAllowed", true)
-                .containsEntry("version", 3L)
-                .containsEntry("inputFingerprint", "revision-MODBAR-911")
-                .containsEntry("destinationFingerprint", "dest-MODBAR-911");
-        verifyNoInteractions(admissions, modes, retries);
-    }
-
-    @Test
-    void taskDetail_knownPullRequestExplainsRetryUnavailable() throws Exception {
-        when(taskQuery.detail(TASK_ID)).thenReturn(
-                taskView(TASK_ID, "MODBAR-912", PilotTaskView.TaskState.PR_READY, false, false));
-
-        var result = mvc.perform(get("/tasks/{taskId}", TASK_ID))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        assertThat(detail(result))
-                .containsEntry("retryAllowed", false)
-                .containsEntry("retryNote", "Retry is unavailable: the delivered pull request is under human review.");
-        verifyNoInteractions(admissions, modes, retries);
-    }
-
-    @Test
-    void taskDetail_disabledEligibilityExplainsMissingDestination() throws Exception {
-        UUID taskId = TASK_ID;
-        PilotTaskView unsupported = new PilotTaskView(taskId, "MODBAR-913",
-                "https://jira.example.org/browse/MODBAR-913", "Title of MODBAR-913", "MODBAR",
-                PilotTaskView.TaskState.UNSUPPORTED, "no repository mapping for project MODX", null,
-                null, null, true, "INELIGIBLE", "no repository mapping for project MODX",
-                2L, "revision-MODBAR-913", "dest-MODBAR-913",
-                Instant.parse("2026-10-01T09:00:00Z"), Instant.parse("2026-10-23T09:00:00Z"),
-                List.of(), emptyUsage(), new PilotTaskView.AllowedActions(false, false, false));
-        when(taskQuery.detail(taskId)).thenReturn(unsupported);
-
-        var result = mvc.perform(get("/tasks/{taskId}", taskId))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        assertThat(detail(result))
-                .containsEntry("stateLabel", "Not eligible")
-                .containsEntry("retryAllowed", false)
-                .containsEntry("retryNote", "Retry is unavailable: no repository mapping supports this task.");
+                .containsEntry("lastRunUrl", "/executions/" + EXECUTION_ID)
+                .containsEntry("project", "MODBAR")
+                .containsEntry("destination", "folio-org/mod-bar · base master");
+        assertThat((String) detail(result).get("result")).endsWith("No pull request was created.");
+        assertThat(rows(result.getModelAndView().getModel(), "attempts"))
+                .extracting(row -> row.get("label"))
+                .containsExactly("2 · first run by key", "1 · first run");
+        verifyNoInteractions(admissions, retries, discovery, outcomes);
+        verify(dispatcher, never()).dispatchNext();
+        verify(dispatcher, never()).dispatchNextQuietly();
     }
 
     @Test
@@ -190,51 +287,35 @@ class PilotTaskUiControllerTest {
 
     @Test
     void poll_reportsRevisionWithoutCommandServices() throws Exception {
-        when(taskQuery.list(any(Pageable.class))).thenReturn(pageOf(
-                taskView(TASK_ID, "MODBAR-901", PilotTaskView.TaskState.AWAITING_SELECTION, true, false)));
-        when(installations.findById(1)).thenReturn(Optional.of(installation(true, null)));
+        when(attempts.count()).thenReturn(2L);
 
         mvc.perform(get("/tasks/poll"))
                 .andExpect(status().isOk());
 
-        verifyNoInteractions(admissions, modes, retries);
+        verifyNoInteractions(admissions, retries, discovery, outcomes);
+        verify(dispatcher, never()).dispatchNext();
+        verify(dispatcher, never()).dispatchNextQuietly();
     }
 
-    // ----- scope display -----
+    // ----- scan -----
 
     @Test
-    void tasks_projectResolvedScopeWithConfiguredStatusesAndRestrictions() throws Exception {
-        when(taskQuery.list(any(Pageable.class))).thenReturn(pageOf());
-        when(installations.findById(1)).thenReturn(Optional.of(installationWithScope()));
+    void scan_reportsTheAssignedCount() throws Exception {
+        when(discovery.sync()).thenReturn(new PilotDiscoveryService.SyncResult(true, 3, Instant.now(), null));
 
-        var result = mvc.perform(get("/tasks"))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        assertThat(result.getModelAndView().getModel())
-                .containsEntry("sourceName", "Team board")
-                .containsEntry("sourceUrl", "https://jira.example.org/jira/software/c/boards/981")
-                .containsEntry("sprintName", "Sprint 12")
-                .containsEntry("scopeStatuses", "To Do")
-                .containsEntry("scopeRestrictions", "Only: assignee jane, projects MODBAR, label team-ready")
-                .containsEntry("enableScopeContext", "Team board, sprint Sprint 12, statuses To Do");
+        mvc.perform(post(FLOW_PAGE + "/scan"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl(FLOW_PAGE))
+                .andExpect(flash().attribute("message", "Scan complete: 3 tasks are assigned to you."));
     }
 
     @Test
-    void tasks_withoutSyncedScopeShowOnlyLiveConfiguration() throws Exception {
-        when(taskQuery.list(any(Pageable.class))).thenReturn(pageOf());
-        when(installations.findById(1)).thenReturn(Optional.of(installation(true, null)));
+    void scan_failureRedirectsWithTheProblem() throws Exception {
+        when(discovery.sync()).thenReturn(new PilotDiscoveryService.SyncResult(false, 0, null, "Jira timed out"));
 
-        var result = mvc.perform(get("/tasks"))
-                .andExpect(status().isOk())
-                .andReturn();
-
-        assertThat(result.getModelAndView().getModel())
-                .containsEntry("sourceName", null)
-                .containsEntry("sourceUrl", null)
-                .containsEntry("sprintName", null)
-                .containsEntry("scopeStatuses", "To Do")
-                .containsEntry("enableScopeContext", "statuses To Do");
+        mvc.perform(post(FLOW_PAGE + "/scan"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl(FLOW_PAGE + "?error=Scan+failed%3A+Jira+timed+out"));
     }
 
     // ----- run selected -----
@@ -248,153 +329,101 @@ class PilotTaskUiControllerTest {
                         .param("taskId", TASK_ID.toString())
                         .param("version-" + TASK_ID, "3")
                         .param("input-" + TASK_ID, "revision-MODBAR-901")
-                        .param("destination-" + TASK_ID, "dest-MODBAR-901")
-                        .param("expectedAuthorityFingerprint", "authority-1"))
+                        .param("destination-" + TASK_ID, "dest-MODBAR-901"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/tasks"))
-                .andExpect(flash().attribute("message", "Admitted 1 task(s) to the pilot queue."));
+                .andExpect(redirectedUrl(FLOW_PAGE))
+                .andExpect(flash().attribute("message", "Queued 1 task."));
 
         verify(admissions).runSelected(runCaptor.capture());
         PilotCommands.RunSelected run = runCaptor.getValue();
         assertThat(run.requestId()).startsWith("ui-");
         assertThat(run.requestId().length()).isLessThanOrEqualTo(63);
-        assertThat(run.expectedAuthorityFingerprint()).isEqualTo("authority-1");
         assertThat(run.selections()).containsExactly(new PilotCommands.Selection(
                 TASK_ID, 3L, "revision-MODBAR-901", "dest-MODBAR-901"));
     }
 
     @Test
-    void runSelected_surfacesPerRowConflictExplanations() throws Exception {
+    void runSelected_surfacesPerRowRefusals() throws Exception {
         when(admissions.runSelected(any())).thenReturn(new PilotAdmissionService.AdmissionResult(List.of(),
-                Map.of(TASK_ID, "task changed since selection; review and select again")));
-        when(taskQuery.detail(TASK_ID)).thenReturn(
-                taskView(TASK_ID, "MODBAR-901", PilotTaskView.TaskState.AWAITING_SELECTION, true, false));
+                Map.of(TASK_ID, "Your GitHub token cannot push to folio-org/mod-bar")));
+        when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-901", "Open",
+                PilotTaskView.TaskState.AWAITING_SELECTION, true, false));
 
-        var result = mvc.perform(post("/tasks/run-selected")
+        MvcResult result = mvc.perform(post("/tasks/run-selected")
                         .param("taskId", TASK_ID.toString())
-                        .param("version-" + TASK_ID, "1")
-                        .param("input-" + TASK_ID, "stale-input")
-                        .param("destination-" + TASK_ID, "dest")
-                        .param("expectedAuthorityFingerprint", "authority-1"))
+                        .param("version-" + TASK_ID, "1"))
                 .andExpect(status().is3xxRedirection())
                 .andReturn();
 
         assertThat(result.getResponse().getRedirectedUrl())
-                .startsWith("/tasks?error=")
+                .startsWith(FLOW_PAGE + "?error=")
                 .contains("MODBAR-901")
-                .contains("task+changed+since+selection");
+                .contains("cannot+push+to+folio-org%2Fmod-bar");
     }
 
     @Test
     void runSelected_withoutSelection_redirectsWithoutCallingAdmission() throws Exception {
         mvc.perform(post("/tasks/run-selected"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/tasks?error=Select+at+least+one+task%2C+then+choose+Run+selected."));
+                .andExpect(redirectedUrl(FLOW_PAGE + "?error=Select+at+least+one+task%2C+then+choose+Run."));
 
-        verifyNoInteractions(admissions, modes, retries);
+        verifyNoInteractions(admissions);
     }
 
     @Test
     void runSelected_mangledForm_redirectsWithoutCallingAdmission() throws Exception {
-        mvc.perform(post("/tasks/run-selected")
-                        .param("taskId", TASK_ID.toString())
-                        .param("version-" + TASK_ID, "not-a-number"))
-                .andExpect(status().is3xxRedirection());
-
-        verifyNoInteractions(admissions, modes, retries);
-    }
-
-    @Test
-    void runSelected_mangledTaskId_redirectsWithFriendlyExplanation() throws Exception {
-        var result = mvc.perform(post("/tasks/run-selected")
+        MvcResult result = mvc.perform(post("/tasks/run-selected")
                         .param("taskId", "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeeX"))
                 .andExpect(status().is3xxRedirection())
                 .andReturn();
 
         assertThat(result.getResponse().getRedirectedUrl())
-                .startsWith("/tasks?error=")
+                .startsWith(FLOW_PAGE + "?error=")
                 .contains("The+submitted+selection+was+malformed");
-
-        verifyNoInteractions(admissions, modes, retries);
+        verifyNoInteractions(admissions);
     }
 
-    // ----- admission mode -----
+    // ----- run by key -----
 
     @Test
-    void mode_switchesToAutomaticWithFingerprint() throws Exception {
-        when(modes.setMode(PilotModeService.AdmissionMode.AUTOMATIC, "authority-1")).thenReturn(
-                new PilotModeService.ModeResult(PilotModeService.AdmissionMode.AUTOMATIC, 2,
-                        "Automatic admission enabled for the current pilot source authority"));
+    void runByKey_reportsTheQueuedKey() throws Exception {
+        when(admissions.runByKey(anyString(), any())).thenReturn(
+                new PilotAdmissionService.KeyResult("MODBAR-930", TASK_ID, null));
 
-        mvc.perform(post("/tasks/mode")
-                        .param("mode", "AUTOMATIC")
-                        .param("expectedAuthorityFingerprint", "authority-1"))
+        mvc.perform(post(FLOW_PAGE + "/run-by-key").param("key", "https://jira.example.org/browse/MODBAR-930"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/tasks"))
-                .andExpect(flash().attribute("message",
-                        "Automatic admission enabled for the current pilot source authority"));
+                .andExpect(redirectedUrl(FLOW_PAGE))
+                .andExpect(flash().attribute("message", "MODBAR-930 joined the queue."));
 
-        verifyNoInteractions(admissions, retries);
+        verify(admissions).runByKey(anyString(), org.mockito.ArgumentMatchers.eq(
+                "https://jira.example.org/browse/MODBAR-930"));
     }
 
     @Test
-    void mode_switchesToReviewBeforeRunWithoutFingerprint() throws Exception {
-        when(modes.setMode(PilotModeService.AdmissionMode.REVIEW_BEFORE_RUN, null)).thenReturn(
-                new PilotModeService.ModeResult(PilotModeService.AdmissionMode.REVIEW_BEFORE_RUN, 0,
-                        "Automatic admission stopped; queued and running work stays delegated"));
+    void runByKey_refusalRedirectsWithTheReason() throws Exception {
+        when(admissions.runByKey(anyString(), any())).thenReturn(new PilotAdmissionService.KeyResult(
+                "MODX-1", null, "Project MODX is not configured"));
 
-        mvc.perform(post("/tasks/mode").param("mode", "REVIEW_BEFORE_RUN"))
+        mvc.perform(post(FLOW_PAGE + "/run-by-key").param("key", "MODX-1"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/tasks"))
-                .andExpect(flash().attribute("message",
-                        "Automatic admission stopped; queued and running work stays delegated"));
-
-        verify(modes).setMode(PilotModeService.AdmissionMode.REVIEW_BEFORE_RUN, null);
-        verifyNoInteractions(admissions, retries);
-    }
-
-    @Test
-    void mode_conflictingAuthority_redirectsWithExplanation() throws Exception {
-        when(modes.setMode(PilotModeService.AdmissionMode.AUTOMATIC, "stale")).thenThrow(
-                new IllegalArgumentException("The pilot source authority changed; refresh discovery"
-                        + " and enable automatic admission with the current fingerprint"));
-
-        var result = mvc.perform(post("/tasks/mode")
-                        .param("mode", "AUTOMATIC")
-                        .param("expectedAuthorityFingerprint", "stale"))
-                .andExpect(status().is3xxRedirection())
-                .andReturn();
-
-        assertThat(result.getResponse().getRedirectedUrl())
-                .startsWith("/tasks?error=")
-                .contains("authority+changed");
-    }
-
-    @Test
-    void mode_unknownModeValue_redirectsWithExplanation() throws Exception {
-        when(modes.setMode(isNull(), any())).thenThrow(new IllegalArgumentException("An admission mode is required"));
-
-        mvc.perform(post("/tasks/mode").param("mode", "NONSENSE"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/tasks?error=An+admission+mode+is+required"));
+                .andExpect(redirectedUrl(FLOW_PAGE + "?error=Project+MODX+is+not+configured"));
     }
 
     // ----- retry -----
 
     @Test
-    void retry_mapsFormToRetryCommandAndReportsLaunch() throws Exception {
-        UUID attemptId = UUID.randomUUID();
+    void retry_fromTheFlowPageReturnsThere() throws Exception {
         when(retries.retry(any())).thenReturn(new PilotRetryService.RetryResult(
-                attemptId, EXECUTION_ID, "RUNNING", "the retry attempt launched a new execution"));
+                ATTEMPT_ID, null, "RESERVED", "the retry joined the queue"));
 
         mvc.perform(post("/tasks/{taskId}/retry", TASK_ID)
                         .param("expectedVersion", "3")
                         .param("inputFingerprint", "revision-MODBAR-901")
-                        .param("destinationFingerprint", "dest-MODBAR-901"))
+                        .param("destinationFingerprint", "dest-MODBAR-901")
+                        .param("returnTo", "flow"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/tasks/" + TASK_ID))
-                .andExpect(flash().attribute("message",
-                        "Retry admitted: the retry attempt launched a new execution"));
+                .andExpect(redirectedUrl(FLOW_PAGE))
+                .andExpect(flash().attribute("message", "Retry queued: the retry joined the queue"));
 
         verify(retries).retry(retryCaptor.capture());
         PilotCommands.Retry command = retryCaptor.getValue();
@@ -403,75 +432,119 @@ class PilotTaskUiControllerTest {
         assertThat(command.inputFingerprint()).isEqualTo("revision-MODBAR-901");
         assertThat(command.destinationFingerprint()).isEqualTo("dest-MODBAR-901");
         assertThat(command.requestId()).startsWith("ui-");
-        verifyNoInteractions(admissions, modes);
     }
 
     @Test
-    void retry_staleSubmission_redirectsWithExplanation() throws Exception {
+    void retry_refusalReturnsToTheTaskSummary() throws Exception {
         when(retries.retry(any())).thenReturn(new PilotRetryService.RetryResult(
-                UUID.randomUUID(), null, "STOPPED",
-                "task changed since the retry was requested; review the current result and retry again"));
+                null, null, "STOPPED", "Your GitHub token cannot push to folio-org/mod-bar"));
 
-        var result = mvc.perform(post("/tasks/{taskId}/retry", TASK_ID)
-                        .param("expectedVersion", "1"))
+        MvcResult result = mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "1"))
                 .andExpect(status().is3xxRedirection())
                 .andReturn();
 
         assertThat(result.getResponse().getRedirectedUrl())
                 .startsWith("/tasks/" + TASK_ID + "?error=")
-                .contains("task+changed+since+the+retry");
+                .contains("cannot+push");
+    }
+
+    // ----- mark as stopped -----
+
+    @Test
+    void markStopped_releasesTheQueueAndStartsTheNextTask() throws Exception {
+        when(outcomes.getIfAvailable()).thenReturn(outcomeService);
+        when(outcomeService.markStopped(ATTEMPT_ID)).thenReturn(null);
+
+        mvc.perform(post("/tasks/{taskId}/attempts/{attemptId}/mark-stopped", TASK_ID, ATTEMPT_ID)
+                        .param("returnTo", "flow"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl(FLOW_PAGE))
+                .andExpect(flash().attribute("message", "Marked as stopped; the queue continues."));
+
+        verify(dispatcher).dispatchNextQuietly();
+    }
+
+    @Test
+    void markStopped_refusalDoesNotDispatch() throws Exception {
+        when(outcomes.getIfAvailable()).thenReturn(outcomeService);
+        when(outcomeService.markStopped(ATTEMPT_ID))
+                .thenReturn("Only a task that needs inspection can be marked as stopped");
+
+        mvc.perform(post("/tasks/{taskId}/attempts/{attemptId}/mark-stopped", TASK_ID, ATTEMPT_ID))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/tasks/" + TASK_ID
+                        + "?error=Only+a+task+that+needs+inspection+can+be+marked+as+stopped"));
+
+        verifyNoInteractions(dispatcher);
+    }
+
+    // ----- cross-site posts -----
+
+    @Test
+    void crossSitePostsAreRefusedBeforeAnyService() throws Exception {
+        mvc.perform(post(FLOW_PAGE + "/scan").header("Sec-Fetch-Site", "cross-site"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(FLOW_PAGE + "/run-by-key").param("key", "MODBAR-1")
+                        .header("Origin", "https://evil.example"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/tasks/{taskId}/attempts/{attemptId}/mark-stopped", TASK_ID, ATTEMPT_ID)
+                        .header("Sec-Fetch-Site", "same-site"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(discovery, admissions, outcomes, dispatcher);
+    }
+
+    @Test
+    void sameOriginPostsPass() throws Exception {
+        when(discovery.sync()).thenReturn(new PilotDiscoveryService.SyncResult(true, 1, Instant.now(), null));
+
+        mvc.perform(post(FLOW_PAGE + "/scan").header("Origin", "http://localhost"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(flash().attribute("message", "Scan complete: 1 task is assigned to you."));
+        mvc.perform(post(FLOW_PAGE + "/scan").header("Sec-Fetch-Site", "same-origin"))
+                .andExpect(status().is3xxRedirection());
     }
 
     // ----- helpers -----
 
     @SuppressWarnings("unchecked")
-    private static Map<String, Object> detail(org.springframework.test.web.servlet.MvcResult result) {
+    private static Map<String, Object> detail(MvcResult result) {
         return (Map<String, Object>) result.getModelAndView().getModel().get("task");
     }
 
-    private static PilotInstallation installation(boolean syncComplete, String problem) {
-        PilotInstallation installation = PilotInstallation.initial();
-        installation.setSyncComplete(syncComplete);
-        installation.setSyncProblem(problem);
-        installation.setObservedAuthorityFingerprint("authority-1");
-        return installation;
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> rows(Map<String, Object> model, String name) {
+        return (List<Map<String, Object>>) model.get(name);
     }
 
-    private static PilotInstallation installationWithScope() {
-        PilotInstallation installation = installation(true, null);
-        installation.setSourceName("Team board");
-        installation.setSourceUrl("https://jira.example.org/jira/software/c/boards/981");
-        installation.setSprintName("Sprint 12");
-        return installation;
+    private static PilotTaskQuery.MyTasks myTasks(List<PilotTaskView> available, PilotTaskView... triggered) {
+        return new PilotTaskQuery.MyTasks(available,
+                new PageImpl<>(List.of(triggered), PageRequest.of(0, 20), triggered.length));
     }
 
-    private static Page<PilotTaskView> pageOf(PilotTaskView... views) {
-        return new PageImpl<>(List.of(views), PageRequest.of(0, 20), views.length);
-    }
-
-    private static PilotTaskView taskView(UUID taskId, String key, PilotTaskView.TaskState state,
-                                      boolean select, boolean retry,
-                                      PilotTaskView.AttemptHistoryEntry... attempts) {
+    private static PilotTaskView taskView(UUID taskId, String key, String jiraStatus, PilotTaskView.TaskState state,
+                                          boolean select, boolean retry,
+                                          PilotTaskView.AttemptHistoryEntry... attempts) {
         return new PilotTaskView(taskId, key, "https://jira.example.org/browse/" + key, "Title of " + key,
-                "MODBAR", state,
-                state == PilotTaskView.TaskState.STOPPED ? "verification: 2 tests failed" : null,
-                state == PilotTaskView.TaskState.STOPPED ? "verification" : null,
+                "MODBAR", jiraStatus, state, null,
+                state == PilotTaskView.TaskState.STOPPED ? "VERIFICATION_FAILED: 2 tests failed" : null,
+                state == PilotTaskView.TaskState.STOPPED ? "verification" : null, null,
                 "mod-bar",
                 state == PilotTaskView.TaskState.PR_READY ? "https://github.com/folio-org/mod-bar/pull/7" : null,
-                true, "ELIGIBLE", "repository mod-bar", 3L, "revision-" + key, "dest-" + key,
+                java.util.Arrays.stream(attempts).noneMatch(attempt -> "BY_KEY".equals(attempt.admittedVia())),
+                "ELIGIBLE", "repository mod-bar", 3L, "revision-" + key, "dest-" + key,
                 Instant.parse("2026-10-01T09:00:00Z"), Instant.parse("2026-10-23T09:00:00Z"),
-                List.of(attempts), emptyUsage(),
-                new PilotTaskView.AllowedActions(select, retry, false));
+                List.of(attempts), emptyUsage(), new PilotTaskView.AllowedActions(select, retry));
     }
 
-    private static PilotTaskView taskView(UUID taskId, String key, PilotTaskView.TaskState state,
-                                      boolean select, boolean retry) {
-        return taskView(taskId, key, state, select, retry, new PilotTaskView.AttemptHistoryEntry[0]);
+    private static PilotTaskView.AttemptHistoryEntry attempt(String state, String admittedVia) {
+        return attempt(state, admittedVia, 1);
     }
 
-    private static PilotTaskView.AttemptHistoryEntry attempt(String state) {
-        return new PilotTaskView.AttemptHistoryEntry(UUID.randomUUID(), 1, "INITIAL", "MANUAL", state,
-                "verification", "verification: 2 tests failed", null, EXECUTION_ID, "COMPLETED",
+    private static PilotTaskView.AttemptHistoryEntry attempt(String state, String admittedVia, int ordinal) {
+        return new PilotTaskView.AttemptHistoryEntry("NEEDS_INSPECTION".equals(state) ? ATTEMPT_ID : UUID.randomUUID(),
+                ordinal, "INITIAL", admittedVia, state, "verification", "VERIFICATION_FAILED: 2 tests failed", null,
+                EXECUTION_ID, "COMPLETED", Instant.parse("2026-10-23T07:59:00Z"),
                 Instant.parse("2026-10-23T08:00:00Z"), Instant.parse("2026-10-23T09:00:00Z"),
                 true, 600, emptyUsage());
     }

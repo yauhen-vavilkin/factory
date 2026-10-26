@@ -88,10 +88,9 @@ import static org.mockito.Mockito.when;
 
 /**
  * Publication authority against real PostgreSQL and a mocked GitHub HTTP
- * endpoint: an explicitly authorized destination (official or fork) publishes
- * branch and pull request into the same repository with the intent persisted
- * before the first remote mutation, a changed or revoked authority stops before
- * any remote write, and a lost create response is reconciled through the
+ * endpoint: the configured destination (official or fork) publishes branch and
+ * pull request into the same repository with the intent persisted before the
+ * first remote mutation, a changed authority stops before any remote write, and a lost create response is reconciled through the
  * state-covering lookup instead of creating a duplicate pull request.
  */
 @SpringBootTest(properties = {
@@ -100,7 +99,6 @@ import static org.mockito.Mockito.when;
         "factory.pilot.execution.enabled=true",
         "factory.pilot.execution.deadline=PT30M",
         "factory.pilot.execution.dispatch-interval-ms=3600000",
-        "factory.dev-factory.repositories.sidecar.delivery.authorized=true",
         "factory.connectors.github.token=fixture-github-token"})
 @Import(StubLlmConfiguration.class)
 @Testcontainers
@@ -108,7 +106,6 @@ import static org.mockito.Mockito.when;
 class PilotPublicationIntegrationTest {
 
     private static final String INSTANCE = "jira.example.org";
-    private static final String AUTHORITY = "authority-1";
     private static final String OFFICIAL = "folio-org/folio-module-sidecar";
     private static final String PR_PATH = "/repos/" + OFFICIAL + "/pulls";
     private static final String PR_URL = "https://github.com/" + OFFICIAL + "/pull/21";
@@ -189,7 +186,7 @@ class PilotPublicationIntegrationTest {
     }
 
     @Test
-    void authorizedOfficialDestinationPublishesAndPersistsTheIntentBeforeTheFirstRemoteMutation() {
+    void officialDestinationPublishesAndPersistsTheIntentBeforeTheFirstRemoteMutation() {
         UUID executionId = admitAndDispatch("70001", "MODSIDECAR-701");
         Candidate candidate = candidate();
         VerificationReceipt receipt = receipt(executionId, candidate);
@@ -219,7 +216,7 @@ class PilotPublicationIntegrationTest {
                 .isEqualTo("DELIVERED");
         assertThat(output.path("pullRequestUrl").asString()).isEqualTo(PR_URL);
         verify(delivery).deliver(anyString(), anyString(), anyString(), anyString(), any(), any(),
-                eq(new DeliveryTarget(OFFICIAL, "master", true)), anyString(), anyBoolean(), anyInt());
+                eq(new DeliveryTarget(OFFICIAL, "master")), anyString(), anyBoolean(), anyInt());
 
         PilotPublicationIntent intent = intents.findByExecutionId(executionId).orElseThrow();
         assertThat(intent.getRepository()).isEqualTo(OFFICIAL);
@@ -240,39 +237,43 @@ class PilotPublicationIntegrationTest {
     }
 
     @Test
-    void revokedDestinationAuthorizationStopsBeforeAnyRemoteWrite() {
+    void jiraChangesAfterTheClickDoNotStopPublication() {
         UUID executionId = admitAndDispatch("70011", "MODSIDECAR-711");
+        PilotTask task = tasks.findById(attempts.findByExecutionId(executionId).orElseThrow().getTaskId())
+                .orElseThrow();
+        task.setSourceRevision("revised-by-a-later-scan");
+        task.setInScope(false);
+        tasks.save(task);
         Candidate candidate = candidate();
-        VerificationReceipt receipt = receipt(executionId, candidate);
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(),
+                anyString(), anyBoolean(), anyInt()))
+                .thenAnswer(invocation -> new DeliveryReceipt(executionId.toString(), OFFICIAL,
+                        CandidateDelivery.branchFor(invocation.getArgument(0, String.class),
+                                invocation.getArgument(1, String.class),
+                                invocation.getArgument(4, Candidate.class),
+                                invocation.getArgument(8, Boolean.class)),
+                        candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40)));
+        stubPullRequestLookup("[]");
+        stubPullRequestCreation(prBody(PR_URL));
 
-        assertThatThrownBy(() -> pilotPolicy.beforePublication(executionId,
-                codingRequest("MODSIDECAR-711"), new DeliveryTarget(OFFICIAL, "master", false)))
-                .isInstanceOf(DeliveryBlockedException.class)
-                .hasMessageContaining("explicit operator authorization");
-
-        var revokedRepositories = new DevFactoryProperties("https://github.com",
-                new TreeMap<>(Map.of("sidecar", repository(new DeliveryTarget(OFFICIAL, "master", false)))));
-        var revokedWorker = worker(revokedRepositories, pilotPolicy);
-
-        var result = revokedWorker.execute(context(executionId, "MODSIDECAR-711", candidate, receipt));
+        var result = deliveryWorker.execute(
+                context(executionId, "MODSIDECAR-711", candidate, receipt(executionId, candidate)));
 
         var output = json.readTree(result.outputs().get(DeliveryWorker.DELIVERY));
-        assertThat(output.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
-        assertThat(output.path("reason").asString()).contains("explicit operator authorization");
-        assertThat(intents.findByExecutionId(executionId)).isEmpty();
-        assertThat(GITHUB.getAllServeEvents())
-                .as("remoteWritesAfterRevocation")
-                .isEmpty();
-        verifyNoInteractions(delivery);
+        assertThat(output.path("state").asString()).describedAs(output.path("reason").asString())
+                .isEqualTo("DELIVERED");
+        assertThat(output.path("pullRequestUrl").asString()).isEqualTo(PR_URL);
     }
 
     @Test
-    void changedRequirementsAfterAdmissionStopBeforeAnyRemoteWriteAndPreserveTheCandidate() {
+    void changedRoutingAfterAdmissionStopsBeforeAnyRemoteWriteAndPreservesTheCandidate() {
         UUID executionId = admitAndDispatch("70021", "MODSIDECAR-721");
         PilotAttempt attempt = attempts.findByExecutionId(executionId).orElseThrow();
         writeArtifact(executionId, DevelopWorker.CANDIDATE, json.writeValueAsString(candidate()));
         PilotTask task = tasks.findById(attempt.getTaskId()).orElseThrow();
-        task.setSourceRevision("revised-by-a-later-discovery-sync");
+        task.setEligibility(PilotTask.Eligibility.INELIGIBLE);
+        task.setRoutingReason("Project MODSIDECAR is not configured: no repository for it in"
+                + " config/developer-repositories.yaml");
         tasks.save(task);
         Candidate candidate = candidate();
 
@@ -281,7 +282,8 @@ class PilotPublicationIntegrationTest {
 
         var output = json.readTree(result.outputs().get(DeliveryWorker.DELIVERY));
         assertThat(output.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
-        assertThat(output.path("reason").asString()).contains("requirements changed after admission");
+        assertThat(output.path("reason").asString())
+                .contains("the consumed repository no longer matches the admitted routing");
         assertThat(intents.findByExecutionId(executionId)).isEmpty();
         assertThat(GITHUB.getAllServeEvents()).isEmpty();
         verifyNoInteractions(delivery);
@@ -467,12 +469,10 @@ class PilotPublicationIntegrationTest {
                 "MODSIDECAR", "{\"key\": \"" + displayKey + "\", \"summary\": \"Task\"}",
                 "revision-" + issueId, PilotTask.Eligibility.ELIGIBLE, "repository sidecar"));
         PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
-        installation.setAcceptedAuthorityFingerprint(AUTHORITY);
-        installation.setObservedAuthorityFingerprint(AUTHORITY);
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
         installations.save(installation);
-        var result = admissions.runSelected(new PilotCommands.RunSelected("run-" + issueId, AUTHORITY,
+        var result = admissions.runSelected(new PilotCommands.RunSelected("run-" + issueId,
                 List.of(new PilotCommands.Selection(task.getId(), task.getVersion(),
                         PilotAdmissionService.inputFingerprint(task),
                         PilotAdmissionService.destinationFingerprint(task)))));

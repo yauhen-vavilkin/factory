@@ -44,12 +44,12 @@
         <section>
             <h2>Effective repositories</h2>
             <div class="table-wrap"><table>
-                <thead><tr><th>Key / Jira projects</th><th>Source / base</th><th>Build / verification</th><th>Delivery</th><th>Authorized</th></tr></thead>
+                <thead><tr><th>Key / Jira projects</th><th>Source / base</th><th>Build / verification</th><th>Delivery</th></tr></thead>
                 <tbody><tr th:each="repo : ${report.repositories}">
                     <td><div th:text="${repo['key']}"></div><small th:text="${repo['jiraProjects']}"></small></td>
                     <td><div th:text="${repo['source']}"></div><small th:text="${repo['baseBranch']}"></small></td>
                     <td><div th:text="${repo['buildImage']}"></div><small th:text="${repo['verificationPlan']}"></small></td>
-                    <td th:text="${repo['delivery']}"></td><td th:text="${repo['authorized']}"></td>
+                    <td th:text="${repo['delivery']}"></td>
                 </tr></tbody>
             </table></div>
         </section>

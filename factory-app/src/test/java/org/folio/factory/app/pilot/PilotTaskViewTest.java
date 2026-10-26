@@ -32,7 +32,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -73,7 +72,6 @@ import static org.mockito.Mockito.doThrow;
 class PilotTaskViewTest {
 
     private static final String INSTANCE = "jira.example.org";
-    private static final String AUTHORITY = "authority-1";
 
     @Container
     @ServiceConnection
@@ -126,6 +124,8 @@ class PilotTaskViewTest {
         attempts.deleteAll();
         tasks.deleteAll();
         installations.deleteAll();
+        // The migration seeds the single installation row; restore it as installed.
+        installations.save(PilotInstallation.initial());
         doNothing().when(docker).cleanOwned(any(), anyString());
     }
 
@@ -150,7 +150,7 @@ class PilotTaskViewTest {
     }
 
     @Test
-    void unsupportedWithdrawnAndOutOfScopeTasksKeepDistinctMeaningAndHistory() {
+    void unsupportedWithdrawnAndUnassignedTasksKeepDistinctMeaningAndHistory() {
         PilotTask unsupported = task("90011", "MODBAR-911", PilotTask.Eligibility.INELIGIBLE,
                 "depends on unsupported mod-data-import-converter-storage");
         PilotTask withdrawn = eligibleTask("90012", "MODBAR-912");
@@ -184,10 +184,15 @@ class PilotTaskViewTest {
         assertThat(outOfScope.stage()).isEqualTo("coding");
         assertThat(outOfScope.attempts()).hasSize(1);
         assertThat(outOfScope.attempts().getFirst().state()).isEqualTo("STOPPED");
+        // Started work holds after the task leaves My tasks: it can still be retried.
         assertThat(outOfScope.allowedActions().select()).isFalse();
-        assertThat(outOfScope.allowedActions().retry()).isFalse();
+        assertThat(outOfScope.allowedActions().retry()).isTrue();
 
-        assertThat(query.list(PageRequest.of(0, 10)).getTotalElements()).isEqualTo(3);
+        var myTasks = query.myTasks(PageRequest.of(0, 10));
+        assertThat(myTasks.available()).extracting(PilotTaskView::displayKey)
+                .containsExactlyInAnyOrder("MODBAR-911", "MODBAR-912");
+        assertThat(myTasks.triggered().getContent()).extracting(PilotTaskView::displayKey)
+                .containsExactly("MODBAR-913");
     }
 
     @Test
@@ -353,7 +358,7 @@ class PilotTaskViewTest {
                 .isEqualByComparingTo("0.60");
         assertThat(view.attempts().get(1).usage().complete()).isFalse();
         assertThat(view.attempts().get(1).kind()).isEqualTo("RETRY");
-        assertThat(query.list(PageRequest.of(0, 10)).getContent().stream()
+        assertThat(query.myTasks(PageRequest.of(0, 10)).triggered().getContent().stream()
                 .filter(row -> row.taskId().equals(retried.getId()))
                 .findFirst().orElseThrow()
                 .usage().estimatesByCurrency().get("USD")).isEqualByComparingTo("1.24");
@@ -376,31 +381,28 @@ class PilotTaskViewTest {
     }
 
     @Test
-    void listPagesTasksInQueueOrderAndExposesAutomaticAdmissionAvailability() {
-        PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
-        installation.setObservedAuthorityFingerprint(AUTHORITY);
-        installation.setSyncComplete(true);
-        installations.save(installation);
-        PilotTask older = eligibleTask("90071", "MODBAR-971");
-        PilotTask savedOlder = tasks.findById(older.getId()).orElseThrow();
-        savedOlder.setJiraCreatedAt(Instant.parse("2026-10-01T09:00:00Z"));
-        tasks.save(savedOlder);
-        PilotTask newer = eligibleTask("90072", "MODBAR-972");
-        PilotTask savedNewer = tasks.findById(newer.getId()).orElseThrow();
-        savedNewer.setJiraCreatedAt(Instant.parse("2026-10-01T10:00:00Z"));
-        tasks.save(savedNewer);
+    void myTasksListsAvailableNewestFirstAndQueuedTasksInClickOrder() {
+        PilotTask older = withJiraCreated(eligibleTask("90071", "MODBAR-971"), "2026-10-01T09:00:00Z");
+        PilotTask newer = withJiraCreated(eligibleTask("90072", "MODBAR-972"), "2026-10-01T10:00:00Z");
+        PilotTask first = eligibleTask("90073", "MODBAR-973");
+        PilotTask second = eligibleTask("90074", "MODBAR-974");
+        PilotTask third = eligibleTask("90075", "MODBAR-975");
+        admit(first, "run-973");
+        admit(second, "run-974");
+        admit(third, "run-975");
+        dispatcher.dispatchNext().orElseThrow();
 
-        Page<PilotTaskView> page = query.list(PageRequest.of(0, 1));
+        var myTasks = query.myTasks(PageRequest.of(0, 10));
 
-        assertThat(page.getTotalElements()).isEqualTo(2);
-        assertThat(page.getContent()).hasSize(1);
-        assertThat(page.getContent().getFirst().displayKey()).isEqualTo("MODBAR-971");
-        assertThat(page.getContent().getFirst().allowedActions().enableAutomaticAdmission()).isTrue();
-        assertThat(query.detail(newer.getId()).allowedActions().enableAutomaticAdmission()).isTrue();
-
-        installation.setSyncProblem("search page 2 failed");
-        installations.save(installation);
-        assertThat(query.detail(newer.getId()).allowedActions().enableAutomaticAdmission()).isFalse();
+        assertThat(myTasks.available()).extracting(PilotTaskView::displayKey)
+                .containsExactly("MODBAR-972", "MODBAR-971");
+        assertThat(myTasks.available()).allMatch(row -> row.allowedActions().select());
+        assertThat(myTasks.triggered().getTotalElements()).isEqualTo(3);
+        assertThat(query.detail(first.getId()).queuePosition()).isNull();
+        assertThat(query.detail(second.getId()).queuePosition()).isEqualTo(1);
+        assertThat(query.detail(third.getId()).queuePosition()).isEqualTo(2);
+        assertThat(query.detail(older.getId()).queuePosition()).isNull();
+        assertThat(query.myTasks(PageRequest.of(0, 1)).triggered().getContent()).hasSize(1);
     }
 
     @Test
@@ -409,6 +411,12 @@ class PilotTaskViewTest {
                 "repository mod-bar");
 
         assertThat(query.detail(task.getId()).jiraUrl()).isNull();
+    }
+
+    private PilotTask withJiraCreated(PilotTask task, String createdAt) {
+        PilotTask stored = tasks.findById(task.getId()).orElseThrow();
+        stored.setJiraCreatedAt(Instant.parse(createdAt));
+        return tasks.save(stored);
     }
 
     private PilotTask eligibleTask(String issueId, String displayKey) {
@@ -422,13 +430,7 @@ class PilotTaskViewTest {
     }
 
     private void admit(PilotTask task, String runId) {
-        PilotInstallation installation = installations.findById(1).orElseGet(PilotInstallation::initial);
-        installation.setAcceptedAuthorityFingerprint(AUTHORITY);
-        installation.setObservedAuthorityFingerprint(AUTHORITY);
-        installation.setSyncComplete(true);
-        installation.setSyncProblem(null);
-        installations.save(installation);
-        var result = admissions.runSelected(new PilotCommands.RunSelected(runId, AUTHORITY,
+        var result = admissions.runSelected(new PilotCommands.RunSelected(runId,
                 List.of(new PilotCommands.Selection(task.getId(), task.getVersion(),
                         PilotAdmissionService.inputFingerprint(task),
                         PilotAdmissionService.destinationFingerprint(task)))));

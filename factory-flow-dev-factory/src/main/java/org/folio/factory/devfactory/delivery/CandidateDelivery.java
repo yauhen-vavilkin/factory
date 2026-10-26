@@ -75,7 +75,7 @@ public class CandidateDelivery {
             int gitTimeoutSeconds) {
         Objects.requireNonNull(verification, "Verification receipt is missing")
                 .requireVerified(executionId, candidate);
-        Objects.requireNonNull(target, "Delivery target is missing").requireAuthorized();
+        Objects.requireNonNull(target, "Delivery target is missing").requireValid();
         if (githubToken == null || githubToken.isBlank())
             throw new DeliveryBlockedException("FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
         if (issueKey == null || !issueKey.matches("[A-Z][A-Z0-9]*-[0-9]+"))
