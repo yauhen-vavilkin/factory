@@ -1,0 +1,45 @@
+# Open questions
+
+Known gaps and ideas that are outside the current scope. Each item says where it came
+from. When you pick one up, move it into a plan; when it is done or dropped, delete it here.
+
+## Coding runtime tuning (later phase)
+
+We tune the agent setup after the Developer Flow UI and UX problems are fixed.
+Source: [manual run review, 2026-10-27](superpowers/plans/2026-10-27-manual-run-review.md).
+
+- **Tools, MCP servers, skills.** The agent has `Bash, Read, Edit, Write, Glob, Grep`
+  (WebFetch is being added). No MCP servers, no skills. Try what helps on real tasks.
+- **Shared instructions for all tasks.** A global instructions file in `config/` was
+  discussed and postponed. Repository instructions come from the repo's own
+  `CLAUDE.md` / `AGENTS.md` once `--bare` is off.
+- **Reading Confluence pages.** The ADR-0013 wiki page is 2 MB of HTML; WebFetch cuts it
+  before the content. The REST URL `/wiki/rest/api/content/<id>?expand=body.storage` is
+  34 KB and works with both WebFetch and `curl`. Decide whether to tell the agent this.
+- **Effort per model.** GLM-5.3 accepts `low`, `high`, `max` (z.ai default and advice for
+  code: `max`); Claude Code sends `high` when no `--effort` is given. Measure `high` against
+  `max` on real coding tasks. Levels for `glm-5.3-flash` are not documented; measure them.
+- **Turn and time limits.** On GLM-5.3, 40 turns ran out during research (MGRAPPS-120).
+  A run with 100 turns wrote the file after 17 minutes.
+- **Task wording.** MGRAPPS-120 asks for values from the "bugfest environment baseline",
+  which the agent cannot reach, so it searches other repositories for a long time. The
+  same task links ADR-0013 twice to `/browse/ADR-0013`, an empty Jira page.
+
+- **Resume after a Factory restart.** A coding attempt that is running when Factory restarts
+  is lost; only the transcript written so far survives. Decide whether attempts should
+  continue or restart on their own.
+
+## Seen in live runs, not fixed
+
+Source: GLM runs of MGRAPPS-120 on 2026-10-27.
+
+- `pilot_attempt.state` stays `QUEUED` while the attempt runs: no code sets `RUNNING`.
+  The UI shows "Working" from the execution instead.
+- After an attempt stops, the execution page still shows "Verify changes" and
+  "Create pull request" as "Waiting", while the engine status is `COMPLETED`.
+- `dev_coding_outcome.json` keeps the CLI's own cost estimate, which prices unknown models
+  at Opus rates ($0.84 where the real GLM cost is $0.32). The UI uses Factory's rate card.
+- `.env` files may still set `FACTORY_DEV_FACTORY_DELIVERY_REPOSITORY`, `_BASE_BRANCH`,
+  `_AUTHORIZED` and `_CREATE_PR`; no code reads them.
+- `docker-compose.yml` passes environment variables by an explicit list, so a new secret
+  variable must be added there too.

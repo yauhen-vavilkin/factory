@@ -183,6 +183,12 @@ No engine, router, or gateway changes — if a change seems to require touching
 - Webhooks (`/api/webhooks/jira`, `/api/webhooks/github`) are unauthenticated
   until `FACTORY_WEBHOOKS_SHARED_SECRET` is set (checked against `?token=`).
 
+## Open questions
+
+`docs/open-questions.md` lists known gaps and ideas that are outside the current scope:
+coding runtime tuning and issues seen in live runs. Read it before you work on the coding
+runtime. Add new out-of-scope findings there instead of fixing them on the side.
+
 ## Testing conventions
 
 - Engine semantics (retry → escalation, poller crash recovery, sub-flow
@@ -219,8 +225,9 @@ No engine, router, or gateway changes — if a change seems to require touching
   extends existing packages/components; every new package or layer carries an explicit
   justification. By the time code exists, its complexity is already approved — the plan
   is where slop is stopped.
-- A UI-bearing feature enters a plan only with a static mockup (HTML or screenshots) in
-  the repo next to the spec, reviewed by the operator before plan approval.
+- Make a static mockup (HTML or screenshots, next to the spec) only when the layout is unclear
+  or the operator should choose between options. Clear UI fixes go straight to code, inside
+  the existing visual system.
 - Plans and significant changes get an adversarial review pass from a fresh-context
   sub-agent critic (which layer does this add, and why) before implementation starts.
 - Surgical changes: touch only what the task needs; clean up only your own mess. Don't
