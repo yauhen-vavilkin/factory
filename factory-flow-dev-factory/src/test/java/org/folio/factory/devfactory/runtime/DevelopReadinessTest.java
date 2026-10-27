@@ -503,6 +503,28 @@ class DevelopReadinessTest {
     }
 
     @Test
+    void aFailedActivityWriteDuringCodingReachesTheRuntimeAndTheAttemptGoesOn() {
+        var audit = mock(AuditLog.class);
+        doThrow(new IllegalStateException("database down"))
+                .when(audit).record(any(), any(), any(), org.mockito.ArgumentMatchers.<Map<String, ?>>any());
+        var harness = pilotHarness(RecordingPilotAttempts.pilot("repo"), CodingTranscripts.none(), audit);
+        var reported = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any())).thenAnswer(call -> {
+            Consumer<Map<String, Object>> progress = call.getArgument(3);
+            // The runtime gets the failure, so it can log it once and note it in the transcript.
+            reported.set(catchThrowable(() -> progress.accept(Map.of("activity", "agent_start"))));
+            return CodingOutcome.needsDecision(new CodingOutcome.Decision(
+                    CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"),
+                    Map.of());
+        });
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(reported.get()).isInstanceOf(IllegalStateException.class).hasMessage("database down");
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("NEEDS_DECISION");
+    }
+
+    @Test
     void aPilotAttemptThatLostItsSlotStopsWithoutAnyStageSideEffect() {
         var pilots = RecordingPilotAttempts.pilot("repo");
         pilots.ownsSlot = false;
@@ -528,6 +550,10 @@ class DevelopReadinessTest {
     }
 
     private PilotHarness pilotHarness(RecordingPilotAttempts pilots, CodingTranscripts transcripts) {
+        return pilotHarness(pilots, transcripts, mock(AuditLog.class));
+    }
+
+    private PilotHarness pilotHarness(RecordingPilotAttempts pilots, CodingTranscripts transcripts, AuditLog audit) {
         var repository = new DevFactoryProperties.Repository(
                 "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
         var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
@@ -555,7 +581,7 @@ class DevelopReadinessTest {
                         Map.of()));
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, codec,
-                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), pilots, transcripts);
+                audit, model -> Map.of(), SelectedRepositoryPreflight.none(), pilots, transcripts);
         return new PilotHarness(docker, scope, baseline, codingWorkload, freezer, coding,
                 new DevelopWorker(attempt, codec), context);
     }

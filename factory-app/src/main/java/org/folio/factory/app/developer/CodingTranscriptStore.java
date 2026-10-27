@@ -17,6 +17,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -123,12 +124,24 @@ public class CodingTranscriptStore implements CodingTranscripts {
             for (int i = 0; i < rows.size(); i++) {
                 var row = rows.get(i);
                 parameters.addAll(List.of(executionId, runId, nextSeq + i, stepId, row.kind(),
-                        OffsetDateTime.ofInstant(row.at(), ZoneOffset.UTC), json.writeValueAsString(row.detail())));
+                        OffsetDateTime.ofInstant(row.at(), ZoneOffset.UTC),
+                        json.writeValueAsString(withoutNul(row.detail()))));
             }
             jdbc.sql("INSERT INTO coding_transcript_entry"
                             + " (execution_id, run_id, seq, step_id, kind, occurred_at, detail) VALUES " + values)
                     .params(parameters)
                     .update();
         }
+    }
+
+    /** PostgreSQL jsonb cannot hold U+0000 and would reject the whole batch, so it becomes U+FFFD. */
+    private static Object withoutNul(Object value) {
+        if (value instanceof String text) return text.replace('\u0000', '\uFFFD');
+        if (value instanceof Map<?, ?> map) {
+            var clean = new LinkedHashMap<Object, Object>();
+            map.forEach((key, item) -> clean.put(key, withoutNul(item)));
+            return clean;
+        }
+        return value;
     }
 }

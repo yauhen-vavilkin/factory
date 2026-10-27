@@ -79,6 +79,23 @@ class CodingTranscriptStoreIntegrationTest {
     }
 
     @Test
+    void aNulCharacterIsReplacedSoItsBatchIsStillSaved() {
+        UUID execution = executions.save(new PipelineExecution("dev-factory", "1", "{}")).getId();
+        try (var sink = store.open(execution, UUID.randomUUID(), "implement")) {
+            sink.add(text("before"));
+            sink.add(new CodingTranscripts.Entry("tool_result", Instant.now(),
+                    Map.of("text", "class file \u0000\u0001 bytes", "error", false,
+                            "nested", Map.of("text", "deep \u0000"))));
+            sink.add(text("char c = '\\u0000';"));
+        }
+        var entries = store.read(execution);
+        assertThat(entries).hasSize(3);
+        assertThat(entries.get(1).detail().path("text").asString()).isEqualTo("class file �\u0001 bytes");
+        assertThat(entries.get(1).detail().path("nested").path("text").asString()).isEqualTo("deep �");
+        assertThat(entries.get(2).detail().path("text").asString()).isEqualTo("char c = '\\u0000';");
+    }
+
+    @Test
     void runsAreReadInTheOrderTheyStartedAndRetentionRemovesThem() {
         UUID execution = executions.save(new PipelineExecution("dev-factory", "1", "{}")).getId();
         UUID later = UUID.fromString("00000000-0000-0000-0000-000000000001");

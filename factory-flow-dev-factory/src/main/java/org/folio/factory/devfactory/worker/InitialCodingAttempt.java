@@ -265,7 +265,9 @@ public final class InitialCodingAttempt {
                                     event -> {
                                         var detail = new LinkedHashMap<String, Object>(event);
                                         detail.put("attemptId", attemptId);
-                                        progress(context, detail);
+                                        // A failed write reaches the runtime, which logs it once and notes
+                                        // it in the transcript.
+                                        recordProgress(context, detail);
                                     },
                                     transcript);
                 }
@@ -416,6 +418,15 @@ public final class InitialCodingAttempt {
     }
 
     private void progress(AgentContext context, Map<String, Object> event) {
+        try {
+            recordProgress(context, event);
+        } catch (RuntimeException e) {
+            // Best-effort progress must not change the coding result.
+            log.warn("Could not record runtime activity for execution {}: {}", context.executionId(), e.getMessage());
+        }
+    }
+
+    private void recordProgress(AgentContext context, Map<String, Object> event) {
         if (audit == null) return;
         Map<String, Object> safe = new LinkedHashMap<>();
         event.forEach(
@@ -425,13 +436,7 @@ public final class InitialCodingAttempt {
                         safe.put(key, text.substring(0, Math.min(240, text.length())));
                     } else safe.put(key, value);
                 });
-        try {
-            audit.record(
-                    context.executionId(), AuditEventType.RUNTIME_PROGRESS, context.stepId(), safe);
-        } catch (RuntimeException e) {
-            // Best-effort progress must not change the coding result.
-            log.warn("Could not record runtime activity for execution {}: {}", context.executionId(), e.getMessage());
-        }
+        audit.record(context.executionId(), AuditEventType.RUNTIME_PROGRESS, context.stepId(), safe);
     }
 
     private String safeRedact(String text) {

@@ -303,6 +303,21 @@ class ClaudeCodeCodingRuntimeTest {
     }
 
     @Test
+    void failedActivityWritesAreNotedOnceInTheTranscript() {
+        var transcript = new ArrayList<CodingTranscripts.Entry>();
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s,
+                e -> { throw new IllegalStateException("database down"); }, transcript::add);
+        (INIT + TOOL_USE + TOOL_RESULT + RESULT).lines().forEach(protocol);
+        assertThat(protocol.outcome(0).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(transcript).filteredOn(entry -> entry.kind().equals("note"))
+                .extracting(entry -> entry.detail().get("text"))
+                .containsExactly("Some activity events could not be saved, so the activity log and this"
+                        + " transcript may be incomplete.");
+        assertThat(transcript).extracting(CodingTranscripts.Entry::kind)
+                .containsSubsequence("tool_call", "tool_result", "result");
+    }
+
+    @Test
     void transcriptKeepsTheConversationInOrderWithoutThinkingOrPartialDeltas() {
         var transcript = new ArrayList<CodingTranscripts.Entry>();
         var protocol = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s.replace("secret-key", "[REDACTED]"),

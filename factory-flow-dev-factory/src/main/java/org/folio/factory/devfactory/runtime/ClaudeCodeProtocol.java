@@ -1,5 +1,7 @@
 package org.folio.factory.devfactory.runtime;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -20,6 +22,7 @@ import java.util.function.UnaryOperator;
  * activity and the transcript; only a single terminal result can complete an attempt.
  */
 final class ClaudeCodeProtocol implements Consumer<String> {
+    private static final Logger log = LoggerFactory.getLogger(ClaudeCodeProtocol.class);
     static final int TOOL_RESULT_LIMIT = 8 * 1024;
     static final int TRANSCRIPT_LIMIT = 5 * 1024 * 1024;
     private static final int MAX_TOOL_NAME_LENGTH = 80;
@@ -42,6 +45,7 @@ final class ClaudeCodeProtocol implements Consumer<String> {
     private boolean initialized;
     private long transcriptSize;
     private boolean transcriptCut;
+    private boolean activityLost;
 
     ClaudeCodeProtocol(String model, UnaryOperator<String> redactor, Consumer<Map<String, Object>> progressListener) {
         this(model, 0, redactor, progressListener, CodingTranscripts.NONE);
@@ -277,8 +281,15 @@ final class ClaudeCodeProtocol implements Consumer<String> {
     private void emitActivity(Map<String, Object> event) {
         try {
             progressListener.accept(event);
-        } catch (RuntimeException ignored) {
-            // Live activity is best effort; it never decides the outcome.
+        } catch (RuntimeException e) {
+            // Live activity is best effort; it never decides the outcome. Log and note it once per run,
+            // so a database outage does not flood the log.
+            if (activityLost) return;
+            activityLost = true;
+            log.warn("Could not save Claude Code activity; later failures in this run are not logged: {}",
+                    redactor.apply(String.valueOf(e.getMessage())));
+            record("note", Map.of("text", "Some activity events could not be saved, so the activity log and"
+                    + " this transcript may be incomplete."));
         }
     }
 
