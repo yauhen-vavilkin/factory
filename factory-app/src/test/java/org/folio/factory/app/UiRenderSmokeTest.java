@@ -2,6 +2,7 @@ package org.folio.factory.app;
 
 import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.pilot.admission.PilotRunSettings;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
@@ -17,7 +18,10 @@ import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
+import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.CodingTranscripts;
+import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.RunProfiles;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +37,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -48,6 +53,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
 
 /**
@@ -111,6 +119,19 @@ class UiRenderSmokeTest {
 
     @MockitoBean
     private DeveloperPreflight developerPreflight;
+
+    /** Real unless a test changes it; Mockito resets it after each test. */
+    @MockitoSpyBean
+    private PilotRunSettings runSettings;
+
+    @Autowired
+    private CodingRuntime codingRuntime;
+
+    @Autowired
+    private DevRuntimeProperties devRuntime;
+
+    @Autowired
+    private RunProfiles.Properties runProfilesFile;
 
     private RestClient rest;
 
@@ -212,8 +233,9 @@ class UiRenderSmokeTest {
                 Map.entry("efforts", List.of("low", "high", "max")), Map.entry("effort", "max"),
                 Map.entry("maxTurns", 100), Map.entry("maxOutputTokens", 16384),
                 Map.entry("checks", List.of(new DeveloperPreflight.Check("secret", DeveloperPreflight.Status.FAIL,
-                        "Profile glm-5.3 is not configured: set FACTORY_ZAI_API_KEY in .env, then run docker"
-                                + " compose up -d again."))));
+                        "Profile glm-5.3 is not configured: set FACTORY_ZAI_API_KEY in .env. If docker-compose.yml"
+                                + " does not pass FACTORY_ZAI_API_KEY to the factory service yet, add it there. Then run"
+                                + " docker compose up -d again."))));
         Map<String, Object> envDefault = Map.ofEntries(Map.entry("id", "env-default"),
                 Map.entry("label", "Configured in .env"), Map.entry("default", true),
                 Map.entry("model", "claude-sonnet-5-5"), Map.entry("endpointOrigin", "http://host.docker.internal:4001"),
@@ -944,6 +966,41 @@ class UiRenderSmokeTest {
                         + " · <span data-not-eligible-count>3</span> not eligible</span>")
                 .containsPattern("data-run-selected\\s+disabled=\"disabled\">Run</button>")
                 .containsPattern("data-select-all\\s+disabled=\"disabled\"");
+    }
+
+    @Test
+    void aProfileWithoutItsSecretIsShownAsNotConfiguredAndCannotBeChosen() {
+        resetPilotData();
+        seedTask("70201", "MODBAR-761", "Eligible task", PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        // The same profiles file, but FACTORY_ZAI_API_KEY is empty.
+        var withoutKey = new PilotRunSettings(codingRuntime,
+                new RunProfiles(devRuntime.coding().claudeCode(), runProfilesFile, name -> ""));
+        doAnswer(call -> withoutKey.form(call.getArgument(0))).when(runSettings).form(any());
+
+        String body = assertRendered("/flows/dev-factory", "My Jira tasks");
+        for (String profile : List.of("glm-5.3\"", "glm-5.3-flash\"")) {
+            assertThat(body).containsPattern("<option value=\"" + Pattern.quote(profile)
+                    + "(?=[^>]*disabled=\"disabled\")[^>]*>GLM-5\\.3( Flash)? \\(Z\\.ai\\) \\(not configured\\)</option>");
+        }
+        assertThat(body).containsPattern("<option value=\"env-default\"(?![^>]*disabled)[^>]*selected=\"selected\"");
+    }
+
+    @Test
+    void piRetryFormHasOnlyTheInstructionsAndNoProfileChoice() {
+        resetPilotData();
+        PilotTask stopped = seedTask("70202", "MODBAR-762", "Stopped task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(stopped, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.STOPPED,
+                "VERIFICATION_FAILED: 2 tests in error");
+        // With the Pi runtime there are no run profiles, so the form has no Profile, Effort and Max turns.
+        doReturn(null).when(runSettings).form(any());
+
+        String body = assertRendered("/tasks/" + stopped.getId(), "Could not complete");
+        assertThat(body).containsPattern("<form class=\"retry-form\" id=\"retry\"")
+                .contains("Instructions for the agent", "name=\"instructions\"", ">Retry</button>")
+                .doesNotContain("name=\"profileId\"", "name=\"effort\"", "name=\"maxTurns\"", "class=\"run-settings\"");
+        assertThat(assertRendered("/flows/dev-factory", "My Jira tasks"))
+                .doesNotContain("name=\"profileId\"", "class=\"run-settings\"");
     }
 
     @Test

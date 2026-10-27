@@ -469,8 +469,13 @@ and PR feedback rounds keep the settings of the run they belong to.
   (the name of the variable that holds the secret; never the secret itself),
   `model`, `efforts`, `default-effort`, `max-turns` and `max-output-tokens`. The
   file ships `glm-5.3` and `glm-5.3-flash` for Z.ai; set `FACTORY_ZAI_API_KEY` in
-  `.env` to use them. A profile whose secret is empty shows as "not configured"
-  and cannot be chosen. To use your own copy, set
+  `.env` to use them. Compose passes only the variables it lists to Factory, so a
+  profile with a new `secret-env` variable also needs that variable in the
+  `environment` of the `factory` service in `docker-compose.yml`, next to
+  `FACTORY_ZAI_API_KEY`. A profile whose secret is empty shows as "not configured"
+  and cannot be chosen. Max turns is from 1 to 500 in the file and in the run form,
+  and so is `FACTORY_CLAUDE_CODE_MAX_TURNS`: a larger value stops `env-default` with
+  a reason that names the variable. To use your own copy, set
   `FACTORY_DEV_FACTORY_RUN_PROFILES_FILE=./config/my-run-profiles.yaml`; it is
   mounted read-only like the repository catalog. An invalid file stops Factory at
   startup with a message that names the profile and the field.
@@ -495,9 +500,12 @@ output, no session persistence and explicitly allowed tools: the local coding to
 and `WebFetch`. Bare mode is off, so `WebFetch` is available, but the CLI loads no
 settings, hooks, plugins or MCP servers (`--setting-sources ""`, an empty strict MCP
 config); auto-memory, background traffic and updates are switched off by
-environment. Without the project setting source the CLI does not load the
-repository's `CLAUDE.md` or `AGENTS.md` by itself, so the prompt tells the agent to
-read and follow them. Factory's rules still win: the agent does not commit, branch,
+environment. `--settings '{"skipWebFetchPreflight":true}'` stops WebFetch from first
+sending each domain to `api.anthropic.com` for a check, so WebFetch also works on a
+network that cannot reach that host, and fetched domain names do not go to a host
+the run's profile does not use. Without the project setting source the CLI does not
+load the repository's `CLAUDE.md` or `AGENTS.md` by itself, so the prompt tells the
+agent to read and follow them. Factory's rules still win: the agent does not commit, branch,
 push, open pull requests or change git configuration. Permission mode is explicitly `dontAsk` with `--permission-prompts none`;
 allowed tools run without a separate model-based permission classifier, and any
 remaining permission request is denied without waiting. It works under the

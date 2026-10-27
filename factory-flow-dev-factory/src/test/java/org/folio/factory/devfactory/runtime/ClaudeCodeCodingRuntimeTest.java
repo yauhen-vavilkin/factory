@@ -77,6 +77,8 @@ class ClaudeCodeCodingRuntimeTest {
                             .containsSubsequence("--permission-mode", "dontAsk", "--permission-prompts", "none")
                             .contains("--print", "stream-json", "--include-partial-messages", "--no-session-persistence", "--allowedTools")
                             .containsSubsequence("--setting-sources", "", "--strict-mcp-config")
+                            // WebFetch must not send each domain to api.anthropic.com for a check first.
+                            .containsSubsequence("--settings", "{\"skipWebFetchPreflight\":true}")
                             .containsSubsequence("--tools", "Bash,Read,Edit,Write,Glob,Grep,WebFetch",
                                     "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep,WebFetch")
                             .containsSubsequence("--max-turns", "10", "--effort", "high")
@@ -149,7 +151,8 @@ class ClaudeCodeCodingRuntimeTest {
         assertThatThrownBy(() -> runtime.requireConfigured(
                 new CodingRequest.RunSettings("glm-5.3", null, null, null)))
                 .isInstanceOf(RunProfiles.ProfileException.class)
-                .hasMessage("Profile glm-5.3 is not configured: set FACTORY_ZAI_API_KEY in .env, then run"
+                .hasMessage("Profile glm-5.3 is not configured: set FACTORY_ZAI_API_KEY in .env. If docker-compose.yml"
+                        + " does not pass FACTORY_ZAI_API_KEY to the factory service yet, add it there. Then run"
                         + " docker compose up -d again.");
         // A broken extra profile does not stop runs with the default profile.
         runtime.requireConfigured(null);

@@ -55,8 +55,41 @@ class RunProfilesTest {
         assertThat(profiles.find("glm-5.3").orElseThrow().configured()).isFalse();
         assertThatThrownBy(() -> profiles.choose("glm-5.3", "max", "100", null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("Profile glm-5.3 is not configured: set FACTORY_ZAI_API_KEY in .env, then run docker"
-                        + " compose up -d again.");
+                .hasMessage("Profile glm-5.3 is not configured: set FACTORY_ZAI_API_KEY in .env. If docker-compose.yml"
+                        + " does not pass FACTORY_ZAI_API_KEY to the factory service yet, add it there. Then run"
+                        + " docker compose up -d again.");
+    }
+
+    @Test
+    void envDefaultWithAnEmptySecretNamesOnlyEnvBecauseComposeAlreadyPassesItsVariables() {
+        var env = new DevRuntimeProperties.ClaudeCode(null, null, null, null, "api-key", null, null, 40, 16384, null);
+
+        assertThat(RunProfiles.envOnly(env).defaultProfile().problem())
+                .isEqualTo("Profile env-default is not configured: set FACTORY_CLAUDE_CODE_API_KEY in .env, then run"
+                        + " docker compose up -d again.");
+    }
+
+    @Test
+    void envMaxTurnsAbove500StopsEnvDefaultWithAReasonThatPointsToEnv() throws Exception {
+        var env = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway.example:4001", "claude-sonnet-5-5",
+                "bearer-token", null, "legacy-token", 600, 16384, null);
+        var profiles = new RunProfiles(env, committedFile(), name -> "zai-secret");
+        var runtime = new ClaudeCodeCodingRuntime(env, profiles);
+
+        assertThat(profiles.defaultProfile().configured()).isFalse();
+        assertThatThrownBy(() -> runtime.requireConfigured(null))
+                .isInstanceOf(RunProfiles.ProfileException.class)
+                .hasMessage("Profile env-default cannot run: FACTORY_CLAUDE_CODE_MAX_TURNS is 600, but it must be"
+                        + " from 1 to 500. Fix the FACTORY_CLAUDE_CODE_* settings in .env, then run docker compose"
+                        + " up -d again.");
+        // The broken default does not block a run with another profile.
+        runtime.requireConfigured(new CodingRequest.RunSettings("glm-5.3", null, null, null));
+        var limit = new DevRuntimeProperties.ClaudeCode(null, null, null, null, null, null, null, 500, 16384, null);
+        assertThat(RunProfiles.envOnly(limit).defaultProfile().configured()).isTrue();
+        // A value chosen in a run form and stored on the attempt is still checked against the limit.
+        assertThatThrownBy(() -> profiles.resolve(new CodingRequest.RunSettings("glm-5.3", null, 501, null)))
+                .isInstanceOf(RunProfiles.ProfileException.class)
+                .hasMessageContaining("Max turns for profile glm-5.3 must be from 1 to 500");
     }
 
     @Test

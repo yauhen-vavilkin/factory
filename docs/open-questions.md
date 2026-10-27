@@ -18,8 +18,14 @@ Source: [manual run review, 2026-10-27](superpowers/plans/2026-10-27-manual-run-
   local capture server: 0 requests with the file text; with `--setting-sources project`
   all 4 requests had it). The project source would also load the repository's
   `.claude/settings.json` (env such as `ANTHROPIC_BASE_URL`, hooks, `apiKeyHelper`), which
-  could send the secret elsewhere, so it stays off. For now the prompt tells the agent to
-  read and follow the files. Decide whether Factory should pass them in itself.
+  could send the secret elsewhere, so it stays off. So item 12 of the
+  [developer flow fixes](superpowers/specs/2026-10-27-developer-flow-fixes.md) is met only
+  partly: the CLI does not load the files, and a prompt line asks the agent to read and
+  follow them, which the agent can skip. The prompt is shared, so Pi prompts got this line
+  too (and, as the spec asks, the "Factory's rules win" line and the operator instructions
+  block). Option: Factory reads `CLAUDE.md`, or `AGENTS.md` when there is none, from the
+  frozen workspace and passes it in itself (`--append-system-prompt` or a titled prompt
+  block, with a size cap). Operator decision.
 - **Reading Confluence pages.** The ADR-0013 wiki page is 2 MB of HTML; WebFetch cuts it
   before the content. The REST URL `/wiki/rest/api/content/<id>?expand=body.storage` is
   34 KB and works with both WebFetch and `curl`. Decide whether to tell the agent this.

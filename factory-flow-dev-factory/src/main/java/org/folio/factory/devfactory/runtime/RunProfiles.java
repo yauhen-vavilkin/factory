@@ -57,8 +57,11 @@ public final class RunProfiles {
                           int maxOutputTokens, String invalid) {
         public String problem() {
             if (secret == null || secret.isBlank()) {
-                return "Profile " + id + " is not configured: set " + secretVariable
-                        + " in .env, then run docker compose up -d again.";
+                // Compose passes only the variables it lists to Factory, so a new secret-env must be listed too.
+                return "Profile " + id + " is not configured: set " + secretVariable + " in .env"
+                        + (ENV_DEFAULT.equals(id) ? ", then run" : ". If docker-compose.yml does not pass "
+                                + secretVariable + " to the factory service yet, add it there. Then run")
+                        + " docker compose up -d again.";
             }
             return invalid;
         }
@@ -191,12 +194,14 @@ public final class RunProfiles {
             throw new ProfileException("Profile " + id + " no longer allows effort " + effort + ". Fix "
                     + FILE + ", or retry the task with another effort.");
         }
-        int turns = settings == null || settings.maxTurns() == null ? profile.maxTurns() : settings.maxTurns();
-        if (turns < 1 || turns > MAX_TURNS) {
+        // A profile's own turn limit is checked with the profile (see problem()); only a chosen value is checked here.
+        Integer chosen = settings == null ? null : settings.maxTurns();
+        if (chosen != null && (chosen < 1 || chosen > MAX_TURNS)) {
             throw new ProfileException("Max turns for profile " + id + " must be from 1 to " + MAX_TURNS
                     + ". Retry the task with another value.");
         }
-        return new Run(profile, effort, turns, settings == null ? null : settings.instructions());
+        return new Run(profile, effort, chosen == null ? profile.maxTurns() : chosen,
+                settings == null ? null : settings.instructions());
     }
 
     /** Replaces the secret of every profile, and both legacy Claude Code credentials. */

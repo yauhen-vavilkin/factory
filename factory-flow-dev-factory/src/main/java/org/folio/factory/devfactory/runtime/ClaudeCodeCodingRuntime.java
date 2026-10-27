@@ -124,13 +124,16 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
 
     /**
      * Without --bare the CLI offers WebFetch. With no setting sources it still loads no settings, hooks or
-     * plugins from the repository or the home directory, and no MCP server.
+     * plugins from the repository or the home directory, and no MCP server. Settings given by --settings
+     * always load: they stop WebFetch from first sending each domain to api.anthropic.com for a check, which
+     * fails where that host cannot be reached and is not part of the profile's endpoint.
      */
     private static List<String> command(RunProfiles.Run run) {
         var command = new ArrayList<>(List.of("/bin/sh", "-c",
                 "set -a; . " + INPUT + "/environment; set +a; exec \"$@\" < " + INPUT + "/task.txt", "--",
                 "claude", "--print", "--output-format", "stream-json", "--verbose",
-                "--include-partial-messages", "--no-session-persistence", "--setting-sources", "", "--strict-mcp-config",
+                "--include-partial-messages", "--no-session-persistence", "--setting-sources", "",
+                "--settings", "{\"skipWebFetchPreflight\":true}", "--strict-mcp-config",
                 "--mcp-config", "{\"mcpServers\":{}}", "--tools", TOOLS, "--allowedTools", TOOLS,
                 "--permission-mode", "dontAsk", "--permission-prompts", "none",
                 "--model", run.profile().model(), "--max-turns", Integer.toString(run.maxTurns())));

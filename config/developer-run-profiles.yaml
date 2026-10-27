@@ -3,8 +3,11 @@
 # FACTORY_CLAUDE_CODE_* settings. The profiles below are extra.
 #
 # secret-env names the environment variable that holds the profile's secret. Put the secret in
-# .env, never in this file. A profile whose secret is empty shows as "not configured" and cannot
-# be chosen. Valid efforts: low, medium, high, xhigh, max; default-effort must be in efforts.
+# .env, never in this file. Docker Compose passes only the variables it lists to Factory: when you
+# add a profile with a new secret-env variable, also add that variable to the environment of the
+# factory service in docker-compose.yml, next to FACTORY_ZAI_API_KEY. A profile whose secret is
+# empty shows as "not configured" and cannot be chosen. max-turns is from 1 to 500.
+# Valid efforts: low, medium, high, xhigh, max; default-effort must be in efforts.
 # The default profile for runs is FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE (empty: env-default).
 # To use your own copy of this file, set FACTORY_DEV_FACTORY_RUN_PROFILES_FILE in .env.
 factory:
