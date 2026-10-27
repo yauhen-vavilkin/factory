@@ -141,6 +141,21 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void unhashedAndUnknownHashUrlsAreNotCachedForAYear() {
+        for (String path : List.of("/css/app.css", "/js/poll.js")) {
+            ResponseEntity<String> asset = rest.get().uri(path).retrieve().toEntity(String.class);
+            assertThat(asset.getStatusCode()).as(path).isEqualTo(HttpStatus.OK);
+            assertThat(asset.getHeaders().getCacheControl()).as(path).isNull();
+        }
+
+        ResponseEntity<String> missing = rest.get().uri("/css/app-" + "0".repeat(32) + ".css").retrieve()
+                .onStatus(status -> true, (request, response) -> { })
+                .toEntity(String.class);
+        assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(missing.getHeaders().getCacheControl()).isNull();
+    }
+
+    @Test
     void developerConfigurationOverviewRequestsAnIssueKey() {
         String body = renderDeveloperConfiguration(null, DeveloperPreflight.Status.NOT_RUN);
 
