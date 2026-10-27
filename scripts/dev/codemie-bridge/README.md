@@ -30,7 +30,9 @@ The script is idempotent. The client key is generated once in
 the repository). To rotate it, delete that file, run the script with `-Stop`, start it again and
 re-run with `-UpdateEnv`. `-UpdateEnv` writes `FACTORY_PI_BASE_URL` and `FACTORY_PI_API_KEY`;
 recreate the Factory container afterwards (`docker compose up -d`) so it re-reads `.env`.
-The SSO session lasts about a day; re-running the script after it expires signs in again.
+The SSO session lasts about a day. Re-running the script checks it with `codemie profile status`; when
+the session is missing or expired, the script opens the browser sign-in (`codemie profile login`), then
+restarts the proxy and the bridge, because they hold the old credential.
 By default the script uses the CLI's own `~/.codemie` profile; `-CodemieHome <dir>` keeps a
 dedicated profile and its SSO credential elsewhere, for example
 `-State $env:LOCALAPPDATA\factory-codemie -CodemieHome $env:LOCALAPPDATA\factory-codemie\codemie`.

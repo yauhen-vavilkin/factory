@@ -103,19 +103,40 @@ if ($cliVersion -lt $MinCliVersion) {
 }
 
 # --- 1. CodeMie proxy daemon and its SSO session ----------------------------------------
-# The daemon can outlive its session, keep listening and fail every request. Its status file
-# reports "unhealthy" in that case; a quiet file only means the first probe has not landed.
+# `codemie profile status` exits 0 even when there is no usable session, so its text is judged.
+# Anything it prints that is not a known failure counts as signed in, so an unfamiliar wording
+# never forces a sign-in. Returns the failure text, or $null when signed in.
+function Get-SsoFailure {
+  $text = ((Invoke-Native { & $codemie profile status 2>&1 }) | Out-String)
+  if ($text -match 'Authentication required|No SSO credentials|not authenticated|(session|credentials?|token)s? (has |have |is |are )?expired') { return $text }
+  $null
+}
+
+# Opens the browser sign-in (the CLI does it) for the URL the status text asks for.
+function Invoke-SsoLogin {
+  param([string]$StatusText)
+  $url = [regex]::Match($StatusText, 'profile login --url (\S+)')
+  Write-Host 'CodeMie SSO session is missing or expired: opening the browser sign-in.'
+  if ($url.Success) { Invoke-Native { & $codemie profile login --url $url.Groups[1].Value } }
+  else { Invoke-Native { & $codemie profile login } }
+  if ($LASTEXITCODE -ne 0) { throw 'CodeMie SSO login failed' }
+  if (Get-SsoFailure) { throw 'CodeMie still reports no usable SSO session after the sign-in' }
+}
+
+# A proxy daemon that is still listening after its session died fails every request, and its status
+# file may still say "ok" (it is only rewritten on a probe), so the session is checked directly.
+$failure = Get-SsoFailure
+if ($failure) { Invoke-SsoLogin $failure }
 $daemon = Get-Daemon
-$expired = (Test-Loopback $ProxyPort) -and $daemon -and ($daemon.health -eq 'unhealthy')
+$expired = [bool]$failure -or ((Test-Loopback $ProxyPort) -and $daemon -and ($daemon.health -eq 'unhealthy'))
 $proxyRestarted = $false
 if (-not (Test-Loopback $ProxyPort) -or $expired) {
-  if ($expired) { Write-Host "CodeMie proxy session expired: $($daemon.healthReason)" }
-  Write-Host 'Starting the CodeMie proxy (browser SSO sign-in if the session is gone).'
+  if ($expired -and $daemon -and $daemon.health -eq 'unhealthy') { Write-Host "CodeMie proxy session expired: $($daemon.healthReason)" }
+  Write-Host 'Starting the CodeMie proxy.'
   Invoke-Native { & $codemie proxy stop 2>&1 | Out-Null }
   Invoke-Native { & $codemie proxy start 2>&1 | Out-Null }
   if ($LASTEXITCODE -ne 0) {
-    Invoke-Native { & $codemie profile login }
-    if ($LASTEXITCODE -ne 0) { throw 'CodeMie SSO login failed' }
+    Invoke-SsoLogin ''
     Invoke-Native { & $codemie proxy start 2>&1 | Out-Null }
     if ($LASTEXITCODE -ne 0) { throw 'CodeMie proxy failed to start' }
   }
