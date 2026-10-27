@@ -95,7 +95,7 @@ class DeveloperPreflightTest {
     @AfterEach
     void neverInvokesCoding() {
         verify(coding, never()).code(any(), any(), anyInt());
-        verify(coding, never()).code(any(), any(), anyInt(), any());
+        verify(coding, never()).code(any(), any(), anyInt(), any(), any());
     }
 
     @Test

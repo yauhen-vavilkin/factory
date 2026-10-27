@@ -1,5 +1,6 @@
 package org.folio.factory.app;
 
+import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
@@ -16,6 +17,7 @@ import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
+import org.folio.factory.devfactory.runtime.CodingTranscripts;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +40,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.thymeleaf.ITemplateEngine;
 import org.thymeleaf.context.Context;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -99,6 +102,9 @@ class UiRenderSmokeTest {
 
     @Autowired
     private ITemplateEngine templateEngine;
+
+    @Autowired
+    private CodingTranscriptStore transcripts;
 
     @MockitoBean
     private DeveloperPreflight developerPreflight;
@@ -392,6 +398,15 @@ class UiRenderSmokeTest {
                         "reasoning", "HIDDEN_REASONING_SENTINEL"));
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of("costUsd", 0));
         String body = assertRendered("/executions/" + execution.getId(), "Developer Flow");
+        String activityPanel = body.substring(body.indexOf("<section class=\"run-panel run-activity\""),
+                body.indexOf("<section class=\"run-panel run-usage\""));
+        assertThat(activityPanel)
+                .contains("Runtime log, oldest first · last 20 events",
+                        "href=\"/executions/" + execution.getId() + "/transcript\">Transcript</a>",
+                        "href=\"/audit?executionId=" + execution.getId() + "\">Audit events</a>",
+                        "aria-label=\"Runtime activity, oldest first\"", "Running mvn test")
+                .containsPattern("<time title=\"\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\">\\d{2}:\\d{2}:\\d{2}</time>")
+                .doesNotContain("newest first", ">full log<");
         assertThat(body).contains("MODSIDECAR-196", "17 tests executed", "mvn test", "DELIVERY_BLOCKED",
                 "Safe destination missing", "class=\"task-key\">MODSIDECAR-196</span>",
                 "auditTrail.length,artifacts.length", "Prepare task", "Implement changes", "Verify changes",
@@ -404,6 +419,77 @@ class UiRenderSmokeTest {
                         "SOURCE_CONTENT_SENTINEL", "HIDDEN_MESSAGE_SENTINEL",
                         "HIDDEN_REASONING_SENTINEL", ">Baseline<",
                         "Baseline output tail", "Pinned base SHA", "Run starting build and Pi");
+    }
+
+    @Test
+    void transcriptPageShowsEachRunWithACollapsedPromptAndToolCallsWithTheirResults() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        Instant at = Instant.parse("2026-10-27T09:15:30Z");
+        try (var sink = transcripts.open(execution.getId(), UUID.randomUUID(), "implement")) {
+            sink.add(new CodingTranscripts.Entry("prompt", at, Map.of("text", "Implement MODBAR-1 <now>")));
+            sink.add(new CodingTranscripts.Entry("text", at.plusSeconds(1),
+                    Map.of("text", "I will run the tests", "thinking", "HIDDEN_REASONING_SENTINEL")));
+            sink.add(new CodingTranscripts.Entry("tool_call", at.plusSeconds(2),
+                    Map.of("id", "t1", "tool", "Bash", "input", "{ \"command\" : \"mvn test\" }")));
+            sink.add(new CodingTranscripts.Entry("tool_result", at.plusSeconds(5),
+                    Map.of("id", "t1", "tool", "Bash", "error", true, "durationMs", 3200,
+                            "text", "BUILD FAILURE\n[cut: 120 more characters]")));
+            sink.add(new CodingTranscripts.Entry("result", at.plusSeconds(6), Map.of("subtype", "success",
+                    "error", false, "text", "Done", "turns", 4, "durationMs", 6000,
+                    "usage", Map.of("inputTokens", 1200, "outputTokens", 80))));
+            sink.add(new CodingTranscripts.Entry("note", at.plusSeconds(7),
+                    Map.of("text", "Transcript cut at 5 MB; the attempt went on.")));
+        }
+
+        String body = assertRendered("/executions/" + execution.getId() + "/transcript", "Transcript");
+        assertThat(body)
+                .contains("Run 1 · Implementation", "Started 2026-10-27 09:15:30 UTC",
+                        "<summary>Prompt sent to the agent</summary>", "Implement MODBAR-1 &lt;now&gt;",
+                        "I will run the tests", "<strong>Bash</strong>", "failed", "3s",
+                        "{ &quot;command&quot; : &quot;mvn test&quot; }", "BUILD FAILURE",
+                        "[cut: 120 more characters]", "<strong>Final result</strong>",
+                        "4 turns · 6s · 1,200 input tokens · 80 output tokens",
+                        "Transcript cut at 5 MB; the attempt went on.",
+                        "<time title=\"2026-10-27 09:15:32\">09:15:32</time>",
+                        "href=\"/executions/" + execution.getId() + "\"")
+                .doesNotContain("<details open", "HIDDEN_REASONING_SENTINEL", "<now>");
+
+        var empty = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        assertThat(assertRendered("/executions/" + empty.getId() + "/transcript", "Transcript"))
+                .contains("No transcript was stored for this run.");
+    }
+
+    @Test
+    void codingFailureReasonsReachTheTaskScreensAndTheRunPage() {
+        resetPilotData();
+        String turnLimit = "Claude Code used all 40 turns before it finished the task."
+                + " Retry with more turns or a different effort.";
+        PilotTask stopped = seedTask("70081", "MODBAR-781", "Turn limit task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution execution = new PipelineExecution("dev-factory", "0.8.0", "{}");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        execution = executions.save(execution);
+        artifactStore.putMarkdown(execution.getId(), "dev_result.json",
+                "{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"" + turnLimit + "\"}", "verify");
+        PilotAttempt attempt = seedAttempt(stopped, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.STOPPED,
+                "DEVELOPMENT_FAILED: " + turnLimit);
+        attempt.setExecutionId(execution.getId());
+        pilotAttempts.save(attempt);
+        PilotTask provider = seedTask("70082", "MODBAR-782", "Provider task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(provider, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.STOPPED,
+                "shared: DEVELOPMENT_FAILED: Claude Code stopped with an error (subtype success, API status 429)."
+                        + " Check the provider and the Developer Flow settings, then retry. Error: API Error: 429");
+
+        String expected = "Implementation failed: " + turnLimit.substring(0, turnLimit.length() - 1);
+        assertThat(assertRendered("/flows/dev-factory", "My Jira tasks"))
+                .contains(expected, "Implementation failed: Claude Code stopped with an error"
+                        + " (subtype success, API status 429). Check the provider and the Developer Flow settings,"
+                        + " then retry. Error: API Error: 429");
+        assertThat(assertRendered("/tasks/" + stopped.getId(), "Could not complete"))
+                .contains(expected + ". No pull request was created.");
+        assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
+                .contains("Stop reason: " + turnLimit);
     }
 
     @Test

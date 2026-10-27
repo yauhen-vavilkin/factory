@@ -35,6 +35,7 @@ import org.folio.factory.devfactory.repository.GitBaseRefResolver;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
+import org.folio.factory.devfactory.runtime.CodingTranscripts;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.PiCodingRuntime;
@@ -107,7 +108,8 @@ public class DevFactoryConfiguration {
             AuditLog audit,
             ObjectProvider<AttemptPricing> pricing,
             ObjectProvider<SelectedRepositoryPreflight> repositoryPreflight,
-            ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
+            ObjectProvider<PilotAttemptPolicy> pilotPolicy,
+            ObjectProvider<CodingTranscripts> transcripts) {
         return new InitialCodingAttempt(
                 properties,
                 runtime,
@@ -118,7 +120,8 @@ public class DevFactoryConfiguration {
                 audit,
                 pricing.getIfAvailable(() -> model -> Map.of()),
                 repositoryPreflight.getIfAvailable(SelectedRepositoryPreflight::none),
-                pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
+                pilotPolicy.getIfAvailable(PilotAttemptPolicy::none),
+                transcripts.getIfAvailable(CodingTranscripts::none));
     }
 
     @Bean
@@ -323,7 +326,8 @@ public class DevFactoryConfiguration {
             FeedbackGit git,
             StateManager state,
             AuditLog audit,
-            ObjectProvider<AttemptPricing> pricing) {
+            ObjectProvider<AttemptPricing> pricing,
+            ObjectProvider<CodingTranscripts> transcripts) {
         return new FeedbackWorker(
                 repositories,
                 delivery,
@@ -337,6 +341,7 @@ public class DevFactoryConfiguration {
                 git,
                 state,
                 audit,
-                pricing.getIfAvailable(() -> model -> Map.of()));
+                pricing.getIfAvailable(() -> model -> Map.of()),
+                transcripts.getIfAvailable(CodingTranscripts::none));
     }
 }

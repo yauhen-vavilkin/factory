@@ -35,7 +35,7 @@ final class CodingProtocol {
             if (detail.contains("\n") || detail.contains("\r"))
                 return CodingOutcome.failed(
                         "INVALID_DECISION_RESULT",
-                        runtime + " returned an invalid decision request",
+                        runtime + " asked for a decision, but Factory could not read the request. Retry the task.",
                         metrics);
             try {
                 var decision = JSON.readTree(detail);
@@ -52,7 +52,7 @@ final class CodingProtocol {
             } catch (RuntimeException e) {
                 return CodingOutcome.failed(
                         "INVALID_DECISION_RESULT",
-                        runtime + " returned an invalid decision request",
+                        runtime + " asked for a decision, but Factory could not read the request. Retry the task.",
                         metrics);
             }
         }

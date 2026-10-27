@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Transcript', activeNav='executions', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="dev-page">
+        <div class="dev-heading">
+            <nav class="dev-breadcrumb" aria-label="Breadcrumb"><a th:href="@{/flows/dev-factory}">Developer Flow</a>
+                /
+                <th:block th:if="${pilotRun != null}"><a th:href="@{'/tasks/' + ${pilotRun['taskId']}}"
+                                                         th:text="${pilotRun['key']}">KEY-1</a> / </th:block>
+                <a th:href="@{'/executions/' + ${execution.id}}"
+                   th:text="'run ' + ${#strings.substring(execution.id.toString(), 0, 4)} + '…'">run</a>
+                / Transcript</nav>
+            <h1 class="dev-title">Transcript</h1>
+            <p class="dev-note">What the coding agent received and did in each coding run, oldest first. Secrets
+                are removed. The agent's hidden reasoning is never stored.</p>
+        </div>
+
+        <p class="muted" th:if="${#lists.isEmpty(runs)}">No transcript was stored for this run. Factory keeps
+            transcripts for Claude Code runs only.</p>
+
+        <section class="run-panel" th:each="run : ${runs}" th:attr="aria-label=${run['label']}">
+            <div class="run-panel-head">
+                <h2 class="dev-section-title" th:text="${run['label']}">Run 1 · Implementation</h2>
+                <span th:text="'Started ' + ${run['started']} + ' UTC'">Started</span>
+            </div>
+            <ol class="transcript-list">
+                <li th:each="entry : ${run['entries']}" th:attr="data-kind=${entry['kind']}">
+                    <time th:title="${entry['timeTitle']}" th:text="${entry['time']}">00:00:00</time>
+                    <div class="transcript-body">
+                        <details th:if="${entry['kind'] == 'prompt'}">
+                            <summary>Prompt sent to the agent</summary>
+                            <pre class="code-block transcript-text" th:text="${entry['text']}">prompt</pre>
+                        </details>
+                        <p class="transcript-text" th:if="${entry['kind'] == 'text'}" th:text="${entry['text']}">text</p>
+                        <th:block th:if="${entry['kind'] == 'tool'}">
+                            <p class="transcript-head"><strong th:text="${entry['tool']}">Bash</strong><th:block
+                                    th:if="${entry['hasResult']}"> · <span th:text="${entry['error']} ? 'failed' : 'done'">done</span></th:block><th:block
+                                    th:if="${entry['duration'] != null}"> · <span th:text="${entry['duration']}">1s</span></th:block></p>
+                            <th:block th:unless="${#strings.isEmpty(entry['input'])}">
+                                <span class="transcript-label">Input</span>
+                                <pre class="code-block" th:text="${entry['input']}">input</pre>
+                            </th:block>
+                            <th:block th:if="${entry['hasResult']}">
+                                <span class="transcript-label">Result</span>
+                                <pre class="code-block transcript-text" th:text="${entry['result']}">result</pre>
+                            </th:block>
+                            <p class="dev-note" th:unless="${entry['hasResult']}">No result was recorded for this call.</p>
+                        </th:block>
+                        <th:block th:if="${entry['kind'] == 'result'}">
+                            <p class="transcript-head"><strong>Final result</strong> · <span
+                                    th:text="${entry['subtype']}">success</span><th:block
+                                    th:unless="${#strings.isEmpty(entry['facts'])}"> · <span
+                                    th:text="${entry['facts']}">facts</span></th:block></p>
+                            <pre class="code-block transcript-text" th:unless="${#strings.isEmpty(entry['text'])}"
+                                 th:text="${entry['text']}">answer</pre>
+                        </th:block>
+                        <p class="dev-note" th:if="${entry['kind'] == 'note'}" th:text="${entry['text']}">note</p>
+                    </div>
+                </li>
+            </ol>
+        </section>
+    </div>
+</section>
+</body>
+</html>

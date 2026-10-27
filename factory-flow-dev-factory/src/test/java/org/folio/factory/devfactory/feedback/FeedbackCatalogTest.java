@@ -103,7 +103,7 @@ class FeedbackCatalogTest {
             verify(gateway, never()).comments(any());
         }
         verify(coding, never()).code(any(), any(), anyInt());
-        verify(coding, never()).code(any(), any(), anyInt(), any());
+        verify(coding, never()).code(any(), any(), anyInt(), any(), any());
         verifyNoInteractions(freezer);
     }
 

@@ -5,20 +5,23 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** One stateless print-mode session in the existing Factory-owned coding workload. */
 public final class ClaudeCodeCodingRuntime implements CodingRuntime {
     public static final String VERSION = "2.1.287";
-    static final int EVENT_STREAM_LIMIT = 16 * 1024 * 1024;
     private static final String INPUT = "/tmp/factory-claude";
     private static final String TOOLS = "Bash,Read,Edit,Write,Glob,Grep";
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final Logger log = LoggerFactory.getLogger(ClaudeCodeCodingRuntime.class);
     private final DevRuntimeProperties.ClaudeCode config;
 
     public ClaudeCodeCodingRuntime(DevRuntimeProperties.ClaudeCode config) { this.config = config; }
@@ -47,32 +50,48 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
 
     @Override public CodingOutcome code(DockerWorkloads.Workload workload, CodingRequest request, int timeoutSeconds,
                                         Consumer<Map<String, Object>> progress) {
+        return code(workload, request, timeoutSeconds, progress, CodingTranscripts.NONE);
+    }
+
+    @Override public CodingOutcome code(DockerWorkloads.Workload workload, CodingRequest request, int timeoutSeconds,
+                                        Consumer<Map<String, Object>> progress, CodingTranscripts.Sink transcript) {
         requireConfigured();
         request.requireReady();
-        var version = workload.execute(List.of("claude", "--version"), 30);
-        if (version.exitCode() != 0 || !version.output().strip().equals(VERSION + " (Claude Code)"))
-            return CodingOutcome.failed("RUNTIME_VERSION", "Coding image must contain Claude Code " + VERSION, Map.of());
-        var temporary = CandidateFreezer.temporary("factory-dev-claude-");
-        var observer = new ClaudeCodeProtocol(config.model(), this::redact, progress);
+        var protocol = new ClaudeCodeProtocol(config.model(), config.maxTurns(), this::redact, progress, transcript);
+        Path temporary = null;
         try {
+            var version = workload.execute(List.of("claude", "--version"), 30);
+            if (version.exitCode() != 0 || !version.output().strip().equals(VERSION + " (Claude Code)"))
+                return protocol.fail("RUNTIME_VERSION", "The coding image does not contain Claude Code " + VERSION
+                        + ". Build the coding image again or fix the image name in the Developer Flow settings,"
+                        + " then retry.");
+            temporary = CandidateFreezer.temporary("factory-dev-claude-");
+            String prompt = CodingProtocol.prompt(request);
             Files.writeString(temporary.resolve("environment"), environment());
             Files.setPosixFilePermissions(temporary.resolve("environment"), PosixFilePermissions.fromString("rw-------"));
-            Files.writeString(temporary.resolve("task.txt"), CodingProtocol.prompt(request));
+            Files.writeString(temporary.resolve("task.txt"), prompt);
             workload.execute(List.of("mkdir", "-p", INPUT), 30).requireSuccess();
             workload.copy(temporary.resolve(".").toString(), INPUT);
-            var execution = workload.execute(command(), timeoutSeconds, EVENT_STREAM_LIMIT, observer);
-            // Re-parse authoritative stdout. Best-effort progress callbacks cannot authorize success.
-            var protocol = new ClaudeCodeProtocol(config.model(), this::redact, event -> {});
-            execution.output().lines().forEach(protocol);
-            return protocol.outcome(execution.exitCode());
+            protocol.prompt(prompt);
+            var run = workload.stream(command(), timeoutSeconds, this::redact, line -> {
+                protocol.accept(line);
+                return !protocol.failed();
+            });
+            return protocol.outcome(run, timeoutSeconds);
         } catch (IOException | RuntimeException e) {
-            // Transport/CLI diagnostics can echo credentials or request bodies; never persist them.
-            return CodingOutcome.failed("RUNTIME_ERROR", "Claude Code input or execution failed; the attempt may be incomplete",
-                    observer.metrics());
+            // Diagnostics can echo request bodies: they go to the log redacted, never into the stored reason.
+            log.warn("Claude Code could not run in the coding container: {}", redact(String.valueOf(e.getMessage())));
+            return protocol.fail("RUNTIME_ERROR", "Factory could not prepare or start Claude Code in the coding"
+                    + " container. Check that Docker is running and the coding image exists, then retry. The"
+                    + " Factory log has the details.");
         } finally {
             CandidateFreezer.cleanup(temporary);
             // Only adapter input, outside the exported workspace. Caller still owns stop/export/close.
-            workload.execute(List.of("rm", "-rf", INPUT), 30);
+            try {
+                workload.execute(List.of("rm", "-rf", INPUT), 30);
+            } catch (RuntimeException ignored) {
+                // The caller removes the whole container.
+            }
         }
     }
 

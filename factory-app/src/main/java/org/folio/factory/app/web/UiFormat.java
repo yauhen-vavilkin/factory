@@ -24,6 +24,8 @@ final class UiFormat {
 
     private static final DateTimeFormatter TIMESTAMP =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC);
+    private static final DateTimeFormatter CLOCK =
+            DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneOffset.UTC);
 
     private UiFormat() {
     }
@@ -31,6 +33,11 @@ final class UiFormat {
     /** Formats an instant as {@code yyyy-MM-dd HH:mm:ss} UTC, or {@code null} when the instant is null. */
     static String format(Instant instant) {
         return instant == null ? null : TIMESTAMP.format(instant);
+    }
+
+    /** Formats an instant as {@code HH:mm:ss} UTC for dense logs; the full value goes in a title attribute. */
+    static String clock(Instant instant) {
+        return instant == null ? null : CLOCK.format(instant);
     }
 
     static String abbreviate(String value) {

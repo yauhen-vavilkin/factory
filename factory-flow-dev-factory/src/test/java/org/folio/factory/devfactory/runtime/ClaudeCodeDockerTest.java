@@ -119,9 +119,21 @@ class ClaudeCodeDockerTest {
             assertThat(workload.execute(List.of("sh", "-c", "test \"$HOME\" = /tmp/factory-home && "
                     + "test ! -e /var/run/docker.sock && test -z \"$ANTHROPIC_API_KEY$ANTHROPIC_AUTH_TOKEN\" && "
                     + "java -version && mvn -version"), 30).exitCode()).isZero();
-            var outcome = runtime.code(workload, ClaudeCodeCodingRuntimeTest.request(), 90, events::add);
+            var transcript = new CopyOnWriteArrayList<CodingTranscripts.Entry>();
+            var outcome = runtime.code(workload, ClaudeCodeCodingRuntimeTest.request(), 90, events::add,
+                    transcript::add);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
             assertThat(outcome.summary()).contains("Implemented");
+            assertThat(transcript).extracting(CodingTranscripts.Entry::kind)
+                    .containsSubsequence("prompt", "tool_call", "tool_result", "result");
+            assertThat(transcript.getFirst().detail().get("text").toString()).contains("Factory CodingRequest JSON");
+            assertThat(transcript).filteredOn(entry -> entry.kind().equals("tool_call")).singleElement()
+                    .satisfies(entry -> assertThat(entry.detail()).containsEntry("tool", "Bash")
+                            .containsEntry("id", "tool_1"));
+            assertThat(events).anySatisfy(e -> assertThat(e).containsEntry("activity", "tool_execution_end")
+                    .containsEntry("tool", "Bash").containsKey("durationMs")
+                    .containsEntry("command", "printf 'edited by Claude\\n' > /workspace/changed.txt"));
+            assertThat(transcript.toString()).doesNotContain("mock-key", "mock-token");
             assertThat(outcome.metrics()).containsEntry("inputTokens", 80L).containsEntry("outputTokens", 10L)
                     .containsEntry("cacheReadTokens", 6L).containsEntry("cacheWriteTokens", 4L)
                     .doesNotContainKey("usageIncomplete");
@@ -151,7 +163,10 @@ class ClaudeCodeDockerTest {
             var outcome = new ClaudeCodeCodingRuntime(config(mock, "api-key"))
                     .code(workload, ClaudeCodeCodingRuntimeTest.request(), 60);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.FAILED);
-            assertThat(outcome.toString()).doesNotContain("mock-key", "private provider diagnostic");
+            // The CLI subtype and its error text are kept, with the credential redacted.
+            assertThat(outcome.failure().message()).contains("(subtype success, API status 400)",
+                    "Error: API Error: 400 private provider diagnostic [REDACTED]");
+            assertThat(outcome.toString()).doesNotContain("mock-key");
             workload.stop();
             workload.export(exported);
             assertThat(Files.readString(exported.resolve("changed.txt"))).isEqualTo("edited by Claude\n");

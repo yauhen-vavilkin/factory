@@ -17,10 +17,13 @@ import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
+import org.folio.factory.devfactory.runtime.CodingTranscripts;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -38,6 +41,7 @@ import java.util.UUID;
  * feedback, only completed attempts export a candidate.
  */
 public final class InitialCodingAttempt {
+    private static final Logger log = LoggerFactory.getLogger(InitialCodingAttempt.class);
     private final DevFactoryProperties properties;
     private final DevRuntimeProperties runtime;
     private final DockerWorkloads docker;
@@ -48,6 +52,7 @@ public final class InitialCodingAttempt {
     private final AttemptPricing pricing;
     private final SelectedRepositoryPreflight repositoryPreflight;
     private final PilotAttemptPolicy pilotPolicy;
+    private final CodingTranscripts transcripts;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public InitialCodingAttempt(
@@ -88,6 +93,22 @@ public final class InitialCodingAttempt {
             AttemptPricing pricing,
             SelectedRepositoryPreflight repositoryPreflight,
             PilotAttemptPolicy pilotPolicy) {
+        this(properties, runtime, docker, freezer, coding, codec, audit, pricing,
+                repositoryPreflight, pilotPolicy, CodingTranscripts.none());
+    }
+
+    public InitialCodingAttempt(
+            DevFactoryProperties properties,
+            DevRuntimeProperties runtime,
+            DockerWorkloads docker,
+            CandidateFreezer freezer,
+            CodingRuntime coding,
+            FrontmatterCodec codec,
+            AuditLog audit,
+            AttemptPricing pricing,
+            SelectedRepositoryPreflight repositoryPreflight,
+            PilotAttemptPolicy pilotPolicy,
+            CodingTranscripts transcripts) {
         this.properties = properties;
         this.runtime = runtime;
         this.docker = docker;
@@ -98,6 +119,7 @@ public final class InitialCodingAttempt {
         this.pricing = pricing;
         this.repositoryPreflight = repositoryPreflight;
         this.pilotPolicy = pilotPolicy;
+        this.transcripts = transcripts;
     }
 
     public Attempt start(AgentContext context, CodingRequest request) {
@@ -233,16 +255,20 @@ public final class InitialCodingAttempt {
                 identity.put("attemptId", attemptId);
                 identity.put("rate", rate);
                 progress(context, identity);
-                outcome =
-                        coding.code(
-                                workload,
-                                request,
-                                stageTimeoutSeconds(deadline, runtime.timeoutSeconds()),
-                                event -> {
-                                    var detail = new LinkedHashMap<String, Object>(event);
-                                    detail.put("attemptId", attemptId);
-                                    progress(context, detail);
-                                });
+                try (var transcript = transcripts.open(
+                        context.executionId(), UUID.fromString(attemptId), context.stepId())) {
+                    outcome =
+                            coding.code(
+                                    workload,
+                                    request,
+                                    stageTimeoutSeconds(deadline, runtime.timeoutSeconds()),
+                                    event -> {
+                                        var detail = new LinkedHashMap<String, Object>(event);
+                                        detail.put("attemptId", attemptId);
+                                        progress(context, detail);
+                                    },
+                                    transcript);
+                }
                 var reported =
                         new LinkedHashMap<String, Object>(
                                 withFactoryTokenMetrics(outcome.metrics()));
@@ -402,8 +428,9 @@ public final class InitialCodingAttempt {
         try {
             audit.record(
                     context.executionId(), AuditEventType.RUNTIME_PROGRESS, context.stepId(), safe);
-        } catch (RuntimeException ignored) {
+        } catch (RuntimeException e) {
             // Best-effort progress must not change the coding result.
+            log.warn("Could not record runtime activity for execution {}: {}", context.executionId(), e.getMessage());
         }
     }
 

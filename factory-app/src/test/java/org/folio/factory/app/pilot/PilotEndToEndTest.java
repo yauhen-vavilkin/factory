@@ -661,7 +661,7 @@ class PilotEndToEndTest {
                 "claude-sonnet-5-5", "USD", LocalDate.of(2026, 10, 22),
                 URI.create("https://pricing.fixture.invalid"), BigDecimal.valueOf(2),
                 BigDecimal.valueOf(0.1), BigDecimal.ONE, BigDecimal.TEN)));
-        when(coding.code(any(), any(), anyInt(), any())).thenAnswer(invocation -> {
+        when(coding.code(any(), any(), anyInt(), any(), any())).thenAnswer(invocation -> {
             CodingRequest request = invocation.getArgument(1);
             codingCalls.merge(request.issueKey(), 1, Integer::sum);
             return outcomeFor(request.issueKey());

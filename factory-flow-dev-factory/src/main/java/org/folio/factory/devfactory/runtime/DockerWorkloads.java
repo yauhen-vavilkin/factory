@@ -218,6 +218,13 @@ public class DockerWorkloads {
             command.addAll(argv);
             return Processes.run(null, command, timeout, java.util.Map.of(), outputLimit, stdoutLine);
         }
+        public Processes.Streamed stream(List<String> argv, int timeout, java.util.function.UnaryOperator<String> redactor,
+                                         java.util.function.Predicate<String> stdoutLine) {
+            if (stopped) throw new IllegalStateException("Workload is stopped");
+            var command = new ArrayList<>(List.of("docker", "exec", "--workdir", "/workspace", name));
+            command.addAll(argv);
+            return Processes.stream(null, command, timeout, redactor, stdoutLine);
+        }
         public void stop() {
             if (!stopped) Processes.run(null, List.of("docker", "stop", "--time", "2", name), 30).requireSuccess();
             stopped = true;

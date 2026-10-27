@@ -69,7 +69,7 @@ class DevelopReadinessTest {
                 .thenReturn(new Processes.Result(1, "[ERROR] Could not transfer artifact org.example:library:jar:1 from/to central: Read timed out"),
                         new Processes.Result(0, "[INFO] BUILD SUCCESS"));
         if (piFails) {
-            when(coding.code(eq(pi), any(CodingRequest.class), eq(60), any()))
+            when(coding.code(eq(pi), any(CodingRequest.class), eq(60), any(), any()))
                     .thenAnswer(invocation -> {
                         Consumer<Map<String, Object>> observer = invocation.getArgument(3);
                         var progress = new PiProgress("secret", observer);
@@ -85,7 +85,7 @@ class DevelopReadinessTest {
                     "cacheWriteTokens", 1L,
                     "outputTokens", 3L,
                     "costUsd", new BigDecimal("0.125"));
-            when(coding.code(eq(pi), any(CodingRequest.class), eq(60), any()))
+            when(coding.code(eq(pi), any(CodingRequest.class), eq(60), any(), any()))
                     .thenReturn(CodingOutcome.completed("Done", usage));
             when(freezer.freeze(eq("repo"), anyString(), anyString(), any()))
                     .thenReturn(new Candidate("repo", "a".repeat(40),
@@ -101,7 +101,7 @@ class DevelopReadinessTest {
         var worker = new DevelopWorker(attempt, codec);
 
         assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class);
-        verify(coding, never()).code(any(), any(), anyInt(), any());
+        verify(coding, never()).code(any(), any(), anyInt(), any(), any());
         verify(coding).requireConfigured();
         var result = worker.execute(context);
 
@@ -129,7 +129,7 @@ class DevelopReadinessTest {
                     .containsEntry("promptTokens", 13L)
                     .containsEntry("completionTokens", 3L);
         }
-        verify(coding).code(eq(pi), any(CodingRequest.class), eq(60), any());
+        verify(coding).code(eq(pi), any(CodingRequest.class), eq(60), any(), any());
         verify(selectedRepository, times(2)).requireRepositoryReady("repo", "a".repeat(40));
         var order = inOrder(docker, coding, selectedRepository, freezer);
         order.verify(docker).beginStep(context.executionId(), "implement");
@@ -204,7 +204,7 @@ class DevelopReadinessTest {
             assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("BLOCKED_ENVIRONMENT");
             assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_FAILED", "output");
         }
-        verify(coding, never()).code(any(), any(), anyInt(), any());
+        verify(coding, never()).code(any(), any(), anyInt(), any(), any());
         verify(coding, times(retryable ? 2 : 1)).requireConfigured();
         verify(audit, atLeastOnce()).record(eq(context.executionId()),
                 eq(AuditEventType.RUNTIME_PROGRESS), eq("implement"), anyMap());
@@ -240,7 +240,7 @@ class DevelopReadinessTest {
         order.verify(scope).close();
         verifyNoInteractions(freezer);
         verify(scope, never()).createTrusted(anyString(), any(), anyString());
-        verify(coding, never()).code(any(), any(), anyInt(), any());
+        verify(coding, never()).code(any(), any(), anyInt(), any(), any());
     }
 
     @Test
@@ -266,7 +266,7 @@ class DevelopReadinessTest {
         when(scope.createSeeded(anyString(), any(), anyString(), anyString())).thenReturn(workload);
         when(workload.execute(anyList(), anyInt(), anyInt(), any()))
                 .thenReturn(new Processes.Result(0, "[INFO] BUILD SUCCESS"));
-        when(coding.code(any(), any(CodingRequest.class), anyInt(), any()))
+        when(coding.code(any(), any(CodingRequest.class), anyInt(), any(), any()))
                 .thenReturn(CodingOutcome.needsDecision(new CodingOutcome.Decision(
                         CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"),
                         Map.of()));
@@ -283,7 +283,7 @@ class DevelopReadinessTest {
         assertThat(replay.outputs().get(DevelopWorker.CANDIDATE))
                 .contains("PAID_START_CONSUMED")
                 .contains("cannot start a second initial coding invocation");
-        verify(coding, times(1)).code(any(), any(), anyInt(), any());
+        verify(coding, times(1)).code(any(), any(), anyInt(), any(), any());
         verify(docker, times(2)).beginStep(any(), any());
         verify(freezer, times(2)).checkout(anyString(), anyString());
         verify(freezer, never()).freeze(anyString(), anyString(), anyString(), any());
@@ -320,7 +320,7 @@ class DevelopReadinessTest {
                         new Processes.Result(1, "[ERROR] Could not transfer artifact org.example:library:jar:1"
                                 + " from/to central: Read timed out"),
                         new Processes.Result(0, "[INFO] BUILD SUCCESS"));
-        when(coding.code(any(), any(CodingRequest.class), anyInt(), any()))
+        when(coding.code(any(), any(CodingRequest.class), anyInt(), any(), any()))
                 .thenReturn(CodingOutcome.needsDecision(new CodingOutcome.Decision(
                         CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"),
                         Map.of()));
@@ -341,7 +341,7 @@ class DevelopReadinessTest {
         assertThat(retried.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_PASSED");
         assertThat(pilots.paidStartClaims).isEqualTo(1);
         assertThat(pilots.stops).isEmpty();
-        verify(coding, times(1)).code(any(), any(), anyInt(), any());
+        verify(coding, times(1)).code(any(), any(), anyInt(), any(), any());
     }
 
     @ParameterizedTest
@@ -391,7 +391,7 @@ class DevelopReadinessTest {
         verify(scope, never()).createTrusted(anyString(), any(), anyString());
         verify(scope, never()).createSeeded(anyString(), any(), anyString(), anyString());
         verify(coding, never()).code(any(), any(), anyInt());
-        verify(coding, never()).code(any(), any(), anyInt(), any());
+        verify(coding, never()).code(any(), any(), anyInt(), any(), any());
     }
 
     @Test
@@ -408,7 +408,7 @@ class DevelopReadinessTest {
         verify(harness.freezer(), never()).checkout(anyString(), anyString());
         verify(harness.scope(), never()).createTrusted(anyString(), any(), anyString());
         verify(harness.scope(), never()).createSeeded(anyString(), any(), anyString(), anyString());
-        verify(harness.coding(), never()).code(any(), any(), anyInt(), any());
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
         assertThat(pilots.stops).singleElement().satisfies(stop -> {
             assertThat(stop).startsWith("implement: ");
             assertThat(stop).contains("deadline expired");
@@ -431,7 +431,7 @@ class DevelopReadinessTest {
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
                 .contains(PilotStops.DEADLINE_STATE)
                 .contains("expired before coding");
-        verify(harness.coding(), never()).code(any(), any(), anyInt(), any());
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
         assertThat(pilots.paidStartClaims).isZero();
         assertThat(pilots.stops).anyMatch(stop -> stop.contains("deadline expired before coding"));
     }
@@ -449,7 +449,7 @@ class DevelopReadinessTest {
         verify(harness.baseline()).execute(anyList(), baselineTimeout.capture(), anyInt(), any());
         assertThat(baselineTimeout.getValue()).isStrictlyBetween(40, 45);
         var codingTimeout = ArgumentCaptor.forClass(Integer.class);
-        verify(harness.coding()).code(any(), any(CodingRequest.class), codingTimeout.capture(), any());
+        verify(harness.coding()).code(any(), any(CodingRequest.class), codingTimeout.capture(), any(), any());
         assertThat(codingTimeout.getValue()).isStrictlyBetween(40, 45);
     }
 
@@ -464,9 +464,42 @@ class DevelopReadinessTest {
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("NEEDS_DECISION");
         verify(harness.baseline()).execute(anyList(), anyInt(), anyInt(), any());
-        verify(harness.coding()).code(any(), any(CodingRequest.class), anyInt(), any());
+        verify(harness.coding()).code(any(), any(CodingRequest.class), anyInt(), any(), any());
         assertThat(pilots.paidStartClaims).isEqualTo(1);
         assertThat(pilots.stops).isEmpty();
+    }
+
+    @Test
+    void eachCodingRunWritesItsTranscriptUnderTheExecutionAndTheRunAttemptId() {
+        var opened = new java.util.ArrayList<String>();
+        var entries = new java.util.ArrayList<CodingTranscripts.Entry>();
+        var closed = new java.util.concurrent.atomic.AtomicBoolean();
+        CodingTranscripts transcripts = (executionId, runId, stepId) -> {
+            opened.add(executionId + "/" + runId + "/" + stepId);
+            return new CodingTranscripts.Sink() {
+                @Override public void add(CodingTranscripts.Entry entry) { entries.add(entry); }
+                @Override public void close() { closed.set(true); }
+            };
+        };
+        var harness = pilotHarness(RecordingPilotAttempts.pilot("repo"), transcripts);
+        when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any())).thenAnswer(call -> {
+            CodingTranscripts.Sink sink = call.getArgument(4);
+            sink.add(new CodingTranscripts.Entry("prompt", Instant.now(), Map.of("text", "Implement")));
+            assertThat(closed).isFalse();
+            return CodingOutcome.failed("TURN_LIMIT", "Claude Code used all 10 turns before it finished the task."
+                    + " Retry with more turns or a different effort.", Map.of());
+        });
+
+        var result = harness.worker().execute(harness.context());
+
+        String runId = result.metrics().get("attemptId").toString();
+        assertThat(opened).containsExactly(harness.context().executionId() + "/" + runId + "/implement");
+        assertThat(entries).extracting(CodingTranscripts.Entry::kind).containsExactly("prompt");
+        assertThat(closed).isTrue();
+        assertThat(result.outputs().get(DevelopWorker.OUTCOME))
+                .contains("Claude Code used all 10 turns before it finished the task.");
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains("Retry with more turns or a different effort.");
     }
 
     @Test
@@ -481,7 +514,7 @@ class DevelopReadinessTest {
                 .contains(PilotStops.INSPECTION_STATE)
                 .contains("no longer owns the installation's active slot");
         verify(harness.freezer(), never()).checkout(anyString(), anyString());
-        verify(harness.coding(), never()).code(any(), any(), anyInt(), any());
+        verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
         assertThat(pilots.stops).anyMatch(stop -> stop.contains("no longer owns"));
     }
 
@@ -491,6 +524,10 @@ class DevelopReadinessTest {
      * or the recording pilot policy state.
      */
     private PilotHarness pilotHarness(RecordingPilotAttempts pilots) {
+        return pilotHarness(pilots, CodingTranscripts.none());
+    }
+
+    private PilotHarness pilotHarness(RecordingPilotAttempts pilots, CodingTranscripts transcripts) {
         var repository = new DevFactoryProperties.Repository(
                 "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
         var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
@@ -512,13 +549,13 @@ class DevelopReadinessTest {
         when(scope.createSeeded(anyString(), any(), anyString(), anyString())).thenReturn(codingWorkload);
         when(baseline.execute(anyList(), anyInt(), anyInt(), any()))
                 .thenReturn(new Processes.Result(0, "[INFO] BUILD SUCCESS"));
-        when(coding.code(any(), any(CodingRequest.class), anyInt(), any()))
+        when(coding.code(any(), any(CodingRequest.class), anyInt(), any(), any()))
                 .thenReturn(CodingOutcome.needsDecision(new CodingOutcome.Decision(
                         CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"),
                         Map.of()));
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, codec,
-                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), pilots);
+                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), pilots, transcripts);
         return new PilotHarness(docker, scope, baseline, codingWorkload, freezer, coding,
                 new DevelopWorker(attempt, codec), context);
     }

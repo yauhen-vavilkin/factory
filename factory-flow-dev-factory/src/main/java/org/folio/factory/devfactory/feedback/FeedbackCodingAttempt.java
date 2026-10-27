@@ -8,6 +8,7 @@ import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
+import org.folio.factory.devfactory.runtime.CodingTranscripts;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 
@@ -15,6 +16,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 /** One feedback attempt. Saves partial edits before returning a question or failure. */
@@ -24,18 +26,21 @@ final class FeedbackCodingAttempt {
     private final DockerWorkloads docker;
     private final DevRuntimeProperties runtime;
     private final AttemptPricing pricing;
+    private final CodingTranscripts transcripts;
 
     FeedbackCodingAttempt(
             CandidateFreezer freezer,
             CodingRuntime coding,
             DockerWorkloads docker,
             DevRuntimeProperties runtime,
-            AttemptPricing pricing) {
+            AttemptPricing pricing,
+            CodingTranscripts transcripts) {
         this.freezer = freezer;
         this.coding = coding;
         this.docker = docker;
         this.runtime = runtime;
         this.pricing = pricing;
+        this.transcripts = transcripts;
     }
 
     CodingOutcome run(
@@ -62,8 +67,9 @@ final class FeedbackCodingAttempt {
             try (var workload =
                     scope.createSeeded(
                             coding.image(), source, runtime.mavenCacheVolume(), "coding")) {
-                try {
-                    outcome = coding.code(workload, request, runtime.timeoutSeconds(), progress);
+                try (var transcript = transcripts.open(
+                        context.executionId(), UUID.fromString(state.attemptId), context.stepId())) {
+                    outcome = coding.code(workload, request, runtime.timeoutSeconds(), progress, transcript);
                 } catch (RuntimeException e) {
                     outcome = CodingOutcome.failed("RUNTIME_FAILURE", safe(e), Map.of());
                 }

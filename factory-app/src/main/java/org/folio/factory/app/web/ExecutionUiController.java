@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.presentation.PilotTaskQuery;
 import org.folio.factory.core.domain.Artifact;
@@ -58,6 +59,7 @@ public class ExecutionUiController {
     private final DeveloperExecutionView developerView;
     private final PilotAttemptRepository pilotAttempts;
     private final PilotTaskQuery pilotTasks;
+    private final CodingTranscriptStore transcripts;
 
     public ExecutionUiController(
             PipelineExecutionRepository executions,
@@ -69,7 +71,8 @@ public class ExecutionUiController {
             DeveloperCostEstimator costEstimator,
             FeedbackUi feedbackUi,
             PilotAttemptRepository pilotAttempts,
-            PilotTaskQuery pilotTasks) {
+            PilotTaskQuery pilotTasks,
+            CodingTranscriptStore transcripts) {
         this.executions = executions;
         this.artifactStore = artifactStore;
         this.auditLog = auditLog;
@@ -81,6 +84,7 @@ public class ExecutionUiController {
         this.developerView = new DeveloperExecutionView(jsonMapper);
         this.pilotAttempts = pilotAttempts;
         this.pilotTasks = pilotTasks;
+        this.transcripts = transcripts;
     }
 
     @GetMapping("/executions")
@@ -194,6 +198,20 @@ public class ExecutionUiController {
                 events.stream().map(event -> UiFormat.auditRow(event, jsonMapper)).toList());
         model.addAttribute("pollUrl", terminal ? null : "/api/executions/" + id);
         return "execution";
+    }
+
+    @GetMapping("/executions/{id}/transcript")
+    public String transcript(@PathVariable("id") UUID id, Model model) {
+        PipelineExecution execution =
+                executions
+                        .findById(id)
+                        .orElseThrow(() -> new NoSuchElementException("No execution " + id));
+        model.addAttribute("execution", execution);
+        model.addAttribute("pilotRun", pilotAttempts.findByExecutionId(id)
+                .map(attempt -> PilotTaskUiController.runContext(pilotTasks.detail(attempt.getTaskId()), id))
+                .orElse(null));
+        model.addAttribute("runs", DeveloperTranscriptView.runs(transcripts.read(id)));
+        return "transcript";
     }
 
     /** Compatibility for Test Factory and Developer Flow artifacts without attempt identities. */

@@ -71,6 +71,7 @@ class PrFeedbackIntegrationTest {
     @Autowired FeedbackActions actions;
     @Autowired HitlDecisionService decisions;
     @Autowired HitlGateOpener gates;
+    @Autowired org.folio.factory.app.developer.CodingTranscriptStore transcripts;
     @LocalServerPort int port;
     @MockitoBean PrFeedbackGateway gateway;
     @MockitoBean DockerWorkloads docker;
@@ -109,11 +110,12 @@ class PrFeedbackIntegrationTest {
             }} return null;
         }).when(workload).export(any());
         doAnswer(i->{if(cleanupFails && calls>0) throw new IllegalStateException("Resource still exists");return null;}).when(docker).cleanOwned(any(),anyString());
-        when(coding.code(any(),any(),anyInt(),any())).thenAnswer(i->{
+        when(coding.code(any(), any(), anyInt(), any(), any())).thenAnswer(i->{
             calls++;
             if(mergeDuringCode) merged=true;
             if(!noChanges) Files.writeString(codingSource.resolve("value.txt"),Files.readString(codingSource.resolve("value.txt"))+"fix "+calls+"\n");
             Consumer<Map<String,Object>> progress=i.getArgument(3); var streamed=new HashMap<String,Object>(usage); streamed.put("activity","coding_usage"); progress.accept(streamed);
+            CodingTranscripts.Sink transcript=i.getArgument(4); transcript.add(new CodingTranscripts.Entry("prompt",Instant.now(),Map.of("text","Feedback round "+calls)));
             if(ask) return CodingOutcome.needsDecision(new CodingOutcome.Decision(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS,"Keep both options?",List.of("Yes","No"),"Partial patch saved"),usage);
             return CodingOutcome.completed("Corrected selected feedback",usage);
         });
@@ -153,7 +155,7 @@ class PrFeedbackIntegrationTest {
     void startRound() {drive(); select(); drive();}
     @Test void twelveRoundsUseOneExecutionOneBranchAndRenderChronologicalHistory() throws Exception {
         drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
-        verifyNoInteractions(verifier); verify(coding,never()).code(any(),any(),anyInt(),any());
+        verifyNoInteractions(verifier); verify(coding,never()).code(any(), any(), anyInt(), any(), any());
         for(int round=1;round<=12;round++) {
             String model=round%2==0?"second-fixture-model":"fixture-model";
             when(coding.identity()).thenReturn(Map.of("model",model,"runtime","scripted"));
@@ -162,6 +164,12 @@ class PrFeedbackIntegrationTest {
             assertThat(view().state().round()).isEqualTo(round); assertThat(pr().headSha()).isEqualTo(view().state().commitSha());
         }
         assertThat(calls).isEqualTo(12); assertThat(git(bare,"rev-list","--count",branch).strip()).isEqualTo("13");
+        // Each feedback round is its own transcript run of the same execution, keyed by the round's attempt id.
+        var transcript=transcripts.read(id);
+        assertThat(transcript).hasSize(12).allSatisfy(entry->assertThat(entry.stepId()).isEqualTo("pr-follow-up"));
+        assertThat(transcript.stream().map(org.folio.factory.app.developer.CodingTranscriptStore.Entry::runId).distinct()).hasSize(12);
+        assertThat(transcript.getLast().runId().toString()).isEqualTo(view().state().attemptId());
+        assertThat(transcript.getLast().detail().path("text").asString()).isEqualTo("Feedback round 12");
         assertThat(git(bare,"for-each-ref","--format=%(refname)","refs/heads").lines()).containsExactly("refs/heads/"+branch);
         var html=RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class);
         assertThat(html).contains("Round 1","Round 12","0.0072 USD so far"," active</span>","fixture-model","second-fixture-model","Work on feedback");

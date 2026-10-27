@@ -8,6 +8,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /** Display projection of runtime events, including consecutive heartbeats and overlapping tools. */
@@ -49,8 +50,9 @@ final class DeveloperRuntimeActivity {
         return notice;
     }
 
+    /** Oldest first: the newest row is at the bottom. */
     List<Map<String, String>> recent() {
-        return lastTwenty(activity).reversed();
+        return lastTwenty(activity);
     }
 
     List<Map<String, String>> diagnostics() {
@@ -81,7 +83,8 @@ final class DeveloperRuntimeActivity {
             default -> {}
         }
         String text = runtimeActivityText(detail, bashActivity);
-        var row = Map.of("time", UiFormat.format(event.getOccurredAt()), "text", text);
+        var row = Map.of("time", UiFormat.clock(event.getOccurredAt()),
+                "timeTitle", UiFormat.format(event.getOccurredAt()), "text", text);
         if (action.equals("provider_error") || (action.startsWith("auto_retry_")
                 && (detail.hasNonNull("reason") || detail.has("success")))) {
             diagnostics.add(row);
@@ -159,29 +162,55 @@ final class DeveloperRuntimeActivity {
     private static String toolStartText(JsonNode detail, BashActivity bashActivity) {
         String tool = detail.path("tool").asString("").strip();
         String path = fileName(detail.path("path").asString(""));
-        if (tool.equals("bash")) {
-            String command = detail.path("command").asString("Shell command").strip();
-            if (command.isBlank()) command = "Shell command";
-            bashActivity.started(command);
-            return "Running " + command;
-        }
-        return switch (tool) {
+        String pattern = detail.path("pattern").asString("").strip();
+        String url = detail.path("url").asString("").strip();
+        // Pi reports lower-case tool names, Claude Code capitalised ones (Bash, WebFetch).
+        return switch (tool.toLowerCase(Locale.ROOT)) {
+            case "bash" -> {
+                String command = detail.path("command").asString("Shell command").strip();
+                if (command.isBlank()) command = "Shell command";
+                bashActivity.started(command);
+                yield "Running " + command;
+            }
             case "read" -> "Reading " + fileOrFallback(path);
             case "write" -> "Writing " + fileOrFallback(path);
-            case "edit" -> "Editing " + fileOrFallback(path);
+            case "edit", "notebookedit" -> "Editing " + fileOrFallback(path);
             case "find" -> path.isBlank() ? "Finding files" : "Finding files in " + path;
             case "ls" -> path.isBlank() ? "Listing files" : "Listing " + path;
-            case "grep" -> path.isBlank() ? "Searching files" : "Searching " + path;
+            case "glob" -> pattern.isBlank() ? "Finding files" : "Finding files matching " + pattern;
+            case "grep" -> !path.isBlank() ? "Searching " + path
+                    : pattern.isBlank() ? "Searching files" : "Searching for " + pattern;
+            case "webfetch" -> url.isBlank() ? "Fetching a web page" : "Fetching " + url;
             default -> tool.isBlank() ? "Running tool" : "Running " + tool;
         };
     }
 
     private static String toolEndText(JsonNode detail, BashActivity bashActivity) {
+        boolean failed = detail.path("error").asBoolean(false);
+        String text = toolEndSubject(detail, bashActivity) + (failed ? " failed" : " completed");
+        if (detail.path("durationMs").isIntegralNumber()) text += " in " + milliseconds(detail.path("durationMs").asLong());
+        String errorText = detail.path("errorText").asString("").strip();
+        return failed && !errorText.isBlank() ? text + " · " + errorText : text;
+    }
+
+    private static String toolEndSubject(JsonNode detail, BashActivity bashActivity) {
         String tool = detail.path("tool").asString("").strip();
-        String subject = tool;
-        if (tool.equals("bash")) subject = bashActivity.finishedSubject();
-        if (subject == null || subject.isBlank()) subject = tool.isBlank() ? "Tool" : tool;
-        return subject + (detail.path("error").asBoolean(false) ? " failed" : " completed");
+        if (tool.equalsIgnoreCase("bash")) {
+            // Claude Code matches the end to its start by tool_use_id; Pi needs the running-command guess.
+            String guessed = bashActivity.finishedSubject();
+            String command = detail.path("command").asString("").strip();
+            if (!command.isBlank()) return command;
+            return guessed == null || guessed.isBlank() ? "Shell command" : guessed;
+        }
+        for (String subject : List.of(fileName(detail.path("path").asString("")),
+                detail.path("pattern").asString("").strip(), detail.path("url").asString("").strip())) {
+            if (!subject.isBlank()) return tool + " " + subject;
+        }
+        return tool.isBlank() ? "Tool" : tool;
+    }
+
+    private static String milliseconds(long value) {
+        return value < 1000 ? value + " ms" : UiFormat.duration(value / 1000);
     }
 
     private static String genericActivityText(JsonNode detail, String action) {

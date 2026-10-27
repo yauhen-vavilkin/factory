@@ -77,17 +77,20 @@
             <section class="run-panel run-activity" aria-labelledby="activity-title">
                 <div class="run-panel-head">
                     <h2 class="dev-section-title" id="activity-title">Activity</h2>
-                    <span>Runtime log, newest first · last 20 events · <a
-                            th:href="@{/audit(executionId=${execution.id})}">full log</a></span>
+                    <span>Runtime log, oldest first · last 20 events · <a
+                            th:href="@{'/executions/' + ${execution.id} + '/transcript'}">Transcript</a> · <a
+                            th:href="@{/audit(executionId=${execution.id})}">Audit events</a></span>
                 </div>
                 <p class="run-log-empty" th:if="${#lists.isEmpty(developer['activity'])}">No activity reported yet.</p>
-                <ol class="run-log" tabindex="0" aria-label="Runtime activity, newest first"
-                    th:unless="${#lists.isEmpty(developer['activity'])}">
-                    <li th:each="activity : ${developer['activity']}">
-                        <time th:text="${activity['time']}">00:00:00</time>
-                        <span th:text="${activity['text']}">activity</span>
-                    </li>
-                </ol>
+                <div class="run-log" tabindex="0" role="region" aria-label="Runtime activity, oldest first"
+                     th:unless="${#lists.isEmpty(developer['activity'])}">
+                    <ol>
+                        <li th:each="activity : ${developer['activity']}">
+                            <time th:title="${activity['timeTitle']}" th:text="${activity['time']}">00:00:00</time>
+                            <span th:text="${activity['text']}">activity</span>
+                        </li>
+                    </ol>
+                </div>
                 <p class="run-log-empty" th:if="${!#strings.isEmpty(developer['activityNotice'])}"
                    th:text="${developer['activityNotice']}"></p>
             </section>
@@ -237,7 +240,8 @@
                         <summary th:text="'Provider diagnostics (' + ${#lists.size(developer['providerDiagnostics'])} + ')'">Provider diagnostics</summary>
                         <ol class="developer-history">
                             <li th:each="diagnostic : ${developer['providerDiagnostics']}">
-                                <time th:text="${diagnostic['time']}"></time><span th:text="${diagnostic['text']}"></span>
+                                <time th:title="${diagnostic['timeTitle']}" th:text="${diagnostic['time']}"></time><span
+                                    th:text="${diagnostic['text']}"></span>
                             </li>
                         </ol>
                     </details>

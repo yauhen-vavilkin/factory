@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -72,6 +73,9 @@ class ExecutionUiControllerTest {
     @Mock
     private HitlReviewRepository reviews;
 
+    @Mock
+    private CodingTranscriptStore transcripts;
+
     @Captor
     private ArgumentCaptor<Pageable> pageableCaptor;
 
@@ -87,7 +91,7 @@ class ExecutionUiControllerTest {
                 flowRegistry, reviews, json, estimator,
                 new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class)),
                 mock(org.folio.factory.app.pilot.persistence.PilotAttemptRepository.class),
-                mock(org.folio.factory.app.pilot.presentation.PilotTaskQuery.class)))
+                mock(org.folio.factory.app.pilot.presentation.PilotTaskQuery.class), transcripts))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
@@ -280,6 +284,49 @@ class ExecutionUiControllerTest {
                 .andExpect(model().attribute("estimatedCost", new DeveloperCostEstimator.Estimate(
                         "0.10323", "USD", LocalDate.parse("2026-09-19"), "https://example.test/pricing")))
                 .andExpect(model().attributeDoesNotExist("reportedCost"));
+    }
+
+    @Test
+    void transcript_groupsEntriesByRunAndPairsEachToolCallWithItsResult() throws Exception {
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(developerExecution()));
+        UUID first = UUID.fromString("00000000-0000-0000-0000-00000000000a");
+        UUID second = UUID.fromString("00000000-0000-0000-0000-00000000000b");
+        var at = java.time.Instant.parse("2026-10-27T09:15:30Z");
+        when(transcripts.read(EXECUTION_ID)).thenReturn(List.of(
+                transcriptEntry(first, 0, "implement", "prompt", at, "{\"text\":\"Implement TASK-1\"}"),
+                transcriptEntry(first, 1, "implement", "tool_call", at.plusSeconds(1),
+                        "{\"id\":\"t1\",\"tool\":\"Bash\",\"input\":\"{ \\\"command\\\" : \\\"mvn test\\\" }\"}"),
+                transcriptEntry(first, 2, "implement", "tool_result", at.plusSeconds(4),
+                        "{\"id\":\"t1\",\"tool\":\"Bash\",\"error\":true,\"durationMs\":3000,\"text\":\"BUILD FAILURE\"}"),
+                transcriptEntry(first, 3, "implement", "result", at.plusSeconds(5),
+                        "{\"subtype\":\"success\",\"error\":false,\"text\":\"Done\",\"turns\":3,"
+                                + "\"usage\":{\"inputTokens\":40,\"outputTokens\":5}}"),
+                transcriptEntry(second, 0, "pr-follow-up", "note", at.plusSeconds(60),
+                        "{\"text\":\"Transcript cut at 5 MB; the attempt went on.\"}")));
+
+        var result = mvc.perform(get("/executions/{id}/transcript", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(view().name("transcript"))
+                .andExpect(model().attributeExists("execution"))
+                .andReturn();
+
+        @SuppressWarnings("unchecked")
+        var runs = (List<Map<String, Object>>) result.getModelAndView().getModel().get("runs");
+        assertThat(runs).extracting(run -> run.get("label"))
+                .containsExactly("Run 1 · Implementation", "Run 2 · PR feedback");
+        @SuppressWarnings("unchecked")
+        var entries = (List<Map<String, Object>>) runs.getFirst().get("entries");
+        assertThat(entries).extracting(entry -> entry.get("kind")).containsExactly("prompt", "tool", "result");
+        assertThat(entries.get(0)).containsEntry("time", "09:15:30").containsEntry("timeTitle", "2026-10-27 09:15:30");
+        assertThat(entries.get(1)).containsEntry("tool", "Bash").containsEntry("input", "{ \"command\" : \"mvn test\" }")
+                .containsEntry("result", "BUILD FAILURE").containsEntry("error", true).containsEntry("duration", "3s")
+                .containsEntry("hasResult", true);
+        assertThat(entries.get(2)).containsEntry("facts", "3 turns · 40 input tokens · 5 output tokens");
+    }
+
+    private CodingTranscriptStore.Entry transcriptEntry(UUID run, int seq, String step, String kind,
+                                                       java.time.Instant at, String detail) {
+        return new CodingTranscriptStore.Entry(run, seq, step, kind, at, json.readTree(detail));
     }
 
     @Test

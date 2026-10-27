@@ -236,7 +236,7 @@ class PilotAutonomousFlowIntegrationTest {
 
         List<HitlReview> pilotHitlReviews = reviews.findByExecutionIdOrderByCreatedAtAsc(executionId);
         assertThat(pilotHitlReviews).isEmpty();
-        verify(coding, never()).code(any(), any(), anyInt(), any());
+        verify(coding, never()).code(any(), any(), anyInt(), any(), any());
         assertThat(github.findAll(anyRequestedFor(anyUrl())))
                 .as("publicationInvocations")
                 .isEmpty();
@@ -273,7 +273,7 @@ class PilotAutonomousFlowIntegrationTest {
         Map<String, Object> usage = new LinkedHashMap<>();
         usage.put("inputTokens", 10L);
         usage.put("outputTokens", 3L);
-        when(coding.code(any(), any(), anyInt(), any())).thenAnswer(invocation -> {
+        when(coding.code(any(), any(), anyInt(), any(), any())).thenAnswer(invocation -> {
             Consumer<Map<String, Object>> observer = invocation.getArgument(3);
             observer.accept(new LinkedHashMap<>(Map.of(
                     "activity", "coding_usage", "inputTokens", 10L, "outputTokens", 3L)));
@@ -287,7 +287,7 @@ class PilotAutonomousFlowIntegrationTest {
 
         List<HitlReview> pilotHitlReviews = reviews.findByExecutionIdOrderByCreatedAtAsc(executionId);
         assertThat(pilotHitlReviews).isEmpty();
-        verify(coding, times(1)).code(any(), any(), anyInt(), any());
+        verify(coding, times(1)).code(any(), any(), anyInt(), any(), any());
         assertThat(github.findAll(anyRequestedFor(anyUrl())))
                 .as("publicationInvocations")
                 .isEmpty();
@@ -371,7 +371,7 @@ class PilotAutonomousFlowIntegrationTest {
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
         awaitStatus(executionId, ExecutionStatus.COMPLETED);
 
-        verify(coding, never()).code(any(), any(), anyInt(), any());
+        verify(coding, never()).code(any(), any(), anyInt(), any(), any());
         PilotAttempt attempt = attempts.findByExecutionId(executionId).orElseThrow();
         assertThat(attempt.getResultReason()).contains("cannot be verified");
 
@@ -411,7 +411,7 @@ class PilotAutonomousFlowIntegrationTest {
     @Test
     void legacyCodingDecisionStillOpensItsReview() {
         stubIssue("MODBAR-422");
-        when(coding.code(any(), any(), anyInt(), any())).thenReturn(CodingOutcome.needsDecision(
+        when(coding.code(any(), any(), anyInt(), any(), any())).thenReturn(CodingOutcome.needsDecision(
                 new CodingOutcome.Decision(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS,
                         "Which acceptance criterion defines the limit?", List.of(), "No limit specified"),
                 Map.of()));
@@ -420,13 +420,13 @@ class PilotAutonomousFlowIntegrationTest {
 
         HitlReview review = awaitPendingReview(executionId, CodingDecisionGateWorker.GATE_ID);
         assertThat(stateManager.get(executionId).getStatus()).isEqualTo(ExecutionStatus.AWAITING_HITL);
-        verify(coding, times(1)).code(any(), any(), anyInt(), any());
+        verify(coding, times(1)).code(any(), any(), anyInt(), any(), any());
 
         decisionService.decide(review.getId(), HitlDecision.REJECT, "dev-lead", "not now", null);
 
         assertThat(stateManager.get(executionId).getStatus()).isEqualTo(ExecutionStatus.REJECTED);
         assertThat(reviews.findByExecutionIdOrderByCreatedAtAsc(executionId)).hasSize(1);
-        verify(coding, times(1)).code(any(), any(), anyInt(), any());
+        verify(coding, times(1)).code(any(), any(), anyInt(), any(), any());
     }
 
     private void admit(String issueId, String displayKey, String routingReason) {
