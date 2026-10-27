@@ -75,7 +75,23 @@ FACTORY_PI_AUTHENTICATION=api-key
 FACTORY_PI_API_KEY=<content of %LOCALAPPDATA%\factory-codemie\bridge-client-key>
 FACTORY_PI_REASONING_EFFORT=max                # Luna profile; leave unset for Sonnet
 FACTORY_PI_MAX_OUTPUT_TOKENS=65536             # Luna profile; default 16384
+FACTORY_PI_IMAGES=true                         # checked with the Luna model; see "Ticket images" below
 ```
+
+**Ticket images.** With `FACTORY_PI_IMAGES=true` (Pi) or `FACTORY_CLAUDE_CODE_IMAGES=true` (Claude Code) the images
+attached to the Jira ticket (png, jpeg, gif, webp; videos and other files are skipped) go to the agent with
+the task. Set the flag only for a model that reads images; otherwise Pi swaps each image for a text placeholder
+and Claude Code may fail at the gateway. The list of images is fixed at intake; every coding attempt (first,
+after a decision, after a retry) downloads those files again from Jira into the workload. An image added
+to the ticket afterwards is not seen, and one deleted afterwards is reported to the agent as not provided.
+The audit timeline shows `attachments_staged` with file names, sizes and SHA-256, never the content. A file that
+cannot be downloaded, is larger than `FACTORY_DEV_FACTORY_ATTACHMENT_MAX_BYTES` (3 MiB), is not really an image or
+exceeds `FACTORY_DEV_FACTORY_ATTACHMENT_MAX_IMAGES` (default 10 in Jira order; 0 = no limit, at most 20 are listed
+from the ticket) is left out, and the prompt tells the agent which one and why. Each staged image is repeated
+several times in the agent's event stream, so the output budget grows with them (5 times their size); many
+large images mean a large buffer in memory. Images are untrusted ticket content: the prompt says so, and they
+add no permission (the workload holds only the gateway key, delivery is fork-only, a person reviews the PR).
+PR follow-up rounds do not resend them.
 
 Changing any of these needs `podman compose up -d`. A model without an entry in
 `config/developer-pricing.yaml` shows no cost estimate (usage is still recorded). To rotate the
@@ -115,6 +131,7 @@ page. The bridge logs only method, path and status.
 
 ## 7. Known limits
 
+- Only the ticket's attachments are passed on (an image shown in the description is one of them, but the agent is not told where it appears); an image behind a link is not fetched.
 - BigTest/Karma modules; visual or E2E checks; lint; tickets that span a backend and a UI
   repository.
 - **Upgrading to the lockfile pin (phase 6).** The flow steps `implement`, `continue-implementation`,

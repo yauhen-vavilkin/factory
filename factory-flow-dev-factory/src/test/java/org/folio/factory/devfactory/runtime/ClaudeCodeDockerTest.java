@@ -58,6 +58,35 @@ class ClaudeCodeDockerTest {
         }
     }
 
+    /** The agent opens a large staged image: Claude Code repeats it as one oversized base64 frame, which must not fail the attempt. */
+    @Test void aLargeStagedImageTheAgentOpensDoesNotBreakTheEventStream() throws Exception {
+        var picture = new java.awt.image.BufferedImage(700, 700, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        var random = new java.util.Random(11);
+        for (int x = 0; x < 700; x++) for (int y = 0; y < 700; y++) picture.setRGB(x, y, random.nextInt(1 << 24));
+        var png = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(picture, "png", png);
+        var jira = org.mockito.Mockito.mock(org.folio.factory.connectors.jira.JiraConnector.class);
+        org.mockito.Mockito.when(jira.downloadAttachment(org.mockito.ArgumentMatchers.eq("1"), org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(png.toByteArray());
+        var request = new CodingRequest("TASK-1", "Implement task", "Description", List.of(), List.of(), List.of(), List.of(),
+                new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)), null,
+                List.of(new CodingRequest.Attachment("1", "noise.png", "image/png", png.size(), "", "")));
+        try (var mock = new MessagesEndpoint(false, false);
+             var scope = new DockerWorkloads().beginStep(executionId, "claude-staged-image");
+             var workload = scope.createSeeded(IMAGE, source, BuildEnvironment.maven(volume), "coding")) {
+            mock.tool = "Read";
+            mock.toolInput = Map.of("file_path", "/tmp/factory-attachments/img-1.png");
+            var base = config(mock, "api-key");
+            var withImages = new DevRuntimeProperties.ClaudeCode(base.image(), base.api(), base.baseUrl(), base.model(),
+                    base.authentication(), base.apiKey(), base.authToken(), base.maxTurns(), base.maxOutputTokens(), null, true);
+            var outcome = new ImageStagingRuntime(new ClaudeCodeCodingRuntime(withImages), jira, new DevAttachmentProperties())
+                    .code(workload, request, 90);
+            assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
+            assertThat(mock.calls).hasSize(2);
+            assertThat(mock.calls.get(1).body.toString()).contains("\"type\":\"image\"").contains("base64");
+        }
+    }
+
     @Test void mavenRunsWithoutCallingTheAutoPermissionClassifier() throws Exception {
         Files.writeString(source.resolve("pom.xml"), """
                 <project xmlns="http://maven.apache.org/POM/4.0.0">
@@ -310,6 +339,8 @@ class ClaudeCodeDockerTest {
         private final List<Call> calls = new CopyOnWriteArrayList<>();
         private volatile String model = MODEL;
         private volatile String command = "printf 'edited by Claude\\n' > /workspace/changed.txt";
+        private volatile String tool = "Bash";
+        private volatile Map<String, Object> toolInput = null;
         private volatile Set<Integer> missingInputUsage = Set.of();
         private volatile Set<Integer> missingOutputUsage = Set.of();
         MessagesEndpoint(boolean failAfterEdit, boolean decision) throws Exception {
@@ -336,7 +367,8 @@ class ClaudeCodeDockerTest {
                     String answer = decision && !body.toString().contains("Use public API")
                             ? "FACTORY_DECISION_REQUIRED: {\"kind\":\"PRODUCT_REQUIREMENTS\",\"question\":\"Which API?\",\"options\":[],\"evidence\":\"Two APIs\"}"
                             : "Implemented";
-                    byte[] response = stream(calls.size(), edit, answer, model, command,
+                    byte[] response = stream(calls.size(), edit, answer, model, tool,
+                            toolInput != null ? toolInput : Map.of("command", command, "description", "Edit fixture"),
                             !missingInputUsage.contains(calls.size()), !missingOutputUsage.contains(calls.size()))
                             .getBytes(StandardCharsets.UTF_8);
                     exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
@@ -354,19 +386,18 @@ class ClaudeCodeDockerTest {
         @Override public String toString() { return "Call[path=" + path + "]"; }
     }
 
-    private static String stream(int id, boolean edit, String answer, String model, String command,
-                                 boolean includeInputUsage, boolean includeOutputUsage) {
+    private static String stream(int id, boolean edit, String answer, String model, String tool,
+                                 Map<String, Object> toolInput, boolean includeInputUsage, boolean includeOutputUsage) {
         var events = new ArrayList<Map<String, Object>>();
         var message = new LinkedHashMap<String, Object>(Map.of("id", "msg_" + id, "type", "message",
                 "role", "assistant", "model", model, "content", List.of()));
         if (includeInputUsage) message.put("usage", Map.of("input_tokens", 40, "output_tokens", 0,
                 "cache_read_input_tokens", 3, "cache_creation_input_tokens", 2));
         events.add(Map.of("type", "message_start", "message", message));
-        Object block = edit ? Map.of("type", "tool_use", "id", "tool_" + id, "name", "Bash", "input", Map.of())
+        Object block = edit ? Map.of("type", "tool_use", "id", "tool_" + id, "name", tool, "input", Map.of())
                 : Map.of("type", "text", "text", "");
         events.add(Map.of("type", "content_block_start", "index", 0, "content_block", block));
-        Object delta = edit ? Map.of("type", "input_json_delta", "partial_json", JSON.writeValueAsString(
-                Map.of("command", command, "description", "Edit fixture")))
+        Object delta = edit ? Map.of("type", "input_json_delta", "partial_json", JSON.writeValueAsString(toolInput))
                 : Map.of("type", "text_delta", "text", answer);
         events.add(Map.of("type", "content_block_delta", "index", 0, "delta", delta));
         events.add(Map.of("type", "content_block_stop", "index", 0));

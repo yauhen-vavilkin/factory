@@ -37,7 +37,7 @@ class DevRuntimePropertiesTest {
         coding.claudeCode().requireConfigured();
         assertThat(coding.toString() + coding.piProfile() + coding.claudeCode())
                 .doesNotContain("legacy-key", "new-pi-key", "claude-secret", "gateway.example");
-        var selected = new org.folio.factory.devfactory.DevFactoryConfiguration().devCodingRuntime(bind(values));
+        var selected = new org.folio.factory.devfactory.DevFactoryConfiguration().selectCodingRuntime(bind(values));
         assertThat(selected).isInstanceOf(ClaudeCodeCodingRuntime.class);
         assertThat(selected.identity()).containsEntry("model", "operator/Custom-Model-2026");
     }
@@ -47,10 +47,10 @@ class DevRuntimePropertiesTest {
         var configuration = new org.folio.factory.devfactory.DevFactoryConfiguration();
         var empty = bind(Map.of("factory.dev-factory.runtime.coding.runtime", "claude-code",
                 "factory.dev-factory.runtime.coding.pi.max-output-tokens", "-1"));
-        assertThat(configuration.devCodingRuntime(empty)).isInstanceOf(ClaudeCodeCodingRuntime.class);
-        assertThat(configuration.devCodingRuntime(new DevRuntimeProperties(null, null, 0, null)))
+        assertThat(configuration.selectCodingRuntime(empty)).isInstanceOf(ClaudeCodeCodingRuntime.class);
+        assertThat(configuration.selectCodingRuntime(new DevRuntimeProperties(null, null, 0, null)))
                 .isInstanceOf(PiCodingRuntime.class);
-        assertThatThrownBy(() -> configuration.devCodingRuntime(bind(Map.of(
+        assertThatThrownBy(() -> configuration.selectCodingRuntime(bind(Map.of(
                 "factory.dev-factory.runtime.coding.runtime", "unknown"))))
                 .hasMessageContaining("Unsupported coding runtime");
     }
@@ -73,6 +73,33 @@ class DevRuntimePropertiesTest {
     private static DevRuntimeProperties bind(Map<String, ?> values) {
         return new Binder(new MapConfigurationPropertySource(values))
                 .bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get();
+    }
+
+    @Test
+    void imagesAreOffUnlessThePiProfileEnablesThem() {
+        assertThat(bind(Map.of("factory.dev-factory.runtime.coding.runtime", "pi")).coding().piProfile().images()).isFalse();
+        assertThat(bind(Map.of("factory.dev-factory.runtime.coding.pi.images", "true")).coding().piProfile().images()).isTrue();
+    }
+
+    @Test
+    void claudeCodeImagesAreOffUnlessEnabled() {
+        assertThat(bind(Map.of("factory.dev-factory.runtime.coding.runtime", "claude-code")).coding().claudeCode().images()).isFalse();
+        assertThat(bind(Map.of("factory.dev-factory.runtime.coding.claude-code.images", "true")).coding().claudeCode().images()).isTrue();
+    }
+
+    @Test
+    void attachmentLimitsDefaultToTenImagesAndThreeMegabytes() {
+        var binder = new Binder(new MapConfigurationPropertySource(Map.of(
+                "factory.dev-factory.attachments.max-images", "", "factory.dev-factory.attachments.max-bytes", "")));
+        var limits = binder.bind("factory.dev-factory.attachments", DevAttachmentProperties.class)
+                .orElseGet(DevAttachmentProperties::new);
+
+        assertThat(limits.maxImages()).isEqualTo(10);
+        assertThat(limits.maxBytes()).isEqualTo(3L * 1024 * 1024);
+        assertThat(new Binder(new MapConfigurationPropertySource(Map.of("factory.dev-factory.attachments.max-images", "0")))
+                .bind("factory.dev-factory.attachments", DevAttachmentProperties.class).get().maxImages()).isZero();
+        assertThat(new Binder(new MapConfigurationPropertySource(Map.of("factory.dev-factory.attachments.max-images", "5")))
+                .bind("factory.dev-factory.attachments", DevAttachmentProperties.class).get().maxImages()).isEqualTo(5);
     }
 
     @Test

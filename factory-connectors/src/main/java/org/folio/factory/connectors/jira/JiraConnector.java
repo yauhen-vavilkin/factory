@@ -11,4 +11,9 @@ public interface JiraConnector {
      * (e.g. "QA Complete"). No-op names that don't resolve raise an error.
      */
     void transitionIssue(String issueKey, String transitionName);
+
+    /** Downloads one attachment's bytes; fails rather than returning more than {@code maxBytes}. */
+    default byte[] downloadAttachment(String attachmentId, long maxBytes) {
+        throw new UnsupportedOperationException("Attachment download is not supported by this connector");
+    }
 }

@@ -26,6 +26,8 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
     @Override public String id() { return "claude-code"; }
     @Override public String image() { return config.image(); }
     @Override public void requireConfigured() { config.requireConfigured(); }
+    /** The agent opens the staged files with its Read tool; the operator declares that the model reads images. */
+    @Override public boolean acceptsImages() { return config.images(); }
 
     @Override public Map<String, Object> identity() {
         var identity = new LinkedHashMap<>(CodingRuntime.super.identity());
@@ -60,7 +62,8 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
             Files.writeString(temporary.resolve("task.txt"), CodingProtocol.prompt(request));
             workload.execute(List.of("mkdir", "-p", INPUT), 30).requireSuccess();
             workload.copy(temporary.resolve(".").toString(), INPUT);
-            var execution = workload.execute(command(), timeoutSeconds, EVENT_STREAM_LIMIT, observer);
+            var execution = workload.execute(command(), timeoutSeconds,
+                    CodingProtocol.eventStreamLimit(EVENT_STREAM_LIMIT, request), observer);
             // Re-parse authoritative stdout. Best-effort progress callbacks cannot authorize success.
             var protocol = new ClaudeCodeProtocol(config.model(), this::redact, event -> {});
             execution.output().lines().forEach(protocol);

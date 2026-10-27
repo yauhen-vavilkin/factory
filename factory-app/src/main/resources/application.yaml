@@ -371,6 +371,7 @@ factory:
           api-key: ${FACTORY_PI_API_KEY:}
           reasoning-effort: ${FACTORY_PI_REASONING_EFFORT:}
           max-output-tokens: ${FACTORY_PI_MAX_OUTPUT_TOKENS:}
+          images: ${FACTORY_PI_IMAGES:false}
         claude-code:
           image: ${FACTORY_CLAUDE_CODE_IMAGE:factory-dev-claude-code:2.1.287-java21-node22}
           api: ${FACTORY_CLAUDE_CODE_API:anthropic-messages}
@@ -382,6 +383,10 @@ factory:
           max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:40}
           max-output-tokens: ${FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS:16384}
           effort: ${FACTORY_CLAUDE_CODE_EFFORT:}
+          images: ${FACTORY_CLAUDE_CODE_IMAGES:false}
+    attachments:
+      max-images: ${FACTORY_DEV_FACTORY_ATTACHMENT_MAX_IMAGES:10}
+      max-bytes: ${FACTORY_DEV_FACTORY_ATTACHMENT_MAX_BYTES:3145728}
     delivery:
       create-pull-request: true
       targets:

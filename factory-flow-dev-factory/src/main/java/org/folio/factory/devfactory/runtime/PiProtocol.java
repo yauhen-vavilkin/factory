@@ -13,6 +13,8 @@ import java.util.regex.Pattern;
 
 /** Strict final-result validation. Progress observations never authorize a coding result. */
 final class PiProtocol {
+    private static final String USER_MESSAGE_START = "{\"type\":\"message_start\",\"message\":{\"role\":\"user\"";
+    private static final String USER_MESSAGE_END = "{\"type\":\"message_end\",\"message\":{\"role\":\"user\"";
     private static final Pattern HTTP_STATUS = Pattern.compile("\\b[45][0-9]{2}\\b");
 
     static CodingOutcome parse(String output, String provider, String model) {
@@ -28,6 +30,8 @@ final class PiProtocol {
         for (String line : output.split("\n")) {
             if (line.isBlank()) continue;
             if (line.length() > 512 * 1024) {
+                // Pi echoes the task, with any base64 image, as a user message; it says nothing about the result.
+                if (line.startsWith(USER_MESSAGE_START) || line.startsWith(USER_MESSAGE_END)) continue;
                 if (isOversizedAgentEnd(line, mapper)) {
                     usage.ignoredOversizedAgentEnd(line.length());
                     continue;

@@ -155,17 +155,19 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         }
         /** Nonblank profile values override legacy Pi settings, field by field. */
         public Pi piProfile() {
-            var profile = pi == null ? new Pi(null, null, null, null, null, null, null, null, null) : pi;
+            var profile = pi == null ? new Pi(null, null, null, null, null, null, null, null, null, false) : pi;
             return new Pi(first(profile.image(), image), first(profile.provider(), provider),
                     first(profile.model(), model), first(profile.baseUrl(), baseUrl), first(profile.api(), api),
                     first(profile.apiKey(), apiKey), first(profile.authentication(), "api-key"),
                     first(profile.reasoningEffort(), reasoningEffort),
-                    profile.maxOutputTokens() == null ? maxOutputTokens : profile.maxOutputTokens());
+                    profile.maxOutputTokens() == null ? maxOutputTokens : profile.maxOutputTokens(),
+                    profile.images());
         }
     }
 
+    /** {@code images} declares that the model reads images; Pi otherwise swaps every image for a text placeholder. */
     public record Pi(String image, String provider, String model, String baseUrl, String api, String apiKey,
-                     String authentication, String reasoningEffort, Integer maxOutputTokens) {
+                     String authentication, String reasoningEffort, Integer maxOutputTokens, boolean images) {
         public void requireConfigured() {
             // Built-in API types in the pinned Pi 0.85.1 image (pi-ai KnownApi).
             if (api == null || !List.of("openai-completions", "openai-responses", "anthropic-messages",
@@ -181,9 +183,16 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         @Override public String toString() { return "Pi[image=" + image + ", model=" + model + "]"; }
     }
 
+    /** {@code images} declares that the configured model reads images; only then are the ticket's images passed on. */
     public record ClaudeCode(String image, String api, String baseUrl, String model, String authentication,
                              String apiKey, String authToken, Integer maxTurns, Integer maxOutputTokens,
-                             String effort) {
+                             String effort, boolean images) {
+        public ClaudeCode(String image, String api, String baseUrl, String model, String authentication,
+                          String apiKey, String authToken, Integer maxTurns, Integer maxOutputTokens,
+                          String effort) {
+            this(image, api, baseUrl, model, authentication, apiKey, authToken, maxTurns, maxOutputTokens, effort, false);
+        }
+        @org.springframework.boot.context.properties.bind.ConstructorBinding
         public ClaudeCode {
             image = first(image, "factory-dev-claude-code:2.1.287-java21-node22");
             api = first(api, "anthropic-messages");

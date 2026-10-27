@@ -1,11 +1,13 @@
 package org.folio.factory.devfactory.intake;
 
 import org.folio.factory.connectors.jira.JiraIssue;
+import org.folio.factory.devfactory.runtime.ImageFormat;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -17,6 +19,8 @@ import java.util.regex.Pattern;
 public final class IssueSnapshot {
 
     public static final Pattern ISSUE_KEY = Pattern.compile("[A-Z][A-Z0-9_]{0,31}-[1-9][0-9]{0,8}");
+
+    private static final Pattern ATTACHMENT_ID = Pattern.compile("[0-9]{1,18}");
 
     static final int MAX_SUMMARY = 500;
     static final int MAX_DESCRIPTION = 20_000;
@@ -45,6 +49,7 @@ public final class IssueSnapshot {
         snapshot.put("description", cut(description(issue), MAX_DESCRIPTION, "description", truncated));
         snapshot.put("comments", fields == null ? List.of() : comments(fields, truncated));
         snapshot.put("links", fields == null ? List.of() : links(fields, truncated));
+        snapshot.put("attachments", fields == null ? List.of() : attachments(fields, truncated));
         snapshot.put("truncated", truncated);
         return snapshot;
     }
@@ -122,6 +127,40 @@ public final class IssueSnapshot {
             links.add(row);
         }
         return links;
+    }
+
+    /** Metadata only: the bytes are downloaded when a coding attempt needs them. Only formats Factory can pass on are listed. */
+    private static List<Map<String, Object>> attachments(JsonNode fields, List<String> truncated) {
+        List<Map<String, Object>> images = new ArrayList<>();
+        int skipped = 0;
+        for (JsonNode attachment : fields.path("attachment")) {
+            String id = attachment.path("id").asString("");
+            String mimeType = attachment.path("mimeType").asString("").toLowerCase(Locale.ROOT);
+            if (!ATTACHMENT_ID.matcher(id).matches() || !ImageFormat.isSupportedMimeType(mimeType)) {
+                skipped++;
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", id);
+            row.put("filename", cut(safeName(attachment.path("filename").asString("")), MAX_NAME,
+                    "attachment filename", truncated));
+            row.put("mimeType", mimeType);
+            row.put("size", attachment.path("size").asLong(0));
+            images.add(row);
+        }
+        if (skipped > 0) {
+            truncated.add("attachments: " + skipped + " not provided (only png, jpeg, gif and webp images are passed on)");
+        }
+        if (images.size() > MAX_LIST) {
+            truncated.add("attachments: kept " + MAX_LIST + " of " + images.size() + " images");
+            return new ArrayList<>(images.subList(0, MAX_LIST));
+        }
+        return images;
+    }
+
+    /** File names come from whoever attached the file and reach the prompt, so only plain characters stay. */
+    private static String safeName(String name) {
+        return name.replaceAll("[^\\p{L}\\p{N}._ -]", "_");
     }
 
     private static String cut(String value, int max, String field, List<String> truncated) {

@@ -187,6 +187,52 @@ class ClaudeCodeCodingRuntimeTest {
                 .isEqualTo("INVALID_DECISION_RESULT");
     }
 
+    private static String imageEcho() {
+        return "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"content\":"
+                + "[{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"data\":\"" + "A".repeat(1_046_000) + "\"}}]}]}}";
+    }
+
+    @Test void theOversizedEchoOfAnImageTheAgentOpenedIsIgnored() {
+        var result = parse(INIT + imageEcho() + "\n" + RESULT, 0);
+
+        assertThat(result.status()).as(result.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(result.metrics().toString()).doesNotContain("AAAA");
+    }
+
+    @Test void onlyTheUserEchoMayBeOversized() {
+        String padding = "x".repeat(520 * 1024);
+        for (String type : List.of("assistant", "stream_event", "result", "system"))
+            assertThat(parse(INIT + "{\"type\":\"" + type + "\",\"padding\":\"" + padding + "\"}\n" + RESULT, 0)
+                    .failure().code()).as(type).isEqualTo("FRAME_TOO_LARGE");
+        assertThat(parse(INIT + imageEcho().replace("\"role\":\"user\"", "\"role\":\"assistant\"") + "\n" + RESULT, 0)
+                .failure().code()).isEqualTo("FRAME_TOO_LARGE");
+    }
+
+    @Test void theOutputBudgetGrowsWithTheStagedImages() {
+        var runtime = new ClaudeCodeCodingRuntime(config("api-key"));
+        var workload = workload();
+        var limit = new AtomicReference<Integer>();
+        when(workload.execute(anyList(), eq(60), anyInt(), any())).thenAnswer(call -> {
+            limit.set(call.getArgument(2));
+            return new Processes.Result(0, INIT + RESULT);
+        });
+        var staged = new CodingRequest.Attachment("1", "a.png", "image/png", 1, "", "")
+                .staged("/tmp/factory-attachments/img-1.png", 1 << 20);
+
+        runtime.code(workload, request().withAttachments(List.of(staged)), 60);
+
+        assertThat(limit.get()).isEqualTo(ClaudeCodeCodingRuntime.EVENT_STREAM_LIMIT + 5 * (1 << 20));
+    }
+
+    @Test void imagesAreOptInForClaudeCode() {
+        var off = config("api-key");
+        var on = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway.example/anthropic", "custom/Model-1",
+                "api-key", "secret-key", "secret-token", 10, 4096, "high", true);
+
+        assertThat(new ClaudeCodeCodingRuntime(off).acceptsImages()).isFalse();
+        assertThat(new ClaudeCodeCodingRuntime(on).acceptsImages()).isTrue();
+    }
+
     private static CodingOutcome parse(String text, int exitCode) {
         var protocol = new ClaudeCodeProtocol("custom/Model-1", s -> s.replace("secret-key", "[REDACTED]"), e -> {});
         text.lines().forEach(protocol);

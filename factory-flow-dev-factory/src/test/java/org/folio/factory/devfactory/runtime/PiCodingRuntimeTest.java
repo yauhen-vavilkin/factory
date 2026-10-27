@@ -69,6 +69,40 @@ class PiCodingRuntimeTest {
                 .containsEntry("inputTokens", 10L).containsEntry("outputTokens", 3L);
     }
 
+    private static String userEcho(String type, String role) {
+        return "{\"type\":\"" + type + "\",\"message\":{\"role\":\"" + role + "\",\"content\":[{\"type\":\"image\","
+                + "\"data\":\"" + "A".repeat(520 * 1024) + "\",\"mimeType\":\"image/png\"}]}}";
+    }
+
+    @Test void theOversizedEchoOfTheTaskImageIsIgnored() {
+        String stream = userEcho("message_start", "user") + "\n" + userEcho("message_end", "user") + "\n"
+                + USAGE_FRAME + SETTLED;
+
+        var result = PiProtocol.parse(stream, "p", "m");
+
+        assertThat(result.status()).as(result.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(result.metrics().toString()).doesNotContain("AAAA");
+    }
+
+    @Test void onlyTheUserEchoIsIgnoredNotOtherOversizedMessages() {
+        for (String role : List.of("assistant", "toolResult")) {
+            assertThat(PiProtocol.parse(USAGE_FRAME + userEcho("message_end", role) + "\n" + SETTLED, "p", "m")
+                    .failure().code()).as(role).isEqualTo("FRAME_TOO_LARGE");
+        }
+        assertThat(PiProtocol.parse(USAGE_FRAME + userEcho("turn_end", "user") + "\n" + SETTLED, "p", "m")
+                .failure().code()).isEqualTo("FRAME_TOO_LARGE");
+    }
+
+    @Test void theEventStreamBudgetGrowsWithTheStagedImagesOnly() {
+        var none = request();
+        var staged = new CodingRequest.Attachment("1", "a.png", "image/png", 1, "", "").staged("/tmp/factory-attachments/img-1.png", 1 << 20);
+        var skipped = new CodingRequest.Attachment("2", "b.png", "image/png", 1 << 20, "", "").skipped("not provided");
+
+        assertThat(PiCodingRuntime.eventStreamLimit(none)).isEqualTo(PiCodingRuntime.EVENT_STREAM_LIMIT);
+        assertThat(PiCodingRuntime.eventStreamLimit(none.withAttachments(List.of(staged, skipped))))
+                .isEqualTo(PiCodingRuntime.EVENT_STREAM_LIMIT + 5 * (1 << 20));
+    }
+
     @Test void oversizedTerminalAndRetryControlFramesRemainFailClosed() {
         for (String type : List.of("message_end", "agent_settled", "auto_retry_start", "auto_retry_end", "compaction_end")) {
             var result = PiProtocol.parse(USAGE_FRAME + oversizedFrame(type) + "\n" + SETTLED, "p", "m");
@@ -131,7 +165,42 @@ class PiCodingRuntimeTest {
         assertThat(captured.command()).doesNotContain("--thinking");
     }
 
+    @Test void imagesAreDeclaredAndPassedAsFileArgumentsOnlyWhenEnabled() throws Exception {
+        var pi = new DevRuntimeProperties.Pi(null, null, null, null, null, null, null, null, null, true);
+        var coding = new DevRuntimeProperties.Coding("pi:image", "p", "m", "http://gateway/v1", "openai-completions",
+                "key", "pi", null, null, pi, null);
+        var staged = new CodingRequest.Attachment("1", "a.png", "image/png", 1, "", "").staged("/tmp/factory-attachments/img-1.png", 10);
+        var notProvided = new CodingRequest.Attachment("2", "b.png", "image/png", 1, "", "").skipped("was not provided");
+
+        var captured = captureConfiguration(coding, request().withAttachments(List.of(staged, notProvided)));
+
+        var model = tools.jackson.databind.json.JsonMapper.builder().build().readTree(captured.modelsJson())
+                .path("providers").path("p").path("models").get(0);
+        assertThat(model.path("input").toString()).isEqualTo("[\"text\",\"image\"]");
+        assertThat(captured.command()).containsSubsequence("@/tmp/factory-pi/task.txt", "@/tmp/factory-attachments/img-1.png");
+        assertThat(captured.command()).filteredOn(argument -> argument.startsWith("@")).hasSize(2);
+        assertThat(new PiCodingRuntime(coding).acceptsImages()).isTrue();
+    }
+
+    @Test void withoutTheImagesSettingTheModelStaysTextOnlyAndNoFilesAreAdded() throws Exception {
+        var coding = new DevRuntimeProperties.Coding("pi:image", "p", "m", "http://gateway/v1", "openai-completions",
+                "key", "pi", null, null);
+        var staged = new CodingRequest.Attachment("1", "a.png", "image/png", 1, "", "").staged("/tmp/factory-attachments/img-1.png", 10);
+
+        var captured = captureConfiguration(coding, request().withAttachments(List.of(staged)));
+
+        var model = tools.jackson.databind.json.JsonMapper.builder().build().readTree(captured.modelsJson())
+                .path("providers").path("p").path("models").get(0);
+        assertThat(model.has("input")).isFalse();
+        assertThat(captured.command()).filteredOn(argument -> argument.startsWith("@")).containsExactly("@/tmp/factory-pi/task.txt");
+        assertThat(new PiCodingRuntime(coding).acceptsImages()).isFalse();
+    }
+
     private static CapturedConfiguration captureConfiguration(DevRuntimeProperties.Coding coding) {
+        return captureConfiguration(coding, request());
+    }
+
+    private static CapturedConfiguration captureConfiguration(DevRuntimeProperties.Coding coding, CodingRequest request) {
         var workload = mock(DockerWorkloads.Workload.class);
         var modelsJson = new AtomicReference<String>();
         var command = new AtomicReference<List<String>>();
@@ -143,7 +212,7 @@ class PiCodingRuntimeTest {
             modelsJson.set(Files.readString(Path.of((String) invocation.getArgument(0)).resolve("models.json")));
             return null;
         }).when(workload).copy(anyString(), eq("/tmp/factory-pi"));
-        when(workload.execute(anyList(), eq(60), eq(PiCodingRuntime.EVENT_STREAM_LIMIT), any()))
+        when(workload.execute(anyList(), eq(60), anyInt(), any()))
                 .thenAnswer(invocation -> {
                     command.set(List.copyOf(invocation.getArgument(0)));
                     return new Processes.Result(0, "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\","
@@ -151,7 +220,7 @@ class PiCodingRuntimeTest {
                             + "\"stopReason\":\"stop\",\"content\":[{\"type\":\"text\",\"text\":\"Done\"}]}}\n"
                             + SETTLED);
                 });
-        assertThat(new PiCodingRuntime(coding).code(workload, request(), 60, events::add).status())
+        assertThat(new PiCodingRuntime(coding).code(workload, request, 60, events::add).status())
                 .isEqualTo(CodingOutcome.Status.COMPLETED);
         return new CapturedConfiguration(modelsJson.get(), command.get(), events);
     }
@@ -367,7 +436,7 @@ class PiCodingRuntimeTest {
         var workload = mock(DockerWorkloads.Workload.class);
         when(workload.execute(List.of("pi", "--version"), 30)).thenReturn(new Processes.Result(0, "0.85.1"));
         when(workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30)).thenReturn(new Processes.Result(0, ""));
-        when(workload.execute(anyList(), eq(60), eq(PiCodingRuntime.EVENT_STREAM_LIMIT), any()))
+        when(workload.execute(anyList(), eq(60), anyInt(), any()))
                 .thenAnswer(invocation -> {
                     java.util.function.Consumer<String> observer = invocation.getArgument(3);
                     String frame = outcome.equals("provider")
