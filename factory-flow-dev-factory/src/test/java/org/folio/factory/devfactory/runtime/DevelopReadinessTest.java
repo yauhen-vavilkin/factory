@@ -60,7 +60,7 @@ class DevelopReadinessTest {
         var coding = mock(CodingRuntime.class);
         var selectedRepository = mock(SelectedRepositoryPreflight.class);
         when(coding.image()).thenReturn("pi:image");
-        when(coding.identity()).thenReturn(Map.of("runtime", "pi", "image", "pi:image",
+        when(coding.identity(any())).thenReturn(Map.of("runtime", "pi", "image", "pi:image",
                 "provider", "provider", "model", "model"));
         when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
         when(stepScope.createTrusted("build:image", workspace, "factory-dev-m2-cache")).thenReturn(baseline);
@@ -102,7 +102,7 @@ class DevelopReadinessTest {
 
         assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class);
         verify(coding, never()).code(any(), any(), anyInt(), any(), any());
-        verify(coding).requireConfigured();
+        verify(coding).requireConfigured(any());
         var result = worker.execute(context);
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
@@ -133,7 +133,7 @@ class DevelopReadinessTest {
         verify(selectedRepository, times(2)).requireRepositoryReady("repo", "a".repeat(40));
         var order = inOrder(docker, coding, selectedRepository, freezer);
         order.verify(docker).beginStep(context.executionId(), "implement");
-        order.verify(coding).requireConfigured();
+        order.verify(coding).requireConfigured(any());
         order.verify(selectedRepository).requireRepositoryReady("repo", request.repository().baseSha());
         order.verify(freezer).checkout("https://example.org/owner/repo.git", request.repository().baseSha());
         verify(stepScope, times(2)).createTrusted("build:image", workspace, "factory-dev-m2-cache");
@@ -205,7 +205,7 @@ class DevelopReadinessTest {
             assertThat(result.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_FAILED", "output");
         }
         verify(coding, never()).code(any(), any(), anyInt(), any(), any());
-        verify(coding, times(retryable ? 2 : 1)).requireConfigured();
+        verify(coding, times(retryable ? 2 : 1)).requireConfigured(any());
         verify(audit, atLeastOnce()).record(eq(context.executionId()),
                 eq(AuditEventType.RUNTIME_PROGRESS), eq("implement"), anyMap());
         verify(workload, times(retryable ? 2 : 1)).close();
@@ -224,7 +224,7 @@ class DevelopReadinessTest {
         var context = new AgentContext(
                 UUID.randomUUID(), "implement", Map.of(), null, Map.of(), List.of());
         when(docker.beginStep(context.executionId(), "implement")).thenReturn(scope);
-        doThrow(new IllegalStateException("secret must not persist")).when(coding).requireConfigured();
+        doThrow(new IllegalStateException("secret must not persist")).when(coding).requireConfigured(any());
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, new FrontmatterCodec(),
                 mock(AuditLog.class), model -> Map.of());
@@ -236,7 +236,7 @@ class DevelopReadinessTest {
                 .doesNotContain("secret must not persist");
         var order = inOrder(docker, coding, scope);
         order.verify(docker).beginStep(context.executionId(), "implement");
-        order.verify(coding).requireConfigured();
+        order.verify(coding).requireConfigured(any());
         order.verify(scope).close();
         verifyNoInteractions(freezer);
         verify(scope, never()).createTrusted(anyString(), any(), anyString());
@@ -259,7 +259,7 @@ class DevelopReadinessTest {
         var request = request();
         var context = context(codec, request);
         when(coding.image()).thenReturn("coding:image");
-        when(coding.identity()).thenReturn(Map.of("runtime", "stub", "image", "coding:image"));
+        when(coding.identity(any())).thenReturn(Map.of("runtime", "stub", "image", "coding:image"));
         when(docker.beginStep(context.executionId(), "implement")).thenReturn(scope);
         when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
         when(scope.createTrusted(anyString(), any(), anyString())).thenReturn(workload);
@@ -310,7 +310,7 @@ class DevelopReadinessTest {
         var request = request();
         var context = context(codec, request);
         when(coding.image()).thenReturn("coding:image");
-        when(coding.identity()).thenReturn(Map.of("runtime", "stub", "image", "coding:image"));
+        when(coding.identity(any())).thenReturn(Map.of("runtime", "stub", "image", "coding:image"));
         when(docker.beginStep(context.executionId(), "implement")).thenReturn(scope);
         when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
         when(scope.createTrusted(anyString(), any(), anyString())).thenReturn(baseline);
@@ -384,7 +384,7 @@ class DevelopReadinessTest {
         }
         var order = inOrder(docker, coding, selectedRepository, scope);
         order.verify(docker).beginStep(context.executionId(), "implement");
-        order.verify(coding).requireConfigured();
+        order.verify(coding).requireConfigured(any());
         order.verify(selectedRepository).requireRepositoryReady("repo", "a".repeat(40));
         order.verify(scope).close();
         verifyNoInteractions(freezer);
@@ -568,7 +568,7 @@ class DevelopReadinessTest {
         var request = request();
         var context = context(codec, request);
         when(coding.image()).thenReturn("coding:image");
-        when(coding.identity()).thenReturn(Map.of("runtime", "stub", "image", "coding:image"));
+        when(coding.identity(any())).thenReturn(Map.of("runtime", "stub", "image", "coding:image"));
         when(docker.beginStep(context.executionId(), "implement")).thenReturn(scope);
         when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
         when(scope.createTrusted(anyString(), any(), anyString())).thenReturn(baseline);

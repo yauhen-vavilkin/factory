@@ -224,7 +224,7 @@ class PilotAutonomousFlowIntegrationTest {
     private void stubCodingIdentity() {
         when(coding.id()).thenReturn("stub");
         when(coding.image()).thenReturn("stub:image");
-        when(coding.identity()).thenReturn(Map.of("runtime", "stub", "image", "stub:image"));
+        when(coding.identity(any())).thenReturn(Map.of("runtime", "stub", "image", "stub:image"));
     }
 
     @Test

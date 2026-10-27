@@ -248,6 +248,7 @@ class PilotEndToEndTest {
 
     private final JsonMapper json = JsonMapper.builder().build();
     private static final Map<String, Integer> codingCalls = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<String, CodingRequest> codingRequests = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Test
     @Order(1)
@@ -398,9 +399,12 @@ class PilotEndToEndTest {
         UUID heldAttemptId = attempts.findByExecutionId(heldExecutionId).orElseThrow().getId();
         PilotTask failedTask = tasks.findById(taskId("8103")).orElseThrow();
 
+        String runSettings = "{\"profileId\":\"glm-5.3\",\"profileLabel\":\"GLM-5.3 (Z.ai)\","
+                + "\"model\":\"glm-5.3\",\"endpointOrigin\":\"https://api.z.ai\",\"effort\":\"low\","
+                + "\"maxTurns\":33,\"instructions\":\"Use the wiki REST URL.\"}";
         var firstClick = retries.retry(new PilotCommands.Retry("e2e-retry-103", failedTask.getId(),
                 failedTask.getVersion(), PilotAdmissionService.inputFingerprint(failedTask),
-                PilotAdmissionService.destinationFingerprint(failedTask)));
+                PilotAdmissionService.destinationFingerprint(failedTask), runSettings));
         var duplicateClick = retries.retry(new PilotCommands.Retry("e2e-retry-103", failedTask.getId(),
                 failedTask.getVersion(), PilotAdmissionService.inputFingerprint(failedTask),
                 PilotAdmissionService.destinationFingerprint(failedTask)));
@@ -432,6 +436,10 @@ class PilotEndToEndTest {
         PilotOutcomeService.AttemptOutcome retryOutcome = outcomes.refresh(firstClick.attemptId());
 
         assertThat(retryOutcome.state()).isEqualTo(PilotOutcomeService.AttemptOutcome.State.PR_READY);
+        // The settings chosen at Retry reach the coding request; the first attempt had none.
+        assertThat(codingRequests.get("MODFOO-103").runSettings())
+                .isEqualTo(new CodingRequest.RunSettings("glm-5.3", "low", 33, "Use the wiki REST URL."));
+        assertThat(attempts.findById(firstClick.attemptId()).orElseThrow().getRunSettings()).contains("glm-5.3");
         assertThat(retryOutcome.publicationIdentity()).isEqualTo(FOO_PR);
         List<PilotAttempt> history = attempts.findByTaskIdOrderByOrdinalAsc(taskId("8103"));
         assertThat(history).hasSize(2);
@@ -655,7 +663,7 @@ class PilotEndToEndTest {
     private void stubCodingOutcomes() {
         when(coding.id()).thenReturn("stub");
         when(coding.image()).thenReturn("stub:image");
-        when(coding.identity()).thenReturn(Map.of("runtime", "stub", "image", "stub:image",
+        when(coding.identity(any())).thenReturn(Map.of("runtime", "stub", "image", "stub:image",
                 "model", "claude-sonnet-5-5"));
         when(pricing.rateFor(any())).thenReturn(Optional.of(new DeveloperPricingProperties.Rate(
                 "claude-sonnet-5-5", "USD", LocalDate.of(2026, 10, 22),
@@ -664,6 +672,7 @@ class PilotEndToEndTest {
         when(coding.code(any(), any(), anyInt(), any(), any())).thenAnswer(invocation -> {
             CodingRequest request = invocation.getArgument(1);
             codingCalls.merge(request.issueKey(), 1, Integer::sum);
+            codingRequests.put(request.issueKey(), request);
             return outcomeFor(request.issueKey());
         });
     }

@@ -22,7 +22,7 @@ class PiCodingRuntimeTest {
     @Test void identityContainsOnlyDisplayFields() {
         var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding("pi:image", "provider", "model",
                 "https://private.example", "openai-completions", "secret-key", "pi", "high", 4096));
-        assertThat(runtime.identity()).containsExactlyInAnyOrderEntriesOf(Map.of(
+        assertThat(runtime.identity(null)).containsExactlyInAnyOrderEntriesOf(Map.of(
                 "runtime", "pi", "image", "pi:image", "provider", "provider", "model", "model"));
     }
 
@@ -32,13 +32,13 @@ class PiCodingRuntimeTest {
     void identityIsAvailableWithMissingConfiguration(String missing) {
         var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding(missing, missing, missing,
                 null, null, null, "pi", null, null));
-        assertThat(runtime.identity()).containsExactlyInAnyOrderEntriesOf(Map.of("runtime", "pi"));
+        assertThat(runtime.identity(null)).containsExactlyInAnyOrderEntriesOf(Map.of("runtime", "pi"));
 
         var base = mock(CodingRuntime.class, CALLS_REAL_METHODS);
         when(base.id()).thenReturn(missing);
         when(base.image()).thenReturn(missing);
-        assertThat(base.identity()).isEmpty();
-        verify(base, never()).requireConfigured();
+        assertThat(base.identity(null)).isEmpty();
+        verify(base, never()).requireConfigured(any());
     }
 
     private static String oversizedAgentEnd() {

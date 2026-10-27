@@ -56,6 +56,8 @@
                 <div class="task-section-tools">
                     <span data-poll-notice hidden>Tasks changed; reload to see them.</span>
                     <span aria-live="polite" data-selected-count></span>
+                    <div class="run-settings" th:if="${runForm != null}"
+                         th:insert="~{fragments/developer-flow :: runSettings(${runForm})}"></div>
                     <button type="submit" class="btn btn-primary btn-md btn-roomy" data-run-selected
                             th:disabled="${availableShown == 0}">Run</button>
                 </div>
@@ -116,6 +118,8 @@
             <label for="run-key">Not in your list? Run a task by key</label>
             <input id="run-key" name="key" type="text" placeholder="MGRAPPS-101 or a Jira link" required
                    autocomplete="off">
+            <div class="run-settings" th:if="${runForm != null}"
+                 th:insert="~{fragments/developer-flow :: runSettings(${runForm})}"></div>
             <button type="submit" class="btn btn-outline btn-md">Add to run</button>
             <span class="key-form-hint">Any status, any assignee. The task joins the queue below.</span>
         </form>
@@ -175,14 +179,8 @@
                              th:if="${row['retryAllowed'] or row['markStoppedAttemptId'] != null}">
                             <span class="state-detail-text" th:text="${row['detail']}" th:title="${row['detail']}">detail</span>
                             <span class="state-detail-sep"> · </span>
-                            <form method="post" th:if="${row['retryAllowed']}"
-                                  th:action="@{'/tasks/' + ${row['taskId']} + '/retry'}">
-                                <input type="hidden" name="expectedVersion" th:value="${row['version']}">
-                                <input type="hidden" name="inputFingerprint" th:value="${row['inputFingerprint']}">
-                                <input type="hidden" name="destinationFingerprint" th:value="${row['destinationFingerprint']}">
-                                <input type="hidden" name="returnTo" value="flow">
-                                <button type="submit" class="btn-inline">Retry</button>
-                            </form>
+                            <a class="btn-inline" th:if="${row['retryAllowed']}"
+                               th:href="@{'/tasks/' + ${row['taskId']} + '#retry'}">Retry</a>
                             <form method="post" th:if="${row['markStoppedAttemptId'] != null}"
                                   th:action="@{'/tasks/' + ${row['taskId']} + '/attempts/' + ${row['markStoppedAttemptId']} + '/mark-stopped'}">
                                 <input type="hidden" name="returnTo" value="flow">

@@ -146,6 +146,8 @@ class ClaudeCodeDockerTest {
             assertThat(Files.exists(exported.resolve(".claude"))).isFalse();
             assertThat(mock.calls.size()).isEqualTo(2);
             for (var call : mock.calls) {
+                // --bare is off, so the CLI offers WebFetch.
+                assertThat(call.body.path("tools").findValuesAsString("name")).contains("Bash", "WebFetch");
                 assertThat(call.body.path("model").asString()).isEqualTo(MODEL);
                 assertThat(call.body.path("max_tokens").asInt()).isEqualTo(4096);
                 assertThat(call.body.path("stream").asBoolean()).isTrue();
@@ -204,8 +206,10 @@ class ClaudeCodeDockerTest {
                         "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "0:0",
                         "--env", "HOME=/tmp/factory-home", "--env", "ANTHROPIC_AUTH_TOKEN=mock-token",
                         "--env", "ANTHROPIC_BASE_URL=" + mock.url(), "--entrypoint", "claude", IMAGE,
-                        "--bare", "--print", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
-                        "--tools", "Bash,Read,Edit,Write,Glob,Grep", "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep",
+                        "--print", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
+                        "--setting-sources", "", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
+                        "--tools", "Bash,Read,Edit,Write,Glob,Grep,WebFetch",
+                        "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep,WebFetch",
                         "--permission-mode", "dontAsk", "--permission-prompts", "none",
                         "--model", MODEL, "--max-turns", "3", "Use public API");
                 var result = Processes.run(null, command, 60);

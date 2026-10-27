@@ -8,6 +8,7 @@ import java.util.UUID;
  * explicit Retry. Selections carry the task
  * version and input/destination identity the user selected against; admission
  * revalidates all of them against the current task before reserving an attempt.
+ * runSettings is the checked snapshot from {@link PilotRunSettings} (null: the defaults).
  */
 public final class PilotCommands {
 
@@ -18,13 +19,21 @@ public final class PilotCommands {
                             String destinationFingerprint) {
     }
 
-    public record RunSelected(String requestId, List<Selection> selections) {
+    public record RunSelected(String requestId, List<Selection> selections, String runSettings) {
         public RunSelected {
             selections = selections == null ? List.of() : List.copyOf(selections);
+        }
+
+        public RunSelected(String requestId, List<Selection> selections) {
+            this(requestId, selections, null);
         }
     }
 
     public record Retry(String requestId, UUID taskId, long expectedVersion, String inputFingerprint,
-                        String destinationFingerprint) {
+                        String destinationFingerprint, String runSettings) {
+        public Retry(String requestId, UUID taskId, long expectedVersion, String inputFingerprint,
+                     String destinationFingerprint) {
+            this(requestId, taskId, expectedVersion, inputFingerprint, destinationFingerprint, null);
+        }
     }
 }

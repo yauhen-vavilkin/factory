@@ -22,15 +22,9 @@
             <span th:each="chip : ${task['chips']}" th:text="${chip}">chip</span>
         </div>
         <div class="result-actions"
-             th:if="${task['retryAllowed'] or task['prUrl'] != null or task['lastRunUrl'] != null or task['markStoppedAttemptId'] != null}">
+             th:if="${task['prUrl'] != null or task['lastRunUrl'] != null or task['markStoppedAttemptId'] != null}">
             <a class="btn btn-primary btn-md btn-roomy" th:if="${task['prUrl'] != null}" th:href="${task['prUrl']}"
                th:text="${task['prAction']}">Open pull request</a>
-            <form method="post" th:if="${task['retryAllowed']}" th:action="@{'/tasks/' + ${task['taskId']} + '/retry'}">
-                <input type="hidden" name="expectedVersion" th:value="${task['version']}">
-                <input type="hidden" name="inputFingerprint" th:value="${task['inputFingerprint']}">
-                <input type="hidden" name="destinationFingerprint" th:value="${task['destinationFingerprint']}">
-                <button type="submit" class="btn btn-primary btn-md btn-roomy">Retry</button>
-            </form>
             <form method="post" th:if="${task['markStoppedAttemptId'] != null}"
                   th:action="@{'/tasks/' + ${task['taskId']} + '/attempts/' + ${task['markStoppedAttemptId']} + '/mark-stopped'}">
                 <button type="submit" class="btn btn-outline btn-md"
@@ -42,9 +36,26 @@
                th:href="${task['prUrl'] != null} ? ${task['lastRunUrl'] + '#pr-feedback'} : ${task['lastRunUrl']}"
                th:text="${task['prUrl'] != null} ? 'Work on PR feedback'
                         : (${task['stateLabel'] == 'Working'} ? 'Open live run' : 'Open last run')">Open last run</a>
-            <span class="dev-note" th:if="${task['retryAllowed']}">Retry starts one fresh attempt and puts it in the
-                queue. Earlier attempts and their cost stay on this page.</span>
         </div>
+        <form class="retry-form" id="retry" method="post" th:if="${task['retryAllowed']}"
+              th:action="@{'/tasks/' + ${task['taskId']} + '/retry'}">
+            <input type="hidden" name="expectedVersion" th:value="${task['version']}">
+            <input type="hidden" name="inputFingerprint" th:value="${task['inputFingerprint']}">
+            <input type="hidden" name="destinationFingerprint" th:value="${task['destinationFingerprint']}">
+            <div class="run-settings" th:if="${retryForm != null}"
+                 th:insert="~{fragments/developer-flow :: runSettings(${retryForm})}"></div>
+            <label class="retry-instructions">
+                <span>Instructions for the agent <span class="muted">(optional)</span></span>
+                <textarea class="textarea" name="instructions" rows="3" th:maxlength="${instructionsLimit}"
+                          th:text="${retryInstructions}"
+                          placeholder="Plain text. The agent gets it after the task data."></textarea>
+            </label>
+            <div class="result-actions">
+                <button type="submit" class="btn btn-primary btn-md btn-roomy">Retry</button>
+                <span class="dev-note">Retry starts one fresh attempt and puts it in the queue. Earlier attempts
+                    and their cost stay on this page.</span>
+            </div>
+        </form>
     </section>
 
     <section class="dev-block" aria-labelledby="attempts-title" th:unless="${#lists.isEmpty(attempts)}">
@@ -62,6 +73,7 @@
                 <div class="task-row" th:each="attempt : ${attempts}">
                     <span class="attempt-cell">
                         <strong th:text="${attempt['label']}">1 · first run</strong>
+                        <span class="attempt-run" th:if="${attempt['run'] != null}" th:text="${attempt['run']}">glm-5.3 · max</span>
                         <a th:if="${attempt['executionId'] != null}" th:href="@{'/executions/' + ${attempt['executionId']}}"
                            th:text="'run ' + ${attempt['executionShort']}">run</a>
                     </span>

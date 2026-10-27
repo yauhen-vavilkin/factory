@@ -10,6 +10,7 @@ import org.folio.factory.devfactory.decision.DecisionArtifacts;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Answer;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Request;
 import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
+import org.folio.factory.devfactory.pilot.PilotExecutionContext;
 import org.folio.factory.devfactory.repository.BaseRefResolver;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.folio.factory.devfactory.runtime.CodingRequest;
@@ -64,13 +65,14 @@ public class IntakeResolveWorker implements AgentWorker {
         JsonNode intake = codec.parse(context.requireInput(IntakeWorker.INTAKE).content()).metadata();
         String state = intake.path("state").asString("");
         if (!IntakeWorker.MAPPED.equals(state)) {
-            return brief(intake, state, intake.path("reason").asString(""), null, null, null);
+            return brief(intake, state, intake.path("reason").asString(""), null, null, null, null);
         }
         Request request = DecisionArtifacts.parseRequest(codec, context.requireInput(DecisionArtifacts.REQUEST).content());
-        if (request.required() && pilotPolicy.find(context.executionId()).isPresent()) {
+        Optional<PilotExecutionContext> pilot = pilotPolicy.find(context.executionId());
+        if (request.required() && pilot.isPresent()) {
             pilotPolicy.recordStop(context.executionId(), context.stepId(),
                     "repository selection requires a human choice; the approved admission must resolve to one repository");
-            return brief(intake, "BLOCKED", "REPOSITORY_SELECTION_REQUIRES_HUMAN", Map.of(), null, null);
+            return brief(intake, "BLOCKED", "REPOSITORY_SELECTION_REQUIRES_HUMAN", Map.of(), null, null, null);
         }
         String choice;
         Map<String, Object> decision = new LinkedHashMap<>();
@@ -86,16 +88,18 @@ public class IntakeResolveWorker implements AgentWorker {
             choice = intake.path("candidates").path(0).asString("");
         }
 
+        // The settings chosen at Run or Retry; a run without them (manual API trigger) uses the defaults.
+        CodingRequest.RunSettings settings = pilot.map(PilotExecutionContext::runSettings).orElse(null);
         Optional<Repository> repository = policy.find(choice);
         if (repository.isEmpty()) {
-            return brief(intake, "BLOCKED", "REPOSITORY_NOT_CONFIGURED", decision, null, null);
+            return brief(intake, "BLOCKED", "REPOSITORY_NOT_CONFIGURED", decision, null, null, settings);
         }
         Repository repo = repository.get();
         Optional<String> baseSha = baseRefResolver.resolve(repo.sourceRepo(), repo.baseBranch());
         if (baseSha.isEmpty()) {
-            return brief(intake, "BLOCKED", "BASE_BRANCH_NOT_FOUND", decision, choice, null);
+            return brief(intake, "BLOCKED", "BASE_BRANCH_NOT_FOUND", decision, choice, null, settings);
         }
-        return brief(intake, INTAKE_READY, null, decision, choice, baseSha.get());
+        return brief(intake, INTAKE_READY, null, decision, choice, baseSha.get(), settings);
     }
 
     private Answer validAnswer(AgentContext context, Request request) {
@@ -117,7 +121,7 @@ public class IntakeResolveWorker implements AgentWorker {
     }
 
     private AgentResult brief(JsonNode intake, String state, String reason, Map<String, Object> decision,
-                              String repositoryKey, String baseSha) {
+                              String repositoryKey, String baseSha, CodingRequest.RunSettings settings) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("state", state);
         metadata.put("reason", reason == null || reason.isEmpty() ? null : reason);
@@ -146,13 +150,13 @@ public class IntakeResolveWorker implements AgentWorker {
             body.append("Repository `").append(repositoryKey).append("` at `").append(baseSha).append("`.\n\n");
         }
         body.append("Build environment readiness has not been checked yet.\n");
-        CodingRequest request = codingRequest(intake, decision, repositoryKey, baseSha);
+        CodingRequest request = codingRequest(intake, decision, repositoryKey, baseSha, settings);
         return new AgentResult(Map.of(TASK_BRIEF, codec.render(metadata, body.toString()),
                 CODING_REQUEST, json.writeValueAsString(request)), Map.of());
     }
 
     private CodingRequest codingRequest(JsonNode intake, Map<String, Object> decision,
-                                        String repositoryKey, String baseSha) {
+                                        String repositoryKey, String baseSha, CodingRequest.RunSettings settings) {
         JsonNode issue = intake.path("issue");
         List<CodingRequest.Comment> comments = new java.util.ArrayList<>();
         issue.path("comments").forEach(comment -> comments.add(new CodingRequest.Comment(
@@ -176,6 +180,6 @@ public class IntakeResolveWorker implements AgentWorker {
         }
         return new CodingRequest(intake.path("issue_key").asString(""), issue.path("summary").asString(""),
                 issue.path("description").asString(""), comments, links, List.of(), decisions, target,
-                CodingRequest.Constraints.defaults());
+                CodingRequest.Constraints.defaults(), settings);
     }
 }

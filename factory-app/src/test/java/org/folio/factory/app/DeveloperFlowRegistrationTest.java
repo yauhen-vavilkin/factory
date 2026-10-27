@@ -173,7 +173,9 @@ class DeveloperFlowRegistrationTest {
         var apiResponse = client.send(apiRequest, HttpResponse.BodyHandlers.ofString());
 
         assertThat(apiResponse.statusCode()).isEqualTo(422);
-        assertThat(apiResponse.body()).contains("Developer Flow preflight failed", "Configure the selected coding profile");
+        // The reason names the profile and the variable to set.
+        assertThat(apiResponse.body()).contains("Developer Flow preflight failed",
+                "Profile env-default is not configured: set FACTORY_CLAUDE_CODE_API_KEY in .env");
         assertThat(state.countCreatedSince(Instant.EPOCH)).isEqualTo(before);
 
         String form = "payload=" + URLEncoder.encode("{\"issueKey\":\"MODSIDECAR-196\"}", StandardCharsets.UTF_8)

@@ -32,14 +32,15 @@ public class PiCodingRuntime implements CodingRuntime {
         return config.image();
     }
 
+    /** Run profiles apply to Claude Code only; Pi always uses its one configuration. */
     @Override
-    public void requireConfigured() {
+    public void requireConfigured(CodingRequest.RunSettings settings) {
         config.requireConfigured();
     }
 
     @Override
-    public Map<String, Object> identity() {
-        var identity = new LinkedHashMap<>(CodingRuntime.super.identity());
+    public Map<String, Object> identity(CodingRequest.RunSettings settings) {
+        var identity = new LinkedHashMap<>(CodingRuntime.super.identity(settings));
         if (config.provider() != null && !config.provider().isBlank())
             identity.put("provider", config.provider());
         if (config.model() != null && !config.model().isBlank())
@@ -66,7 +67,7 @@ public class PiCodingRuntime implements CodingRuntime {
             CodingRequest request,
             int timeoutSeconds,
             Consumer<Map<String, Object>> progress) {
-        requireConfigured();
+        requireConfigured(request.runSettings());
         request.requireReady();
         if (!workload.execute(List.of("pi", "--version"), 30)
                 .requireSuccess()

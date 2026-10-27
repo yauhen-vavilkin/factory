@@ -8,11 +8,18 @@ from. When you pick one up, move it into a plan; when it is done or dropped, del
 We tune the agent setup after the Developer Flow UI and UX problems are fixed.
 Source: [manual run review, 2026-10-27](superpowers/plans/2026-10-27-manual-run-review.md).
 
-- **Tools, MCP servers, skills.** The agent has `Bash, Read, Edit, Write, Glob, Grep`
-  (WebFetch is being added). No MCP servers, no skills. Try what helps on real tasks.
+- **Tools, MCP servers, skills.** The agent has `Bash, Read, Edit, Write, Glob, Grep,
+  WebFetch`. No MCP servers, no skills. Try what helps on real tasks.
 - **Shared instructions for all tasks.** A global instructions file in `config/` was
   discussed and postponed. Repository instructions come from the repo's own
-  `CLAUDE.md` / `AGENTS.md` once `--bare` is off.
+  `CLAUDE.md` / `AGENTS.md`.
+- **Loading `CLAUDE.md` / `AGENTS.md` by the CLI.** `--bare` is off, but with
+  `--setting-sources ""` CLI 2.1.287 does not load them (checked 2026-10-27 against a
+  local capture server: 0 requests with the file text; with `--setting-sources project`
+  all 4 requests had it). The project source would also load the repository's
+  `.claude/settings.json` (env such as `ANTHROPIC_BASE_URL`, hooks, `apiKeyHelper`), which
+  could send the secret elsewhere, so it stays off. For now the prompt tells the agent to
+  read and follow the files. Decide whether Factory should pass them in itself.
 - **Reading Confluence pages.** The ADR-0013 wiki page is 2 MB of HTML; WebFetch cuts it
   before the content. The REST URL `/wiki/rest/api/content/<id>?expand=body.storage` is
   34 KB and works with both WebFetch and `curl`. Decide whether to tell the agent this.

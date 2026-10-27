@@ -151,7 +151,7 @@ class IntakeWorkerTest {
 
     private static CodingRuntime codingRuntime() {
         CodingRuntime coding = mock(CodingRuntime.class);
-        when(coding.identity()).thenReturn(Map.of("runtime", "stub", "image", "stub:image"));
+        when(coding.identity(any())).thenReturn(Map.of("runtime", "stub", "image", "stub:image"));
         return coding;
     }
 }

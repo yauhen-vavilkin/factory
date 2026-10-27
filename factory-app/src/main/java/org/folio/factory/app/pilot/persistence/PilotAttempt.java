@@ -56,6 +56,11 @@ public class PilotAttempt {
     @Column(name = "approved_snapshot")
     private String approvedSnapshot;
 
+    /** JSON snapshot of the chosen run settings; see PilotRunSettings. Null: the defaults. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "run_settings")
+    private String runSettings;
+
     @Column(name = "execution_id")
     private UUID executionId;
 
@@ -157,6 +162,14 @@ public class PilotAttempt {
 
     public void setApprovedSnapshot(String approvedSnapshot) {
         this.approvedSnapshot = approvedSnapshot;
+    }
+
+    public String getRunSettings() {
+        return runSettings;
+    }
+
+    public void setRunSettings(String runSettings) {
+        this.runSettings = runSettings;
     }
 
     public UUID getExecutionId() {

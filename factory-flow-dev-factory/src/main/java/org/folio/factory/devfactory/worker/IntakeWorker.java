@@ -8,6 +8,7 @@ import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.service.AuditLog;
+import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.decision.DecisionArtifacts;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Answer;
@@ -74,8 +75,8 @@ public class IntakeWorker implements AgentWorker {
 
     @Override
     public AgentResult execute(AgentContext context) {
-        recordRuntimeConfiguration(context);
         Optional<PilotExecutionContext> pilot = pilotPolicy.find(context.executionId());
+        recordRuntimeConfiguration(context, pilot.map(PilotExecutionContext::runSettings).orElse(null));
         if (pilot.isPresent()) {
             return pilotOutcome(context, pilot.get());
         }
@@ -145,8 +146,8 @@ public class IntakeWorker implements AgentWorker {
         return result;
     }
 
-    private void recordRuntimeConfiguration(AgentContext context) {
-        var identity = new LinkedHashMap<>(runtime.identity());
+    private void recordRuntimeConfiguration(AgentContext context, CodingRequest.RunSettings settings) {
+        var identity = new LinkedHashMap<>(runtime.identity(settings));
         identity.put("activity", "coding_configured");
         audit.record(context.executionId(), AuditEventType.RUNTIME_PROGRESS, context.stepId(), ID, identity);
     }

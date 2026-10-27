@@ -13,8 +13,11 @@ import org.folio.factory.devfactory.decision.DecisionArtifacts;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
+import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
+import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.RunProfiles;
 import org.folio.factory.devfactory.worker.IntakeWorker;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -84,7 +87,7 @@ class DeveloperPreflightTest {
                 BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE)));
         when(coding.id()).thenReturn("claude-code");
         when(coding.image()).thenReturn("coding:image");
-        when(coding.identity()).thenReturn(Map.of("runtime", "claude-code", "image", "coding:image", "model", "exact-model"));
+        when(coding.identity(any())).thenReturn(Map.of("runtime", "claude-code", "image", "coding:image", "model", "exact-model"));
         when(probe.gatewayReachable(any())).thenReturn(true);
         when(probe.dockerAvailable()).thenReturn(true);
         when(probe.imageAvailable(anyString())).thenReturn(true);
@@ -117,18 +120,88 @@ class DeveloperPreflightTest {
 
     @Test
     void invalidSelectedProfileBlocksAdmissionWithoutProbingItsGatewayOrExposingCredential() {
-        doThrow(new IllegalStateException("invalid coding-fixture-secret")).when(coding).requireConfigured();
+        doThrow(new IllegalStateException("invalid coding-fixture-secret")).when(coding).requireConfigured(any());
 
         var report = service().check("TASK-1");
 
         assertThat(report.ready()).isFalse();
         assertThat(check(report, "runtime").status()).isEqualTo(FAIL);
-        verify(probe, never()).gatewayReachable(any());
+        // Only the overview of every run profile probes endpoints; admission never probes this gateway.
+        assertThat(report.checks()).noneMatch(check -> check.name().equals("gateway"));
         assertSafe(report);
+        org.mockito.Mockito.clearInvocations(probe);
         assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("preflight failed")
                 .isNotInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
                 .hasMessageNotContaining("coding-fixture-secret");
+        verify(probe, never()).gatewayReachable(any());
+    }
+
+    @Test
+    void aPilotRunIsCheckedWithItsOwnProfileSoABrokenDefaultDoesNotBlockIt() throws Exception {
+        var broken = new DevRuntimeProperties.ClaudeCode("coding:image", "anthropic-messages",
+                "http://gateway.fixture.invalid:4001", "exact-model", "api-key", null, null, 40, 16384, null);
+        var service = profileService(broken, "zai-fixture-secret");
+        var payload = JSON.readTree("{\"issueKey\":\"TASK-1\"}");
+
+        assertThatCode(() -> DeveloperPreflight.forRun(new CodingRequest.RunSettings("glm-5.3", "max", 50, null),
+                () -> {
+                    service.requireReady("dev-factory", payload);
+                    return null;
+                })).doesNotThrowAnyException();
+        verify(probe).gatewayReachable(URI.create("https://api.z.ai/api/anthropic"));
+        // A run that uses the broken default, or a profile that is gone, stops alone with a plain reason.
+        assertThatThrownBy(() -> service.requireReady("dev-factory", payload))
+                .isInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
+                .hasMessageContaining("set FACTORY_CLAUDE_CODE_API_KEY in .env");
+        assertThatThrownBy(() -> DeveloperPreflight.forRun(new CodingRequest.RunSettings("gone", null, null, null),
+                () -> {
+                    service.requireReady("dev-factory", payload);
+                    return null;
+                }))
+                .isInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
+                .hasMessageContaining("profile gone").hasMessageContaining("config/developer-run-profiles.yaml");
+    }
+
+    @Test
+    void theConfigurationPageListsEveryRunProfileWithItsOwnChecks() {
+        var configured = settings.coding().claudeCode();
+        var report = profileService(configured, "").check(null);
+
+        assertThat(report.profiles()).extracting(row -> row.get("id")).containsExactly("env-default", "glm-5.3");
+        var envDefault = report.profiles().getFirst();
+        assertThat(envDefault).containsEntry("default", true).containsEntry("model", "exact-model")
+                .containsEntry("effort", "high (CLI default)").containsEntry("maxTurns", 40)
+                .containsEntry("endpointOrigin", "http://gateway.fixture.invalid:4001");
+        assertThat(profileChecks(envDefault)).containsEntry("secret", PASS).containsEntry("endpoint", PASS)
+                .containsEntry("rate card", PASS).containsEntry("efforts", PASS);
+        var glm = report.profiles().get(1);
+        assertThat(glm).containsEntry("default", false).containsEntry("effort", "max")
+                .containsEntry("efforts", List.of("low", "high", "max"))
+                .containsEntry("endpointOrigin", "https://api.z.ai");
+        assertThat(profileChecks(glm)).containsEntry("secret", FAIL).containsEntry("endpoint", PASS)
+                .containsEntry("rate card", WARN).containsEntry("efforts", PASS);
+        assertThat(JSON.writeValueAsString(report)).doesNotContain("coding-fixture-secret");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, DeveloperPreflight.Status> profileChecks(Map<String, Object> row) {
+        var checks = new java.util.LinkedHashMap<String, DeveloperPreflight.Status>();
+        ((List<DeveloperPreflight.Check>) row.get("checks")).forEach(check -> checks.put(check.name(), check.status()));
+        return checks;
+    }
+
+    private DeveloperPreflight profileService(DevRuntimeProperties.ClaudeCode environment, String zaiKey) {
+        var glm = new RunProfiles.FileProfile("glm-5.3", "GLM-5.3 (Z.ai)", "https://api.z.ai/api/anthropic",
+                "bearer-token", "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", 100, 16384);
+        var profiles = new RunProfiles(environment, new RunProfiles.Properties(List.of(glm), null),
+                Map.of("FACTORY_ZAI_API_KEY", zaiKey)::get);
+        var runtime = new DevRuntimeProperties.Coding(null, null, null, null, null, null,
+                "claude-code", null, null, null, environment);
+        settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null);
+        return new DeveloperPreflight(repositories, delivery, settings,
+                new ClaudeCodeCodingRuntime(environment, profiles), jiraProperties, jira, github, pricing, probe,
+                profiles);
     }
 
     @ParameterizedTest
@@ -161,7 +234,7 @@ class DeveloperPreflightTest {
 
     @Test
     void pricingUsesTheConfiguredModelInsteadOfTheDisplayIdentity() {
-        when(coding.identity()).thenReturn(Map.of("runtime", "claude-code", "model", "display-only-model"));
+        when(coding.identity(any())).thenReturn(Map.of("runtime", "claude-code", "model", "display-only-model"));
 
         var report = service().check("TASK-1");
 
@@ -345,7 +418,7 @@ class DeveloperPreflightTest {
     void unsupportedEnterpriseApiIsBlockedBeforeRepositoryAccess() {
         var enterprise = new GitHubProperties("https://github.enterprise.invalid/api/v3", "github-fixture-secret");
         var service = new DeveloperPreflight(repositories, delivery, settings, coding, jiraProperties, jira,
-                enterprise, pricing, probe);
+                enterprise, pricing, probe, RunProfiles.envOnly(settings.coding().claudeCode()));
 
         var report = service.check("TASK-1");
 
@@ -377,7 +450,7 @@ class DeveloperPreflightTest {
         var runtime = new DevRuntimeProperties.Coding(null, null, null, null, null, null,
                 "claude-code", null, null, null, profile);
         settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null);
-        doThrow(new IllegalStateException("invalid coding-fixture-secret")).when(coding).requireConfigured();
+        doThrow(new IllegalStateException("invalid coding-fixture-secret")).when(coding).requireConfigured(any());
 
         var report = service().check(null);
 
@@ -491,7 +564,8 @@ class DeveloperPreflightTest {
     }
 
     private DeveloperPreflight service() {
-        return new DeveloperPreflight(repositories, delivery, settings, coding, jiraProperties, jira, github, pricing, probe);
+        return new DeveloperPreflight(repositories, delivery, settings, coding, jiraProperties, jira, github, pricing,
+                probe, RunProfiles.envOnly(settings.coding().claudeCode()));
     }
 
     private void usePiProfile(String baseUrl) {
@@ -501,7 +575,7 @@ class DeveloperPreflightTest {
                 "pi", null, null, pi, null);
         settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null);
         when(coding.id()).thenReturn("pi");
-        when(coding.identity()).thenReturn(Map.of("runtime", "pi", "model", "exact-model"));
+        when(coding.identity(any())).thenReturn(Map.of("runtime", "pi", "model", "exact-model"));
     }
 
     private static DeveloperPreflight.Check check(DeveloperPreflight.Report report, String name) {

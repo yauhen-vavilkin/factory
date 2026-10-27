@@ -91,6 +91,7 @@ class DeveloperPreflightControllerTest {
                         "delivery", "owner/folio-module-sidecar")),
                 List.of(new DeveloperPreflight.Check("task", status, message),
                         new DeveloperPreflight.Check("inference", DeveloperPreflight.Status.NOT_RUN,
-                                "No model call made.")));
+                                "No model call made.")),
+                List.of());
     }
 }

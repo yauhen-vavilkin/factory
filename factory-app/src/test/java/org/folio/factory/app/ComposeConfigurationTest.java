@@ -28,9 +28,10 @@ class ComposeConfigurationTest {
             "SOURCE_REPO", "DELIVERY_REPO", "BASE_BRANCH");
     private static final Set<String> COMPOSE_ONLY = Set.of(
             "COMPOSE_PROJECT_NAME", "FACTORY_APP_IMAGE", "FACTORY_APP_PORT", "FACTORY_DB_PORT",
-            "FACTORY_BIND_ADDRESS", "FACTORY_DEV_FACTORY_REPOSITORIES_FILE");
+            "FACTORY_BIND_ADDRESS", "FACTORY_DEV_FACTORY_REPOSITORIES_FILE", "FACTORY_DEV_FACTORY_RUN_PROFILES_FILE");
     private static final Path ROOT = repositoryRoot();
     private static final String CATALOG_MOUNT = "/application/config/developer-repositories.yaml";
+    private static final String PROFILES_MOUNT = "/application/config/developer-run-profiles.yaml";
     private static final Set<String> INHERITED_PROCESS_VARIABLES =
             Set.of("PATH", "HOME", "TMPDIR", "SystemRoot");
 
@@ -43,7 +44,7 @@ class ComposeConfigurationTest {
         documented.addAll(names(Files.readString(ROOT.resolve(".env.pilot.example")),
                 "(?m)^\\s*(?:#\\s*)?([A-Z][A-Z0-9_]+)="));
         for (String path : new String[]{"factory-app/src/main/resources/application.yaml",
-                "config/developer-repositories.yaml"}) {
+                "config/developer-repositories.yaml", "config/developer-run-profiles.yaml"}) {
             documented.addAll(names(Files.readString(ROOT.resolve(path)), "\\$\\{([A-Z][A-Z0-9_]+)[:}]"));
         }
         documented.removeAll(COMPOSE_ONLY);
@@ -96,6 +97,9 @@ class ComposeConfigurationTest {
         assertThat(environment.path("FACTORY_CLAUDE_CODE_AUTH_TOKEN").asString()).isEqualTo("codemie-proxy");
         assertThat(config.path("services").path("coding-runtime").path("image").asString())
                 .startsWith("factory-dev-claude-code:");
+        // Unset values arrive empty, which Factory treats as unset: env-default and "not configured".
+        assertThat(environment.path("FACTORY_ZAI_API_KEY").asString()).isEmpty();
+        assertThat(environment.path("FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE").asString()).isEmpty();
     }
 
     @Test
@@ -155,10 +159,29 @@ class ComposeConfigurationTest {
         assertThat(catalog.path("read_only").asBoolean()).isTrue();
         JsonNode pricing = requireVolume(factory, "/application/config/developer-pricing.yaml");
         assertThat(pricing.path("read_only").asBoolean()).isTrue();
+        JsonNode profiles = requireVolume(factory, PROFILES_MOUNT);
+        assertThat(profiles.path("read_only").asBoolean()).isTrue();
+        assertThat(profiles.path("source").asString()).endsWith("config/developer-run-profiles.yaml");
         assertThat(requireVolume(services.path("postgres"), "/var/lib/postgresql/data")
                 .path("source").asString()).endsWith("factory-pgdata");
         JsonNode m2 = requireVolume(factory, "/var/lib/factory-dev-m2-cache");
         assertThat(m2.path("read_only").asBoolean()).isTrue();
+    }
+
+    @Test
+    void runProfilesFileSecretAndDefaultProfileReachTheApp() throws Exception {
+        Path profiles = fixture.resolve("operator-run-profiles.yaml");
+        Files.writeString(profiles, "factory: {}\n");
+        var factory = render(Map.of("FACTORY_DEV_FACTORY_RUN_PROFILES_FILE", profiles.toString(),
+                "FACTORY_ZAI_API_KEY", "fixture-zai-key", "FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE", "glm-5.3"),
+                Map.of()).path("services").path("factory");
+        var environment = factory.path("environment");
+
+        assertEnvironmentContains(environment, Map.of("FACTORY_ZAI_API_KEY", "fixture-zai-key",
+                "FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE", "glm-5.3"));
+        assertThat(environment.path("SPRING_CONFIG_IMPORT").asString())
+                .contains("classpath:developer-run-profiles.yaml,file:" + PROFILES_MOUNT);
+        assertThat(requireVolume(factory, PROFILES_MOUNT).path("source").asString()).isEqualTo(profiles.toString());
     }
 
     @Test

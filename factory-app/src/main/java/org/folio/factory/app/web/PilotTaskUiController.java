@@ -4,6 +4,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.folio.factory.app.pilot.admission.PilotAdmissionService;
 import org.folio.factory.app.pilot.admission.PilotCommands;
 import org.folio.factory.app.pilot.admission.PilotRetryService;
+import org.folio.factory.app.pilot.admission.PilotRunSettings;
 import org.folio.factory.app.pilot.execution.PilotDispatcher;
 import org.folio.factory.app.pilot.execution.PilotOutcomeService;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
@@ -21,6 +22,7 @@ import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
+import org.folio.factory.devfactory.runtime.RunProfiles;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -88,13 +90,15 @@ public class PilotTaskUiController {
     private final FlowRegistry flows;
     private final DevFactoryProperties repositories;
     private final DevDeliveryProperties delivery;
+    private final PilotRunSettings runSettings;
 
     public PilotTaskUiController(PilotTaskQuery taskQuery, PilotInstallationRepository installations,
                                  PilotAttemptRepository attempts, PilotAdmissionService admissions,
                                  PilotRetryService retries, PilotDiscoveryService discovery,
                                  PilotDispatcher dispatcher, ObjectProvider<PilotOutcomeService> outcomes,
                                  PilotSourceProperties source, PilotJiraInstance jira, FlowRegistry flows,
-                                 DevFactoryProperties repositories, DevDeliveryProperties delivery) {
+                                 DevFactoryProperties repositories, DevDeliveryProperties delivery,
+                                 PilotRunSettings runSettings) {
         this.taskQuery = taskQuery;
         this.installations = installations;
         this.attempts = attempts;
@@ -108,6 +112,7 @@ public class PilotTaskUiController {
         this.flows = flows;
         this.repositories = repositories;
         this.delivery = delivery;
+        this.runSettings = runSettings;
     }
 
     /** The Developer Flow page, tab My tasks; {@code ?view=definition} is served by {@link FlowUiController}. */
@@ -152,6 +157,8 @@ public class PilotTaskUiController {
         // A row with Mark as stopped… needs the wider status column so the inline control stays on one line.
         model.addAttribute("triggeredWide", triggered.getContent().stream().anyMatch(view ->
                 !view.attempts().isEmpty() && "NEEDS_INSPECTION".equals(view.attempts().getLast().state())));
+        // Profile, Effort and Max turns for Run and Run by key; null with the Pi runtime.
+        model.addAttribute("runForm", runSettings.form(null));
         model.addAttribute("error", error);
         model.addAttribute("pollUrl", "/tasks/poll");
         model.addAttribute("pollFields", "revision");
@@ -170,6 +177,11 @@ public class PilotTaskUiController {
         PilotTaskView view = taskQuery.detail(taskId);
         model.addAttribute("task", detailMap(view));
         model.addAttribute("attempts", view.attempts().reversed().stream().map(this::attemptRow).toList());
+        // Retry fills the form from the previous attempt.
+        String previous = view.attempts().isEmpty() ? null : view.attempts().getLast().runSettings();
+        model.addAttribute("retryForm", runSettings.form(previous));
+        model.addAttribute("retryInstructions", PilotRunSettings.instructions(previous));
+        model.addAttribute("instructionsLimit", RunProfiles.MAX_INSTRUCTIONS);
         model.addAttribute("error", error);
         return "pilot-task";
     }
@@ -203,8 +215,11 @@ public class PilotTaskUiController {
             if (selections.isEmpty()) {
                 return UiFormat.errorRedirect(FLOW_PAGE, "Select at least one task, then choose Run.");
             }
+            // One choice of Profile, Effort and Max turns applies to every selected task.
+            String settings = runSettings.snapshot(allParams.get("profileId"), allParams.get("effort"),
+                    allParams.get("maxTurns"), null);
             PilotAdmissionService.AdmissionResult result = admissions.runSelected(
-                    new PilotCommands.RunSelected("ui-" + UUID.randomUUID(), selections));
+                    new PilotCommands.RunSelected("ui-" + UUID.randomUUID(), selections, settings));
             if (!result.admittedTaskIds().isEmpty()) {
                 redirect.addFlashAttribute("message", "Queued " + result.admittedTaskIds().size()
                         + (result.admittedTaskIds().size() == 1 ? " task." : " tasks."));
@@ -223,9 +238,18 @@ public class PilotTaskUiController {
 
     @PostMapping(FLOW_PAGE + "/run-by-key")
     public String runByKey(@RequestParam(name = "key", required = false) String key,
+                           @RequestParam(name = "profileId", required = false) String profileId,
+                           @RequestParam(name = "effort", required = false) String effort,
+                           @RequestParam(name = "maxTurns", required = false) String maxTurns,
                            HttpServletRequest request, RedirectAttributes redirect) {
         requireSameOrigin(request);
-        PilotAdmissionService.KeyResult result = admissions.runByKey("ui-" + UUID.randomUUID(), key);
+        String settings;
+        try {
+            settings = runSettings.snapshot(profileId, effort, maxTurns, null);
+        } catch (IllegalArgumentException e) {
+            return UiFormat.errorRedirect(FLOW_PAGE, e.getMessage());
+        }
+        PilotAdmissionService.KeyResult result = admissions.runByKey("ui-" + UUID.randomUUID(), key, settings);
         if (result.problem() != null) {
             return UiFormat.errorRedirect(FLOW_PAGE, result.problem());
         }
@@ -239,11 +263,22 @@ public class PilotTaskUiController {
                         @RequestParam(name = "inputFingerprint", required = false) String inputFingerprint,
                         @RequestParam(name = "destinationFingerprint", required = false) String destinationFingerprint,
                         @RequestParam(name = "returnTo", required = false) String returnTo,
+                        @RequestParam(name = "profileId", required = false) String profileId,
+                        @RequestParam(name = "effort", required = false) String effort,
+                        @RequestParam(name = "maxTurns", required = false) String maxTurns,
+                        @RequestParam(name = "instructions", required = false) String instructions,
                         HttpServletRequest request, RedirectAttributes redirect) {
         requireSameOrigin(request);
         String back = "flow".equals(returnTo) ? FLOW_PAGE : "/tasks/" + taskId;
+        String settings;
+        try {
+            settings = runSettings.snapshot(profileId, effort, maxTurns, instructions);
+        } catch (IllegalArgumentException e) {
+            return UiFormat.errorRedirect(back, e.getMessage());
+        }
         PilotRetryService.RetryResult result = retries.retry(new PilotCommands.Retry(
-                "ui-" + UUID.randomUUID(), taskId, expectedVersion, inputFingerprint, destinationFingerprint));
+                "ui-" + UUID.randomUUID(), taskId, expectedVersion, inputFingerprint, destinationFingerprint,
+                settings));
         if (!result.refused() && isLive(result.state())) {
             redirect.addFlashAttribute("message", "Retry queued: " + result.explanation());
             return "redirect:" + back;
@@ -513,6 +548,7 @@ public class PilotTaskUiController {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("label", attempt.ordinal() + " · " + ("RETRY".equals(attempt.kind()) ? "retry" : "first run")
                 + ("BY_KEY".equals(attempt.admittedVia()) ? " by key" : ""));
+        row.put("run", PilotRunSettings.label(attempt.runSettings()));
         row.put("executionId", attempt.executionId());
         row.put("executionShort", attempt.executionId() == null
                 ? null : attempt.executionId().toString().substring(0, 4) + "…");

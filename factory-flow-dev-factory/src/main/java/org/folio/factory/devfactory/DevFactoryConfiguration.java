@@ -40,6 +40,7 @@ import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.PiCodingRuntime;
 import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
+import org.folio.factory.devfactory.runtime.RunProfiles;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
 import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
 import org.folio.factory.devfactory.worker.CodingDecisionGateWorker;
@@ -57,6 +58,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.client.RestClient;
@@ -72,6 +74,7 @@ import java.util.Map;
 @EnableConfigurationProperties({
     DevFactoryProperties.class,
     DevRuntimeProperties.class,
+    RunProfiles.Properties.class,
     DevDeliveryProperties.class
 })
 public class DevFactoryConfiguration {
@@ -86,11 +89,18 @@ public class DevFactoryConfiguration {
         return new CandidateFreezer();
     }
 
+    /** Secrets are read through the Environment by the variable name a profile gives; the file holds none. */
     @Bean
-    public CodingRuntime devCodingRuntime(DevRuntimeProperties runtime) {
+    public RunProfiles devRunProfiles(DevRuntimeProperties runtime, RunProfiles.Properties profiles,
+                                      Environment environment) {
+        return new RunProfiles(runtime.coding().claudeCode(), profiles, environment::getProperty);
+    }
+
+    @Bean
+    public CodingRuntime devCodingRuntime(DevRuntimeProperties runtime, RunProfiles profiles) {
         return switch (runtime.coding().runtime()) {
             case "pi" -> new PiCodingRuntime(runtime.coding());
-            case "claude-code" -> new ClaudeCodeCodingRuntime(runtime.coding().claudeCode());
+            case "claude-code" -> new ClaudeCodeCodingRuntime(runtime.coding().claudeCode(), profiles);
             default ->
                     throw new IllegalStateException(
                             "Unsupported coding runtime '" + runtime.coding().runtime() + "'");

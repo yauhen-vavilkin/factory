@@ -449,13 +449,56 @@ its wire format. Optional harness settings are Pi `REASONING_EFFORT` and
 prefix respectively. Leave `FACTORY_CLAUDE_CODE_EFFORT` unset initially.
 The common attempt timeout remains `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` (1800).
 
+#### Run profiles (Claude Code)
+
+With the Claude Code runtime, each run uses a **run profile**: endpoint, secret, model,
+the efforts you may choose and the default turn limit. You choose the profile, the
+effort and the max turns in the run form: next to **Run** and **Add to run** on My
+tasks, and in the **Retry** form on the task page, which also has an optional
+**Instructions for the agent** field. Retry fills the form from the previous attempt,
+and PR feedback rounds keep the settings of the run they belong to.
+
+- `env-default` ("Configured in .env") is built from the `FACTORY_CLAUDE_CODE_*`
+  settings above, so an existing `.env` keeps working. It offers all efforts
+  (`low`, `medium`, `high`, `xhigh`, `max`). Its default effort is
+  `FACTORY_CLAUDE_CODE_EFFORT`; empty sends no `--effort`, and the CLI then uses
+  `high`, shown as "high (CLI default)".
+- More profiles live in
+  [`config/developer-run-profiles.yaml`](config/developer-run-profiles.yaml): `id`,
+  `label`, `base-url`, `authentication` (`bearer-token` or `api-key`), `secret-env`
+  (the name of the variable that holds the secret; never the secret itself),
+  `model`, `efforts`, `default-effort`, `max-turns` and `max-output-tokens`. The
+  file ships `glm-5.3` and `glm-5.3-flash` for Z.ai; set `FACTORY_ZAI_API_KEY` in
+  `.env` to use them. A profile whose secret is empty shows as "not configured"
+  and cannot be chosen. To use your own copy, set
+  `FACTORY_DEV_FACTORY_RUN_PROFILES_FILE=./config/my-run-profiles.yaml`; it is
+  mounted read-only like the repository catalog. An invalid file stops Factory at
+  startup with a message that names the profile and the field.
+- `FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE` picks the profile the forms preselect
+  and that runs without a choice use (the manual API trigger, older attempts).
+  Empty means `env-default`.
+
+The attempt stores the chosen profile, its model and endpoint origin (no
+credentials), the effort, max turns and instructions. The run then uses the profile
+it names; if that profile was removed or lost its secret, the run stops with a
+reason that names the profile. Cost uses the model that was sent and
+`config/developer-pricing.yaml`. **Check configuration** lists every profile with
+its own checks: secret set, endpoint reachable over TCP, rate card and effort list.
+With the Pi runtime there is no profile choice and Pi works as before.
+
 Claude Code is pinned to **2.1.287**, resolved from the official stable channel on
 2026-10-14; both supported Linux architectures have pinned manifest checksums.
 The [official setup guide](https://code.claude.com/docs/en/setup) documents the
 stable channel and version management. Auto-updates are disabled. The adapter
 uses [programmatic print mode](https://code.claude.com/docs/en/headless), NDJSON
-output, bare mode, no session persistence and explicitly allowed local coding
-tools. Permission mode is explicitly `dontAsk` with `--permission-prompts none`;
+output, no session persistence and explicitly allowed tools: the local coding tools
+and `WebFetch`. Bare mode is off, so `WebFetch` is available, but the CLI loads no
+settings, hooks, plugins or MCP servers (`--setting-sources ""`, an empty strict MCP
+config); auto-memory, background traffic and updates are switched off by
+environment. Without the project setting source the CLI does not load the
+repository's `CLAUDE.md` or `AGENTS.md` by itself, so the prompt tells the agent to
+read and follow them. Factory's rules still win: the agent does not commit, branch,
+push, open pull requests or change git configuration. Permission mode is explicitly `dontAsk` with `--permission-prompts none`;
 allowed tools run without a separate model-based permission classifier, and any
 remaining permission request is denied without waiting. It works under the
 workload's UID (including the Compose root UID), private `HOME=/tmp/factory-home`,
@@ -509,6 +552,9 @@ docker compose up -d
 Open <http://localhost:8080/flows/dev-factory> and press **Scan Jira** to load your
 open tasks; the status chips filter them on the page (Open and In Progress by
 default). Select tasks and press **Run**, or add any task by key under the list.
+Both have a compact Profile, Effort and Max turns row; see
+[Run profiles](#run-profiles-claude-code). A failed task's **Retry** opens the form on
+its task page, where you can also add instructions for the agent.
 A task can run when its Jira project maps to exactly one repository in
 `config/developer-repositories.yaml`. Before a task is queued, Factory checks that
 your token can push to its delivery repository: folio-org by default, or your
@@ -552,7 +598,11 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `claude-code`) |
 | `FACTORY_MODEL_PROVIDER` / `_ID` / `_BASE_URL` / `_API` / `_API_KEY` | Legacy Pi profile settings; nonblank `FACTORY_PI_*` values override them |
 | `FACTORY_PI_*` / `FACTORY_CLAUDE_CODE_*` | Independent image, API, model, endpoint, authentication and harness profiles; see [Coding runtime profiles](#coding-runtime-profiles) |
-| `FACTORY_MODEL_REASONING_EFFORT` | Optional Pi thinking level; `max` for the CodeMie GPT-5.6 Luna profile, empty for the current GLM behavior |
+| `FACTORY_CLAUDE_CODE_EFFORT` | Default effort of run profile `env-default`: `low`, `medium`, `high`, `xhigh` or `max`; empty sends no `--effort` (the CLI uses `high`) |
+| `FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE` | Run profile preselected in the run forms and used by runs without a choice; empty means `env-default`. See [Run profiles](#run-profiles-claude-code) |
+| `FACTORY_DEV_FACTORY_RUN_PROFILES_FILE` | Compose host path of the run profiles file (default `./config/developer-run-profiles.yaml`); mounted read-only |
+| `FACTORY_ZAI_API_KEY` | Z.ai key for the `glm-5.3` and `glm-5.3-flash` run profiles; empty leaves them "not configured" |
+| `FACTORY_MODEL_REASONING_EFFORT` | Old Pi runtime only (legacy Pi profile): optional Pi thinking level, `max` for the CodeMie GPT-5.6 Luna profile. It does not change Claude Code; use `FACTORY_CLAUDE_CODE_EFFORT` or the run form |
 | `FACTORY_MODEL_MAX_OUTPUT_TOKENS` | Pi model output limit (default `16384`; CodeMie profile `65536`) |
 | `FACTORY_DB_POOL_MAX` / `_MIN_IDLE` | HikariCP pool sizing (defaults `16` / `4`; see `doc/performance.md`) |
 | `FACTORY_DB_POOL_CONNECTION_TIMEOUT_MS` / `_MAX_LIFETIME_MS` / `_IDLE_TIMEOUT_MS` / `_LEAK_DETECTION_MS` | HikariCP tuning (defaults `30000` / `1800000` / `600000` / `60000`) |

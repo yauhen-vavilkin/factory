@@ -144,7 +144,10 @@ final class DeveloperExecutionView {
         technicalFields.forEach(field -> techFacts.putIfAbsent(field.get("label"), field.get("value")));
         view.put("techFacts", techFacts);
         List<Map<String, String>> runtimeFields = new ArrayList<>();
+        add(runtimeFields, "Profile", first(config.path("profileLabel"), config.path("profile")));
         add(runtimeFields, "Model", config.path("model"));
+        add(runtimeFields, "Effort", config.path("effort"));
+        add(runtimeFields, "Max turns", config.path("maxTurns"));
         add(runtimeFields, "Provider", config.path("provider"));
         add(runtimeFields, "Runtime", config.path("runtime"));
         add(runtimeFields, "Image", config.path("image"));

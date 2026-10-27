@@ -92,3 +92,45 @@ test('Available counts only shown tasks that can run', () => {
   assert.equal(String(parts['[data-available-count]'].textContent), '1');
   assert.equal(parts['[data-not-eligible]'].hidden, true);
 });
+
+test('Effort shows only the chosen profile and a profile change takes its defaults', () => {
+  function option(value, attributes) {
+    return { value, hidden: false, disabled: false, selected: false,
+      getAttribute: key => key in attributes ? attributes[key] : null };
+  }
+  const profiles = [option('env-default', { 'data-max-turns': '40' }),
+    option('glm-5.3', { 'data-default-effort': 'max', 'data-max-turns': '100' })];
+  const efforts = [option('', { 'data-profile': 'env-default' }), option('high', { 'data-profile': 'env-default' }),
+    option('low', { 'data-profile': 'glm-5.3' }), option('max', { 'data-profile': 'glm-5.3' })];
+  const turns = { value: '40' };
+  let change;
+  const select = { value: 'env-default', selectedIndex: 0, options: profiles,
+    addEventListener: (event, callback) => { change = callback; } };
+  select.form = { querySelector: selector => selector === '[data-run-effort]' ? { options: efforts }
+    : selector === '[data-run-turns]' ? turns : null };
+  let ready;
+  vm.runInNewContext(POLL_JS, {
+    window: {},
+    document: {
+      addEventListener: (event, callback) => { ready = callback; },
+      querySelector: () => null,
+      querySelectorAll: selector => selector === '[data-run-profile]' ? [select] : []
+    }
+  });
+  ready();
+
+  select.value = 'glm-5.3';
+  select.selectedIndex = 1;
+  change();
+  assert.deepEqual(efforts.map(o => o.hidden), [true, true, false, false]);
+  assert.deepEqual(efforts.map(o => o.disabled), [true, true, false, false]);
+  assert.equal(efforts[3].selected, true);
+  assert.equal(turns.value, '100');
+
+  select.value = 'env-default';
+  select.selectedIndex = 0;
+  change();
+  assert.deepEqual(efforts.map(o => o.hidden), [false, false, true, true]);
+  assert.equal(efforts[0].selected, true);
+  assert.equal(turns.value, '40');
+});

@@ -242,7 +242,9 @@ public class FeedbackWorker implements AgentWorker {
                                 state.pr.repository(),
                                 state.pr.baseBranch(),
                                 state.pr.headSha()),
-                        CodingRequest.Constraints.defaults());
+                        CodingRequest.Constraints.defaults(),
+                        // Feedback rounds run with the profile, effort, turns and instructions of the task's run.
+                        original.runSettings());
         outputs.put(REQUEST, JSON.writeValueAsString(request));
         outputs.put(VERIFICATION, "{}");
         outputs.put(DELIVERY, "{}");

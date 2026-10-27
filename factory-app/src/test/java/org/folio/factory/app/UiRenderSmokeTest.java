@@ -66,11 +66,14 @@ import static org.mockito.Mockito.when;
                 "factory.developer-pricing.rates.test.source=https://example.test/pricing",
                 "factory.developer-pricing.rates.test.input-per-million=0.15",
                 "factory.developer-pricing.rates.test.cache-read-per-million=0.03",
-                "factory.developer-pricing.rates.test.output-per-million=0.50"})
+                "factory.developer-pricing.rates.test.output-per-million=0.50",
+                "FACTORY_ZAI_API_KEY=" + UiRenderSmokeTest.ZAI_KEY})
 @Import(StubLlmConfiguration.class)
 @Testcontainers
 @DirtiesContext
 class UiRenderSmokeTest {
+
+    static final String ZAI_KEY = "smoke-zai-secret-key";
 
     @Container
     @ServiceConnection
@@ -203,8 +206,24 @@ class UiRenderSmokeTest {
                 "Push permission check <read-only> & base alignment.");
         var inferenceCheck = new DeveloperPreflight.Check("inference", DeveloperPreflight.Status.NOT_RUN,
                 "No model call made.");
+        Map<String, Object> profile = Map.ofEntries(Map.entry("id", "glm-5.3"),
+                Map.entry("label", "GLM-5.3 (Z.ai)"), Map.entry("default", false), Map.entry("model", "glm-5.3"),
+                Map.entry("endpointOrigin", "https://api.z.ai"), Map.entry("authentication", "bearer-token"),
+                Map.entry("efforts", List.of("low", "high", "max")), Map.entry("effort", "max"),
+                Map.entry("maxTurns", 100), Map.entry("maxOutputTokens", 16384),
+                Map.entry("checks", List.of(new DeveloperPreflight.Check("secret", DeveloperPreflight.Status.FAIL,
+                        "Profile glm-5.3 is not configured: set FACTORY_ZAI_API_KEY in .env, then run docker"
+                                + " compose up -d again."))));
+        Map<String, Object> envDefault = Map.ofEntries(Map.entry("id", "env-default"),
+                Map.entry("label", "Configured in .env"), Map.entry("default", true),
+                Map.entry("model", "claude-sonnet-5-5"), Map.entry("endpointOrigin", "http://host.docker.internal:4001"),
+                Map.entry("authentication", "bearer-token"),
+                Map.entry("efforts", List.of("low", "medium", "high", "xhigh", "max")),
+                Map.entry("effort", "high (CLI default)"), Map.entry("maxTurns", 40),
+                Map.entry("maxOutputTokens", 16384), Map.entry("checks", List.of()));
         var report = new DeveloperPreflight.Report(deliveryStatus == DeveloperPreflight.Status.PASS,
-                issueKey == null ? "" : issueKey, runtime, List.of(repository), List.of(deliveryCheck, inferenceCheck));
+                issueKey == null ? "" : issueKey, runtime, List.of(repository), List.of(deliveryCheck, inferenceCheck),
+                List.of(envDefault, profile));
         when(developerPreflight.check(issueKey)).thenReturn(report);
 
         String path = "/developer/configuration";
@@ -215,6 +234,10 @@ class UiRenderSmokeTest {
         assertThat(body).contains("claude-sonnet-5-5", "sidecar", "java21-unit", "owner/folio-module-sidecar",
                         "NOT_RUN", "No model call made.", "Push permission check &lt;read-only&gt; &amp; base alignment.")
                 .doesNotContain("check <read-only>");
+        assertThat(body).contains("<h2>Run profiles</h2>", "Configured in .env", "env-default · default for runs",
+                "Effort high (CLI default)", "low, medium, high, xhigh, max · 40 turns · 16384 output tokens",
+                "GLM-5.3 (Z.ai)", "https://api.z.ai · bearer-token", "Effort max",
+                "FAIL · secret: Profile glm-5.3 is not configured: set FACTORY_ZAI_API_KEY in .env");
         return body;
     }
 
@@ -547,6 +570,21 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void developerExecutionShowsTheRunProfileModelEffortAndMaxTurns() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.9.0", "{}"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "coding_starting", "runtime", "claude-code", "provider", "anthropic-messages",
+                        "profile", "glm-5.3", "profileLabel", "GLM-5.3 (Z.ai)", "model", "glm-5.3",
+                        "effort", "max", "maxTurns", 100));
+
+        String body = assertRendered("/executions/" + execution.getId(), "Runtime and usage");
+        String usagePanel = body.substring(body.indexOf("<section class=\"run-panel run-usage\""),
+                body.indexOf("<details class=\"tech-details\""));
+        assertThat(usagePanel).containsSubsequence("<dt>Profile</dt>", ">GLM-5.3 (Z.ai)<", "<dt>Model</dt>",
+                ">glm-5.3<", "<dt>Effort</dt>", ">max<", "<dt>Max turns</dt>", ">100<");
+    }
+
+    @Test
     void developerExecutionShowsPartialRuntimeIdentityBeforeUsage() {
         var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
         for (String field : List.of("model", "provider", "runtime", "image")) {
@@ -860,13 +898,33 @@ class UiRenderSmokeTest {
                 .contains("href=\"/executions/" + liveExecution.getId() + "\"")
                 .contains("Queue is waiting.", "MODBAR-707 needs inspection", "/mark-stopped",
                         "data-confirm-title=\"Mark MODBAR-707 as stopped?\"", "task-grid-wide")
-                .contains(">Retry</button>", "name=\"returnTo\" value=\"flow\"")
+                // Retry no longer starts a run from the list: it opens the task page form.
+                .contains("href=\"/tasks/" + stopped.getId() + "#retry\">Retry</a>", "name=\"returnTo\" value=\"flow\"")
+                .doesNotContain(">Retry</button>")
                 .contains("Queued tasks are not starting.", "FACTORY_PILOT_EXECUTION_ENABLED=true")
                 .contains("data-task-selection", "data-run-selected", "data-selected-count",
                         "data-select-all", "data-poll-notice", "data-poll-url=\"/tasks/poll\"",
                         "data-poll-fields=\"revision\"", "data-poll-baseline=")
                 .doesNotContain("Trigger flow", "Outside current filter", "Enable automatic admission",
                         "Withdrawn", "Sprint");
+        // Run and Run by key share one compact Profile, Effort and Max turns row each.
+        String run = body.substring(body.indexOf("action=\"/tasks/run-selected\""), body.indexOf("data-run-selected"));
+        String keyForm = body.substring(body.indexOf("action=\"/flows/dev-factory/run-by-key\""),
+                body.indexOf("Add to run</button>"));
+        for (String form : List.of(run, keyForm)) {
+            assertThat(form).contains("Profile", "name=\"profileId\"", "data-run-profile", "Effort", "name=\"effort\"",
+                            "data-run-effort", "Max turns", "name=\"maxTurns\"", "max=\"500\"", "value=\"40\"")
+                    .containsPattern("<option value=\"env-default\"[^>]*selected=\"selected\"[^>]*>\\s*Configured in \\.env")
+                    .containsPattern("<option value=\"glm-5.3\"(?=[^>]*data-default-effort=\"max\")"
+                            + "(?=[^>]*data-max-turns=\"100\")[^>]*>GLM-5.3 \\(Z\\.ai\\)")
+                    .containsPattern("<option value=\"\"(?=[^>]*data-profile=\"env-default\")(?=[^>]*selected=\"selected\")"
+                            + "[^>]*>high \\(CLI default\\)")
+                    .containsPattern("<option value=\"xhigh\"[^>]*data-profile=\"env-default\"")
+                    // Another profile's efforts are hidden and disabled until the script shows them.
+                    .containsPattern("<option value=\"max\" data-profile=\"glm-5.3\"(?=[^>]*hidden=\"hidden\")"
+                            + "(?=[^>]*disabled=\"disabled\")[^>]*>max");
+        }
+        assertThat(body).doesNotContain(ZAI_KEY, "not configured)");
         assertThat(rest.get().uri("/tasks").retrieve().toEntity(String.class).getBody()).contains("My Jira tasks");
     }
 
@@ -938,6 +996,9 @@ class UiRenderSmokeTest {
         PilotAttempt attempt = seedAttempt(stopped, 1, PilotAttempt.Kind.INITIAL,
                 PilotAttempt.State.STOPPED, "VERIFICATION_FAILED: 2 tests in error");
         attempt.setExecutionId(execution.getId());
+        attempt.setRunSettings("{\"profileId\":\"glm-5.3\",\"profileLabel\":\"GLM-5.3 (Z.ai)\",\"model\":\"glm-5.3\","
+                + "\"endpointOrigin\":\"https://api.z.ai\",\"effort\":\"low\",\"maxTurns\":77,"
+                + "\"instructions\":\"Read the ADR through the wiki <REST> URL.\"}");
         pilotAttempts.save(attempt);
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", "smoke",
                 Map.of("attemptId", "a1", "round", -1, "model", "test-model",
@@ -954,6 +1015,15 @@ class UiRenderSmokeTest {
                         ">Estimated cost</dt>")
                 .contains(">Retry</button>", "name=\"expectedVersion\"", "name=\"inputFingerprint\"",
                         "name=\"destinationFingerprint\"", "Retry starts one fresh attempt")
+                // Retry is a form in the Result card, filled from the previous attempt.
+                .containsPattern("<form class=\"retry-form\" id=\"retry\" method=\"post\"\\s+action=\"/tasks/"
+                        + stopped.getId() + "/retry\"")
+                .contains("Instructions for the agent", "name=\"instructions\"", "maxlength=\"8000\"",
+                        ">Read the ADR through the wiki &lt;REST&gt; URL.</textarea>", "value=\"77\"")
+                .containsPattern("<option value=\"glm-5.3\"[^>]*selected=\"selected\"")
+                .containsPattern("<option value=\"low\"(?=[^>]*data-profile=\"glm-5.3\")(?=[^>]*selected=\"selected\")")
+                .contains("<span class=\"attempt-run\">glm-5.3 · low</span>")
+                .doesNotContain(ZAI_KEY)
                 .contains("href=\"/executions/" + execution.getId() + "\">Open last run</a>",
                         "1 · first run", "Technical details", stopped.getId().toString());
 

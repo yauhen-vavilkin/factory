@@ -21,6 +21,7 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     initTaskSelection();
+    initRunSettings();
     function formatDuration(seconds) {
       var safe = Math.max(0, seconds);
       if (safe < 60) return safe + 's';
@@ -67,6 +68,27 @@
       return;
     }
     location.reload();
+  }
+
+  // Run forms: Effort shows only the chosen profile's options; a profile change takes its defaults.
+  function initRunSettings() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-run-profile]'), function (profile) {
+      var form = profile.form;
+      var effort = form.querySelector('[data-run-effort]');
+      var turns = form.querySelector('[data-run-turns]');
+      profile.addEventListener('change', function () {
+        var chosen = profile.options[profile.selectedIndex];
+        // No default effort (an empty value) means the CLI default.
+        var preferred = chosen.getAttribute('data-default-effort') || '';
+        Array.prototype.forEach.call(effort.options, function (option) {
+          var mine = option.getAttribute('data-profile') === profile.value;
+          option.hidden = !mine;
+          option.disabled = !mine;
+          if (mine && option.value === preferred) option.selected = true;
+        });
+        if (turns) turns.value = chosen.getAttribute('data-max-turns');
+      });
+    });
   }
 
   function initTaskSelection() {

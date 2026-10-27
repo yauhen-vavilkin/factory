@@ -62,7 +62,8 @@ public record PilotTaskView(
             Instant deadlineAt,
             boolean paidStart,
             long activeSeconds,
-            PilotTaskUsage usage) {
+            PilotTaskUsage usage,
+            String runSettings) {
     }
 
     /**

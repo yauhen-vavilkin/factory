@@ -57,10 +57,11 @@ final class FeedbackCodingAttempt {
         Path exported = CandidateFreezer.temporary("factory-pr-export-");
         CodingOutcome outcome = null;
         try (var scope = docker.beginStep(context.executionId(), operation)) {
-            coding.requireConfigured();
-            state.runtimeName = Objects.toString(coding.identity().get("runtime"), "");
-            state.rate = pricing.snapshot(Objects.toString(coding.identity().get("model"), ""));
-            var start = new LinkedHashMap<String, Object>(coding.identity());
+            coding.requireConfigured(request.runSettings());
+            var identity = coding.identity(request.runSettings());
+            state.runtimeName = Objects.toString(identity.get("runtime"), "");
+            state.rate = pricing.snapshot(Objects.toString(identity.get("model"), ""));
+            var start = new LinkedHashMap<String, Object>(identity);
             start.put("activity", "coding_starting");
             start.put("rate", state.rate);
             progress.accept(start);

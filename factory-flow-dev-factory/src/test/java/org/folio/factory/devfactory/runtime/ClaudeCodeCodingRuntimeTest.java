@@ -17,6 +17,7 @@ import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -55,7 +56,8 @@ class ClaudeCodeCodingRuntimeTest {
             assertThat(environment).contains("ANTHROPIC_BASE_URL='http://gateway.example/anthropic'");
             assertThat(environment).contains("ANTHROPIC_DEFAULT_MODEL='custom/Model-1'",
                     "CLAUDE_CODE_EXTRA_BODY='{\"model\":\"custom/Model-1\"}'",
-                    "CLAUDE_CODE_DISABLE_LEGACY_MODEL_REMAP=1");
+                    "CLAUDE_CODE_DISABLE_LEGACY_MODEL_REMAP=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
+                    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "DISABLE_AUTOUPDATER=1");
             assertThat(environment).contains(authentication.equals("api-key")
                     ? "ANTHROPIC_API_KEY='secret-key'" : "ANTHROPIC_AUTH_TOKEN='secret-token'");
             assertThat(environment).doesNotContain(authentication.equals("api-key")
@@ -73,8 +75,13 @@ class ClaudeCodeCodingRuntimeTest {
                     List<String> argv = call.getArgument(0);
                     assertThat(argv).containsSubsequence("--model", "custom/Model-1")
                             .containsSubsequence("--permission-mode", "dontAsk", "--permission-prompts", "none")
-                            .contains("--bare", "--print", "stream-json", "--include-partial-messages", "--no-session-persistence", "--allowedTools")
-                            .doesNotContain("secret-key", "secret-token", "--continue", "--resume");
+                            .contains("--print", "stream-json", "--include-partial-messages", "--no-session-persistence", "--allowedTools")
+                            .containsSubsequence("--setting-sources", "", "--strict-mcp-config")
+                            .containsSubsequence("--tools", "Bash,Read,Edit,Write,Glob,Grep,WebFetch",
+                                    "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep,WebFetch")
+                            .containsSubsequence("--max-turns", "10", "--effort", "high")
+                            // Without --bare the CLI offers WebFetch; settings still come from no source.
+                            .doesNotContain("--bare", "secret-key", "secret-token", "--continue", "--resume");
                     UnaryOperator<String> redactor = call.getArgument(2);
                     assertThat(redactor.apply("stderr secret-key")).isEqualTo("stderr [REDACTED]");
                     return feed(call.getArgument(3), INIT + RESULT, 0, "");
@@ -89,12 +96,82 @@ class ClaudeCodeCodingRuntimeTest {
         assertThat(outcome.summary()).isEqualTo("Done [REDACTED]");
         assertThat(outcome.metrics()).containsEntry("inputTokens", 40L).containsEntry("cacheReadTokens", 3L)
                 .containsEntry("outputTokens", 5L).doesNotContainKey("usageIncomplete").doesNotContainKey("costUsd");
-        assertThat(events.toString() + runtime.identity() + config(authentication))
+        assertThat(events.toString() + runtime.identity(null) + config(authentication))
                 .doesNotContain("secret-key", "secret-token", "gateway.example");
         assertThat(Files.exists(temporary.get())).isFalse();
         verify(workload).execute(List.of("rm", "-rf", "/tmp/factory-claude"), 30);
         verify(workload, never()).stop(); // Orchestrator must still export partial edits before close.
         verify(workload, never()).close();
+    }
+
+    @Test
+    void aRunUsesTheProfileItsSettingsNameAndEverySecretIsRedacted() throws Exception {
+        var runtime = new ClaudeCodeCodingRuntime(config("bearer-token"), profiles("zai-secret"));
+        var settings = new CodingRequest.RunSettings("glm-5.3", "low", 7, "Use the wiki REST URL.");
+        var workload = workload();
+        doAnswer(call -> {
+            String environment = Files.readString(Path.of((String) call.getArgument(0)).resolve("environment"));
+            assertThat(environment).contains("ANTHROPIC_BASE_URL='https://api.z.ai/api/anthropic'",
+                    "ANTHROPIC_AUTH_TOKEN='zai-secret'", "ANTHROPIC_DEFAULT_MODEL='glm-5.3'",
+                    "CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192").doesNotContain("secret-token", "gateway.example");
+            return null;
+        }).when(workload).copy(anyString(), eq("/tmp/factory-claude"));
+        when(workload.stream(anyList(), eq(60), any(), any())).thenAnswer(call -> {
+            List<String> argv = call.getArgument(0);
+            assertThat(argv).containsSubsequence("--model", "glm-5.3", "--max-turns", "7", "--effort", "low")
+                    .doesNotContain("zai-secret", "custom/Model-1");
+            UnaryOperator<String> redactor = call.getArgument(2);
+            assertThat(redactor.apply("zai-secret secret-key secret-token"))
+                    .isEqualTo("[REDACTED] [REDACTED] [REDACTED]");
+            return feed(call.getArgument(3), INIT.replace("custom/Model-1", "glm-5.3") + RESULT, 0, "");
+        });
+        var base = request();
+        var request = new CodingRequest(base.issueKey(), base.summary(), base.description(), base.comments(),
+                base.linkedIssues(), base.acceptanceCriteria(), base.confirmedDecisions(), base.repository(),
+                base.constraints(), settings);
+
+        var outcome = runtime.code(workload, request, 60);
+
+        assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(runtime.identity(settings)).containsEntry("profile", "glm-5.3")
+                .containsEntry("profileLabel", "GLM 5.3").containsEntry("model", "glm-5.3")
+                .containsEntry("effort", "low").containsEntry("maxTurns", 7)
+                .doesNotContainKey("baseUrl").doesNotContainValue("zai-secret");
+    }
+
+    @Test
+    void aMissingOrUnconfiguredProfileFailsWithAReasonThatNamesItAndTheFix() {
+        var runtime = new ClaudeCodeCodingRuntime(config("bearer-token"), profiles(""));
+
+        assertThatThrownBy(() -> runtime.requireConfigured(new CodingRequest.RunSettings("gone", null, null, null)))
+                .isInstanceOf(RunProfiles.ProfileException.class)
+                .hasMessageContaining("profile gone").hasMessageContaining("config/developer-run-profiles.yaml");
+        assertThatThrownBy(() -> runtime.requireConfigured(
+                new CodingRequest.RunSettings("glm-5.3", null, null, null)))
+                .isInstanceOf(RunProfiles.ProfileException.class)
+                .hasMessage("Profile glm-5.3 is not configured: set FACTORY_ZAI_API_KEY in .env, then run"
+                        + " docker compose up -d again.");
+        // A broken extra profile does not stop runs with the default profile.
+        runtime.requireConfigured(null);
+        assertThat(runtime.identity(new CodingRequest.RunSettings("gone", null, null, null)))
+                .containsEntry("profile", "gone").doesNotContainKey("model");
+    }
+
+    @Test
+    void aBlankDefaultEffortSendsNoEffortAndShowsTheCliDefault() {
+        var blank = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway.example/anthropic",
+                "custom/Model-1", "api-key", "secret-key", null, 10, 4096, " ");
+        var runtime = new ClaudeCodeCodingRuntime(blank);
+        var workload = workload();
+        when(workload.stream(anyList(), eq(60), any(), any())).thenAnswer(call -> {
+            List<String> argv = call.getArgument(0);
+            assertThat(argv).doesNotContain("--effort");
+            return feed(call.getArgument(3), INIT + RESULT, 0, "");
+        });
+
+        assertThat(runtime.code(workload, request(), 60).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(runtime.identity(null)).containsEntry("profile", RunProfiles.ENV_DEFAULT)
+                .containsEntry("effort", "high (CLI default)").containsEntry("maxTurns", 10);
     }
 
     @Test
@@ -564,6 +641,13 @@ class ClaudeCodeCodingRuntimeTest {
         when(workload.execute(List.of("claude", "--version"), 30))
                 .thenReturn(new Processes.Result(0, ClaudeCodeCodingRuntime.VERSION + " (Claude Code)"));
         return workload;
+    }
+
+    private static RunProfiles profiles(String zaiSecret) {
+        var glm = new RunProfiles.FileProfile("glm-5.3", "GLM 5.3", "https://api.z.ai/api/anthropic",
+                "bearer-token", "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", 100, 8192);
+        return new RunProfiles(config("bearer-token"), new RunProfiles.Properties(List.of(glm), null),
+                Map.of("FACTORY_ZAI_API_KEY", zaiSecret)::get);
     }
 
     private static DevRuntimeProperties.ClaudeCode config(String authentication) {

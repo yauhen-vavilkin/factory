@@ -151,7 +151,8 @@ public class PilotTaskQuery {
                     attempt.getDeadlineAt(),
                     attempt.getPaidStartAt() != null,
                     AttemptUsageSummary.activeSeconds(events, now),
-                    PilotTaskUsage.aggregate(List.of(totals), paidStartWithoutReportedUsage)));
+                    PilotTaskUsage.aggregate(List.of(totals), paidStartWithoutReportedUsage),
+                    attempt.getRunSettings()));
         }
 
         // A withdrawal after real work (left by the removed automatic mode) does not

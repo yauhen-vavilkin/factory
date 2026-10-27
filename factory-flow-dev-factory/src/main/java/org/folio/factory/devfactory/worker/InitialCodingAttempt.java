@@ -21,6 +21,7 @@ import org.folio.factory.devfactory.runtime.CodingTranscripts;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
+import org.folio.factory.devfactory.runtime.RunProfiles;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -164,7 +165,8 @@ public final class InitialCodingAttempt {
                 pilotPolicy.recordStop(context.executionId(), context.stepId(), guard.get().reason());
                 return failedAttempt(guard.get().state(), guard.get().reason(), readiness);
             }
-            Optional<String> environmentProblem = findEnvironmentProblem(repositoryKey, frozenBaseSha);
+            Optional<String> environmentProblem =
+                    findEnvironmentProblem(repositoryKey, frozenBaseSha, request.runSettings());
             if (environmentProblem.isPresent()) {
                 return failedAttempt("BLOCKED_ENVIRONMENT", environmentProblem.get(), readiness);
             }
@@ -248,7 +250,7 @@ public final class InitialCodingAttempt {
             try (var workload =
                     stepScope.createSeeded(
                             coding.image(), pristine, runtime.mavenCacheVolume(), "coding")) {
-                var identity = new LinkedHashMap<>(coding.identity());
+                var identity = new LinkedHashMap<>(coding.identity(request.runSettings()));
                 String attemptId = UUID.randomUUID().toString();
                 var rate = pricing.snapshot(Objects.toString(identity.get("model"), ""));
                 identity.put("activity", "coding_starting");
@@ -363,11 +365,15 @@ public final class InitialCodingAttempt {
                 .orElse(perOperationSeconds);
     }
 
-    private Optional<String> findEnvironmentProblem(String repositoryKey, String frozenBaseSha) {
+    private Optional<String> findEnvironmentProblem(
+            String repositoryKey, String frozenBaseSha, CodingRequest.RunSettings settings) {
         try {
-            coding.requireConfigured();
+            coding.requireConfigured(settings);
+        } catch (RunProfiles.ProfileException exception) {
+            // Written to be shown: it names the profile and the fix.
+            return Optional.of(safeRedact(exception.getMessage()));
         } catch (RuntimeException exception) {
-            // Provider failures can contain credentials; persist only the safe operator guidance.
+            // Other failures can contain credentials; persist only the safe operator guidance.
             return Optional.of(
                     "Coding runtime configuration is incomplete or unsupported; check Developer Flow configuration.");
         }

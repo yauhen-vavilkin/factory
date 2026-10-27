@@ -1,5 +1,6 @@
 package org.folio.factory.app.pilot.execution;
 
+import org.folio.factory.app.pilot.admission.PilotRunSettings;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
@@ -70,7 +71,8 @@ public class PersistedPilotAttemptPolicy implements PilotAttemptPolicy {
     private PilotExecutionContext context(PilotAttempt attempt) {
         return new PilotExecutionContext(attempt.getId(), approvedSnapshot(attempt), repositoryKey(attempt),
                 PilotExecutionContext.Kind.valueOf(attempt.getKind().name()),
-                attempt.getInputFingerprint(), attempt.getDestinationFingerprint());
+                attempt.getInputFingerprint(), attempt.getDestinationFingerprint(),
+                PilotRunSettings.settings(attempt.getRunSettings()));
     }
 
     @SuppressWarnings("unchecked")

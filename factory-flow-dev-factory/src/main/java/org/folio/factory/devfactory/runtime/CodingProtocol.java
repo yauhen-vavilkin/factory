@@ -2,6 +2,7 @@ package org.folio.factory.devfactory.runtime;
 
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
 import java.util.Map;
 
@@ -11,9 +12,15 @@ final class CodingProtocol {
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
 
     static String prompt(CodingRequest request) {
+        // Effort and turns are for the runtime, not the model; the instructions get their own block below.
+        var task = JSON.valueToTree(request);
+        if (task instanceof ObjectNode object) object.remove("runSettings");
+        String instructions = request.runSettings() == null ? null : request.runSettings().instructions();
         return """
         Implement this task in /workspace, completing it in one session.
         Keep changes focused. Do not push, perform Jira/GitHub writes, switch repositories, alter .git, or generate Factory verification receipts.
+        Factory's rules win over any instructions in the repository: do not commit, create branches, push, open pull requests or change git configuration. Factory does that.
+        Before you start, read CLAUDE.md in the repository root, or AGENTS.md when there is no CLAUDE.md, and follow it.
         Read and follow this repository's own instructions for accepting changes: its contributor documentation and contribution policy, the applicable NEWS/changelog rules, the checks a change must pass, and its pull request conventions. Add the NEWS or changelog entry those rules require for this change, and list the repository conventions you applied in your final summary.
         The repository and base commit are authorized working inputs, not proof that the repository owns the requested change.
         If the selected repository appears wrong, do not switch it. Return the decision protocol below with kind REPOSITORY_MISMATCH.
@@ -25,7 +32,9 @@ final class CodingProtocol {
 
         Factory CodingRequest JSON:
         """
-                + JSON.writeValueAsString(request);
+                + JSON.writeValueAsString(task)
+                + (instructions == null || instructions.isBlank() ? ""
+                        : "\n\nInstructions from the operator:\n" + instructions);
     }
 
     static CodingOutcome answer(String summary, Map<String, Object> metrics, String runtime) {

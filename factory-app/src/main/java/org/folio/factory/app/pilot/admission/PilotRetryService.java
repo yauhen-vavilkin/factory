@@ -146,6 +146,7 @@ public class PilotRetryService {
         attempt.setDestinationFingerprint(PilotAdmissionService.destinationFingerprint(task));
         attempt.setApprovedSnapshot(task.getIssueSnapshot());
         attempt.setAdmittedVia(PilotAttempt.AdmittedVia.MANUAL);
+        attempt.setRunSettings(command.runSettings());
         attempts.save(attempt);
         return new Reservation(attempt.getId(), null);
     }

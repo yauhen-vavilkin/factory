@@ -2,6 +2,7 @@ package org.folio.factory.app.pilot.execution;
 
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.pilot.admission.PilotAdmissionService;
+import org.folio.factory.app.pilot.admission.PilotRunSettings;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
@@ -74,7 +75,9 @@ public class PilotExecutionLauncher {
         payload.put("issueKey", task.getDisplayKey());
         PreparedManualTrigger prepared;
         try {
-            prepared = router.prepareManual(FLOW_ID, payload, "pilot-attempt=" + attemptId);
+            // The preflight checks the profile this attempt chose, not the default one.
+            prepared = DeveloperPreflight.forRun(PilotRunSettings.settings(attempt.getRunSettings()),
+                    () -> router.prepareManual(FLOW_ID, payload, "pilot-attempt=" + attemptId));
         } catch (DeveloperPreflight.TaskNotRunnableException e) {
             transactions.executeWithoutResult(status -> stopNotRunnable(attemptId, e.reason()));
             return null;
@@ -84,9 +87,9 @@ public class PilotExecutionLauncher {
 
     /**
      * A queued task whose preflight fails because of the task itself (Jira no
-     * longer returns it under its key, no repository matches it) would block the
-     * queue forever, so it stops before start: Could not complete, no cost, and
-     * Retry stays possible. A failure of Factory, Docker, Jira or GitHub instead
+     * longer returns it under its key, no repository matches it, its run profile
+     * cannot be used) would block the queue forever, so it stops before start:
+     * Could not complete, no cost, and Retry stays possible. A failure of Factory, Docker, Jira or GitHub instead
      * keeps the whole queue waiting.
      */
     private void stopNotRunnable(UUID attemptId, String reason) {

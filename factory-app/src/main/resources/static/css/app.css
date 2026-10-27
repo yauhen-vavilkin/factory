@@ -1069,6 +1069,14 @@ a.state-detail { color: hsl(var(--foreground)); text-decoration: underline; }
 }
 .key-form input::placeholder { color: hsl(var(--muted-foreground)); }
 .key-form-hint { flex-basis: 100%; font-size: 12px; color: hsl(var(--muted-foreground)); }
+/* Profile, Effort and Max turns of a run form: one compact row that wraps on narrow screens. */
+.run-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.run-setting { display: flex; align-items: center; gap: 6px; font-size: 13px; color: hsl(var(--foreground)); }
+.run-setting > span { font-weight: 500; white-space: nowrap; }
+.run-setting .select { width: auto; max-width: 14rem; height: 2rem; }
+.run-setting .run-setting-turns { width: 5rem; height: 2rem; }
+.retry-form { display: flex; flex-direction: column; gap: 12px; padding-top: 14px; border-top: 1px solid hsl(var(--border)); }
+.retry-instructions { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; }
 .queue-waiting {
   display: flex;
   flex-wrap: wrap;
@@ -1112,6 +1120,7 @@ a.state-detail { color: hsl(var(--foreground)); text-decoration: underline; }
 .result-actions .dev-note { flex: 1 1 280px; }
 .attempt-cell { display: flex; flex-direction: column; }
 .attempt-cell strong { font-weight: 500; }
+.attempt-cell .attempt-run { font-size: 12px; color: hsl(var(--muted-foreground)); }
 .attempt-cell a { font-size: 12px; color: hsl(var(--quiet-foreground)); text-decoration: underline; }
 .dev-block { display: flex; flex-direction: column; gap: 10px; }
 .usage-head { display: flex; flex-direction: column; gap: 2px; }

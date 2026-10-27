@@ -91,7 +91,7 @@ public class PilotAdmissionService {
                     .map(task -> pushProblem(task.getRoutingReason(), pushProblems))
                     .orElse(null);
             if (reason == null) {
-                reason = admitSelection(requestId, selection);
+                reason = admitSelection(requestId, selection, run.runSettings());
             }
             if (reason == null) {
                 admitted.add(selection.taskId());
@@ -114,6 +114,10 @@ public class PilotAdmissionService {
      * before its row is touched.
      */
     public KeyResult runByKey(String requestId, String input) {
+        return runByKey(requestId, input, null);
+    }
+
+    public KeyResult runByKey(String requestId, String input, String runSettings) {
         String run = requireRequestId(requestId);
         String issueKey;
         try {
@@ -146,7 +150,7 @@ public class PilotAdmissionService {
         DiscoveredIssue fetched = issue;
         KeyResult result;
         try {
-            result = transactions.execute(status -> admitKey(run, fetched));
+            result = transactions.execute(status -> admitKey(run, fetched, runSettings));
         } catch (DataIntegrityViolationException | OptimisticLockingFailureException e) {
             return new KeyResult(issueKey, null,
                     "Jira was being scanned at the same moment; add " + issueKey + " again");
@@ -157,7 +161,7 @@ public class PilotAdmissionService {
         return result;
     }
 
-    private KeyResult admitKey(String requestId, DiscoveredIssue issue) {
+    private KeyResult admitKey(String requestId, DiscoveredIssue issue, String runSettings) {
         PilotTask existing = tasks.findByJiraInstanceAndIssueId(jiraInstance.current(), issue.id())
                 .flatMap(task -> tasks.lockById(task.getId()))
                 .orElse(null);
@@ -174,13 +178,13 @@ public class PilotAdmissionService {
         PilotAttempt.Kind kind = attempts.findByTaskIdOrderByOrdinalAsc(task.getId()).isEmpty()
                 ? PilotAttempt.Kind.INITIAL : PilotAttempt.Kind.RETRY;
         reserve(task, kind, attemptRequestId(requestId, task.getId()), PilotAttempt.AdmittedVia.BY_KEY,
-                inputFingerprint(task), destinationFingerprint(task));
+                inputFingerprint(task), destinationFingerprint(task), runSettings);
         return new KeyResult(issue.key(), task.getId(), null);
     }
 
-    private String admitSelection(String requestId, PilotCommands.Selection selection) {
+    private String admitSelection(String requestId, PilotCommands.Selection selection, String runSettings) {
         try {
-            return transactions.execute(status -> admitOnce(requestId, selection));
+            return transactions.execute(status -> admitOnce(requestId, selection, runSettings));
         } catch (DataIntegrityViolationException | OptimisticLockingFailureException e) {
             // A concurrent admission or scan won the row. When it holds our request
             // id, resolve to that stored admission; otherwise this click is stale.
@@ -194,7 +198,7 @@ public class PilotAdmissionService {
     /**
      * @return null when the attempt was reserved, otherwise the rejection reason
      */
-    private String admitOnce(String requestId, PilotCommands.Selection selection) {
+    private String admitOnce(String requestId, PilotCommands.Selection selection, String runSettings) {
         PilotTask task = tasks.lockById(selection.taskId()).orElse(null);
         if (task == null) {
             return "task " + selection.taskId() + " no longer exists";
@@ -218,18 +222,21 @@ public class PilotAdmissionService {
             return "task already has an attempt; use Retry";
         }
         reserve(task, PilotAttempt.Kind.INITIAL, attemptRequestId(requestId, task.getId()),
-                PilotAttempt.AdmittedVia.MANUAL, selection.inputFingerprint(), selection.destinationFingerprint());
+                PilotAttempt.AdmittedVia.MANUAL, selection.inputFingerprint(), selection.destinationFingerprint(),
+                runSettings);
         return null;
     }
 
     private void reserve(PilotTask task, PilotAttempt.Kind kind, String attemptRequestId,
-                         PilotAttempt.AdmittedVia admittedVia, String input, String destination) {
+                         PilotAttempt.AdmittedVia admittedVia, String input, String destination,
+                         String runSettings) {
         PilotAttempt attempt = new PilotAttempt(task.getId(), nextOrdinal(attempts, task.getId()),
                 kind, attemptRequestId, PilotAttempt.State.RESERVED);
         attempt.setInputFingerprint(input);
         attempt.setDestinationFingerprint(destination);
         attempt.setApprovedSnapshot(task.getIssueSnapshot());
         attempt.setAdmittedVia(admittedVia);
+        attempt.setRunSettings(runSettings);
         attempts.save(attempt);
     }
 

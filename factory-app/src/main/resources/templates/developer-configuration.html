@@ -32,6 +32,25 @@
                 </dl>
             </div>
         </section>
+        <section th:unless="${#lists.isEmpty(report.profiles)}">
+            <h2>Run profiles</h2>
+            <p class="muted">Profile env-default uses the FACTORY_CLAUDE_CODE_* settings in .env; the others come from
+                config/developer-run-profiles.yaml. A profile that is not configured cannot be chosen in a run form.</p>
+            <div class="table-wrap"><table>
+                <thead><tr><th>Profile</th><th>Model / endpoint</th><th>Effort / turns</th><th>Checks</th></tr></thead>
+                <tbody><tr th:each="profile : ${report.profiles}">
+                    <td><div th:text="${profile['label']}"></div>
+                        <small th:text="${profile['id']} + (${profile['default']} ? ' · default for runs' : '')"></small></td>
+                    <td><div th:text="${profile['model']}"></div>
+                        <small th:text="${profile['endpointOrigin']} + ' · ' + ${profile['authentication']}"></small></td>
+                    <td><div th:text="'Effort ' + ${profile['effort']}"></div>
+                        <small th:text="${#strings.listJoin(profile['efforts'], ', ')} + ' · ' + ${profile['maxTurns']}
+                                + ' turns · ' + ${profile['maxOutputTokens']} + ' output tokens'"></small></td>
+                    <td><div th:each="check : ${profile['checks']}"
+                             th:text="${check.status} + ' · ' + ${check.name} + ': ' + ${check.message}"></div></td>
+                </tr></tbody>
+            </table></div>
+        </section>
         <section>
             <h2>Checks</h2>
             <div class="table-wrap"><table>

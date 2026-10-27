@@ -98,7 +98,7 @@ class PrFeedbackIntegrationTest {
             return merged ? PrFeedbackGateway.Status.MERGED : closed ? PrFeedbackGateway.Status.CLOSED : PrFeedbackGateway.Status.OPEN;
         });
         when(gateway.comments(any())).thenAnswer(i->new PrFeedbackGateway.Snapshot(pr().headSha()+commentsRevision,pr(),List.of(comment())));
-        when(coding.image()).thenReturn("fixture-image"); when(coding.identity()).thenReturn(Map.of("model","fixture-model","runtime","scripted"));
+        when(coding.image()).thenReturn("fixture-image"); when(coding.identity(any())).thenReturn(Map.of("model","fixture-model","runtime","scripted"));
         when(coding.redact(anyString())).thenAnswer(i->i.getArgument(0));
         var scope=mock(DockerWorkloads.StepScope.class); var workload=mock(DockerWorkloads.Workload.class);
         when(docker.beginStep(any(),anyString())).thenReturn(scope);
@@ -158,7 +158,7 @@ class PrFeedbackIntegrationTest {
         verifyNoInteractions(verifier); verify(coding,never()).code(any(), any(), anyInt(), any(), any());
         for(int round=1;round<=12;round++) {
             String model=round%2==0?"second-fixture-model":"fixture-model";
-            when(coding.identity()).thenReturn(Map.of("model",model,"runtime","scripted"));
+            when(coding.identity(any())).thenReturn(Map.of("model",model,"runtime","scripted"));
             usage=Map.of("model",model,"inputTokens",100L,"cacheReadTokens",0L,"cacheWriteTokens",0L,"outputTokens",20L);
             select(); drive(); assertThat(view().state().phase()).as("round %s reason %s",round,view().state().reason()).isEqualTo(FeedbackState.Phase.READY);
             assertThat(view().state().round()).isEqualTo(round); assertThat(pr().headSha()).isEqualTo(view().state().commitSha());

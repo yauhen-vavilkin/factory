@@ -3,6 +3,8 @@ spring:
     import:
       - classpath:developer-repositories.yaml
       - optional:file:./config/developer-repositories.yaml
+      - classpath:developer-run-profiles.yaml
+      - optional:file:./config/developer-run-profiles.yaml
   application:
     name: ai-factory
   lifecycle:
@@ -155,6 +157,10 @@ factory:
       assignee: ${FACTORY_PILOT_ASSIGNEE:}
   dev-factory:
     git-base-url: ${FACTORY_DEV_FACTORY_GIT_BASE_URL:https://github.com}
+    # Run profile used when a run names none (manual API trigger, older attempts) and preselected in
+    # the run forms. Empty: env-default, built from the FACTORY_CLAUDE_CODE_* settings below. Other
+    # profiles live in config/developer-run-profiles.yaml.
+    default-run-profile: ${FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE:}
     runtime:
       timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
@@ -188,6 +194,8 @@ factory:
           auth-token: ${FACTORY_CLAUDE_CODE_AUTH_TOKEN:codemie-proxy}
           max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:40}
           max-output-tokens: ${FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS:16384}
+          # Default effort of profile env-default: low, medium, high, xhigh or max. Empty sends no
+          # --effort, so the CLI uses high.
           effort: ${FACTORY_CLAUDE_CODE_EFFORT:}
     delivery:
       create-pull-request: true

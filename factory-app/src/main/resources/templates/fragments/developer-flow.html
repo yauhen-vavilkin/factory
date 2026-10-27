@@ -18,5 +18,35 @@
     </nav>
 </th:block>
 
+<!-- Profile, Effort and Max turns of a run form. Every profile's efforts are rendered; the page script
+     shows only the chosen profile's options. A profile that is not configured cannot be chosen. -->
+<th:block th:fragment="runSettings(form)">
+    <label class="run-setting">
+        <span>Profile</span>
+        <select class="select" name="profileId" data-run-profile>
+            <option th:each="profile : ${form['profiles']}" th:value="${profile['id']}" th:text="${profile['label']}"
+                    th:disabled="${!profile['configured']}" th:selected="${profile['id'] == form['profile']}"
+                    th:attr="data-default-effort=${profile['defaultEffort']}, data-max-turns=${profile['maxTurns']}">
+                Configured in .env</option>
+        </select>
+    </label>
+    <label class="run-setting">
+        <span>Effort</span>
+        <select class="select" name="effort" data-run-effort>
+            <option th:each="effort : ${form['efforts']}" th:value="${effort['value']}" th:text="${effort['label']}"
+                    th:attr="data-profile=${effort['profile']}"
+                    th:hidden="${effort['profile'] != form['profile']}"
+                    th:disabled="${effort['profile'] != form['profile']}"
+                    th:selected="${effort['profile'] == form['profile'] and effort['value'] == form['effort']}">
+                high (CLI default)</option>
+        </select>
+    </label>
+    <label class="run-setting">
+        <span>Max turns</span>
+        <input class="input run-setting-turns" type="number" name="maxTurns" min="1" required
+               th:max="${form['maxTurnsLimit']}" th:value="${form['maxTurns']}" data-run-turns>
+    </label>
+</th:block>
+
 </body>
 </html>

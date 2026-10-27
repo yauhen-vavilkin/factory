@@ -3,6 +3,7 @@ package org.folio.factory.app.web;
 import org.folio.factory.app.pilot.admission.PilotAdmissionService;
 import org.folio.factory.app.pilot.admission.PilotCommands;
 import org.folio.factory.app.pilot.admission.PilotRetryService;
+import org.folio.factory.app.pilot.admission.PilotRunSettings;
 import org.folio.factory.app.pilot.execution.PilotDispatcher;
 import org.folio.factory.app.pilot.execution.PilotOutcomeService;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
@@ -20,6 +21,10 @@ import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
+import org.folio.factory.devfactory.runtime.CodingRequest;
+import org.folio.factory.devfactory.runtime.CodingRuntime;
+import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.RunProfiles;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -115,14 +120,24 @@ class PilotTaskUiControllerTest {
 
     private MockMvc mvc;
 
+    private PilotRunSettings runSettings;
+
     @BeforeEach
     void setUp() {
+        CodingRuntime coding = org.mockito.Mockito.mock(CodingRuntime.class);
+        lenient().when(coding.id()).thenReturn("claude-code");
+        var envDefault = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway.example:4001",
+                "claude-sonnet-5-5", "bearer-token", null, "gateway-token", 40, 16384, null);
+        var glm = new RunProfiles.FileProfile("glm-5.3", "GLM-5.3 (Z.ai)", "https://api.z.ai/api/anthropic",
+                "bearer-token", "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", 100, 16384);
+        runSettings = new PilotRunSettings(coding, new RunProfiles(envDefault,
+                new RunProfiles.Properties(List.of(glm), null), Map.of("FACTORY_ZAI_API_KEY", "zai-key")::get));
         var repositories = new DevFactoryProperties("https://github.com", new TreeMap<>(Map.of("mod-bar",
                 new DevFactoryProperties.Repository("folio-org/mod-bar", "master", "build:image", "unit",
                         List.of("MODBAR"), List.of(), new DeliveryTarget("folio-org/mod-bar", null)))));
         var controller = new PilotTaskUiController(taskQuery, installations, attempts, admissions, retries,
                 discovery, dispatcher, outcomes, new PilotSourceProperties("Jane Developer"), jira, flows,
-                repositories, new DevDeliveryProperties(Map.of(), true));
+                repositories, new DevDeliveryProperties(Map.of(), true), runSettings);
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new UiExceptionHandler())
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
@@ -305,6 +320,28 @@ class PilotTaskUiControllerTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void taskDetail_retryFormIsFilledFromThePreviousAttempt() throws Exception {
+        String previous = "{\"profileId\":\"glm-5.3\",\"profileLabel\":\"GLM-5.3 (Z.ai)\",\"model\":\"glm-5.3\","
+                + "\"endpointOrigin\":\"https://api.z.ai\",\"effort\":\"low\",\"maxTurns\":77,"
+                + "\"instructions\":\"Keep the public API.\"}";
+        when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-911", "Open",
+                PilotTaskView.TaskState.STOPPED, false, true,
+                attempt("STOPPED", "MANUAL", 1, null), attempt("STOPPED", "MANUAL", 2, previous)));
+
+        MvcResult result = mvc.perform(get("/tasks/{taskId}", TASK_ID))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        var model = result.getModelAndView().getModel();
+        assertThat((Map<String, Object>) model.get("retryForm")).containsEntry("profile", "glm-5.3")
+                .containsEntry("effort", "low").containsEntry("maxTurns", 77);
+        assertThat(model.get("retryInstructions")).isEqualTo("Keep the public API.");
+        assertThat(rows(model, "attempts")).extracting(row -> row.get("run"))
+                .containsExactly("glm-5.3 · low", null);
+    }
+
+    @Test
     void taskDetail_unknownTaskRendersNotFoundPage() throws Exception {
         when(taskQuery.detail(TASK_ID)).thenThrow(new NoSuchElementException("No pilot task " + TASK_ID));
 
@@ -368,6 +405,51 @@ class PilotTaskUiControllerTest {
         assertThat(run.requestId().length()).isLessThanOrEqualTo(63);
         assertThat(run.selections()).containsExactly(new PilotCommands.Selection(
                 TASK_ID, 3L, "revision-MODBAR-901", "dest-MODBAR-901"));
+        // Without a choice the run takes the default profile and its defaults.
+        assertThat(PilotRunSettings.read(run.runSettings())).isEqualTo(new PilotRunSettings.Snapshot(
+                "env-default", "Configured in .env", "claude-sonnet-5-5", "http://gateway.example:4001", null, 40,
+                null));
+    }
+
+    @Test
+    void runSelected_appliesOneChoiceOfProfileEffortAndTurnsToEveryTask() throws Exception {
+        when(admissions.runSelected(any())).thenReturn(
+                new PilotAdmissionService.AdmissionResult(List.of(TASK_ID, OTHER_TASK_ID), Map.of()));
+
+        mvc.perform(post("/tasks/run-selected")
+                        .param("taskId", TASK_ID.toString(), OTHER_TASK_ID.toString())
+                        .param("profileId", "glm-5.3").param("effort", "low").param("maxTurns", "120"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl(FLOW_PAGE));
+
+        verify(admissions).runSelected(runCaptor.capture());
+        assertThat(runCaptor.getValue().selections()).hasSize(2);
+        assertThat(PilotRunSettings.settings(runCaptor.getValue().runSettings()))
+                .isEqualTo(new CodingRequest.RunSettings("glm-5.3", "low", 120, null));
+        assertThat(PilotRunSettings.read(runCaptor.getValue().runSettings()).endpointOrigin())
+                .isEqualTo("https://api.z.ai");
+        assertThat(runCaptor.getValue().runSettings()).doesNotContain("zai-key");
+    }
+
+    @Test
+    void runSelected_badRunSettingsAreRejectedWithAPlainMessage() throws Exception {
+        MvcResult result = mvc.perform(post("/tasks/run-selected")
+                        .param("taskId", TASK_ID.toString())
+                        .param("profileId", "glm-5.3").param("effort", "medium").param("maxTurns", "10"))
+                .andExpect(status().is3xxRedirection())
+                .andReturn();
+        assertThat(java.net.URLDecoder.decode(result.getResponse().getRedirectedUrl(),
+                java.nio.charset.StandardCharsets.UTF_8))
+                .endsWith("Effort medium is not available for profile glm-5.3. Choose one of: low, high, max.");
+
+        result = mvc.perform(post("/tasks/run-selected")
+                        .param("taskId", TASK_ID.toString()).param("maxTurns", "501"))
+                .andExpect(status().is3xxRedirection())
+                .andReturn();
+        assertThat(java.net.URLDecoder.decode(result.getResponse().getRedirectedUrl(),
+                java.nio.charset.StandardCharsets.UTF_8))
+                .endsWith("Max turns must be a whole number from 1 to 500.");
+        verifyNoInteractions(admissions);
     }
 
     @Test
@@ -415,7 +497,7 @@ class PilotTaskUiControllerTest {
 
     @Test
     void runByKey_reportsTheQueuedKey() throws Exception {
-        when(admissions.runByKey(anyString(), any())).thenReturn(
+        when(admissions.runByKey(anyString(), any(), any())).thenReturn(
                 new PilotAdmissionService.KeyResult("MODBAR-930", TASK_ID, null));
 
         mvc.perform(post(FLOW_PAGE + "/run-by-key").param("key", "https://jira.example.org/browse/MODBAR-930"))
@@ -424,12 +506,28 @@ class PilotTaskUiControllerTest {
                 .andExpect(flash().attribute("message", "MODBAR-930 joined the queue."));
 
         verify(admissions).runByKey(anyString(), org.mockito.ArgumentMatchers.eq(
-                "https://jira.example.org/browse/MODBAR-930"));
+                "https://jira.example.org/browse/MODBAR-930"), any());
+    }
+
+    @Test
+    void runByKey_carriesTheChosenRunSettings() throws Exception {
+        when(admissions.runByKey(anyString(), any(), any())).thenReturn(
+                new PilotAdmissionService.KeyResult("MODBAR-930", TASK_ID, null));
+
+        mvc.perform(post(FLOW_PAGE + "/run-by-key").param("key", "MODBAR-930")
+                        .param("profileId", "glm-5.3").param("effort", "high").param("maxTurns", "60"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl(FLOW_PAGE));
+
+        ArgumentCaptor<String> settings = ArgumentCaptor.forClass(String.class);
+        verify(admissions).runByKey(anyString(), org.mockito.ArgumentMatchers.eq("MODBAR-930"), settings.capture());
+        assertThat(PilotRunSettings.settings(settings.getValue()))
+                .isEqualTo(new CodingRequest.RunSettings("glm-5.3", "high", 60, null));
     }
 
     @Test
     void runByKey_refusalRedirectsWithTheReason() throws Exception {
-        when(admissions.runByKey(anyString(), any())).thenReturn(new PilotAdmissionService.KeyResult(
+        when(admissions.runByKey(anyString(), any(), any())).thenReturn(new PilotAdmissionService.KeyResult(
                 "MODX-1", null, "Project MODX is not configured"));
 
         mvc.perform(post(FLOW_PAGE + "/run-by-key").param("key", "MODX-1"))
@@ -439,7 +537,7 @@ class PilotTaskUiControllerTest {
 
     @Test
     void runByKey_aLongJiraErrorStaysShortInTheRedirect() throws Exception {
-        when(admissions.runByKey(anyString(), any())).thenReturn(new PilotAdmissionService.KeyResult(
+        when(admissions.runByKey(anyString(), any(), any())).thenReturn(new PilotAdmissionService.KeyResult(
                 "MODX-1", null, "Jira could not be read: " + "<html>".repeat(2000)));
 
         MvcResult result = mvc.perform(post(FLOW_PAGE + "/run-by-key").param("key", "MODX-1"))
@@ -474,6 +572,36 @@ class PilotTaskUiControllerTest {
         assertThat(command.inputFingerprint()).isEqualTo("revision-MODBAR-901");
         assertThat(command.destinationFingerprint()).isEqualTo("dest-MODBAR-901");
         assertThat(command.requestId()).startsWith("ui-");
+    }
+
+    @Test
+    void retry_carriesProfileEffortTurnsAndInstructions() throws Exception {
+        when(retries.retry(any())).thenReturn(new PilotRetryService.RetryResult(
+                ATTEMPT_ID, null, "RESERVED", "the retry joined the queue"));
+
+        mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "3")
+                        .param("profileId", "glm-5.3").param("effort", "max").param("maxTurns", "150")
+                        .param("instructions", "  Read the ADR through the wiki REST URL.  "))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/tasks/" + TASK_ID));
+
+        verify(retries).retry(retryCaptor.capture());
+        assertThat(PilotRunSettings.settings(retryCaptor.getValue().runSettings())).isEqualTo(
+                new CodingRequest.RunSettings("glm-5.3", "max", 150, "Read the ADR through the wiki REST URL."));
+    }
+
+    @Test
+    void retry_tooLongInstructionsAreRejectedBeforeAnyRetry() throws Exception {
+        MvcResult result = mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "3")
+                        .param("instructions", "x".repeat(8001)))
+                .andExpect(status().is3xxRedirection())
+                .andReturn();
+
+        assertThat(java.net.URLDecoder.decode(result.getResponse().getRedirectedUrl(),
+                java.nio.charset.StandardCharsets.UTF_8))
+                .startsWith("/tasks/" + TASK_ID + "?error=")
+                .contains("at most 8000 characters; this text has 8001");
+        verifyNoInteractions(retries);
     }
 
     @Test
@@ -595,11 +723,16 @@ class PilotTaskUiControllerTest {
     }
 
     private static PilotTaskView.AttemptHistoryEntry attempt(String state, String admittedVia, int ordinal) {
+        return attempt(state, admittedVia, ordinal, null);
+    }
+
+    private static PilotTaskView.AttemptHistoryEntry attempt(String state, String admittedVia, int ordinal,
+                                                             String runSettings) {
         return new PilotTaskView.AttemptHistoryEntry("NEEDS_INSPECTION".equals(state) ? ATTEMPT_ID : UUID.randomUUID(),
                 ordinal, "INITIAL", admittedVia, state, "verification", "VERIFICATION_FAILED: 2 tests failed", null,
                 EXECUTION_ID, "COMPLETED", Instant.parse("2026-10-23T07:59:00Z"),
                 Instant.parse("2026-10-23T08:00:00Z"), Instant.parse("2026-10-23T09:00:00Z"),
-                true, 600, emptyUsage());
+                true, 600, emptyUsage(), runSettings);
     }
 
     private static PilotTaskUsage emptyUsage() {
