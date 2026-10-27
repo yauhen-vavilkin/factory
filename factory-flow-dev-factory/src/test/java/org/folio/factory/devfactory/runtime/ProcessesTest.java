@@ -75,6 +75,21 @@ class ProcessesTest {
     }
 
     @Test
+    void streamWaitsForASlowReaderBeforeItReturns() {
+        var seen = new java.util.ArrayList<String>();
+        var result = Processes.stream(null, List.of("/bin/sh", "-c", "printf 'first\\nlast\\n'"), 30, s -> s,
+                line -> {
+                    if (line.equals("last")) {
+                        try { Thread.sleep(6000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                    }
+                    seen.add(line);
+                    return true;
+                });
+        assertThat(result.outputUnread()).isFalse();
+        assertThat(seen).containsExactly("first", "last");
+    }
+
+    @Test
     void streamReportsTheTimeLimitAndKeepsOnlyARedactedStderrTail() {
         var timedOut = Processes.stream(null, List.of("/bin/sh", "-c", "exec sleep 5"), 1, s -> s, line -> true);
         assertThat(timedOut.timedOut()).isTrue();

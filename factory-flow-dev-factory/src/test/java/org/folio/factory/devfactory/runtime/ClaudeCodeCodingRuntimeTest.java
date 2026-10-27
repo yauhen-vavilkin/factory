@@ -160,6 +160,16 @@ class ClaudeCodeCodingRuntimeTest {
     }
 
     @Test
+    void aReaderThatIsStillBusyNeverHasItsStateReadForTheOutcome() {
+        var workload = workload();
+        when(workload.stream(anyList(), eq(60), any(), any()))
+                .thenReturn(new Processes.Streamed(0, false, false, "", true));
+        var outcome = new ClaudeCodeCodingRuntime(config("api-key")).code(workload, request(), 60);
+        assertThat(outcome.failure().code()).isEqualTo("OUTPUT_UNREAD");
+        assertThat(outcome.failure().message()).contains("could not finish reading its output", "Retry the task");
+    }
+
+    @Test
     void timeLimitAndOversizedLineStopTheAttemptWithPlainReasons() {
         var workload = workload();
         when(workload.stream(anyList(), eq(1800), any(), any()))

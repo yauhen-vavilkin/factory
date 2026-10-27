@@ -77,6 +77,11 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
                 protocol.accept(line);
                 return !protocol.failed();
             });
+            if (run.outputUnread())
+                // The reader still owns the parser state, so this outcome must not read it.
+                return CodingOutcome.failed("OUTPUT_UNREAD", "Claude Code ended, but Factory could not finish"
+                        + " reading its output in time, often because the Factory database was slow. Retry the task.",
+                        Map.of());
             return protocol.outcome(run, timeoutSeconds);
         } catch (IOException | RuntimeException e) {
             // Diagnostics can echo request bodies: they go to the log redacted, never into the stored reason.
