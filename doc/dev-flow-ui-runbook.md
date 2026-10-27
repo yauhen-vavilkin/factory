@@ -133,9 +133,9 @@ page. The bridge logs only method, path and status.
 - `yarn install` takes a lock in the shared cache (`--mutex`), so two starting builds no longer corrupt
   it. The `chown` before a build and the cache copy into a coding or verification container work only
   on yarn's version directory, so they do not meet the lock or yarn's temporary entries. Two tickets
-  at once have worked on a warm cache and (started together) on a cold one; a staggered start was
-  replayed against the new commands but not yet through the Factory. With six modules the cache is
-  3.8 GB and the seed copy takes about 35 s against a 300 s limit.
+  at once have worked on a warm cache, (started together) on a cold one, and staggered (ui-marc-authorities
+  started 6 s after ui-checkin entered its coding step; both delivered). With six modules the cache is
+  about 4 GB and the seed copy takes about 35 s against a 300 s limit.
 - If a starting build still fails in the cache `chown`, or a container in the cache copy, with "No such
   file or directory", run the ticket again and tell whoever maintains the flow.
 - **Upgrading to the install lock.** The install command is part of the verification receipt. An

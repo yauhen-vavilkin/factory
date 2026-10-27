@@ -515,6 +515,16 @@ through the pin. Same model and settings as above.
   mutex in their command, both were verified (348 and 1273 tests, the mutex in the receipts) and
   delivered in about 11 and 14 minutes. The cold cache ended at 2.7 GB with 2428 entries, none
   without metadata, and the ui-eholdings pin (`22c19417…`) equals the one from the warm-cache runs.
+  Staggered, on the warm cache: UICHKIN-516 started at 09:06:25 and entered its coding step at
+  09:08:14; UIMARCAUTH-473 (ui-marc-authorities) was started at 09:08:20, so its `chown` and install
+  overlapped the first ticket's cache copy, and its own coding and verification copies overlapped the
+  first ticket's agent and verification (read from the step times, not measured per file). Both were
+  verified (PASS) and delivered; the cache logged no "No such file", "corrupt" or ENOENT, and grew from
+  3898228 KB to 4046796 KB. A third ticket started first, UIEH-1523, was blocked in its starting
+  build by 26 failing suites: `resizeObserver.disconnect is not a function` in
+  `@folio/stripes-components` `PaneResizeContainer.js`; most likely a newer npm-folioci snapshot than
+  the earlier runs of that module resolved (it had passed three times; not checked against the
+  installed versions). No model spend, no PR.
 - **Bridge.** After a CodeMie proxy restart `start-bridge.ps1` could see the old bridge's closing
   listener, skip starting a new one and fail its smoke check with HTTP 000. It now waits until the
   old listener is gone.
