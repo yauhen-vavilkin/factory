@@ -102,14 +102,16 @@ class DeveloperFlowRegistrationTest {
             "FACTORY_UI_INVENTORY_SOURCE_REPO", "FACTORY_UI_INVENTORY_DELIVERY_REPO",
             "FACTORY_UI_MARC_AUTHORITIES_SOURCE_REPO", "FACTORY_UI_MARC_AUTHORITIES_DELIVERY_REPO",
             "FACTORY_UI_CHECKIN_SOURCE_REPO", "FACTORY_UI_CHECKIN_DELIVERY_REPO",
-            "FACTORY_UI_EHOLDINGS_SOURCE_REPO", "FACTORY_UI_EHOLDINGS_DELIVERY_REPO");
+            "FACTORY_UI_EHOLDINGS_SOURCE_REPO", "FACTORY_UI_EHOLDINGS_DELIVERY_REPO",
+            "FACTORY_UI_MYPROFILE_SOURCE_REPO", "FACTORY_UI_MYPROFILE_DELIVERY_REPO",
+            "FACTORY_UI_TAGS_SOURCE_REPO", "FACTORY_UI_TAGS_DELIVERY_REPO");
 
     @Test
     void configuresDeveloperRepositoriesPlansAndDeliveryTargets() {
         assertThat(devFactoryProperties.repositories())
-                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users", "ui-circulation", "ui-inventory", "ui-marc-authorities", "ui-checkin", "ui-eholdings");
+                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users", "ui-circulation", "ui-inventory", "ui-marc-authorities", "ui-checkin", "ui-eholdings", "ui-myprofile", "ui-tags");
         assertThat(devDeliveryProperties.targets())
-                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users", "ui-circulation", "ui-inventory", "ui-marc-authorities", "ui-checkin", "ui-eholdings");
+                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users", "ui-circulation", "ui-inventory", "ui-marc-authorities", "ui-checkin", "ui-eholdings", "ui-myprofile", "ui-tags");
         assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
         assertThat(devRuntimeProperties.seedTimeoutSeconds()).isEqualTo(300);
         assertThat(devRuntimeProperties.toolchain("node22-jest")).isEqualTo(Toolchain.YARN);
@@ -178,6 +180,14 @@ class DeveloperFlowRegistrationTest {
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "folio-org/ui-eholdings", "master", "node:22.22.0-bookworm",
                         "node22-jest", List.of("UIEH"), List.of()));
+        assertThat(devFactoryProperties.repositories().get("ui-myprofile"))
+                .isEqualTo(new DevFactoryProperties.Repository(
+                        "folio-org/ui-myprofile", "master", "node:22.22.0-bookworm",
+                        "node22-jest", List.of("UIMPROF"), List.of()));
+        assertThat(devFactoryProperties.repositories().get("ui-tags"))
+                .isEqualTo(new DevFactoryProperties.Repository(
+                        "folio-org/ui-tags", "master", "node:22.22.0-bookworm",
+                        "node22-jest", List.of("UITAG"), List.of()));
         assertThat(devDeliveryProperties.targets()).containsOnly(
                 entry("sidecar", new DeliveryTarget("folio-org/folio-module-sidecar", "master", true)),
                 entry("mod-roles-keycloak", new DeliveryTarget("folio-org/mod-roles-keycloak", "master", true)),
@@ -188,6 +198,8 @@ class DeveloperFlowRegistrationTest {
                 entry("ui-inventory", new DeliveryTarget("folio-org/ui-inventory", "master", true)),
                 entry("ui-marc-authorities", new DeliveryTarget("folio-org/ui-marc-authorities", "master", true)),
                 entry("ui-checkin", new DeliveryTarget("folio-org/ui-checkin", "master", true)),
-                entry("ui-eholdings", new DeliveryTarget("folio-org/ui-eholdings", "master", true)));
+                entry("ui-eholdings", new DeliveryTarget("folio-org/ui-eholdings", "master", true)),
+                entry("ui-myprofile", new DeliveryTarget("folio-org/ui-myprofile", "master", true)),
+                entry("ui-tags", new DeliveryTarget("folio-org/ui-tags", "master", true)));
     }
 }
