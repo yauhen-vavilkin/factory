@@ -270,14 +270,14 @@ my-module:
   # jira-components: [Backend]  # optional: restrict the Jira component mapping
   delivery:
     repository: your-github-user/my-module
-    authorized: false
 ```
 
 Use the actual Jira project key and a branch that exists in the source and
 delivery repositories. The delivery base comes from this entry's `base-branch`;
-there is no second branch to keep in sync. Set `authorized: true` only when the
-destination is ready for automatic push and PR creation. Source and delivery may
-be different repositories, but the delivery branch must contain the source base.
+there is no second branch to keep in sync. Pull requests go to
+`delivery.repository` under your GitHub token; before a task is queued, Factory
+checks that the token can push there. Source and delivery may be different
+repositories, but the delivery branch must contain the source base.
 
 `verification-plan` names a trusted command in `factory.dev-factory.runtime.plans`
 in the same file. The bundled `java21-unit` runs `mvn -B -ntp test`; add a separate
@@ -319,9 +319,10 @@ delivery, submodules and other build/report formats require implementation chang
 
 Older deployments may still supply `factory.dev-factory.delivery.targets.<key>`.
 An explicit legacy target takes precedence over that entry's nested `delivery`
-settings; missing repository/base fields inherit the catalog values. Legacy
-authorization remains authoritative, including `false`; set it explicitly to
-`true` to enable delivery. Remove legacy settings when migrating to the unified catalog. A different legacy
+settings; missing repository/base fields inherit the catalog values. Delivery has
+no on/off switch any more: Factory refuses to start while a catalog or legacy
+target still sets `authorized`, so remove the key and point the repository where
+pull requests should go. Remove legacy settings when migrating to the unified catalog. A different legacy
 delivery branch name is rejected by preflight; a conflicting nested delivery base
 is rejected while loading the catalog.
 

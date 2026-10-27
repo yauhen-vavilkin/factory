@@ -21,6 +21,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
@@ -123,6 +127,7 @@ class DeveloperPreflightTest {
         assertSafe(report);
         assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("preflight failed")
+                .isNotInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
                 .hasMessageNotContaining("coding-fixture-secret");
     }
 
@@ -256,8 +261,63 @@ class DeveloperPreflightTest {
         var report = service().check("TASK-1");
 
         assertThat(report.ready()).isFalse();
-        assertThat(check(report, "jira").status()).isEqualTo(FAIL);
+        assertThat(check(report, "issue").status()).isEqualTo(FAIL);
         verify(probe, never()).sourceBase(anyString(), anyString(), anyString());
+        assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
+                .isInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
+                .hasMessageContaining("Jira did not return the requested issue.");
+    }
+
+    @Test
+    void anIssueJiraNoLongerHasCannotRunWhileFactoryItselfIsReady() {
+        when(jira.getIssue("TASK-1")).thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                HttpHeaders.EMPTY, ("{\"errorMessages\":[\"Issue does not exist or you do not have permission to see"
+                        + " it.\"],\"errors\":{}}").getBytes(), null));
+
+        assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
+                .isInstanceOfSatisfying(DeveloperPreflight.TaskNotRunnableException.class, e ->
+                        assertThat(e.reason()).isEqualTo("Jira did not return the requested issue."));
+    }
+
+    @Test
+    void anIssueNoRepositoryMatchesCannotRun() {
+        when(jira.getIssue("OTHER-1")).thenReturn(issue("OTHER-1"));
+
+        assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"OTHER-1\"}")))
+                .isInstanceOfSatisfying(DeveloperPreflight.TaskNotRunnableException.class, e ->
+                        assertThat(e.reason()).startsWith("No configured repository matches"));
+    }
+
+    @Test
+    void aFactoryFailureKeepsTheTaskWaitingEvenWhenTheTaskFailsToo() {
+        when(probe.dockerAvailable()).thenReturn(false);
+        when(jira.getIssue("TASK-1")).thenReturn(issue("TASK-2"));
+
+        assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .isNotInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
+                .hasMessageContaining("Docker daemon is unavailable.");
+    }
+
+    @Test
+    void aNotFoundPageThatIsNotJiraKeepsTheTaskWaiting() {
+        when(jira.getIssue("TASK-1")).thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                HttpHeaders.EMPTY, "<html><body>404 Not Found</body></html>".getBytes(), null));
+
+        assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .isNotInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
+                .hasMessageContaining("Cannot read the requested Jira issue");
+    }
+
+    @Test
+    void anUnreadableJiraKeepsTheTaskWaiting() {
+        when(jira.getIssue("TASK-1")).thenThrow(HttpServerErrorException.create(
+                HttpStatus.SERVICE_UNAVAILABLE, "Unavailable", HttpHeaders.EMPTY, new byte[0], null));
+
+        assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .isNotInstanceOf(DeveloperPreflight.TaskNotRunnableException.class);
     }
 
     @Test

@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -125,6 +126,9 @@ public class PilotAdmissionService {
             issue = discovery.fetch(issueKey);
         } catch (HttpClientErrorException e) {
             issue = null;
+        } catch (RestClientResponseException e) {
+            // The response body may be a whole HTML error page; the status says enough.
+            return new KeyResult(issueKey, null, "Jira could not be read: HTTP " + e.getStatusCode().value());
         } catch (RuntimeException e) {
             return new KeyResult(issueKey, null, "Jira could not be read: " + e.getMessage());
         }

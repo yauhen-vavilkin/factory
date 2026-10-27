@@ -1,5 +1,6 @@
 package org.folio.factory.app.pilot.execution;
 
+import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.pilot.admission.PilotAdmissionService;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
@@ -57,8 +58,9 @@ public class PilotExecutionLauncher {
     }
 
     /**
-     * @return the bound execution id, or null when a queued retry stopped because
-     *         its approved destination changed before start
+     * @return the bound execution id, or null when the attempt stopped before
+     *         start: a queued retry whose approved destination changed, or a task
+     *         that cannot run any more (see {@link #stopNotRunnable})
      */
     public UUID launch(UUID attemptId) {
         PilotAttempt attempt = attempts.findById(attemptId)
@@ -70,8 +72,32 @@ public class PilotExecutionLauncher {
                 .orElseThrow(() -> new NoSuchElementException("No pilot task " + attempt.getTaskId()));
         ObjectNode payload = json.createObjectNode();
         payload.put("issueKey", task.getDisplayKey());
-        PreparedManualTrigger prepared = router.prepareManual(FLOW_ID, payload, "pilot-attempt=" + attemptId);
+        PreparedManualTrigger prepared;
+        try {
+            prepared = router.prepareManual(FLOW_ID, payload, "pilot-attempt=" + attemptId);
+        } catch (DeveloperPreflight.TaskNotRunnableException e) {
+            transactions.executeWithoutResult(status -> stopNotRunnable(attemptId, e.reason()));
+            return null;
+        }
         return transactions.execute(status -> launchLocked(attemptId, prepared));
+    }
+
+    /**
+     * A queued task whose preflight fails because of the task itself (Jira no
+     * longer returns it under its key, no repository matches it) would block the
+     * queue forever, so it stops before start: Could not complete, no cost, and
+     * Retry stays possible. A failure of Factory, Docker, Jira or GitHub instead
+     * keeps the whole queue waiting.
+     */
+    private void stopNotRunnable(UUID attemptId, String reason) {
+        installations.lockById(1);
+        PilotAttempt attempt = attempts.findById(attemptId).orElse(null);
+        if (attempt == null || attempt.getState() != PilotAttempt.State.RESERVED || attempt.getExecutionId() != null) {
+            return;
+        }
+        attempt.setState(PilotAttempt.State.STOPPED);
+        attempt.setResultReason("Could not start: " + reason);
+        attempts.save(attempt);
     }
 
     private UUID launchLocked(UUID attemptId, PreparedManualTrigger prepared) {

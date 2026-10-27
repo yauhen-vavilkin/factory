@@ -50,7 +50,7 @@ public class PilotDispatcher {
     /**
      * @return the execution bound to the active attempt, the newly launched
      *         execution for the next queued attempt, or empty when the queue is
-     *         empty or the head of the queue stopped before start
+     *         empty
      */
     public Optional<UUID> dispatchNext() {
         try {
@@ -86,12 +86,23 @@ public class PilotDispatcher {
                 return Optional.of(activeBinding(installation.getActiveAttemptId()));
             }
         }
-        List<PilotAttempt> candidates =
-                attempts.findDispatchable(PilotAttempt.State.RESERVED, PageRequest.of(0, 1));
-        if (candidates.isEmpty()) {
-            return Optional.empty();
+        // A head that stops before start leaves RESERVED, so the next pass takes the next attempt.
+        while (true) {
+            List<PilotAttempt> candidates =
+                    attempts.findDispatchable(PilotAttempt.State.RESERVED, PageRequest.of(0, 1));
+            if (candidates.isEmpty()) {
+                return Optional.empty();
+            }
+            UUID executionId = launcher.launch(candidates.getFirst().getId());
+            if (executionId != null) {
+                return Optional.of(executionId);
+            }
         }
-        return Optional.ofNullable(launcher.launch(candidates.getFirst().getId()));
+    }
+
+    /** False while FACTORY_PILOT_EXECUTION_ENABLED is off: queued work then waits and nothing launches. */
+    public boolean executionEnabled() {
+        return properties.enabled();
     }
 
     /**

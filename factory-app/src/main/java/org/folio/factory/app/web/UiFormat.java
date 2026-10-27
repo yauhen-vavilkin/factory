@@ -78,8 +78,15 @@ final class UiFormat {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
+    /** Longest message carried in a redirect; a remote error body could otherwise overflow the headers. */
+    static final int MAX_REDIRECT_MESSAGE = 300;
+
     static String errorRedirect(String path, String message) {
-        return "redirect:" + path + "?error=" + encode(message == null ? "Request failed" : message);
+        String text = message == null ? "Request failed" : message.strip();
+        if (text.length() > MAX_REDIRECT_MESSAGE) {
+            text = text.substring(0, MAX_REDIRECT_MESSAGE - 1) + "…";
+        }
+        return "redirect:" + path + "?error=" + encode(text);
     }
 
     /** The one row shape the {@code auditTable} fragment renders, wherever it appears. */

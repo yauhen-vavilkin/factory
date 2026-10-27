@@ -72,6 +72,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
@@ -469,6 +470,12 @@ class PilotEndToEndTest {
         assertThat(again.problem()).isEqualTo("MODBAR-106 is already queued or running");
         assertThat(admissions.runByKey("e2e-key-bad", "not a key").problem()).startsWith("Enter a Jira key");
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(task.getId())).hasSize(1);
+
+        jira.stubFor(post(urlEqualTo("/rest/api/2/search/jql"))
+                .willReturn(aResponse().withStatus(503).withBody("<html>" + "maintenance ".repeat(500) + "</html>")));
+        assertThat(admissions.runByKey("e2e-key-107", "MODBAR-107").problem())
+                .isEqualTo("Jira could not be read: HTTP 503");
+        stubSearch(issue("8106", "MODBAR-106", "MODBAR", "Expose the new endpoint", "2026-10-01T10:00:00.000+0000", ""));
         assertThat(jiraStayedReadOnly()).isTrue();
     }
 

@@ -150,6 +150,24 @@ class PilotTaskViewTest {
     }
 
     @Test
+    void aWithdrawalAfterRealWorkShowsTheLastAttemptThatRan() {
+        PilotTask task = eligibleTask("90021", "MODBAR-921");
+        admit(task, "run-921");
+        forceState(task, PilotAttempt.State.STOPPED, "coding: verification failed");
+        PilotAttempt withdrawn = new PilotAttempt(task.getId(), 2, PilotAttempt.Kind.RETRY, "legacy-921",
+                PilotAttempt.State.WITHDRAWN);
+        withdrawn.setResultReason("task left the pilot scope before start");
+        attempts.save(withdrawn);
+
+        var view = query.detail(task.getId());
+
+        assertThat(view.state()).isEqualTo(PilotTaskView.TaskState.STOPPED);
+        assertThat(view.reason()).isEqualTo("coding: verification failed");
+        assertThat(view.allowedActions().retry()).isTrue();
+        assertThat(view.attempts()).hasSize(2);
+    }
+
+    @Test
     void unsupportedWithdrawnAndUnassignedTasksKeepDistinctMeaningAndHistory() {
         PilotTask unsupported = task("90011", "MODBAR-911", PilotTask.Eligibility.INELIGIBLE,
                 "depends on unsupported mod-data-import-converter-storage");

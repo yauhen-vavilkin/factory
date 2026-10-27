@@ -46,6 +46,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -229,6 +230,28 @@ class PilotDispatchIntegrationTest {
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
         // With execution switched off the page says so instead of leaving the task queued silently.
         assertThat(dispatcher.queueProblem()).contains("FACTORY_PILOT_EXECUTION_ENABLED=true");
+    }
+
+    @Test
+    void aQueuedTaskThatCannotRunStopsAndTheNextTaskStarts() {
+        UUID moved = admit("30061", "MODBAR-261");
+        UUID next = admit("30062", "MODBAR-262");
+        doThrow(new DeveloperPreflight.TaskNotRunnableException("Jira did not return the requested issue."))
+                .when(preflight).requireReady(eq(FLOW_ID),
+                        argThat(payload -> "MODBAR-261".equals(payload.path("issueKey").asString())));
+
+        Optional<UUID> executionId = dispatcher.dispatchNext();
+
+        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(moved)).singleElement().satisfies(attempt -> {
+            assertThat(attempt.getState()).isEqualTo(PilotAttempt.State.STOPPED);
+            assertThat(attempt.getResultReason())
+                    .isEqualTo("Could not start: Jira did not return the requested issue.");
+            assertThat(attempt.getExecutionId()).isNull();
+        });
+        PilotAttempt started = attempts.findByTaskIdOrderByOrdinalAsc(next).getFirst();
+        assertThat(executionId).contains(started.getExecutionId());
+        assertThat(started.getState()).isEqualTo(PilotAttempt.State.QUEUED);
+        assertThat(executions.count()).isEqualTo(1);
     }
 
     @Test

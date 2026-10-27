@@ -60,7 +60,15 @@ public class PilotRetryService {
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
-    public record RetryResult(UUID attemptId, UUID executionId, String state, String explanation) {
+    /**
+     * @param state    the state of this click's attempt or, when refused, of the task's latest attempt
+     * @param refused  true when this click queued nothing, whatever state the task is in
+     */
+    public record RetryResult(UUID attemptId, UUID executionId, String state, String explanation,
+                              boolean refused) {
+        public RetryResult(UUID attemptId, UUID executionId, String state, String explanation) {
+            this(attemptId, executionId, state, explanation, false);
+        }
     }
 
     private record Reservation(UUID attemptId, String rejectionReason) {
@@ -177,6 +185,11 @@ public class PilotRetryService {
     }
 
     private RetryResult dispatch(UUID attemptId) {
+        if (!dispatcher.executionEnabled()) {
+            // Nothing could reconcile a run launched now, so the retry waits like any queued task.
+            return new RetryResult(attemptId, null, PilotAttempt.State.RESERVED.name(),
+                    "the retry attempt is queued; pilot execution is off");
+        }
         try {
             dispatcher.dispatchNext();
         } catch (RuntimeException e) {
@@ -219,10 +232,10 @@ public class PilotRetryService {
     private RetryResult rejection(UUID taskId, String reason) {
         List<PilotAttempt> history = attempts.findByTaskIdOrderByOrdinalAsc(taskId);
         if (history.isEmpty()) {
-            return new RetryResult(null, null, null, reason);
+            return new RetryResult(null, null, null, reason, true);
         }
         PilotAttempt latest = history.getLast();
-        return new RetryResult(latest.getId(), latest.getExecutionId(), latest.getState().name(), reason);
+        return new RetryResult(latest.getId(), latest.getExecutionId(), latest.getState().name(), reason, true);
     }
 
     private static String cause(RuntimeException e) {

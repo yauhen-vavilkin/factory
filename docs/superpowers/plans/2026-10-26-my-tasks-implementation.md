@@ -148,7 +148,31 @@ Fixed after the fresh-context critic review of the full diff:
 - Available is scoped to the configured Jira; "added by key" survives a Retry; working and queued
   counts cover the whole queue; the live-refresh baseline is read before the page data; the outcome
   release locks the installation before the attempt, the same order as mark as stopped.
-- README no longer describes the removed delivery authorization flags.
+- The README variable table no longer lists the removed `*_DELIVERY_AUTHORIZED` flags (the catalog
+  section still described `authorized`; fixed in the review below).
+
+Fixed after the four-critic review of d7990a8 (2026-10-27):
+
+- A queued task that fails preflight because of the task itself (Jira no longer returns it under
+  its key, or no repository matches it) stops as "Could not start: …" and the queue moves on; it
+  used to stay at the head forever. Failures of Docker, the runtime, Jira or GitHub still wait;
+  a 404 counts as the task's own only when Jira answers it with its errorMessages JSON, so a wrong
+  base URL or a proxy page cannot stop the whole queue.
+- Started work holds: a scan leaves a task with a queued or running attempt as it was admitted
+  (key, snapshot, routing), so a later Jira change can neither redirect the run nor block its
+  publication; the first scan after the run ends refreshes it. The scan locks the task row first,
+  so a click committing at the same moment is always seen.
+- The README catalog section and `.env.example` no longer describe `authorized`, and Factory
+  refuses to start while a catalog or legacy target still sets it, instead of silently ignoring a
+  `false` that used to block delivery.
+- A Jira error body never goes into a redirect URL whole (run by key reports the HTTP status;
+  redirect messages are capped); a refused Retry is never shown as "Retry queued"; a withdrawal
+  left after real work shows the last attempt that ran instead of "Withdrawn"; Retry no longer
+  launches while pilot execution is off.
+
+Known limit: the launch preflight still derives candidates from the live issue and the current
+catalog, so with a `jira-components` catalog a component edit in Jira can stop a queued task as "no
+repository matches". The bundled catalog maps by project only.
 
 Left as is: the same-origin guard trusts the Host header (DNS rebinding). The JSON API has no
 guard at all, so this is an app-wide follow-up, not part of this change.

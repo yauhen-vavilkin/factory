@@ -154,7 +154,12 @@ public class PilotTaskQuery {
                     PilotTaskUsage.aggregate(List.of(totals), paidStartWithoutReportedUsage)));
         }
 
-        PilotAttempt latest = history.isEmpty() ? null : history.getLast();
+        // A withdrawal after real work (left by the removed automatic mode) does not
+        // stand for the task: it shows the last attempt that actually ran.
+        PilotAttempt latest = history.stream()
+                .filter(attempt -> attempt.getState() != PilotAttempt.State.WITHDRAWN)
+                .reduce((first, second) -> second)
+                .orElse(history.isEmpty() ? null : history.getLast());
         boolean allWithdrawn = !history.isEmpty() && history.stream()
                 .allMatch(attempt -> attempt.getState() == PilotAttempt.State.WITHDRAWN);
         boolean working = history.stream().anyMatch(attempt -> attempt.getState().isLive()

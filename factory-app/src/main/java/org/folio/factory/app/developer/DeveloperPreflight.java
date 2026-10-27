@@ -16,6 +16,7 @@ import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.JsonNode;
 
@@ -25,6 +26,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -34,6 +36,8 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
 
     private static final String FLOW_ID = "dev-factory";
     private static final Pattern COMMIT_SHA = Pattern.compile("[0-9a-f]{40}|[0-9a-f]{64}");
+    /** Checks that fail because of the task itself, not because of Factory, Docker, Jira or GitHub. */
+    private static final Set<String> TASK_CHECKS = Set.of("task", "issue", "mapping");
 
     public enum Status {
         PASS, FAIL, WARN, NOT_RUN
@@ -44,6 +48,24 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
 
     public record Report(boolean ready, String issueKey, Map<String, Object> runtime,
                          List<Map<String, Object>> repositories, List<Check> checks) {
+    }
+
+    /**
+     * The preflight failed only because of the task itself: Jira no longer returns
+     * the issue under its key, or no configured repository matches it. Waiting does
+     * not help, unlike a failure of Docker, the runtime, Jira or GitHub.
+     */
+    public static final class TaskNotRunnableException extends IllegalArgumentException {
+        private final String reason;
+
+        public TaskNotRunnableException(String reason) {
+            super("Developer Flow preflight failed: " + reason);
+            this.reason = reason;
+        }
+
+        public String reason() {
+            return reason;
+        }
     }
 
     private final DevFactoryProperties repositories;
@@ -84,6 +106,10 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
 
         Report report = check(issueKey);
         if (!report.ready()) {
+            if (report.checks().stream().filter(check -> check.status() == Status.FAIL)
+                    .allMatch(check -> TASK_CHECKS.contains(check.name()))) {
+                throw new TaskNotRunnableException(failureMessages(report.checks()));
+            }
             throw new IllegalArgumentException("Developer Flow preflight failed: " + failureMessages(report.checks()));
         }
     }
@@ -245,12 +271,23 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         try {
             JiraIssue issue = jira.getIssue(issueKey);
             if (issue == null || !issueKey.equals(issue.key())) {
-                add(checks, "jira", Status.FAIL, "Jira did not return the requested issue.");
+                add(checks, "issue", Status.FAIL, "Jira did not return the requested issue.");
                 return;
             }
             RepositoryPolicy policy = new RepositoryPolicy(repositories);
             candidates = policy.candidates(IssueSnapshot.projectKey(issueKey),
                     IssueSnapshot.components(IssueSnapshot.of(issue)));
+        } catch (HttpClientErrorException.NotFound e) {
+            // Jira itself answers 404 with its errorMessages JSON for a deleted issue or one the
+            // reader may not see. Any other 404 (a wrong base URL, a proxy page) is Jira being
+            // unreachable, which must keep the queue waiting instead of stopping every task.
+            if (e.getResponseBodyAsString().contains("\"errorMessages\"")) {
+                add(checks, "issue", Status.FAIL, "Jira did not return the requested issue.");
+            } else {
+                add(checks, "jira", Status.FAIL,
+                        "Cannot read the requested Jira issue; check URL, credentials and issue access.");
+            }
+            return;
         } catch (RestClientException | IllegalStateException | IllegalArgumentException e) {
             add(checks, "jira", Status.FAIL, "Cannot read the requested Jira issue; check URL, credentials and issue access.");
             return;

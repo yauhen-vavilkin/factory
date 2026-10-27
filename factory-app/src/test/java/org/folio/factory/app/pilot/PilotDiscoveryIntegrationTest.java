@@ -2,6 +2,8 @@ package org.folio.factory.app.pilot;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.folio.factory.app.StubLlmConfiguration;
+import org.folio.factory.app.pilot.persistence.PilotAttempt;
+import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
 import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
 import org.folio.factory.app.pilot.persistence.PilotTask;
@@ -100,6 +102,9 @@ class PilotDiscoveryIntegrationTest {
 
     @Autowired
     PilotInstallationRepository installations;
+
+    @Autowired
+    PilotAttemptRepository attempts;
 
     @Autowired
     PipelineExecutionRepository executions;
@@ -249,6 +254,34 @@ class PilotDiscoveryIntegrationTest {
         assertThat(renamed.getCreatedAt()).isEqualTo(original.getCreatedAt());
         assertThat(renamed.getSourceRevision()).isNotEqualTo(original.getSourceRevision());
         assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "MODBAR-100")).isEmpty();
+    }
+
+    @Test
+    void scanLeavesATaskWithStartedWorkAsItWasAdmittedUntilTheWorkEnds() {
+        stubFullSearch();
+        discovery.sync();
+        PilotTask admitted = tasks.findByJiraInstanceAndIssueId(INSTANCE, "10004").orElseThrow();
+        PilotAttempt running = attempts.save(new PilotAttempt(admitted.getId(), 1, PilotAttempt.Kind.INITIAL,
+                "started-work-holds", PilotAttempt.State.RUNNING));
+        admitted.setInScope(false);
+        tasks.save(admitted);
+
+        jira.resetAll();
+        stubSinglePageSearch(issue("10004", "OTHERP-40", "OTHERP", "Moved to another project", ""));
+        assertThat(discovery.sync().complete()).isTrue();
+
+        assertEligible("10004", "MODBAR-4", "repository mod-bar");
+        PilotTask held = tasks.findByJiraInstanceAndIssueId(INSTANCE, "10004").orElseThrow();
+        assertThat(held.getTitle()).isEqualTo("Summary of MODBAR-4");
+        assertThat(held.getSourceRevision()).isEqualTo(admitted.getSourceRevision());
+        assertThat(held.isInScope()).isTrue();
+
+        running.setState(PilotAttempt.State.STOPPED);
+        attempts.save(running);
+        assertThat(discovery.sync().complete()).isTrue();
+
+        assertIneligible("10004", "OTHERP-40",
+                "Project OTHERP is not configured: no repository for it in config/developer-repositories.yaml");
     }
 
     @Test

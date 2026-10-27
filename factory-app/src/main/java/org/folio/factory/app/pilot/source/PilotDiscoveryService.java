@@ -1,6 +1,7 @@
 package org.folio.factory.app.pilot.source;
 
 import org.folio.factory.app.pilot.Digests;
+import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
 import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
 import org.folio.factory.app.pilot.persistence.PilotRoutingReason;
@@ -46,6 +47,7 @@ public class PilotDiscoveryService {
     private final RepositoryPolicy repositoryPolicy;
     private final PilotTaskRepository tasks;
     private final PilotInstallationRepository installations;
+    private final PilotAttemptRepository attempts;
     private final TransactionTemplate transactions;
     private final PilotJiraInstance jiraInstance;
     private final JsonMapper json = JsonMapper.builder().build();
@@ -55,6 +57,7 @@ public class PilotDiscoveryService {
                                  RepositoryPolicy repositoryPolicy,
                                  PilotTaskRepository tasks,
                                  PilotInstallationRepository installations,
+                                 PilotAttemptRepository attempts,
                                  PlatformTransactionManager transactionManager,
                                  PilotJiraInstance jiraInstance) {
         this.connector = jiraSourceConnector;
@@ -62,6 +65,7 @@ public class PilotDiscoveryService {
         this.repositoryPolicy = repositoryPolicy;
         this.tasks = tasks;
         this.installations = installations;
+        this.attempts = attempts;
         this.transactions = new TransactionTemplate(transactionManager);
         this.jiraInstance = jiraInstance;
     }
@@ -123,12 +127,25 @@ public class PilotDiscoveryService {
     /**
      * Writes the issue's current snapshot and routing onto its task, creating the
      * task on first sight. Only a scan decides whether the task is in My tasks;
-     * a task first seen through its key starts outside it.
+     * a task first seen through its key starts outside it. Started work holds: a
+     * task with a queued or running attempt keeps the key, snapshot and routing it
+     * was admitted with, so a later change in Jira cannot redirect or block it; the
+     * first scan after the run ends refreshes the row.
      */
     public PilotTask upsert(DiscoveredIssue issue, boolean fromScan) {
         Map<String, Object> snapshot = IssueSnapshot.of(issue.issue());
         Routing routing = routing(issue);
-        PilotTask task = tasks.findByJiraInstanceAndIssueId(jiraInstance.current(), issue.id()).orElse(null);
+        // The row lock orders this write against admission, which locks the same row before it
+        // adds an attempt, so a click that commits first is always seen as live work here.
+        PilotTask task = tasks.findByJiraInstanceAndIssueId(jiraInstance.current(), issue.id())
+                .flatMap(found -> tasks.lockById(found.getId()))
+                .orElse(null);
+        if (task != null && !attempts.findLiveByTaskId(task.getId()).isEmpty()) {
+            if (fromScan) {
+                task.setInScope(true);
+            }
+            return tasks.save(task);
+        }
         if (task == null) {
             task = new PilotTask(jiraInstance.current(), issue.id(), issue.key(),
                     truncated(issue.issue().summary(), MAX_TITLE_LENGTH), issue.projectKey(),

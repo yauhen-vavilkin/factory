@@ -409,6 +409,20 @@ class PilotTaskUiControllerTest {
                 .andExpect(redirectedUrl(FLOW_PAGE + "?error=Project+MODX+is+not+configured"));
     }
 
+    @Test
+    void runByKey_aLongJiraErrorStaysShortInTheRedirect() throws Exception {
+        when(admissions.runByKey(anyString(), any())).thenReturn(new PilotAdmissionService.KeyResult(
+                "MODX-1", null, "Jira could not be read: " + "<html>".repeat(2000)));
+
+        MvcResult result = mvc.perform(post(FLOW_PAGE + "/run-by-key").param("key", "MODX-1"))
+                .andExpect(status().is3xxRedirection())
+                .andReturn();
+
+        String error = java.net.URLDecoder.decode(result.getResponse().getRedirectedUrl()
+                .substring((FLOW_PAGE + "?error=").length()), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(error).hasSize(UiFormat.MAX_REDIRECT_MESSAGE).startsWith("Jira could not be read: ").endsWith("…");
+    }
+
     // ----- retry -----
 
     @Test
@@ -446,6 +460,17 @@ class PilotTaskUiControllerTest {
         assertThat(result.getResponse().getRedirectedUrl())
                 .startsWith("/tasks/" + TASK_ID + "?error=")
                 .contains("cannot+push");
+    }
+
+    @Test
+    void retry_refusedWhileTheTaskIsQueuedIsNotShownAsQueued() throws Exception {
+        when(retries.retry(any())).thenReturn(new PilotRetryService.RetryResult(
+                ATTEMPT_ID, null, "RESERVED", "task already has a live attempt", true));
+
+        mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "1").param("returnTo", "flow"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl(FLOW_PAGE + "?error=task+already+has+a+live+attempt"))
+                .andExpect(flash().attributeCount(0));
     }
 
     // ----- mark as stopped -----

@@ -169,9 +169,12 @@ class PilotRetryIntegrationTest {
         UUID newAttemptId = click.attemptId();
 
         assertThat(newAttemptId).isNotEqualTo(previousAttemptId);
-        assertThat(click.state()).isEqualTo("QUEUED");
-        assertThat(click.executionId()).isNotNull();
-        var execution = stateManager.get(click.executionId());
+        // Pilot execution is off in this context, so the click only queues the retry.
+        assertThat(click.state()).isEqualTo("RESERVED");
+        assertThat(click.executionId()).isNull();
+        assertThat(executions.count()).isZero();
+        UUID executionId = dispatcher.dispatchNext().orElseThrow();
+        var execution = stateManager.get(executionId);
         assertThat(execution.getFlowId()).isEqualTo("dev-factory");
         assertThat(execution.getTriggerPayload()).contains("MODBAR-501");
         assertThat(execution.getDedupKey()).isEqualTo("pilot-attempt=" + newAttemptId);
@@ -213,8 +216,8 @@ class PilotRetryIntegrationTest {
 
         assertThat(secondClick.attemptId()).isEqualTo(firstClick.attemptId());
         assertThat(secondClick.executionId()).isEqualTo(firstClick.executionId());
-        assertThat(secondClick.state()).isEqualTo("QUEUED");
-        assertThat(executions.count()).isEqualTo(1);
+        assertThat(secondClick.state()).isEqualTo("RESERVED");
+        assertThat(executions.count()).isZero();
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(task.getId())).hasSize(2);
     }
 
@@ -311,7 +314,8 @@ class PilotRetryIntegrationTest {
         source.issues = List.of(issueWithSummary("50051", "MODBAR-551", EARLIER, "Revised summary of 551"),
                 issue("50052", "MODBAR-552", LATER));
         discovery.sync();
-        assertThat(tasks.findById(target.getId()).orElseThrow().getIssueSnapshot()).isNotEqualTo(approvedSnapshot);
+        // A scan leaves a task with queued work as it was approved until the work ends.
+        assertThat(tasks.findById(target.getId()).orElseThrow().getIssueSnapshot()).isEqualTo(approvedSnapshot);
 
         releaseSlot();
         assertThat(dispatcher.dispatchNext()).isPresent();
@@ -433,7 +437,7 @@ class PilotRetryIntegrationTest {
 
     private PilotDiscoveryService discovery(DevFactoryProperties repositories) {
         return new PilotDiscoveryService(source, new PilotSourceProperties("Jane Developer"),
-                new RepositoryPolicy(repositories), tasks, installations, transactionManager, jiraInstance);
+                new RepositoryPolicy(repositories), tasks, installations, attempts, transactionManager, jiraInstance);
     }
 
     private static DiscoveredIssue issue(String id, String key, Instant createdAt) {

@@ -240,7 +240,7 @@ public class PilotTaskUiController {
         String back = "flow".equals(returnTo) ? FLOW_PAGE : "/tasks/" + taskId;
         PilotRetryService.RetryResult result = retries.retry(new PilotCommands.Retry(
                 "ui-" + UUID.randomUUID(), taskId, expectedVersion, inputFingerprint, destinationFingerprint));
-        if (isLive(result.state())) {
+        if (!result.refused() && isLive(result.state())) {
             redirect.addFlashAttribute("message", "Retry queued: " + result.explanation());
             return "redirect:" + back;
         }
