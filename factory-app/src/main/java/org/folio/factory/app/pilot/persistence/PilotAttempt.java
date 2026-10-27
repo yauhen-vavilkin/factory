@@ -79,6 +79,11 @@ public class PilotAttempt {
     @Column(name = "publication_identity", length = 500)
     private String publicationIdentity;
 
+    /** JSON array of the reasons the pull request was opened as a draft; null when it is not a draft. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "draft_reasons")
+    private String draftReasons;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "admitted_via", nullable = false, length = 16)
     private AdmittedVia admittedVia = AdmittedVia.MANUAL;
@@ -226,6 +231,14 @@ public class PilotAttempt {
 
     public void setPublicationIdentity(String publicationIdentity) {
         this.publicationIdentity = publicationIdentity;
+    }
+
+    public String getDraftReasons() {
+        return draftReasons;
+    }
+
+    public void setDraftReasons(String draftReasons) {
+        this.draftReasons = draftReasons;
     }
 
     public long getVersion() {

@@ -347,6 +347,12 @@ class PilotEndToEndTest {
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
         assertThat(json.readTree(latest(executionId, DeliveryWorker.DELIVERY)).path("pullRequestUrl").asString())
                 .isEqualTo(BAR_PR);
+        // "Implemented the change" does not use the report template, so the pull request opens as a draft.
+        assertThat(GITHUB.findAll(postRequestedFor(urlPathEqualTo("/repos/" + BAR + "/pulls"))).getFirst()
+                .getBodyAsString()).contains("\"draft\":true", "## Agent report");
+        assertThat(json.readTree(latest(executionId, DeliveryWorker.DELIVERY)).path("pullRequestDraft").asBoolean())
+                .isTrue();
+        assertThat(attempts.findById(attemptId).orElseThrow().getDraftReasons()).contains("four expected sections");
         assertThat(json.readTree(latest(executionId, VerifyWorker.RESULT)).path("state").asString())
                 .isEqualTo("DELIVERED");
         assertThat(jira.findAll(getRequestedFor(urlEqualTo("/rest/api/2/issue/MODBAR-101"))))

@@ -576,6 +576,13 @@ publication response) and rechecks every minute. If the run is really over, use
 Destructive retention must stay disabled: while `FACTORY_RETENTION_ENABLED` is
 true, pilot execution refuses to start tasks (see `docker compose logs factory`).
 
+The agent ends each run with a short report under four headings: Changes,
+Acceptance criteria (met, not met or not checked), Assumptions and Could not read.
+It becomes the pull request description. Factory opens the pull request as a
+**Draft PR** when a criterion is not met or not checked, when the agent made
+assumptions or could not read a source, or when the report does not use the four
+headings; the task page lists the reasons.
+
 ## Operations
 
 Production procedures live under `doc/`:

@@ -144,6 +144,7 @@ public class PilotTaskQuery {
                     attempt.getResultReason(),
                     attempt.getState() == PilotAttempt.State.PR_READY
                             ? attempt.getPublicationIdentity() : null,
+                    attempt.getState() == PilotAttempt.State.PR_READY ? draftReasons(attempt) : null,
                     attempt.getExecutionId(),
                     execution == null ? null : execution.getStatus().name(),
                     attempt.getCreatedAt(),
@@ -191,6 +192,7 @@ public class PilotTaskQuery {
                 PilotRoutingReason.eligibleRepositoryKey(task.getRoutingReason()),
                 state == PilotTaskView.TaskState.PR_READY && latest != null
                         ? latest.getPublicationIdentity() : null,
+                state == PilotTaskView.TaskState.PR_READY && latest != null ? draftReasons(latest) : null,
                 task.isInScope(),
                 task.getEligibility().name(),
                 task.getRoutingReason(),
@@ -228,6 +230,20 @@ public class PilotTaskQuery {
             case WITHDRAWN -> PilotTaskView.TaskState.WITHDRAWN;
             default -> PilotTaskView.TaskState.WORKING;
         };
+    }
+
+    /** Why the attempt's pull request is a draft: null when it is ready for review, empty when unreadable. */
+    private List<String> draftReasons(PilotAttempt attempt) {
+        if (attempt.getDraftReasons() == null) {
+            return null;
+        }
+        try {
+            List<String> reasons = new ArrayList<>();
+            json.readTree(attempt.getDraftReasons()).forEach(reason -> reasons.add(reason.asString("")));
+            return List.copyOf(reasons);
+        } catch (RuntimeException e) {
+            return List.of();
+        }
     }
 
     /** The task's status in Jira at the last scan or run by key, read from its snapshot. */

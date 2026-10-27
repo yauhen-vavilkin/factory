@@ -470,7 +470,12 @@ class DeveloperExecutionViewTest {
                 .containsEntry("deliveryBranch", "dev/task")
                 .containsEntry("deliveryCommit", "def456")
                 .containsEntry("pullRequestUrl", "https://github.com/user/repo/pull/1")
-                .containsEntry("pullRequestLabel", "https://github.com/user/repo/pull/1");
+                .containsEntry("pullRequestLabel", "https://github.com/user/repo/pull/1")
+                .containsEntry("pullRequestDraft", false);
+        var draft = artifact("dev_delivery.json", 2, "{\"pullRequestUrl\":\"https://github.com/user/repo/pull/1\","
+                + "\"pullRequestDraft\":true,\"draftReasons\":[\"1 acceptance criterion is not met.\"]}");
+        assertThat(view.build(execution, List.of(delivery, draft), List.of(), Instant.now()))
+                .containsEntry("pullRequestDraft", true);
         var titled = artifact("dev_delivery.json", 2,
                 "{\"pullRequestUrl\":\"https://github.com/user/repo/pull/1\",\"pullRequestTitle\":\"TASK-1: Fix route\"}");
         assertThat(view.build(execution, List.of(delivery, titled), List.of(), Instant.now()))
@@ -478,6 +483,9 @@ class DeveloperExecutionViewTest {
         assertThat(model.get("technicalFields").toString()).contains("Starting commit", "abc123", "mvn test");
         var unsafe = artifact("dev_delivery.json", 2, "{\"pullRequestUrl\":\"javascript:alert(1)\"}");
         assertThat(view.build(execution, List.of(delivery, unsafe), List.of(), Instant.now())).containsEntry("pullRequestUrl", "");
+        var unsafeDraft = artifact("dev_delivery.json", 2, "{\"pullRequestUrl\":\"javascript:alert(1)\",\"pullRequestDraft\":true}");
+        assertThat(view.build(execution, List.of(delivery, unsafeDraft), List.of(), Instant.now()))
+                .containsEntry("pullRequestDraft", false);
     }
 
     @Test void technicalStepDurationsUseAttemptBoundariesAndTerminalTime() {

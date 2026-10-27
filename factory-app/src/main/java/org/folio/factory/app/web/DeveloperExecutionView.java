@@ -155,6 +155,7 @@ final class DeveloperExecutionView {
         view.put("reason", reason);
         view.put("reasonLabel", reasonLabel(execution, codingOutcome, reason, retryErrorSuperseded));
         view.put("pullRequestUrl", pr);
+        view.put("pullRequestDraft", !pr.isBlank() && delivery.path("pullRequestDraft").asBoolean(false));
         String prTitle = delivery.path("pullRequestTitle").asString("");
         view.put("pullRequestLabel", prTitle.isBlank() ? pr : prTitle);
         view.put("activityNotice", activity.notice());

@@ -1113,6 +1113,7 @@ a.state-detail { color: hsl(var(--foreground)); text-decoration: underline; }
 }
 .result-head { display: flex; flex-direction: column; gap: 4px; }
 .result-sentence { font-size: 18px; font-weight: 600; }
+.result-reasons { padding-left: 20px; }
 .result-chips { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; font-weight: 500; }
 .result-chips > * { padding: 2px 8px; border: 1px solid hsl(var(--border)); border-radius: 6px; }
 .result-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }

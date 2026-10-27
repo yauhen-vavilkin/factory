@@ -507,7 +507,7 @@ public class PilotTaskUiController {
                     : minutes(Duration.between(view.stageStartedAt(), Instant.now()).getSeconds()));
             case "Queued" -> view.queuePosition() == null || view.queuePosition() == 1
                     ? "next in line" : ordinal(view.queuePosition()) + " in line";
-            case "PR ready" -> null;
+            case "PR ready", "Draft PR" -> null;
             case "Needs inspection" -> "outcome not confirmed";
             default -> failureText(view.reason());
         };
@@ -529,6 +529,7 @@ public class PilotTaskUiController {
         row.put("prLabel", view.pullRequestUrl() == null ? null : pullRequestLabel(view.pullRequestUrl()));
         row.put("prAction", view.pullRequestUrl() == null ? null
                 : "Open p" + pullRequestLabel(view.pullRequestUrl()).substring(1));
+        row.put("draftReasons", view.draftReasons());
         row.put("markStoppedAttemptId", latest != null && "NEEDS_INSPECTION".equals(latest.state())
                 ? latest.attemptId() : null);
         row.put("project", view.projectKey());
@@ -563,7 +564,8 @@ public class PilotTaskUiController {
 
     private static String attemptResult(PilotTaskView.AttemptHistoryEntry attempt) {
         return switch (attempt.state()) {
-            case "PR_READY" -> pullRequestLabel(attempt.pullRequestUrl()) + " opened";
+            case "PR_READY" -> pullRequestLabel(attempt.pullRequestUrl())
+                    + (attempt.draftReasons() == null ? " opened" : " opened as a draft");
             case "RESERVED" -> "Queued";
             case "QUEUED", "RUNNING" -> "In progress";
             case "WITHDRAWN" -> "Withdrawn before start";
@@ -578,6 +580,7 @@ public class PilotTaskUiController {
         }
         return switch (label) {
             case "PR ready" -> pullRequestLabel(view.pullRequestUrl()) + " is ready for review.";
+            case "Draft PR" -> pullRequestLabel(view.pullRequestUrl()) + " is open as a draft.";
             case "Working" -> stageLabel(view.stage()) == null ? "In progress." : "In progress: "
                     + stageLabel(view.stage()) + ".";
             case "Queued" -> view.queuePosition() == null || view.queuePosition() == 1
@@ -621,7 +624,7 @@ public class PilotTaskUiController {
             case UNSUPPORTED -> "Not eligible";
             case STOPPED -> "Could not complete";
             case UNCERTAIN, PROCESSING_PAUSED -> "Needs inspection";
-            case PR_READY -> "PR ready";
+            case PR_READY -> view.draftReasons() == null ? "PR ready" : "Draft PR";
             case WORKING -> "Working";
         };
     }
@@ -631,7 +634,7 @@ public class PilotTaskUiController {
         String label = view.attempts().stream()
                 .filter(attempt -> executionId.equals(attempt.executionId()))
                 .findFirst()
-                .map(attempt -> attemptStateLabel(attempt.state()))
+                .map(attempt -> attempt.draftReasons() == null ? attemptStateLabel(attempt.state()) : "Draft PR")
                 .orElseGet(() -> stateLabel(view));
         Map<String, Object> run = new LinkedHashMap<>();
         run.put("taskId", view.taskId());
@@ -662,7 +665,7 @@ public class PilotTaskUiController {
         return switch (label) {
             case "PR ready" -> "state-pill state-pill-success";
             case "Could not complete" -> "state-pill state-pill-danger";
-            case "Needs inspection" -> "state-pill state-pill-warning";
+            case "Needs inspection", "Draft PR" -> "state-pill state-pill-warning";
             default -> "state-pill";
         };
     }

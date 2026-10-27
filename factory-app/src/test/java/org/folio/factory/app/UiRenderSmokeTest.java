@@ -896,8 +896,18 @@ class UiRenderSmokeTest {
         liveAttempt.setExecutionId(liveExecution.getId());
         pilotAttempts.save(liveAttempt);
         auditLog.record(liveExecution.getId(), AuditEventType.STEP_STARTED, "implement", Map.of());
+        PilotTask draft = seedTask("70010", "MODBAR-710", "Draft task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PilotAttempt draftAttempt = seedAttempt(draft, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.PR_READY, null);
+        draftAttempt.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/8");
+        draftAttempt.setDraftReasons("[\"1 acceptance criterion is not met.\"]");
+        pilotAttempts.save(draftAttempt);
 
         String body = assertRendered("/flows/dev-factory", "My Jira tasks");
+        // A draft pull request is not the green PR ready.
+        assertThat(body).contains("class=\"state-pill state-pill-warning\">Draft PR</span>",
+                        "href=\"https://github.com/folio-org/mod-bar/pull/8\"", "Pull request #8")
+                .containsOnlyOnce("class=\"state-pill state-pill-success\">PR ready</span>");
         assertThat(body)
                 .contains("aria-current=\"page\">My tasks</a>", "href=\"/flows/dev-factory?view=definition\"")
                 .contains("Assigned to", "Jane Developer", "jira.example.org",
@@ -1134,7 +1144,41 @@ class UiRenderSmokeTest {
                 .contains("href=\"https://github.com/folio-org/mod-bar/pull/7\">Open pull request #7</a>",
                         "href=\"/executions/" + execution.getId() + "#pr-feedback\">Work on PR feedback</a>",
                         "state-pill-success")
+                .doesNotContain("Draft PR", "Factory opened it as a draft because:")
                 .doesNotContain("name=\"expectedVersion\"");
+    }
+
+    @Test
+    void draftPrShowsItsReasonsOnTheTaskPageAndDraftOnTheRunPage() {
+        resetPilotData();
+        PilotTask delivered = seedTask("70032", "MODBAR-732", "Draft task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        PilotAttempt attempt = seedAttempt(delivered, 1, PilotAttempt.Kind.INITIAL,
+                PilotAttempt.State.PR_READY, null);
+        attempt.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/8");
+        attempt.setDraftReasons("[\"1 acceptance criterion is not met.\","
+                + "\"The agent made assumptions that a reviewer should confirm.\"]");
+        attempt.setExecutionId(execution.getId());
+        pilotAttempts.save(attempt);
+        artifactStore.putMarkdown(execution.getId(), "dev_delivery.json",
+                "{\"state\":\"DELIVERED\",\"pullRequestUrl\":\"https://github.com/folio-org/mod-bar/pull/8\","
+                        + "\"pullRequestDraft\":true,\"draftReasons\":[\"1 acceptance criterion is not met.\"]}",
+                "publish");
+
+        String body = assertRendered("/tasks/" + delivered.getId(), "Pull request #8 is open as a draft.");
+        assertThat(body)
+                .contains("class=\"state-pill state-pill-warning\">Draft PR</span>",
+                        "Factory opened it as a draft because:", "<li>1 acceptance criterion is not met.</li>",
+                        "<li>The agent made assumptions that a reviewer should confirm.</li>",
+                        "Pull request #8 opened as a draft",
+                        "href=\"https://github.com/folio-org/mod-bar/pull/8\">Open pull request #8</a>")
+                .doesNotContain("state-pill-success", "is ready for review");
+
+        String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
+        assertThat(run)
+                .contains("class=\"state-pill state-pill-warning\">Draft PR</span>", ">Draft pull request #8</a>")
+                .doesNotContain(">PR ready</span>");
     }
 
     @Test

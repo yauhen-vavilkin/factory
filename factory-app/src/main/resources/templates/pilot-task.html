@@ -17,6 +17,12 @@
         <div class="result-head">
             <h2 class="dev-label-title" id="result-title">Result</h2>
             <p class="result-sentence" th:text="${task['result']}">Result</p>
+            <th:block th:if="${task['draftReasons'] != null and !#lists.isEmpty(task['draftReasons'])}">
+                <p>Factory opened it as a draft because:</p>
+                <ul class="result-reasons">
+                    <li th:each="reason : ${task['draftReasons']}" th:text="${reason}">reason</li>
+                </ul>
+            </th:block>
         </div>
         <div class="result-chips" th:unless="${#lists.isEmpty(task['chips'])}">
             <span th:each="chip : ${task['chips']}" th:text="${chip}">chip</span>

@@ -86,7 +86,12 @@ public class PilotOutcomeService {
     }
 
     private record Classification(AttemptOutcome.State state, String stage, String reason,
-                                  String publicationIdentity, boolean shared) {
+                                  String publicationIdentity, boolean shared, String draftReasons) {
+
+        Classification(AttemptOutcome.State state, String stage, String reason, String publicationIdentity,
+                       boolean shared) {
+            this(state, stage, reason, publicationIdentity, shared, null);
+        }
     }
 
     public AttemptOutcome refresh(UUID attemptId) {
@@ -136,7 +141,7 @@ public class PilotOutcomeService {
             return hold(attempt, uncertainty);
         }
         return release(attempt, new Classification(AttemptOutcome.State.PR_READY, "publish",
-                attempt.getResultReason(), pullRequestUrl, false));
+                attempt.getResultReason(), pullRequestUrl, false, draftReasons(delivery)));
     }
 
     private AttemptOutcome resolveTerminal(PilotAttempt attempt, UUID executionId,
@@ -184,7 +189,7 @@ public class PilotOutcomeService {
                         null, false);
             }
             return new Classification(AttemptOutcome.State.PR_READY, "publish",
-                    attempt.getResultReason(), pullRequestUrl, false);
+                    attempt.getResultReason(), pullRequestUrl, false, draftReasons(delivery));
         }
         JsonNode result = readArtifact(executionId, VerifyWorker.RESULT);
         String resultState = result.path("state").asString("");
@@ -222,6 +227,9 @@ public class PilotOutcomeService {
         current.setState(PilotAttempt.State.valueOf(classification.state().name()));
         if (classification.publicationIdentity() != null) {
             current.setPublicationIdentity(classification.publicationIdentity());
+        }
+        if (classification.draftReasons() != null) {
+            current.setDraftReasons(classification.draftReasons());
         }
         if (current.getResultReason() == null && classification.reason() != null
                 && !classification.reason().isBlank()) {
@@ -297,6 +305,15 @@ public class PilotOutcomeService {
     private AttemptOutcome processing(PilotAttempt attempt) {
         return new AttemptOutcome(AttemptOutcome.State.PROCESSING, null, attempt.getResultReason(),
                 attempt.getPublicationIdentity(), false, null);
+    }
+
+    /** The draft reasons DeliveryWorker wrote, as stored on the attempt; null for a pull request ready for review. */
+    private String draftReasons(JsonNode delivery) {
+        if (!delivery.path("pullRequestDraft").asBoolean(false)) {
+            return null;
+        }
+        JsonNode reasons = delivery.path("draftReasons");
+        return json.writeValueAsString(reasons.isArray() ? reasons : json.createArrayNode());
     }
 
     private JsonNode readArtifact(UUID executionId, String name) {

@@ -334,10 +334,29 @@ class PilotLifecycleIntegrationTest {
         assertThat(ready.publicationIdentity()).isEqualTo("https://github.com/user/repo/pull/7");
         assertThat(attempts.findById(deliveredAttempt.getId()).orElseThrow().getPublicationIdentity())
                 .isEqualTo("https://github.com/user/repo/pull/7");
+        assertThat(attempts.findById(deliveredAttempt.getId()).orElseThrow().getDraftReasons()).isNull();
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId())
                 .as("the slot is released while the execution is still running its feedback steps")
                 .isNull();
         assertThat(stateManager.get(deliveredExecutionId).getStatus()).isEqualTo(ExecutionStatus.PENDING);
+    }
+
+    @Test
+    void aDraftPullRequestIsPrReadyAndKeepsItsDraftReasonsOnTheAttempt() {
+        admit("50045", "MODBAR-545");
+        UUID executionId = dispatcher.dispatchNext().orElseThrow();
+        PilotAttempt attempt = attempts.findByExecutionId(executionId).orElseThrow();
+        writeArtifact(executionId, DeliveryWorker.DELIVERY,
+                "{\"state\":\"DELIVERED\",\"pullRequestUrl\":\"https://github.com/user/repo/pull/8\","
+                        + "\"pullRequestDraft\":true,\"draftReasons\":[\"1 acceptance criterion is not met.\"]}");
+
+        PilotOutcomeService.AttemptOutcome ready = outcomes.refresh(attempt.getId());
+
+        assertThat(ready.state()).isEqualTo(PilotOutcomeService.AttemptOutcome.State.PR_READY);
+        PilotAttempt stored = attempts.findById(attempt.getId()).orElseThrow();
+        assertThat(stored.getState()).isEqualTo(PilotAttempt.State.PR_READY);
+        assertThat(stored.getDraftReasons()).contains("1 acceptance criterion is not met.");
+        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
     }
 
     @Test

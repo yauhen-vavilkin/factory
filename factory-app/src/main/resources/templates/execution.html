@@ -40,7 +40,7 @@
                     <th:block th:if="${feedback == null and live == null and !#strings.isEmpty(developer['reason'])}"
                               th:text="${developer['reasonLabel']} + ': ' + ${developer['reason']}"></th:block>
                     <th:block th:if="${feedback == null and live == null and #strings.isEmpty(developer['reason'])}"
-                              th:text="${#strings.isEmpty(developer['pullRequestUrl'])} ? ${developer['currentPhase']} : 'Pull request created'"></th:block>
+                              th:text="${#strings.isEmpty(developer['pullRequestUrl'])} ? ${developer['currentPhase']} : (${developer['pullRequestDraft']} ? 'Draft pull request created' : 'Pull request created')"></th:block>
                 </p>
                 <p class="source-card-problem" th:if="${(feedback != null or live != null) and !#strings.isEmpty(developer['reason'])}"
                    th:text="${developer['reasonLabel']} + ': ' + ${developer['reason']}"></p>
@@ -52,7 +52,7 @@
                 <span><span th:attr="data-elapsed-start=${factoryTimeStart}" th:text="${factoryTime}">0s</span> active</span>
                 <span th:if="${#strings.isEmpty(developer['pullRequestUrl'])}">PR not created yet</span>
                 <a class="dev-link" th:unless="${#strings.isEmpty(developer['pullRequestUrl'])}" th:href="${developer['pullRequestUrl']}"
-                   th:text="${#strings.contains(developer['pullRequestUrl'], '/pull/')} ? 'Pull request #' + ${#strings.substringAfter(developer['pullRequestUrl'], '/pull/')} : 'Pull request'">Pull request</a>
+                   th:text="(${developer['pullRequestDraft']} ? 'Draft pull request' : 'Pull request') + (${#strings.contains(developer['pullRequestUrl'], '/pull/')} ? ' #' + ${#strings.substringAfter(developer['pullRequestUrl'], '/pull/')} : '')">Pull request</a>
             </div>
             <div class="result-actions" th:if="${pendingReview != null and feedback == null}">
                 <a class="btn btn-primary btn-md btn-roomy" th:href="@{'/reviews/' + ${pendingReview.id}}">Open review</a>

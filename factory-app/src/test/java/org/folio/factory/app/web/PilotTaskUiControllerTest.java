@@ -303,6 +303,45 @@ class PilotTaskUiControllerTest {
     }
 
     @Test
+    void draftPullRequestShowsDraftPrAndItsReasonsInsteadOfPrReady() throws Exception {
+        List<String> reasons = List.of("1 acceptance criterion is not met.",
+                "The agent made assumptions that a reviewer should confirm.");
+        PilotTaskView draft = taskView(TASK_ID, "MODBAR-921", "Open", PilotTaskView.TaskState.PR_READY,
+                false, false, prAttempt(reasons));
+        PilotTaskView ready = taskView(OTHER_TASK_ID, "MODBAR-922", "Open", PilotTaskView.TaskState.PR_READY,
+                false, false, prAttempt(null));
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), draft, ready));
+        when(taskQuery.detail(TASK_ID)).thenReturn(draft);
+
+        Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andExpect(status().isOk()).andReturn()
+                .getModelAndView().getModel();
+        assertThat(rows(model, "triggered").get(0))
+                .containsEntry("stateLabel", "Draft PR")
+                .containsEntry("stateClass", "state-pill state-pill-warning")
+                .containsEntry("detail", null)
+                .containsEntry("prLabel", "Pull request #7");
+        assertThat(rows(model, "triggered").get(1))
+                .containsEntry("stateLabel", "PR ready")
+                .containsEntry("stateClass", "state-pill state-pill-success");
+
+        MvcResult result = mvc.perform(get("/tasks/{taskId}", TASK_ID)).andExpect(status().isOk()).andReturn();
+        assertThat(detail(result))
+                .containsEntry("stateLabel", "Draft PR")
+                .containsEntry("stateClass", "state-pill state-pill-warning")
+                .containsEntry("result", "Pull request #7 is open as a draft.")
+                .containsEntry("draftReasons", reasons)
+                .containsEntry("prAction", "Open pull request #7");
+        assertThat(rows(result.getModelAndView().getModel(), "attempts").getFirst())
+                .containsEntry("result", "Pull request #7 opened as a draft");
+        // The execution page header uses the same label for the attempt behind the run.
+        assertThat(PilotTaskUiController.runContext(draft, EXECUTION_ID))
+                .containsEntry("stateLabel", "Draft PR")
+                .containsEntry("stateClass", "state-pill state-pill-warning");
+        assertThat(PilotTaskUiController.runContext(ready, EXECUTION_ID))
+                .containsEntry("stateLabel", "PR ready");
+    }
+
+    @Test
     void tasks_redirectsToTheFlowPage() throws Exception {
         mvc.perform(get("/tasks"))
                 .andExpect(status().is3xxRedirection())
@@ -728,6 +767,8 @@ class PilotTaskUiControllerTest {
                 state == PilotTaskView.TaskState.STOPPED ? "verification" : null, null,
                 "mod-bar",
                 state == PilotTaskView.TaskState.PR_READY ? "https://github.com/folio-org/mod-bar/pull/7" : null,
+                state == PilotTaskView.TaskState.PR_READY && attempts.length > 0
+                        ? attempts[attempts.length - 1].draftReasons() : null,
                 java.util.Arrays.stream(attempts).noneMatch(attempt -> "BY_KEY".equals(attempt.admittedVia())),
                 "ELIGIBLE", "repository mod-bar", 3L, "revision-" + key, "dest-" + key,
                 Instant.parse("2026-10-01T09:00:00Z"), Instant.parse("2026-10-23T09:00:00Z"),
@@ -746,9 +787,17 @@ class PilotTaskUiControllerTest {
                                                              String runSettings) {
         return new PilotTaskView.AttemptHistoryEntry("NEEDS_INSPECTION".equals(state) ? ATTEMPT_ID : UUID.randomUUID(),
                 ordinal, "INITIAL", admittedVia, state, "verification", "VERIFICATION_FAILED: 2 tests failed", null,
-                EXECUTION_ID, "COMPLETED", Instant.parse("2026-10-23T07:59:00Z"),
+                null, EXECUTION_ID, "COMPLETED", Instant.parse("2026-10-23T07:59:00Z"),
                 Instant.parse("2026-10-23T08:00:00Z"), Instant.parse("2026-10-23T09:00:00Z"),
                 true, 600, emptyUsage(), runSettings);
+    }
+
+    /** A delivered attempt; {@code draftReasons} null means the pull request is ready for review. */
+    private static PilotTaskView.AttemptHistoryEntry prAttempt(List<String> draftReasons) {
+        return new PilotTaskView.AttemptHistoryEntry(UUID.randomUUID(), 1, "INITIAL", "MANUAL", "PR_READY", "publish",
+                null, "https://github.com/folio-org/mod-bar/pull/7", draftReasons, EXECUTION_ID, "RUNNING",
+                Instant.parse("2026-10-23T07:59:00Z"), Instant.parse("2026-10-23T08:00:00Z"),
+                Instant.parse("2026-10-23T09:00:00Z"), true, 600, emptyUsage(), null);
     }
 
     private static PilotTaskUsage emptyUsage() {
