@@ -122,9 +122,10 @@ class PilotTaskUiControllerTest {
 
     private PilotRunSettings runSettings;
 
+    private final CodingRuntime coding = org.mockito.Mockito.mock(CodingRuntime.class);
+
     @BeforeEach
     void setUp() {
-        CodingRuntime coding = org.mockito.Mockito.mock(CodingRuntime.class);
         lenient().when(coding.id()).thenReturn("claude-code");
         var envDefault = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway.example:4001",
                 "claude-sonnet-5-5", "bearer-token", null, "gateway-token", 40, 16384, null);
@@ -191,9 +192,24 @@ class PilotTaskUiControllerTest {
                 .containsEntry("query", "assignee = \"Jane Developer\" AND statusCategory != Done"
                         + " ORDER BY updated DESC");
         assertThat((String) source.get("searchUrl")).startsWith("https://jira.example.org/issues/?jql=");
+        @SuppressWarnings("unchecked")
+        var runForm = (Map<String, Object>) model.get("runForm");
+        assertThat(runForm).containsEntry("profile", "env-default").containsEntry("effort", "")
+                .containsEntry("maxTurns", 40).containsEntry("maxTurnsLimit", 500);
+        assertThat(rows(runForm, "profiles")).extracting(row -> row.get("id")).containsExactly("env-default", "glm-5.3");
         verifyNoInteractions(admissions, retries, discovery, outcomes);
         verify(dispatcher, never()).dispatchNext();
         verify(dispatcher, never()).dispatchNextQuietly();
+    }
+
+    @Test
+    void myTasks_withThePiRuntimeTheRunFormHasNoProfileChoice() throws Exception {
+        when(coding.id()).thenReturn("pi");
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of()));
+
+        Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
+
+        assertThat(model.get("runForm")).isNull();
     }
 
     @Test

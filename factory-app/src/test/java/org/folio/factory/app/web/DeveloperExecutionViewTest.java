@@ -37,6 +37,23 @@ class DeveloperExecutionViewTest {
                 .containsEntry("runtimeFields", List.of(Map.of("label", "Runtime", "value", "pi")));
     }
 
+    @Test void runtimeAndUsageShowTheRunProfileModelEffortAndMaxTurns() {
+        var execution = new PipelineExecution("dev-factory", "0.9.0", "{}");
+        Instant start = Instant.parse("2026-10-27T10:00:00Z");
+        var started = runtime(Map.of("activity", "coding_starting", "runtime", "claude-code",
+                "provider", "anthropic-messages", "profile", "glm-5.3", "profileLabel", "GLM-5.3 (Z.ai)",
+                "model", "glm-5.3", "effort", "high (CLI default)", "maxTurns", 100), start);
+
+        assertThat(view.build(execution, List.of(), List.of(started), start.plusSeconds(1)))
+                .containsEntry("runtimeFields", List.of(
+                        Map.of("label", "Profile", "value", "GLM-5.3 (Z.ai)"),
+                        Map.of("label", "Model", "value", "glm-5.3"),
+                        Map.of("label", "Effort", "value", "high (CLI default)"),
+                        Map.of("label", "Max turns", "value", "100"),
+                        Map.of("label", "Provider", "value", "anthropic-messages"),
+                        Map.of("label", "Runtime", "value", "claude-code")));
+    }
+
     @Test void configuredIdentityIsVisibleBeforeCodingAndDoesNotImplyAgentStarted() {
         var execution = new PipelineExecution("dev-factory", "0.8.0", "{}");
         Instant start = Instant.parse("2026-09-22T10:00:00Z");
