@@ -208,6 +208,34 @@ class PilotTaskUiControllerTest {
     }
 
     @Test
+    void myTasks_availableCountsOnlyShownTasksThatCanRun() throws Exception {
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(
+                taskView(TASK_ID, "MODBAR-901", "Open", PilotTaskView.TaskState.UNSUPPORTED, false, false),
+                taskView(OTHER_TASK_ID, "MODBAR-902", "Open", PilotTaskView.TaskState.UNSUPPORTED, false, false),
+                taskView(UUID.randomUUID(), "MODBAR-903", "In Progress",
+                        PilotTaskView.TaskState.UNSUPPORTED, false, false))));
+
+        Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
+
+        assertThat(model).containsEntry("availableShown", 0L).containsEntry("notEligibleShown", 3L);
+    }
+
+    @Test
+    void myTasks_availableIgnoresTasksHiddenByTheStatusFilter() throws Exception {
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(
+                taskView(TASK_ID, "MODBAR-901", "Open", PilotTaskView.TaskState.AWAITING_SELECTION, true, false),
+                taskView(OTHER_TASK_ID, "MODBAR-902", "Open", PilotTaskView.TaskState.UNSUPPORTED, false, false),
+                taskView(UUID.randomUUID(), "MODBAR-903", "In Review",
+                        PilotTaskView.TaskState.AWAITING_SELECTION, true, false),
+                taskView(UUID.randomUUID(), "MODBAR-904", "In Review",
+                        PilotTaskView.TaskState.UNSUPPORTED, false, false))));
+
+        Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
+
+        assertThat(model).containsEntry("availableShown", 1L).containsEntry("notEligibleShown", 1L);
+    }
+
+    @Test
     void myTasks_showsQueueIsWaitingWhileAnInspectionHoldsTheSlot() throws Exception {
         PilotTaskView held = taskView(TASK_ID, "MODBAR-921", "Open", PilotTaskView.TaskState.PROCESSING_PAUSED,
                 false, false, attempt("NEEDS_INSPECTION", "BY_KEY"));

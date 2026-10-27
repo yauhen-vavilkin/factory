@@ -76,6 +76,8 @@
     var chips = Array.prototype.slice.call(form.querySelectorAll('[data-status-chip]'));
     var counter = form.querySelector('[data-selected-count]');
     var shownCount = form.querySelector('[data-available-count]');
+    var notEligible = form.querySelector('[data-not-eligible]');
+    var notEligibleCount = form.querySelector('[data-not-eligible-count]');
     var filterEmpty = form.querySelector('[data-filter-empty]');
     var runButton = form.querySelector('[data-run-selected]');
     var selectAll = form.querySelector('[data-select-all]');
@@ -100,10 +102,11 @@
       }
     }
     // A hidden row never runs: it is unchecked and disabled until its status is shown again.
+    // Available counts only shown rows that can run, the same rule as the server render.
     function applyFilter() {
       var pressed = chips.filter(function (chip) { return chip.getAttribute('aria-pressed') === 'true'; })
         .map(statusOf);
-      var shown = 0;
+      var shown = 0, runnable = 0;
       rows.forEach(function (row) {
         var visible = !chips.length || pressed.indexOf(row.getAttribute('data-status')) >= 0;
         row.hidden = !visible;
@@ -112,9 +115,14 @@
           if (!visible) b.checked = false;
           b.disabled = !visible;
         }
-        if (visible) shown++;
+        if (visible) {
+          shown++;
+          if (b) runnable++;
+        }
       });
-      if (shownCount) shownCount.textContent = shown;
+      if (shownCount) shownCount.textContent = runnable;
+      if (notEligibleCount) notEligibleCount.textContent = shown - runnable;
+      if (notEligible) notEligible.hidden = shown === runnable;
       if (filterEmpty) filterEmpty.hidden = !(rows.length && shown === 0);
       refresh();
     }

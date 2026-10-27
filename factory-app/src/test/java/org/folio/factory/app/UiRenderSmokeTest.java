@@ -747,6 +747,10 @@ class UiRenderSmokeTest {
                 .contains("data-status-chip=\"Open\"", "data-status-chip=\"In Review\"",
                         "aria-pressed=\"false\"", "data-status=\"In Review\" hidden=\"hidden\"")
                 .contains("Not eligible", "Project MODX is not configured")
+                .containsPattern("data-available-count>1</span><span class=\"dev-count\"\\s+data-not-eligible>"
+                        + " · <span data-not-eligible-count>1</span> not eligible</span>")
+                .containsPattern("data-run-selected\\s*>Run</button>")
+                .doesNotContainPattern("data-select-all\\s+disabled")
                 .contains("href=\"https://jira.example.org/browse/MODBAR-701\"", "href=\"/tasks/")
                 .contains("Queued", "next in line", "2nd in line", "Could not complete",
                         "Verification failed: 2 tests in error", "PR ready", "Pull request #7",
@@ -763,6 +767,24 @@ class UiRenderSmokeTest {
                 .doesNotContain("Trigger flow", "Outside current filter", "Enable automatic admission",
                         "Withdrawn", "Sprint");
         assertThat(rest.get().uri("/tasks").retrieve().toEntity(String.class).getBody()).contains("My Jira tasks");
+    }
+
+    @Test
+    void myTasksDisablesRunWhenNoShownTaskCanRun() {
+        resetPilotData();
+        for (int i = 1; i <= 3; i++) {
+            seedTask("7010" + i, "MODBAR-71" + i, "Unsupported task " + i, PilotTask.Eligibility.INELIGIBLE,
+                    "Project MODX is not configured: no repository for it in config/developer-repositories.yaml");
+        }
+        seedTask("70104", "MODBAR-714", "Hidden eligible task", "In Review", PilotTask.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+
+        String body = assertRendered("/flows/dev-factory", "My Jira tasks");
+        assertThat(body)
+                .containsPattern("data-available-count>0</span><span class=\"dev-count\"\\s+data-not-eligible>"
+                        + " · <span data-not-eligible-count>3</span> not eligible</span>")
+                .containsPattern("data-run-selected\\s+disabled=\"disabled\">Run</button>")
+                .containsPattern("data-select-all\\s+disabled=\"disabled\"");
     }
 
     @Test

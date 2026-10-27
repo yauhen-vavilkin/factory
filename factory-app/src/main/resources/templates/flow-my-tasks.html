@@ -50,11 +50,14 @@
         <form class="task-section" method="post" th:action="@{/tasks/run-selected}" data-task-selection>
             <div class="task-section-head">
                 <h3 class="dev-section-title" id="available-title">Available <span class="dev-count"
-                        data-available-count th:text="${availableShown}">0</span></h3>
+                        data-available-count th:text="${availableShown}">0</span><span class="dev-count"
+                        data-not-eligible th:hidden="${notEligibleShown == 0}"> · <span data-not-eligible-count
+                        th:text="${notEligibleShown}">0</span> not eligible</span></h3>
                 <div class="task-section-tools">
                     <span data-poll-notice hidden>Tasks changed; reload to see them.</span>
                     <span aria-live="polite" data-selected-count></span>
-                    <button type="submit" class="btn btn-primary btn-md btn-roomy" data-run-selected>Run</button>
+                    <button type="submit" class="btn btn-primary btn-md btn-roomy" data-run-selected
+                            th:disabled="${availableShown == 0}">Run</button>
                 </div>
             </div>
 
@@ -70,7 +73,7 @@
                 <div class="task-grid-rows">
                     <div class="task-row task-row-head">
                         <input type="checkbox" class="task-check" aria-label="Select all shown eligible tasks"
-                               data-select-all>
+                               data-select-all th:disabled="${availableShown == 0}">
                         <span>Task</span>
                         <span>In Jira</span>
                     </div>

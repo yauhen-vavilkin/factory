@@ -135,7 +135,11 @@ public class PilotTaskUiController {
                 .map(chip -> chip.get("status")).collect(Collectors.toSet());
         available.forEach(row -> row.put("shown", shownStatuses.contains(row.get("jiraStatus"))));
         model.addAttribute("available", available);
-        model.addAttribute("availableShown", available.stream().filter(row -> (boolean) row.get("shown")).count());
+        // Available counts only shown tasks that can run; poll.js applies the same rule after a filter change.
+        Map<Boolean, Long> shownByRunnable = available.stream().filter(row -> (boolean) row.get("shown"))
+                .collect(Collectors.partitioningBy(row -> (boolean) row.get("selectable"), Collectors.counting()));
+        model.addAttribute("availableShown", shownByRunnable.get(true));
+        model.addAttribute("notEligibleShown", shownByRunnable.get(false));
         model.addAttribute("statusChips", chips);
         model.addAttribute("triggered", triggered.getContent().stream().map(this::triggeredRow).toList());
         model.addAttribute("page", triggered);
