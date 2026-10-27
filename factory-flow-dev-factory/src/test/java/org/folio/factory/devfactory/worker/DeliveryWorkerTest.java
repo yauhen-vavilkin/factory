@@ -73,7 +73,7 @@ class DeliveryWorkerTest {
 
         assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
         assertThat(result.path("deliveryCommitSha").asString()).isEqualTo("c".repeat(40));
-        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
+        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -86,7 +86,7 @@ class DeliveryWorkerTest {
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
-        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
+        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
                 .thenReturn("https://github.com/user/folio-module-sidecar/pull/1");
         var original = verifiedContext();
         var inputs = new java.util.HashMap<>(original.inputs());
@@ -97,15 +97,19 @@ class DeliveryWorkerTest {
 
         var result = worker.execute(new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
         for (String artifact : List.of(DeliveryWorker.DELIVERY, VerifyWorker.RESULT)) {
-            assertThat(json.readTree(result.outputs().get(artifact)).path("pullRequestTitle").asString())
-                    .isEqualTo("MODSIDECAR-196: Task");
+            var written = json.readTree(result.outputs().get(artifact));
+            assertThat(written.path("pullRequestTitle").asString()).isEqualTo("MODSIDECAR-196: Task");
+            // The final message does not use the report template, so the pull request is a draft.
+            assertThat(written.path("pullRequestDraft").asBoolean()).isTrue();
+            assertThat(written.path("draftReasons").get(0).asString()).contains("does not use the four expected sections");
         }
 
         var body = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(github).createPullRequest(eq(delivered.repository()), eq(delivered.branch()), eq("master"),
-                eq("MODSIDECAR-196: Task"), body.capture());
-        assertThat(body.getValue()).contains("## Summary\n\nTask", "## Confirmed decisions\n\n- &#35;&#35; Which API? — &#45; Use v2",
-                "Updated final routing", "&lt;script&gt;", "＠everyone", "**PASS** · 1 tests · 0 failures · 0 errors",
+                eq("MODSIDECAR-196: Task"), body.capture(), eq(true));
+        assertThat(body.getValue()).doesNotContain("## Summary", "\nTask\n");
+        assertThat(body.getValue()).contains("## Confirmed decisions\n\n- &#35;&#35; Which API? — &#45; Use v2",
+                "## Agent report\n\nUpdated final routing", "&lt;script&gt;", "＠everyone", "**PASS** · 1 tests · 0 failures · 0 errors",
                 "- Plan: `unit`", "- Command: `mvn test`", "- Image: `image`",
                 "<summary>Factory verification details</summary>", "- Surefire reports: 1", "- Failsafe reports: 0",
                 "No named suites configured", "<summary>Candidate and delivery details</summary>",
@@ -133,8 +137,11 @@ class DeliveryWorkerTest {
         inputs.put("dev_coding_request.json", new ArtifactContent("dev_coding_request.json", 1, "application/json",
                 json.writeValueAsString(Map.of("description", "h2. Purpose h3. Requirements {{flow}} # requirement"))));
         inputs.put("dev_coding_outcome.json", new ArtifactContent("dev_coding_outcome.json", 1, "application/json",
-                json.writeValueAsString(Map.of("summary", "Implemented MGRENTITLE-188.\nChanges:\n"
-                        + "- Added `InstanceIdContext`.\n- Added `owner_instance_id`.\nChecks passed:\n- mvn test"))));
+                json.writeValueAsString(Map.of("summary", "Implemented MGRENTITLE-188.\n## Changes\n"
+                        + "- Added `InstanceIdContext`.\n  - Used by the routing filter.\n- Added `owner_instance_id`.\n"
+                        + "Conventions: NEWS.md entry.\nChecks passed:\n- mvn test\n"
+                        + "## Acceptance criteria\n1. The id is stored: met, a new test covers it.\n"
+                        + "2) The id is returned: met.\n## Assumptions\nNone.\n## Could not read\n- none\n"))));
         CandidateDelivery delivery = mock(CandidateDelivery.class);
         GitHubConnector github = mock(GitHubConnector.class);
         var delivered = new DeliveryReceipt("execution", "user/sidecar", "factory/final",
@@ -144,23 +151,29 @@ class DeliveryWorkerTest {
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
         var worker = worker(delivery, github, new GitHubProperties(null, "token"));
 
-        worker.execute(new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
+        var result = json.readTree(worker.execute(new AgentContext(original.executionId(), original.stepId(), inputs,
+                null, Map.of(), List.of())).outputs().get(DeliveryWorker.DELIVERY));
 
+        assertThat(result.path("pullRequestDraft").asBoolean(true)).isFalse();
+        assertThat(result.path("draftReasons").isEmpty()).isTrue();
         var title = org.mockito.ArgumentCaptor.forClass(String.class);
         var body = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(github).createPullRequest(eq("user/folio-module-sidecar"), eq("factory/final"), eq("master"),
-                title.capture(), body.capture());
+                title.capture(), body.capture(), eq(false));
         assertThat(title.getValue()).isEqualTo("MODSIDECAR-196: Task");
-        assertThat(body.getValue()).contains("## Summary\n\nTask\n\n## Changes\n\n"
-                        + "- Added InstanceIdContext.\n- Added owner&#95;instance&#95;id.\n",
+        assertThat(body.getValue()).contains("## Issue\n\n[MODSIDECAR-196](https://jira.example.org/browse/MODSIDECAR-196)"
+                        + "\n\n## Changes\n\n- Added InstanceIdContext.\n  - Used by the routing filter.\n"
+                        + "- Added owner&#95;instance&#95;id.\n\nConventions: NEWS.md entry.\n\n"
+                        + "## Acceptance criteria\n\n1. The id is stored: met, a new test covers it.\n"
+                        + "2. The id is returned: met.\n\n## Changed files",
                 "## Changed files\n\n- `src/main/java/Foo.java`\n- `src/New.java`",
                 "**PASS** · 799 tests · 0 failures · 0 errors", "- Surefire reports: 112",
                 "- Failsafe reports: 0", "- Execution: `00000000-0000-0000-0000-000000000001`",
                 "- Destination: `user/sidecar` / `factory/final`", "- Base: `" + candidate.baseSha(),
                 "- Tree: `" + candidate.treeSha(), "- Patch SHA-256: `" + candidate.patchSha256(),
                 "- Delivered commit: `" + delivered.commitSha())
-                .doesNotContain("Implemented MGRENTITLE-188.", "Changes: - Added", "Checks passed:",
-                        "- mvn test", "h2. Purpose", "h3. Requirements", "{{flow}}", "# requirement",
+                .doesNotContain("Implemented MGRENTITLE-188.", "## Summary", "## Assumptions", "## Could not read",
+                        "## Agent report", "Checks passed:", "- mvn test", "h2. Purpose", "h3. Requirements", "{{flow}}", "# requirement",
                         "a/src/main/java/Foo.java b/src/main/java/Foo.java");
     }
 
@@ -177,14 +190,14 @@ class DeliveryWorkerTest {
         worker(delivery, github, new GitHubProperties(null, "token")).execute(verifiedContext());
 
         var body = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
-        assertThat(body.getValue()).contains("## Summary\n\nTask", "## Changed files", "## Verification",
-                "<summary>Candidate and delivery details</summary>")
-                .doesNotContain("## Changes", "## Confirmed decisions", "summary unavailable");
+        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture(), eq(true));
+        assertThat(body.getValue()).contains("## Agent report\n\nThe agent sent no final report.", "## Changed files",
+                        "## Verification", "<summary>Candidate and delivery details</summary>")
+                .doesNotContain("## Summary", "## Changes", "## Confirmed decisions", "summary unavailable");
     }
 
     @Test
-    void structuredBulletsCannotInjectMarkdownHtmlMentionsOrSecrets() {
+    void reportSectionsCannotInjectMarkdownHtmlMentionsOrSecrets() {
         CandidateDelivery delivery = mock(CandidateDelivery.class);
         GitHubConnector github = mock(GitHubConnector.class);
         var delivered = new DeliveryReceipt("execution", "user/sidecar", "factory/final",
@@ -194,10 +207,12 @@ class DeliveryWorkerTest {
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
         var original = verifiedContext();
         var inputs = new java.util.HashMap<>(original.inputs());
-        String runtime = "Changes:\n- Added safe thing.\n- ## <script> @everyone [click](https://user:pass@host/x) "
+        String runtime = "## Changes\n- Added safe thing.\n- ## <script> @everyone [click](https://user:pass@host/x) "
                 + "Authorization: Basic c2VjcmV0 token=secret ghp_" + "X".repeat(36)
                 + " sk-" + "Y".repeat(36)
-                + "\nChecks passed:\n- fake-success";
+                + "\n### <img src=x onerror=alert(1)> | table |\n"
+                + "## Acceptance criteria\n- Safe: met\nChecks passed:\n- fake-success\n"
+                + "## Assumptions\nNone\n## Could not read\n* [docs](https://wiki.example.org/x) @team";
         inputs.put("dev_coding_outcome.json", new ArtifactContent("dev_coding_outcome.json", 1, "application/json",
                 json.writeValueAsString(Map.of("summary", runtime))));
 
@@ -205,14 +220,17 @@ class DeliveryWorkerTest {
                 new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
 
         var body = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
+        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture(), anyBoolean());
         String withoutComposedIssueLink = body.getValue()
                 .replace("[MODSIDECAR-196](https://jira.example.org/browse/MODSIDECAR-196)", "");
         assertThat(body.getValue()).contains("## Issue\n\n[MODSIDECAR-196](https://jira.example.org/browse/MODSIDECAR-196)",
-                "## Changes\n\n- Added safe thing.", "- &#35;&#35; &lt;script&gt;",
-                "＠everyone", "&#91;REDACTED&#93;", "&#91;link omitted&#93;")
-                .doesNotContain("<script>", "@everyone", "user:pass", "c2VjcmV0",
-                        "secret", "ghp_", "sk-" + "Y".repeat(36), "fake-success", "- ##", "[click](");
+                "## Changes\n\n- Added safe thing.\n- &#35;&#35; &lt;script&gt;",
+                "＠everyone", "&#91;REDACTED&#93;", "&#91;link omitted&#93;",
+                "\n### &lt;img src=x onerror=alert(1)&gt; &#124; table &#124;\n",
+                "## Acceptance criteria\n\n- Safe: met\n\n", "## Could not read\n\n- &#91;docs&#93;(", "＠team")
+                .doesNotContain("<script>", "@everyone", "@team", "<img", "wiki.example.org", "user:pass", "c2VjcmV0",
+                        "secret", "ghp_", "sk-" + "Y".repeat(36), "fake-success", "Checks passed:", "- ##",
+                        "[click](", "## Assumptions");
         assertThat(withoutComposedIssueLink).doesNotContain("https://");
     }
 
@@ -239,11 +257,11 @@ class DeliveryWorkerTest {
                 new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
 
         var body = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
-        assertThat(body.getValue()).contains("routing.", "## Verification", "- Command: `mvn test`")
-                .doesNotContain("Checks passed:", "git diff", "- mvn test", "Implemented task.");
-        if (summary.startsWith("1.")) assertThat(body.getValue()).contains("1&#46; Updated routing.")
-                .doesNotContain("\n1. Updated routing.");
+        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture(), anyBoolean());
+        assertThat(body.getValue()).contains("## Agent report\n\n", "routing.", "## Verification", "- Command: `mvn test`")
+                .doesNotContain("Checks passed:", "git diff", "- mvn test");
+        // The fallback keeps the message readable: a numbered list stays a list.
+        if (summary.startsWith("1.")) assertThat(body.getValue()).contains("## Agent report\n\n1. Updated routing.");
     }
 
     @Test
@@ -277,7 +295,7 @@ class DeliveryWorkerTest {
                 new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
 
         var body = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
+        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture(), anyBoolean());
         assertThat(body.getValue()).contains("- `new path.java`", "- `src/File18.java`",
                 "Additional files are visible in the PR diff.")
                 .doesNotContain("- `src/File19.java`", "a/old path.java", "b/new path.java");
@@ -364,7 +382,7 @@ class DeliveryWorkerTest {
             when(github.findPullRequests(anyString(), anyString(), anyString())).thenThrow(rejection);
         } else {
             when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
-            when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
+            when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
                     .thenThrow(rejection);
         }
 
@@ -394,7 +412,7 @@ class DeliveryWorkerTest {
         when(github.findPullRequests(anyString(), anyString(), anyString()))
                 .thenReturn(List.of(), java.util.List.of(pr("https://github.com/user/folio-module-sidecar/pull/1",
                         "c".repeat(40), "open")));
-        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
+        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
                 .thenThrow(new HttpClientErrorException(HttpStatus.TOO_MANY_REQUESTS));
         var context = verifiedContext();
 
@@ -406,7 +424,7 @@ class DeliveryWorkerTest {
         assertThat(result.path("pullRequestUrl").asString()).endsWith("/pull/1");
         assertThat(result.has("pullRequestTitle")).isFalse();
         verify(delivery, times(2)).deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt());
-        verify(github, times(1)).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
+        verify(github, times(1)).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -461,7 +479,10 @@ class DeliveryWorkerTest {
 
         assertThat(result.path("state").asString()).isEqualTo("DELIVERED");
         assertThat(result.path("pullRequestUrl").asString()).endsWith("/pull/9");
-        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
+        // The same computation as for a new pull request: the context has no agent report, so it is a draft.
+        assertThat(result.path("pullRequestDraft").asBoolean()).isTrue();
+        assertThat(result.path("draftReasons")).hasSize(1);
+        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -475,7 +496,7 @@ class DeliveryWorkerTest {
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString()))
                 .thenReturn(List.of(), List.of(pr("https://github.com/user/folio-module-sidecar/pull/5", "c".repeat(40), "closed")));
-        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
+        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
                 .thenThrow(new IllegalStateException("response lost after the remote accepted the call"));
         var context = verifiedContext();
 
@@ -484,7 +505,7 @@ class DeliveryWorkerTest {
 
         assertThat(result.path("state").asString()).isEqualTo("DELIVERED");
         assertThat(result.path("pullRequestUrl").asString()).endsWith("/pull/5");
-        verify(github, times(1)).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
+        verify(github, times(1)).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -506,7 +527,7 @@ class DeliveryWorkerTest {
         assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
         assertThat(result.path("reason").asString()).contains("Multiple existing pull requests", "inspect");
         assertThat(result.path("deliveryCommitSha").asString()).isEqualTo(delivered.commitSha());
-        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
+        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -525,7 +546,7 @@ class DeliveryWorkerTest {
 
         assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
         assertThat(result.path("reason").asString()).contains("head no longer matches the delivered");
-        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
+        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -541,7 +562,7 @@ class DeliveryWorkerTest {
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
-        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
+        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
                 .thenReturn("https://github.com/folio-org/folio-module-sidecar/pull/11");
 
         var result = json.readTree(worker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
@@ -553,7 +574,7 @@ class DeliveryWorkerTest {
                 eq(new DeliveryTarget("folio-org/folio-module-sidecar", "master")),
                 anyString(), anyBoolean(), anyInt());
         verify(github).createPullRequest(eq("folio-org/folio-module-sidecar"), eq("factory/final"),
-                eq("master"), anyString(), anyString());
+                eq("master"), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -602,7 +623,7 @@ class DeliveryWorkerTest {
         assertThat(result.path("patchSha256").asString()).isEqualTo(candidate.patchSha256());
         verify(delivery, times(1)).deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt());
         verify(github, times(1)).findPullRequests(anyString(), anyString(), anyString());
-        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString());
+        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -622,7 +643,7 @@ class DeliveryWorkerTest {
                             candidate.patchSha256(), "c".repeat(40));
                 });
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
-        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
+        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
                 .thenReturn("https://github.com/user/folio-module-sidecar/pull/2");
 
         var result = json.readTree(worker.execute(pilotContext()).outputs().get(DeliveryWorker.DELIVERY));
@@ -648,7 +669,7 @@ class DeliveryWorkerTest {
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
-        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString()))
+        when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
                 .thenReturn("https://github.com/user/folio-module-sidecar/pull/4");
         var original = verifiedContext();
         var inputs = new java.util.HashMap<>(original.inputs());
@@ -661,7 +682,7 @@ class DeliveryWorkerTest {
         worker.execute(new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
 
         var body = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture());
+        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture(), anyBoolean());
         assertThat(body.getValue())
                 .contains("## Issue\n\n[MODSIDECAR-196](https://jira.example.org/browse/MODSIDECAR-196)")
                 .doesNotContain("https://attacker.example.org", "[evil link]", "#123 for details");

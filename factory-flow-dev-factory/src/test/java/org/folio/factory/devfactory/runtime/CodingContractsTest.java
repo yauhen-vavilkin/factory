@@ -71,6 +71,22 @@ class CodingContractsTest {
                 .contains("Do not claim checks or IDE verification you did not run");
     }
 
+    @Test void aCompletedAttemptEndsWithTheFourSectionReport() {
+        String prompt = CodingProtocol.prompt(request());
+
+        assertThat(prompt)
+                .contains("When you complete the task, your final message is a report under exactly these four"
+                        + " headings, each on its own line:")
+                .contains("\"## Changes\": a short list of what you changed, and one line with the repository"
+                        + " conventions you applied.")
+                .contains("\"## Acceptance criteria\": take the criteria from the task description; one line per"
+                        + " criterion: met, not met or not checked, with a short reason.")
+                .contains("\"## Assumptions\":", "\"## Could not read\":", "or \"None\".")
+                .doesNotContain("final summary");
+        // The decision protocol is unchanged and still comes after the report template.
+        assertThat(prompt.indexOf("FACTORY_DECISION_REQUIRED:")).isGreaterThan(prompt.indexOf("## Could not read"));
+    }
+
     @Test void operatorInstructionsAppearOnceAfterTheTaskAndRunSettingsNeverReachTheModel() throws Exception {
         var base = request();
         var request = new CodingRequest(base.issueKey(), base.summary(), base.description(), base.comments(),

@@ -96,11 +96,28 @@ class GitHubRestConnectorTest {
                 .andExpect(method(POST))
                 .andExpect(jsonPath("$.head").value("feature"))
                 .andExpect(jsonPath("$.base").value("main"))
+                .andExpect(jsonPath("$.draft").value(false))
                 .andRespond(withSuccess("{\"html_url\": \"https://github.com/o/r/pull/7\"}",
                         MediaType.APPLICATION_JSON));
 
         String url = connector.createPullRequest("o/r", "feature", "main", "Title", "Body");
         assertThat(url).isEqualTo("https://github.com/o/r/pull/7");
+    }
+
+    @Test
+    void createPullRequestSendsTheDraftFlag() {
+        for (boolean draft : new boolean[] {true, false}) {
+            server.expect(requestTo("https://api.github.com/repos/o/r/pulls"))
+                    .andExpect(method(POST))
+                    .andExpect(jsonPath("$.draft").value(draft))
+                    .andExpect(jsonPath("$.title").value("Title"))
+                    .andRespond(withSuccess("{\"html_url\": \"https://github.com/o/r/pull/8\"}",
+                            MediaType.APPLICATION_JSON));
+            assertThat(connector.createPullRequest("o/r", "feature", "main", "Title", "Body", draft))
+                    .isEqualTo("https://github.com/o/r/pull/8");
+            server.verify();
+            server.reset();
+        }
     }
 
     @Test

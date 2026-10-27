@@ -84,6 +84,12 @@ public final class UnconfiguredConnectors {
         }
 
         @Override
+        public String createPullRequest(String repo, String headBranch, String baseBranch,
+                                        String title, String body, boolean draft) {
+            throw notConfigured();
+        }
+
+        @Override
         public String connectorName() {
             return "github";
         }

@@ -64,9 +64,16 @@ public class GitHubRestConnector implements GitHubConnector, ConnectorHealth {
 
     @Override
     public String createPullRequest(String repo, String headBranch, String baseBranch, String title, String body) {
+        return createPullRequest(repo, headBranch, baseBranch, title, body, false);
+    }
+
+    @Override
+    public String createPullRequest(String repo, String headBranch, String baseBranch, String title, String body,
+                                    boolean draft) {
         JsonNode response = restClient.post()
                 .uri("/repos/" + repo + "/pulls")
-                .body(Map.of("title", title, "head", headBranch, "base", baseBranch, "body", body))
+                .body(Map.of("title", title, "head", headBranch, "base", baseBranch, "body", body,
+                        "draft", draft))
                 .retrieve()
                 .body(JsonNode.class);
         return response.path("html_url").asString("");

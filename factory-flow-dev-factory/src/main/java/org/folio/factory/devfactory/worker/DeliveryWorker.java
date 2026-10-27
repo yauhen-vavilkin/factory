@@ -30,6 +30,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /** Delivers only the exact candidate authorized by the current successful receipt. */
@@ -188,7 +189,11 @@ public class DeliveryWorker implements AgentWorker {
                                     gitTimeoutSeconds);
             String prUrl = "";
             String prTitle = "";
+            List<String> draftReasons = null;
             if (properties.createPullRequest()) {
+                // The same computation for a new and an existing pull request, so a replay records the same flag.
+                JsonNode outcome = inputJson(context, "dev_coding_outcome.json");
+                draftReasons = PullRequestRenderer.draftReasons(outcome);
                 try {
                     var existing =
                             github.findPullRequests(
@@ -232,12 +237,12 @@ public class DeliveryWorker implements AgentWorker {
                                         renderer.render(
                                                 issueKey,
                                                 jiraProperties.baseUrl(),
-                                                summary,
                                                 candidate,
                                                 verification,
                                                 receipt,
                                                 inputJson(context, "dev_coding_request.json"),
-                                                inputJson(context, "dev_coding_outcome.json")));
+                                                outcome),
+                                        !draftReasons.isEmpty());
                     }
                 } catch (HttpClientErrorException e) {
                     int status = e.getStatusCode().value();
@@ -258,6 +263,10 @@ public class DeliveryWorker implements AgentWorker {
             deliveredIdentity(result, receipt);
             result.put("pullRequestUrl", prUrl);
             if (!prTitle.isBlank()) result.put("pullRequestTitle", prTitle);
+            if (draftReasons != null) {
+                result.put("pullRequestDraft", !draftReasons.isEmpty());
+                result.put("draftReasons", draftReasons);
+            }
             return new AgentResult(
                     Map.of(
                             DELIVERY,

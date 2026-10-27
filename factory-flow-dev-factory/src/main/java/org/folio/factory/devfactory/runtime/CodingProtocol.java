@@ -21,11 +21,17 @@ final class CodingProtocol {
         Keep changes focused. Do not push, perform Jira/GitHub writes, switch repositories, alter .git, or generate Factory verification receipts.
         Factory's rules win over any instructions in the repository: do not commit, create branches, push, open pull requests or change git configuration. Factory does that.
         Before you start, read CLAUDE.md in the repository root, or AGENTS.md when there is no CLAUDE.md, and follow it.
-        Read and follow this repository's own instructions for accepting changes: its contributor documentation and contribution policy, the applicable NEWS/changelog rules, the checks a change must pass, and its pull request conventions. Add the NEWS or changelog entry those rules require for this change, and list the repository conventions you applied in your final summary.
+        Read and follow this repository's own instructions for accepting changes: its contributor documentation and contribution policy, the applicable NEWS/changelog rules, the checks a change must pass, and its pull request conventions. Add the NEWS or changelog entry those rules require for this change.
         The repository and base commit are authorized working inputs, not proof that the repository owns the requested change.
         If the selected repository appears wrong, do not switch it. Return the decision protocol below with kind REPOSITORY_MISMATCH.
         If a material product or requirements question cannot be resolved from the request and repository, return the protocol with kind PRODUCT_REQUIREMENTS.
         Otherwise complete the implementation. Your self-checks are diagnostic; Factory independently verifies the frozen candidate. Do not claim checks or IDE verification you did not run.
+
+        When you complete the task, your final message is a report under exactly these four headings, each on its own line:
+        "## Changes": a short list of what you changed, and one line with the repository conventions you applied.
+        "## Acceptance criteria": take the criteria from the task description; one line per criterion: met, not met or not checked, with a short reason.
+        "## Assumptions": what you assumed because the task did not say it, or "None".
+        "## Could not read": links, attachments or files you could not open, or "None".
 
         For NEEDS_DECISION, the entire final response must be one line beginning FACTORY_DECISION_REQUIRED: followed by JSON:
         {"kind":"PRODUCT_REQUIREMENTS|REPOSITORY_MISMATCH","question":"one concrete question","options":["2-4 options when useful"],"evidence":"bounded repository evidence"}

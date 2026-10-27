@@ -40,7 +40,8 @@ class UnconfiguredConnectorsTest {
         List<ThrowingCallable> calls = List.of(
                 () -> gitHub.createBranch("o/r", "main", "feature"),
                 () -> gitHub.commitFiles("o/r", "feature", Map.of(), "msg"),
-                () -> gitHub.createPullRequest("o/r", "feature", "main", "Title", "Body"));
+                () -> gitHub.createPullRequest("o/r", "feature", "main", "Title", "Body"),
+                () -> gitHub.createPullRequest("o/r", "feature", "main", "Title", "Body", true));
         for (ThrowingCallable call : calls) {
             assertThatThrownBy(call)
                     .isInstanceOf(ConnectorNotConfiguredException.class)

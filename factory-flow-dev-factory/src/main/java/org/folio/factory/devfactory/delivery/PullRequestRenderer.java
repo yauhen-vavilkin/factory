@@ -7,7 +7,9 @@ import org.folio.factory.devfactory.verification.VerificationReceipt;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /** Renders untrusted descriptions separately from Factory's independent verification evidence. */
@@ -17,6 +19,21 @@ public final class PullRequestRenderer {
             Pattern.compile("^diff --git \"a/(.+)\" \"b/(.+)\"$");
     private static final Pattern URL = Pattern.compile("(?i)https?://\\S+");
     private static final Pattern RUNTIME_CHECKS = Pattern.compile("(?i)\\bChecks passed:");
+    private static final String CHANGES = "Changes";
+    private static final String CRITERIA = "Acceptance criteria";
+    private static final String ASSUMPTIONS = "Assumptions";
+    private static final String COULD_NOT_READ = "Could not read";
+    private static final List<String> REPORT_SECTIONS = List.of(CHANGES, CRITERIA, ASSUMPTIONS, COULD_NOT_READ);
+    private static final Pattern REPORT_HEADING = Pattern.compile(
+            "(?i)##\\s+(changes|acceptance\\s+criteria|assumptions|could\\s+not\\s+read)\\s*:?");
+    private static final Pattern NOT_MET = Pattern.compile("(?i)\\bnot\\s+met\\b");
+    private static final Pattern NOT_CHECKED = Pattern.compile("(?i)\\bnot\\s+checked\\b");
+    private static final Pattern NONE = Pattern.compile("(?i)(?:[-*+]\\s+)?[*_]{0,2}(?:none|n/a)[*_]{0,2}\\.?");
+    private static final Pattern LIST_ITEM = Pattern.compile("(\\s*)([-*+]|[0-9]{1,3}[.)])\\s+(.*)");
+    private static final Pattern INNER_HEADING = Pattern.compile("\\s{0,3}#{1,6}\\s+(.*)");
+    private static final int REPORT_LIMIT = 8000;
+    private static final int SECTION_LINES = 20;
+    private static final int LINE_LIMIT = 500;
     private static final Pattern TOKEN =
             Pattern.compile(
                     "\\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})\\b");
@@ -24,7 +41,6 @@ public final class PullRequestRenderer {
     public String render(
             String issueKey,
             String jiraBaseUrl,
-            String summary,
             Candidate candidate,
             VerificationReceipt verification,
             DeliveryReceipt delivery,
@@ -32,10 +48,8 @@ public final class PullRequestRenderer {
             JsonNode outcome) {
         var body = new StringBuilder("## Issue\n\n")
                 .append(issueLink(issueKey, jiraBaseUrl))
-                .append("\n\n## Summary\n\n")
-                .append(prose(summary, 500))
                 .append("\n\n");
-        appendRuntimeSummary(body, outcome.path("summary").asString(""));
+        appendAgentReport(body, outcome.path("summary").asString(""));
         int decisions = 0;
         for (var decision : request.path("confirmedDecisions")) {
             if (decisions++ >= 5) break;
@@ -137,37 +151,133 @@ public final class PullRequestRenderer {
         return "[" + issueKey + "](" + base + "/browse/" + issueKey + ")";
     }
 
-    private static void appendRuntimeSummary(StringBuilder body, String summary) {
-        if (summary == null || summary.isBlank()) return;
-        String descriptive = summary.substring(0, Math.min(summary.length(), 4000));
-        var checks = RUNTIME_CHECKS.matcher(descriptive);
-        if (checks.find()) descriptive = descriptive.substring(0, checks.start());
-        List<String> lines = descriptive.lines().toList();
-        boolean changes = false;
-        var bullets = new ArrayList<String>();
-        var fallback = new StringBuilder();
-        for (String raw : lines) {
-            String line = raw.strip();
-            if (line.equalsIgnoreCase("Changes:")) {
-                changes = true;
+    /**
+     * Why the pull request is opened as a draft, in Factory's own words (model text never
+     * reaches them); empty when the agent's report confirms everything.
+     */
+    public static List<String> draftReasons(JsonNode outcome) {
+        Map<String, String> sections = reportSections(outcome.path("summary").asString(""));
+        if (sections == null) {
+            return List.of("The agent's final report does not use the four expected sections,"
+                    + " so nothing in it is confirmed.");
+        }
+        var reasons = new ArrayList<String>();
+        List<String> criteria = sections.get(CRITERIA).lines().toList();
+        long notMet = criteria.stream().filter(line -> NOT_MET.matcher(line).find()).count();
+        long notChecked = criteria.stream().filter(line -> NOT_CHECKED.matcher(line).find()).count();
+        if (notMet > 0) {
+            reasons.add(notMet == 1 ? "1 acceptance criterion is not met."
+                    : notMet + " acceptance criteria are not met.");
+        }
+        if (notChecked > 0) {
+            reasons.add(notChecked == 1 ? "1 acceptance criterion was not checked."
+                    : notChecked + " acceptance criteria were not checked.");
+        }
+        if (!isNone(sections.get(ASSUMPTIONS))) {
+            reasons.add("The agent made assumptions that a reviewer should confirm.");
+        }
+        if (!isNone(sections.get(COULD_NOT_READ))) {
+            reasons.add("The agent could not read some of the task's sources.");
+        }
+        return List.copyOf(reasons);
+    }
+
+    /**
+     * The four sections the coding prompt asks for, read from the whole final message (not
+     * the shorter cut used for the fallback); null when a heading is missing or repeated.
+     */
+    static Map<String, String> reportSections(String message) {
+        String text = message.substring(0, Math.min(message.length(), REPORT_LIMIT));
+        Map<String, StringBuilder> found = new LinkedHashMap<>();
+        StringBuilder current = null;
+        for (String line : text.lines().toList()) {
+            var heading = REPORT_HEADING.matcher(line.strip());
+            if (heading.matches()) {
+                String name = REPORT_SECTIONS.stream()
+                        .filter(section -> section.equalsIgnoreCase(heading.group(1).replaceAll("\\s+", " ")))
+                        .findFirst().orElseThrow();
+                if (found.containsKey(name)) return null;
+                current = new StringBuilder();
+                found.put(name, current);
+            } else if (current != null) {
+                current.append(line).append('\n');
+            }
+        }
+        if (found.size() != REPORT_SECTIONS.size()) return null;
+        Map<String, String> sections = new LinkedHashMap<>();
+        REPORT_SECTIONS.forEach(name -> sections.put(name, found.get(name).toString().strip()));
+        return sections;
+    }
+
+    private static void appendAgentReport(StringBuilder body, String message) {
+        Map<String, String> sections = reportSections(message);
+        if (sections == null) {
+            String text = message.substring(0, Math.min(message.length(), 4000));
+            var checks = RUNTIME_CHECKS.matcher(text);
+            if (checks.find()) text = text.substring(0, checks.start());
+            String report = block(text);
+            body.append("## Agent report\n\n")
+                    .append(report.isBlank() ? "The agent sent no final report." : report)
+                    .append("\n\n");
+            return;
+        }
+        sections.forEach((name, text) -> {
+            boolean always = name.equals(CHANGES) || name.equals(CRITERIA);
+            if (!always && isNone(text)) return;
+            var checks = RUNTIME_CHECKS.matcher(text);
+            String shown = block(checks.find() ? text.substring(0, checks.start()) : text);
+            body.append("## ").append(name).append("\n\n")
+                    .append(shown.isBlank() ? "None." : shown)
+                    .append("\n\n");
+        });
+    }
+
+    private static boolean isNone(String section) {
+        return section.isBlank() || NONE.matcher(section.strip()).matches();
+    }
+
+    /**
+     * Model text keeps its paragraphs, lists and headings, but Factory writes every list
+     * marker and heading itself and each line's content still goes through {@code prose}.
+     */
+    private static String block(String text) {
+        var out = new StringBuilder();
+        int lines = 0;
+        boolean gap = false;
+        boolean afterItem = false;
+        for (String raw : text.lines().toList()) {
+            if (raw.isBlank()) {
+                gap = true;
                 continue;
             }
-            if (changes && line.startsWith("- ")) {
-                String bullet = prose(line.substring(2), 240);
-                if (!bullet.isBlank() && bullets.size() < 20) bullets.add(bullet);
-            } else if (!changes && !line.isBlank()) {
-                if (!fallback.isEmpty()) fallback.append(' ');
-                fallback.append(line);
+            if (lines == SECTION_LINES) {
+                out.append("\n\nThe rest of this section was cut.");
+                break;
             }
+            var item = LIST_ITEM.matcher(raw);
+            var heading = INNER_HEADING.matcher(raw);
+            boolean isItem = item.matches();
+            boolean isHeading = !isItem && heading.matches();
+            String content = prose(isItem ? item.group(3) : isHeading ? heading.group(1) : raw, LINE_LIMIT);
+            if (content.isBlank()) continue;
+            String line;
+            if (isItem) {
+                // Indentation only nests under the item just above; anywhere else it could start a code block.
+                int indent = afterItem && !gap ? Math.min(item.group(1).replace("\t", "  ").length(), 4) : 0;
+                String marker = Character.isDigit(item.group(2).charAt(0))
+                        ? item.group(2).replace(')', '.') : "-";
+                line = " ".repeat(indent) + marker + " " + content;
+            } else {
+                line = isHeading ? "### " + content : content;
+            }
+            // A text line right after a list item would join that item; it starts its own paragraph.
+            if (!out.isEmpty()) out.append(gap || afterItem && !isItem ? "\n\n" : "\n");
+            out.append(line);
+            gap = false;
+            afterItem = isItem;
+            lines++;
         }
-        if (!bullets.isEmpty()) {
-            body.append("## Changes\n\n");
-            bullets.forEach(bullet -> body.append("- ").append(bullet).append("\n"));
-            body.append("\n");
-        } else {
-            String description = prose(fallback.toString(), 2000);
-            if (!description.isBlank()) body.append(description).append("\n\n");
-        }
+        return out.toString();
     }
 
     private static String changedPath(String header) {

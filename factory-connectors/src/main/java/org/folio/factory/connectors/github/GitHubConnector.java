@@ -27,6 +27,16 @@ public interface GitHubConnector {
      */
     String createPullRequest(String repo, String headBranch, String baseBranch, String title, String body);
 
+    /**
+     * Like the five-argument method, but opens a draft pull request when {@code draft} is true.
+     *
+     * @return the created pull request's HTML URL
+     */
+    default String createPullRequest(String repo, String headBranch, String baseBranch, String title, String body,
+                                     boolean draft) {
+        throw new UnsupportedOperationException("This GitHub connector cannot choose draft pull requests");
+    }
+
     /** Find an open PR inside the destination repository before creating another. */
     default java.util.Optional<String> findOpenPullRequest(String repo, String headBranch, String baseBranch) {
         throw new UnsupportedOperationException("GitHub pull request lookup is not configured");
