@@ -224,8 +224,9 @@ public final class PullRequestRenderer {
         sections.forEach((name, text) -> {
             boolean always = name.equals(CHANGES) || name.equals(CRITERIA);
             if (!always && isNone(text)) return;
+            // The agent's own checks are cut from Changes only: the other sections explain the draft flag.
             var checks = RUNTIME_CHECKS.matcher(text);
-            String shown = block(checks.find() ? text.substring(0, checks.start()) : text);
+            String shown = block(name.equals(CHANGES) && checks.find() ? text.substring(0, checks.start()) : text);
             body.append("## ").append(name).append("\n\n")
                     .append(shown.isBlank() ? "None." : shown)
                     .append("\n\n");

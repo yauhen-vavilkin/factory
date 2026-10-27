@@ -210,8 +210,8 @@ class DeliveryWorkerTest {
         String runtime = "## Changes\n- Added safe thing.\n- ## <script> @everyone [click](https://user:pass@host/x) "
                 + "Authorization: Basic c2VjcmV0 token=secret ghp_" + "X".repeat(36)
                 + " sk-" + "Y".repeat(36)
-                + "\n### <img src=x onerror=alert(1)> | table |\n"
-                + "## Acceptance criteria\n- Safe: met\nChecks passed:\n- fake-success\n"
+                + "\n### <img src=x onerror=alert(1)> | table |\nChecks passed:\n- fake-success\n"
+                + "## Acceptance criteria\n- Safe: met\nChecks passed: mvn test\n- Fast: not met\n"
                 + "## Assumptions\nNone\n## Could not read\n* [docs](https://wiki.example.org/x) @team";
         inputs.put("dev_coding_outcome.json", new ArtifactContent("dev_coding_outcome.json", 1, "application/json",
                 json.writeValueAsString(Map.of("summary", runtime))));
@@ -227,9 +227,11 @@ class DeliveryWorkerTest {
                 "## Changes\n\n- Added safe thing.\n- &#35;&#35; &lt;script&gt;",
                 "＠everyone", "&#91;REDACTED&#93;", "&#91;link omitted&#93;",
                 "\n### &lt;img src=x onerror=alert(1)&gt; &#124; table &#124;\n",
-                "## Acceptance criteria\n\n- Safe: met\n\n", "## Could not read\n\n- &#91;docs&#93;(", "＠team")
+                // Criteria lines after the agent's own checks stay: they explain why the pull request is a draft.
+                "## Acceptance criteria\n\n- Safe: met\n\nChecks passed: mvn test\n- Fast: not met\n\n",
+                "## Could not read\n\n- &#91;docs&#93;(", "＠team")
                 .doesNotContain("<script>", "@everyone", "@team", "<img", "wiki.example.org", "user:pass", "c2VjcmV0",
-                        "secret", "ghp_", "sk-" + "Y".repeat(36), "fake-success", "Checks passed:", "- ##",
+                        "secret", "ghp_", "sk-" + "Y".repeat(36), "fake-success", "- ##",
                         "[click](", "## Assumptions");
         assertThat(withoutComposedIssueLink).doesNotContain("https://");
     }
