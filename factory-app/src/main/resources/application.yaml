@@ -33,6 +33,15 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
+  # Every @{/css/...}, @{/js/...} and @{/webjars/...} link in a page gets a content hash, so a
+  # browser never mixes an old cached file with new HTML. Long caching of /css and /js:
+  # StaticResourceConfiguration.
+  web:
+    resources:
+      chain:
+        strategy:
+          content:
+            enabled: true
   # REL-1: outbound HTTP client timeouts for the auto-configured RestClient.Builder
   # the Jira/GitHub/TestRail connectors clone (Spring Boot 4 plural `clients`
   # namespace). The Anthropic LLM client uses its own transport and is unaffected.

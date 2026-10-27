@@ -41,6 +41,8 @@ import org.thymeleaf.context.Context;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
@@ -112,9 +114,30 @@ class UiRenderSmokeTest {
     void dashboardRenders() {
         String body = assertRendered("/", "Dashboard");
         assertThat(body)
-                .contains("chart.umd.js")
-                .contains("/js/charts.js")
+                .containsPattern("src=\"/js/charts-[0-9a-f]{32}\\.js\"")
                 .contains("class=\"charts-grid\"");
+        Matcher chart = Pattern.compile("src=\"(/webjars/chart\\.js/[^\"]+/chart\\.umd-[0-9a-f]{32}\\.js)\"")
+                .matcher(body);
+        assertThat(chart.find()).as("hashed chart.js link").isTrue();
+        assertThat(rest.get().uri(chart.group(1)).retrieve().toEntity(String.class).getBody()).contains("Chart");
+    }
+
+    @Test
+    void pageLinksCarryAContentHashAndHashedFilesAreCachedForAYear() {
+        ResponseEntity<String> page = rest.get().uri("/flows/dev-factory").retrieve().toEntity(String.class);
+        String body = page.getBody();
+        assertThat(page.getHeaders().getCacheControl()).as("HTML pages stay uncached").isNull();
+        assertThat(body).doesNotContainPattern("\"/(css|js)/[a-z]+\\.(css|js)\"");
+        for (String file : List.of("css/tokens", "css/app", "js/app", "js/theme", "js/confirm", "js/poll")) {
+            String extension = file.substring(0, file.indexOf('/'));
+            Matcher link = Pattern.compile("\"(/" + file + "-[0-9a-f]{32}\\." + extension + ")\"").matcher(body);
+            assertThat(link.find()).as("hashed link for " + file).isTrue();
+
+            ResponseEntity<String> asset = rest.get().uri(link.group(1)).retrieve().toEntity(String.class);
+            assertThat(asset.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(asset.getHeaders().getCacheControl()).contains("max-age=31536000", "immutable");
+            assertThat(asset.getBody()).isNotBlank();
+        }
     }
 
     @Test
