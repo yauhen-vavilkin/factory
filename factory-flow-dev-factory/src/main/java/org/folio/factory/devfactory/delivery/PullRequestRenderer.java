@@ -26,9 +26,13 @@ public final class PullRequestRenderer {
     private static final List<String> REPORT_SECTIONS = List.of(CHANGES, CRITERIA, ASSUMPTIONS, COULD_NOT_READ);
     private static final Pattern REPORT_HEADING = Pattern.compile(
             "(?i)##\\s+(changes|acceptance\\s+criteria|assumptions|could\\s+not\\s+read)\\s*:?");
-    private static final Pattern NOT_MET = Pattern.compile("(?i)\\bnot\\s+met\\b");
+    private static final Pattern NOT_MET = Pattern.compile("(?i)\\b(?:not|partially|partly)\\s+met\\b|\\bunmet\\b");
     private static final Pattern NOT_CHECKED = Pattern.compile("(?i)\\bnot\\s+checked\\b");
-    private static final Pattern NONE = Pattern.compile("(?i)(?:[-*+]\\s+)?[*_]{0,2}(?:none|n/a)[*_]{0,2}\\.?");
+    /** "met" as the status: at the start of the text or right after a colon or a dash. */
+    private static final Pattern MET = Pattern.compile("(?i)(?:^|[:\\u2013\\u2014-])\\s*[*_]{0,2}met\\b");
+    private static final Pattern NONE = Pattern.compile("(?i)(?:[-*+]\\s+)?[*_]{0,2}(?:none(?:\\s+found)?|n/a"
+            + "|nothing(?:\\s+to\\s+report)?|no\\s+assumptions?(?:\\s+(?:were\\s+)?made)?"
+            + "|all\\s+sources\\s+were\\s+readable)[*_]{0,2}[.!]?");
     private static final Pattern LIST_ITEM = Pattern.compile("(\\s*)([-*+]|[0-9]{1,3}[.)])\\s+(.*)");
     private static final Pattern INNER_HEADING = Pattern.compile("\\s{0,3}#{1,6}\\s+(.*)");
     private static final int REPORT_LIMIT = 8000;
@@ -162,9 +166,20 @@ public final class PullRequestRenderer {
                     + " so nothing in it is confirmed.");
         }
         var reasons = new ArrayList<String>();
-        List<String> criteria = sections.get(CRITERIA).lines().toList();
-        long notMet = criteria.stream().filter(line -> NOT_MET.matcher(line).find()).count();
-        long notChecked = criteria.stream().filter(line -> NOT_CHECKED.matcher(line).find()).count();
+        int notMet = 0;
+        int notChecked = 0;
+        String criteria = sections.get(CRITERIA);
+        // A criterion is confirmed only when its status plainly says "met"; a line that does not say
+        // "met" or "not met" (no status, "not verified", "failed") counts as not checked.
+        if (!isNone(criteria)) {
+            for (String line : criteria.lines().filter(line -> !line.isBlank()).toList()) {
+                if (RUNTIME_CHECKS.matcher(line).find()) continue;
+                var item = LIST_ITEM.matcher(line);
+                String text = item.matches() ? item.group(3) : line.strip();
+                if (NOT_MET.matcher(text).find()) notMet++;
+                else if (NOT_CHECKED.matcher(text).find() || !MET.matcher(text).find()) notChecked++;
+            }
+        }
         if (notMet > 0) {
             reasons.add(notMet == 1 ? "1 acceptance criterion is not met."
                     : notMet + " acceptance criteria are not met.");
@@ -233,8 +248,10 @@ public final class PullRequestRenderer {
         });
     }
 
+    /** Only the first paragraph counts, so a closing line after "None" does not make the section non-empty. */
     private static boolean isNone(String section) {
-        return section.isBlank() || NONE.matcher(section.strip()).matches();
+        String first = section.strip().split("\\n\\s*\\n", 2)[0].strip();
+        return first.isEmpty() || NONE.matcher(first).matches();
     }
 
     /**

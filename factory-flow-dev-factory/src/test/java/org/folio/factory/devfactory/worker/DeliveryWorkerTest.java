@@ -236,6 +236,32 @@ class DeliveryWorkerTest {
         assertThat(withoutComposedIssueLink).doesNotContain("https://");
     }
 
+    @Test
+    void aClosingLineAfterTheLastSectionNeitherMakesADraftNorReachesThePr() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+                .thenReturn(new DeliveryReceipt("execution", "user/sidecar", "factory/final",
+                        "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40)));
+        when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
+        var original = verifiedContext();
+        var inputs = new java.util.HashMap<>(original.inputs());
+        inputs.put("dev_coding_outcome.json", new ArtifactContent("dev_coding_outcome.json", 1, "application/json",
+                json.writeValueAsString(Map.of("summary", "## Changes\n- Added the route.\n"
+                        + "## Acceptance criteria\n- Works: met\n## Assumptions\nNo assumptions.\n"
+                        + "## Could not read\nNone\n\nLet me know if you need anything else."))));
+
+        var result = json.readTree(worker(delivery, github, new GitHubProperties(null, "token")).execute(
+                new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()))
+                .outputs().get(DeliveryWorker.DELIVERY));
+
+        assertThat(result.path("pullRequestDraft").asBoolean(true)).isFalse();
+        var body = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture(), eq(false));
+        assertThat(body.getValue()).contains("## Acceptance criteria\n\n- Works: met\n\n## Changed files")
+                .doesNotContain("## Assumptions", "## Could not read", "Let me know");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "Updated routing. Checks passed: - mvn test - git diff --check",

@@ -37,6 +37,44 @@ class PullRequestRendererTest {
     }
 
     @Test
+    void aCriterionCountsAsConfirmedOnlyWhenItsStatusPlainlySaysMet() {
+        String criteria = "- A: partially met, the list is not sorted.\n"
+                + "- B: unmet\n"
+                + "- C: not verified\n"
+                + "- D: failed, the test is red.\n"
+                + "- E has no status at all\n"
+                + "- Retention is met for old rows: not checked\n"
+                + "- F — **Met**\n"
+                + "Checks passed: mvn test\n"
+                + "- G: met, covered by a new test.";
+
+        assertThat(PullRequestRenderer.draftReasons(outcome(report(criteria, "None", "None"))))
+                .containsExactly("2 acceptance criteria are not met.", "4 acceptance criteria were not checked.");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"None", "N/A", "", "None.\n\nThe task description has no criteria."})
+    void anEmptyCriteriaSectionGivesNoReason(String criteria) {
+        // Whether this should be a draft is an open question for the operator; it must not count as one criterion.
+        assertThat(PullRequestRenderer.draftReasons(outcome(report(criteria, "None", "None")))).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"None found.", "Nothing.", "No assumptions.", "No assumptions were made.", "**None**",
+            "All sources were readable.", "None\n\nLet me know if you need anything else."})
+    void usualWaysToSayNothingAndAClosingLineAfterNoneGiveNoReason(String empty) {
+        assertThat(PullRequestRenderer.draftReasons(outcome(report("- Works: met", empty, empty)))).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"No access to the ADR page.", "None of the attachments opened.",
+            "Nothing in Confluence opened: the page needs a login."})
+    void textThatOnlyStartsLikeNoneIsStillAReason(String couldNotRead) {
+        assertThat(PullRequestRenderer.draftReasons(outcome(report("- Works: met", "None", couldNotRead))))
+                .containsExactly("The agent could not read some of the task's sources.");
+    }
+
+    @Test
     void reasonsAreFactoryWordsAndNeverCopyModelText() {
         var reasons = PullRequestRenderer.draftReasons(outcome(report(
                 "- <script>alert(1)</script> @everyone: not met", "<b>secret</b>", "None")));

@@ -76,7 +76,7 @@ class CodingContractsTest {
 
         assertThat(prompt)
                 .contains("When you complete the task, your final message is a report under exactly these four"
-                        + " headings, each on its own line:")
+                        + " headings, each on its own line, with nothing after the last section:")
                 .contains("\"## Changes\": a short list of what you changed, and one line with the repository"
                         + " conventions you applied.")
                 .contains("\"## Acceptance criteria\": take the criteria from the task description; one line per"

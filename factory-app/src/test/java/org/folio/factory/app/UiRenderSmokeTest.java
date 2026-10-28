@@ -1153,7 +1153,11 @@ class UiRenderSmokeTest {
         resetPilotData();
         PilotTask delivered = seedTask("70032", "MODBAR-732", "Draft task",
                 PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        PipelineExecution execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        PipelineExecution execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        // A finished run, so the run page shows its result sentence instead of a live stage.
+        execution.setCurrentStepIndex(6);
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        execution = executions.save(execution);
         PilotAttempt attempt = seedAttempt(delivered, 1, PilotAttempt.Kind.INITIAL,
                 PilotAttempt.State.PR_READY, null);
         attempt.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/8");
@@ -1177,8 +1181,9 @@ class UiRenderSmokeTest {
 
         String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(run)
-                .contains("class=\"state-pill state-pill-warning\">Draft PR</span>", ">Draft pull request #8</a>")
-                .doesNotContain(">PR ready</span>");
+                .contains("class=\"state-pill state-pill-warning\">Draft PR</span>", ">Draft pull request #8</a>",
+                        "Draft pull request created")
+                .doesNotContain(">PR ready</span>", "Pull request created");
     }
 
     @Test

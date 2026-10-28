@@ -27,7 +27,7 @@ final class CodingProtocol {
         If a material product or requirements question cannot be resolved from the request and repository, return the protocol with kind PRODUCT_REQUIREMENTS.
         Otherwise complete the implementation. Your self-checks are diagnostic; Factory independently verifies the frozen candidate. Do not claim checks or IDE verification you did not run.
 
-        When you complete the task, your final message is a report under exactly these four headings, each on its own line:
+        When you complete the task, your final message is a report under exactly these four headings, each on its own line, with nothing after the last section:
         "## Changes": a short list of what you changed, and one line with the repository conventions you applied.
         "## Acceptance criteria": take the criteria from the task description; one line per criterion: met, not met or not checked, with a short reason.
         "## Assumptions": what you assumed because the task did not say it, or "None".
