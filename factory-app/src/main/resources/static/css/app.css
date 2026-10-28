@@ -963,9 +963,10 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 }
 .task-grid-attempts .task-row-head { align-items: stretch; font-size: 12px; }
 .task-grid-available .task-row { grid-template-columns: 28px minmax(0, 1fr) 120px; }
-.task-grid-triggered .task-row { grid-template-columns: minmax(0, 1fr) 200px 90px 110px; }
-.task-grid-triggered.task-grid-wide .task-row { grid-template-columns: minmax(0, 1fr) 220px 90px 110px; }
-.task-grid-attempts .task-row { grid-template-columns: 150px minmax(0, 1fr) 130px 80px 110px; }
+.task-grid-triggered .task-grid-rows { min-width: 820px; }
+.task-grid-triggered .task-row { grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) 120px 120px 72px; }
+.task-grid-triggered.task-grid-wide .task-row { grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) 120px 120px 144px; }
+.task-grid-attempts .task-row { grid-template-columns: 150px minmax(0, 1fr) 130px 80px 120px; }
 .task-grid-attempts .task-row:not(.task-row-head) { font-size: 13px; }
 .task-row-empty { padding: 16px; font-size: 13px; color: hsl(var(--muted-foreground)); }
 .task-check { width: 16px; height: 16px; margin: 3px 0 0; }
@@ -984,6 +985,16 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   font-weight: 600;
 }
 .task-title { font-weight: 500; }
+/* Two lines at most; the element's title attribute holds the full text. */
+.clamp-2 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.task-action { display: flex; justify-content: flex-end; }
 .task-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: hsl(var(--muted-foreground)); }
 .task-tag {
   display: inline-flex;
@@ -1023,27 +1034,6 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 }
 .state-detail { font-size: 12px; color: hsl(var(--muted-foreground)); }
 a.state-detail { color: hsl(var(--foreground)); text-decoration: underline; }
-/* One line whatever the reason's length, so an inline control never grows the row. */
-.state-detail-action { display: flex; align-items: baseline; max-width: 100%; color: hsl(var(--quiet-foreground)); }
-.state-detail-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.state-detail-sep { flex: none; white-space: pre; }
-.state-detail-action form { flex: none; }
-.btn-inline {
-  display: inline;
-  margin: 0;
-  padding: 0 6px;
-  border: 1px solid hsl(var(--strong-border));
-  border-radius: 4px;
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 16px;
-  vertical-align: baseline;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.btn-inline:hover { background: hsl(var(--accent)); }
 .value-cell { display: flex; flex-direction: column; font-size: 13px; }
 .value-cell-quiet { color: hsl(var(--muted-foreground)); }
 .value-cell .dev-note { font-size: 12px; }
@@ -1119,10 +1109,10 @@ a.state-detail { color: hsl(var(--foreground)); text-decoration: underline; }
 .result-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
 .result-actions .dev-link { font-size: 13px; font-weight: 500; }
 .result-actions .dev-note { flex: 1 1 280px; }
-.attempt-cell { display: flex; flex-direction: column; }
+.attempt-cell { display: flex; flex-direction: column; align-items: flex-start; }
 .attempt-cell strong { font-weight: 500; }
 .attempt-cell .attempt-run { font-size: 12px; color: hsl(var(--muted-foreground)); }
-.attempt-cell a { font-size: 12px; color: hsl(var(--quiet-foreground)); text-decoration: underline; }
+.attempt-cell .btn { margin-top: 6px; }
 .dev-block { display: flex; flex-direction: column; gap: 10px; }
 .usage-head { display: flex; flex-direction: column; gap: 2px; }
 .usage-head span { font-size: 13px; color: hsl(var(--muted-foreground)); }

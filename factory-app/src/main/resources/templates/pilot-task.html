@@ -80,15 +80,21 @@
                     <span class="attempt-cell">
                         <strong th:text="${attempt['label']}">1 · first run</strong>
                         <span class="attempt-run" th:if="${attempt['run'] != null}" th:text="${attempt['run']}">glm-5.3 · max</span>
-                        <a th:if="${attempt['executionId'] != null}" th:href="@{'/executions/' + ${attempt['executionId']}}"
-                           th:text="'run ' + ${attempt['executionShort']}">run</a>
+                        <a class="btn btn-outline btn-sm" th:if="${attempt['executionId'] != null}"
+                           th:href="@{'/executions/' + ${attempt['executionId']}}"
+                           th:attr="aria-label='Open run for attempt ' + ${attempt['ordinal']}">Open run</a>
                     </span>
-                    <span th:text="${attempt['result']}">Result</span>
+                    <span class="state-cell">
+                        <span th:if="${attempt['resultLabel'] != null}" th:class="${attempt['resultClass']}"
+                              th:text="${attempt['resultLabel']}">Draft PR</span>
+                        <span th:text="${attempt['result']}">Result</span>
+                    </span>
                     <span th:title="${attempt['startedTitle']}" th:text="${attempt['started']}">Started</span>
                     <span th:text="${attempt['active']}">Active</span>
                     <span class="value-cell">
                         <span th:text="${attempt['cost'] != null} ? ${attempt['cost']} : '—'">—</span>
-                        <span class="dev-note" th:if="${attempt['costNote'] != null}" th:text="${attempt['costNote']}">note</span>
+                        <span class="dev-note" th:if="${attempt['costNote'] != null}" th:title="${attempt['costNoteTitle']}"
+                              th:text="${attempt['costNote']}">note</span>
                     </span>
                 </div>
             </div>

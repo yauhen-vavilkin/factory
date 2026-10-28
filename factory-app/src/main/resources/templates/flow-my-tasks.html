@@ -159,13 +159,15 @@
                     <span>Status</span>
                     <span>Cost</span>
                     <span>When</span>
+                    <span><span class="sr-only">Action</span></span>
                 </div>
                 <div class="task-row" th:each="row : ${triggered}">
                     <div class="task-cell">
                         <div class="task-line">
                             <a class="task-key" th:href="${row['jiraUrl']}" th:text="${row['key']}">KEY-1</a>
-                            <a class="task-title" th:href="${row['link']}" th:text="${row['title']}">Title</a>
                         </div>
+                        <a class="task-title clamp-2" th:href="${row['link']}" th:title="${row['title']}"
+                           th:text="${row['title']}">Title</a>
                         <div class="task-sub">
                             <span th:if="${row['repository'] != null}" th:text="'→ ' + ${row['repository']}">→ repository</span>
                             <span class="task-tag" th:if="${row['addedByKey']}">added by key</span>
@@ -175,32 +177,30 @@
                         <span th:class="${row['stateClass']}" th:text="${row['stateLabel']}">State</span>
                         <a class="state-detail" th:if="${row['prUrl'] != null}" th:href="${row['prUrl']}"
                            th:text="${row['prLabel']}">Pull request</a>
-                        <div class="state-detail state-detail-action"
-                             th:if="${row['retryAllowed'] or row['markStoppedAttemptId'] != null}">
-                            <span class="state-detail-text" th:text="${row['detail']}" th:title="${row['detail']}">detail</span>
-                            <span class="state-detail-sep"> · </span>
-                            <a class="btn-inline" th:if="${row['retryAllowed']}"
-                               th:href="@{'/tasks/' + ${row['taskId']} + '#retry'}">Retry</a>
-                            <form method="post" th:if="${row['markStoppedAttemptId'] != null}"
-                                  th:action="@{'/tasks/' + ${row['taskId']} + '/attempts/' + ${row['markStoppedAttemptId']} + '/mark-stopped'}">
-                                <input type="hidden" name="returnTo" value="flow">
-                                <button type="submit" class="btn-inline"
-                                        th:attr="data-confirm-title='Mark ' + ${row['key']} + ' as stopped?'"
-                                        data-confirm-ok="Mark as stopped" data-confirm-style="compact"
-                                        data-confirm="Do this only if its run is really over: no factory container is running for it. If it was opening a pull request, check the repository first. The task becomes Could not complete, its cost so far stays, and the queue starts the next task.">Mark as stopped…</button>
-                            </form>
-                        </div>
-                        <span class="state-detail"
-                              th:if="${row['detail'] != null and !row['retryAllowed'] and row['markStoppedAttemptId'] == null}"
-                              th:text="${row['detail']}">detail</span>
+                        <span class="state-detail clamp-2" th:if="${row['detail'] != null}"
+                              th:title="${row['detail']}" th:text="${row['detail']}">detail</span>
                     </div>
                     <div class="value-cell" th:classappend="${row['cost'] == null} ? 'value-cell-quiet'">
                         <span th:text="${row['cost'] != null} ? ${row['cost']} : '—'">—</span>
-                        <span class="dev-note" th:if="${row['costNote'] != null}" th:text="${row['costNote']}">note</span>
+                        <span class="dev-note" th:if="${row['costNote'] != null}" th:title="${row['costNoteTitle']}"
+                              th:text="${row['costNote']}">note</span>
                     </div>
                     <div class="value-cell">
                         <span th:title="${row['whenTitle']}" th:text="${row['when']}">when</span>
                         <span class="dev-note" th:text="${row['whenNote']}">note</span>
+                    </div>
+                    <div class="task-action">
+                        <a class="btn btn-outline btn-sm" th:if="${row['retryAllowed']}"
+                           th:href="@{'/tasks/' + ${row['taskId']} + '#retry'}"
+                           th:attr="aria-label='Retry ' + ${row['key']}">Retry</a>
+                        <form method="post" th:if="${row['markStoppedAttemptId'] != null}"
+                              th:action="@{'/tasks/' + ${row['taskId']} + '/attempts/' + ${row['markStoppedAttemptId']} + '/mark-stopped'}">
+                            <input type="hidden" name="returnTo" value="flow">
+                            <button type="submit" class="btn btn-outline btn-sm"
+                                    th:attr="aria-label='Mark as stopped: ' + ${row['key']}, data-confirm-title='Mark ' + ${row['key']} + ' as stopped?'"
+                                    data-confirm-ok="Mark as stopped" data-confirm-style="compact"
+                                    data-confirm="Do this only if its run is really over: no factory container is running for it. If it was opening a pull request, check the repository first. The task becomes Could not complete, its cost so far stays, and the queue starts the next task.">Mark as stopped…</button>
+                        </form>
                     </div>
                 </div>
                 <div class="task-row-empty" th:if="${#lists.isEmpty(triggered)}">Nothing has run yet. Select

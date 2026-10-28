@@ -76,6 +76,9 @@ public class PilotTaskUiController {
             Pattern.compile("^(?:shared: )?([A-Za-z][A-Za-z_-]*): (.+)$", Pattern.DOTALL);
     private static final DateTimeFormatter STARTED =
             DateTimeFormatter.ofPattern("MMM d, HH:mm", Locale.US).withZone(ZoneOffset.UTC);
+    private static final String COST_MAY_BE_HIGHER = "cost may be higher";
+    private static final String COST_MAY_BE_HIGHER_TITLE =
+            "Some usage was not reported by the runtime or has no price, so the real cost may be higher.";
 
     private final PilotTaskQuery taskQuery;
     private final PilotInstallationRepository installations;
@@ -154,7 +157,7 @@ public class PilotTaskUiController {
         model.addAttribute("queuedCount", queuedCount);
         model.addAttribute("queueWaiting", queueWaiting(installation, triggered.getContent()));
         model.addAttribute("queueProblem", queuedCount > 0 ? dispatcher.queueProblem() : null);
-        // A row with Mark as stopped… needs the wider status column so the inline control stays on one line.
+        // A row with Mark as stopped… needs the wider action column so the button stays on one line.
         model.addAttribute("triggeredWide", triggered.getContent().stream().anyMatch(view ->
                 !view.attempts().isEmpty() && "NEEDS_INSPECTION".equals(view.attempts().getLast().state())));
         // Profile, Effort and Max turns for Run and Run by key; null with the Pi runtime.
@@ -176,7 +179,7 @@ public class PilotTaskUiController {
                        @RequestParam(name = "error", required = false) String error, Model model) {
         PilotTaskView view = taskQuery.detail(taskId);
         model.addAttribute("task", detailMap(view));
-        model.addAttribute("attempts", view.attempts().reversed().stream().map(this::attemptRow).toList());
+        model.addAttribute("attempts", view.attempts().stream().map(this::attemptRow).toList());
         // Retry fills the form from the previous attempt.
         String previous = view.attempts().isEmpty() ? null : view.attempts().getLast().runSettings();
         model.addAttribute("retryForm", runSettings.form(previous));
@@ -491,8 +494,10 @@ public class PilotTaskUiController {
         row.put("retryAllowed", view.allowedActions().retry());
         row.put("markStoppedAttemptId", "NEEDS_INSPECTION".equals(latest.state()) ? latest.attemptId() : null);
         row.put("cost", costLabel(view.usage()));
-        row.put("costNote", "Queued".equals(label) ? "not started"
-                : "Working".equals(label) ? "so far" : !view.usage().complete() ? "incomplete" : null);
+        String costNote = "Queued".equals(label) ? "not started"
+                : "Working".equals(label) ? "so far" : !view.usage().complete() ? COST_MAY_BE_HIGHER : null;
+        row.put("costNote", costNote);
+        row.put("costNoteTitle", COST_MAY_BE_HIGHER.equals(costNote) ? COST_MAY_BE_HIGHER_TITLE : null);
         boolean started = latest.startedAt() != null;
         row.put("when", ago(started ? latest.startedAt() : latest.createdAt()));
         row.put("whenTitle", UiFormat.format(started ? latest.startedAt() : latest.createdAt()));
@@ -549,16 +554,19 @@ public class PilotTaskUiController {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("label", attempt.ordinal() + " · " + ("RETRY".equals(attempt.kind()) ? "retry" : "first run")
                 + ("BY_KEY".equals(attempt.admittedVia()) ? " by key" : ""));
+        row.put("ordinal", attempt.ordinal());
         row.put("run", PilotRunSettings.label(attempt.runSettings()));
         row.put("executionId", attempt.executionId());
-        row.put("executionShort", attempt.executionId() == null
-                ? null : attempt.executionId().toString().substring(0, 4) + "…");
+        boolean draft = "PR_READY".equals(attempt.state()) && attempt.draftReasons() != null;
+        row.put("resultLabel", draft ? "Draft PR" : null);
+        row.put("resultClass", draft ? stateClass("Draft PR") : null);
         row.put("result", attemptResult(attempt));
         row.put("started", attempt.startedAt() == null ? "not started" : STARTED.format(attempt.startedAt()));
         row.put("startedTitle", UiFormat.format(attempt.startedAt()));
         row.put("active", attempt.paidStart() ? minutes(attempt.activeSeconds()) : "—");
         row.put("cost", costLabel(attempt.usage()));
-        row.put("costNote", attempt.usage().complete() ? null : "incomplete");
+        row.put("costNote", attempt.usage().complete() ? null : COST_MAY_BE_HIGHER);
+        row.put("costNoteTitle", attempt.usage().complete() ? null : COST_MAY_BE_HIGHER_TITLE);
         return row;
     }
 

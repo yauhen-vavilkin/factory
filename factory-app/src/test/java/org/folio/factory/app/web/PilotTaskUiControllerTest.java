@@ -332,6 +332,8 @@ class PilotTaskUiControllerTest {
                 .containsEntry("draftReasons", reasons)
                 .containsEntry("prAction", "Open pull request #7");
         assertThat(rows(result.getModelAndView().getModel(), "attempts").getFirst())
+                .containsEntry("resultLabel", "Draft PR")
+                .containsEntry("resultClass", "state-pill state-pill-warning")
                 .containsEntry("result", "Pull request #7 opened as a draft");
         // The execution page header uses the same label for the attempt behind the run.
         assertThat(PilotTaskUiController.runContext(draft, EXECUTION_ID))
@@ -342,6 +344,40 @@ class PilotTaskUiControllerTest {
     }
 
     @Test
+    void incompleteUsageSaysTheCostMayBeHigherAndExplainsWhy() throws Exception {
+        String turnLimit = "Claude Code used all 40 turns before it finished the task."
+                + " Retry with more turns or a different effort.";
+        PilotTaskView.AttemptHistoryEntry attempt = new PilotTaskView.AttemptHistoryEntry(UUID.randomUUID(), 1,
+                "INITIAL", "MANUAL", "STOPPED", "coding", "DEVELOPMENT_FAILED: " + turnLimit, null, null,
+                EXECUTION_ID, "COMPLETED", Instant.parse("2026-10-23T07:59:00Z"),
+                Instant.parse("2026-10-23T08:00:00Z"), Instant.parse("2026-10-23T09:00:00Z"), true, 600,
+                incompleteUsage(), null);
+        PilotTaskView stopped = withUsage(taskView(TASK_ID, "MODBAR-911", "Open", PilotTaskView.TaskState.STOPPED,
+                false, true, attempt), incompleteUsage());
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), stopped));
+        when(taskQuery.detail(TASK_ID)).thenReturn(stopped);
+
+        Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
+        assertThat(rows(model, "triggered").getFirst())
+                .containsEntry("cost", "$0.32")
+                .containsEntry("costNote", "cost may be higher")
+                .containsEntry("costNoteTitle",
+                        "Some usage was not reported by the runtime or has no price, so the real cost may be higher.");
+
+        Map<String, Object> detail = mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn().getModelAndView()
+                .getModel();
+        assertThat(rows(detail, "attempts").getFirst())
+                .containsEntry("costNote", "cost may be higher")
+                .containsEntry("costNoteTitle",
+                        "Some usage was not reported by the runtime or has no price, so the real cost may be higher.")
+                .containsEntry("ordinal", 1)
+                .containsEntry("executionId", EXECUTION_ID)
+                .containsEntry("resultLabel", null)
+                // The reason keeps what to do.
+                .containsEntry("result", "Implementation failed: " + turnLimit.substring(0, turnLimit.length() - 1));
+    }
+
+    @Test
     void tasks_redirectsToTheFlowPage() throws Exception {
         mvc.perform(get("/tasks"))
                 .andExpect(status().is3xxRedirection())
@@ -349,7 +385,7 @@ class PilotTaskUiControllerTest {
     }
 
     @Test
-    void taskDetail_rendersSummaryWithAttemptsNewestFirst() throws Exception {
+    void taskDetail_rendersSummaryWithAttemptsOldestFirst() throws Exception {
         when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-911", "Open",
                 PilotTaskView.TaskState.STOPPED, false, true,
                 attempt("STOPPED", "MANUAL", 1), attempt("STOPPED", "BY_KEY", 2)));
@@ -366,9 +402,10 @@ class PilotTaskUiControllerTest {
                 .containsEntry("project", "MODBAR")
                 .containsEntry("destination", "folio-org/mod-bar · base master");
         assertThat((String) detail(result).get("result")).endsWith("No pull request was created.");
+        // Oldest first: a new attempt is added at the bottom.
         assertThat(rows(result.getModelAndView().getModel(), "attempts"))
                 .extracting(row -> row.get("label"))
-                .containsExactly("2 · first run by key", "1 · first run");
+                .containsExactly("1 · first run", "2 · first run by key");
         verifyNoInteractions(admissions, retries, discovery, outcomes);
         verify(dispatcher, never()).dispatchNext();
         verify(dispatcher, never()).dispatchNextQuietly();
@@ -393,7 +430,7 @@ class PilotTaskUiControllerTest {
                 .containsEntry("effort", "low").containsEntry("maxTurns", 77);
         assertThat(model.get("retryInstructions")).isEqualTo("Keep the public API.");
         assertThat(rows(model, "attempts")).extracting(row -> row.get("run"))
-                .containsExactly("glm-5.3 · low", null);
+                .containsExactly(null, "glm-5.3 · low");
     }
 
     @Test
@@ -803,5 +840,20 @@ class PilotTaskUiControllerTest {
     private static PilotTaskUsage emptyUsage() {
         return new PilotTaskUsage(0, Map.of(), new TreeMap<String, BigDecimal>(), true, false,
                 List.of(), List.of());
+    }
+
+    /** $0.32 so far, but some usage was not reported, so the total is incomplete. */
+    private static PilotTaskUsage incompleteUsage() {
+        return new PilotTaskUsage(10_000, Map.of(), new TreeMap<>(Map.of("USD", new BigDecimal("0.32"))), false,
+                false, List.of(), List.of());
+    }
+
+    private static PilotTaskView withUsage(PilotTaskView view, PilotTaskUsage usage) {
+        return new PilotTaskView(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(), view.projectKey(),
+                view.jiraStatus(), view.state(), view.queuePosition(), view.reason(), view.stage(),
+                view.stageStartedAt(), view.destinationRepository(), view.pullRequestUrl(), view.draftReasons(),
+                view.inScope(), view.eligibility(), view.routingReason(), view.version(), view.inputFingerprint(),
+                view.destinationFingerprint(), view.jiraCreatedAt(), view.updatedAt(), view.attempts(), usage,
+                view.allowedActions());
     }
 }
