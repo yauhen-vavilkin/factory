@@ -378,6 +378,46 @@ class PilotTaskUiControllerTest {
     }
 
     @Test
+    void costNoteSaysSoFarWhileRunningAndCostUnknownWithoutACostFigure() throws Exception {
+        String unknownTitle = "The runtime did not report usage, or the usage has no price, so the cost is not known.";
+        // A paid start that stopped before the runtime reported any usage, for example on a Docker error.
+        PilotTaskView stopped = withUsage(taskView(TASK_ID, "MODBAR-911", "Open", PilotTaskView.TaskState.STOPPED,
+                false, true, attempt("STOPPED", 1, unreportedUsage())), unreportedUsage());
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), stopped));
+
+        Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
+        assertThat(rows(model, "triggered").getFirst())
+                .containsEntry("cost", null)
+                .containsEntry("costNote", "cost unknown")
+                .containsEntry("costNoteTitle", unknownTitle);
+
+        // The retry is running and has not reported usage yet: its cost is "so far", like Working in Triggered.
+        PilotTaskView working = withUsage(taskView(TASK_ID, "MODBAR-911", "Open", PilotTaskView.TaskState.WORKING,
+                false, false, attempt("STOPPED", 1, unreportedUsage()), attempt("RUNNING", 2, unreportedUsage())),
+                unreportedUsage());
+        when(taskQuery.detail(TASK_ID)).thenReturn(working);
+
+        List<Map<String, Object>> attempts = rows(mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn()
+                .getModelAndView().getModel(), "attempts");
+        assertThat(attempts.get(0))
+                .containsEntry("cost", null)
+                .containsEntry("costNote", "cost unknown")
+                .containsEntry("costNoteTitle", unknownTitle);
+        assertThat(attempts.get(1))
+                .containsEntry("cost", null)
+                .containsEntry("costNote", "so far")
+                .containsEntry("costNoteTitle", null);
+
+        // A queued attempt has no cost note: its Started cell already says "not started".
+        when(taskQuery.detail(OTHER_TASK_ID)).thenReturn(taskView(OTHER_TASK_ID, "MODBAR-912", "Open",
+                PilotTaskView.TaskState.WORKING, false, false, attempt("RESERVED", 1, emptyUsage())));
+        assertThat(rows(mvc.perform(get("/tasks/{taskId}", OTHER_TASK_ID)).andReturn().getModelAndView().getModel(),
+                "attempts").getFirst())
+                .containsEntry("costNote", null)
+                .containsEntry("costNoteTitle", null);
+    }
+
+    @Test
     void tasks_redirectsToTheFlowPage() throws Exception {
         mvc.perform(get("/tasks"))
                 .andExpect(status().is3xxRedirection())
@@ -840,6 +880,18 @@ class PilotTaskUiControllerTest {
     private static PilotTaskUsage emptyUsage() {
         return new PilotTaskUsage(0, Map.of(), new TreeMap<String, BigDecimal>(), true, false,
                 List.of(), List.of());
+    }
+
+    private static PilotTaskView.AttemptHistoryEntry attempt(String state, int ordinal, PilotTaskUsage usage) {
+        return new PilotTaskView.AttemptHistoryEntry(UUID.randomUUID(), ordinal, "INITIAL", "MANUAL", state,
+                "verification", "VERIFICATION_FAILED: 2 tests failed", null, null, EXECUTION_ID, "COMPLETED",
+                Instant.parse("2026-10-23T07:59:00Z"), Instant.parse("2026-10-23T08:00:00Z"),
+                Instant.parse("2026-10-23T09:00:00Z"), true, 600, usage, null);
+    }
+
+    /** A paid start with no reported usage: no cost figure, and the total is incomplete. */
+    private static PilotTaskUsage unreportedUsage() {
+        return new PilotTaskUsage(0, Map.of(), new TreeMap<>(), false, false, List.of(), List.of());
     }
 
     /** $0.32 so far, but some usage was not reported, so the total is incomplete. */

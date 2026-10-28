@@ -79,6 +79,9 @@ public class PilotTaskUiController {
     private static final String COST_MAY_BE_HIGHER = "cost may be higher";
     private static final String COST_MAY_BE_HIGHER_TITLE =
             "Some usage was not reported by the runtime or has no price, so the real cost may be higher.";
+    private static final String COST_UNKNOWN = "cost unknown";
+    private static final String COST_UNKNOWN_TITLE =
+            "The runtime did not report usage, or the usage has no price, so the cost is not known.";
 
     private final PilotTaskQuery taskQuery;
     private final PilotInstallationRepository installations;
@@ -495,9 +498,9 @@ public class PilotTaskUiController {
         row.put("markStoppedAttemptId", "NEEDS_INSPECTION".equals(latest.state()) ? latest.attemptId() : null);
         row.put("cost", costLabel(view.usage()));
         String costNote = "Queued".equals(label) ? "not started"
-                : "Working".equals(label) ? "so far" : !view.usage().complete() ? COST_MAY_BE_HIGHER : null;
+                : "Working".equals(label) ? "so far" : incompleteCostNote(view.usage());
         row.put("costNote", costNote);
-        row.put("costNoteTitle", COST_MAY_BE_HIGHER.equals(costNote) ? COST_MAY_BE_HIGHER_TITLE : null);
+        row.put("costNoteTitle", costNoteTitle(costNote));
         boolean started = latest.startedAt() != null;
         row.put("when", ago(started ? latest.startedAt() : latest.createdAt()));
         row.put("whenTitle", UiFormat.format(started ? latest.startedAt() : latest.createdAt()));
@@ -565,9 +568,25 @@ public class PilotTaskUiController {
         row.put("startedTitle", UiFormat.format(attempt.startedAt()));
         row.put("active", attempt.paidStart() ? minutes(attempt.activeSeconds()) : "—");
         row.put("cost", costLabel(attempt.usage()));
-        row.put("costNote", attempt.usage().complete() ? null : COST_MAY_BE_HIGHER);
-        row.put("costNoteTitle", attempt.usage().complete() ? null : COST_MAY_BE_HIGHER_TITLE);
+        // Same notes as Triggered; a queued attempt already says "not started" in Started.
+        String costNote = switch (attempt.state()) {
+            case "RESERVED" -> null;
+            case "QUEUED", "RUNNING" -> "so far";
+            default -> incompleteCostNote(attempt.usage());
+        };
+        row.put("costNote", costNote);
+        row.put("costNoteTitle", costNoteTitle(costNote));
         return row;
+    }
+
+    /** Why a finished cost is missing or may be too low; null when all usage was reported and priced. */
+    private static String incompleteCostNote(PilotTaskUsage usage) {
+        return usage.complete() ? null : costLabel(usage) == null ? COST_UNKNOWN : COST_MAY_BE_HIGHER;
+    }
+
+    private static String costNoteTitle(String costNote) {
+        return COST_MAY_BE_HIGHER.equals(costNote) ? COST_MAY_BE_HIGHER_TITLE
+                : COST_UNKNOWN.equals(costNote) ? COST_UNKNOWN_TITLE : null;
     }
 
     private static String attemptResult(PilotTaskView.AttemptHistoryEntry attempt) {

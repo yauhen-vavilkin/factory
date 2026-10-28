@@ -1151,9 +1151,35 @@ class UiRenderSmokeTest {
                         "rate", Map.of("currency", "USD", "inputPerMillion", 0.15)));
         auditLog.record(liveExecution.getId(), AuditEventType.STEP_STARTED, "implement", "smoke", Map.of());
 
-        assertThat(assertRendered("/tasks/" + live.getId(), "In progress: Implementation."))
+        String liveBody = assertRendered("/tasks/" + live.getId(), "In progress: Implementation.");
+        assertThat(liveBody)
                 .contains("Working", "Open live run", "Includes live usage that can still change.")
                 .doesNotContain("name=\"expectedVersion\"");
+        // A running attempt's cost is "so far", the same as Working in Triggered.
+        assertThat(liveBody.substring(liveBody.indexOf("id=\"attempts-title\"")))
+                .containsPattern("<span class=\"dev-note\"\\s*>so far</span>")
+                .doesNotContain("cost may be higher", "cost unknown");
+
+        // A paid start that stopped before the runtime reported any usage, for example on a Docker error:
+        // there is no cost figure, so the note says the cost is unknown, not that it may be higher.
+        PilotTask unreported = seedTask("70024", "MODBAR-724", "Unreported task",
+                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution unreportedExecution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        PilotAttempt unreportedAttempt = seedAttempt(unreported, 1, PilotAttempt.Kind.INITIAL,
+                PilotAttempt.State.STOPPED, "DEVELOPMENT_FAILED: the coding container did not start");
+        unreportedAttempt.setExecutionId(unreportedExecution.getId());
+        unreportedAttempt.setPaidStartAt(Instant.now());
+        pilotAttempts.save(unreportedAttempt);
+
+        String unknownCost = "<span>—</span>\\s*<span class=\"dev-note\"\\s+title=\"The runtime did not report usage,"
+                + " or the usage has no price, so the cost is not known.\">cost unknown</span>";
+        String unreportedBody = assertRendered("/tasks/" + unreported.getId(), "Could not complete");
+        assertThat(unreportedBody.substring(unreportedBody.indexOf("id=\"attempts-title\"")))
+                .containsPattern(unknownCost).doesNotContain("cost may be higher");
+        String unreportedList = assertRendered("/flows/dev-factory", "My Jira tasks");
+        String unreportedRow = unreportedList.substring(unreportedList.indexOf(">MODBAR-724</a>"));
+        assertThat(unreportedRow.substring(0, unreportedRow.indexOf("class=\"task-action\"")))
+                .containsPattern(unknownCost).doesNotContain("cost may be higher");
     }
 
     @Test

@@ -206,12 +206,14 @@ class DashboardStatsIntegrationTest {
         // A 10-day-old execution and audit row: excluded from a 7-day window but
         // counted all-time. The audit_event table is append-only (UPDATE/DELETE are
         // blocked by a trigger), so the row is inserted already-backdated.
+        // '240 hours', not '10 days': Postgres counts days in the session time zone, so across a DST change
+        // '10 days' moves the row by one hour more or less, and near midnight UTC it lands on another day.
         PipelineExecution old = stateManager.createExecution(FLOW_B, "1", "{}");
-        jdbc.sql("UPDATE pipeline_execution SET created_at = now() - interval '10 days' WHERE id = :id")
+        jdbc.sql("UPDATE pipeline_execution SET created_at = now() - interval '240 hours' WHERE id = :id")
                 .param("id", old.getId()).update();
         jdbc.sql("""
                         INSERT INTO audit_event (execution_id, event_type, step_id, actor, detail, occurred_at)
-                        VALUES (:id, 'STEP_FAILED', 'legacy-step', 'system', '{}'::jsonb, now() - interval '10 days')
+                        VALUES (:id, 'STEP_FAILED', 'legacy-step', 'system', '{}'::jsonb, now() - interval '240 hours')
                         """)
                 .param("id", old.getId()).update();
         return old.getId();
