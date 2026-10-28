@@ -99,7 +99,7 @@ public class PilotExecutionLauncher {
             return;
         }
         attempt.setState(PilotAttempt.State.STOPPED);
-        attempt.setResultReason("Could not start: " + reason);
+        attempt.setResultReason(PersistedPilotAttemptPolicy.truncated("Could not start", reason));
         attempts.save(attempt);
     }
 

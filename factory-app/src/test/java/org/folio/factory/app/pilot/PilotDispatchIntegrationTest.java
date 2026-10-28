@@ -255,6 +255,20 @@ class PilotDispatchIntegrationTest {
     }
 
     @Test
+    void aLongCouldNotStartReasonFitsTheResultReasonColumn() {
+        UUID moved = admit("30063", "MODBAR-263");
+        doThrow(new DeveloperPreflight.TaskNotRunnableException("x".repeat(800)))
+                .when(preflight).requireReady(eq(FLOW_ID), any());
+
+        dispatcher.dispatchNext();
+
+        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(moved)).singleElement().satisfies(attempt -> {
+            assertThat(attempt.getState()).isEqualTo(PilotAttempt.State.STOPPED);
+            assertThat(attempt.getResultReason()).startsWith("Could not start: xxx").hasSize(500);
+        });
+    }
+
+    @Test
     void enabledRetentionRefusesANewLaunchBeforeAnyExecution() {
         UUID taskId = admit("30051", "MODBAR-251");
         var enabled = new PilotExecutionProperties(null, true);
