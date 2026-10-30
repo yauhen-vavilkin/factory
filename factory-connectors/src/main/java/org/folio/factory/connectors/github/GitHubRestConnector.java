@@ -114,20 +114,29 @@ public class GitHubRestConnector implements GitHubConnector, ConnectorHealth {
         }
         List<PullRequest> matches = new ArrayList<>();
         for (JsonNode pr : response) {
-            if (repo.equalsIgnoreCase(pr.path("head").path("repo").path("full_name").asString(""))
-                    && repo.equalsIgnoreCase(pr.path("base").path("repo").path("full_name").asString(""))
-                    && headBranch.equals(pr.path("head").path("ref").asString(""))
-                    && baseBranch.equals(pr.path("base").path("ref").asString(""))) {
-                matches.add(new PullRequest(
-                        pr.path("html_url").asString(""),
-                        pr.path("state").asString(""),
-                        pr.path("merged").asBoolean(false),
-                        pr.path("head").path("ref").asString(""),
-                        pr.path("head").path("sha").asString(""),
-                        pr.path("base").path("ref").asString("")));
+            if (isSameHeadAndBase(pr, repo, headBranch, baseBranch)) {
+                matches.add(toPullRequest(pr));
             }
         }
         return List.copyOf(matches);
+    }
+
+    /** Only a pull request from a branch of this repository into this repository counts. */
+    private static boolean isSameHeadAndBase(JsonNode pr, String repo, String headBranch, String baseBranch) {
+        return repo.equalsIgnoreCase(pr.path("head").path("repo").path("full_name").asString(""))
+                && repo.equalsIgnoreCase(pr.path("base").path("repo").path("full_name").asString(""))
+                && headBranch.equals(pr.path("head").path("ref").asString(""))
+                && baseBranch.equals(pr.path("base").path("ref").asString(""));
+    }
+
+    private static PullRequest toPullRequest(JsonNode pr) {
+        return new PullRequest(
+                pr.path("html_url").asString(""),
+                pr.path("state").asString(""),
+                pr.path("merged").asBoolean(false),
+                pr.path("head").path("ref").asString(""),
+                pr.path("head").path("sha").asString(""),
+                pr.path("base").path("ref").asString(""));
     }
 
     private java.util.Optional<String> existingFileSha(String repo, String branch, String path) {

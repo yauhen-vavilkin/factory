@@ -40,6 +40,10 @@ public class FrontmatterCodec {
         }
         String yaml = stripped.substring(frontmatterStart, frontmatterEnd);
         String body = stripped.substring(frontmatterEnd + 1 + DELIMITER.length()).stripLeading();
+        return new Frontmatter(readMetadata(yaml), body);
+    }
+
+    private JsonNode readMetadata(String yaml) {
         JsonNode metadata;
         try {
             metadata = yamlMapper.readTree(yaml);
@@ -49,7 +53,7 @@ public class FrontmatterCodec {
         if (metadata == null || !metadata.isObject()) {
             throw new ArtifactFormatException("Artifact frontmatter must be a YAML mapping");
         }
-        return new Frontmatter(metadata, body);
+        return metadata;
     }
 
     public <T> T parseMetadata(String content, Class<T> type) {

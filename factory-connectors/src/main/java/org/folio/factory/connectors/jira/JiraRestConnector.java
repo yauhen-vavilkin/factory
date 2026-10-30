@@ -112,17 +112,10 @@ public class JiraRestConnector implements JiraConnector, JiraSourceConnector, Co
 
     @Override
     public IssuePage searchIssues(String jql, String cursor) {
-        Map<String, Object> request = new LinkedHashMap<>();
-        request.put("jql", jql);
-        request.put("maxResults", SEARCH_PAGE_SIZE);
-        request.put("fields", SEARCH_FIELDS);
-        if (cursor != null && !cursor.isBlank()) {
-            request.put("nextPageToken", cursor);
-        }
         JsonNode body = requireBody(restClient.post()
                 .uri("/rest/api/2/search/jql")
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(request)
+                .body(searchRequest(jql, cursor))
                 .retrieve()
                 .body(JsonNode.class), "issue search");
         JsonNode issuesNode = body.path("issues");
@@ -137,6 +130,17 @@ public class JiraRestConnector implements JiraConnector, JiraSourceConnector, Co
                     + "still carries a nextPageToken");
         }
         return new IssuePage(issues, nextCursor);
+    }
+
+    private static Map<String, Object> searchRequest(String jql, String cursor) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("jql", jql);
+        request.put("maxResults", SEARCH_PAGE_SIZE);
+        request.put("fields", SEARCH_FIELDS);
+        if (cursor != null && !cursor.isBlank()) {
+            request.put("nextPageToken", cursor);
+        }
+        return request;
     }
 
     private static String nextPageToken(JsonNode body) {
