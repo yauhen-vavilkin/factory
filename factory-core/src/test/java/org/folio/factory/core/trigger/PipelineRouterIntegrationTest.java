@@ -1,5 +1,6 @@
 package org.folio.factory.core.trigger;
 
+import org.folio.factory.core.registry.FlowValidationException;
 import org.folio.factory.core.service.StateManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -78,5 +79,42 @@ class PipelineRouterIntegrationTest {
     @Test
     void unknownEventTypeMatchesNothing() {
         assertThat(router.route(TriggerEvent.of("github.push", "test", json.readTree("{}")))).isEmpty();
+    }
+
+    @Test
+    void preparedManualRoundTripPersistsFlowPayloadAndDedupKey() {
+        var payload = json.readTree("{\"issueKey\": \"ERM-7\"}");
+
+        var prepared = router.prepareManual("fake-webhook", payload, "pilot-attempt-1");
+        UUID id = router.routePrepared(prepared);
+
+        var execution = stateManager.get(id);
+        assertThat(execution.getFlowId()).isEqualTo("fake-webhook");
+        assertThat(execution.getTriggerPayload()).contains("ERM-7");
+        assertThat(execution.getDedupKey()).isEqualTo("pilot-attempt-1");
+    }
+
+    @Test
+    void routePreparedRevalidatesFlowIdentityAndDedupesWithinWindow() {
+        var prepared = router.prepareManual("fake-webhook", json.readTree("{\"issueKey\": \"ERM-8\"}"), "k-1");
+
+        assertThatThrownBy(() -> router.routePrepared(new PreparedManualTrigger("no-such-flow", prepared.payload(), "k-1")))
+                .isInstanceOf(FlowValidationException.class)
+                .hasMessageContaining("no-such-flow");
+
+        UUID first = router.routePrepared(prepared);
+        UUID second = router.routePrepared(prepared);
+        assertThat(second).isEqualTo(first);
+    }
+
+    @Test
+    void manualRouteStillDedupesOnExplicitKeyAfterPreparedSplit() {
+        var payload = json.readTree("{\"issueKey\": \"ERM-9\"}");
+
+        UUID first = router.routeManual("fake-webhook", payload, "manual-key");
+        UUID second = router.routeManual("fake-webhook", payload, "manual-key");
+
+        assertThat(second).isEqualTo(first);
+        assertThat(stateManager.get(first).getDedupKey()).isEqualTo("manual-key");
     }
 }

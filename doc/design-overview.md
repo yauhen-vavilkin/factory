@@ -247,7 +247,7 @@ the shared framework, not by individual flow implementations:
 ## 8. Mapping to the implementation
 
 The platform components map onto repository modules as follows — see
-[CLAUDE.md](../CLAUDE.md) for the deeper code-level walkthrough:
+[AGENTS.md](../AGENTS.md) for the deeper code-level walkthrough:
 
 | Design component | Implementation |
 |---|---|

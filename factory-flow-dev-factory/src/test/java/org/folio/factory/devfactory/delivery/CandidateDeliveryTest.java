@@ -20,7 +20,7 @@ class CandidateDeliveryTest {
     Path remote;
     Candidate candidate;
     CandidateDelivery delivery;
-    DeliveryTarget target = new DeliveryTarget("fixture/fork", "master", true);
+    DeliveryTarget target = new DeliveryTarget("fixture/fork", "master");
 
     @BeforeEach void setup() throws Exception {
         source = Files.createDirectory(root.resolve("source"));
@@ -74,13 +74,36 @@ class CandidateDeliveryTest {
         assertThat(CandidateFreezer.git(remote, "branch", "--list", "factory/*")).isBlank();
     }
 
-    @Test void refusesUpstreamUnauthorizedAndInvalidBranch() {
-        assertThatThrownBy(() -> deliver(receipt("execution", 0), new DeliveryTarget("folio-org/module", "master", true), "token"))
-                .hasMessageContaining("user-owned");
-        assertThatThrownBy(() -> deliver(receipt("execution", 0), new DeliveryTarget("fixture/fork", "master", false), "token"))
-                .hasMessageContaining("authorization");
-        assertThatThrownBy(() -> deliver(receipt("execution", 0), new DeliveryTarget("fixture/fork", "bad..branch", true), "token"))
+    @Test void officialDestinationPublishesThere() throws Exception {
+        java.nio.file.Files.createDirectories(root.resolve("folio-org"));
+        CandidateFreezer.git(root, "clone", "--quiet", "--bare", source.toString(),
+                root.resolve("folio-org/module.git").toString());
+        var official = new DeliveryTarget("folio-org/module", "master");
+
+        var receipt = deliver(receipt("execution", 0), official, "token");
+
+        assertThat(CandidateFreezer.git(root.resolve("folio-org/module.git"), "rev-parse",
+                receipt.branch() + "^{tree}").strip()).isEqualTo(candidate.treeSha());
+        assertThat(CandidateFreezer.git(remote, "branch", "--list", "factory/*")).isBlank();
+    }
+
+    @Test void refusesInvalidOrUnreachableDestinationsWithoutRemoteWrites() {
+        assertThatThrownBy(() -> deliver(receipt("execution", 0), new DeliveryTarget("not-a-repository", "master"), "token"))
+                .hasMessageContaining("GitHub owner/repository destination");
+        assertThatThrownBy(() -> deliver(receipt("execution", 0), new DeliveryTarget("fixture/fork", "bad..branch"), "token"))
                 .isInstanceOf(IllegalStateException.class);
+        assertThat(CandidateFreezer.git(remote, "branch", "--list", "factory/*")).isBlank();
+    }
+
+    @Test void missingDestinationNeverFallsBackToAnotherRepository() throws Exception {
+        java.nio.file.Files.createDirectories(root.resolve("folio-org"));
+        CandidateFreezer.git(root, "clone", "--quiet", "--bare", source.toString(),
+                root.resolve("folio-org/module.git").toString());
+
+        assertThatThrownBy(() -> deliver(receipt("execution", 0),
+                new DeliveryTarget("fixture/other-fork", "master"), "token"))
+                .hasMessageContaining("missing or unauthorized");
+        assertThat(CandidateFreezer.git(root.resolve("folio-org/module.git"), "branch", "--list", "factory/*")).isBlank();
         assertThat(CandidateFreezer.git(remote, "branch", "--list", "factory/*")).isBlank();
     }
 

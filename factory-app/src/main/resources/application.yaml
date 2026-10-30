@@ -3,6 +3,8 @@ spring:
     import:
       - classpath:developer-repositories.yaml
       - optional:file:./config/developer-repositories.yaml
+      - classpath:developer-run-profiles.yaml
+      - optional:file:./config/developer-run-profiles.yaml
   application:
     name: ai-factory
   lifecycle:
@@ -33,6 +35,15 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
+  # Every @{/css/...}, @{/js/...} and @{/webjars/...} link in a page gets a content hash, so a
+  # browser never mixes an old cached file with new HTML. Long caching of /css and /js:
+  # StaticResourceConfiguration.
+  web:
+    resources:
+      chain:
+        strategy:
+          content:
+            enabled: true
   # REL-1: outbound HTTP client timeouts for the auto-configured RestClient.Builder
   # the Jira/GitHub/TestRail connectors clone (Spring Boot 4 plural `clients`
   # namespace). The Anthropic LLM client uses its own transport and is unaffected.
@@ -48,8 +59,8 @@ spring:
       api-key: ${ANTHROPIC_API_KEY:}
       chat:
         options:
-          model: ${FACTORY_LLM_MODEL:claude-sonnet-4-5}
-          max-tokens: 8192
+          model: ${FACTORY_LLM_MODEL:claude-sonnet-5-5}
+          max-tokens: 16384
     # Any OpenAI-compatible endpoint (Groq, Gemini, OpenRouter, local Ollama).
     # Active only when FACTORY_LLM_PROVIDER=openai.
     openai:
@@ -125,8 +136,31 @@ factory:
       username: ${FACTORY_CONNECTORS_TESTRAIL_USERNAME:}
       api-key: ${FACTORY_CONNECTORS_TESTRAIL_API_KEY:}
       project-id: ${FACTORY_CONNECTORS_TESTRAIL_PROJECT_ID:0}
+  pilot:
+    execution:
+      # M1 sprint pilot processing: opt-in; new launches are refused while retention
+      # is enabled. Gates the outcome/recovery wiring; the engine itself is never
+      # pilot-aware.
+      enabled: ${FACTORY_PILOT_EXECUTION_ENABLED:false}
+      # Whole-attempt budget from preparation through delivery (forty coding turns
+      # and sixty minutes are the M1 defaults; queue and review waiting excluded).
+      # The coding-turn cap stays the runtime default of 40
+      # (factory.dev-factory.runtime.coding.claude-code.max-turns).
+      deadline: ${FACTORY_PILOT_EXECUTION_DEADLINE:60m}
+      recovery-poll-interval-ms: ${FACTORY_PILOT_EXECUTION_RECOVERY_POLL_INTERVAL_MS:60000}
+      # Dispatch poller: retries queued attempts after a refused or failed
+      # dispatch and advances the queue when a terminal outcome frees the slot.
+      # Admission itself also dispatches best-effort; this is the safety net.
+      dispatch-interval-ms: ${FACTORY_PILOT_EXECUTION_DISPATCH_INTERVAL_MS:30000}
+    source:
+      # Whose open Jira tasks Scan Jira finds: the name as Jira shows it, or an accountId.
+      assignee: ${FACTORY_PILOT_ASSIGNEE:}
   dev-factory:
     git-base-url: ${FACTORY_DEV_FACTORY_GIT_BASE_URL:https://github.com}
+    # Run profile used when a run names none (manual API trigger, older attempts) and preselected in
+    # the run forms. Empty: env-default, built from the FACTORY_CLAUDE_CODE_* settings below. Other
+    # profiles live in config/developer-run-profiles.yaml.
+    default-run-profile: ${FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE:}
     runtime:
       timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
@@ -160,6 +194,8 @@ factory:
           auth-token: ${FACTORY_CLAUDE_CODE_AUTH_TOKEN:codemie-proxy}
           max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:40}
           max-output-tokens: ${FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS:16384}
+          # Default effort of profile env-default: low, medium, high, xhigh or max. Empty sends no
+          # --effort, so the CLI uses high.
           effort: ${FACTORY_CLAUDE_CODE_EFFORT:}
     delivery:
       create-pull-request: true

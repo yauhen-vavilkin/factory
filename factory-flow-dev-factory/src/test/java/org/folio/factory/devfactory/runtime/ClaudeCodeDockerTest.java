@@ -119,9 +119,21 @@ class ClaudeCodeDockerTest {
             assertThat(workload.execute(List.of("sh", "-c", "test \"$HOME\" = /tmp/factory-home && "
                     + "test ! -e /var/run/docker.sock && test -z \"$ANTHROPIC_API_KEY$ANTHROPIC_AUTH_TOKEN\" && "
                     + "java -version && mvn -version"), 30).exitCode()).isZero();
-            var outcome = runtime.code(workload, ClaudeCodeCodingRuntimeTest.request(), 90, events::add);
+            var transcript = new CopyOnWriteArrayList<CodingTranscripts.Entry>();
+            var outcome = runtime.code(workload, ClaudeCodeCodingRuntimeTest.request(), 90, events::add,
+                    transcript::add);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
             assertThat(outcome.summary()).contains("Implemented");
+            assertThat(transcript).extracting(CodingTranscripts.Entry::kind)
+                    .containsSubsequence("prompt", "tool_call", "tool_result", "result");
+            assertThat(transcript.getFirst().detail().get("text").toString()).contains("Factory CodingRequest JSON");
+            assertThat(transcript).filteredOn(entry -> entry.kind().equals("tool_call")).singleElement()
+                    .satisfies(entry -> assertThat(entry.detail()).containsEntry("tool", "Bash")
+                            .containsEntry("id", "tool_1"));
+            assertThat(events).anySatisfy(e -> assertThat(e).containsEntry("activity", "tool_execution_end")
+                    .containsEntry("tool", "Bash").containsKey("durationMs")
+                    .containsEntry("command", "printf 'edited by Claude\\n' > /workspace/changed.txt"));
+            assertThat(transcript.toString()).doesNotContain("mock-key", "mock-token");
             assertThat(outcome.metrics()).containsEntry("inputTokens", 80L).containsEntry("outputTokens", 10L)
                     .containsEntry("cacheReadTokens", 6L).containsEntry("cacheWriteTokens", 4L)
                     .doesNotContainKey("usageIncomplete");
@@ -134,6 +146,8 @@ class ClaudeCodeDockerTest {
             assertThat(Files.exists(exported.resolve(".claude"))).isFalse();
             assertThat(mock.calls.size()).isEqualTo(2);
             for (var call : mock.calls) {
+                // --bare is off, so the CLI offers WebFetch.
+                assertThat(call.body.path("tools").findValuesAsString("name")).contains("Bash", "WebFetch");
                 assertThat(call.body.path("model").asString()).isEqualTo(MODEL);
                 assertThat(call.body.path("max_tokens").asInt()).isEqualTo(4096);
                 assertThat(call.body.path("stream").asBoolean()).isTrue();
@@ -151,7 +165,10 @@ class ClaudeCodeDockerTest {
             var outcome = new ClaudeCodeCodingRuntime(config(mock, "api-key"))
                     .code(workload, ClaudeCodeCodingRuntimeTest.request(), 60);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.FAILED);
-            assertThat(outcome.toString()).doesNotContain("mock-key", "private provider diagnostic");
+            // The CLI subtype and its error text are kept, with the credential redacted.
+            assertThat(outcome.failure().message()).contains("(subtype success, API status 400)",
+                    "Error: API Error: 400 private provider diagnostic [REDACTED]");
+            assertThat(outcome.toString()).doesNotContain("mock-key");
             workload.stop();
             workload.export(exported);
             assertThat(Files.readString(exported.resolve("changed.txt"))).isEqualTo("edited by Claude\n");
@@ -189,8 +206,10 @@ class ClaudeCodeDockerTest {
                         "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "0:0",
                         "--env", "HOME=/tmp/factory-home", "--env", "ANTHROPIC_AUTH_TOKEN=mock-token",
                         "--env", "ANTHROPIC_BASE_URL=" + mock.url(), "--entrypoint", "claude", IMAGE,
-                        "--bare", "--print", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
-                        "--tools", "Bash,Read,Edit,Write,Glob,Grep", "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep",
+                        "--print", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
+                        "--setting-sources", "", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
+                        "--tools", "Bash,Read,Edit,Write,Glob,Grep,WebFetch",
+                        "--allowedTools", "Bash,Read,Edit,Write,Glob,Grep,WebFetch",
                         "--permission-mode", "dontAsk", "--permission-prompts", "none",
                         "--model", MODEL, "--max-turns", "3", "Use public API");
                 var result = Processes.run(null, command, 60);

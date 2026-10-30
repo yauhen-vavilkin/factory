@@ -4,6 +4,7 @@ import org.folio.factory.devfactory.DevFactoryConfiguration;
 import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.PiCodingRuntime;
+import org.folio.factory.devfactory.runtime.RunProfiles;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.env.YamlPropertySourceLoader;
@@ -25,7 +26,7 @@ class CodingRuntimeConfigurationTest {
                 "FACTORY_MODEL_API_KEY", "legacy-key",
                 "FACTORY_MODEL_MAX_OUTPUT_TOKENS", "8192"));
         var coding = properties.coding();
-        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties);
+        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties, RunProfiles.envOnly(properties.coding().claudeCode()));
 
         assertThat(runtime).isInstanceOf(PiCodingRuntime.class);
         coding.piProfile().requireConfigured();
@@ -57,11 +58,11 @@ class CodingRuntimeConfigurationTest {
     void localCodeMieProfileWorksWithoutEnvironmentOverrides() throws Exception {
         var properties = bind(Map.of());
         var profile = properties.coding().claudeCode();
-        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties);
+        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties, RunProfiles.envOnly(properties.coding().claudeCode()));
 
         assertThat(properties.coding().runtime()).isEqualTo("claude-code");
         assertThat(runtime).isInstanceOf(ClaudeCodeCodingRuntime.class);
-        assertThat(runtime.identity()).containsEntry("model", "claude-sonnet-5-5");
+        assertThat(runtime.identity(null)).containsEntry("model", "claude-sonnet-5-5");
         assertThat(profile.api()).isEqualTo("anthropic-messages");
         assertThat(profile.baseUrl()).isEqualTo("http://host.docker.internal:4001");
         assertThat(profile.authentication()).isEqualTo("bearer-token");
@@ -70,18 +71,18 @@ class CodingRuntimeConfigurationTest {
         assertThat(profile.maxTurns()).isEqualTo(40);
         assertThat(profile.effort()).isBlank();
         assertThat(properties.timeoutSeconds()).isEqualTo(1800);
-        runtime.requireConfigured();
+        runtime.requireConfigured(null);
         assertThat(properties.coding().piProfile().apiKey()).isBlank();
     }
 
     @Test
     void localCodeMieBearerTokenDoesNotUseLegacyPiApiKey() throws Exception {
         var properties = bind(Map.of("FACTORY_MODEL_API_KEY", "legacy-pi-key"));
-        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties);
+        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties, RunProfiles.envOnly(properties.coding().claudeCode()));
 
         assertThat(properties.coding().claudeCode().secret()).isEqualTo("codemie-proxy");
         assertThat(properties.coding().piProfile().apiKey()).isEqualTo("legacy-pi-key");
-        runtime.requireConfigured();
+        runtime.requireConfigured(null);
     }
 
     @Test
@@ -92,13 +93,13 @@ class CodingRuntimeConfigurationTest {
                 "FACTORY_CLAUDE_CODE_BASE_URL", "https://gateway/anthropic",
                 "FACTORY_CLAUDE_CODE_AUTHENTICATION", "bearer-token",
                 "FACTORY_CLAUDE_CODE_AUTH_TOKEN", "token"));
-        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties);
+        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties, RunProfiles.envOnly(properties.coding().claudeCode()));
 
         assertThat(runtime).isInstanceOf(ClaudeCodeCodingRuntime.class);
-        runtime.requireConfigured();
+        runtime.requireConfigured(null);
         assertThat(properties.coding().piProfile().apiKey()).isBlank();
         assertThat(properties.coding().claudeCode().secret()).isEqualTo("token");
-        assertThat(runtime.identity()).containsEntry("model", "exact/Model");
+        assertThat(runtime.identity(null)).containsEntry("model", "exact/Model");
     }
 
     @Test
@@ -108,23 +109,25 @@ class CodingRuntimeConfigurationTest {
                 "FACTORY_CLAUDE_CODE_AUTHENTICATION", "api-key",
                 "FACTORY_CLAUDE_CODE_API_KEY", "key"));
         var profile = properties.coding().claudeCode();
-        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties);
+        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties, RunProfiles.envOnly(properties.coding().claudeCode()));
 
         assertThat(profile.baseUrl()).isEqualTo("https://api.anthropic.com");
         assertThat(profile.authentication()).isEqualTo("api-key");
         assertThat(profile.secret()).isEqualTo("key");
-        runtime.requireConfigured();
+        runtime.requireConfigured(null);
     }
 
     @Test
     void apiKeyAuthenticationRequiresAnApiKeyDespiteTheDefaultBearerToken() throws Exception {
         var properties = bind(Map.of("FACTORY_CLAUDE_CODE_AUTHENTICATION", "api-key"));
-        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties);
+        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties, RunProfiles.envOnly(properties.coding().claudeCode()));
 
         assertThat(properties.coding().claudeCode().authToken()).isEqualTo("codemie-proxy");
-        assertThatThrownBy(runtime::requireConfigured)
+        // The reason names the variable to set.
+        assertThatThrownBy(() -> runtime.requireConfigured(null))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("selected authentication credential");
+                .hasMessage("Profile env-default is not configured: set FACTORY_CLAUDE_CODE_API_KEY in .env, then"
+                        + " run docker compose up -d again.");
     }
 
     private static DevRuntimeProperties bind(Map<String, Object> variables) throws Exception {

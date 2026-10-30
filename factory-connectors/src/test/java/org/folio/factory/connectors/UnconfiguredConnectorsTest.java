@@ -20,7 +20,8 @@ class UnconfiguredConnectorsTest {
         List<ThrowingCallable> calls = List.of(
                 () -> jira.getIssue("ERM-42"),
                 () -> jira.addComment("ERM-42", "body"),
-                () -> jira.transitionIssue("ERM-42", "Done"));
+                () -> jira.transitionIssue("ERM-42", "Done"),
+                () -> jira.searchIssues("key = ERM-42", null));
         for (ThrowingCallable call : calls) {
             assertThatThrownBy(call)
                     .isInstanceOf(ConnectorNotConfiguredException.class)
@@ -39,7 +40,8 @@ class UnconfiguredConnectorsTest {
         List<ThrowingCallable> calls = List.of(
                 () -> gitHub.createBranch("o/r", "main", "feature"),
                 () -> gitHub.commitFiles("o/r", "feature", Map.of(), "msg"),
-                () -> gitHub.createPullRequest("o/r", "feature", "main", "Title", "Body"));
+                () -> gitHub.createPullRequest("o/r", "feature", "main", "Title", "Body"),
+                () -> gitHub.createPullRequest("o/r", "feature", "main", "Title", "Body", true));
         for (ThrowingCallable call : calls) {
             assertThatThrownBy(call)
                     .isInstanceOf(ConnectorNotConfiguredException.class)

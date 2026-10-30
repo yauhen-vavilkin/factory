@@ -161,8 +161,13 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
             if (maxTurns <= 0 || maxOutputTokens <= 0) {
                 throw new IllegalStateException("Claude Code max-turns and max-output-tokens must be positive");
             }
-            if (effort != null && !effort.isBlank() && !List.of("low", "medium", "high", "max").contains(effort)) {
-                throw new IllegalStateException("Claude Code effort must be low, medium, high or max");
+            if (maxTurns > RunProfiles.MAX_TURNS) {
+                throw new IllegalStateException("FACTORY_CLAUDE_CODE_MAX_TURNS is " + maxTurns
+                        + ", but it must be from 1 to " + RunProfiles.MAX_TURNS);
+            }
+            if (effort != null && !effort.isBlank()
+                    && !RunProfiles.EFFORTS.contains(effort.strip().toLowerCase(Locale.ROOT))) {
+                throw new IllegalStateException("Claude Code effort must be low, medium, high, xhigh or max");
             }
         }
 

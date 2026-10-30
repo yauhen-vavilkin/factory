@@ -89,7 +89,7 @@ public record DevFactoryProperties(String gitBaseUrl, SortedMap<String, Reposito
                 throw new IllegalArgumentException(
                         "Repository delivery base-branch must match source base-branch");
             }
-            return new DeliveryTarget(delivery.repository(), sourceBaseBranch, delivery.authorized());
+            return new DeliveryTarget(delivery.repository(), sourceBaseBranch);
         }
     }
 

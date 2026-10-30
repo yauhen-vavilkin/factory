@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -13,9 +13,16 @@ versioned artifacts**, and every consequential step passes a
 The full product spec ("FOLIO AI SDLC Factory") defines five flows: A — Test
 Factory, B — Kong & Keycloak Release Automation, C — Release Pipeline
 Orchestrator, D — AI Junior Developer, E — Grails-to-Java Rewrite Orchestrator
-(which composes A and D as sub-flows). **Milestone 1 (this repo today) ships
-the shared framework plus the Test Factory flow only.** New flows must be added as plugins —
+(which composes A and D as sub-flows). **This repo ships the shared framework,
+the Test Factory flow, and the Developer Flow (`factory-flow-dev-factory`,
+including the M1 sprint pilot machinery).** New flows must be added as plugins —
 never by modifying the control plane.
+
+## Product postulates
+
+Simple. Transparent. Easy to configure. These outrank feature ambitions: a design
+that adds layers, packages or configuration surface carries that cost explicitly
+in the plan — it is never assumed away by "the feature needs it".
 
 ## Commands
 
@@ -65,6 +72,8 @@ factory-connectors          Jira / GitHub / TestRail REST clients + graceful fal
 factory-agents              LLM worker base (Spring AI ChatClient), prompt loading,
                             frontmatter codec, secret-scan post-processor
 factory-flow-test-factory   Test Factory plugin: flows/test-factory.yaml + 5 workers + prompts
+factory-flow-dev-factory    Developer Flow plugin: dev-factory.yaml, Claude Code / Pi coding
+                            runtimes, verification, delivery, PR feedback, sprint pilot
 factory-app                 Spring Boot composition root: management console (server-rendered
                             Thymeleaf UI), REST API, Flyway
 ```
@@ -98,8 +107,8 @@ Flow modules plug in via the `AgentWorker` SPI and a YAML descriptor; only
    (amendments are validated per-flow via `ArtifactAmendmentValidator`).
 6. **SUB_FLOW** steps (`SubFlowInvoker`) start a child execution of any
    registered flow; the parent waits — including through the child's HITL
-   gates — then collects mapped output artifacts. Built now; Flow E will use
-   it to compose Flows A and D.
+   gates — then collects mapped output artifacts. Flow E will use it to
+   compose Flows A and D.
 
 ### Framework invariants (enforced, don't work around them)
 
@@ -174,6 +183,12 @@ No engine, router, or gateway changes — if a change seems to require touching
 - Webhooks (`/api/webhooks/jira`, `/api/webhooks/github`) are unauthenticated
   until `FACTORY_WEBHOOKS_SHARED_SECRET` is set (checked against `?token=`).
 
+## Open questions
+
+`docs/open-questions.md` lists known gaps and ideas that are outside the current scope:
+coding runtime tuning and issues seen in live runs. Read it before you work on the coding
+runtime. Add new out-of-scope findings there instead of fixing them on the side.
+
 ## Testing conventions
 
 - Engine semantics (retry → escalation, poller crash recovery, sub-flow
@@ -206,6 +221,15 @@ No engine, router, or gateway changes — if a change seems to require touching
 - The best code is the code you never wrote. Before writing, climb the ladder: does this
   need to exist? Is there a stdlib / platform / existing-dependency answer? Can it be one
   line? Then write the minimum that works — nothing speculative.
+- The ladder starts at planning, not coding: a plan proposes the minimal version and
+  extends existing packages/components; every new package or layer carries an explicit
+  justification. By the time code exists, its complexity is already approved — the plan
+  is where slop is stopped.
+- Make a static mockup (HTML or screenshots, next to the spec) only when the layout is unclear
+  or the operator should choose between options. Clear UI fixes go straight to code, inside
+  the existing visual system.
+- Plans and significant changes get an adversarial review pass from a fresh-context
+  sub-agent critic (which layer does this add, and why) before implementation starts.
 - Surgical changes: touch only what the task needs; clean up only your own mess. Don't
   refactor unrelated code.
 - Never cut corners on: input validation at trust boundaries, error handling, security,

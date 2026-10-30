@@ -12,7 +12,16 @@ public record CodingRequest(
         List<String> acceptanceCriteria,
         List<ConfirmedDecision> confirmedDecisions,
         RepositoryTarget repository,
-        Constraints constraints) {
+        Constraints constraints,
+        RunSettings runSettings) {
+
+    public CodingRequest(String issueKey, String summary, String description, List<Comment> comments,
+                         List<LinkedIssue> linkedIssues, List<String> acceptanceCriteria,
+                         List<ConfirmedDecision> confirmedDecisions, RepositoryTarget repository,
+                         Constraints constraints) {
+        this(issueKey, summary, description, comments, linkedIssues, acceptanceCriteria, confirmedDecisions,
+                repository, constraints, null);
+    }
 
     public CodingRequest {
         issueKey = text(issueKey);
@@ -30,7 +39,7 @@ public record CodingRequest(
         var decisions = new java.util.ArrayList<>(confirmedDecisions);
         decisions.add(decision);
         return new CodingRequest(issueKey, summary, description, comments, linkedIssues,
-                acceptanceCriteria, decisions, repository, constraints);
+                acceptanceCriteria, decisions, repository, constraints, runSettings);
     }
 
     public void requireReady() {
@@ -66,6 +75,14 @@ public record CodingRequest(
         public RepositoryTarget {
             key = text(key); sourceRepo = text(sourceRepo); baseBranch = text(baseBranch); baseSha = text(baseSha);
         }
+    }
+
+    /**
+     * What the operator chose for this run: the run profile, effort, turn limit and extra instructions.
+     * A null field means the profile's default; a request without settings uses the default profile.
+     * It never holds a secret.
+     */
+    public record RunSettings(String profileId, String effort, Integer maxTurns, String instructions) {
     }
 
     public record Constraints(String workingDirectory, boolean allowRepositorySwitch, boolean allowPush,

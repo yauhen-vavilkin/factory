@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<!-- STATIC MOCKUP — /flows/dev-factory, Sprint work v2 (takeover 2026-10-26).
+     Journal: docs/superpowers/plans/2026-10-25-ux-design-decisions.md, item 3 (inventory).
+     Operator's model (misunderstandings journal item 3): scan Jira on the flow page -> select tasks -> trigger flow.
+       Available  = discovered in the sprint, never triggered (Awaiting selection, Not eligible)
+       Triggered  = flow was triggered for the task (Queued, Working, PR ready, Could not complete,
+                    Needs inspection, Withdrawn)
+     "Trigger flow for N tasks" is the spec's "Run selected (N)" (spec 4.2) - same admission, new label.
+     Spec 4.2: nothing is preselected on load; the checkboxes below are live, tick them.
+     Status (2026-10-26): accepted by the operator as the base for the rework ("сильно лучше");
+     final design artifact of the UX session. Summary and rework checklist: journal "Итог сессии".
+     Layout: tabs (#sprint / #definition) taken by default; #stacked shows the rejected one-page variant.
+     Implementation note for tabs: server-side ?view=definition on the same route; tabs render only for a
+     flow that has sprint work (dev-factory in M1); other flow pages stay exactly as today.
+     "Scan Jira": kept (operator: "кнопка удобная"); cost: POST endpoint calling
+     PilotDiscoveryService.sync() + this button; the 5-minute poller stays.
+     Definition panel is generated from factory-flow-dev-factory/.../flows/dev-factory.yaml and mirrors
+     today's flow.html, except the JSON trigger moved from the page header into Triggers. -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Developer Flow — AI Factory</title>
+    <link rel="stylesheet" href="../../../factory-app/src/main/resources/static/css/tokens.css">
+    <link rel="stylesheet" href="../../../factory-app/src/main/resources/static/css/app.css">
+    <style>
+        /* ---- Proposed additions to app.css: the full CSS cost of this design ---- */
+        .card > .developer-outcomes { border-bottom: 0; }
+        .sprint-head {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem 1.5rem;
+            padding: 1rem 1.5rem;
+        }
+        .sprint-head > div:first-child { flex: 1 1 22rem; min-width: 0; }
+        .sprint-head h2 { font-size: 1.125rem; }
+        .sprint-head h2 .muted { font-weight: 400; }
+        .sprint-sync {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.8125rem;
+            color: hsl(var(--muted-foreground));
+        }
+        .block-head {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem 1rem;
+            margin-bottom: 0.75rem;
+        }
+        .block-head h3 { font-size: 0.9375rem; }
+        .block-head .count { margin-left: 0.375rem; color: hsl(var(--muted-foreground)); font-weight: 500; }
+        .block-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.8125rem;
+            color: hsl(var(--muted-foreground));
+        }
+        .task-cell .badge { margin-right: 0.375rem; }
+        td.col-status { min-width: 11rem; }
+        .task-title { font-weight: 500; }
+        th.col-check, td.col-check { width: 2.5rem; padding-right: 0; }
+        td.col-check input { margin-top: 0.25rem; }
+        .nowrap { white-space: nowrap; }
+        .col-fit { width: 1%; white-space: nowrap; }
+        .scope-details { border-top: 1px solid hsl(var(--border)); }
+        .scope-details > summary {
+            padding: 0.625rem 1.5rem;
+            cursor: pointer;
+            font-size: 0.8125rem;
+            color: hsl(var(--muted-foreground));
+        }
+        .scope-details[open] > summary { color: hsl(var(--foreground)); }
+        .scope-details > .def-list { padding: 0.25rem 1.5rem 1.25rem; }
+        .scope-details .code-block { white-space: pre-wrap; max-height: none; }
+        .scope-details code { font-size: 0.8125rem; }
+        .manual-trigger { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-top: 0.75rem; }
+
+        /* ---- Mockup-only: switch between variant A (#stacked) and B (tabs) ---- */
+        [data-panel][hidden] { display: none; }
+        .variant-a-heading { display: none; }
+        body[data-layout="stacked"] .tabs { display: none; }
+        body[data-layout="stacked"] [data-panel] { display: flex !important; }
+        body[data-layout="stacked"] .variant-a-heading { display: block; }
+        body[data-layout="stacked"] [data-panel="definition"] {
+            margin-top: 2.5rem;
+            padding-top: 2rem;
+            border-top: 1px solid hsl(var(--border));
+        }
+    </style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="app-shell">
+    <aside class="sidebar" aria-label="Main navigation">
+        <div class="sidebar-brand">
+            <strong>AI Factory</strong>
+            <span>FOLIO SDLC</span>
+        </div>
+        <nav class="nav-group" aria-label="Overview">
+            <span class="nav-group-label">Overview</span>
+            <a class="nav-item" href="#">Dashboard</a>
+            <a class="nav-item" href="#">Status</a>
+            <a class="nav-item" href="#">Audit</a>
+        </nav>
+        <nav class="nav-group" aria-label="Pipelines">
+            <span class="nav-group-label">Pipelines</span>
+            <a class="nav-item" href="#" aria-current="page">Flows</a>
+            <a class="nav-item" href="#">Executions</a>
+            <a class="nav-item" href="#">Artifacts</a>
+            <a class="nav-item" href="#">Reviews</a>
+        </nav>
+        <nav class="nav-group" aria-label="Agents">
+            <span class="nav-group-label">Agents</span>
+            <a class="nav-item" href="#">Workers</a>
+            <a class="nav-item" href="#">Prompts</a>
+        </nav>
+        <div class="sidebar-footer">
+            <button type="button" class="btn btn-ghost btn-sm"><span aria-hidden="true">☾</span> Dark</button>
+        </div>
+    </aside>
+    <main id="main" class="main">
+        <section class="page-body">
+            <div class="page-header">
+                <h1>Developer Flow</h1>
+                <div class="page-header-meta">
+                    <span>dev-factory</span>
+                    <span class="badge badge-outline">v0.9.0</span>
+                    <a class="btn btn-outline btn-sm" href="#">Check configuration</a>
+                </div>
+            </div>
+
+            <nav class="tabs" aria-label="Flow views">
+                <a href="#sprint" data-tab="sprint" aria-current="page">Sprint work</a>
+                <a href="#definition" data-tab="definition">Definition</a>
+            </nav>
+
+            <div class="stack" data-panel="sprint">
+                <h2 class="card-title variant-a-heading">Sprint work</h2>
+
+                <section class="card" aria-labelledby="sprint-title">
+                    <div class="sprint-head">
+                        <div>
+                            <h2 id="sprint-title">Sprint 42 <span class="muted">· Oct 20 – Oct 31</span></h2>
+                        </div>
+                        <div class="sprint-sync">
+                            <span>Last full sync <strong>3 min ago</strong> · auto-scan every 5 min</span>
+                            <button class="btn btn-outline btn-sm" type="button">Scan Jira</button>
+                        </div>
+                    </div>
+                    <div class="developer-outcomes" aria-label="Sprint scope">
+                        <div>
+                            <span>Source</span>
+                            <strong><a href="#">Core Platform Team board</a></strong>
+                            <small>Statuses: To Do · any assignee · no label filter</small>
+                        </div>
+                        <div>
+                            <span>Repositories</span>
+                            <strong>2 mapped</strong>
+                            <small>MGRENTITLE → mgr-tenant-entitlements · MGRAPPS → mgr-applications</small>
+                        </div>
+                        <div>
+                            <span>Admission</span>
+                            <strong>Review before run</strong>
+                            <small>You pick each task · <a class="developer-pr-link" href="#">Switch to automatic…</a></small>
+                        </div>
+                    </div>
+                    <details class="scope-details">
+                        <summary>What exactly is scanned</summary>
+                        <dl class="def-list">
+                            <dt>Team source</dt>
+                            <dd>Board <a class="developer-pr-link" href="#">Core Platform Team</a> → its saved filter
+                                <code>project in (MGRENTITLE, MGRAPPS) AND component = "Core Platform"</code></dd>
+                            <dt>Added by Factory</dt>
+                            <dd>sprint Sprint 42 (id 4711) · status To Do</dd>
+                            <dt>Optional limits</dt>
+                            <dd class="muted">assignee, projects, label: not set</dd>
+                            <dt>Effective query</dt>
+                            <dd>
+                                <pre class="code-block">sprint = 4711 AND status in ("To Do") AND (project in (MGRENTITLE, MGRAPPS) AND component = "Core Platform") ORDER BY Rank ASC</pre>
+                                <p class="sub-tag"><a class="developer-pr-link" href="#">Open this search in Jira</a>
+                                    <span class="muted">· shows the same issues Factory sees</span></p>
+                            </dd>
+                            <dt>Change it</dt>
+                            <dd><code>.env</code>: <code>FACTORY_PILOT_SOURCE</code>, <code>FACTORY_PILOT_SPRINT_ID</code>,
+                                <code>FACTORY_PILOT_STATUSES</code>, optional <code>FACTORY_PILOT_ASSIGNEE</code>,
+                                <code>FACTORY_PILOT_PROJECTS</code>, <code>FACTORY_PILOT_LABEL</code>; then
+                                <code>docker compose up -d</code>.
+                                <div class="muted sub-tag">Repository per Jira project:
+                                    <code>config/developer-repositories.yaml</code></div></dd>
+                        </dl>
+                    </details>
+                </section>
+
+                <section aria-labelledby="available-title">
+                    <form data-selection>
+                        <div class="block-head">
+                            <h3 id="available-title">Available<span class="count">3</span></h3>
+                            <div class="block-actions">
+                                <span data-selected-count aria-live="polite">Select tasks to trigger the flow</span>
+                                <button class="btn btn-primary" type="button" data-trigger disabled>Trigger flow</button>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                <tr>
+                                    <th class="col-check"><input type="checkbox" data-select-all
+                                            aria-label="Select all eligible tasks shown"></th>
+                                    <th>Task</th>
+                                    <th class="col-fit">Found</th>
+                                </tr>
+                                </thead>
+                                <tbody>
+                                <tr>
+                                    <td class="col-check"><input type="checkbox" data-task aria-label="Select MGRENTITLE-204"></td>
+                                    <td>
+                                        <div class="task-cell">
+                                            <a class="badge badge-outline developer-task-key" href="#">MGRENTITLE-204</a>
+                                            <a class="task-title" href="#">Skip modules without routing when regenerating entitlements</a>
+                                        </div>
+                                        <div class="muted sub-tag">→ mgr-tenant-entitlements</div>
+                                    </td>
+                                    <td class="muted col-fit" title="2026-10-26 10:48">12 min ago</td>
+                                </tr>
+                                <tr>
+                                    <td class="col-check"><input type="checkbox" data-task aria-label="Select MGRAPPS-95"></td>
+                                    <td>
+                                        <div class="task-cell">
+                                            <a class="badge badge-outline developer-task-key" href="#">MGRAPPS-95</a>
+                                            <a class="task-title" href="#">Recalculate application constraints on module upgrade</a>
+                                        </div>
+                                        <div class="muted sub-tag">→ mgr-applications</div>
+                                    </td>
+                                    <td class="muted col-fit" title="2026-10-26 10:48">12 min ago</td>
+                                </tr>
+                                <tr>
+                                    <td class="col-check"><input type="checkbox" disabled aria-label="KB-331 is not eligible"></td>
+                                    <td>
+                                        <div class="task-cell">
+                                            <a class="badge badge-outline developer-task-key" href="#">KB-331</a>
+                                            <a class="task-title" href="#">Update Kubernetes deployment manifests</a>
+                                        </div>
+                                        <div class="muted sub-tag"><span class="badge badge-muted badge-sm">Not eligible</span>
+                                            no repository is mapped for project KB</div>
+                                    </td>
+                                    <td class="muted col-fit" title="2026-10-26 09:52">1 h ago</td>
+                                </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </form>
+                </section>
+
+                <section aria-labelledby="triggered-title">
+                    <div class="block-head">
+                        <h3 id="triggered-title">Triggered<span class="count">5</span></h3>
+                        <span class="block-actions">Tasks run one at a time; each ends with a PR or a plain reason · 1 working, 1 queued</span>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                            <tr><th>Task</th><th class="col-status">Status</th><th class="col-fit">Cost</th><th class="col-fit">When</th></tr>
+                            </thead>
+                            <tbody>
+                            <tr>
+                                <td>
+                                    <div class="task-cell">
+                                        <a class="badge badge-outline developer-task-key" href="#">MGRENTITLE-190</a>
+                                        <a class="task-title" href="#">Cache entitlement lookups per tenant</a>
+                                    </div>
+                                    <div class="muted sub-tag">→ mgr-tenant-entitlements</div>
+                                </td>
+                                <td class="col-status">
+                                    <span class="badge badge-status-WORKING">Working</span>
+                                    <div class="muted sub-tag">Implementation · 18 min</div>
+                                </td>
+                                <td class="col-fit">$0.31<div class="muted sub-tag">so far</div></td>
+                                <td class="col-fit" title="2026-10-26 10:39">21 min ago<div class="muted sub-tag">started</div></td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <div class="task-cell">
+                                        <a class="badge badge-outline developer-task-key" href="#">MGRAPPS-97</a>
+                                        <a class="task-title" href="#">Return 409 on duplicate application id</a>
+                                    </div>
+                                    <div class="muted sub-tag">→ mgr-applications</div>
+                                </td>
+                                <td class="col-status">
+                                    <span class="badge badge-status-QUEUED">Queued</span>
+                                    <div class="muted sub-tag">next in line</div>
+                                </td>
+                                <td class="col-fit muted">—<div class="sub-tag">not started</div></td>
+                                <td class="col-fit" title="2026-10-26 10:35">25 min ago<div class="muted sub-tag">triggered</div></td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <div class="task-cell">
+                                        <a class="badge badge-outline developer-task-key" href="#">MGRAPPS-88</a>
+                                        <a class="task-title" href="#">Publish application descriptor v2 schema</a>
+                                    </div>
+                                    <div class="muted sub-tag">→ mgr-applications</div>
+                                </td>
+                                <td class="col-status">
+                                    <span class="badge badge-status-PR_READY">PR ready</span>
+                                    <div class="sub-tag"><a class="developer-pr-link" href="#">Pull request #412</a></div>
+                                </td>
+                                <td class="col-fit">$1.12</td>
+                                <td class="col-fit" title="2026-10-26 08:57">2 h ago<div class="muted sub-tag">34 min active</div></td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <div class="task-cell">
+                                        <a class="badge badge-outline developer-task-key" href="#">MGRENTITLE-171</a>
+                                        <a class="task-title" href="#">Validate module descriptor against schema</a>
+                                    </div>
+                                    <div class="muted sub-tag">→ mgr-tenant-entitlements</div>
+                                </td>
+                                <td class="col-status">
+                                    <span class="badge badge-status-STOPPED">Could not complete</span>
+                                    <div class="muted sub-tag">Verification failed: 2 tests · <a class="developer-pr-link" href="#" title="Opens the task page with Retry">Retry…</a></div>
+                                </td>
+                                <td class="col-fit">$1.45<div class="muted sub-tag">incomplete</div></td>
+                                <td class="col-fit" title="2026-10-26 09:40">1 h ago<div class="muted sub-tag">51 min active</div></td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <div class="task-cell">
+                                        <a class="badge badge-outline developer-task-key" href="#">MGRENTITLE-162</a>
+                                        <a class="task-title" href="#">Drop the legacy entitlement endpoint</a>
+                                    </div>
+                                    <div class="muted sub-tag">→ mgr-tenant-entitlements ·
+                                        <span class="badge badge-outline badge-sm">Outside current filter</span></div>
+                                </td>
+                                <td class="col-status">
+                                    <span class="badge badge-status-WITHDRAWN">Withdrawn</span>
+                                    <div class="muted sub-tag">left the filter before starting</div>
+                                </td>
+                                <td class="col-fit muted">—<div class="sub-tag">not started</div></td>
+                                <td class="col-fit" title="2026-10-24 16:12">2 days ago<div class="muted sub-tag">withdrawn</div></td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <div class="stack" data-panel="definition" hidden>
+                <h2 class="card-title variant-a-heading">Flow definition</h2>
+            <section>
+                <div class="page-header"><h2 class="card-title">Pipeline</h2></div>
+                <ol class="stepper">
+                    <li class="step" data-type="AGENT"><span class="step-marker" aria-hidden="true"></span><div class="step-body"><span class="step-label">dev-intake</span><span class="step-sublabel">read-task · AGENT</span></div></li>
+                    <li class="step" data-type="AGENT"><span class="step-marker" aria-hidden="true"></span><div class="step-body"><span class="step-label">dev-decision-gate</span><span class="step-sublabel">select-repository · AGENT</span></div></li>
+                    <li class="step" data-type="AGENT"><span class="step-marker" aria-hidden="true"></span><div class="step-body"><span class="step-label">dev-intake-resolve</span><span class="step-sublabel">prepare-task · AGENT</span></div></li>
+                    <li class="step" data-type="AGENT"><span class="step-marker" aria-hidden="true"></span><div class="step-body"><span class="step-label">dev-develop</span><span class="step-sublabel">implement · AGENT</span></div></li>
+                    <li class="step" data-type="AGENT"><span class="step-marker" aria-hidden="true"></span><div class="step-body"><span class="step-label">dev-coding-decision-gate</span><span class="step-sublabel">clarify-implementation · AGENT</span></div></li>
+                    <li class="step" data-type="AGENT"><span class="step-marker" aria-hidden="true"></span><div class="step-body"><span class="step-label">dev-develop-continuation</span><span class="step-sublabel">continue-implementation · AGENT</span></div></li>
+                    <li class="step" data-type="AGENT"><span class="step-marker" aria-hidden="true"></span><div class="step-body"><span class="step-label">dev-verify</span><span class="step-sublabel">verify · AGENT</span></div></li>
+                    <li class="step" data-type="AGENT"><span class="step-marker" aria-hidden="true"></span><div class="step-body"><span class="step-label">dev-deliver</span><span class="step-sublabel">publish · AGENT</span></div></li>
+                    <li class="step" data-type="AGENT"><span class="step-marker" aria-hidden="true"></span><div class="step-body"><span class="step-label">dev-pr-initialize</span><span class="step-sublabel">initialize-pr-feedback · AGENT</span></div></li>
+                    <li class="step" data-type="AGENT"><span class="step-marker" aria-hidden="true"></span><div class="step-body"><span class="step-label">dev-pr-follow-up</span><span class="step-sublabel">pr-follow-up · AGENT</span></div></li>
+                </ol>
+            </section>
+            <section>
+                <div class="page-header"><h2 class="card-title">Steps</h2></div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Step 1 · dev-intake</h3>
+                        <div class="badge-row"><span class="badge badge-outline">AGENT</span><span class="badge badge-outline">read-task</span></div>
+                    </div>
+                    <div class="card-content">
+                        <dl class="def-list"><dt>Worker</dt><dd><a href="#">dev-intake</a></dd></dl>
+                        <div class="field"><span class="label">Inputs</span><div class="badge-row"><span class="badge badge-outline">$trigger</span></div></div>
+                        <div class="field"><span class="label">Outputs</span><div class="badge-row"><span class="badge badge-outline">dev_intake.md</span><span class="badge badge-outline">dev_decision_request.md</span><span class="badge badge-outline">dev_decision_answer.md</span></div></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Step 2 · dev-decision-gate</h3>
+                        <div class="badge-row"><span class="badge badge-outline">AGENT</span><span class="badge badge-outline">select-repository</span></div>
+                    </div>
+                    <div class="card-content">
+                        <dl class="def-list"><dt>Worker</dt><dd><a href="#">dev-decision-gate</a></dd></dl>
+                        <div class="field"><span class="label">Inputs</span><div class="badge-row"><span class="badge badge-outline">dev_decision_request.md</span></div></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Step 3 · dev-intake-resolve</h3>
+                        <div class="badge-row"><span class="badge badge-outline">AGENT</span><span class="badge badge-outline">prepare-task</span></div>
+                    </div>
+                    <div class="card-content">
+                        <dl class="def-list"><dt>Worker</dt><dd><a href="#">dev-intake-resolve</a></dd></dl>
+                        <div class="field"><span class="label">Inputs</span><div class="badge-row"><span class="badge badge-outline">dev_intake.md</span><span class="badge badge-outline">dev_decision_request.md</span><span class="badge badge-outline">dev_decision_answer.md</span></div></div>
+                        <div class="field"><span class="label">Outputs</span><div class="badge-row"><span class="badge badge-outline">dev_task_brief.md</span><span class="badge badge-outline">dev_coding_request.json</span></div></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Step 4 · dev-develop</h3>
+                        <div class="badge-row"><span class="badge badge-outline">AGENT</span><span class="badge badge-outline">implement</span></div>
+                    </div>
+                    <div class="card-content">
+                        <dl class="def-list"><dt>Worker</dt><dd><a href="#">dev-develop</a></dd></dl>
+                        <div class="field"><span class="label">Inputs</span><div class="badge-row"><span class="badge badge-outline">dev_task_brief.md</span><span class="badge badge-outline">dev_coding_request.json</span></div></div>
+                        <div class="field"><span class="label">Outputs</span><div class="badge-row"><span class="badge badge-outline">dev_candidate.json</span><span class="badge badge-outline">dev_readiness.json</span><span class="badge badge-outline">dev_coding_outcome.json</span><span class="badge badge-outline">dev_coding_decision_request.md</span><span class="badge badge-outline">dev_coding_decision_answer.md</span></div></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Step 5 · dev-coding-decision-gate</h3>
+                        <div class="badge-row"><span class="badge badge-outline">AGENT</span><span class="badge badge-outline">clarify-implementation</span></div>
+                    </div>
+                    <div class="card-content">
+                        <dl class="def-list"><dt>Worker</dt><dd><a href="#">dev-coding-decision-gate</a></dd></dl>
+                        <div class="field"><span class="label">Inputs</span><div class="badge-row"><span class="badge badge-outline">dev_coding_request.json</span><span class="badge badge-outline">dev_coding_outcome.json</span><span class="badge badge-outline">dev_coding_decision_request.md</span><span class="badge badge-outline">dev_coding_decision_answer.md</span></div></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Step 6 · dev-develop-continuation</h3>
+                        <div class="badge-row"><span class="badge badge-outline">AGENT</span><span class="badge badge-outline">continue-implementation</span></div>
+                    </div>
+                    <div class="card-content">
+                        <dl class="def-list"><dt>Worker</dt><dd><a href="#">dev-develop-continuation</a></dd></dl>
+                        <div class="field"><span class="label">Inputs</span><div class="badge-row"><span class="badge badge-outline">dev_coding_request.json</span><span class="badge badge-outline">dev_coding_outcome.json</span><span class="badge badge-outline">dev_candidate.json</span><span class="badge badge-outline">dev_readiness.json</span><span class="badge badge-outline">dev_coding_decision_request.md</span><span class="badge badge-outline">dev_coding_decision_answer.md</span></div></div>
+                        <div class="field"><span class="label">Outputs</span><div class="badge-row"><span class="badge badge-outline">dev_coding_request.json</span><span class="badge badge-outline">dev_coding_outcome.json</span><span class="badge badge-outline">dev_candidate.json</span><span class="badge badge-outline">dev_readiness.json</span></div></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Step 7 · dev-verify</h3>
+                        <div class="badge-row"><span class="badge badge-outline">AGENT</span><span class="badge badge-outline">verify</span></div>
+                    </div>
+                    <div class="card-content">
+                        <dl class="def-list"><dt>Worker</dt><dd><a href="#">dev-verify</a></dd></dl>
+                        <div class="field"><span class="label">Inputs</span><div class="badge-row"><span class="badge badge-outline">dev_candidate.json</span></div></div>
+                        <div class="field"><span class="label">Outputs</span><div class="badge-row"><span class="badge badge-outline">dev_verification.json</span><span class="badge badge-outline">dev_result.json</span></div></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Step 8 · dev-deliver</h3>
+                        <div class="badge-row"><span class="badge badge-outline">AGENT</span><span class="badge badge-outline">publish</span></div>
+                    </div>
+                    <div class="card-content">
+                        <dl class="def-list"><dt>Worker</dt><dd><a href="#">dev-deliver</a></dd></dl>
+                        <div class="field"><span class="label">Inputs</span><div class="badge-row"><span class="badge badge-outline">dev_task_brief.md</span><span class="badge badge-outline">dev_coding_request.json</span><span class="badge badge-outline">dev_coding_outcome.json</span><span class="badge badge-outline">dev_candidate.json</span><span class="badge badge-outline">dev_verification.json</span><span class="badge badge-outline">dev_result.json</span></div></div>
+                        <div class="field"><span class="label">Outputs</span><div class="badge-row"><span class="badge badge-outline">dev_delivery.json</span><span class="badge badge-outline">dev_result.json</span></div></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Step 9 · dev-pr-initialize</h3>
+                        <div class="badge-row"><span class="badge badge-outline">AGENT</span><span class="badge badge-outline">initialize-pr-feedback</span></div>
+                    </div>
+                    <div class="card-content">
+                        <dl class="def-list"><dt>Worker</dt><dd><a href="#">dev-pr-initialize</a></dd></dl>
+                        <div class="field"><span class="label">Outputs</span><div class="badge-row"><span class="badge badge-outline">dev_pr_state.json</span><span class="badge badge-outline">dev_pr_request.json</span><span class="badge badge-outline">dev_pr_candidate.json</span><span class="badge badge-outline">dev_pr_verification.json</span><span class="badge badge-outline">dev_pr_delivery.json</span></div></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Step 10 · dev-pr-follow-up</h3>
+                        <div class="badge-row"><span class="badge badge-outline">AGENT</span><span class="badge badge-outline">pr-follow-up</span></div>
+                    </div>
+                    <div class="card-content">
+                        <dl class="def-list"><dt>Worker</dt><dd><a href="#">dev-pr-follow-up</a></dd></dl>
+                        <div class="field"><span class="label">Inputs</span><div class="badge-row"><span class="badge badge-outline">dev_delivery.json</span><span class="badge badge-outline">dev_coding_request.json</span><span class="badge badge-outline">dev_pr_state.json</span><span class="badge badge-outline">dev_pr_request.json</span><span class="badge badge-outline">dev_pr_candidate.json</span><span class="badge badge-outline">dev_pr_verification.json</span><span class="badge badge-outline">dev_pr_delivery.json</span></div></div>
+                        <div class="field"><span class="label">Outputs</span><div class="badge-row"><span class="badge badge-outline">dev_pr_state.json</span><span class="badge badge-outline">dev_pr_request.json</span><span class="badge badge-outline">dev_pr_candidate.json</span><span class="badge badge-outline">dev_pr_verification.json</span><span class="badge badge-outline">dev_pr_delivery.json</span></div></div>
+                        <div class="field"><span class="label">Config</span><dl class="def-list"><dt>resumable</dt><dd>true</dd></dl></div>
+                    </div>
+                </div>
+            </section>
+            <section>
+                <div class="page-header"><h2 class="card-title">Triggers</h2></div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Event type</th><th>Filter (JSON pointer)</th><th>Expected value</th></tr></thead>
+                        <tbody><tr><td><span class="badge badge-outline">manual</span></td><td class="muted" colspan="2">Any payload</td></tr></tbody>
+                    </table>
+                </div>
+                <div class="manual-trigger">
+                    <button type="button" class="btn btn-outline btn-sm">Trigger manually…</button>
+                    <span class="muted">Starts one execution from a JSON payload, outside sprint work: no task history, no Retry. For diagnosis.</span>
+                </div>
+            </section>
+            <section>
+                <div class="page-header"><h2 class="card-title">Retry policy</h2></div>
+                <div class="card"><div class="card-content"><dl class="def-list">
+                    <dt>Max attempts</dt><dd>3</dd>
+                    <dt>Backoff (seconds)</dt><dd><div class="badge-row"><span class="badge badge-outline">30</span><span class="badge badge-outline">120</span><span class="badge badge-outline">300</span></div></dd>
+                </dl></div></div>
+            </section>
+            <section>
+                <details class="details-inline">
+                    <summary>Descriptor YAML</summary>
+<pre class="code-block">id: dev-factory
+name: Developer Flow
+version: 0.9.0
+triggers:
+  - event_type: manual
+input_schema:
+  required: [issueKey]
+output_schema:
+  artifacts: [dev_coding_request.json, dev_coding_outcome.json, dev_candidate.json, dev_readiness.json, dev_verification.json, dev_delivery.json, dev_result.json]
+retry_policy:
+  max_attempts: 3
+  backoff_seconds: [30, 120, 300]
+agent_chain:
+  - step_id: read-task
+    type: AGENT
+    worker_id: dev-intake
+    inputs: [&quot;$trigger&quot;]
+    outputs: [dev_intake.md, dev_decision_request.md, dev_decision_answer.md]
+
+  - step_id: select-repository
+    type: AGENT
+    worker_id: dev-decision-gate
+    inputs: [dev_decision_request.md]
+    outputs: []
+
+  - step_id: prepare-task
+    type: AGENT
+    worker_id: dev-intake-resolve
+    inputs: [dev_intake.md, dev_decision_request.md, dev_decision_answer.md]
+    outputs: [dev_task_brief.md, dev_coding_request.json]
+
+  - step_id: implement
+    type: AGENT
+    worker_id: dev-develop
+    inputs: [dev_task_brief.md, dev_coding_request.json]
+    outputs: [dev_candidate.json, dev_readiness.json, dev_coding_outcome.json, dev_coding_decision_request.md, dev_coding_decision_answer.md]
+
+  - step_id: clarify-implementation
+    type: AGENT
+    worker_id: dev-coding-decision-gate
+    inputs: [dev_coding_request.json, dev_coding_outcome.json, dev_coding_decision_request.md, dev_coding_decision_answer.md]
+    outputs: []
+
+  - step_id: continue-implementation
+    type: AGENT
+    worker_id: dev-develop-continuation
+    inputs: [dev_coding_request.json, dev_coding_outcome.json, dev_candidate.json, dev_readiness.json, dev_coding_decision_request.md, dev_coding_decision_answer.md]
+    outputs: [dev_coding_request.json, dev_coding_outcome.json, dev_candidate.json, dev_readiness.json]
+
+  - step_id: verify
+    type: AGENT
+    worker_id: dev-verify
+    inputs: [dev_candidate.json]
+    outputs: [dev_verification.json, dev_result.json]
+
+  - step_id: publish
+    type: AGENT
+    worker_id: dev-deliver
+    inputs: [dev_task_brief.md, dev_coding_request.json, dev_coding_outcome.json, dev_candidate.json, dev_verification.json, dev_result.json]
+    outputs: [dev_delivery.json, dev_result.json]
+
+  - step_id: initialize-pr-feedback
+    type: AGENT
+    worker_id: dev-pr-initialize
+    inputs: []
+    outputs: [dev_pr_state.json, dev_pr_request.json, dev_pr_candidate.json, dev_pr_verification.json, dev_pr_delivery.json]
+
+  - step_id: pr-follow-up
+    type: AGENT
+    worker_id: dev-pr-follow-up
+    inputs: [dev_delivery.json, dev_coding_request.json, dev_pr_state.json, dev_pr_request.json, dev_pr_candidate.json, dev_pr_verification.json, dev_pr_delivery.json]
+    outputs: [dev_pr_state.json, dev_pr_request.json, dev_pr_candidate.json, dev_pr_verification.json, dev_pr_delivery.json]
+    config:
+      resumable: true
+</pre>
+                </details>
+            </section>
+            </div>
+        </section>
+    </main>
+</div>
+<script>
+    /* Mockup-only behaviour: tab switching, A/B variant via URL hash, live selection count. */
+    (function () {
+        const panels = document.querySelectorAll('[data-panel]');
+        const tabs = document.querySelectorAll('[data-tab]');
+        function show() {
+            const hash = location.hash.slice(1);
+            document.body.dataset.layout = hash === 'stacked' ? 'stacked' : 'tabs';
+            const current = hash === 'definition' ? 'definition' : 'sprint';
+            panels.forEach(p => { p.hidden = p.dataset.panel !== current; });
+            tabs.forEach(t => {
+                if (t.dataset.tab === current) t.setAttribute('aria-current', 'page');
+                else t.removeAttribute('aria-current');
+            });
+        }
+        window.addEventListener('hashchange', show);
+        show();
+
+        const form = document.querySelector('[data-selection]');
+        const boxes = [...form.querySelectorAll('[data-task]')];
+        const all = form.querySelector('[data-select-all]');
+        const button = form.querySelector('[data-trigger]');
+        const count = form.querySelector('[data-selected-count]');
+        function update() {
+            const n = boxes.filter(b => b.checked).length;
+            button.disabled = n === 0;
+            button.textContent = n === 0 ? 'Trigger flow' : 'Trigger flow for ' + n + (n === 1 ? ' task' : ' tasks');
+            count.textContent = n === 0 ? 'Select tasks to trigger the flow'
+                : n + ' of ' + boxes.length + ' eligible selected';
+            all.checked = n === boxes.length;
+            all.indeterminate = n > 0 && n < boxes.length;
+        }
+        boxes.forEach(b => b.addEventListener('change', update));
+        all.addEventListener('change', () => { boxes.forEach(b => { b.checked = all.checked; }); update(); });
+        update();
+    })();
+</script>
+</body>
+</html>

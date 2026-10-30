@@ -11,16 +11,18 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /** Immutable audit snapshots are grouped per actual coding attempt, never just per step. */
-final class AttemptUsageSummary {
+public final class AttemptUsageSummary {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private static class Attempt {
@@ -35,6 +37,25 @@ final class AttemptUsageSummary {
 
     static Map<String, Object> build(List<AuditEvent> events, Integer round, boolean live) {
         return new Projection(events).summary(round, live);
+    }
+
+    /** Typed per-currency totals of one usage interpretation, before any display formatting. */
+    public record Totals(
+            boolean present,
+            long tokens,
+            boolean tokensReported,
+            Map<AttemptCharge.Category, Long> breakdown,
+            SortedMap<String, BigDecimal> costByCurrency,
+            boolean partial,
+            boolean provisional,
+            int attempts,
+            List<String> models,
+            List<String> rateSources) {
+    }
+
+    /** Typed totals across every coding attempt in the events, priced exactly once each. */
+    public static Totals totals(List<AuditEvent> events, boolean live) {
+        return new Projection(events).totals(live);
     }
 
     /** One interpretation pass per request, reused by totals and every feedback round. */
@@ -64,6 +85,10 @@ final class AttemptUsageSummary {
 
         Map<String, Object> summary(Integer round, boolean live) {
             return (round == null ? all : rounds.getOrDefault(round, new Group())).summary(live);
+        }
+
+        public Totals totals(boolean live) {
+            return all.totals(live);
         }
 
         List<Map<String, String>> activity(int round) {
@@ -100,7 +125,7 @@ final class AttemptUsageSummary {
             a.complete |= terminal;
         }
 
-        Map<String, Object> summary(boolean live) {
+        Totals totals(boolean live) {
             var models = new LinkedHashSet<String>();
             var totals = new TreeMap<String, BigDecimal>();
             var sources = new LinkedHashSet<String>();
@@ -126,8 +151,23 @@ final class AttemptUsageSummary {
                     totals.merge(charge.currency(), charge.cost(), BigDecimal::add);
                 if (!charge.known()) partial = true;
             }
+            return new Totals(
+                    !attempts.isEmpty() || legacyUnknown,
+                    tokens,
+                    tokensReported,
+                    Collections.unmodifiableMap(breakdown),
+                    Collections.unmodifiableSortedMap(totals),
+                    partial,
+                    provisional,
+                    attempts.size(),
+                    List.copyOf(models),
+                    List.copyOf(sources));
+        }
+
+        Map<String, Object> summary(boolean live) {
+            var t = totals(live);
             String cost =
-                    totals.entrySet().stream()
+                    t.costByCurrency().entrySet().stream()
                             .map(
                                     e ->
                                             e.getValue()
@@ -137,44 +177,43 @@ final class AttemptUsageSummary {
                                                     + " "
                                                     + e.getKey())
                             .collect(Collectors.joining(" + "));
-            if (cost.isBlank()) cost = attempts.isEmpty() && !legacyUnknown ? "0" : "—";
-            String tokensDisplay =
-                    tokensReported || attempts.isEmpty() && !legacyUnknown
-                            ? UiFormat.count(tokens)
-                            : "—";
+            if (cost.isBlank()) cost = t.present() ? "—" : "0";
+            String tokensDisplay = t.tokensReported() || !t.present()
+                    ? UiFormat.count(t.tokens())
+                    : "—";
             return Map.of(
                     "present",
-                    !attempts.isEmpty() || legacyUnknown,
+                    t.present(),
                     "cost",
                     cost,
                     "partial",
-                    partial,
+                    t.partial(),
                     "tokens",
-                    tokens,
+                    t.tokens(),
                     "tokensDisplay",
                     tokensDisplay,
                     "provisional",
-                    provisional,
+                    t.provisional(),
                     "models",
-                    String.join(", ", models),
+                    String.join(", ", t.models()),
                     "attempts",
-                    attempts.size(),
+                    t.attempts(),
                     "sources",
-                    List.copyOf(sources),
+                    t.rateSources(),
                     "breakdown",
                     Map.of(
                             "input",
-                            breakdown.getOrDefault(AttemptCharge.Category.INPUT, 0L),
+                            t.breakdown().getOrDefault(AttemptCharge.Category.INPUT, 0L),
                             "cacheRead",
-                            breakdown.getOrDefault(AttemptCharge.Category.CACHE_READ, 0L),
+                            t.breakdown().getOrDefault(AttemptCharge.Category.CACHE_READ, 0L),
                             "cacheWrite",
-                            breakdown.getOrDefault(AttemptCharge.Category.CACHE_WRITE, 0L),
+                            t.breakdown().getOrDefault(AttemptCharge.Category.CACHE_WRITE, 0L),
                             "output",
-                            breakdown.getOrDefault(AttemptCharge.Category.OUTPUT, 0L)));
+                            t.breakdown().getOrDefault(AttemptCharge.Category.OUTPUT, 0L)));
         }
     }
 
-    static long activeSeconds(List<AuditEvent> events, Instant now) {
+    public static long activeSeconds(List<AuditEvent> events, Instant now) {
         Instant start = null;
         long millis = 0;
         for (var e : events) {

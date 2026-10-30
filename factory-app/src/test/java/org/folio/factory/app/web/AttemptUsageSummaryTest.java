@@ -3,6 +3,8 @@ import org.folio.factory.core.domain.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.json.JsonMapper;
+import java.math.BigDecimal;
+import java.net.URI;
 import java.time.*;
 import java.util.*;
 import static org.assertj.core.api.Assertions.*;
@@ -70,6 +72,74 @@ class AttemptUsageSummaryTest {
         assertThat(AttemptUsageSummary.build(events,-1,true))
                 .containsEntry("cost","0").containsEntry("tokensDisplay","0").containsEntry("present",false);
     }
+    @Test void typedTotalsReproduceTheFormattedSummaryOnTheSameFixtures() {
+        var events=List.of(event("1","coding_starting",false,"a","USD",0,0),event("1","coding_usage",false,"a","USD",50,20),
+                event("1","",true,"a","USD",100,30),event("2","",true,"b","USD",200,40));
+        var formatted=AttemptUsageSummary.build(events,null);
+        var totals=AttemptUsageSummary.totals(events,false);
+        assertThat(totals.tokens()).isEqualTo(((Number) formatted.get("tokens")).longValue());
+        assertThat(totals.attempts()).isEqualTo(((Number) formatted.get("attempts")).intValue());
+        assertThat(totals.present()).isEqualTo(formatted.get("present"));
+        assertThat(totals.partial()).isEqualTo(formatted.get("partial"));
+        assertThat(totals.tokensReported()).isTrue();
+        assertThat(totals.costByCurrency().get("USD")).isEqualByComparingTo("0.0013");
+        assertThat(totals.breakdown()).containsEntry(AttemptCharge.Category.INPUT,300L)
+                .containsEntry(AttemptCharge.Category.OUTPUT,70L)
+                .containsEntry(AttemptCharge.Category.CACHE_READ,0L)
+                .containsEntry(AttemptCharge.Category.CACHE_WRITE,0L);
+        var streaming=List.of(event("live","coding_starting",false,"a","USD",0,0),
+                event("live","coding_usage",false,"a","USD",100,20));
+        assertThat(AttemptUsageSummary.totals(streaming,true)).extracting(
+                        AttemptUsageSummary.Totals::provisional, AttemptUsageSummary.Totals::present)
+                .containsExactly(true,true);
+        assertThat(AttemptUsageSummary.totals(streaming,false).provisional()).isFalse();
+        assertThat(AttemptUsageSummary.totals(List.of(),false).present()).isFalse();
+    }
+
+    @Test void unattributedLegacyStepUsageStaysVisibleButUncounted() {
+        var legacy=new AuditEvent(UUID.randomUUID(),AuditEventType.STEP_COMPLETED,"implement","test",
+                "{\"inputTokens\":5000,\"outputTokens\":1000,\"model\":\"a\"}");
+        var totals=AttemptUsageSummary.totals(List.of(legacy),false);
+        assertThat(totals.present()).isTrue();
+        assertThat(totals.partial()).isTrue();
+        assertThat(totals.tokens()).isZero();
+        assertThat(totals.tokensReported()).isFalse();
+        assertThat(totals.attempts()).isZero();
+        assertThat(totals.costByCurrency()).isEmpty();
+    }
+
+    @Test void oldAndNewAccountingPriceIdenticalUsageIdentically() {
+        var estimator=new DeveloperCostEstimator(new DeveloperPricingProperties(Map.of(
+                "haiku",new DeveloperPricingProperties.Rate("claude-haiku-5-5","USD",
+                        LocalDate.parse("2026-09-19"),URI.create("https://www.anthropic.com/pricing"),
+                        new BigDecimal("0.15"),new BigDecimal("0.03"),null,new BigDecimal("0.50")))));
+        String rate="{\"currency\":\"USD\",\"source\":\"anthropic-pricing\",\"asOf\":\"2026-09-19\","
+                +"\"inputPerMillion\":0.15,\"cacheReadPerMillion\":0.03,\"outputPerMillion\":0.50}";
+        var initial=new AuditEvent(UUID.randomUUID(),AuditEventType.STEP_COMPLETED,"implement","test",
+                "{\"attemptId\":\"h1\",\"round\":-1,\"model\":\"claude-haiku-5-5\",\"inputTokens\":100000,"
+                +"\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"outputTokens\":20000,\"rate\":"+rate+"}");
+        var feedback=new AuditEvent(UUID.randomUUID(),AuditEventType.STEP_COMPLETED,"implement","test",
+                "{\"attemptId\":\"h2\",\"round\":1,\"model\":\"claude-haiku-5-5\",\"inputTokens\":40000,"
+                +"\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"outputTokens\":4000,\"rate\":"+rate+"}");
+
+        var legacyEstimate=StepUsageSummary.from(List.of(initial),true,JSON).estimate(estimator);
+        var initialTotals=AttemptUsageSummary.totals(List.of(initial),false);
+        var withFeedbackTotals=AttemptUsageSummary.totals(List.of(initial,feedback),false);
+
+        assertThat(legacyEstimate).isNotNull();
+        assertThat(legacyEstimate.amount()).isEqualTo("0.025");
+        assertThat(initialTotals.costByCurrency().get("USD")).isEqualByComparingTo(legacyEstimate.amount());
+        assertThat(initialTotals.breakdown()).containsEntry(AttemptCharge.Category.INPUT,100_000L)
+                .containsEntry(AttemptCharge.Category.OUTPUT,20_000L);
+        assertThat(withFeedbackTotals.costByCurrency().get("USD")).isEqualByComparingTo("0.033");
+        assertThat(withFeedbackTotals.breakdown()).containsEntry(AttemptCharge.Category.INPUT,140_000L)
+                .containsEntry(AttemptCharge.Category.OUTPUT,24_000L);
+        assertThat(withFeedbackTotals.rateSources()).containsExactly("anthropic-pricing (2026-09-19)");
+        assertThat(withFeedbackTotals.models()).containsExactly("claude-haiku-5-5");
+        assertThat(withFeedbackTotals.partial()).isFalse();
+        assertThat(AttemptUsageSummary.build(List.of(initial,feedback),1)).containsEntry("cost","0.008 USD");
+    }
+
     @Test void projectionKeepsRoundsSeparateAndUsesCapturedRates() {
         var start = event("initial", "coding_starting", false, "a", "USD", 0, 0);
         var initial = event("initial", "", true, "a", "USD", 100, 20);

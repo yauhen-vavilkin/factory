@@ -7,7 +7,7 @@ import java.util.EnumMap;
 import java.util.Map;
 
 /** Pricing of one saved cumulative usage observation; unknown categories stay unknown. */
-record AttemptCharge(
+public record AttemptCharge(
         long tokens,
         Map<Category, Long> breakdown,
         boolean known,
@@ -16,7 +16,7 @@ record AttemptCharge(
         String currency) {
     private static final BigDecimal TOKENS_PER_MILLION = BigDecimal.valueOf(1_000_000);
 
-    enum Category {
+    public enum Category {
         INPUT("inputTokens", "inputPerMillion"),
         CACHE_READ("cacheReadTokens", "cacheReadPerMillion"),
         CACHE_WRITE("cacheWriteTokens", "cacheWritePerMillion"),
@@ -31,7 +31,7 @@ record AttemptCharge(
         }
     }
 
-    static AttemptCharge calculate(JsonNode usage, JsonNode rate, boolean complete) {
+    public static AttemptCharge calculate(JsonNode usage, JsonNode rate, boolean complete) {
         boolean known = complete && !usage.path("usageIncomplete").asBoolean(false);
         boolean hasPricedTokens = false;
         long tokens = 0;

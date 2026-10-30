@@ -37,6 +37,23 @@ class DeveloperExecutionViewTest {
                 .containsEntry("runtimeFields", List.of(Map.of("label", "Runtime", "value", "pi")));
     }
 
+    @Test void runtimeAndUsageShowTheRunProfileModelEffortAndMaxTurns() {
+        var execution = new PipelineExecution("dev-factory", "0.9.0", "{}");
+        Instant start = Instant.parse("2026-10-27T10:00:00Z");
+        var started = runtime(Map.of("activity", "coding_starting", "runtime", "claude-code",
+                "provider", "anthropic-messages", "profile", "glm-5.3", "profileLabel", "GLM-5.3 (Z.ai)",
+                "model", "glm-5.3", "effort", "high (CLI default)", "maxTurns", 100), start);
+
+        assertThat(view.build(execution, List.of(), List.of(started), start.plusSeconds(1)))
+                .containsEntry("runtimeFields", List.of(
+                        Map.of("label", "Profile", "value", "GLM-5.3 (Z.ai)"),
+                        Map.of("label", "Model", "value", "glm-5.3"),
+                        Map.of("label", "Effort", "value", "high (CLI default)"),
+                        Map.of("label", "Max turns", "value", "100"),
+                        Map.of("label", "Provider", "value", "anthropic-messages"),
+                        Map.of("label", "Runtime", "value", "claude-code")));
+    }
+
     @Test void configuredIdentityIsVisibleBeforeCodingAndDoesNotImplyAgentStarted() {
         var execution = new PipelineExecution("dev-factory", "0.8.0", "{}");
         Instant start = Instant.parse("2026-09-22T10:00:00Z");
@@ -225,19 +242,21 @@ class DeveloperExecutionViewTest {
         @SuppressWarnings("unchecked")
         var activity = (List<Map<String, String>>) model.get("activity");
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "Starting build completed · Build passed",
+                "Starting build started · mvn test",
                 "Starting build progress · Starting build is still running",
                 "Starting build progress · Downloaded from central: dependency.jar",
                 "Starting build progress · Downloaded from central: dependency.jar",
                 "Starting build progress · Starting build is still running",
-                "Starting build started · mvn test");
-        assertThat(activity.get(4)).containsEntry("time", "2026-09-18 10:00:20");
+                "Starting build completed · Build passed");
+        // The time column shows only the clock; the full date and time go into the title attribute.
+        assertThat(activity.get(1)).containsEntry("time", "10:00:20")
+                .containsEntry("timeTitle", "2026-09-18 10:00:20");
         assertThat(events).hasSize(25);
-        assertThat(((List<?>) model.get("activity")).getFirst().toString()).contains("Starting build completed");
+        assertThat(((List<?>) model.get("activity")).getLast().toString()).contains("Starting build completed");
         assertThat(DeveloperExecutionView.technicalStepLabel("implement")).isEqualTo("Implementation");
 
         events.add(runtime("agent_start", "Pi started", start.plusSeconds(26)));
-        assertThat(((List<?>) view.build(execution, List.of(), events, start.plusSeconds(27)).get("activity")).getFirst().toString())
+        assertThat(((List<?>) view.build(execution, List.of(), events, start.plusSeconds(27)).get("activity")).getLast().toString())
                 .contains("Coding agent started");
     }
 
@@ -277,16 +296,52 @@ class DeveloperExecutionViewTest {
                 start.plusSeconds(9)).get("activity");
 
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "mvn test failed",
+                "Editing KeycloakAuthorizationService.java",
+                "edit completed",
+                "Writing AdvisoryLockService.java",
+                "write completed",
+                "Reading Foo.java",
                 "Running mvn test",
                 "mvn test completed",
                 "Running mvn test",
-                "Reading Foo.java",
-                "write completed",
-                "Writing AdvisoryLockService.java",
-                "edit completed",
-                "Editing KeycloakAuthorizationService.java");
+                "mvn test failed");
         assertThat(activity.toString()).doesNotContain("false", "true", "error=");
+    }
+
+    @Test void labelsClaudeCodeToolsWithTheirInputSummaryResultAndDuration() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        Instant start = Instant.parse("2026-09-18T10:00:00Z");
+        var events = List.of(
+                runtime(Map.of("activity", "tool_execution_start", "tool", "Bash", "command", "mvn test"), start),
+                runtime(Map.of("activity", "tool_execution_start", "tool", "Read",
+                        "path", "/workspace/src/Foo.java"), start.plusSeconds(1)),
+                runtime(Map.of("activity", "tool_execution_end", "tool", "Read", "path", "/workspace/src/Foo.java",
+                        "error", false, "durationMs", 15), start.plusSeconds(2)),
+                runtime(Map.of("activity", "tool_execution_start", "tool", "Glob", "pattern", "**/*.java"),
+                        start.plusSeconds(3)),
+                runtime(Map.of("activity", "tool_execution_start", "tool", "Grep", "pattern", "TODO"),
+                        start.plusSeconds(4)),
+                runtime(Map.of("activity", "tool_execution_start", "tool", "WebFetch",
+                        "url", "https://example.org/doc"), start.plusSeconds(5)),
+                runtime(Map.of("activity", "tool_execution_start", "tool", "Edit",
+                        "path", "/workspace/src/Bar.java"), start.plusSeconds(6)),
+                runtime(Map.of("activity", "tool_execution_end", "tool", "Bash", "command", "mvn test",
+                        "error", true, "durationMs", 72_000, "errorText", "Exit code 1 BUILD FAILURE"),
+                        start.plusSeconds(7)));
+
+        @SuppressWarnings("unchecked")
+        var activity = (List<Map<String, String>>) view.build(execution, List.of(), events,
+                start.plusSeconds(8)).get("activity");
+
+        assertThat(activity).extracting(row -> row.get("text")).containsExactly(
+                "Running mvn test",
+                "Reading Foo.java",
+                "Read Foo.java completed in 15 ms",
+                "Finding files matching **/*.java",
+                "Searching for TODO",
+                "Fetching https://example.org/doc",
+                "Editing Bar.java",
+                "mvn test failed in 1m 12s · Exit code 1 BUILD FAILURE");
     }
 
     @Test void parallelBashCompletionsUseNeutralLabelsInsteadOfGuessing() {
@@ -305,12 +360,12 @@ class DeveloperExecutionViewTest {
                 start.plusSeconds(6)).get("activity");
 
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "Shell command completed",
-                "Shell command completed",
-                "Running go test",
-                "Shell command failed",
+                "Running mvn test",
                 "Running npm test",
-                "Running mvn test");
+                "Shell command failed",
+                "Running go test",
+                "Shell command completed",
+                "Shell command completed");
     }
 
     @Test void rendersConservativePiLifecycleLabelsWithoutMessageOrReasoningContent() {
@@ -331,12 +386,12 @@ class DeveloperExecutionViewTest {
                 start.plusSeconds(7)).get("activity");
 
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "Coding agent finished",
-                "Coding runtime compaction finished",
-                "Coding runtime compacting context",
-                "Coding runtime retry finished",
+                "Coding agent started",
                 "Coding runtime retrying request",
-                "Coding agent started");
+                "Coding runtime retry finished",
+                "Coding runtime compacting context",
+                "Coding runtime compaction finished",
+                "Coding agent finished");
         assertThat(activity.toString()).doesNotContain("hidden message", "hidden reasoning", "reasoning");
     }
 
@@ -357,7 +412,8 @@ class DeveloperExecutionViewTest {
         assertThat(model).containsEntry("activityNotice", "Runtime activity limit reached; usage reporting continues")
                 .containsEntry("currentPhase", "Implement changes");
         assertThat((List<?>) model.get("activity")).hasSize(20);
-        assertThat(((List<?>) model.get("activity")).getFirst().toString()).contains("Reading Foo24.java");
+        assertThat(((List<?>) model.get("activity")).getLast().toString()).contains("Reading Foo24.java");
+        assertThat(((List<?>) model.get("activity")).getFirst().toString()).contains("Reading Foo5.java");
     }
 
     @Test void terminalExecutionKeepsPiEventHistoricalAndUsesProductStage() {
@@ -373,7 +429,7 @@ class DeveloperExecutionViewTest {
         assertThat(model).containsEntry("currentPhase", "Complete");
         assertThat(((List<?>) model.get("activity")).getFirst().toString()).contains("Editing Foo.java");
         assertThat(phases(model)).extracting(phase -> phase.get("stateLabel"))
-                .containsExactly("Done", "Done", "Done", "Done");
+                .containsExactly("Passed", "Passed", "Passed", "Passed");
     }
 
     @Test void verificationFailureIsMoreUsefulThanSkippedDelivery() {
@@ -414,7 +470,12 @@ class DeveloperExecutionViewTest {
                 .containsEntry("deliveryBranch", "dev/task")
                 .containsEntry("deliveryCommit", "def456")
                 .containsEntry("pullRequestUrl", "https://github.com/user/repo/pull/1")
-                .containsEntry("pullRequestLabel", "https://github.com/user/repo/pull/1");
+                .containsEntry("pullRequestLabel", "https://github.com/user/repo/pull/1")
+                .containsEntry("pullRequestDraft", false);
+        var draft = artifact("dev_delivery.json", 2, "{\"pullRequestUrl\":\"https://github.com/user/repo/pull/1\","
+                + "\"pullRequestDraft\":true,\"draftReasons\":[\"1 acceptance criterion is not met.\"]}");
+        assertThat(view.build(execution, List.of(delivery, draft), List.of(), Instant.now()))
+                .containsEntry("pullRequestDraft", true);
         var titled = artifact("dev_delivery.json", 2,
                 "{\"pullRequestUrl\":\"https://github.com/user/repo/pull/1\",\"pullRequestTitle\":\"TASK-1: Fix route\"}");
         assertThat(view.build(execution, List.of(delivery, titled), List.of(), Instant.now()))
@@ -422,6 +483,9 @@ class DeveloperExecutionViewTest {
         assertThat(model.get("technicalFields").toString()).contains("Starting commit", "abc123", "mvn test");
         var unsafe = artifact("dev_delivery.json", 2, "{\"pullRequestUrl\":\"javascript:alert(1)\"}");
         assertThat(view.build(execution, List.of(delivery, unsafe), List.of(), Instant.now())).containsEntry("pullRequestUrl", "");
+        var unsafeDraft = artifact("dev_delivery.json", 2, "{\"pullRequestUrl\":\"javascript:alert(1)\",\"pullRequestDraft\":true}");
+        assertThat(view.build(execution, List.of(delivery, unsafeDraft), List.of(), Instant.now()))
+                .containsEntry("pullRequestDraft", false);
     }
 
     @Test void technicalStepDurationsUseAttemptBoundariesAndTerminalTime() {

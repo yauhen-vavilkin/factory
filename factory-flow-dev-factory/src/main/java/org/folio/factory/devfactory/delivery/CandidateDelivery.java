@@ -57,20 +57,30 @@ public class CandidateDelivery {
             DeliveryTarget target,
             String githubToken,
             boolean stableBranch) {
+        return deliver(executionId, issueKey, summary, sourceUrl, candidate, verification,
+                target, githubToken, stableBranch, PublicationGit.DEFAULT_TIMEOUT_SECONDS);
+    }
+
+    /** Delivery Git operations bounded by the pilot attempt's remaining whole-attempt budget. */
+    public DeliveryReceipt deliver(
+            String executionId,
+            String issueKey,
+            String summary,
+            String sourceUrl,
+            Candidate candidate,
+            VerificationReceipt verification,
+            DeliveryTarget target,
+            String githubToken,
+            boolean stableBranch,
+            int gitTimeoutSeconds) {
         Objects.requireNonNull(verification, "Verification receipt is missing")
                 .requireVerified(executionId, candidate);
-        Objects.requireNonNull(target, "Delivery target is missing").requireAuthorized();
+        Objects.requireNonNull(target, "Delivery target is missing").requireValid();
         if (githubToken == null || githubToken.isBlank())
             throw new DeliveryBlockedException("FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
         if (issueKey == null || !issueKey.matches("[A-Z][A-Z0-9]*-[0-9]+"))
             throw new DeliveryBlockedException("Invalid delivery issue key");
-        String branch =
-                "factory/"
-                        + issueKey.toLowerCase(Locale.ROOT)
-                        + "-"
-                        + (stableBranch
-                                ? UUID.fromString(executionId).toString()
-                                : candidate.patchSha256().substring(0, 8));
+        String branch = branchFor(executionId, issueKey, candidate, stableBranch);
         try {
             CandidateFreezer.git(null, "check-ref-format", "--branch", branch);
             CandidateFreezer.git(null, "check-ref-format", "--branch", target.baseBranch());
@@ -85,6 +95,7 @@ public class CandidateDelivery {
             requireRemote(
                     workspace,
                     auth,
+                    gitTimeoutSeconds,
                     "fetch",
                     "--quiet",
                     remote,
@@ -93,6 +104,7 @@ public class CandidateDelivery {
                     gitResult(
                             workspace,
                             Map.of(),
+                            gitTimeoutSeconds,
                             "merge-base",
                             "--is-ancestor",
                             candidate.baseSha(),
@@ -119,6 +131,7 @@ public class CandidateDelivery {
                     git(
                                     workspace,
                                     identity,
+                                    gitTimeoutSeconds,
                                     "commit-tree",
                                     candidate.treeSha(),
                                     "-p",
@@ -128,7 +141,7 @@ public class CandidateDelivery {
                             .strip();
             String ref = "refs/heads/" + branch;
             Processes.Result remoteBranch =
-                    gitResult(workspace, auth, "ls-remote", "--heads", remote, ref);
+                    gitResult(workspace, auth, gitTimeoutSeconds, "ls-remote", "--heads", remote, ref);
             if (remoteBranch.exitCode() != 0 && permanentRemoteFailure(remoteBranch)) {
                 throw new DeliveryBlockedException(
                         "Delivery destination is missing or unauthorized");
@@ -142,7 +155,7 @@ public class CandidateDelivery {
             if (existing.isEmpty()) {
                 Processes.Result push =
                         gitResult(
-                                workspace, auth, "push", "--porcelain", remote, commit + ":" + ref);
+                                workspace, auth, gitTimeoutSeconds, "push", "--porcelain", remote, commit + ":" + ref);
                 String error = push.error().toLowerCase(Locale.ROOT);
                 if (push.exitCode() != 0
                         && (permanentRemoteFailure(push)
@@ -153,7 +166,7 @@ public class CandidateDelivery {
                 }
                 requireSuccess(push, "push");
             }
-            requireRemote(workspace, auth, "fetch", "--quiet", remote, ref);
+            requireRemote(workspace, auth, gitTimeoutSeconds, "fetch", "--quiet", remote, ref);
             if (!CandidateFreezer.git(workspace, "rev-parse", "FETCH_HEAD").strip().equals(commit)
                     || !CandidateFreezer.git(workspace, "rev-parse", "FETCH_HEAD^{tree}")
                             .strip()
@@ -177,20 +190,35 @@ public class CandidateDelivery {
         }
     }
 
-    private static String git(Path workspace, Map<String, String> environment, String... args) {
-        Processes.Result result = gitResult(workspace, environment, args);
+    /**
+     * The single source of the delivered branch name, shared with publication-intent
+     * persistence so the recorded head identity cannot drift from the pushed one.
+     */
+    public static String branchFor(
+            String executionId, String issueKey, Candidate candidate, boolean stableBranch) {
+        return "factory/"
+                + issueKey.toLowerCase(Locale.ROOT)
+                + "-"
+                + (stableBranch
+                        ? UUID.fromString(executionId).toString()
+                        : candidate.patchSha256().substring(0, 8));
+    }
+
+    private static String git(
+            Path workspace, Map<String, String> environment, int timeoutSeconds, String... args) {
+        Processes.Result result = gitResult(workspace, environment, timeoutSeconds, args);
         requireSuccess(result, args[0]);
         return result.output();
     }
 
     private static Processes.Result gitResult(
-            Path workspace, Map<String, String> environment, String... args) {
-        return PublicationGit.run(workspace, environment, args);
+            Path workspace, Map<String, String> environment, int timeoutSeconds, String... args) {
+        return PublicationGit.run(workspace, environment, timeoutSeconds, args);
     }
 
     private static void requireRemote(
-            Path workspace, Map<String, String> environment, String... args) {
-        Processes.Result result = gitResult(workspace, environment, args);
+            Path workspace, Map<String, String> environment, int timeoutSeconds, String... args) {
+        Processes.Result result = gitResult(workspace, environment, timeoutSeconds, args);
         if (result.exitCode() != 0 && permanentRemoteFailure(result)) {
             throw new DeliveryBlockedException("Delivery destination is missing or unauthorized");
         }

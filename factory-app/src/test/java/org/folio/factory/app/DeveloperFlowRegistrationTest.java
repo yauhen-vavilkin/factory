@@ -112,6 +112,8 @@ class DeveloperFlowRegistrationTest {
         assertThat(rest.get().uri("/flows").retrieve().body(String.class))
                 .contains("Developer Flow").contains("Test Factory");
         assertThat(rest.get().uri("/flows/dev-factory").retrieve().body(String.class))
+                .contains("Developer Flow").contains("My Jira tasks");
+        assertThat(rest.get().uri("/flows/dev-factory?view=definition").retrieve().body(String.class))
                 .contains("Developer Flow").contains("dev-intake");
     }
 
@@ -123,40 +125,40 @@ class DeveloperFlowRegistrationTest {
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "folio-org/folio-module-sidecar", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-unit", List.of("MODSIDECAR"), List.of(),
-                        new DeliveryTarget("folio-org/folio-module-sidecar", "master", false)));
+                        new DeliveryTarget("folio-org/folio-module-sidecar", "master")));
         assertThat(devFactoryProperties.repositories().get("mod-roles-keycloak"))
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "folio-org/mod-roles-keycloak", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-roles-verify", List.of("MODROLESKC"), List.of(),
-                        new DeliveryTarget("folio-org/mod-roles-keycloak", "master", false)));
+                        new DeliveryTarget("folio-org/mod-roles-keycloak", "master")));
         assertThat(devFactoryProperties.repositories().get("mgr-tenant-entitlements"))
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "folio-org/mgr-tenant-entitlements", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-unit", List.of("MGRENTITLE"), List.of(),
-                        new DeliveryTarget("folio-org/mgr-tenant-entitlements", "master", false)));
+                        new DeliveryTarget("folio-org/mgr-tenant-entitlements", "master")));
         assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
         assertThat(devFactoryProperties.repositories().get("mgr-applications"))
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "folio-org/mgr-applications", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-unit", List.of("MGRAPPS"), List.of(),
-                        new DeliveryTarget("folio-org/mgr-applications", "master", false)));
+                        new DeliveryTarget("folio-org/mgr-applications", "master")));
         assertThat(devRuntimeProperties.command("java21-roles-verify"))
                 .containsExactly("mvn", "-B", "-ntp", "verify");
         assertThat(devRuntimeProperties.requiredReports("java21-roles-verify")).containsExactly("surefire", "failsafe");
         assertThat(devDeliveryProperties.createPullRequest()).isTrue();
         assertThat(devDeliveryProperties.targets()).isEmpty();
         assertThat(devDeliveryProperties.effectiveTargets(devFactoryProperties)).containsOnly(
-                entry("sidecar", new DeliveryTarget("folio-org/folio-module-sidecar", "master", false)),
+                entry("sidecar", new DeliveryTarget("folio-org/folio-module-sidecar", "master")),
                 entry("mod-roles-keycloak", new DeliveryTarget(
-                        "folio-org/mod-roles-keycloak", "master", false)),
+                        "folio-org/mod-roles-keycloak", "master")),
                 entry("mgr-tenant-entitlements", new DeliveryTarget(
-                        "folio-org/mgr-tenant-entitlements", "master", false)),
+                        "folio-org/mgr-tenant-entitlements", "master")),
                 entry("mgr-applications", new DeliveryTarget(
-                        "folio-org/mgr-applications", "master", false)));
+                        "folio-org/mgr-applications", "master")));
     }
 
     @Test
-    void realPreflightBlocksApiAndUiAdmissionBeforeCreatingExecutions() throws Exception {
+    void realPreflightBlocksApiAdmissionAndTheUiHasNoJsonTrigger() throws Exception {
         long before = state.countCreatedSince(Instant.EPOCH);
         var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
                 .followRedirects(HttpClient.Redirect.NEVER).build();
@@ -171,7 +173,9 @@ class DeveloperFlowRegistrationTest {
         var apiResponse = client.send(apiRequest, HttpResponse.BodyHandlers.ofString());
 
         assertThat(apiResponse.statusCode()).isEqualTo(422);
-        assertThat(apiResponse.body()).contains("Developer Flow preflight failed", "Configure the selected coding profile");
+        // The reason names the profile and the variable to set.
+        assertThat(apiResponse.body()).contains("Developer Flow preflight failed",
+                "Profile env-default is not configured: set FACTORY_CLAUDE_CODE_API_KEY in .env");
         assertThat(state.countCreatedSince(Instant.EPOCH)).isEqualTo(before);
 
         String form = "payload=" + URLEncoder.encode("{\"issueKey\":\"MODSIDECAR-196\"}", StandardCharsets.UTF_8)
@@ -187,9 +191,10 @@ class DeveloperFlowRegistrationTest {
         assertThat(uiResponse.statusCode()).isEqualTo(302);
         var location = URI.create(uiResponse.headers().firstValue("Location").orElseThrow());
         assertThat(location.getPath()).isEqualTo("/flows/dev-factory");
+        // Developer Flow runs start from My tasks only; the JSON trigger form is refused.
         assertThat(URLDecoder.decode(location.getRawQuery(), StandardCharsets.UTF_8))
-                .contains("Developer Flow preflight failed", "Configure the selected coding profile");
+                .contains("Developer Flow runs start from My tasks");
         assertThat(state.countCreatedSince(Instant.EPOCH)).isEqualTo(before);
-        verify(preflightProbe, times(2)).dockerAvailable();
+        verify(preflightProbe, times(1)).dockerAvailable();
     }
 }

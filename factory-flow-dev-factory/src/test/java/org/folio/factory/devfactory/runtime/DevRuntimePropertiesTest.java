@@ -42,9 +42,9 @@ class DevRuntimePropertiesTest {
         coding.claudeCode().requireConfigured();
         assertThat(coding.toString() + coding.piProfile() + coding.claudeCode())
                 .doesNotContain("legacy-key", "new-pi-key", "claude-secret", "gateway.example");
-        var selected = new DevFactoryConfiguration().devCodingRuntime(bind(values));
+        var selected = codingRuntime(new DevFactoryConfiguration(), bind(values));
         assertThat(selected).isInstanceOf(ClaudeCodeCodingRuntime.class);
-        assertThat(selected.identity()).containsEntry("model", "operator/Custom-Model-2026");
+        assertThat(selected.identity(null)).containsEntry("model", "operator/Custom-Model-2026");
     }
 
     @Test
@@ -52,10 +52,10 @@ class DevRuntimePropertiesTest {
         var configuration = new DevFactoryConfiguration();
         var empty = bind(Map.of("factory.dev-factory.runtime.coding.runtime", "claude-code",
                 "factory.dev-factory.runtime.coding.pi.max-output-tokens", "-1"));
-        assertThat(configuration.devCodingRuntime(empty)).isInstanceOf(ClaudeCodeCodingRuntime.class);
-        assertThat(configuration.devCodingRuntime(new DevRuntimeProperties(null, null, 0, null)))
+        assertThat(codingRuntime(configuration, empty)).isInstanceOf(ClaudeCodeCodingRuntime.class);
+        assertThat(codingRuntime(configuration, new DevRuntimeProperties(null, null, 0, null)))
                 .isInstanceOf(ClaudeCodeCodingRuntime.class);
-        assertThatThrownBy(() -> configuration.devCodingRuntime(bind(Map.of(
+        assertThatThrownBy(() -> codingRuntime(configuration, bind(Map.of(
                 "factory.dev-factory.runtime.coding.runtime", "unknown"))))
                 .hasMessageContaining("Unsupported coding runtime");
     }
@@ -65,7 +65,7 @@ class DevRuntimePropertiesTest {
         var config = new DevRuntimeProperties.ClaudeCode(null, "openai-completions", "http://gateway",
                 "model", "api-key", "secret", null, null, null, null);
         var workload = org.mockito.Mockito.mock(DockerWorkloads.Workload.class);
-        assertThatThrownBy(() -> new ClaudeCodeCodingRuntime(config).code(workload, null, 30))
+        assertThatThrownBy(() -> new ClaudeCodeCodingRuntime(config).code(workload, ClaudeCodeCodingRuntimeTest.request(), 30))
                 .hasMessageContaining("api=anthropic-messages");
         org.mockito.Mockito.verifyNoInteractions(workload);
     }
@@ -89,6 +89,10 @@ class DevRuntimePropertiesTest {
         assertThatThrownBy(profile::requireConfigured)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("selected authentication credential");
+    }
+
+    private static CodingRuntime codingRuntime(DevFactoryConfiguration configuration, DevRuntimeProperties runtime) {
+        return configuration.devCodingRuntime(runtime, RunProfiles.envOnly(runtime.coding().claudeCode()));
     }
 
     private static DevRuntimeProperties bind(Map<String, ?> values) {

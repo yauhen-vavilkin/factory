@@ -1,5 +1,8 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.app.developer.CodingTranscriptStore;
+import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
+import org.folio.factory.app.pilot.presentation.PilotTaskQuery;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -54,6 +57,9 @@ public class ExecutionUiController {
     private final DeveloperCostEstimator costEstimator;
     private final FeedbackUi feedbackUi;
     private final DeveloperExecutionView developerView;
+    private final PilotAttemptRepository pilotAttempts;
+    private final PilotTaskQuery pilotTasks;
+    private final CodingTranscriptStore transcripts;
 
     public ExecutionUiController(
             PipelineExecutionRepository executions,
@@ -63,7 +69,10 @@ public class ExecutionUiController {
             HitlReviewRepository reviews,
             JsonMapper jsonMapper,
             DeveloperCostEstimator costEstimator,
-            FeedbackUi feedbackUi) {
+            FeedbackUi feedbackUi,
+            PilotAttemptRepository pilotAttempts,
+            PilotTaskQuery pilotTasks,
+            CodingTranscriptStore transcripts) {
         this.executions = executions;
         this.artifactStore = artifactStore;
         this.auditLog = auditLog;
@@ -73,6 +82,9 @@ public class ExecutionUiController {
         this.costEstimator = costEstimator;
         this.feedbackUi = feedbackUi;
         this.developerView = new DeveloperExecutionView(jsonMapper);
+        this.pilotAttempts = pilotAttempts;
+        this.pilotTasks = pilotTasks;
+        this.transcripts = transcripts;
     }
 
     @GetMapping("/executions")
@@ -136,7 +148,7 @@ public class ExecutionUiController {
                             ? execution.getCompletedAt()
                             : now;
             long workSeconds = AttemptUsageSummary.activeSeconds(events, end);
-            model.addAttribute("factoryTime", FeedbackUi.duration(workSeconds));
+            model.addAttribute("factoryTime", UiFormat.duration(workSeconds));
             model.addAttribute(
                     "factoryTimeStart",
                     execution.getStatus() == ExecutionStatus.RUNNING
@@ -145,6 +157,9 @@ public class ExecutionUiController {
             var developer =
                     developerView.build(execution, artifacts, events, now);
             model.addAttribute("developer", developer);
+            model.addAttribute("pilotRun", pilotAttempts.findByExecutionId(id)
+                    .map(attempt -> PilotTaskUiController.runContext(pilotTasks.detail(attempt.getTaskId()), id))
+                    .orElse(null));
             model.addAttribute("progressSteps", developer.get("phases"));
             var flow = flowRegistry.find(execution.getFlowId()).orElse(null);
             if (flow != null)
@@ -183,6 +198,20 @@ public class ExecutionUiController {
                 events.stream().map(event -> UiFormat.auditRow(event, jsonMapper)).toList());
         model.addAttribute("pollUrl", terminal ? null : "/api/executions/" + id);
         return "execution";
+    }
+
+    @GetMapping("/executions/{id}/transcript")
+    public String transcript(@PathVariable("id") UUID id, Model model) {
+        PipelineExecution execution =
+                executions
+                        .findById(id)
+                        .orElseThrow(() -> new NoSuchElementException("No execution " + id));
+        model.addAttribute("execution", execution);
+        model.addAttribute("pilotRun", pilotAttempts.findByExecutionId(id)
+                .map(attempt -> PilotTaskUiController.runContext(pilotTasks.detail(attempt.getTaskId()), id))
+                .orElse(null));
+        model.addAttribute("runs", DeveloperTranscriptView.runs(transcripts.read(id)));
+        return "transcript";
     }
 
     /** Compatibility for Test Factory and Developer Flow artifacts without attempt identities. */

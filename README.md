@@ -158,24 +158,23 @@ container and has no `/v1` suffix: the CLI appends `/v1/messages`.
 
 Fill in the empty access values before triggering a task:
 
-- Jira base URL, email and API token for reading the requested issue.
-- A GitHub token with write access to the personal delivery repository. Source
-  repositories must be public; source checkout does not use this token.
-- Source/delivery repositories and an existing shared base branch. The bundled
-  targets have delivery disabled; choose your own fork and authorize it explicitly.
-  Verification is followed by automatic push/PR publication to the authorized
-  target. `create-pull-request=false` does not disable git push.
+- Jira base URL for reading the requested issue (public Jira needs no email or
+  API token).
+- A GitHub token that can push to the delivery repository. Source repositories
+  must be public; source checkout does not use this token.
+- Source/delivery repositories and an existing shared base branch. The delivery
+  repository decides where the pull request goes: each bundled entry delivers to
+  its official folio-org repository unless you point it at your fork.
+  Verification is followed by automatic push/PR publication to that repository.
+  `create-pull-request=false` does not disable git push.
 
-For example, enable only your sidecar target (replace `your-github-user`):
+For example, send the sidecar's pull requests to your fork (replace
+`your-github-user`):
 
 ```dotenv
 FACTORY_SIDECAR_SOURCE_REPO=your-github-user/folio-module-sidecar
 FACTORY_SIDECAR_DELIVERY_REPO=your-github-user/folio-module-sidecar
 FACTORY_SIDECAR_BASE_BRANCH=master
-FACTORY_SIDECAR_DELIVERY_AUTHORIZED=true
-FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_AUTHORIZED=false
-FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_AUTHORIZED=false
-FACTORY_MGR_APPLICATIONS_DELIVERY_AUTHORIZED=false
 ```
 
 Repository policy lives in [`config/developer-repositories.yaml`](config/developer-repositories.yaml):
@@ -271,14 +270,14 @@ my-module:
   # jira-components: [Backend]  # optional: restrict the Jira component mapping
   delivery:
     repository: your-github-user/my-module
-    authorized: false
 ```
 
 Use the actual Jira project key and a branch that exists in the source and
 delivery repositories. The delivery base comes from this entry's `base-branch`;
-there is no second branch to keep in sync. Set `authorized: true` only when the
-destination is ready for automatic push and PR creation. Source and delivery may
-be different repositories, but the delivery branch must contain the source base.
+there is no second branch to keep in sync. Pull requests go to
+`delivery.repository` under your GitHub token; before a task is queued, Factory
+checks that the token can push there. Source and delivery may be different
+repositories, but the delivery branch must contain the source base.
 
 `verification-plan` names a trusted command in `factory.dev-factory.runtime.plans`
 in the same file. The bundled `java21-unit` runs `mvn -B -ntp test`; add a separate
@@ -320,9 +319,10 @@ delivery, submodules and other build/report formats require implementation chang
 
 Older deployments may still supply `factory.dev-factory.delivery.targets.<key>`.
 An explicit legacy target takes precedence over that entry's nested `delivery`
-settings; missing repository/base fields inherit the catalog values. Legacy
-authorization remains authoritative, including `false`; set it explicitly to
-`true` to enable delivery. Remove legacy settings when migrating to the unified catalog. A different legacy
+settings; missing repository/base fields inherit the catalog values. Delivery has
+no on/off switch any more: Factory refuses to start while a catalog or legacy
+target still sets `authorized`, so remove the key and point the repository where
+pull requests should go. Remove legacy settings when migrating to the unified catalog. A different legacy
 delivery branch name is rejected by preflight; a conflicting nested delivery base
 is rejected while loading the catalog.
 
@@ -449,13 +449,64 @@ its wire format. Optional harness settings are Pi `REASONING_EFFORT` and
 prefix respectively. Leave `FACTORY_CLAUDE_CODE_EFFORT` unset initially.
 The common attempt timeout remains `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` (1800).
 
+#### Run profiles (Claude Code)
+
+With the Claude Code runtime, each run uses a **run profile**: endpoint, secret, model,
+the efforts you may choose and the default turn limit. You choose the profile, the
+effort and the max turns in the run form: next to **Run** and **Add to run** on My
+tasks, and in the **Retry** form on the task page, which also has an optional
+**Instructions for the agent** field. Retry fills the form from the previous attempt,
+and PR feedback rounds keep the settings of the run they belong to.
+
+- `env-default` ("Configured in .env") is built from the `FACTORY_CLAUDE_CODE_*`
+  settings above, so an existing `.env` keeps working. It offers all efforts
+  (`low`, `medium`, `high`, `xhigh`, `max`). Its default effort is
+  `FACTORY_CLAUDE_CODE_EFFORT`; empty sends no `--effort`, and the CLI then uses
+  `high`, shown as "high (CLI default)".
+- More profiles live in
+  [`config/developer-run-profiles.yaml`](config/developer-run-profiles.yaml): `id`,
+  `label`, `base-url`, `authentication` (`bearer-token` or `api-key`), `secret-env`
+  (the name of the variable that holds the secret; never the secret itself),
+  `model`, `efforts`, `default-effort`, `max-turns` and `max-output-tokens`. The
+  file ships `glm-5.3` and `glm-5.3-flash` for Z.ai; set `FACTORY_ZAI_API_KEY` in
+  `.env` to use them. Compose passes only the variables it lists to Factory, so a
+  profile with a new `secret-env` variable also needs that variable in the
+  `environment` of the `factory` service in `docker-compose.yml`, next to
+  `FACTORY_ZAI_API_KEY`. A profile whose secret is empty shows as "not configured"
+  and cannot be chosen. Max turns is from 1 to 500 in the file and in the run form,
+  and so is `FACTORY_CLAUDE_CODE_MAX_TURNS`: a larger value stops `env-default` with
+  a reason that names the variable. To use your own copy, set
+  `FACTORY_DEV_FACTORY_RUN_PROFILES_FILE=./config/my-run-profiles.yaml`; it is
+  mounted read-only like the repository catalog. An invalid file stops Factory at
+  startup with a message that names the profile and the field.
+- `FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE` picks the profile the forms preselect
+  and that runs without a choice use (the manual API trigger, older attempts).
+  Empty means `env-default`.
+
+The attempt stores the chosen profile, its model and endpoint origin (no
+credentials), the effort, max turns and instructions. The run then uses the profile
+it names; if that profile was removed or lost its secret, the run stops with a
+reason that names the profile. Cost uses the model that was sent and
+`config/developer-pricing.yaml`. **Check configuration** lists every profile with
+its own checks: secret set, endpoint reachable over TCP, rate card and effort list.
+With the Pi runtime there is no profile choice and Pi works as before.
+
 Claude Code is pinned to **2.1.287**, resolved from the official stable channel on
 2026-10-14; both supported Linux architectures have pinned manifest checksums.
 The [official setup guide](https://code.claude.com/docs/en/setup) documents the
 stable channel and version management. Auto-updates are disabled. The adapter
 uses [programmatic print mode](https://code.claude.com/docs/en/headless), NDJSON
-output, bare mode, no session persistence and explicitly allowed local coding
-tools. Permission mode is explicitly `dontAsk` with `--permission-prompts none`;
+output, no session persistence and explicitly allowed tools: the local coding tools
+and `WebFetch`. Bare mode is off, so `WebFetch` is available, but the CLI loads no
+settings, hooks, plugins or MCP servers (`--setting-sources ""`, an empty strict MCP
+config); auto-memory, background traffic and updates are switched off by
+environment. `--settings '{"skipWebFetchPreflight":true}'` stops WebFetch from first
+sending each domain to `api.anthropic.com` for a check, so WebFetch also works on a
+network that cannot reach that host, and fetched domain names do not go to a host
+the run's profile does not use. Without the project setting source the CLI does not
+load the repository's `CLAUDE.md` or `AGENTS.md` by itself, so the prompt tells the
+agent to read and follow them. Factory's rules still win: the agent does not commit, branch,
+push, open pull requests or change git configuration. Permission mode is explicitly `dontAsk` with `--permission-prompts none`;
 allowed tools run without a separate model-based permission classifier, and any
 remaining permission request is denied without waiting. It works under the
 workload's UID (including the Compose root UID), private `HOME=/tmp/factory-home`,
@@ -492,6 +543,46 @@ Spring Boot does not load `.env` automatically. The coding container still uses
 `host.docker.internal` to reach the host proxy. No Java edits are needed to switch
 runtimes or endpoints.
 
+### My tasks quick start
+
+Developer Flow turns the Jira tasks assigned to you into pull requests under your
+name. Factory reads Jira anonymously and never writes to it.
+
+Prerequisites: Docker Desktop with Compose 2.20+, a local CodeMie proxy on port
+4001, and a GitHub token that can push to the delivery repositories.
+
+```bash
+cp .env.pilot.example .env
+# Set FACTORY_PILOT_ASSIGNEE (your name as Jira shows it) and FACTORY_CONNECTORS_GITHUB_TOKEN.
+docker compose up -d
+```
+
+Open <http://localhost:8080/flows/dev-factory> and press **Scan Jira** to load your
+open tasks; the status chips filter them on the page (Open and In Progress by
+default). Select tasks and press **Run**, or add any task by key under the list.
+Both have a compact Profile, Effort and Max turns row; see
+[Run profiles](#run-profiles-claude-code). A failed task's **Retry** opens the form on
+its task page, where you can also add instructions for the agent.
+A task can run when its Jira project maps to exactly one repository in
+`config/developer-repositories.yaml`. Before a task is queued, Factory checks that
+your token can push to its delivery repository: folio-org by default, or your
+fork when you set both `<REPO>_SOURCE_REPO` and `<REPO>_DELIVERY_REPO`.
+
+One task runs at a time, in the order you clicked; Retry joins the same queue. A
+failed task releases the queue. A task in **Needs inspection** holds it: Factory
+could not confirm how the run ended (for example, workload cleanup or a lost
+publication response) and rechecks every minute. If the run is really over, use
+**Mark as stopped…**: the task becomes Could not complete and the queue moves on.
+Destructive retention must stay disabled: while `FACTORY_RETENTION_ENABLED` is
+true, pilot execution refuses to start tasks (see `docker compose logs factory`).
+
+The agent ends each run with a short report under four headings: Changes,
+Acceptance criteria (met, not met or not checked), Assumptions and Could not read.
+It becomes the pull request description. Factory opens the pull request as a
+**Draft PR** when a criterion is not met or not checked, when the agent made
+assumptions or could not read a source, or when the report does not use the four
+headings; the task page lists the reasons.
+
 ## Operations
 
 Production procedures live under `doc/`:
@@ -512,7 +603,7 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | Environment variable | Purpose |
 |---|---|
 | `ANTHROPIC_API_KEY` | LLM provider key (Spring AI Anthropic starter) |
-| `FACTORY_LLM_MODEL` | Chat model id (default `claude-sonnet-4-5`, or `llama-3.3-70b-versatile` with the `openai` provider) |
+| `FACTORY_LLM_MODEL` | Chat model id (default `claude-sonnet-5-5`, or `llama-3.3-70b-versatile` with the `openai` provider) |
 | `FACTORY_LLM_PROVIDER` | `anthropic` (default) or `openai` for any OpenAI-compatible endpoint (Groq, Gemini, OpenRouter, local Ollama) |
 | `FACTORY_LLM_API_KEY` | API key for the OpenAI-compatible provider |
 | `FACTORY_LLM_BASE_URL` / `_COMPLETIONS_PATH` | OpenAI-compatible endpoint (defaults target Groq: `https://api.groq.com/openai/v1` + `/chat/completions`) |
@@ -522,7 +613,11 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `claude-code`) |
 | `FACTORY_MODEL_PROVIDER` / `_ID` / `_BASE_URL` / `_API` / `_API_KEY` | Legacy Pi profile settings; nonblank `FACTORY_PI_*` values override them |
 | `FACTORY_PI_*` / `FACTORY_CLAUDE_CODE_*` | Independent image, API, model, endpoint, authentication and harness profiles; see [Coding runtime profiles](#coding-runtime-profiles) |
-| `FACTORY_MODEL_REASONING_EFFORT` | Optional Pi thinking level; `max` for the CodeMie GPT-5.6 Luna profile, empty for the current GLM behavior |
+| `FACTORY_CLAUDE_CODE_EFFORT` | Default effort of run profile `env-default`: `low`, `medium`, `high`, `xhigh` or `max`; empty sends no `--effort` (the CLI uses `high`) |
+| `FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE` | Run profile preselected in the run forms and used by runs without a choice; empty means `env-default`. See [Run profiles](#run-profiles-claude-code) |
+| `FACTORY_DEV_FACTORY_RUN_PROFILES_FILE` | Compose host path of the run profiles file (default `./config/developer-run-profiles.yaml`); mounted read-only |
+| `FACTORY_ZAI_API_KEY` | Z.ai key for the `glm-5.3` and `glm-5.3-flash` run profiles; empty leaves them "not configured" |
+| `FACTORY_MODEL_REASONING_EFFORT` | Old Pi runtime only (legacy Pi profile): optional Pi thinking level, `max` for the CodeMie GPT-5.6 Luna profile. It does not change Claude Code; use `FACTORY_CLAUDE_CODE_EFFORT` or the run form |
 | `FACTORY_MODEL_MAX_OUTPUT_TOKENS` | Pi model output limit (default `16384`; CodeMie profile `65536`) |
 | `FACTORY_DB_POOL_MAX` / `_MIN_IDLE` | HikariCP pool sizing (defaults `16` / `4`; see `doc/performance.md`) |
 | `FACTORY_DB_POOL_CONNECTION_TIMEOUT_MS` / `_MAX_LIFETIME_MS` / `_IDLE_TIMEOUT_MS` / `_LEAK_DETECTION_MS` | HikariCP tuning (defaults `30000` / `1800000` / `600000` / `60000`) |
@@ -535,6 +630,8 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_TEST_FACTORY_JIRA_TRANSITION` | Optional Jira transition on completion |
 | `FACTORY_TEST_FACTORY_EXECUTION_BASE_URL` + `_KARATE_JAR` | Enable real Karate execution (otherwise advisory mode) |
 | `FACTORY_LIMITS_MAX_CONCURRENT_EXECUTIONS` / `_MAX_EXECUTIONS_PER_DAY` | Concurrency cap / daily budget (`0` disables; defaults `8` / `200`, 429 on budget) |
+| `FACTORY_PILOT_ASSIGNEE` | Whose open Jira tasks **Scan Jira** finds: the name as Jira shows it, or an accountId; see [My tasks quick start](#my-tasks-quick-start) |
+| `FACTORY_PILOT_EXECUTION_ENABLED` | Runs the My tasks queue (opt-in, default off) |
 | `FACTORY_LIMITS_DEDUP_ENABLED` / `_DEDUP_WINDOW` / `_DEDUP_ID_POINTERS` | Trigger dedup (default on, `10m`, `/issueKey`) |
 | `FACTORY_LIMITS_MAX_ARTIFACT_BYTES` / `_MAX_TRIGGER_PAYLOAD_BYTES` | Write-time size caps (defaults `5000000` / `262144`) |
 | `FACTORY_RETENTION_ENABLED` / `_TTL_DAYS` / `_RUN_CRON` | Purge of old terminal runs (**off** by default; audit is never purged) |

@@ -133,6 +133,7 @@
         <directory>${project.basedir}/../config</directory>
         <includes>
           <include>developer-repositories.yaml</include>
+          <include>developer-run-profiles.yaml</include>
         </includes>
       </resource>
     </resources>
@@ -148,6 +149,16 @@
       <plugin>
         <groupId>org.cyclonedx</groupId>
         <artifactId>cyclonedx-maven-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <!-- One JVM per test class: pooled keep-alive connections and leaked
+               threads from an earlier class otherwise race WireMock-based
+               probes on reused ports. -->
+          <reuseForks>false</reuseForks>
+        </configuration>
       </plugin>
     </plugins>
   </build>

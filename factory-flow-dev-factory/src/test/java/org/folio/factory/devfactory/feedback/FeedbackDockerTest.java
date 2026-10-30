@@ -31,7 +31,7 @@ class FeedbackDockerTest {
         CandidateFreezer.git(work,"push",bare.toString(),"feedback");
         String base=CandidateFreezer.git(work,"rev-parse","HEAD").strip();
         var repositories=new DevFactoryProperties(root.toString(),new TreeMap<>(Map.of("fixture",new DevFactoryProperties.Repository("upstream/repo","main","alpine:3.21","checks",List.of("TEST"),List.of()))));
-        var delivery=new DevDeliveryProperties(Map.of("fixture",new DeliveryTarget("fork/repo","main",true)),true);
+        var delivery=new DevDeliveryProperties(Map.of("fixture",new DeliveryTarget("fork/repo","main")),true);
         var command=List.of("/bin/sh","-c","test \"$(cat value.txt)\" = corrected && mkdir -p target/surefire-reports && printf '%s' '<testsuite tests=\"1\" failures=\"0\" errors=\"0\" skipped=\"0\"><testcase name=\"behavior\"/></testsuite>' > target/surefire-reports/TEST-fixture.xml");
         var runtime=new DevRuntimeProperties(Map.of("checks",command),null,60,volume);
         var docker=new DockerWorkloads(); var freezer=new CandidateFreezer();
@@ -40,9 +40,11 @@ class FeedbackDockerTest {
         when(gateway.status(any())).thenReturn(PrFeedbackGateway.Status.OPEN);
         var comment=new PrFeedbackGateway.Comment("inline:1","reviewer","Correct value","value.txt",1,false,"now","url");
         when(gateway.comments(any())).thenAnswer(i->new PrFeedbackGateway.Snapshot("snapshot",gateway.read("fork/repo",7),List.of(comment)));
+        var coded=new java.util.concurrent.atomic.AtomicReference<CodingRequest>();
         var coding=new CodingRuntime() {
-            public String id(){return "scripted-test";} public String image(){return "alpine:3.21";} public void requireConfigured(){}
+            public String id(){return "scripted-test";} public String image(){return "alpine:3.21";} public void requireConfigured(CodingRequest.RunSettings settings){}
             public CodingOutcome code(DockerWorkloads.Workload workload,CodingRequest request,int timeout) {
+                coded.set(request);
                 workload.execute(List.of("/bin/sh","-c","test ! -S /var/run/docker.sock && printf 'corrected\\n' > value.txt"),timeout).requireSuccess();
                 return CodingOutcome.completed("Fixture correction",Map.of());
             }
@@ -51,7 +53,8 @@ class FeedbackDockerTest {
         var audit=mock(AuditLog.class);when(audit.forExecution(id)).thenReturn(List.of());
         var worker=new FeedbackWorker(repositories,delivery,runtime,new GitHubProperties("",""),gateway,freezer,
                 new CandidateVerifier(repositories,runtime,freezer,docker),coding,docker,new FeedbackGit(freezer),state,audit,model->Map.of());
-        var request=new CodingRequest("TEST-1","Correct value","Original task",List.of(),List.of(),List.of(),List.of(),new CodingRequest.RepositoryTarget("fixture","upstream/repo","main",base),null);
+        var settings=new CodingRequest.RunSettings("glm-5.3","max",80,"Keep the public API.");
+        var request=new CodingRequest("TEST-1","Correct value","Original task",List.of(),List.of(),List.of(),List.of(),new CodingRequest.RepositoryTarget("fixture","upstream/repo","main",base),null,settings);
         var saved=new LinkedHashMap<>(initial());
         saved.put("dev_coding_request.json",JSON.writeValueAsString(request));
         saved.put("dev_delivery.json",JSON.writeValueAsString(Map.of("state","DELIVERED","repository","fixture","deliveryBranch","feedback","pullRequestUrl","https://github.com/fork/repo/pull/7")));
@@ -68,6 +71,8 @@ class FeedbackDockerTest {
             var result=JSON.readValue(saved.get(STATE),FeedbackState.class);
             assertThat(result.phase()).as(result.reason).isEqualTo(FeedbackState.Phase.READY);
             assertThat(result.verification.result()).isEqualTo("PASS");assertThat(result.verification.testCount()).isEqualTo(1);
+            // The feedback round runs with the profile, effort, turns and instructions of the task's run.
+            assertThat(coded.get().runSettings()).isEqualTo(settings);
             assertThat(CandidateFreezer.git(bare,"rev-parse","feedback").strip()).isEqualTo(result.commitSha).isNotEqualTo(base);
             assertThat(Processes.run(null,List.of("docker","ps","-aq","--filter","label=factory.dev-execution="+id),30).requireSuccess().output()).isBlank();
         } finally {

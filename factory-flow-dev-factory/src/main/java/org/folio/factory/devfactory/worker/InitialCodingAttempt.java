@@ -9,18 +9,27 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.feedback.AttemptPricing;
+import org.folio.factory.devfactory.pilot.AttemptDeadline;
+import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
+import org.folio.factory.devfactory.pilot.PilotExecutionContext;
+import org.folio.factory.devfactory.pilot.PilotStops;
 import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
+import org.folio.factory.devfactory.runtime.CodingTranscripts;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
+import org.folio.factory.devfactory.runtime.RunProfiles;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +42,7 @@ import java.util.UUID;
  * feedback, only completed attempts export a candidate.
  */
 public final class InitialCodingAttempt {
+    private static final Logger log = LoggerFactory.getLogger(InitialCodingAttempt.class);
     private final DevFactoryProperties properties;
     private final DevRuntimeProperties runtime;
     private final DockerWorkloads docker;
@@ -42,6 +52,8 @@ public final class InitialCodingAttempt {
     private final AuditLog audit;
     private final AttemptPricing pricing;
     private final SelectedRepositoryPreflight repositoryPreflight;
+    private final PilotAttemptPolicy pilotPolicy;
+    private final CodingTranscripts transcripts;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public InitialCodingAttempt(
@@ -67,6 +79,37 @@ public final class InitialCodingAttempt {
             AuditLog audit,
             AttemptPricing pricing,
             SelectedRepositoryPreflight repositoryPreflight) {
+        this(properties, runtime, docker, freezer, coding, codec, audit, pricing,
+                repositoryPreflight, PilotAttemptPolicy.none());
+    }
+
+    public InitialCodingAttempt(
+            DevFactoryProperties properties,
+            DevRuntimeProperties runtime,
+            DockerWorkloads docker,
+            CandidateFreezer freezer,
+            CodingRuntime coding,
+            FrontmatterCodec codec,
+            AuditLog audit,
+            AttemptPricing pricing,
+            SelectedRepositoryPreflight repositoryPreflight,
+            PilotAttemptPolicy pilotPolicy) {
+        this(properties, runtime, docker, freezer, coding, codec, audit, pricing,
+                repositoryPreflight, pilotPolicy, CodingTranscripts.none());
+    }
+
+    public InitialCodingAttempt(
+            DevFactoryProperties properties,
+            DevRuntimeProperties runtime,
+            DockerWorkloads docker,
+            CandidateFreezer freezer,
+            CodingRuntime coding,
+            FrontmatterCodec codec,
+            AuditLog audit,
+            AttemptPricing pricing,
+            SelectedRepositoryPreflight repositoryPreflight,
+            PilotAttemptPolicy pilotPolicy,
+            CodingTranscripts transcripts) {
         this.properties = properties;
         this.runtime = runtime;
         this.docker = docker;
@@ -76,21 +119,24 @@ public final class InitialCodingAttempt {
         this.audit = audit;
         this.pricing = pricing;
         this.repositoryPreflight = repositoryPreflight;
+        this.pilotPolicy = pilotPolicy;
+        this.transcripts = transcripts;
     }
 
     public Attempt start(AgentContext context, CodingRequest request) {
-        return runAttempt(context, request, true, json.createObjectNode());
+        return runAttempt(context, request, true, json.createObjectNode(), true);
     }
 
     public Attempt retry(AgentContext context, CodingRequest request, JsonNode readiness) {
-        return runAttempt(context, request, false, readiness);
+        return runAttempt(context, request, false, readiness, false);
     }
 
     private Attempt runAttempt(
             AgentContext context,
             CodingRequest request,
             boolean runBaseline,
-            JsonNode existingReadiness) {
+            JsonNode existingReadiness,
+            boolean claimPilotPaidStart) {
         request.requireReady();
         String repositoryKey = request.repository().key();
         var repository = properties.repositories().get(repositoryKey);
@@ -111,7 +157,16 @@ public final class InitialCodingAttempt {
         Map<String, Object> metrics = Map.of();
         try (var stepScope = docker.beginStep(context.executionId(), context.stepId())) {
             // beginStep reconciles stale workloads before preflight on a replay.
-            Optional<String> environmentProblem = findEnvironmentProblem(repositoryKey, frozenBaseSha);
+            Optional<PilotExecutionContext> pilot = pilotPolicy.find(context.executionId());
+            Optional<AttemptDeadline> deadline =
+                    pilot.isPresent() ? pilotPolicy.deadline(context.executionId()) : Optional.empty();
+            Optional<GuardStop> guard = pilotGuardProblem(context, pilot.isPresent(), deadline, "preparation");
+            if (guard.isPresent()) {
+                pilotPolicy.recordStop(context.executionId(), context.stepId(), guard.get().reason());
+                return failedAttempt(guard.get().state(), guard.get().reason(), readiness);
+            }
+            Optional<String> environmentProblem =
+                    findEnvironmentProblem(repositoryKey, frozenBaseSha, request.runSettings());
             if (environmentProblem.isPresent()) {
                 return failedAttempt("BLOCKED_ENVIRONMENT", environmentProblem.get(), readiness);
             }
@@ -135,6 +190,7 @@ public final class InitialCodingAttempt {
                                             workload,
                                             frozenBaseSha,
                                             repository,
+                                            stageTimeoutSeconds(deadline, runtime.timeoutSeconds()),
                                             event -> progress(context, event));
                     readiness = baseline.readiness();
                     String summary = baseline.summary();
@@ -174,28 +230,49 @@ public final class InitialCodingAttempt {
                                 readiness);
                 }
             }
+            if (claimPilotPaidStart) {
+                guard = pilotGuardProblem(context, pilot.isPresent(), deadline, "coding");
+                if (guard.isPresent()) {
+                    pilotPolicy.recordStop(context.executionId(), context.stepId(), guard.get().reason());
+                    return failedAttempt(guard.get().state(), guard.get().reason(), readiness);
+                }
+                if (pilot.isPresent() && !pilotPolicy.claimPaidStart(context.executionId())) {
+                    String reason =
+                            "Paid coding was already started for pilot attempt " + pilot.get().attemptId()
+                                    + "; a replayed or retried engine step cannot start a second initial"
+                                    + " coding invocation";
+                    pilotPolicy.recordStop(context.executionId(), context.stepId(), reason);
+                    return failedAttempt("PAID_START_CONSUMED", reason, readiness);
+                }
+            }
             exported = CandidateFreezer.temporary("factory-dev-export-");
             CodingOutcome outcome;
             try (var workload =
                     stepScope.createSeeded(
                             coding.image(), pristine, runtime.mavenCacheVolume(), "coding")) {
-                var identity = new LinkedHashMap<>(coding.identity());
+                var identity = new LinkedHashMap<>(coding.identity(request.runSettings()));
                 String attemptId = UUID.randomUUID().toString();
                 var rate = pricing.snapshot(Objects.toString(identity.get("model"), ""));
                 identity.put("activity", "coding_starting");
                 identity.put("attemptId", attemptId);
                 identity.put("rate", rate);
                 progress(context, identity);
-                outcome =
-                        coding.code(
-                                workload,
-                                request,
-                                runtime.timeoutSeconds(),
-                                event -> {
-                                    var detail = new LinkedHashMap<String, Object>(event);
-                                    detail.put("attemptId", attemptId);
-                                    progress(context, detail);
-                                });
+                try (var transcript = transcripts.open(
+                        context.executionId(), UUID.fromString(attemptId), context.stepId())) {
+                    outcome =
+                            coding.code(
+                                    workload,
+                                    request,
+                                    stageTimeoutSeconds(deadline, runtime.timeoutSeconds()),
+                                    event -> {
+                                        var detail = new LinkedHashMap<String, Object>(event);
+                                        detail.put("attemptId", attemptId);
+                                        // A failed write reaches the runtime, which logs it once and notes
+                                        // it in the transcript.
+                                        recordProgress(context, detail);
+                                    },
+                                    transcript);
+                }
                 var reported =
                         new LinkedHashMap<String, Object>(
                                 withFactoryTokenMetrics(outcome.metrics()));
@@ -209,6 +286,11 @@ public final class InitialCodingAttempt {
             }
             String candidate;
             if (outcome.status() == CodingOutcome.Status.COMPLETED) {
+                guard = pilotGuardProblem(context, pilot.isPresent(), deadline, "candidate freeze");
+                if (guard.isPresent()) {
+                    pilotPolicy.recordStop(context.executionId(), context.stepId(), guard.get().reason());
+                    return failedAttempt(guard.get().state(), guard.get().reason(), readiness, metrics);
+                }
                 candidate = json.writeValueAsString(
                         freezer.freeze(repositoryKey, url, frozenBaseSha, exported));
             } else if (outcome.status() == CodingOutcome.Status.NEEDS_DECISION) {
@@ -250,11 +332,48 @@ public final class InitialCodingAttempt {
         }
     }
 
-    private Optional<String> findEnvironmentProblem(String repositoryKey, String frozenBaseSha) {
+    /**
+     * A stopped, superseded or expired pilot attempt must start no further side
+     * effects. Legacy executions without pilot policy never produce a guard stop.
+     */
+    private Optional<GuardStop> pilotGuardProblem(
+            AgentContext context, boolean pilotExecution, Optional<AttemptDeadline> deadline,
+            String stage) {
+        if (!pilotExecution) {
+            return Optional.empty();
+        }
+        if (!pilotPolicy.ownsActiveSlot(context.executionId())) {
+            return Optional.of(new GuardStop(PilotStops.INSPECTION_STATE,
+                    "the pilot attempt no longer owns the installation's active slot;"
+                            + " a stopped, superseded or released attempt must not continue"));
+        }
+        if (deadline.filter(budget -> budget.expired(Clock.systemUTC())).isPresent()) {
+            return Optional.of(new GuardStop(PilotStops.DEADLINE_STATE,
+                    "the whole-attempt deadline expired before " + stage
+                            + "; queue and human-review waiting are excluded from the budget"));
+        }
+        return Optional.empty();
+    }
+
+    /** The explicit stop state and reason, classified like VerifyWorker and DeliveryWorker. */
+    private record GuardStop(String state, String reason) {
+    }
+
+    private int stageTimeoutSeconds(Optional<AttemptDeadline> deadline, int perOperationSeconds) {
+        return deadline
+                .map(budget -> budget.capSeconds(Clock.systemUTC(), perOperationSeconds))
+                .orElse(perOperationSeconds);
+    }
+
+    private Optional<String> findEnvironmentProblem(
+            String repositoryKey, String frozenBaseSha, CodingRequest.RunSettings settings) {
         try {
-            coding.requireConfigured();
+            coding.requireConfigured(settings);
+        } catch (RunProfiles.ProfileException exception) {
+            // Written to be shown: it names the profile and the fix.
+            return Optional.of(safeRedact(exception.getMessage()));
         } catch (RuntimeException exception) {
-            // Provider failures can contain credentials; persist only the safe operator guidance.
+            // Other failures can contain credentials; persist only the safe operator guidance.
             return Optional.of(
                     "Coding runtime configuration is incomplete or unsupported; check Developer Flow configuration.");
         }
@@ -305,6 +424,15 @@ public final class InitialCodingAttempt {
     }
 
     private void progress(AgentContext context, Map<String, Object> event) {
+        try {
+            recordProgress(context, event);
+        } catch (RuntimeException e) {
+            // Best-effort progress must not change the coding result.
+            log.warn("Could not record runtime activity for execution {}: {}", context.executionId(), e.getMessage());
+        }
+    }
+
+    private void recordProgress(AgentContext context, Map<String, Object> event) {
         if (audit == null) return;
         Map<String, Object> safe = new LinkedHashMap<>();
         event.forEach(
@@ -314,12 +442,7 @@ public final class InitialCodingAttempt {
                         safe.put(key, text.substring(0, Math.min(240, text.length())));
                     } else safe.put(key, value);
                 });
-        try {
-            audit.record(
-                    context.executionId(), AuditEventType.RUNTIME_PROGRESS, context.stepId(), safe);
-        } catch (RuntimeException ignored) {
-            // Best-effort progress must not change the coding result.
-        }
+        audit.record(context.executionId(), AuditEventType.RUNTIME_PROGRESS, context.stepId(), safe);
     }
 
     private String safeRedact(String text) {

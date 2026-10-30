@@ -6,6 +6,7 @@ import org.folio.factory.connectors.github.GitHubRestConnector;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.jira.JiraProperties;
 import org.folio.factory.connectors.jira.JiraRestConnector;
+import org.folio.factory.connectors.jira.JiraSourceConnector;
 import org.folio.factory.connectors.testrail.TestRailConnector;
 import org.folio.factory.connectors.testrail.TestRailProperties;
 import org.folio.factory.connectors.testrail.TestRailRestConnector;
@@ -38,6 +39,11 @@ public class ConnectorsConfiguration {
     }
 
     @Bean
+    public JiraSourceConnector jiraSourceConnector(JiraConnector jiraConnector) {
+        return (JiraSourceConnector) jiraConnector;
+    }
+
+    @Bean
     public TestRailConnector testRailConnector(TestRailProperties properties, RestClient.Builder builder) {
         return properties.isConfigured()
                 ? new TestRailRestConnector(properties, builder.clone())
@@ -49,17 +55,17 @@ public class ConnectorsConfiguration {
     // injection point would not otherwise see these beans.
 
     @Bean
-    public ConnectorHealth jiraConnectorHealth(JiraConnector connector) {
-        return (ConnectorHealth) connector;
+    public ConnectorHealth jiraConnectorHealth(JiraConnector jiraConnector) {
+        return (ConnectorHealth) jiraConnector;
     }
 
     @Bean
-    public ConnectorHealth gitHubConnectorHealth(GitHubConnector connector) {
-        return (ConnectorHealth) connector;
+    public ConnectorHealth gitHubConnectorHealth(GitHubConnector gitHubConnector) {
+        return (ConnectorHealth) gitHubConnector;
     }
 
     @Bean
-    public ConnectorHealth testRailConnectorHealth(TestRailConnector connector) {
-        return (ConnectorHealth) connector;
+    public ConnectorHealth testRailConnectorHealth(TestRailConnector testRailConnector) {
+        return (ConnectorHealth) testRailConnector;
     }
 }

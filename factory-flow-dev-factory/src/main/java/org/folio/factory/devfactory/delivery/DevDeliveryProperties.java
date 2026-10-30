@@ -19,7 +19,7 @@ public record DevDeliveryProperties(Map<String, DeliveryTarget> targets, boolean
             throw new DeliveryBlockedException(
                     "Missing factory.dev-factory.delivery.targets." + repositoryKey + " configuration");
         }
-        target.requireAuthorized();
+        target.requireValid();
         return target;
     }
 
@@ -51,7 +51,7 @@ public record DevDeliveryProperties(Map<String, DeliveryTarget> targets, boolean
             throw new DeliveryBlockedException(
                     "Missing delivery configuration for repository '" + repositoryKey + "'");
         }
-        target.requireAuthorized();
+        target.requireValid();
         return target;
     }
 
@@ -67,7 +67,6 @@ public record DevDeliveryProperties(Map<String, DeliveryTarget> targets, boolean
         if (baseBranch == null) {
             baseBranch = catalog.baseBranch();
         }
-        // Authorization always comes from the legacy override, including an explicit false.
-        return new DeliveryTarget(repository, baseBranch, legacy.authorized());
+        return new DeliveryTarget(repository, baseBranch);
     }
 }

@@ -11,10 +11,17 @@ import java.util.Map;
 
 /** Trusted Git process mechanics only; callers retain branch and replay policy. */
 public final class PublicationGit {
+    public static final int DEFAULT_TIMEOUT_SECONDS = 180;
+
     private PublicationGit() {}
 
     public static Processes.Result run(
             Path workspace, Map<String, String> environment, String... args) {
+        return run(workspace, environment, DEFAULT_TIMEOUT_SECONDS, args);
+    }
+
+    public static Processes.Result run(
+            Path workspace, Map<String, String> environment, int timeoutSeconds, String... args) {
         var command =
                 new ArrayList<>(
                         List.of(
@@ -24,7 +31,7 @@ public final class PublicationGit {
                                 "-c",
                                 "credential.helper="));
         command.addAll(List.of(args));
-        return Processes.run(workspace, command, 180, environment);
+        return Processes.run(workspace, command, timeoutSeconds, environment);
     }
 
     public static Map<String, String> identity(String date, String name, String email) {

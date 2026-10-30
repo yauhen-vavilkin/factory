@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title=${task['key']}, activeNav='flows', content=~{:: .dev-page}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<div class="dev-page dev-page-narrow">
+    <div class="dev-heading">
+        <a class="dev-back" th:href="@{/flows/dev-factory}">← Developer Flow · My tasks</a>
+        <h1 class="dev-title" th:text="${task['title']}">Task</h1>
+        <div class="dev-meta">
+            <a class="task-key" th:href="${task['jiraUrl']}" th:text="${task['key']}">KEY-1</a>
+            <span th:class="${task['stateClass']}" th:text="${task['stateLabel']}">State</span>
+            <span th:if="${task['repository'] != null}" th:text="'→ ' + ${task['repository']}">→ repository</span>
+        </div>
+    </div>
+
+    <section class="result-card" aria-labelledby="result-title">
+        <div class="result-head">
+            <h2 class="dev-label-title" id="result-title">Result</h2>
+            <p class="result-sentence" th:text="${task['result']}">Result</p>
+            <th:block th:if="${task['draftReasons'] != null and !#lists.isEmpty(task['draftReasons'])}">
+                <p>Factory opened it as a draft because:</p>
+                <ul class="result-reasons">
+                    <li th:each="reason : ${task['draftReasons']}" th:text="${reason}">reason</li>
+                </ul>
+            </th:block>
+        </div>
+        <div class="result-chips" th:unless="${#lists.isEmpty(task['chips'])}">
+            <span th:each="chip : ${task['chips']}" th:text="${chip}">chip</span>
+        </div>
+        <div class="result-actions"
+             th:if="${task['prUrl'] != null or task['lastRunUrl'] != null or task['markStoppedAttemptId'] != null}">
+            <a class="btn btn-primary btn-md btn-roomy" th:if="${task['prUrl'] != null}" th:href="${task['prUrl']}"
+               th:text="${task['prAction']}">Open pull request</a>
+            <form method="post" th:if="${task['markStoppedAttemptId'] != null}"
+                  th:action="@{'/tasks/' + ${task['taskId']} + '/attempts/' + ${task['markStoppedAttemptId']} + '/mark-stopped'}">
+                <button type="submit" class="btn btn-outline btn-md"
+                        th:attr="data-confirm-title='Mark ' + ${task['key']} + ' as stopped?'"
+                        data-confirm-ok="Mark as stopped" data-confirm-style="compact"
+                        data-confirm="Do this only if its run is really over: no factory container is running for it. If it was opening a pull request, check the repository first. The task becomes Could not complete, its cost so far stays, and the queue starts the next task.">Mark as stopped…</button>
+            </form>
+            <a class="dev-link" th:if="${task['lastRunUrl'] != null}"
+               th:href="${task['prUrl'] != null} ? ${task['lastRunUrl'] + '#pr-feedback'} : ${task['lastRunUrl']}"
+               th:text="${task['prUrl'] != null} ? 'Work on PR feedback'
+                        : (${task['stateLabel'] == 'Working'} ? 'Open live run' : 'Open last run')">Open last run</a>
+        </div>
+        <form class="retry-form" id="retry" method="post" th:if="${task['retryAllowed']}"
+              th:action="@{'/tasks/' + ${task['taskId']} + '/retry'}">
+            <input type="hidden" name="expectedVersion" th:value="${task['version']}">
+            <input type="hidden" name="inputFingerprint" th:value="${task['inputFingerprint']}">
+            <input type="hidden" name="destinationFingerprint" th:value="${task['destinationFingerprint']}">
+            <div class="run-settings" th:if="${retryForm != null}"
+                 th:insert="~{fragments/developer-flow :: runSettings(${retryForm})}"></div>
+            <label class="retry-instructions">
+                <span>Instructions for the agent <span class="muted">(optional)</span></span>
+                <textarea class="textarea" name="instructions" rows="3" th:maxlength="${instructionsLimit}"
+                          th:text="${retryInstructions}"
+                          placeholder="Plain text. The agent gets it after the task data."></textarea>
+            </label>
+            <div class="result-actions">
+                <button type="submit" class="btn btn-primary btn-md btn-roomy">Retry</button>
+                <span class="dev-note">Retry starts one fresh attempt and puts it in the queue. Earlier attempts
+                    and their cost stay on this page.</span>
+            </div>
+        </form>
+    </section>
+
+    <section class="dev-block" aria-labelledby="attempts-title" th:unless="${#lists.isEmpty(attempts)}">
+        <h2 class="dev-section-title" id="attempts-title">Attempts <span class="dev-count"
+                th:text="${#lists.size(attempts)}">1</span></h2>
+        <div class="task-grid task-grid-attempts">
+            <div class="task-grid-rows">
+                <div class="task-row task-row-head">
+                    <span>Attempt</span>
+                    <span>Result</span>
+                    <span>Started</span>
+                    <span>Active</span>
+                    <span>Cost</span>
+                </div>
+                <div class="task-row" th:each="attempt : ${attempts}">
+                    <span class="attempt-cell">
+                        <strong th:text="${attempt['label']}">1 · first run</strong>
+                        <span class="attempt-run" th:if="${attempt['run'] != null}" th:text="${attempt['run']}">glm-5.3 · max</span>
+                        <a class="btn btn-outline btn-sm" th:if="${attempt['executionId'] != null}"
+                           th:href="@{'/executions/' + ${attempt['executionId']}}"
+                           th:attr="aria-label='Open run for attempt ' + ${attempt['ordinal']}">Open run</a>
+                    </span>
+                    <span class="state-cell">
+                        <span th:if="${attempt['resultLabel'] != null}" th:class="${attempt['resultClass']}"
+                              th:text="${attempt['resultLabel']}">Draft PR</span>
+                        <span th:text="${attempt['result']}">Result</span>
+                    </span>
+                    <span th:title="${attempt['startedTitle']}" th:text="${attempt['started']}">Started</span>
+                    <span th:text="${attempt['active']}">Active</span>
+                    <span class="value-cell">
+                        <span th:text="${attempt['cost'] != null} ? ${attempt['cost']} : '—'">—</span>
+                        <span class="dev-note" th:if="${attempt['costNote'] != null}" th:title="${attempt['costNoteTitle']}"
+                              th:text="${attempt['costNote']}">note</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="dev-block" aria-labelledby="cost-title" th:if="${task['usagePresent']}">
+        <div class="usage-head">
+            <h2 class="dev-section-title" id="cost-title">Cost and usage</h2>
+            <span>Estimated from model usage reported by the coding runtime; provider charges may differ.</span>
+        </div>
+        <dl class="usage-figures usage-box">
+            <dt>Total tokens</dt>
+            <dd th:text="${task['usageTokens']}">0</dd>
+            <th:block th:each="category : ${task['usageCategories']}">
+                <dt th:text="${category['label']}">Input</dt>
+                <dd th:text="${category['value']}">0</dd>
+            </th:block>
+            <th:block th:if="${task['usageCost'] != null}">
+                <dt class="usage-total">Estimated cost</dt>
+                <dd class="usage-total" th:text="${task['usageCost']}">$0.00</dd>
+            </th:block>
+        </dl>
+        <span class="dev-note" th:if="${task['usageNote'] != null}" th:text="${task['usageNote']}">note</span>
+    </section>
+
+    <details class="tech-details" open>
+        <summary>Technical details</summary>
+        <dl class="tech-grid">
+            <dt>Task id</dt>
+            <dd><code th:text="${task['taskId']}">id</code></dd>
+            <dt>Jira project</dt>
+            <dd th:text="${task['project']}">PROJECT</dd>
+            <th:block th:if="${task['destination'] != null}">
+                <dt>Destination</dt>
+                <dd th:text="${task['destination']}">owner/repository · base master</dd>
+            </th:block>
+        </dl>
+    </details>
+</div>
+</body>
+</html>

@@ -74,19 +74,15 @@ services:
       FACTORY_SIDECAR_SOURCE_REPO:
       FACTORY_SIDECAR_DELIVERY_REPO:
       FACTORY_SIDECAR_BASE_BRANCH:
-      FACTORY_SIDECAR_DELIVERY_AUTHORIZED:
       FACTORY_MOD_ROLES_KEYCLOAK_SOURCE_REPO:
       FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_REPO:
       FACTORY_MOD_ROLES_KEYCLOAK_BASE_BRANCH:
-      FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_AUTHORIZED:
       FACTORY_MGR_TENANT_ENTITLEMENTS_SOURCE_REPO:
       FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_REPO:
       FACTORY_MGR_TENANT_ENTITLEMENTS_BASE_BRANCH:
-      FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_AUTHORIZED:
       FACTORY_MGR_APPLICATIONS_SOURCE_REPO:
       FACTORY_MGR_APPLICATIONS_DELIVERY_REPO:
       FACTORY_MGR_APPLICATIONS_BASE_BRANCH:
-      FACTORY_MGR_APPLICATIONS_DELIVERY_AUTHORIZED:
       FACTORY_MODEL_API_KEY: ${FACTORY_MODEL_API_KEY:-}
       FACTORY_MODEL_BASE_URL: ${FACTORY_MODEL_BASE_URL:-}
       FACTORY_MODEL_PROVIDER: ${FACTORY_MODEL_PROVIDER:-}
@@ -113,6 +109,11 @@ services:
       FACTORY_CLAUDE_CODE_MAX_TURNS: ${FACTORY_CLAUDE_CODE_MAX_TURNS:-40}
       FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS: ${FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS:-16384}
       FACTORY_CLAUDE_CODE_EFFORT: ${FACTORY_CLAUDE_CODE_EFFORT:-}
+      # Run profiles: config/developer-run-profiles.yaml. Each profile names the variable with its
+      # secret; empty values mean "not configured" and env-default. Compose passes only the
+      # variables listed here: add the secret-env variable of every new profile below.
+      FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE: ${FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE:-}
+      FACTORY_ZAI_API_KEY: ${FACTORY_ZAI_API_KEY:-}
       FACTORY_DEV_FACTORY_CODING_IMAGE: ${FACTORY_DEV_FACTORY_CODING_IMAGE:-factory-dev-pi:0.85.1-java21}
       FACTORY_DEV_FACTORY_CODING_RUNTIME: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:-claude-code}
       FACTORY_DEV_FACTORY_TIMEOUT_SECONDS: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:-1800}
@@ -136,8 +137,15 @@ services:
       FACTORY_RETENTION_TTL_DAYS:
       FACTORY_RETENTION_BATCH_SIZE:
       FACTORY_RETENTION_RUN_CRON:
+      # Pilot settings stay disabled by default: an unset null is omitted from the
+      # container, so Compose forwards them without activating any pilot behavior.
+      FACTORY_PILOT_EXECUTION_ENABLED:
+      FACTORY_PILOT_EXECUTION_DEADLINE:
+      FACTORY_PILOT_EXECUTION_RECOVERY_POLL_INTERVAL_MS:
+      FACTORY_PILOT_EXECUTION_DISPATCH_INTERVAL_MS:
+      FACTORY_PILOT_ASSIGNEE:
       FACTORY_LOG_FORMAT:
-      SPRING_CONFIG_IMPORT: classpath:developer-repositories.yaml,file:/application/config/developer-repositories.yaml,optional:file:/application/config/developer-pricing.yaml
+      SPRING_CONFIG_IMPORT: classpath:developer-repositories.yaml,file:/application/config/developer-repositories.yaml,classpath:developer-run-profiles.yaml,file:/application/config/developer-run-profiles.yaml,optional:file:/application/config/developer-pricing.yaml
     ports:
       - "${FACTORY_BIND_ADDRESS:-127.0.0.1}:${FACTORY_APP_PORT:-8080}:8080"
     volumes:
@@ -145,6 +153,7 @@ services:
       - factory-dev-m2-cache:/var/lib/factory-dev-m2-cache:ro
       - ./config/developer-pricing.yaml:/application/config/developer-pricing.yaml:ro
       - ${FACTORY_DEV_FACTORY_REPOSITORIES_FILE:-./config/developer-repositories.yaml}:/application/config/developer-repositories.yaml:ro
+      - ${FACTORY_DEV_FACTORY_RUN_PROFILES_FILE:-./config/developer-run-profiles.yaml}:/application/config/developer-run-profiles.yaml:ro
 
 volumes:
   factory-pgdata:

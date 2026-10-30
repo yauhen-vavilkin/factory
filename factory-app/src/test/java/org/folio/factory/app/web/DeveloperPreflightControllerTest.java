@@ -52,7 +52,7 @@ class DeveloperPreflightControllerTest {
     @Test
     void apiReturnsBlockedReportAsDataWithTheRequestedIssue() throws Exception {
         var report = report(false, "MODSIDECAR-196", DeveloperPreflight.Status.FAIL,
-                "Delivery authorization is required.");
+                "Delivery destination is invalid.");
         when(preflight.check("MODSIDECAR-196")).thenReturn(report);
 
         mvc.perform(get("/api/developer/preflight").param("issueKey", "MODSIDECAR-196"))
@@ -60,7 +60,7 @@ class DeveloperPreflightControllerTest {
                 .andExpect(jsonPath("$.ready").value(false))
                 .andExpect(jsonPath("$.issueKey").value("MODSIDECAR-196"))
                 .andExpect(jsonPath("$.checks[0].status").value("FAIL"))
-                .andExpect(jsonPath("$.checks[0].message").value("Delivery authorization is required."));
+                .andExpect(jsonPath("$.checks[0].message").value("Delivery destination is invalid."));
 
         verify(preflight).check("MODSIDECAR-196");
         verifyNoMoreInteractions(preflight);
@@ -88,9 +88,10 @@ class DeveloperPreflightControllerTest {
                 List.of(Map.of("key", "sidecar", "source", "owner/folio-module-sidecar",
                         "baseBranch", "master", "buildImage", "maven:3.9-eclipse-temurin-21",
                         "verificationPlan", "java21-unit", "jiraProjects", List.of("MODSIDECAR"),
-                        "delivery", "owner/folio-module-sidecar", "authorized", true)),
+                        "delivery", "owner/folio-module-sidecar")),
                 List.of(new DeveloperPreflight.Check("task", status, message),
                         new DeveloperPreflight.Check("inference", DeveloperPreflight.Status.NOT_RUN,
-                                "No model call made.")));
+                                "No model call made.")),
+                List.of());
     }
 }

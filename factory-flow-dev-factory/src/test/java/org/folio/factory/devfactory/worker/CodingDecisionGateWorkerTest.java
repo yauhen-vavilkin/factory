@@ -3,6 +3,7 @@ package org.folio.factory.devfactory.worker;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.ArtifactContent;
 import org.folio.factory.devfactory.decision.ConditionalDecisionGate;
+import org.folio.factory.devfactory.pilot.RecordingPilotAttempts;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
@@ -39,6 +40,23 @@ class CodingDecisionGateWorkerTest {
         assertThat(new CodingDecisionGateWorker(gate).execute(context).metrics())
                 .containsEntry("decisionRequired", false).containsEntry("reviewOpened", false);
         verify(gate, never()).open(context, CodingDecisionGateWorker.GATE);
+    }
+
+    @Test void pilotNeedsDecisionRecordsAStopInsteadOfOpeningReview() {
+        ConditionalDecisionGate gate = mock(ConditionalDecisionGate.class);
+        var pilots = RecordingPilotAttempts.pilot();
+        var context = context(CodingOutcome.needsDecision(new CodingOutcome.Decision(
+                CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which length limit applies?",
+                List.of(), "No limit is specified"), Map.of()));
+
+        assertThat(new CodingDecisionGateWorker(gate, pilots).execute(context).metrics())
+                .containsEntry("decisionRequired", true).containsEntry("reviewOpened", false);
+
+        verify(gate, never()).open(context, CodingDecisionGateWorker.GATE);
+        assertThat(pilots.stops).singleElement().satisfies(stop -> {
+            assertThat(stop).startsWith("clarify-implementation: ");
+            assertThat(stop).contains("Which length limit applies?");
+        });
     }
 
     private AgentContext context(CodingOutcome outcome) {

@@ -17,6 +17,7 @@ import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
+import org.folio.factory.devfactory.runtime.CodingTranscripts;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
@@ -59,6 +60,25 @@ public class FeedbackWorker implements AgentWorker {
             StateManager executions,
             AuditLog audit,
             AttemptPricing pricing) {
+        this(repositories, delivery, runtime, github, gateway, freezer, verifier, coding, docker, git,
+                executions, audit, pricing, CodingTranscripts.none());
+    }
+
+    public FeedbackWorker(
+            DevFactoryProperties repositories,
+            DevDeliveryProperties delivery,
+            DevRuntimeProperties runtime,
+            GitHubProperties github,
+            PrFeedbackGateway gateway,
+            CandidateFreezer freezer,
+            CandidateVerifier verifier,
+            CodingRuntime coding,
+            DockerWorkloads docker,
+            FeedbackGit git,
+            StateManager executions,
+            AuditLog audit,
+            AttemptPricing pricing,
+            CodingTranscripts transcripts) {
         this.repositories = repositories;
         this.delivery = delivery;
         this.github = github;
@@ -69,7 +89,7 @@ public class FeedbackWorker implements AgentWorker {
         this.resources = new FeedbackResources(audit, docker);
         this.git = git;
         this.executions = executions;
-        this.codingAttempt = new FeedbackCodingAttempt(freezer, coding, docker, runtime, pricing);
+        this.codingAttempt = new FeedbackCodingAttempt(freezer, coding, docker, runtime, pricing, transcripts);
         this.verificationPolicy = new VerificationPolicy(repositories, runtime);
     }
 
@@ -222,7 +242,9 @@ public class FeedbackWorker implements AgentWorker {
                                 state.pr.repository(),
                                 state.pr.baseBranch(),
                                 state.pr.headSha()),
-                        CodingRequest.Constraints.defaults());
+                        CodingRequest.Constraints.defaults(),
+                        // Feedback rounds run with the profile, effort, turns and instructions of the task's run.
+                        original.runSettings());
         outputs.put(REQUEST, JSON.writeValueAsString(request));
         outputs.put(VERIFICATION, "{}");
         outputs.put(DELIVERY, "{}");
@@ -362,8 +384,7 @@ public class FeedbackWorker implements AgentWorker {
 
     private boolean isDestinationAuthorized(PrFeedbackGateway.PullRequest pullRequest) {
         for (DeliveryTarget target : delivery.effectiveTargets(repositories).values()) {
-            if (target.authorized()
-                    && pullRequest.repository().equals(target.repository())
+            if (pullRequest.repository().equals(target.repository())
                     && pullRequest.baseBranch().equals(target.baseBranch())) {
                 return true;
             }

@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.MapPropertySource;
@@ -42,40 +41,30 @@ class DeveloperRepositoryConfigurationTest {
         var defaults = bind(Map.of());
         var prefix = "FACTORY_" + environmentPrefix;
 
-        for (boolean authorized : new boolean[]{true, false}) {
-            var configured = bind(Map.of(
-                    prefix + "_SOURCE_REPO", "Source-Owner/Module.Case",
-                    prefix + "_DELIVERY_REPO", "delivery-owner/Module.Case",
-                    prefix + "_BASE_BRANCH", "codex/clean-startup-check",
-                    prefix + "_DELIVERY_AUTHORIZED", Boolean.toString(authorized)));
-            var source = configured.source().repositories().get(repositoryKey);
-            var target = configured.delivery().target(repositoryKey, configured.source());
+        var configured = bind(Map.of(
+                prefix + "_SOURCE_REPO", "Source-Owner/Module.Case",
+                prefix + "_DELIVERY_REPO", "delivery-owner/Module.Case",
+                prefix + "_BASE_BRANCH", "codex/clean-startup-check"));
+        var source = configured.source().repositories().get(repositoryKey);
+        var target = configured.delivery().target(repositoryKey, configured.source());
 
-            assertThat(source.sourceRepo()).isEqualTo("Source-Owner/Module.Case");
-            assertThat(target.repository()).isEqualTo("delivery-owner/Module.Case");
-            assertThat(source.baseBranch()).isEqualTo("codex/clean-startup-check");
-            assertThat(target.baseBranch()).isEqualTo(source.baseBranch());
-            assertThat(target.authorized()).isEqualTo(authorized);
-            if (authorized) {
-                assertThat(configured.delivery().requireTarget(repositoryKey, configured.source())).isEqualTo(target);
-            } else {
-                assertThatThrownBy(() -> configured.delivery().requireTarget(repositoryKey, configured.source()))
-                        .isInstanceOf(DeliveryBlockedException.class)
-                        .hasMessageContaining("explicit operator authorization");
-            }
+        assertThat(source.sourceRepo()).isEqualTo("Source-Owner/Module.Case");
+        assertThat(target.repository()).isEqualTo("delivery-owner/Module.Case");
+        assertThat(source.baseBranch()).isEqualTo("codex/clean-startup-check");
+        assertThat(target.baseBranch()).isEqualTo(source.baseBranch());
+        assertThat(configured.delivery().requireTarget(repositoryKey, configured.source())).isEqualTo(target);
 
-            var defaultSource = defaults.source().repositories().get(repositoryKey);
-            assertThat(source.buildImage()).isEqualTo(defaultSource.buildImage());
-            assertThat(source.verificationPlan()).isEqualTo(defaultSource.verificationPlan());
-            assertThat(source.jiraProjects()).isEqualTo(defaultSource.jiraProjects());
-            assertThat(configured.delivery().createPullRequest()).isEqualTo(defaults.delivery().createPullRequest());
-            for (var otherKey : defaults.source().repositories().keySet()) {
-                if (!otherKey.equals(repositoryKey)) {
-                    assertThat(configured.source().repositories().get(otherKey))
-                            .isEqualTo(defaults.source().repositories().get(otherKey));
-                    assertThat(configured.delivery().target(otherKey, configured.source()))
-                            .isEqualTo(defaults.delivery().target(otherKey, defaults.source()));
-                }
+        var defaultSource = defaults.source().repositories().get(repositoryKey);
+        assertThat(source.buildImage()).isEqualTo(defaultSource.buildImage());
+        assertThat(source.verificationPlan()).isEqualTo(defaultSource.verificationPlan());
+        assertThat(source.jiraProjects()).isEqualTo(defaultSource.jiraProjects());
+        assertThat(configured.delivery().createPullRequest()).isEqualTo(defaults.delivery().createPullRequest());
+        for (var otherKey : defaults.source().repositories().keySet()) {
+            if (!otherKey.equals(repositoryKey)) {
+                assertThat(configured.source().repositories().get(otherKey))
+                        .isEqualTo(defaults.source().repositories().get(otherKey));
+                assertThat(configured.delivery().target(otherKey, configured.source()))
+                        .isEqualTo(defaults.delivery().target(otherKey, defaults.source()));
             }
         }
     }
@@ -96,7 +85,6 @@ class DeveloperRepositoryConfigurationTest {
                         jira-components: [Backend]
                         delivery:
                           repository: delivery-owner/another-module
-                          authorized: true
                 """);
         var configured = bind(Map.of(), file);
         var repository = configured.source().repositories().get("another-module");
@@ -105,7 +93,7 @@ class DeveloperRepositoryConfigurationTest {
         assertThat(repository.jiraProjects()).containsExactly("ANOTHER");
         assertThat(repository.jiraComponents()).containsExactly("Backend");
         assertThat(configured.delivery().requireTarget("another-module", configured.source()))
-                .isEqualTo(new DeliveryTarget("delivery-owner/another-module", "feature/base", true));
+                .isEqualTo(new DeliveryTarget("delivery-owner/another-module", "feature/base"));
         assertThat(configured.runtime().command(repository.verificationPlan()))
                 .containsExactly("mvn", "-B", "-ntp", "test");
         assertThat(configured.runtime().requiredReports("java21-roles-verify"))
@@ -113,19 +101,18 @@ class DeveloperRepositoryConfigurationTest {
     }
 
     @Test
-    void catalogDeliveryDefaultsToDisabledAndLegacyExplicitTargetOverridesDuringMigration() throws Exception {
+    void catalogDeliveryDefaultsToTheOfficialRepositoryAndLegacyExplicitTargetOverridesDuringMigration()
+            throws Exception {
         var defaults = bind(Map.of());
         assertThat(defaults.delivery().targets()).isEmpty();
         assertThat(defaults.delivery().effectiveTargets(defaults.source()).values())
-                .allMatch(target -> !target.authorized());
+                .allMatch(target -> target.repository().startsWith("folio-org/"));
 
         var configured = bind(Map.of(
                 "factory.dev-factory.delivery.targets.sidecar.repository", "legacy-owner/module",
-                "factory.dev-factory.delivery.targets.sidecar.base-branch", "legacy-base",
-                "factory.dev-factory.delivery.targets.sidecar.authorized", true));
+                "factory.dev-factory.delivery.targets.sidecar.base-branch", "legacy-base"));
         assertThat(configured.delivery().requireTarget("sidecar", configured.source()))
-                .isEqualTo(new DeliveryTarget("legacy-owner/module", "legacy-base", true));
-        assertThat(configured.source().repositories().get("sidecar").delivery().authorized()).isFalse();
+                .isEqualTo(new DeliveryTarget("legacy-owner/module", "legacy-base"));
     }
 
     @Test
@@ -138,29 +125,9 @@ class DeveloperRepositoryConfigurationTest {
     @Test
     void partialLegacyDestinationInheritsTheCatalogBase() throws Exception {
         var configured = bind(Map.of(
-                "factory.dev-factory.delivery.targets.sidecar.repository", "legacy-owner/module",
-                "factory.dev-factory.delivery.targets.sidecar.authorized", true));
+                "factory.dev-factory.delivery.targets.sidecar.repository", "legacy-owner/module"));
         assertThat(configured.delivery().requireTarget("sidecar", configured.source()))
-                .isEqualTo(new DeliveryTarget("legacy-owner/module", "master", true));
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void partialLegacyAuthorizationKeepsCatalogDestinationAndHonorsExplicitFalse(boolean authorized) throws Exception {
-        var configured = bind(Map.of(
-                "FACTORY_SIDECAR_DELIVERY_REPO", "catalog-owner/module",
-                "FACTORY_SIDECAR_BASE_BRANCH", "catalog-base",
-                "FACTORY_SIDECAR_DELIVERY_AUTHORIZED", true,
-                "factory.dev-factory.delivery.targets.sidecar.authorized", authorized));
-        assertThat(configured.delivery().target("sidecar", configured.source()))
-                .isEqualTo(new DeliveryTarget("catalog-owner/module", "catalog-base", authorized));
-        if (authorized) {
-            assertThatCode(() -> configured.delivery().requireTarget("sidecar", configured.source()))
-                    .doesNotThrowAnyException();
-        } else {
-            assertThatThrownBy(() -> configured.delivery().requireTarget("sidecar", configured.source()))
-                    .isInstanceOf(DeliveryBlockedException.class);
-        }
+                .isEqualTo(new DeliveryTarget("legacy-owner/module", "master"));
     }
 
     @Test

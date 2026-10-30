@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<!-- STATIC MOCKUP — task detail under the flow-centric entry (journal item 2).
+     Route shape: /flows/dev-factory/tasks/{taskId} (design-level; exact URL is implementation detail).
+     Adds the spec 6.2 stage-evidence block (Preparation/Implementation/Verification/Publication,
+     Passed/Failed/Not run) missing from the current pilot-task.html.
+     Session journal: docs/superpowers/plans/2026-10-25-ux-design-decisions.md -->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MGRTEM-171 — AI Factory (mockup v1)</title>
+    <link rel="stylesheet" href="../../../factory-app/src/main/resources/static/css/tokens.css">
+    <link rel="stylesheet" href="../../../factory-app/src/main/resources/static/css/app.css">
+    <style>
+        /* mockup-only annotation, not part of the design system */
+        .mockup-note { background: #f3f0ff; border-bottom: 1px solid #d8d2f0; color: #4a3f80;
+            font: 12px/1.5 ui-monospace, monospace; padding: 6px 16px; text-align: center; }
+    </style>
+</head>
+<body>
+<div class="mockup-note">MOCKUP v1 · task detail, stopped-failure example · spec 6.2 outcome sentence + stage evidence + attempts with cumulative cost</div>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="app-shell">
+    <aside class="sidebar" aria-label="Main navigation">
+        <div class="sidebar-brand">
+            <strong>AI Factory</strong>
+            <span>FOLIO SDLC</span>
+        </div>
+        <nav class="nav-group" aria-label="Overview">
+            <span class="nav-group-label">Overview</span>
+            <a class="nav-item" href="/">Dashboard</a>
+            <a class="nav-item" href="/status">Status</a>
+            <a class="nav-item" href="/audit">Audit</a>
+        </nav>
+        <nav class="nav-group" aria-label="Pipelines">
+            <span class="nav-group-label">Pipelines</span>
+            <a class="nav-item" href="/flows" aria-current="page">Flows</a>
+            <a class="nav-item" href="/executions">Executions</a>
+            <a class="nav-item" href="/artifacts">Artifacts</a>
+            <a class="nav-item" href="/reviews">Reviews</a>
+        </nav>
+        <nav class="nav-group" aria-label="Agents">
+            <span class="nav-group-label">Agents</span>
+            <a class="nav-item" href="/workers">Workers</a>
+            <a class="nav-item" href="/prompts">Prompts</a>
+        </nav>
+        <div class="sidebar-footer">
+            <button type="button" class="btn btn-ghost btn-sm"><span aria-hidden="true">☾</span> Dark</button>
+        </div>
+    </aside>
+    <main id="main" class="main">
+        <section class="page-body">
+            <p><a href="#">← Developer Factory · Sprint work</a></p>
+            <div class="page-header">
+                <h1>Validate module descriptor against schema</h1>
+                <div class="page-header-meta">
+                    <a class="badge badge-outline badge-sm" href="#">MGRTEM-171</a>
+                    <span class="badge badge-status-STOPPED">Could not complete</span>
+                    <span class="muted">2 attempts · active time 51 min</span>
+                    <span>Destination: mgr-tenant-entitlements</span>
+                </div>
+            </div>
+
+            <section class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Result</h2>
+                </div>
+                <div class="card-content">
+                    <p>Could not complete: verification failed — 2 tests in error
+                        (<code>mvn -B -ntp test</code>, fresh Surefire reports). No PR was created.
+                        Cumulative estimated cost: <strong>$1.45</strong> over 2 attempts
+                        <span class="muted">(incomplete — attempt 1 has no rate snapshot)</span>.
+                        Fix the failing tests or clarify the task in Jira, then Retry — or continue
+                        in your usual coding tool.</p>
+                    <div class="page-header-meta">
+                        <button class="btn btn-primary" type="button">Retry</button>
+                        <span class="muted">Re-reads the Jira issue and starts one fresh attempt with the
+                            current destination and source. Previous results and costs stay on this page.</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-header">
+                    <h2 class="card-title">What happened (last attempt)</h2>
+                </div>
+                <div class="card-content">
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                            <tr><th>Stage</th><th>Outcome</th><th>Detail</th></tr>
+                            </thead>
+                            <tbody>
+                            <tr>
+                                <td>Preparation</td>
+                                <td><span class="badge badge-success">Passed</span></td>
+                                <td class="muted">workspace from main@e4f21ac · baseline checks 2m</td>
+                            </tr>
+                            <tr>
+                                <td>Implementation</td>
+                                <td><span class="badge badge-success">Passed</span></td>
+                                <td class="muted">self-review clean · 14m</td>
+                            </tr>
+                            <tr>
+                                <td>Verification</td>
+                                <td><span class="badge badge-destructive">Failed</span></td>
+                                <td><a href="#">Surefire reports</a> · <a href="#">Attempt log</a>
+                                    <div class="muted sub-tag">2 tests in error: EntitlementsSchemaTest, ModuleLoaderTest</div></td>
+                            </tr>
+                            <tr>
+                                <td>Publication</td>
+                                <td><span class="badge badge-muted">Not run</span></td>
+                                <td class="muted">verification did not pass — nothing published</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section>
+                <div class="page-header">
+                    <h2 class="card-title">Attempts</h2>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th>Attempt</th><th>Kind</th><th>State</th><th>Started</th><th>Active</th>
+                            <th>Result</th><th>Cost</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr>
+                            <td>Attempt 1</td>
+                            <td>initial <div class="muted sub-tag">via manual selection</div></td>
+                            <td>
+                                <span class="badge badge-status-STOPPED">Could not complete</span>
+                                <div class="muted sub-tag"><a href="#">run e3f9…</a></div>
+                            </td>
+                            <td class="muted">yesterday 14:02</td>
+                            <td class="muted">26m</td>
+                            <td>
+                                <div class="muted sub-tag">verification failed — 2 tests in error</div>
+                            </td>
+                            <td>$0.84 <span class="muted">(incomplete)</span></td>
+                        </tr>
+                        <tr>
+                            <td>Attempt 2</td>
+                            <td>retry <div class="muted sub-tag">via explicit Retry</div></td>
+                            <td>
+                                <span class="badge badge-status-STOPPED">Could not complete</span>
+                                <div class="muted sub-tag"><a href="#">run b7c1…</a></div>
+                            </td>
+                            <td class="muted">today 09:15</td>
+                            <td class="muted">25m</td>
+                            <td>
+                                <div class="muted sub-tag">verification failed — same 2 tests</div>
+                            </td>
+                            <td>$0.61</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                    <div class="page-header-meta">
+                        <span>Cumulative: <strong>$1.45</strong> · 2 attempts · no PR</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-header">
+                    <h2 class="card-title">Cost and usage</h2>
+                    <p class="card-description">Estimated from reported model usage; actual provider charges may differ.</p>
+                </div>
+                <div class="card-content">
+                    <dl class="def-list">
+                        <dt>Total tokens</dt><dd>412 900</dd>
+                        <dt>Input tokens</dt><dd>341 200</dd>
+                        <dt>Output tokens</dt><dd>28 400</dd>
+                        <dt>Cache-read tokens</dt><dd>40 100</dd>
+                        <dt>Cache-write tokens</dt><dd>3 200</dd>
+                        <dt>Estimated cost (USD)</dt><dd>$1.45 <span class="muted">(incomplete — attempt 1 has no rate snapshot)</span></dd>
+                        <dt>Models</dt><dd>claude-sonnet-5-5</dd>
+                    </dl>
+                </div>
+            </section>
+
+            <details class="details-inline">
+                <summary>Technical details</summary>
+                <dl class="def-list">
+                    <dt>Task id</dt><dd>7f3c2a90-1e44-4b1a-9c11-2d8a5f60b7e3</dd>
+                    <dt>Project</dt><dd>MGRTEM</dd>
+                    <dt>Jira created</dt><dd>Oct 21, 2026</dd>
+                    <dt>Engine runs</dt><dd><a href="/executions">Executions</a></dd>
+                </dl>
+            </details>
+        </section>
+    </main>
+</div>
+</body>
+</html>

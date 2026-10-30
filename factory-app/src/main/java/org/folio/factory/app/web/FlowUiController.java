@@ -94,6 +94,7 @@ public class FlowUiController {
         model.addAttribute("rawYaml", rawYaml(descriptor));
         model.addAttribute("samples", samples);
         model.addAttribute("defaultPayload", samples.isEmpty() ? "{}" : samples.get(0).get("prettyJson"));
+        model.addAttribute("myTasksTab", PilotTaskUiController.FLOW_ID.equals(descriptor.id()));
         model.addAttribute("error", error);
         return "flow";
     }
@@ -103,6 +104,10 @@ public class FlowUiController {
                           @RequestParam(name = "payload", required = false) String payload,
                           @RequestParam(name = "dedupKey", required = false) String dedupKey,
                           RedirectAttributes redirect) {
+        if (PilotTaskUiController.FLOW_ID.equals(id)) {
+            return UiFormat.errorRedirect("/flows/" + id,
+                    "Developer Flow runs start from My tasks: select your tasks or add one by key.");
+        }
         JsonNode payloadNode;
         try {
             String body = payload == null || payload.isBlank() ? "{}" : payload;

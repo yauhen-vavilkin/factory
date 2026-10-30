@@ -51,7 +51,6 @@ class PrFeedbackIntegrationTest {
         r.add("factory.dev-factory.runtime.plans.fixture-checks[0]",()->"fixture-check");
         r.add("factory.dev-factory.delivery.targets.fixture.repository",()->"fork/repo");
         r.add("factory.dev-factory.delivery.targets.fixture.base-branch",()->"main");
-        r.add("factory.dev-factory.delivery.targets.fixture.authorized",()->"true");
         for(String model:List.of("fixture-model","second-fixture-model")) {
             String prefix="factory.developer-pricing.rates."+model+".";
             r.add(prefix+"model",()->model); r.add(prefix+"currency",()->"USD");
@@ -72,6 +71,7 @@ class PrFeedbackIntegrationTest {
     @Autowired FeedbackActions actions;
     @Autowired HitlDecisionService decisions;
     @Autowired HitlGateOpener gates;
+    @Autowired org.folio.factory.app.developer.CodingTranscriptStore transcripts;
     @LocalServerPort int port;
     @MockitoBean PrFeedbackGateway gateway;
     @MockitoBean DockerWorkloads docker;
@@ -98,7 +98,7 @@ class PrFeedbackIntegrationTest {
             return merged ? PrFeedbackGateway.Status.MERGED : closed ? PrFeedbackGateway.Status.CLOSED : PrFeedbackGateway.Status.OPEN;
         });
         when(gateway.comments(any())).thenAnswer(i->new PrFeedbackGateway.Snapshot(pr().headSha()+commentsRevision,pr(),List.of(comment())));
-        when(coding.image()).thenReturn("fixture-image"); when(coding.identity()).thenReturn(Map.of("model","fixture-model","runtime","scripted"));
+        when(coding.image()).thenReturn("fixture-image"); when(coding.identity(any())).thenReturn(Map.of("model","fixture-model","runtime","scripted"));
         when(coding.redact(anyString())).thenAnswer(i->i.getArgument(0));
         var scope=mock(DockerWorkloads.StepScope.class); var workload=mock(DockerWorkloads.Workload.class);
         when(docker.beginStep(any(),anyString())).thenReturn(scope);
@@ -110,11 +110,12 @@ class PrFeedbackIntegrationTest {
             }} return null;
         }).when(workload).export(any());
         doAnswer(i->{if(cleanupFails && calls>0) throw new IllegalStateException("Resource still exists");return null;}).when(docker).cleanOwned(any(),anyString());
-        when(coding.code(any(),any(),anyInt(),any())).thenAnswer(i->{
+        when(coding.code(any(), any(), anyInt(), any(), any())).thenAnswer(i->{
             calls++;
             if(mergeDuringCode) merged=true;
             if(!noChanges) Files.writeString(codingSource.resolve("value.txt"),Files.readString(codingSource.resolve("value.txt"))+"fix "+calls+"\n");
             Consumer<Map<String,Object>> progress=i.getArgument(3); var streamed=new HashMap<String,Object>(usage); streamed.put("activity","coding_usage"); progress.accept(streamed);
+            CodingTranscripts.Sink transcript=i.getArgument(4); transcript.add(new CodingTranscripts.Entry("prompt",Instant.now(),Map.of("text","Feedback round "+calls)));
             if(ask) return CodingOutcome.needsDecision(new CodingOutcome.Decision(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS,"Keep both options?",List.of("Yes","No"),"Partial patch saved"),usage);
             return CodingOutcome.completed("Corrected selected feedback",usage);
         });
@@ -154,18 +155,24 @@ class PrFeedbackIntegrationTest {
     void startRound() {drive(); select(); drive();}
     @Test void twelveRoundsUseOneExecutionOneBranchAndRenderChronologicalHistory() throws Exception {
         drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
-        verifyNoInteractions(verifier); verify(coding,never()).code(any(),any(),anyInt(),any());
+        verifyNoInteractions(verifier); verify(coding,never()).code(any(), any(), anyInt(), any(), any());
         for(int round=1;round<=12;round++) {
             String model=round%2==0?"second-fixture-model":"fixture-model";
-            when(coding.identity()).thenReturn(Map.of("model",model,"runtime","scripted"));
+            when(coding.identity(any())).thenReturn(Map.of("model",model,"runtime","scripted"));
             usage=Map.of("model",model,"inputTokens",100L,"cacheReadTokens",0L,"cacheWriteTokens",0L,"outputTokens",20L);
             select(); drive(); assertThat(view().state().phase()).as("round %s reason %s",round,view().state().reason()).isEqualTo(FeedbackState.Phase.READY);
             assertThat(view().state().round()).isEqualTo(round); assertThat(pr().headSha()).isEqualTo(view().state().commitSha());
         }
         assertThat(calls).isEqualTo(12); assertThat(git(bare,"rev-list","--count",branch).strip()).isEqualTo("13");
+        // Each feedback round is its own transcript run of the same execution, keyed by the round's attempt id.
+        var transcript=transcripts.read(id);
+        assertThat(transcript).hasSize(12).allSatisfy(entry->assertThat(entry.stepId()).isEqualTo("pr-follow-up"));
+        assertThat(transcript.stream().map(org.folio.factory.app.developer.CodingTranscriptStore.Entry::runId).distinct()).hasSize(12);
+        assertThat(transcript.getLast().runId().toString()).isEqualTo(view().state().attemptId());
+        assertThat(transcript.getLast().detail().path("text").asString()).isEqualTo("Feedback round 12");
         assertThat(git(bare,"for-each-ref","--format=%(refname)","refs/heads").lines()).containsExactly("refs/heads/"+branch);
         var html=RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class);
-        assertThat(html).contains("Round 1","Round 12","Total cost","Factory time","fixture-model","second-fixture-model","0.0072 USD","Work on feedback");
+        assertThat(html).contains("Round 1","Round 12","0.0072 USD so far"," active</span>","fixture-model","second-fixture-model","Work on feedback");
         assertThat(html).doesNotContain("Download current patch", "Download diagnostics", "Rate-card estimate", "Finish task");
         assertThatThrownBy(()->action(FINISH)).isInstanceOf(IllegalArgumentException.class);
         merged=true; actions.reconcilePr(id); drive(); assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);

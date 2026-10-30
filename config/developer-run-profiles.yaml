@@ -1,0 +1,35 @@
+# Run profiles for the Claude Code runtime. A person chooses one in the run form on My tasks or on
+# the task page. Profile env-default ("Configured in .env") always exists: it uses the
+# FACTORY_CLAUDE_CODE_* settings. The profiles below are extra.
+#
+# secret-env names the environment variable that holds the profile's secret. Put the secret in
+# .env, never in this file. Docker Compose passes only the variables it lists to Factory: when you
+# add a profile with a new secret-env variable, also add that variable to the environment of the
+# factory service in docker-compose.yml, next to FACTORY_ZAI_API_KEY. A profile whose secret is
+# empty shows as "not configured" and cannot be chosen. max-turns is from 1 to 500.
+# Valid efforts: low, medium, high, xhigh, max; default-effort must be in efforts.
+# The default profile for runs is FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE (empty: env-default).
+# To use your own copy of this file, set FACTORY_DEV_FACTORY_RUN_PROFILES_FILE in .env.
+factory:
+  dev-factory:
+    run-profiles:
+      - id: glm-5.3
+        label: GLM-5.3 (Z.ai)
+        base-url: https://api.z.ai/api/anthropic
+        authentication: bearer-token
+        secret-env: FACTORY_ZAI_API_KEY
+        model: glm-5.3
+        efforts: [low, high, max]
+        default-effort: max
+        max-turns: 100
+        max-output-tokens: 16384
+      - id: glm-5.3-flash
+        label: GLM-5.3 Flash (Z.ai)
+        base-url: https://api.z.ai/api/anthropic
+        authentication: bearer-token
+        secret-env: FACTORY_ZAI_API_KEY
+        model: glm-5.3-flash
+        efforts: [low, high, max]
+        default-effort: max
+        max-turns: 100
+        max-output-tokens: 16384
