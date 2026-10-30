@@ -84,19 +84,8 @@ public class SubFlowInvoker {
                     childExecutionId, parent.getId(), parent.getStatus());
             return;
         }
-        FlowDescriptor parentFlow = flowRegistry.require(parent.getFlowId());
-        StepDescriptor step = parentFlow.step(child.getParentStepIndex());
-        if (step.type() != StepType.SUB_FLOW) {
-            throw new IllegalStateException("Parent step " + child.getParentStepIndex() + " of flow '"
-                    + parentFlow.id() + "' is not a SUB_FLOW step");
-        }
-        for (Map.Entry<String, String> mapping : step.subFlow().outputMapping().entrySet()) {
-            var childArtifact = artifactStore.getLatest(child.getId(), mapping.getKey())
-                    .orElseThrow(() -> new AgentExecutionException("Sub-flow '" + child.getFlowId()
-                            + "' completed without producing mapped output artifact '" + mapping.getKey() + "'"));
-            artifactStore.put(parent.getId(), mapping.getValue(), childArtifact.getContent(),
-                    childArtifact.getContentType(), "subflow:" + child.getId());
-        }
+        StepDescriptor step = parentSubFlowStep(parent, child.getParentStepIndex());
+        copyMappedOutputs(child, parent, step);
         auditLog.record(parent.getId(), AuditEventType.SUBFLOW_RETURNED, step.stepId(),
                 Map.of("childExecutionId", child.getId().toString()));
         if (!stateManager.advanceStep(parent.getId(), child.getParentStepIndex(),
@@ -104,6 +93,26 @@ public class SubFlowInvoker {
             return;
         }
         stateManager.scheduleRetry(parent.getId(), 0, null);
+    }
+
+    private StepDescriptor parentSubFlowStep(PipelineExecution parent, int stepIndex) {
+        FlowDescriptor parentFlow = flowRegistry.require(parent.getFlowId());
+        StepDescriptor step = parentFlow.step(stepIndex);
+        if (step.type() != StepType.SUB_FLOW) {
+            throw new IllegalStateException("Parent step " + stepIndex + " of flow '"
+                    + parentFlow.id() + "' is not a SUB_FLOW step");
+        }
+        return step;
+    }
+
+    private void copyMappedOutputs(PipelineExecution child, PipelineExecution parent, StepDescriptor step) {
+        for (Map.Entry<String, String> mapping : step.subFlow().outputMapping().entrySet()) {
+            var childArtifact = artifactStore.getLatest(child.getId(), mapping.getKey())
+                    .orElseThrow(() -> new AgentExecutionException("Sub-flow '" + child.getFlowId()
+                            + "' completed without producing mapped output artifact '" + mapping.getKey() + "'"));
+            artifactStore.put(parent.getId(), mapping.getValue(), childArtifact.getContent(),
+                    childArtifact.getContentType(), "subflow:" + child.getId());
+        }
     }
 
     /**
