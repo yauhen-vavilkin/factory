@@ -37,7 +37,8 @@ public final class PullRequestRenderer {
     private static final Pattern INNER_HEADING = Pattern.compile("\\s{0,3}#{1,6}\\s+(.*)");
     private static final int REPORT_LIMIT = 8000;
     private static final int SECTION_LINES = 20;
-    private static final int LINE_LIMIT = 500;
+    // REPORT_LIMIT already bounds the whole report; this only stops one runaway line.
+    private static final int LINE_LIMIT = 2000;
     private static final Pattern TOKEN =
             Pattern.compile(
                     "\\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,})\\b");
@@ -331,12 +332,16 @@ public final class PullRequestRenderer {
 
     /** Descriptive input cannot introduce Markdown structure, HTML, links or mentions. */
     private static String prose(String value, int limit) {
-        String clean =
+        String text =
                 URL.matcher(redact(value))
                         .replaceAll("[link omitted]")
                         .replace("`", "")
                         .replaceAll("[\\p{Cntrl}\\s]+", " ")
-                        .replace("&", "&amp;")
+                        .strip();
+        // Cut before escaping, so the limit counts what the reader sees and never splits an entity.
+        if (text.length() > limit) text = text.substring(0, limit) + "…";
+        String clean =
+                text.replace("&", "&amp;")
                         .replace("<", "&lt;")
                         .replace(">", "&gt;")
                         .replace("#", "&#35;")
@@ -350,11 +355,8 @@ public final class PullRequestRenderer {
                         .replace("~", "&#126;")
                         .replace("!", "&#33;")
                         .replace("|", "&#124;")
-                        .replace("\\", "&#92;")
-                        .strip();
-        clean =
-                clean.replaceFirst("^([0-9]{1,9})\\.(?=\\s)", "$1&#46;")
-                        .replaceFirst("^([0-9]{1,9})\\)(?=\\s)", "$1&#41;");
-        return clean.length() <= limit ? clean : clean.substring(0, limit) + "…";
+                        .replace("\\", "&#92;");
+        return clean.replaceFirst("^([0-9]{1,9})\\.(?=\\s)", "$1&#46;")
+                .replaceFirst("^([0-9]{1,9})\\)(?=\\s)", "$1&#41;");
     }
 }

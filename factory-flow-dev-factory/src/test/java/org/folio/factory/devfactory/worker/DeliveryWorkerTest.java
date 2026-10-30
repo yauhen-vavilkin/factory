@@ -262,6 +262,32 @@ class DeliveryWorkerTest {
                 .doesNotContain("## Assumptions", "## Could not read", "Let me know");
     }
 
+    @Test
+    void aLongReportLineReachesThePrWholeAndARunawayLineIsCutBetweenCharacters() {
+        CandidateDelivery delivery = mock(CandidateDelivery.class);
+        GitHubConnector github = mock(GitHubConnector.class);
+        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+                .thenReturn(new DeliveryReceipt("execution", "user/sidecar", "factory/final",
+                        "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40)));
+        when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
+        // A real GLM report had a 520-character first bullet, and the PR showed it cut mid-word.
+        String bullet = "Added DeployConfig.json with module defaults and every environment variable. ".repeat(12)
+                + "Ends here.";
+        var original = verifiedContext();
+        var inputs = new java.util.HashMap<>(original.inputs());
+        inputs.put("dev_coding_outcome.json", new ArtifactContent("dev_coding_outcome.json", 1, "application/json",
+                json.writeValueAsString(Map.of("summary", "## Changes\n- " + bullet + "\n- " + "a-".repeat(1500)
+                        + "\n## Acceptance criteria\n- Works: met\n## Assumptions\nNone\n## Could not read\nNone"))));
+
+        worker(delivery, github, new GitHubProperties(null, "token")).execute(
+                new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of()));
+
+        assertThat(bullet.length()).isGreaterThan(900);
+        var body = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture(), eq(false));
+        assertThat(body.getValue()).contains("Ends here.", "a&#45;a&#45;…").doesNotContainPattern("&#[0-9]*…");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "Updated routing. Checks passed: - mvn test - git diff --check",
