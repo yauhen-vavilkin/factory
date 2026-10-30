@@ -10,6 +10,7 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.pilot.AttemptDeadline;
+import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
 import org.folio.factory.devfactory.pilot.PilotStops;
 import org.folio.factory.devfactory.pilot.RecordingPilotAttempts;
 import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
@@ -97,7 +98,7 @@ class DevelopReadinessTest {
         var audit = mock(AuditLog.class);
         var attempt = new InitialCodingAttempt(
                 properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of(),
-                selectedRepository);
+                selectedRepository, PilotAttemptPolicy.none(), CodingTranscripts.none());
         var worker = new DevelopWorker(attempt, codec);
 
         assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class);
@@ -187,7 +188,8 @@ class DevelopReadinessTest {
         var context = context(codec, request());
         var audit = mock(AuditLog.class);
         var initialAttempt = new InitialCodingAttempt(
-                properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of());
+                properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of(),
+                SelectedRepositoryPreflight.none(), PilotAttemptPolicy.none(), CodingTranscripts.none());
         var worker = new DevelopWorker(initialAttempt, codec);
         if (retryable) {
             // Repeated worker attempts retain the configured repository and do not add a global -U.
@@ -227,7 +229,8 @@ class DevelopReadinessTest {
         doThrow(new IllegalStateException("secret must not persist")).when(coding).requireConfigured(any());
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, new FrontmatterCodec(),
-                mock(AuditLog.class), model -> Map.of());
+                mock(AuditLog.class), model -> Map.of(),
+                SelectedRepositoryPreflight.none(), PilotAttemptPolicy.none(), CodingTranscripts.none());
 
         var result = attempt.start(context, request());
 
@@ -272,7 +275,8 @@ class DevelopReadinessTest {
                         Map.of()));
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, codec,
-                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), pilots);
+                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), pilots,
+                CodingTranscripts.none());
         var worker = new DevelopWorker(attempt, codec);
 
         var first = worker.execute(context);
@@ -326,7 +330,8 @@ class DevelopReadinessTest {
                         Map.of()));
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, codec,
-                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), pilots);
+                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), pilots,
+                CodingTranscripts.none());
         var worker = new DevelopWorker(attempt, codec);
 
         assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class)
@@ -365,7 +370,8 @@ class DevelopReadinessTest {
                 .requireRepositoryReady("repo", request.repository().baseSha());
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, new FrontmatterCodec(),
-                mock(AuditLog.class), model -> Map.of(), selectedRepository);
+                mock(AuditLog.class), model -> Map.of(), selectedRepository, PilotAttemptPolicy.none(),
+                CodingTranscripts.none());
         var readiness = JsonMapper.builder().build().readTree("{\"state\":\"BASELINE_PASSED\"}");
 
         InitialCodingAttempt.Attempt result;
