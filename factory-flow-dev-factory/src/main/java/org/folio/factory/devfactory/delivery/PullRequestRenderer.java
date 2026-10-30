@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** Renders untrusted descriptions separately from Factory's independent verification evidence. */
@@ -37,6 +38,8 @@ public final class PullRequestRenderer {
     private static final Pattern INNER_HEADING = Pattern.compile("\\s{0,3}#{1,6}\\s+(.*)");
     private static final int REPORT_LIMIT = 8000;
     private static final int SECTION_LINES = 20;
+    private static final int CONFIRMED_DECISIONS_SHOWN = 5;
+    private static final int CHANGED_FILES_SHOWN = 20;
     // REPORT_LIMIT already bounds the whole report; this only stops one runaway line.
     private static final int LINE_LIMIT = 2000;
     private static final Pattern TOKEN =
@@ -55,89 +58,12 @@ public final class PullRequestRenderer {
                 .append(issueLink(issueKey, jiraBaseUrl))
                 .append("\n\n");
         appendAgentReport(body, outcome.path("summary").asString(""));
-        int decisions = 0;
-        for (var decision : request.path("confirmedDecisions")) {
-            if (decisions++ >= 5) break;
-            if (decisions == 1) body.append("## Confirmed decisions\n\n");
-            body.append("- ")
-                    .append(prose(decision.path("question").asString(""), 300))
-                    .append(" — ")
-                    .append(prose(decision.path("answer").asString(""), 500))
-                    .append("\n");
-        }
-        if (decisions > 0) body.append("\n");
-        List<String> files =
-                candidate
-                        .patch()
-                        .lines()
-                        .filter(line -> line.startsWith("diff --git "))
-                        .map(PullRequestRenderer::changedPath)
-                        .toList();
-        body.append("## Changed files\n\n");
-        files.stream()
-                .limit(20)
-                .forEach(path -> body.append("- `").append(code(path, 240)).append("`\n"));
-        if (files.size() > 20) body.append("- Additional files are visible in the PR diff.\n");
-        body.append("\n## Verification\n\n**")
-                .append(prose(verification.result(), 40))
-                .append("** · ")
-                .append(count(verification.testCount()))
-                .append(" tests · ")
-                .append(count(verification.failureCount()))
-                .append(" failures · ")
-                .append(count(verification.errorCount()))
-                .append(" errors\n\n")
-                .append("- Plan: `")
-                .append(code(verification.planId(), 200))
-                .append("`\n")
-                .append("- Command: `")
-                .append(code(String.join(" ", verification.argv()), 1200))
-                .append("`\n")
-                .append("- Image: `")
-                .append(code(verification.image(), 300))
-                .append("`\n\n")
-                .append("<details>\n<summary>Factory verification details</summary>\n\n")
-                .append("- Surefire reports: ")
-                .append(verification.surefireReportCount())
-                .append("\n")
-                .append("- Failsafe reports: ")
-                .append(verification.failsafeReportCount())
-                .append("\n")
-                .append("- Required suites: ")
-                .append(
-                        verification.requiredReports().isEmpty()
-                                ? "No named suites configured; aggregate executed-test evidence"
-                                        + " only."
-                                : prose(String.join(", ", verification.requiredReports()), 1600))
-                .append("\n")
-                .append(
-                        "\n"
-                            + "Factory independently verified the exact frozen candidate using the"
-                            + " configured verification plan.\n")
-                .append("</details>\n\n")
-                .append("<details>\n<summary>Candidate and delivery details</summary>\n\n")
-                .append("- Execution: `")
-                .append(code(verification.executionId(), 200))
-                .append("`\n")
-                .append("- Destination: `")
-                .append(code(delivery.repository(), 300))
-                .append("` / `")
-                .append(code(delivery.branch(), 300))
-                .append("`\n");
-        return body.append("- Base: `")
-                .append(code(candidate.baseSha(), 100))
-                .append("`\n")
-                .append("- Tree: `")
-                .append(code(candidate.treeSha(), 100))
-                .append("`\n")
-                .append("- Patch SHA-256: `")
-                .append(code(candidate.patchSha256(), 100))
-                .append("`\n")
-                .append("- Delivered commit: `")
-                .append(code(delivery.commitSha(), 100))
-                .append("`\n")
-                .append("</details>")
-                .toString();
+        appendConfirmedDecisions(body, request.path("confirmedDecisions"));
+        appendChangedFiles(body, candidate.patch());
+        appendVerification(body, verification);
+        appendVerificationDetails(body, verification);
+        appendCandidateDetails(body, verification.executionId(), candidate, delivery);
+        return body.toString();
     }
 
     /**
@@ -156,6 +82,99 @@ public final class PullRequestRenderer {
         return "[" + issueKey + "](" + base + "/browse/" + issueKey + ")";
     }
 
+    private static void appendConfirmedDecisions(StringBuilder body, JsonNode decisions) {
+        var shown = 0;
+        for (var decision : decisions) {
+            if (shown == CONFIRMED_DECISIONS_SHOWN) {
+                break;
+            }
+            if (shown == 0) {
+                body.append("## Confirmed decisions\n\n");
+            }
+            body.append("- ")
+                    .append(prose(decision.path("question").asString(""), 300))
+                    .append(" — ")
+                    .append(prose(decision.path("answer").asString(""), 500))
+                    .append("\n");
+            shown++;
+        }
+        if (shown > 0) {
+            body.append("\n");
+        }
+    }
+
+    private static void appendChangedFiles(StringBuilder body, String patch) {
+        var files = patch.lines()
+                .filter(line -> line.startsWith("diff --git "))
+                .map(PullRequestRenderer::changedPath)
+                .toList();
+        body.append("## Changed files\n\n");
+        files.stream()
+                .limit(CHANGED_FILES_SHOWN)
+                .forEach(path -> body.append("- `").append(code(path, 240)).append("`\n"));
+        if (files.size() > CHANGED_FILES_SHOWN) {
+            body.append("- Additional files are visible in the PR diff.\n");
+        }
+    }
+
+    private static void appendVerification(StringBuilder body, VerificationReceipt verification) {
+        body.append("\n## Verification\n\n**")
+                .append(prose(verification.result(), 40))
+                .append("** · ")
+                .append(count(verification.testCount()))
+                .append(" tests · ")
+                .append(count(verification.failureCount()))
+                .append(" failures · ")
+                .append(count(verification.errorCount()))
+                .append(" errors\n\n");
+        appendCode(body, "Plan", verification.planId(), 200);
+        appendCode(body, "Command", String.join(" ", verification.argv()), 1200);
+        appendCode(body, "Image", verification.image(), 300);
+        body.append("\n");
+    }
+
+    private static void appendVerificationDetails(StringBuilder body, VerificationReceipt verification) {
+        body.append("<details>\n<summary>Factory verification details</summary>\n\n")
+                .append("- Surefire reports: ")
+                .append(verification.surefireReportCount())
+                .append("\n")
+                .append("- Failsafe reports: ")
+                .append(verification.failsafeReportCount())
+                .append("\n")
+                .append("- Required suites: ")
+                .append(requiredSuites(verification.requiredReports()))
+                .append("\n")
+                .append("\nFactory independently verified the exact frozen candidate using the"
+                        + " configured verification plan.\n")
+                .append("</details>\n\n");
+    }
+
+    private static String requiredSuites(List<String> requiredReports) {
+        return requiredReports.isEmpty()
+                ? "No named suites configured; aggregate executed-test evidence only."
+                : prose(String.join(", ", requiredReports), 1600);
+    }
+
+    private static void appendCandidateDetails(
+            StringBuilder body, String executionId, Candidate candidate, DeliveryReceipt delivery) {
+        body.append("<details>\n<summary>Candidate and delivery details</summary>\n\n");
+        appendCode(body, "Execution", executionId, 200);
+        body.append("- Destination: `")
+                .append(code(delivery.repository(), 300))
+                .append("` / `")
+                .append(code(delivery.branch(), 300))
+                .append("`\n");
+        appendCode(body, "Base", candidate.baseSha(), 100);
+        appendCode(body, "Tree", candidate.treeSha(), 100);
+        appendCode(body, "Patch SHA-256", candidate.patchSha256(), 100);
+        appendCode(body, "Delivered commit", delivery.commitSha(), 100);
+        body.append("</details>");
+    }
+
+    private static void appendCode(StringBuilder body, String label, String value, int limit) {
+        body.append("- ").append(label).append(": `").append(code(value, limit)).append("`\n");
+    }
+
     /**
      * Why the pull request is opened as a draft, in Factory's own words (model text never
      * reaches them); empty when the agent's report confirms everything.
@@ -166,21 +185,20 @@ public final class PullRequestRenderer {
             return List.of("The agent's final report does not use the four expected sections,"
                     + " so nothing in it is confirmed.");
         }
-        var reasons = new ArrayList<String>();
-        int notMet = 0;
-        int notChecked = 0;
-        String criteria = sections.get(CRITERIA);
-        // A criterion is confirmed only when its status plainly says "met"; a line that does not say
-        // "met" or "not met" (no status, "not verified", "failed") counts as not checked.
-        if (!isNone(criteria)) {
-            for (String line : criteria.lines().filter(line -> !line.isBlank()).toList()) {
-                if (RUNTIME_CHECKS.matcher(line).find()) continue;
-                var item = LIST_ITEM.matcher(line);
-                String text = item.matches() ? item.group(3) : line.strip();
-                if (NOT_MET.matcher(text).find()) notMet++;
-                else if (NOT_CHECKED.matcher(text).find() || !MET.matcher(text).find()) notChecked++;
-            }
+        var reasons = new ArrayList<>(criteriaReasons(criterionStatuses(sections.get(CRITERIA))));
+        if (!isNone(sections.get(ASSUMPTIONS))) {
+            reasons.add("The agent made assumptions that a reviewer should confirm.");
         }
+        if (!isNone(sections.get(COULD_NOT_READ))) {
+            reasons.add("The agent could not read some of the task's sources.");
+        }
+        return List.copyOf(reasons);
+    }
+
+    private static List<String> criteriaReasons(List<CriterionStatus> statuses) {
+        var notMet = statuses.stream().filter(status -> status == CriterionStatus.NOT_MET).count();
+        var notChecked = statuses.stream().filter(status -> status == CriterionStatus.NOT_CHECKED).count();
+        var reasons = new ArrayList<String>();
         if (notMet > 0) {
             reasons.add(notMet == 1 ? "1 acceptance criterion is not met."
                     : notMet + " acceptance criteria are not met.");
@@ -189,13 +207,34 @@ public final class PullRequestRenderer {
             reasons.add(notChecked == 1 ? "1 acceptance criterion was not checked."
                     : notChecked + " acceptance criteria were not checked.");
         }
-        if (!isNone(sections.get(ASSUMPTIONS))) {
-            reasons.add("The agent made assumptions that a reviewer should confirm.");
+        return reasons;
+    }
+
+    private static List<CriterionStatus> criterionStatuses(String criteria) {
+        if (isNone(criteria)) {
+            return List.of();
         }
-        if (!isNone(sections.get(COULD_NOT_READ))) {
-            reasons.add("The agent could not read some of the task's sources.");
+        return criteria.lines()
+                .filter(line -> !line.isBlank())
+                .filter(line -> !RUNTIME_CHECKS.matcher(line).find())
+                .map(PullRequestRenderer::criterionStatus)
+                .toList();
+    }
+
+    /**
+     * A criterion is confirmed only when its status plainly says "met"; a line that does not say
+     * "met" or "not met" (no status, "not verified", "failed") counts as not checked.
+     */
+    private static CriterionStatus criterionStatus(String line) {
+        var item = LIST_ITEM.matcher(line);
+        var text = item.matches() ? item.group(3) : line.strip();
+        if (NOT_MET.matcher(text).find()) {
+            return CriterionStatus.NOT_MET;
         }
-        return List.copyOf(reasons);
+        if (NOT_CHECKED.matcher(text).find() || !MET.matcher(text).find()) {
+            return CriterionStatus.NOT_CHECKED;
+        }
+        return CriterionStatus.MET;
     }
 
     /**
@@ -260,43 +299,13 @@ public final class PullRequestRenderer {
      * marker and heading itself and each line's content still goes through {@code prose}.
      */
     private static String block(String text) {
-        var out = new StringBuilder();
-        int lines = 0;
-        boolean gap = false;
-        boolean afterItem = false;
-        for (String raw : text.lines().toList()) {
-            if (raw.isBlank()) {
-                gap = true;
-                continue;
-            }
-            if (lines == SECTION_LINES) {
-                out.append("\n\nThe rest of this section was cut.");
+        var block = new Block();
+        for (var raw : text.lines().toList()) {
+            if (!block.add(raw)) {
                 break;
             }
-            var item = LIST_ITEM.matcher(raw);
-            var heading = INNER_HEADING.matcher(raw);
-            boolean isItem = item.matches();
-            boolean isHeading = !isItem && heading.matches();
-            String content = prose(isItem ? item.group(3) : isHeading ? heading.group(1) : raw, LINE_LIMIT);
-            if (content.isBlank()) continue;
-            String line;
-            if (isItem) {
-                // Indentation only nests under the item just above; anywhere else it could start a code block.
-                int indent = afterItem && !gap ? Math.min(item.group(1).replace("\t", "  ").length(), 4) : 0;
-                String marker = Character.isDigit(item.group(2).charAt(0))
-                        ? item.group(2).replace(')', '.') : "-";
-                line = " ".repeat(indent) + marker + " " + content;
-            } else {
-                line = isHeading ? "### " + content : content;
-            }
-            // A text line right after a list item would join that item; it starts its own paragraph.
-            if (!out.isEmpty()) out.append(gap || afterItem && !isItem ? "\n\n" : "\n");
-            out.append(line);
-            gap = false;
-            afterItem = isItem;
-            lines++;
         }
-        return out.toString();
+        return block.text();
     }
 
     private static String changedPath(String header) {
@@ -332,31 +341,88 @@ public final class PullRequestRenderer {
 
     /** Descriptive input cannot introduce Markdown structure, HTML, links or mentions. */
     private static String prose(String value, int limit) {
-        String text =
-                URL.matcher(redact(value))
-                        .replaceAll("[link omitted]")
-                        .replace("`", "")
-                        .replaceAll("[\\p{Cntrl}\\s]+", " ")
-                        .strip();
+        var text = URL.matcher(redact(value))
+                .replaceAll("[link omitted]")
+                .replace("`", "")
+                .replaceAll("[\\p{Cntrl}\\s]+", " ")
+                .strip();
         // Cut before escaping, so the limit counts what the reader sees and never splits an entity.
-        if (text.length() > limit) text = text.substring(0, limit) + "…";
-        String clean =
-                text.replace("&", "&amp;")
-                        .replace("<", "&lt;")
-                        .replace(">", "&gt;")
-                        .replace("#", "&#35;")
-                        .replace("@", "＠")
-                        .replace("[", "&#91;")
-                        .replace("]", "&#93;")
-                        .replace("*", "&#42;")
-                        .replace("_", "&#95;")
-                        .replace("-", "&#45;")
-                        .replace("+", "&#43;")
-                        .replace("~", "&#126;")
-                        .replace("!", "&#33;")
-                        .replace("|", "&#124;")
-                        .replace("\\", "&#92;");
-        return clean.replaceFirst("^([0-9]{1,9})\\.(?=\\s)", "$1&#46;")
+        if (text.length() > limit) {
+            text = text.substring(0, limit) + "…";
+        }
+        return escapeMarkdown(text);
+    }
+
+    private static String escapeMarkdown(String text) {
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("#", "&#35;")
+                .replace("@", "＠")
+                .replace("[", "&#91;")
+                .replace("]", "&#93;")
+                .replace("*", "&#42;")
+                .replace("_", "&#95;")
+                .replace("-", "&#45;")
+                .replace("+", "&#43;")
+                .replace("~", "&#126;")
+                .replace("!", "&#33;")
+                .replace("|", "&#124;")
+                .replace("\\", "&#92;")
+                .replaceFirst("^([0-9]{1,9})\\.(?=\\s)", "$1&#46;")
                 .replaceFirst("^([0-9]{1,9})\\)(?=\\s)", "$1&#41;");
+    }
+
+    private enum CriterionStatus { MET, NOT_MET, NOT_CHECKED }
+
+    /** One section of model text as it is rewritten line by line; stops after {@code SECTION_LINES}. */
+    private static final class Block {
+        private final StringBuilder out = new StringBuilder();
+        private int lines;
+        private boolean gap;
+        private boolean afterItem;
+
+        /** False once the section is cut and later lines must be dropped. */
+        boolean add(String raw) {
+            if (raw.isBlank()) {
+                gap = true;
+                return true;
+            }
+            if (lines == SECTION_LINES) {
+                out.append("\n\nThe rest of this section was cut.");
+                return false;
+            }
+            var item = LIST_ITEM.matcher(raw);
+            var heading = INNER_HEADING.matcher(raw);
+            var isItem = item.matches();
+            var isHeading = !isItem && heading.matches();
+            var content = prose(isItem ? item.group(3) : isHeading ? heading.group(1) : raw, LINE_LIMIT);
+            if (!content.isBlank()) {
+                append(isItem ? itemLine(item, content) : isHeading ? "### " + content : content, isItem);
+            }
+            return true;
+        }
+
+        private String itemLine(Matcher item, String content) {
+            // Indentation only nests under the item just above; anywhere else it could start a code block.
+            var indent = afterItem && !gap ? Math.min(item.group(1).replace("\t", "  ").length(), 4) : 0;
+            var marker = Character.isDigit(item.group(2).charAt(0)) ? item.group(2).replace(')', '.') : "-";
+            return " ".repeat(indent) + marker + " " + content;
+        }
+
+        private void append(String line, boolean isItem) {
+            // A text line right after a list item would join that item; it starts its own paragraph.
+            if (!out.isEmpty()) {
+                out.append(gap || afterItem && !isItem ? "\n\n" : "\n");
+            }
+            out.append(line);
+            gap = false;
+            afterItem = isItem;
+            lines++;
+        }
+
+        String text() {
+            return out.toString();
+        }
     }
 }
