@@ -56,4 +56,27 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
 - `.env` files may still set `FACTORY_DEV_FACTORY_DELIVERY_REPOSITORY`, `_BASE_BRANCH`,
   `_AUTHORIZED` and `_CREATE_PR`; no code reads them.
 - `docker-compose.yml` passes environment variables by an explicit list, so a new secret
-  variable must be added there too.
+  variable must be added there too. This includes the `secret-env` variable of every new run
+  profile.
+
+## Left after the Developer Flow fixes
+
+Source: reviews of the [developer flow fixes](superpowers/specs/2026-10-27-developer-flow-fixes.md),
+2026-10-28.
+
+- An empty Acceptance criteria section, or one that says only "None", opens a ready PR. A
+  possible draft reason: "The agent listed no acceptance criteria."
+- `FACTORY_CLAUDE_CODE_MAX_TURNS` above 500 now stops `env-default` runs with a plain reason.
+  Before the fixes there was no upper limit.
+- GitHub answers HTTP 422 when a draft PR is asked for in a repository without draft support.
+  The delivery then ends as blocked, with no fallback to a ready PR.
+- Factory never reads the draft state back from GitHub. After "Ready for review" on GitHub
+  the UI still shows "Draft PR".
+- Hashed `/webjars` URLs (chart.js on the dashboard) get no long `Cache-Control`.
+- `factory-app/src/test/js/poll.test.js` is not run by Maven or CI.
+- PR feedback round summaries now use the four report headings, and the PR feedback panel on
+  the run page shows them flattened into one line.
+- Transcript and activity writes run on the CLI output reader thread. A slow database can
+  stall the pipe; after 2 minutes the attempt fails as `OUTPUT_UNREAD`. Up to 19 transcript
+  entries wait in memory and are lost if Factory stops.
+- The transcript page renders every entry of every run in one response.
