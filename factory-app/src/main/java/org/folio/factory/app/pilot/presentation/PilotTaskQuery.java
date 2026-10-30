@@ -94,107 +94,116 @@ public class PilotTaskQuery {
     }
 
     private PilotTaskView project(PilotTask task, Map<UUID, Integer> queue) {
-        List<PilotAttempt> history = attempts.findByTaskIdOrderByOrdinalAsc(task.getId());
-        Map<UUID, PipelineExecution> executionsById = executions.findAllById(
-                        history.stream().map(PilotAttempt::getExecutionId).filter(Objects::nonNull).toList())
-                .stream()
+        var history = attempts.findByTaskIdOrderByOrdinalAsc(task.getId());
+        var executionsById = executionsById(history);
+        var installation = installations.findById(1).orElse(null);
+        var progress = attemptProgress(history, executionsById, Instant.now());
+        var outcome = outcome(task, history, installation, progress);
+        return toView(task, queue, outcome, progress);
+    }
+
+    private Map<UUID, PipelineExecution> executionsById(List<PilotAttempt> history) {
+        var ids = history.stream().map(PilotAttempt::getExecutionId).filter(Objects::nonNull).toList();
+        return executions.findAllById(ids).stream()
                 .collect(Collectors.toMap(PipelineExecution::getId, Function.identity()));
-        PilotInstallation installation = installations.findById(1).orElse(null);
-        Instant now = Instant.now();
+    }
 
-        List<PilotTaskView.AttemptHistoryEntry> entries = new ArrayList<>(history.size());
-        List<AttemptUsageSummary.Totals> contributions = new ArrayList<>(history.size());
-        boolean usageMissingAfterPaidStart = false;
-        String liveStage = null;
-        Instant liveStageStartedAt = null;
-        for (PilotAttempt attempt : history) {
-            PipelineExecution execution = attempt.getExecutionId() == null
-                    ? null : executionsById.get(attempt.getExecutionId());
-            List<AuditEvent> events = execution == null
-                    ? List.of() : auditLog.forExecution(execution.getId());
-            boolean live = execution != null && execution.getStatus() == ExecutionStatus.RUNNING;
-            AttemptUsageSummary.Totals totals = AttemptUsageSummary.totals(events, live);
-            contributions.add(totals);
-            boolean paidStartWithoutReportedUsage = attempt.getPaidStartAt() != null
-                    && totals.tokens() == 0 && !totals.tokensReported();
-            usageMissingAfterPaidStart |= paidStartWithoutReportedUsage;
-            AuditEvent stageStart = live ? liveStageStart(events) : null;
-            String stage = live ? (stageStart == null ? null : stageStart.getStepId())
-                    : PilotOutcomeService.stageOf(attempt.getResultReason(), null);
-            if (live) {
-                liveStage = stage;
-                liveStageStartedAt = stageStart == null ? null : stageStart.getOccurredAt();
-            }
-            entries.add(new PilotTaskView.AttemptHistoryEntry(
-                    attempt.getId(),
-                    attempt.getOrdinal(),
-                    attempt.getKind().name(),
-                    attempt.getAdmittedVia().name(),
-                    attempt.getState().name(),
-                    stage,
-                    attempt.getResultReason(),
-                    attempt.getState() == PilotAttempt.State.PR_READY
-                            ? attempt.getPublicationIdentity() : null,
-                    attempt.getState() == PilotAttempt.State.PR_READY ? draftReasons(attempt) : null,
-                    attempt.getExecutionId(),
-                    execution == null ? null : execution.getStatus().name(),
-                    attempt.getCreatedAt(),
-                    attempt.getStartedAt(),
-                    attempt.getDeadlineAt(),
-                    attempt.getPaidStartAt() != null,
-                    AttemptUsageSummary.activeSeconds(events, now),
-                    PilotTaskUsage.aggregate(List.of(totals), paidStartWithoutReportedUsage),
-                    attempt.getRunSettings()));
-        }
+    private AttemptProgress attemptProgress(List<PilotAttempt> history,
+                                            Map<UUID, PipelineExecution> executionsById, Instant now) {
+        var rows = history.stream().map(attempt -> attemptRow(attempt, executionsById, now)).toList();
+        var usageMissingAfterPaidStart = rows.stream().anyMatch(AttemptRow::usageMissingAfterPaidStart);
+        var usage = PilotTaskUsage.aggregate(rows.stream().map(AttemptRow::totals).toList(),
+                usageMissingAfterPaidStart);
+        var lastLive = rows.stream().filter(AttemptRow::live).reduce((first, second) -> second);
+        return new AttemptProgress(rows.stream().map(AttemptRow::entry).toList(), usage,
+                lastLive.map(row -> row.entry().stage()).orElse(null),
+                lastLive.map(AttemptRow::stageStartedAt).orElse(null));
+    }
 
+    private AttemptRow attemptRow(PilotAttempt attempt, Map<UUID, PipelineExecution> executionsById, Instant now) {
+        var execution = attempt.getExecutionId() == null ? null : executionsById.get(attempt.getExecutionId());
+        List<AuditEvent> events = execution == null ? List.of() : auditLog.forExecution(execution.getId());
+        var live = execution != null && execution.getStatus() == ExecutionStatus.RUNNING;
+        var totals = AttemptUsageSummary.totals(events, live);
+        var usageMissingAfterPaidStart = attempt.getPaidStartAt() != null
+                && totals.tokens() == 0 && !totals.tokensReported();
+        var stageStart = live ? liveStageStart(events) : null;
+        var stage = live ? (stageStart == null ? null : stageStart.getStepId())
+                : PilotOutcomeService.stageOf(attempt.getResultReason(), null);
+        var entry = historyEntry(attempt, execution, stage, AttemptUsageSummary.activeSeconds(events, now),
+                PilotTaskUsage.aggregate(List.of(totals), usageMissingAfterPaidStart));
+        return new AttemptRow(entry, totals, usageMissingAfterPaidStart, live,
+                stageStart == null ? null : stageStart.getOccurredAt());
+    }
+
+    private PilotTaskView.AttemptHistoryEntry historyEntry(PilotAttempt attempt, PipelineExecution execution,
+                                                           String stage, long activeSeconds, PilotTaskUsage usage) {
+        var prReady = attempt.getState() == PilotAttempt.State.PR_READY;
+        return new PilotTaskView.AttemptHistoryEntry(attempt.getId(), attempt.getOrdinal(),
+                attempt.getKind().name(), attempt.getAdmittedVia().name(), attempt.getState().name(), stage,
+                attempt.getResultReason(),
+                prReady ? attempt.getPublicationIdentity() : null,
+                prReady ? draftReasons(attempt) : null,
+                attempt.getExecutionId(), execution == null ? null : execution.getStatus().name(),
+                attempt.getCreatedAt(), attempt.getStartedAt(), attempt.getDeadlineAt(),
+                attempt.getPaidStartAt() != null, activeSeconds, usage, attempt.getRunSettings());
+    }
+
+    private static TaskOutcome outcome(PilotTask task, List<PilotAttempt> history, PilotInstallation installation,
+                                       AttemptProgress progress) {
         // A withdrawal after real work (left by the removed automatic mode) does not
         // stand for the task: it shows the last attempt that actually ran.
-        PilotAttempt latest = history.stream()
+        var latest = history.stream()
                 .filter(attempt -> attempt.getState() != PilotAttempt.State.WITHDRAWN)
                 .reduce((first, second) -> second)
                 .orElse(history.isEmpty() ? null : history.getLast());
-        boolean allWithdrawn = !history.isEmpty() && history.stream()
+        var allWithdrawn = !history.isEmpty() && history.stream()
                 .allMatch(attempt -> attempt.getState() == PilotAttempt.State.WITHDRAWN);
-        boolean working = history.stream().anyMatch(attempt -> attempt.getState().isLive()
+        var inFlight = history.stream().anyMatch(attempt -> attempt.getState().isLive()
                 && attempt.getState() != PilotAttempt.State.NEEDS_INSPECTION);
-        PilotTaskView.TaskState state = projectState(task, latest, installation, working, allWithdrawn);
-        String reason = state == PilotTaskView.TaskState.UNSUPPORTED ? task.getRoutingReason()
-                : state == PilotTaskView.TaskState.AWAITING_SELECTION ? null
-                : latest == null ? null : latest.getResultReason();
-        String stage = state == PilotTaskView.TaskState.WORKING ? liveStage
-                : PilotOutcomeService.stageOf(reason, null);
-        boolean eligible = task.getEligibility() == PilotTask.Eligibility.ELIGIBLE;
-        boolean selectable = eligible && task.isInScope() && (history.isEmpty() || allWithdrawn);
-        boolean retriable = eligible && latest != null
+        var state = projectState(task, latest, installation, inFlight, allWithdrawn);
+        var reason = taskReason(task, state, latest);
+        var working = state == PilotTaskView.TaskState.WORKING;
+        var stage = working ? progress.liveStage() : PilotOutcomeService.stageOf(reason, null);
+        return new TaskOutcome(latest, state, reason, stage, working ? progress.liveStageStartedAt() : null,
+                allowedActions(task, history, latest, allWithdrawn));
+    }
+
+    private static String taskReason(PilotTask task, PilotTaskView.TaskState state, PilotAttempt latest) {
+        if (state == PilotTaskView.TaskState.UNSUPPORTED) {
+            return task.getRoutingReason();
+        }
+        if (state == PilotTaskView.TaskState.AWAITING_SELECTION || latest == null) {
+            return null;
+        }
+        return latest.getResultReason();
+    }
+
+    private static PilotTaskView.AllowedActions allowedActions(PilotTask task, List<PilotAttempt> history,
+                                                               PilotAttempt latest, boolean allWithdrawn) {
+        var eligible = task.getEligibility() == PilotTask.Eligibility.ELIGIBLE;
+        var selectable = eligible && task.isInScope() && (history.isEmpty() || allWithdrawn);
+        var retriable = eligible && latest != null
                 && (latest.getState() == PilotAttempt.State.STOPPED
                         || latest.getState() == PilotAttempt.State.WITHDRAWN && !allWithdrawn);
-        return new PilotTaskView(
-                task.getId(),
-                task.getDisplayKey(),
-                jiraLink(task.getDisplayKey()),
-                task.getTitle(),
-                task.getProjectKey(),
-                jiraStatus(task),
-                state,
+        return new PilotTaskView.AllowedActions(selectable, retriable);
+    }
+
+    private PilotTaskView toView(PilotTask task, Map<UUID, Integer> queue, TaskOutcome outcome,
+                                 AttemptProgress progress) {
+        var latest = outcome.latest();
+        var prReady = outcome.state() == PilotTaskView.TaskState.PR_READY && latest != null;
+        return new PilotTaskView(task.getId(), task.getDisplayKey(), jiraLink(task.getDisplayKey()), task.getTitle(),
+                task.getProjectKey(), jiraStatus(task), outcome.state(),
                 latest == null ? null : queue.get(latest.getId()),
-                reason,
-                stage,
-                state == PilotTaskView.TaskState.WORKING ? liveStageStartedAt : null,
+                outcome.reason(), outcome.stage(), outcome.stageStartedAt(),
                 PilotRoutingReason.eligibleRepositoryKey(task.getRoutingReason()),
-                state == PilotTaskView.TaskState.PR_READY && latest != null
-                        ? latest.getPublicationIdentity() : null,
-                state == PilotTaskView.TaskState.PR_READY && latest != null ? draftReasons(latest) : null,
-                task.isInScope(),
-                task.getEligibility().name(),
-                task.getRoutingReason(),
-                task.getVersion(),
-                PilotAdmissionService.inputFingerprint(task),
-                PilotAdmissionService.destinationFingerprint(task),
-                task.getJiraCreatedAt(),
-                task.getUpdatedAt(),
-                List.copyOf(entries),
-                PilotTaskUsage.aggregate(contributions, usageMissingAfterPaidStart),
-                new PilotTaskView.AllowedActions(selectable, retriable));
+                prReady ? latest.getPublicationIdentity() : null,
+                prReady ? draftReasons(latest) : null,
+                task.isInScope(), task.getEligibility().name(), task.getRoutingReason(), task.getVersion(),
+                PilotAdmissionService.inputFingerprint(task), PilotAdmissionService.destinationFingerprint(task),
+                task.getJiraCreatedAt(), task.getUpdatedAt(), progress.entries(), progress.usage(),
+                outcome.allowedActions());
     }
 
     private static PilotTaskView.TaskState projectState(
@@ -268,5 +277,18 @@ public class PilotTaskQuery {
             return null;
         }
         return base.strip() + "/browse/" + displayKey;
+    }
+
+    private record AttemptRow(PilotTaskView.AttemptHistoryEntry entry, AttemptUsageSummary.Totals totals,
+                              boolean usageMissingAfterPaidStart, boolean live, Instant stageStartedAt) {
+    }
+
+    /** The history entries, the task usage, and the stage of the last running attempt. */
+    private record AttemptProgress(List<PilotTaskView.AttemptHistoryEntry> entries, PilotTaskUsage usage,
+                                   String liveStage, Instant liveStageStartedAt) {
+    }
+
+    private record TaskOutcome(PilotAttempt latest, PilotTaskView.TaskState state, String reason, String stage,
+                               Instant stageStartedAt, PilotTaskView.AllowedActions allowedActions) {
     }
 }
