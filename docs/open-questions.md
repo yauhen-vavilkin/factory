@@ -6,7 +6,7 @@ from. When you pick one up, move it into a plan; when it is done or dropped, del
 ## Coding runtime tuning (later phase)
 
 We tune the agent setup after the Developer Flow UI and UX problems are fixed.
-Source: [manual run review, 2026-10-27](superpowers/plans/2026-10-27-manual-run-review.md).
+Source: manual run review, 2026-10-27 (commit c068793).
 
 - **Tools, MCP servers, skills.** The agent has `Bash, Read, Edit, Write, Glob, Grep,
   WebFetch`. No MCP servers, no skills. Try what helps on real tasks.
@@ -18,8 +18,8 @@ Source: [manual run review, 2026-10-27](superpowers/plans/2026-10-27-manual-run-
   local capture server: 0 requests with the file text; with `--setting-sources project`
   all 4 requests had it). The project source would also load the repository's
   `.claude/settings.json` (env such as `ANTHROPIC_BASE_URL`, hooks, `apiKeyHelper`), which
-  could send the secret elsewhere, so it stays off. So item 12 of the
-  [developer flow fixes](superpowers/specs/2026-10-27-developer-flow-fixes.md) is met only
+  could send the secret elsewhere, so it stays off. So item 12 of the developer flow fixes
+  (the agent follows the repository's own instructions; spec in commit 82e0d0d) is met only
   partly: the CLI does not load the files, and a prompt line asks the agent to read and
   follow them, which the agent can skip (in the GLM-5.3 run of MGRAPPS-120 on 2026-10-28 it
   read `AGENTS.md` as its first step). The prompt is shared, so Pi prompts got this line
@@ -61,8 +61,7 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
 
 ## Left after the Developer Flow fixes
 
-Source: reviews of the [developer flow fixes](superpowers/specs/2026-10-27-developer-flow-fixes.md),
-2026-10-28.
+Source: reviews of the developer flow fixes (spec in commit 82e0d0d), 2026-10-28.
 
 - An empty Acceptance criteria section, or one that says only "None", opens a ready PR. A
   possible draft reason: "The agent listed no acceptance criteria."

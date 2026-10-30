@@ -78,7 +78,7 @@ Draft, In Progress…); задачу назначают, когда берут �
 
 Итоговый макет: [`../mockups/my-tasks-v3/`](../mockups/my-tasks-v3/flow.html), статичный
 рендер холста Claude Design (холст временный, удаляется после реализации). Отличия от
-прежней базы [`../mockups/flow-sprint-work-v2.html`](../mockups/flow-sprint-work-v2.html):
+прежней базы `flow-sprint-work-v2.html` (удалён, есть в истории git, коммит 903828a):
 
 - Карточка спринта становится карточкой «мои задачи»: имя, по которому ищем, статусы, время
   последнего скана, Scan Jira, «Open this search in Jira». Имени и дат спринта нет, строки

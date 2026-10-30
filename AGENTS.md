@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+`CLAUDE.md` is a symlink to this file, so Claude Code and AGENTS.md-aware agents read the same text.
 
 ## What this is
 
@@ -24,15 +24,26 @@ Simple. Transparent. Easy to configure. These outrank feature ambitions: a desig
 that adds layers, packages or configuration surface carries that cost explicitly
 in the plan — it is never assumed away by "the feature needs it".
 
+In practice: extend existing classes, packages and pages first. A new package or
+layer needs a stated reason in the plan or the commit message. "Minimal" never
+excuses dropping input validation at trust boundaries, error handling, security
+or accessibility.
+
 ## Commands
 
 ```bash
-docker compose up -d                     # PostgreSQL (required for run and tests)
+docker compose up -d postgres            # database for spring-boot:run (plain `up -d` starts the whole stack, app on :8080 included)
 mvn spring-boot:run -pl factory-app      # run the app (needs ANTHROPIC_API_KEY or FACTORY_LLM_* env vars)
-mvn verify                               # full build + unit/integration tests (Docker required — Testcontainers)
-mvn -pl factory-core test -Dtest=SubFlowIntegrationTest          # single test class
-mvn -pl factory-core test -Dtest=SubFlowIntegrationTest#method   # single test method
+mvn verify                               # full build + all tests (Docker required: Testcontainers starts its own PostgreSQL)
+mvn -B -ntp -pl factory-core -am test -Dtest=SubFlowIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false   # one test class
+mvn -B -ntp -pl factory-core -am test -Dtest='SubFlowIntegrationTest#method' -Dsurefire.failIfNoSpecifiedTests=false   # one method
+node --test factory-app/src/test/js/poll.test.js   # console JS tests (not run by Maven or CI)
 ```
+
+Tests run under Surefire only. This repo has no Failsafe, so the workspace-level
+`failsafe:integration-test -Dit.test=...` advice does not apply here; `*IntegrationTest`
+classes run in the normal `test` phase. `-am` builds the sibling modules in the same
+run, so a single test never runs against stale jars from `~/.m2`.
 
 `spring-boot:run -pl factory-app` resolves the sibling modules from `~/.m2`,
 not the reactor — after changing `factory-core`/`factory-agents`/a flow module,
@@ -137,6 +148,19 @@ post-processors (e.g. `SecretScanPostProcessor`; the Test Factory flow adds
 (Karate) → test-execution → HITL gate 2 → finalizer (TestRail/GitHub/Jira
 sync).
 
+### Developer Flow invariants
+
+- Secrets never reach the database, artifacts, logs, argv or pages. Everything that
+  comes from the coding CLI goes through `CodingRuntime.redact` (for Claude Code,
+  `RunProfiles.redact`), which must cover the secret of every configured run profile.
+- Hidden reasoning (thinking blocks, raw model messages) never reaches the transcript
+  or a page. The guarding tests stay and get new cases when you add output: the
+  `HIDDEN_*_SENTINEL` checks in `UiRenderSmokeTest` and `ClaudeCodeCodingRuntimeTest`,
+  and `DeveloperExecutionViewTest#rendersConservativePiLifecycleLabelsWithoutMessageOrReasoningContent`.
+- Do not change the step outputs in `flows/dev-factory.yaml` or `FeedbackArtifacts.VERSION`:
+  the engine fails a step with missing or undeclared outputs, and a version change
+  silently stops PR feedback on open PRs (`FeedbackWorker`).
+
 ### Management console (factory-app web UI)
 
 Server-rendered Thymeleaf, no build step: shared layout + fragments under
@@ -160,6 +184,10 @@ Conventions that are easy to violate silently:
   404 page for `@Controller` routes.
 - Page-size params: REST validates strictly (`PageValidation.pageable`, 422);
   UI clamps leniently (`PageValidation.clampSize`).
+- Every error a person sees says the cause and what to do, in plain words.
+- Keep the existing visual system (`tokens.css`, `app.css`, existing fragments). Make a
+  static HTML mockup only when the layout is unclear or the operator should choose
+  between options; clear UI fixes go straight to code.
 
 ## Adding a new flow (the plugin pattern)
 
@@ -182,12 +210,15 @@ No engine, router, or gateway changes — if a change seems to require touching
   that pattern when adding properties.
 - Webhooks (`/api/webhooks/jira`, `/api/webhooks/github`) are unauthenticated
   until `FACTORY_WEBHOOKS_SHARED_SECRET` is set (checked against `?token=`).
+- Flyway migrations (`factory-app/src/main/resources/db/migration`) are append-only:
+  never edit a committed one; a new one takes the next free `V<n>__` number.
 
 ## Open questions
 
-`docs/open-questions.md` lists known gaps and ideas that are outside the current scope:
-coding runtime tuning and issues seen in live runs. Read it before you work on the coding
-runtime. Add new out-of-scope findings there instead of fixing them on the side.
+`docs/open-questions.md` lists known gaps and ideas outside the current scope (coding
+runtime tuning, issues seen in live runs). Check it when you work on the coding runtime
+or the Developer Flow. Record new out-of-scope findings there instead of fixing them on
+the side.
 
 ## Testing conventions
 
@@ -203,38 +234,20 @@ runtime. Add new out-of-scope findings there instead of fixing them on the side.
   model shape) and `UiRenderSmokeTest` — the only tier that resolves the
   layout/component fragments. Anything content-bearing must assert real page
   text there; standalone tests cannot catch fragment-scope bugs.
+- A test is right when it checks the required, observable behavior. When one fails,
+  first decide whether the code, the expectation, the fixture or the environment is
+  wrong, and fix that. When behavior changes on purpose, update the tests that assert
+  the old behavior instead of deleting them.
+
+## Code and commits
+
+- Touch only what the task needs; don't refactor unrelated code.
+- Comments only where intent is not obvious (for example a non-standard workaround);
+  never restate what the code does.
+- UI text, code comments and commit messages: plain English, B2 level.
 
 ## Communication
-- Short, direct, content-dense — no padding, praise, or narrative summaries.
-- Yes/no questions: lead with `Yes` / `No` / `Mostly`, then only the essential rationale.
-- Routine answers: 1–3 short paragraphs or a few bullets; don't restate obvious context.
-- Code review: lead with concrete findings + file refs; if clean, say so and stop (flag any real residual risk).
-- Expand only when asked, the task is high-risk, or correctness needs it.
-- Disagree when I'm wrong. Don't soften technical criticism and
-  don't validate a flawed approach because I proposed it.
-- No filler, no recaps of my request, no flattery, no offers to
-  elaborate.
 
-## How to work (lean code, surgical changes)
-- Think before coding: state assumptions; if ambiguous, present the options instead of
-  guessing; confirm what "done" looks like before starting.
-- The best code is the code you never wrote. Before writing, climb the ladder: does this
-  need to exist? Is there a stdlib / platform / existing-dependency answer? Can it be one
-  line? Then write the minimum that works — nothing speculative.
-- The ladder starts at planning, not coding: a plan proposes the minimal version and
-  extends existing packages/components; every new package or layer carries an explicit
-  justification. By the time code exists, its complexity is already approved — the plan
-  is where slop is stopped.
-- Make a static mockup (HTML or screenshots, next to the spec) only when the layout is unclear
-  or the operator should choose between options. Clear UI fixes go straight to code, inside
-  the existing visual system.
-- Plans and significant changes get an adversarial review pass from a fresh-context
-  sub-agent critic (which layer does this add, and why) before implementation starts.
-- Surgical changes: touch only what the task needs; clean up only your own mess. Don't
-  refactor unrelated code.
-- Never cut corners on: input validation at trust boundaries, error handling, security,
-  and accessibility — "minimal" is never an excuse to drop these.
-
-## Don't
-- Don't assume cross-repo context — a session only knows what it has read this session.
-- Do not add comments unless the code's intent is genuinely non-obvious (e.g., a non-standard workaround); never add comments that restate what the code does.
+- Disagree when I'm wrong. Don't soften technical criticism and don't validate a flawed
+  approach because I proposed it.
+- No filler, no recaps of my request, no flattery, no offers to elaborate.

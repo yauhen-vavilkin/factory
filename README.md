@@ -121,7 +121,10 @@ docker build -t folio-factory-app:local .
 # needs a reachable PostgreSQL — start one with `docker compose up -d postgres`
 # (on Linux add: --add-host=host.docker.internal:host-gateway — the name is
 #  only auto-provided by Docker Desktop)
-docker run --rm -p 8080:8080 \
+# FACTORY_SERVER_ADDRESS=0.0.0.0: the app binds to 127.0.0.1 by default, which the
+# published port cannot reach inside a container
+docker run --rm -p 127.0.0.1:8080:8080 \
+  -e FACTORY_SERVER_ADDRESS=0.0.0.0 \
   -e FACTORY_DB_URL=jdbc:postgresql://host.docker.internal:5432/factory \
   -e ANTHROPIC_API_KEY=sk-ant-... \
   folio-factory-app:local

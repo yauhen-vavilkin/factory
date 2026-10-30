@@ -124,8 +124,9 @@ factory-app/                 composition root: REST API, webhook adapters, HITL 
                              Flyway migrations, application.yaml. Aggregates all modules.
 ```
 
-Dependency direction is strict: `core ← connectors ← agents ← flow modules ←
-app`. A flow module depends on `factory-agents` (which brings in `factory-core`)
+Dependency direction is strict: `factory-core` and `factory-connectors` are
+independent bases, `factory-agents` builds on `factory-core`, flow modules build on
+those, and `factory-app` sits on top. A flow module depends on `factory-agents` (which brings in `factory-core`)
 and, if it needs external systems, `factory-connectors`. Only `factory-app`
 knows the full set of plugins.
 
@@ -508,7 +509,7 @@ registered flow must resolve to a bean (a dangling reference fails startup).
 ### 3.7 Run it
 
 ```bash
-docker compose up -d                     # PostgreSQL
+docker compose up -d postgres            # PostgreSQL only (plain `up -d` also starts Factory on :8080)
 export ANTHROPIC_API_KEY=sk-ant-...
 mvn install -DskipTests                  # -pl resolves siblings from ~/.m2
 mvn spring-boot:run -pl factory-app
@@ -538,9 +539,12 @@ works for your flow exactly as it does for the Test Factory flow.
 Startup log lines to look for:
 
 ```
-Flow registry loaded 2 flow(s): [test-factory, release-notes]
-Agent worker library loaded 7 worker(s): [..., release-notes-drafter, release-notes-publisher]
+Flow registry loaded 3 flow(s): [..., release-notes, ...]
+Agent worker library loaded <n> worker(s): [..., release-notes-drafter, release-notes-publisher, ...]
 ```
+
+The other two flows are `test-factory` and `dev-factory`; the exact order and worker
+count depend on the modules on the classpath.
 
 ### 3.8 What you did NOT have to build
 
@@ -962,8 +966,9 @@ Connectors are the shared clients for external systems. Today:
 Each connector binds at startup to either its real REST implementation (when
 its properties are present) or a fallback whose every method throws
 `ConnectorNotConfiguredException` naming the exact env vars to set. Both
-implement `ConnectorHealth`, which feeds `/api/status` and the readiness
-endpoint. Workers therefore never null-check connectors — they decide *how a
+implement `ConnectorHealth`, which feeds `/api/status` and the overall
+`/actuator/health` (not the readiness group, which checks only readiness state and
+the DB). Workers therefore never null-check connectors — they decide *how a
 missing integration degrades*:
 
 - **Data-critical** (the flow cannot proceed without it): don't catch the
@@ -1154,12 +1159,14 @@ contract drift).
 The platform is FOLIO-flavoured only at its edges. To run it for a different
 organisation/project:
 
-1. **Keep** `factory-core`, `factory-agents`, `factory-connectors`,
-   `factory-app` — they contain no flow-specific logic.
+1. **Keep** `factory-core`, `factory-agents`, `factory-connectors` — they contain no
+   flow-specific logic — and `factory-app`. Note that `factory-app` is not flow-neutral:
+   its Developer Flow pages and pilot code import `factory-flow-dev-factory` directly, so
+   that module cannot be dropped without changing `factory-app`.
 2. **Choose flows**: drop the `factory-flow-test-factory` dependency from
    `factory-app/pom.xml` (and the module from the root pom) if the Test Factory flow is not
-   relevant, and add your own flow modules per §3. Test Factory's env vars
-   (`FACTORY_TEST_FACTORY_*`) simply become unused.
+   relevant (nothing in `factory-app` imports it), and add your own flow modules per §3.
+   Test Factory's env vars (`FACTORY_TEST_FACTORY_*`) simply become unused.
 3. **Swap the LLM provider if needed.** Workers only see Spring AI's
    `ChatClient`. Replace `spring-ai-starter-model-anthropic` in
    `factory-app/pom.xml` with another Spring AI model starter and the

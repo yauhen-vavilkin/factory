@@ -23,6 +23,7 @@ scripts/
 .github/
 README.md
 AGENTS.md
+CLAUDE.md
 LICENSE
 
 # Local-only infra and this build's own files
