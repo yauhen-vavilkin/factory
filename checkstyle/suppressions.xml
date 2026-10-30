@@ -37,16 +37,12 @@
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='CodingProtocol']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='prompt']]"/>
   <suppress-xpath files="CodingRequest\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/RECORD_DEF[./IDENT[@text='CodingRequest']]/OBJBLOCK/CTOR_DEF/IDENT[@text='CodingRequest']"/>
-  <suppress-xpath files="DashboardUiController\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DashboardUiController']]/OBJBLOCK/CTOR_DEF/IDENT[@text='DashboardUiController']"/>
   <suppress-xpath files="DashboardUiController\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DashboardUiController']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='audit']]"/>
   <suppress-xpath files="DashboardUiController\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DashboardUiController']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='dashboard']]"/>
   <suppress-xpath files="DeliveryWorker\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DeliveryWorker']]/OBJBLOCK/CTOR_DEF/IDENT[@text='DeliveryWorker']"/>
-  <suppress-xpath files="DeliveryWorker\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DeliveryWorker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='execute']]"/>
   <suppress-xpath files="DevArtifactAmendmentValidator\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DevArtifactAmendmentValidator']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='validate']]"/>
   <suppress-xpath files="DevFactoryConfiguration\.java" checks="ParameterNumber"
@@ -87,8 +83,6 @@
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DeveloperTranscriptView']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='runs']]"/>
   <suppress-xpath files="DockerWorkloads\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DockerWorkloads']]/OBJBLOCK/METHOD_DEF/IDENT[@text='createCommand']"/>
-  <suppress-xpath files="ExecutionEngine\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='ExecutionEngine']]/OBJBLOCK/CTOR_DEF/IDENT[@text='ExecutionEngine']"/>
   <suppress-xpath files="ExecutionEngine\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='ExecutionEngine']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='advance']]"/>
   <suppress-xpath files="ExecutionEngine\.java" checks="MethodLength"
@@ -206,8 +200,6 @@
   <suppress-xpath files="PilotTaskQuery\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PilotTaskQuery']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='project']]"/>
   <suppress-xpath files="PilotTaskUiController\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PilotTaskUiController']]/OBJBLOCK/CTOR_DEF/IDENT[@text='PilotTaskUiController']"/>
-  <suppress-xpath files="PilotTaskUiController\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PilotTaskUiController']]/OBJBLOCK/METHOD_DEF/IDENT[@text='retry']"/>
   <suppress-xpath files="PilotTaskUiController\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PilotTaskUiController']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='detailMap']]"/>
@@ -261,8 +253,6 @@
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TestExecutionWorker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='executedResults']]"/>
   <suppress-xpath files="TestFactoryConfiguration\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TestFactoryConfiguration']]/OBJBLOCK/METHOD_DEF/IDENT[@text='testFactoryFinalizerWorker']"/>
-  <suppress-xpath files="TestFactoryFinalizerWorker\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TestFactoryFinalizerWorker']]/OBJBLOCK/CTOR_DEF/IDENT[@text='TestFactoryFinalizerWorker']"/>
   <suppress-xpath files="TestFactoryFinalizerWorker\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TestFactoryFinalizerWorker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='syncGitHub']]"/>
   <suppress-xpath files="TestFactoryFinalizerWorker\.java" checks="MethodLength"

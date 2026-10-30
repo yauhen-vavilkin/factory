@@ -37,6 +37,8 @@ import java.util.Map;
 public class DeliveryWorker implements AgentWorker {
     public static final String ID = "dev-deliver";
     public static final String DELIVERY = "dev_delivery.json";
+    private static final String PLAN_CHANGED =
+            "Verification receipt no longer matches the current Factory plan; reverify the candidate";
     private final DevFactoryProperties repositories;
     private final VerificationPolicy verificationPolicy;
     private final PullRequestRenderer renderer = new PullRequestRenderer();
@@ -96,220 +98,188 @@ public class DeliveryWorker implements AgentWorker {
     public AgentResult execute(AgentContext context) {
         var previous = json.readTree(context.requireInput(VerifyWorker.RESULT).content());
         if (!"VERIFIED".equals(previous.path("state").asString(""))) {
-            return new AgentResult(
-                    Map.of(
-                            DELIVERY,
-                            json.writeValueAsString(
-                                    Map.of(
-                                            "state",
-                                            "NOT_RUN",
-                                            "reason",
-                                            "Candidate was not independently verified")),
-                            VerifyWorker.RESULT,
-                            context.requireInput(VerifyWorker.RESULT).content()),
-                    Map.of());
+            return notVerified(context);
         }
-        Candidate candidate =
-                json.readValue(
-                        context.requireInput(DevelopWorker.CANDIDATE).content(), Candidate.class);
-        VerificationReceipt verification =
-                json.readValue(
-                        context.requireInput(VerifyWorker.RECEIPT).content(),
-                        VerificationReceipt.class);
-        var brief =
-                frontmatter
-                        .parse(context.requireInput(IntakeResolveWorker.TASK_BRIEF).content())
-                        .metadata();
-        String issueKey = brief.path("issue").path("key").asString("");
-        String summary = brief.path("issue").path("summary").asString("");
+        var inputs = readInputs(context, previous);
+        var sourceUrl = sourceUrl(inputs.candidate());
+        var stop = pilotStop(context);
+        if (stop != null) {
+            return blocked(inputs, stop);
+        }
+        var gitTimeoutSeconds = stageTimeoutSeconds(context);
+        try {
+            return deliver(context, inputs, sourceUrl, gitTimeoutSeconds);
+        } catch (DeliveryBlockedException e) {
+            return blocked(inputs, e.getMessage());
+        } catch (HttpClientErrorException e) {
+            rethrowIfRetryable(e);
+            return blocked(inputs, "GitHub rejected delivery configuration or destination (HTTP "
+                    + e.getStatusCode().value() + ")");
+        }
+    }
+
+    private AgentResult notVerified(AgentContext context) {
+        var notRun = Map.of("state", "NOT_RUN", "reason", "Candidate was not independently verified");
+        return new AgentResult(
+                Map.of(DELIVERY, json.writeValueAsString(notRun),
+                        VerifyWorker.RESULT, context.requireInput(VerifyWorker.RESULT).content()),
+                Map.of());
+    }
+
+    private Inputs readInputs(AgentContext context, JsonNode previous) {
+        var candidate = json.readValue(context.requireInput(DevelopWorker.CANDIDATE).content(), Candidate.class);
+        var verification = json.readValue(
+                context.requireInput(VerifyWorker.RECEIPT).content(), VerificationReceipt.class);
+        var issue = frontmatter.parse(context.requireInput(IntakeResolveWorker.TASK_BRIEF).content())
+                .metadata()
+                .path("issue");
+        return new Inputs(previous, candidate, verification,
+                issue.path("key").asString(""), issue.path("summary").asString(""));
+    }
+
+    private String sourceUrl(Candidate candidate) {
         var repository = repositories.repositories().get(candidate.repository());
         if (repository == null) {
-            throw new IllegalStateException(
-                    "Missing trusted repository: " + candidate.repository());
+            throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
         }
-        String guard = pilotStop(context);
-        if (guard != null) {
-            return blocked(previous, candidate, guard);
+        return repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
+    }
+
+    private AgentResult deliver(AgentContext context, Inputs inputs, String sourceUrl, int gitTimeoutSeconds) {
+        var candidate = inputs.candidate();
+        var target = properties.requireTarget(candidate.repository(), repositories);
+        if (!verificationPolicy.matches(candidate, inputs.verification())) {
+            return blocked(inputs, PLAN_CHANGED);
         }
-        int gitTimeoutSeconds = stageTimeoutSeconds(context);
+        if (!githubProperties.isConfigured()) {
+            return blocked(inputs, "FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
+        }
+        var consumedRequest = consumedRequest(context);
+        pilotPolicy.beforePublication(context.executionId(), consumedRequest, target);
+        var feedbackVersion = FeedbackArtifacts.VERSION.equals(
+                executionState.get(context.executionId()).getFlowVersion());
+        recordPublicationIntent(context, inputs, target, feedbackVersion);
+        var receipt = delivery.deliver(context.executionId().toString(), inputs.issueKey(), inputs.summary(),
+                sourceUrl, candidate, inputs.verification(), target, githubProperties.token(), feedbackVersion,
+                gitTimeoutSeconds);
+        if (!properties.createPullRequest()) {
+            return delivered(inputs, receipt);
+        }
+        return publishPullRequest(context, inputs, new Publication(target, receipt, consumedRequest));
+    }
+
+    private void recordPublicationIntent(
+            AgentContext context, Inputs inputs, DeliveryTarget target, boolean feedbackVersion) {
+        if (pilotPolicy.find(context.executionId()).isEmpty()) {
+            return;
+        }
+        var candidate = inputs.candidate();
+        var branch = CandidateDelivery.branchFor(
+                context.executionId().toString(), inputs.issueKey(), candidate, feedbackVersion);
+        pilotPolicy.recordPublicationIntent(context.executionId(), new PilotAttemptPolicy.PublicationIntent(
+                target.repository(), target.baseBranch(), branch,
+                candidate.baseSha(), candidate.treeSha(), candidate.patchSha256()));
+    }
+
+    private AgentResult publishPullRequest(AgentContext context, Inputs inputs, Publication publication) {
+        // The same computation for a new and an existing pull request, so a replay records the same flag.
+        var outcome = inputJson(context, "dev_coding_outcome.json");
+        var draftReasons = PullRequestRenderer.draftReasons(outcome);
+        var target = publication.target();
+        var receipt = publication.receipt();
         try {
-            DeliveryTarget target = properties.requireTarget(candidate.repository(), repositories);
-            if (!verificationPolicy.matches(candidate, verification)) {
-                return blocked(
-                        previous,
-                        candidate,
-                        "Verification receipt no longer matches the current Factory plan; reverify"
-                                + " the candidate");
+            var existing = github.findPullRequests(target.repository(), receipt.branch(), target.baseBranch());
+            if (existing.size() > 1) {
+                return blocked(inputs, "Multiple existing pull requests match the delivered head identity;"
+                        + " inspect the repository before publishing", receipt);
             }
-            if (!githubProperties.isConfigured()) {
-                return blocked(previous, candidate, "FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
+            if (existing.size() == 1) {
+                return reuseExisting(inputs, receipt, existing.get(0), draftReasons);
             }
-            CodingRequest consumedRequest = consumedRequest(context);
-            pilotPolicy.beforePublication(context.executionId(), consumedRequest, target);
-            String sourceUrl = repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
-            boolean feedbackVersion =
-                    FeedbackArtifacts.VERSION.equals(
-                            executionState.get(context.executionId()).getFlowVersion());
-            if (pilotPolicy.find(context.executionId()).isPresent()) {
-                pilotPolicy.recordPublicationIntent(
-                        context.executionId(),
-                        new PilotAttemptPolicy.PublicationIntent(
-                                target.repository(),
-                                target.baseBranch(),
-                                CandidateDelivery.branchFor(
-                                        context.executionId().toString(), issueKey, candidate,
-                                        feedbackVersion),
-                                candidate.baseSha(),
-                                candidate.treeSha(),
-                                candidate.patchSha256()));
-            }
-            var receipt =
-                    feedbackVersion
-                            ? delivery.deliver(
-                                    context.executionId().toString(),
-                                    issueKey,
-                                    summary,
-                                    sourceUrl,
-                                    candidate,
-                                    verification,
-                                    target,
-                                    githubProperties.token(),
-                                    true,
-                                    gitTimeoutSeconds)
-                            : delivery.deliver(
-                                    context.executionId().toString(),
-                                    issueKey,
-                                    summary,
-                                    sourceUrl,
-                                    candidate,
-                                    verification,
-                                    target,
-                                    githubProperties.token(),
-                                    false,
-                                    gitTimeoutSeconds);
-            String prUrl = "";
-            String prTitle = "";
-            List<String> draftReasons = null;
-            if (properties.createPullRequest()) {
-                // The same computation for a new and an existing pull request, so a replay records the same flag.
-                JsonNode outcome = inputJson(context, "dev_coding_outcome.json");
-                draftReasons = PullRequestRenderer.draftReasons(outcome);
-                try {
-                    var existing =
-                            github.findPullRequests(
-                                    target.repository(), receipt.branch(), target.baseBranch());
-                    if (existing.size() > 1) {
-                        return blocked(
-                                previous,
-                                candidate,
-                                "Multiple existing pull requests match the delivered head identity;"
-                                        + " inspect the repository before publishing",
-                                receipt);
-                    }
-                    if (existing.size() == 1) {
-                        var found = existing.get(0);
-                        if (!receipt.commitSha().equals(found.headSha())) {
-                            return blocked(
-                                    previous,
-                                    candidate,
-                                    "The existing pull request head no longer matches the delivered"
-                                            + " commit; inspect the repository before publishing",
-                                    receipt);
-                        }
-                        prUrl = found.htmlUrl();
-                    } else {
-                        verification.requireVerified(context.executionId().toString(), candidate);
-                        if (!verificationPolicy.matches(candidate, verification))
-                            return blocked(
-                                    previous,
-                                    candidate,
-                                    "Verification receipt no longer matches the current Factory"
-                                            + " plan; reverify the candidate",
-                                    receipt);
-                        pilotPolicy.beforePublication(context.executionId(), consumedRequest, target);
-                        prTitle = issueKey + ": " + summary;
-                        prUrl =
-                                github.createPullRequest(
-                                        target.repository(),
-                                        receipt.branch(),
-                                        target.baseBranch(),
-                                        prTitle,
-                                        renderer.render(
-                                                issueKey,
-                                                jiraProperties.baseUrl(),
-                                                candidate,
-                                                verification,
-                                                receipt,
-                                                inputJson(context, "dev_coding_request.json"),
-                                                outcome),
-                                        !draftReasons.isEmpty());
-                    }
-                } catch (HttpClientErrorException e) {
-                    int status = e.getStatusCode().value();
-                    if (status != 408 && status != 429) {
-                        return blocked(
-                                previous,
-                                candidate,
-                                "Candidate branch and commit delivered; GitHub blocked pull request"
-                                        + " creation (HTTP "
-                                        + status
-                                        + ")",
-                                receipt);
-                    }
-                    throw e;
-                }
-            }
-            Map<String, Object> result = identity("DELIVERED", candidate);
-            deliveredIdentity(result, receipt);
-            result.put("pullRequestUrl", prUrl);
-            if (!prTitle.isBlank()) result.put("pullRequestTitle", prTitle);
-            if (draftReasons != null) {
-                result.put("pullRequestDraft", !draftReasons.isEmpty());
-                result.put("draftReasons", draftReasons);
-            }
-            return new AgentResult(
-                    Map.of(
-                            DELIVERY,
-                            json.writeValueAsString(result),
-                            VerifyWorker.RESULT,
-                            json.writeValueAsString(result)),
-                    Map.of());
-        } catch (DeliveryBlockedException e) {
-            return blocked(previous, candidate, e.getMessage());
+            return createPullRequest(context, inputs, publication, outcome, draftReasons);
         } catch (HttpClientErrorException e) {
-            int status = e.getStatusCode().value();
-            if (status != 408 && status != 429) {
-                return blocked(
-                        previous,
-                        candidate,
-                        "GitHub rejected delivery configuration or destination (HTTP "
-                                + status
-                                + ")");
-            }
+            rethrowIfRetryable(e);
+            return blocked(inputs, "Candidate branch and commit delivered; GitHub blocked pull request creation"
+                    + " (HTTP " + e.getStatusCode().value() + ")", receipt);
+        }
+    }
+
+    private AgentResult reuseExisting(Inputs inputs, DeliveryReceipt receipt,
+                                      GitHubConnector.PullRequest existing, List<String> draftReasons) {
+        if (!receipt.commitSha().equals(existing.headSha())) {
+            return blocked(inputs, "The existing pull request head no longer matches the delivered commit;"
+                    + " inspect the repository before publishing", receipt);
+        }
+        return delivered(inputs, receipt, new PullRequestOutcome(existing.htmlUrl(), "", draftReasons));
+    }
+
+    private AgentResult createPullRequest(AgentContext context, Inputs inputs, Publication publication,
+                                          JsonNode outcome, List<String> draftReasons) {
+        var candidate = inputs.candidate();
+        var verification = inputs.verification();
+        var receipt = publication.receipt();
+        verification.requireVerified(context.executionId().toString(), candidate);
+        if (!verificationPolicy.matches(candidate, verification)) {
+            return blocked(inputs, PLAN_CHANGED, receipt);
+        }
+        pilotPolicy.beforePublication(context.executionId(), publication.consumedRequest(), publication.target());
+        var title = inputs.issueKey() + ": " + inputs.summary();
+        var body = renderer.render(inputs.issueKey(), jiraProperties.baseUrl(), candidate, verification, receipt,
+                inputJson(context, "dev_coding_request.json"), outcome);
+        var url = github.createPullRequest(publication.target().repository(), receipt.branch(),
+                publication.target().baseBranch(), title, body, !draftReasons.isEmpty());
+        return delivered(inputs, receipt, new PullRequestOutcome(url, title, draftReasons));
+    }
+
+    /** Timeouts and rate limits are retried by the engine; every other client error blocks the delivery. */
+    private static void rethrowIfRetryable(HttpClientErrorException e) {
+        int status = e.getStatusCode().value();
+        if (status == 408 || status == 429) {
             throw e;
         }
     }
 
-    private AgentResult blocked(JsonNode previous, Candidate candidate, String reason) {
-        return blocked(previous, candidate, reason, null);
+    private AgentResult delivered(Inputs inputs, DeliveryReceipt receipt) {
+        var result = deliveredResult(inputs, receipt);
+        result.put("pullRequestUrl", "");
+        return toResult(result);
     }
 
-    private AgentResult blocked(
-            JsonNode previous, Candidate candidate, String reason, DeliveryReceipt receipt) {
-        Map<String, Object> result = identity("DELIVERY_BLOCKED", candidate);
+    private AgentResult delivered(Inputs inputs, DeliveryReceipt receipt, PullRequestOutcome pullRequest) {
+        var result = deliveredResult(inputs, receipt);
+        result.put("pullRequestUrl", pullRequest.url());
+        if (!pullRequest.title().isBlank()) {
+            result.put("pullRequestTitle", pullRequest.title());
+        }
+        result.put("pullRequestDraft", !pullRequest.draftReasons().isEmpty());
+        result.put("draftReasons", pullRequest.draftReasons());
+        return toResult(result);
+    }
+
+    private static Map<String, Object> deliveredResult(Inputs inputs, DeliveryReceipt receipt) {
+        var result = identity("DELIVERED", inputs.candidate());
+        deliveredIdentity(result, receipt);
+        return result;
+    }
+
+    private AgentResult blocked(Inputs inputs, String reason) {
+        return blocked(inputs, reason, null);
+    }
+
+    private AgentResult blocked(Inputs inputs, String reason, DeliveryReceipt receipt) {
+        var result = identity("DELIVERY_BLOCKED", inputs.candidate());
         result.put("reason", reason);
-        result.put("verificationPlan", previous.path("verificationPlan").asString(""));
+        result.put("verificationPlan", inputs.previous().path("verificationPlan").asString(""));
         if (receipt != null) {
             deliveredIdentity(result, receipt);
             result.put("pullRequestState", "BLOCKED");
         }
-        return new AgentResult(
-                Map.of(
-                        DELIVERY,
-                        json.writeValueAsString(result),
-                        VerifyWorker.RESULT,
-                        json.writeValueAsString(result)),
-                Map.of());
+        return toResult(result);
+    }
+
+    private AgentResult toResult(Map<String, Object> result) {
+        var content = json.writeValueAsString(result);
+        return new AgentResult(Map.of(DELIVERY, content, VerifyWorker.RESULT, content), Map.of());
     }
 
     /** A stopped, expired or no-longer-owned pilot attempt must not publish. */
@@ -365,5 +335,15 @@ public class DeliveryWorker implements AgentWorker {
     private CodingRequest consumedRequest(AgentContext context) {
         var artifact = context.inputs().get(IntakeResolveWorker.CODING_REQUEST);
         return artifact == null ? null : json.readValue(artifact.content(), CodingRequest.class);
+    }
+
+    private record Inputs(JsonNode previous, Candidate candidate, VerificationReceipt verification,
+                          String issueKey, String summary) {
+    }
+
+    private record Publication(DeliveryTarget target, DeliveryReceipt receipt, CodingRequest consumedRequest) {
+    }
+
+    private record PullRequestOutcome(String url, String title, List<String> draftReasons) {
     }
 }
