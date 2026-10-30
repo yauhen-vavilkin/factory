@@ -46,49 +46,53 @@ public class DevelopContinuationWorker implements AgentWorker {
 
     @Override
     public AgentResult execute(AgentContext context) {
-        CodingRequest request =
-                json.readValue(
-                        context.requireInput(IntakeResolveWorker.CODING_REQUEST).content(),
-                        CodingRequest.class);
-        CodingOutcome outcome =
-                json.readValue(
-                        context.requireInput(DevelopWorker.OUTCOME).content(), CodingOutcome.class);
-        if (outcome.status() != CodingOutcome.Status.NEEDS_DECISION)
-            return passThrough(context, request, outcome);
-
-        var decisionRequest =
-                CodingDecisionArtifacts.parseRequest(
-                        codec, context.requireInput(CodingDecisionArtifacts.REQUEST).content());
-        var answer =
-                CodingDecisionArtifacts.parseAnswer(
-                        codec, context.requireInput(CodingDecisionArtifacts.ANSWER).content());
-        if (!answer.requestId().equals(decisionRequest.requestId()))
-            throw new AgentExecutionException("Coding decision answer is stale");
-        if (pilotPolicy.find(context.executionId()).isPresent()) {
-            if (!CodingDecisionArtifacts.UNANSWERED.equals(answer.answer())) {
-                pilotPolicy.recordStop(context.executionId(), context.stepId(),
-                        "a clarification answer cannot continue a pilot attempt automatically;"
-                                + " an explicit retry is a new execution");
-            }
+        var request = json.readValue(
+                context.requireInput(IntakeResolveWorker.CODING_REQUEST).content(), CodingRequest.class);
+        var outcome = json.readValue(context.requireInput(DevelopWorker.OUTCOME).content(), CodingOutcome.class);
+        if (outcome.status() != CodingOutcome.Status.NEEDS_DECISION) {
             return passThrough(context, request, outcome);
         }
-        if (CodingDecisionArtifacts.UNANSWERED.equals(answer.answer()))
+        var clarification = readClarification(context);
+        if (pilotPolicy.find(context.executionId()).isPresent()) {
+            stopAnsweredPilot(context, clarification);
             return passThrough(context, request, outcome);
+        }
+        if (clarification.isUnanswered()) {
+            return passThrough(context, request, outcome);
+        }
+        return continueWithAnswer(context, request, outcome, clarification);
+    }
 
-        CodingRequest next =
-                request.withDecision(
-                        new CodingRequest.ConfirmedDecision(
-                                decisionRequest.requestId(),
-                                decisionRequest.kind(),
-                                decisionRequest.question(),
-                                answer.answer()));
-        if (outcome.decision().kind() == CodingOutcome.DecisionKind.REPOSITORY_MISMATCH)
-            return repositoryMismatch(context, next, outcome, decisionRequest, answer);
-        var attempt =
-                develop.retry(
-                        context,
-                        next,
-                        json.readTree(context.requireInput(DevelopWorker.READINESS).content()));
+    private Clarification readClarification(AgentContext context) {
+        var decisionRequest = CodingDecisionArtifacts.parseRequest(
+                codec, context.requireInput(CodingDecisionArtifacts.REQUEST).content());
+        var answer = CodingDecisionArtifacts.parseAnswer(
+                codec, context.requireInput(CodingDecisionArtifacts.ANSWER).content());
+        if (!answer.requestId().equals(decisionRequest.requestId())) {
+            throw new AgentExecutionException("Coding decision answer is stale");
+        }
+        return new Clarification(decisionRequest, answer);
+    }
+
+    private void stopAnsweredPilot(AgentContext context, Clarification clarification) {
+        if (clarification.isUnanswered()) {
+            return;
+        }
+        pilotPolicy.recordStop(context.executionId(), context.stepId(),
+                "a clarification answer cannot continue a pilot attempt automatically;"
+                        + " an explicit retry is a new execution");
+    }
+
+    private AgentResult continueWithAnswer(
+            AgentContext context, CodingRequest request, CodingOutcome outcome, Clarification clarification) {
+        var decisionRequest = clarification.request();
+        var next = request.withDecision(new CodingRequest.ConfirmedDecision(decisionRequest.requestId(),
+                decisionRequest.kind(), decisionRequest.question(), clarification.answer().answer()));
+        if (outcome.decision().kind() == CodingOutcome.DecisionKind.REPOSITORY_MISMATCH) {
+            return repositoryMismatch(context, next, outcome, decisionRequest, clarification.answer());
+        }
+        var readiness = json.readTree(context.requireInput(DevelopWorker.READINESS).content());
+        var attempt = develop.retry(context, next, readiness);
         return new AgentResult(
                 Map.of(
                         IntakeResolveWorker.CODING_REQUEST, json.writeValueAsString(next),
@@ -137,5 +141,12 @@ public class DevelopContinuationWorker implements AgentWorker {
                         DevelopWorker.READINESS,
                                 context.requireInput(DevelopWorker.READINESS).content()),
                 Map.of());
+    }
+
+    private record Clarification(CodingDecisionArtifacts.Request request, CodingDecisionArtifacts.Answer answer) {
+
+        boolean isUnanswered() {
+            return CodingDecisionArtifacts.UNANSWERED.equals(answer.answer());
+        }
     }
 }
