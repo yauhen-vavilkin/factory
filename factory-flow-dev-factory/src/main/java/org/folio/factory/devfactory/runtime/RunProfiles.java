@@ -148,18 +148,23 @@ public final class RunProfiles {
             throw new IllegalArgumentException("Effort " + chosenEffort + " is not available for profile "
                     + profile.id() + ". Choose one of: " + String.join(", ", profile.efforts()) + ".");
         }
-        int turns = profile.maxTurns();
-        if (maxTurns != null && !maxTurns.isBlank()) {
-            try {
-                turns = Integer.parseInt(maxTurns.strip());
-            } catch (NumberFormatException e) {
-                turns = 0;
-            }
-            if (turns < 1 || turns > MAX_TURNS) {
-                throw new IllegalArgumentException("Max turns must be a whole number from 1 to " + MAX_TURNS + ".");
-            }
+        return new Run(profile, chosenEffort, chosenTurns(profile, maxTurns), instructions(instructions));
+    }
+
+    private static int chosenTurns(Profile profile, String maxTurns) {
+        if (maxTurns == null || maxTurns.isBlank()) {
+            return profile.maxTurns();
         }
-        return new Run(profile, chosenEffort, turns, instructions(instructions));
+        int turns;
+        try {
+            turns = Integer.parseInt(maxTurns.strip());
+        } catch (NumberFormatException e) {
+            turns = 0;
+        }
+        if (turns < 1 || turns > MAX_TURNS) {
+            throw new IllegalArgumentException("Max turns must be a whole number from 1 to " + MAX_TURNS + ".");
+        }
+        return turns;
     }
 
     /** Operator instructions are optional plain text of at most 8000 characters; blank means none. */
@@ -247,6 +252,16 @@ public final class RunProfiles {
         }
         String id = entry.id();
         String where = FILE + ", profile " + id + ": ";
+        requireEndpoint(entry, where);
+        List<String> efforts = entry.efforts() == null ? List.of() : List.copyOf(entry.efforts());
+        requireLimits(entry, efforts, where);
+        String label = entry.label() == null || entry.label().isBlank() ? id : entry.label().strip();
+        return new Profile(id, label, entry.baseUrl(), entry.authentication(), entry.secretEnv(),
+                variables.apply(entry.secretEnv()), entry.model(), efforts, entry.defaultEffort(), entry.maxTurns(),
+                entry.maxOutputTokens(), null);
+    }
+
+    private static void requireEndpoint(FileProfile entry, String where) {
         require(entry.model() != null && !entry.model().isBlank(), where + "set model.");
         require("api-key".equals(entry.authentication()) || "bearer-token".equals(entry.authentication()),
                 where + "authentication must be api-key or bearer-token.");
@@ -258,7 +273,9 @@ public final class RunProfiles {
             throw new IllegalArgumentException(where + "base-url must be an HTTP(S) URL without credentials,"
                     + " query or fragment.");
         }
-        List<String> efforts = entry.efforts() == null ? List.of() : List.copyOf(entry.efforts());
+    }
+
+    private static void requireLimits(FileProfile entry, List<String> efforts, String where) {
         require(!efforts.isEmpty() && EFFORTS.containsAll(efforts),
                 where + "efforts must list values from: " + String.join(", ", EFFORTS) + ".");
         require(entry.defaultEffort() != null && efforts.contains(entry.defaultEffort()),
@@ -267,10 +284,6 @@ public final class RunProfiles {
                 where + "max-turns must be from 1 to " + MAX_TURNS + ".");
         require(entry.maxOutputTokens() != null && entry.maxOutputTokens() > 0,
                 where + "max-output-tokens must be positive.");
-        String label = entry.label() == null || entry.label().isBlank() ? id : entry.label().strip();
-        return new Profile(id, label, entry.baseUrl(), entry.authentication(), entry.secretEnv(),
-                variables.apply(entry.secretEnv()), entry.model(), efforts, entry.defaultEffort(), entry.maxTurns(),
-                entry.maxOutputTokens(), null);
     }
 
     /** scheme://host[:port] of an HTTP(S) URL without credentials, query or fragment. */
