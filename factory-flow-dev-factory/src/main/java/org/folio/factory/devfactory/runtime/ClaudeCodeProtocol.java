@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
@@ -87,13 +88,8 @@ final class ClaudeCodeProtocol implements Consumer<String> {
     }
 
     private void read(String line) {
-        JsonNode frame;
-        try {
-            frame = JSON.readTree(line);
-        } catch (RuntimeException exception) {
-            frame = null;
-        }
-        if (frame == null || !frame.isObject() || !frame.path("type").isString()) {
+        var frame = readFrame(line);
+        if (frame.isEmpty()) {
             fail("MALFORMED_FRAME", "Claude Code wrote an output line that is not a valid event, so Factory"
                     + " stopped the attempt. Retry the task; if it happens again, check that the coding image"
                     + " runs Claude Code " + ClaudeCodeCodingRuntime.VERSION + ".");
@@ -104,42 +100,46 @@ final class ClaudeCodeProtocol implements Consumer<String> {
                     + " cannot trust the result. Retry the task.");
             return;
         }
+        handleFrame(frame.get());
+    }
 
+    /** Empty when the line is not a JSON object with a string type. */
+    private static Optional<JsonNode> readFrame(String line) {
+        JsonNode frame;
+        try {
+            frame = JSON.readTree(line);
+        } catch (RuntimeException exception) {
+            return Optional.empty();
+        }
+        if (frame == null || !frame.isObject() || !frame.path("type").isString()) {
+            return Optional.empty();
+        }
+        return Optional.of(frame);
+    }
+
+    private void handleFrame(JsonNode frame) {
         switch (frame.path("type").asString()) {
             case "system" -> handleSystemFrame(frame);
             case "assistant" -> handleAssistantFrame(frame);
             case "stream_event" -> handleStreamEvent(frame.path("event"));
             case "user" -> handleToolResults(frame);
-            case "result" -> {
-                terminalResult = frame;
-                publishUsage();
-                recordResult(frame);
-                emitActivity(Map.of("activity", "agent_end"));
-            }
+            case "result" -> handleResult(frame);
             default -> {
                 // Future diagnostic events are not completion evidence.
             }
         }
     }
 
+    private void handleResult(JsonNode frame) {
+        terminalResult = frame;
+        publishUsage();
+        recordResult(frame);
+        emitActivity(Map.of("activity", "agent_end"));
+    }
+
     private void handleSystemFrame(JsonNode frame) {
         switch (frame.path("subtype").asString("")) {
-            case "init" -> {
-                String reportedModel = frame.path("model").asString("");
-                if (initialized) {
-                    fail("IDENTITY_MISMATCH", "Claude Code started a second session in one run, so Factory"
-                            + " stopped it. Retry the task.");
-                    return;
-                }
-                if (!reportedModel.equals(model)) {
-                    fail("IDENTITY_MISMATCH", "Claude Code started with model " + summary(reportedModel)
-                            + " instead of " + model + ", so Factory stopped it. Check the model in the Developer"
-                            + " Flow settings and retry.");
-                    return;
-                }
-                initialized = true;
-                emitActivity(Map.of("activity", "agent_start"));
-            }
+            case "init" -> startSession(frame.path("model").asString(""));
             case "api_retry" -> emitActivity(Map.of(
                     "activity", "auto_retry_start",
                     "attempt", Math.max(0, frame.path("attempt").asInt(0)),
@@ -148,6 +148,22 @@ final class ClaudeCodeProtocol implements Consumer<String> {
                 // Other system events do not affect the attempt state.
             }
         }
+    }
+
+    private void startSession(String reportedModel) {
+        if (initialized) {
+            fail("IDENTITY_MISMATCH", "Claude Code started a second session in one run, so Factory"
+                    + " stopped it. Retry the task.");
+            return;
+        }
+        if (!reportedModel.equals(model)) {
+            fail("IDENTITY_MISMATCH", "Claude Code started with model " + summary(reportedModel)
+                    + " instead of " + model + ", so Factory stopped it. Check the model in the Developer"
+                    + " Flow settings and retry.");
+            return;
+        }
+        initialized = true;
+        emitActivity(Map.of("activity", "agent_start"));
     }
 
     private void handleAssistantFrame(JsonNode frame) {
@@ -194,31 +210,52 @@ final class ClaudeCodeProtocol implements Consumer<String> {
 
     private void handleToolResults(JsonNode frame) {
         for (JsonNode block : frame.path("message").path("content")) {
-            if (!"tool_result".equals(block.path("type").asString(""))) continue;
-            ToolCall call = openTools.remove(block.path("tool_use_id").asString(""));
-            boolean error = block.path("is_error").asBoolean(false);
-            String text = redactor.apply(resultText(block.path("content")));
-            var event = new LinkedHashMap<String, Object>();
-            event.put("activity", "tool_execution_end");
-            var entry = new LinkedHashMap<String, Object>();
-            entry.put("id", block.path("tool_use_id").asString(""));
-            if (call != null) {
-                long durationMs = Math.max(0, (System.nanoTime() - call.startedNanos()) / 1_000_000);
-                event.put("tool", call.tool());
-                if (!call.summary().isBlank()) event.put(call.summaryKey(), call.summary());
-                event.put("durationMs", durationMs);
-                entry.put("tool", call.tool());
-                entry.put("durationMs", durationMs);
+            if ("tool_result".equals(block.path("type").asString(""))) {
+                finishTool(block);
             }
-            event.put("error", error);
-            if (error) event.put("errorText", summary(text));
-            emitActivity(event);
-            entry.put("error", error);
-            entry.put("text", text.length() <= TOOL_RESULT_LIMIT ? text
-                    : text.substring(0, TOOL_RESULT_LIMIT) + "\n[cut: " + (text.length() - TOOL_RESULT_LIMIT)
-                            + " more characters]");
-            record("tool_result", entry);
         }
+    }
+
+    private void finishTool(JsonNode block) {
+        var id = block.path("tool_use_id").asString("");
+        var call = openTools.remove(id);
+        var error = block.path("is_error").asBoolean(false);
+        var text = redactor.apply(resultText(block.path("content")));
+        var event = new LinkedHashMap<String, Object>();
+        event.put("activity", "tool_execution_end");
+        var entry = new LinkedHashMap<String, Object>();
+        entry.put("id", id);
+        if (call != null) {
+            addCallDetails(call, event, entry);
+        }
+        event.put("error", error);
+        if (error) {
+            event.put("errorText", summary(text));
+        }
+        emitActivity(event);
+        entry.put("error", error);
+        entry.put("text", clipToolResult(text));
+        record("tool_result", entry);
+    }
+
+    /** One duration for both the activity event and the transcript entry. */
+    private static void addCallDetails(ToolCall call, Map<String, Object> event, Map<String, Object> entry) {
+        long durationMs = Math.max(0, (System.nanoTime() - call.startedNanos()) / 1_000_000);
+        event.put("tool", call.tool());
+        if (!call.summary().isBlank()) {
+            event.put(call.summaryKey(), call.summary());
+        }
+        event.put("durationMs", durationMs);
+        entry.put("tool", call.tool());
+        entry.put("durationMs", durationMs);
+    }
+
+    private static String clipToolResult(String text) {
+        if (text.length() <= TOOL_RESULT_LIMIT) {
+            return text;
+        }
+        return text.substring(0, TOOL_RESULT_LIMIT) + "\n[cut: " + (text.length() - TOOL_RESULT_LIMIT)
+                + " more characters]";
     }
 
     private void handleStreamEvent(JsonNode event) {
@@ -409,37 +446,51 @@ final class ClaudeCodeProtocol implements Consumer<String> {
         }
         if (terminalResult != null && (terminalResult.path("is_error").asBoolean(true)
                 || !"success".equals(terminalResult.path("subtype").asString("")))) {
-            String subtype = clip(terminalResult.path("subtype").asString(""), 80);
-            String text = String.join("; ", errorsOrResult(terminalResult));
-            return switch (subtype) {
-                case "error_max_turns" -> fail("TURN_LIMIT", "Claude Code used all " + maxTurns
-                        + " turns before it finished the task. Retry with more turns or a different effort.");
-                case "error_max_budget_usd" -> fail("BUDGET_LIMIT", "Claude Code reached its spending limit"
-                        + " before it finished the task. Retry with a lower effort or a smaller task."
-                        + detail("CLI message", text, false));
-                default -> fail("PROVIDER_FAILED", "Claude Code stopped with an error (subtype "
-                        + (subtype.isBlank() ? "unknown" : subtype) + apiStatus(terminalResult) + "). Check the"
-                        + " provider and the Developer Flow settings, then retry." + detail("Error", text, false));
-            };
+            return resultFailure(terminalResult);
         }
         if (exitCode != 0) {
-            if (!initialized && exitCode >= 125 && exitCode <= 127) {
-                return fail("RUNTIME_ERROR", "Docker could not start Claude Code in the coding container (exit "
-                        + exitCode + "). Check that Docker is running and the coding image is correct, then retry."
-                        + detail("Last error output", stderrTail, true));
-            }
-            return fail("RUNTIME_EXIT", "Claude Code exited with code " + exitCode + " before it returned a"
-                    + " result. Check the coding runtime settings and retry."
-                    + detail("Last error output", stderrTail, true));
+            return exitFailure(exitCode, stderrTail);
         }
         if (!initialized || terminalResult == null || !terminalResult.path("is_error").isBoolean()
                 || terminalResult.path("result").asString("").isBlank()) {
             return fail("INCOMPLETE_RESULT", "Claude Code ended without a final answer. Retry the task."
                     + detail("Last error output", stderrTail, true));
         }
-        String answer = redactor.apply(terminalResult.path("result").asString());
+        return answer(terminalResult);
+    }
+
+    private CodingOutcome resultFailure(JsonNode result) {
+        var subtype = clip(result.path("subtype").asString(""), 80);
+        var text = String.join("; ", errorsOrResult(result));
+        return switch (subtype) {
+            case "error_max_turns" -> fail("TURN_LIMIT", "Claude Code used all " + maxTurns
+                    + " turns before it finished the task. Retry with more turns or a different effort.");
+            case "error_max_budget_usd" -> fail("BUDGET_LIMIT", "Claude Code reached its spending limit"
+                    + " before it finished the task. Retry with a lower effort or a smaller task."
+                    + detail("CLI message", text, false));
+            default -> fail("PROVIDER_FAILED", "Claude Code stopped with an error (subtype "
+                    + (subtype.isBlank() ? "unknown" : subtype) + apiStatus(result) + "). Check the"
+                    + " provider and the Developer Flow settings, then retry." + detail("Error", text, false));
+        };
+    }
+
+    private CodingOutcome exitFailure(int exitCode, String stderrTail) {
+        if (!initialized && exitCode >= 125 && exitCode <= 127) {
+            return fail("RUNTIME_ERROR", "Docker could not start Claude Code in the coding container (exit "
+                    + exitCode + "). Check that Docker is running and the coding image is correct, then retry."
+                    + detail("Last error output", stderrTail, true));
+        }
+        return fail("RUNTIME_EXIT", "Claude Code exited with code " + exitCode + " before it returned a"
+                + " result. Check the coding runtime settings and retry."
+                + detail("Last error output", stderrTail, true));
+    }
+
+    private CodingOutcome answer(JsonNode result) {
+        var answer = redactor.apply(result.path("result").asString());
         var outcome = CodingProtocol.answer(answer, metrics(), "Claude Code");
-        if (outcome.status() == CodingOutcome.Status.FAILED) note(outcome.failure().message());
+        if (outcome.status() == CodingOutcome.Status.FAILED) {
+            note(outcome.failure().message());
+        }
         return outcome;
     }
 
