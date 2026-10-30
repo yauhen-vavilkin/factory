@@ -1,8 +1,7 @@
 package org.folio.factory.devfactory.candidate;
 
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.devfactory.runtime.Processes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -14,8 +13,8 @@ import java.util.List;
 import java.util.Set;
 
 /** Ignores coding Git metadata and derives every hash in a fresh trusted checkout. */
+@Slf4j
 public class CandidateFreezer {
-    private static final Logger log = LoggerFactory.getLogger(CandidateFreezer.class);
     private static final Set<String> GENERATED = Set.of("target", "node_modules", ".pi");
     public Path checkout(String sourceUrl, String baseSha) {
         if (!baseSha.matches("[a-f0-9]{40}")) throw new IllegalArgumentException("Invalid base SHA");

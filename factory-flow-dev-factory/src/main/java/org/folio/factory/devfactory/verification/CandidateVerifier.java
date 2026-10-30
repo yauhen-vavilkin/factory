@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.verification;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
@@ -16,19 +17,12 @@ import java.util.Optional;
 import java.util.UUID;
 
 /** Independent acceptance authority. No coding output or task text supplies executable policy. */
+@RequiredArgsConstructor
 public class CandidateVerifier {
     private final DevFactoryProperties repositories;
     private final DevRuntimeProperties runtime;
     private final CandidateFreezer candidates;
     private final DockerWorkloads docker;
-
-    public CandidateVerifier(DevFactoryProperties repositories, DevRuntimeProperties runtime,
-                             CandidateFreezer candidates, DockerWorkloads docker) {
-        this.repositories = repositories;
-        this.runtime = runtime;
-        this.candidates = candidates;
-        this.docker = docker;
-    }
 
     public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate) {
         var repository = repositories.repositories().get(candidate.repository());

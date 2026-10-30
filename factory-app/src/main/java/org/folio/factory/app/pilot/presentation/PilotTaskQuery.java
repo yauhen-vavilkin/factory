@@ -1,5 +1,6 @@
 package org.folio.factory.app.pilot.presentation;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.pilot.admission.PilotAdmissionService;
 import org.folio.factory.app.pilot.execution.PilotOutcomeService;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
@@ -47,6 +48,7 @@ import java.util.stream.Collectors;
  * engine state.
  */
 @Service
+@RequiredArgsConstructor
 public class PilotTaskQuery {
 
     private final PilotTaskRepository tasks;
@@ -57,18 +59,6 @@ public class PilotTaskQuery {
     private final JiraProperties jira;
     private final PilotJiraInstance jiraInstance;
     private final JsonMapper json = JsonMapper.builder().build();
-
-    public PilotTaskQuery(PilotTaskRepository tasks, PilotAttemptRepository attempts,
-                          PilotInstallationRepository installations, PipelineExecutionRepository executions,
-                          AuditLog auditLog, JiraProperties jira, PilotJiraInstance jiraInstance) {
-        this.tasks = tasks;
-        this.attempts = attempts;
-        this.installations = installations;
-        this.executions = executions;
-        this.auditLog = auditLog;
-        this.jira = jira;
-        this.jiraInstance = jiraInstance;
-    }
 
     /** Available: in My tasks and never started; Triggered: started at least once, newest first. */
     public record MyTasks(List<PilotTaskView> available, Page<PilotTaskView> triggered) {

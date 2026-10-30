@@ -7,12 +7,15 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import lombok.AccessLevel;
+import lombok.Getter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.UUID;
 
+@Getter
 @Entity
 @Table(name = "hitl_review")
 public class HitlReview {
@@ -60,6 +63,7 @@ public class HitlReview {
     // double-driving the execution.
     @Version
     @Column(nullable = false)
+    @Getter(AccessLevel.NONE)
     private long version;
 
     protected HitlReview() {
@@ -85,51 +89,4 @@ public class HitlReview {
         this.decidedAt = Instant.now();
     }
 
-    public UUID getId() {
-        return id;
-    }
-
-    public UUID getExecutionId() {
-        return executionId;
-    }
-
-    public String getGateId() {
-        return gateId;
-    }
-
-    public int getStepIndex() {
-        return stepIndex;
-    }
-
-    public HitlReviewStatus getStatus() {
-        return status;
-    }
-
-    public String getReviewPackage() {
-        return reviewPackage;
-    }
-
-    public String getDecision() {
-        return decision;
-    }
-
-    public String getReviewer() {
-        return reviewer;
-    }
-
-    public String getComments() {
-        return comments;
-    }
-
-    public String getAmendedArtifacts() {
-        return amendedArtifacts;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getDecidedAt() {
-        return decidedAt;
-    }
 }

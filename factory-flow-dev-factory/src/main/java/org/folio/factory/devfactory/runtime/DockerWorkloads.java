@@ -6,12 +6,11 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 
 /** Only owned containers, with private writable storage and no host mounts. */
+@Slf4j
 public class DockerWorkloads {
-    private static final Logger log = LoggerFactory.getLogger(DockerWorkloads.class);
     private static final String MAVEN_REPOSITORY = "/tmp/factory-home/.m2/repository";
     private final Set<String> activeSteps = ConcurrentHashMap.newKeySet();
 

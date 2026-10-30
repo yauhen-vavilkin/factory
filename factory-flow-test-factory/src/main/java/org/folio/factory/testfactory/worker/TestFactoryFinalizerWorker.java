@@ -1,5 +1,7 @@
 package org.folio.factory.testfactory.worker;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.agents.artifact.Frontmatter;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.connectors.ConnectorNotConfiguredException;
@@ -16,8 +18,6 @@ import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.testfactory.TestFactoryProperties;
 import org.folio.factory.testfactory.artifact.ScriptBundleCodec;
 import org.folio.factory.testfactory.model.ScriptBundle;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.JsonNode;
@@ -33,11 +33,11 @@ import java.util.Map;
  * Every action degrades gracefully when its connector is not configured — the
  * skip is recorded in the audit log and the sync report, and the flow completes.
  */
+@RequiredArgsConstructor
+@Slf4j
 public class TestFactoryFinalizerWorker implements AgentWorker {
 
     public static final String ID = "test-factory-finalizer";
-
-    private static final Logger log = LoggerFactory.getLogger(TestFactoryFinalizerWorker.class);
 
     private final JiraConnector jira;
     private final GitHubConnector gitHub;
@@ -47,20 +47,6 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
     private final TestFactoryProperties properties;
     private final AuditLog auditLog;
     private final EngineMetrics engineMetrics;
-
-    public TestFactoryFinalizerWorker(JiraConnector jira, GitHubConnector gitHub,
-                                      TestRailConnector testRail, FrontmatterCodec frontmatterCodec,
-                                      ScriptBundleCodec bundleCodec, TestFactoryProperties properties,
-                                      AuditLog auditLog, EngineMetrics engineMetrics) {
-        this.jira = jira;
-        this.gitHub = gitHub;
-        this.testRail = testRail;
-        this.frontmatterCodec = frontmatterCodec;
-        this.bundleCodec = bundleCodec;
-        this.properties = properties;
-        this.auditLog = auditLog;
-        this.engineMetrics = engineMetrics;
-    }
 
     @Override
     public String id() {

@@ -1,5 +1,6 @@
 package org.folio.factory.app.pilot.admission;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.RunProfiles;
@@ -18,17 +19,13 @@ import java.util.Map;
  * runtime only: with Pi a run keeps only its instructions.
  */
 @Component
+@RequiredArgsConstructor
 public class PilotRunSettings {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final CodingRuntime coding;
     private final RunProfiles profiles;
-
-    public PilotRunSettings(CodingRuntime coding, RunProfiles profiles) {
-        this.coding = coding;
-        this.profiles = profiles;
-    }
 
     public record Snapshot(String profileId, String profileLabel, String model, String endpointOrigin,
                            String effort, Integer maxTurns, String instructions) {

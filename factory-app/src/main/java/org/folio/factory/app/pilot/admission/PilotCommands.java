@@ -1,5 +1,7 @@
 package org.folio.factory.app.pilot.admission;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 import java.util.List;
 import java.util.UUID;
 
@@ -10,10 +12,8 @@ import java.util.UUID;
  * revalidates all of them against the current task before reserving an attempt.
  * runSettings is the checked snapshot from {@link PilotRunSettings} (null: the defaults).
  */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class PilotCommands {
-
-    private PilotCommands() {
-    }
 
     public record Selection(UUID taskId, long expectedVersion, String inputFingerprint,
                             String destinationFingerprint) {

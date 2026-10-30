@@ -1,7 +1,6 @@
 package org.folio.factory.devfactory.runtime;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -21,10 +20,10 @@ import java.util.function.UnaryOperator;
  * The only reader of the Claude Code stream. One pass over the lines gives the outcome, the live
  * activity and the transcript; only a single terminal result can complete an attempt.
  */
+@Slf4j
 final class ClaudeCodeProtocol implements Consumer<String> {
     static final int TOOL_RESULT_LIMIT = 8 * 1024;
     static final int TRANSCRIPT_LIMIT = 5 * 1024 * 1024;
-    private static final Logger log = LoggerFactory.getLogger(ClaudeCodeProtocol.class);
     private static final int MAX_TOOL_NAME_LENGTH = 80;
     private static final int SUMMARY_LIMIT = 240;
     private static final int REASON_DETAIL_LIMIT = 300;

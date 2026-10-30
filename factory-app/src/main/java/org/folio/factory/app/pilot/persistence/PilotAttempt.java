@@ -8,6 +8,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import lombok.Getter;
+import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -22,6 +24,7 @@ import java.util.UUID;
  * input/scope/destination view and the engine binding plus lifecycle checkpoints.
  * Each admission is a new row; history is never rewritten.
  */
+@Getter
 @Entity
 @Table(name = "pilot_attempt")
 public class PilotAttempt {
@@ -44,48 +47,61 @@ public class PilotAttempt {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
+    @Setter
     private State state;
 
     @Column(name = "input_fingerprint", length = 64)
+    @Setter
     private String inputFingerprint;
 
     @Column(name = "destination_fingerprint", length = 64)
+    @Setter
     private String destinationFingerprint;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "approved_snapshot")
+    @Setter
     private String approvedSnapshot;
 
     /** JSON snapshot of the chosen run settings; see PilotRunSettings. Null: the defaults. */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "run_settings")
+    @Setter
     private String runSettings;
 
     @Column(name = "execution_id")
+    @Setter
     private UUID executionId;
 
     @Column(name = "started_at")
+    @Setter
     private Instant startedAt;
 
     @Column(name = "deadline_at")
+    @Setter
     private Instant deadlineAt;
 
     @Column(name = "paid_start_at")
+    @Setter
     private Instant paidStartAt;
 
     @Column(name = "result_reason", length = 500)
+    @Setter
     private String resultReason;
 
     @Column(name = "publication_identity", length = 500)
+    @Setter
     private String publicationIdentity;
 
     /** JSON array of the reasons the pull request was opened as a draft; null when it is not a draft. */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "draft_reasons")
+    @Setter
     private String draftReasons;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "admitted_via", nullable = false, length = 16)
+    @Setter
     private AdmittedVia admittedVia = AdmittedVia.MANUAL;
 
     @Version
@@ -115,142 +131,6 @@ public class PilotAttempt {
     @PreUpdate
     void onUpdate() {
         this.updatedAt = Instant.now();
-    }
-
-    public UUID getId() {
-        return id;
-    }
-
-    public UUID getTaskId() {
-        return taskId;
-    }
-
-    public int getOrdinal() {
-        return ordinal;
-    }
-
-    public Kind getKind() {
-        return kind;
-    }
-
-    public String getRequestId() {
-        return requestId;
-    }
-
-    public State getState() {
-        return state;
-    }
-
-    public void setState(State state) {
-        this.state = state;
-    }
-
-    public String getInputFingerprint() {
-        return inputFingerprint;
-    }
-
-    public void setInputFingerprint(String inputFingerprint) {
-        this.inputFingerprint = inputFingerprint;
-    }
-
-    public String getDestinationFingerprint() {
-        return destinationFingerprint;
-    }
-
-    public void setDestinationFingerprint(String destinationFingerprint) {
-        this.destinationFingerprint = destinationFingerprint;
-    }
-
-    public String getApprovedSnapshot() {
-        return approvedSnapshot;
-    }
-
-    public void setApprovedSnapshot(String approvedSnapshot) {
-        this.approvedSnapshot = approvedSnapshot;
-    }
-
-    public String getRunSettings() {
-        return runSettings;
-    }
-
-    public void setRunSettings(String runSettings) {
-        this.runSettings = runSettings;
-    }
-
-    public UUID getExecutionId() {
-        return executionId;
-    }
-
-    public void setExecutionId(UUID executionId) {
-        this.executionId = executionId;
-    }
-
-    public Instant getStartedAt() {
-        return startedAt;
-    }
-
-    public void setStartedAt(Instant startedAt) {
-        this.startedAt = startedAt;
-    }
-
-    public Instant getDeadlineAt() {
-        return deadlineAt;
-    }
-
-    public void setDeadlineAt(Instant deadlineAt) {
-        this.deadlineAt = deadlineAt;
-    }
-
-    public Instant getPaidStartAt() {
-        return paidStartAt;
-    }
-
-    public void setPaidStartAt(Instant paidStartAt) {
-        this.paidStartAt = paidStartAt;
-    }
-
-    public String getResultReason() {
-        return resultReason;
-    }
-
-    public void setResultReason(String resultReason) {
-        this.resultReason = resultReason;
-    }
-
-    public AdmittedVia getAdmittedVia() {
-        return admittedVia;
-    }
-
-    public void setAdmittedVia(AdmittedVia admittedVia) {
-        this.admittedVia = admittedVia;
-    }
-
-    public String getPublicationIdentity() {
-        return publicationIdentity;
-    }
-
-    public void setPublicationIdentity(String publicationIdentity) {
-        this.publicationIdentity = publicationIdentity;
-    }
-
-    public String getDraftReasons() {
-        return draftReasons;
-    }
-
-    public void setDraftReasons(String draftReasons) {
-        this.draftReasons = draftReasons;
-    }
-
-    public long getVersion() {
-        return version;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
     }
 
     public enum Kind {

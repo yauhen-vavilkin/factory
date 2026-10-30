@@ -1,5 +1,7 @@
 package org.folio.factory.devfactory.runtime;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -9,6 +11,7 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 /** Bounded, redacted activity projection; usage continues after the display limit. */
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class PiProgress implements Consumer<String> {
 
     private final JsonMapper mapper = JsonMapper.builder().build();
@@ -17,11 +20,6 @@ final class PiProgress implements Consumer<String> {
     private final Consumer<Map<String, Object>> observer;
     private int emitted;
     private int diagnosticsEmitted;
-
-    PiProgress(String secret, Consumer<Map<String, Object>> observer) {
-        this.secret = secret;
-        this.observer = observer;
-    }
 
     @Override
     public void accept(String line) {

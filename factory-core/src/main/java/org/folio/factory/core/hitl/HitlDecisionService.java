@@ -1,5 +1,6 @@
 package org.folio.factory.core.hitl;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
@@ -31,6 +32,7 @@ import java.util.UUID;
  * additionally prevents two concurrent decisions from both committing).</p>
  */
 @Service
+@RequiredArgsConstructor
 public class HitlDecisionService {
 
     private final HitlReviewRepository reviews;
@@ -41,18 +43,6 @@ public class HitlDecisionService {
     private final List<ArtifactAmendmentValidator> amendmentValidators;
     private final JsonMapper jsonMapper;
     private List<HitlDecisionPolicy> policies = List.of();
-
-    public HitlDecisionService(HitlReviewRepository reviews, StateManager stateManager,
-                               ArtifactStore artifactStore, AuditLog auditLog, FlowRegistry flowRegistry,
-                               List<ArtifactAmendmentValidator> amendmentValidators, JsonMapper jsonMapper) {
-        this.reviews = reviews;
-        this.stateManager = stateManager;
-        this.artifactStore = artifactStore;
-        this.auditLog = auditLog;
-        this.flowRegistry = flowRegistry;
-        this.amendmentValidators = amendmentValidators;
-        this.jsonMapper = jsonMapper;
-    }
 
     @org.springframework.beans.factory.annotation.Autowired
     public void setPolicies(List<HitlDecisionPolicy> policies) { this.policies = List.copyOf(policies); }

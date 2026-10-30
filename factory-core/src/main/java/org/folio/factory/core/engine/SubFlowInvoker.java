@@ -1,5 +1,7 @@
 package org.folio.factory.core.engine;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -12,8 +14,6 @@ import org.folio.factory.core.registry.model.StepType;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,24 +27,15 @@ import java.util.UUID;
  * child opens.
  */
 @Component
+@RequiredArgsConstructor
+@Slf4j
 public class SubFlowInvoker {
-
-    private static final Logger log = LoggerFactory.getLogger(SubFlowInvoker.class);
 
     private final FlowRegistry flowRegistry;
     private final StateManager stateManager;
     private final ArtifactStore artifactStore;
     private final AuditLog auditLog;
     private final HitlGateOpener hitlGateOpener;
-
-    public SubFlowInvoker(FlowRegistry flowRegistry, StateManager stateManager,
-                          ArtifactStore artifactStore, AuditLog auditLog, HitlGateOpener hitlGateOpener) {
-        this.flowRegistry = flowRegistry;
-        this.stateManager = stateManager;
-        this.artifactStore = artifactStore;
-        this.auditLog = auditLog;
-        this.hitlGateOpener = hitlGateOpener;
-    }
 
     @Transactional
     public UUID invoke(PipelineExecution parent, StepDescriptor step) {

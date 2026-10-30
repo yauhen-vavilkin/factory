@@ -1,5 +1,6 @@
 package org.folio.factory.app.pilot.source;
 
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.app.pilot.Digests;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
@@ -12,8 +13,6 @@ import org.folio.factory.connectors.jira.JiraSourceModels.DiscoveredIssue;
 import org.folio.factory.connectors.jira.JiraSourceModels.IssuePage;
 import org.folio.factory.devfactory.intake.IssueSnapshot;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -34,9 +33,9 @@ import java.util.Set;
  * problem. Discovery never calls a model or launches an execution.
  */
 @Component
+@Slf4j
 public class PilotDiscoveryService {
 
-    private static final Logger log = LoggerFactory.getLogger(PilotDiscoveryService.class);
     private static final int MAX_PROBLEM_LENGTH = 2000;
     private static final int MAX_TITLE_LENGTH = 500;
     private static final int MAX_REASON_LENGTH = 500;

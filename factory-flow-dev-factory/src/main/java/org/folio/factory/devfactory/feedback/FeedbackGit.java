@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.feedback;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.delivery.PublicationGit;
@@ -9,6 +10,7 @@ import java.nio.file.Path;
 import java.util.Map;
 
 /** Two-phase, deterministic Git publication. No credentials enter the coding workload. */
+@RequiredArgsConstructor
 public class FeedbackGit {
     public record Intent(
             String parent,
@@ -20,10 +22,6 @@ public class FeedbackGit {
             String authorEmail) {}
 
     private final CandidateFreezer freezer;
-
-    public FeedbackGit(CandidateFreezer freezer) {
-        this.freezer = freezer;
-    }
 
     public Intent prepare(String source, Candidate candidate, String message, String date) {
         Path path = freezer.reconstruct(source, candidate);

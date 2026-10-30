@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -8,12 +9,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 
 @Controller
+@RequiredArgsConstructor
 public class DeveloperPreflightController {
     private final DeveloperPreflight preflight;
-
-    public DeveloperPreflightController(DeveloperPreflight preflight) {
-        this.preflight = preflight;
-    }
 
     @GetMapping("/api/developer/preflight")
     @ResponseBody

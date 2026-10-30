@@ -1,5 +1,6 @@
 package org.folio.factory.app.pilot.source;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.connectors.jira.JiraProperties;
 import org.folio.factory.devfactory.intake.IssueSnapshot;
 import org.springframework.stereotype.Component;
@@ -15,15 +16,12 @@ import java.util.regex.Pattern;
  * unconfigured) and the parsing of a task key the developer types or pastes.
  */
 @Component
+@RequiredArgsConstructor
 public class PilotJiraInstance {
 
     private static final Pattern BROWSE_PATH = Pattern.compile("/browse/([^/?#]+)/?$");
 
     private final JiraProperties jiraProperties;
-
-    public PilotJiraInstance(JiraProperties jiraProperties) {
-        this.jiraProperties = jiraProperties;
-    }
 
     public String current() {
         URI base = base();

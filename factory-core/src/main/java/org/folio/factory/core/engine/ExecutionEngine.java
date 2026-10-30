@@ -1,5 +1,7 @@
 package org.folio.factory.core.engine;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
@@ -16,8 +18,6 @@ import org.folio.factory.core.registry.model.StepDescriptor;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -44,9 +44,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * writes new artifact versions rather than corrupting old ones.</p>
  */
 @Component
+@RequiredArgsConstructor
+@Slf4j
 public class ExecutionEngine {
-
-    private static final Logger log = LoggerFactory.getLogger(ExecutionEngine.class);
 
     private final FlowRegistry flowRegistry;
     private final AgentWorkerRegistry workerRegistry;
@@ -62,32 +62,6 @@ public class ExecutionEngine {
     private final ResumableAgentDriver resumableDriver;
 
     private final Set<UUID> activeExecutions = ConcurrentHashMap.newKeySet();
-
-    public ExecutionEngine(FlowRegistry flowRegistry,
-                           AgentWorkerRegistry workerRegistry,
-                           StateManager stateManager,
-                           ArtifactStore artifactStore,
-                           AuditLog auditLog,
-                           HitlGateOpener hitlGateOpener,
-                           SubFlowInvoker subFlowInvoker,
-                           List<StepPostProcessor> postProcessors,
-                           JsonMapper jsonMapper,
-                           EngineMetrics engineMetrics,
-                           AgentLeaseHeartbeat leaseHeartbeat,
-                           ResumableAgentDriver resumableDriver) {
-        this.flowRegistry = flowRegistry;
-        this.workerRegistry = workerRegistry;
-        this.stateManager = stateManager;
-        this.artifactStore = artifactStore;
-        this.auditLog = auditLog;
-        this.hitlGateOpener = hitlGateOpener;
-        this.subFlowInvoker = subFlowInvoker;
-        this.postProcessors = postProcessors;
-        this.jsonMapper = jsonMapper;
-        this.engineMetrics = engineMetrics;
-        this.leaseHeartbeat = leaseHeartbeat;
-        this.resumableDriver = resumableDriver;
-    }
 
     /**
      * Advances the execution until it pauses (HITL gate, sub-flow, retry backoff),

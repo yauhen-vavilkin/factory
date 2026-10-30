@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.decision;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.artifact.ArtifactFormatException;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.hitl.ArtifactAmendmentValidator;
@@ -15,6 +16,7 @@ import java.util.Set;
  * repository. Trusted Developer artifacts (issue snapshot, decision request, task
  * brief) cannot be edited through HITL. Other flows' artifacts are ignored.
  */
+@RequiredArgsConstructor
 public class DevArtifactAmendmentValidator implements ArtifactAmendmentValidator {
 
     private static final Set<String> TRUSTED = Set.of(
@@ -23,11 +25,6 @@ public class DevArtifactAmendmentValidator implements ArtifactAmendmentValidator
 
     private final FrontmatterCodec codec;
     private final RepositoryPolicy policy;
-
-    public DevArtifactAmendmentValidator(FrontmatterCodec codec, RepositoryPolicy policy) {
-        this.codec = codec;
-        this.policy = policy;
-    }
 
     @Override
     public void validate(String artifactName, String content) {

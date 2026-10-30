@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.repository;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.DevFactoryProperties.Repository;
 
@@ -14,13 +15,10 @@ import java.util.Optional;
  * restricts components, the issue carries at least one of them. Component matches
  * rank first, then repository key order.
  */
+@RequiredArgsConstructor
 public class RepositoryPolicy {
 
     private final DevFactoryProperties properties;
-
-    public RepositoryPolicy(DevFactoryProperties properties) {
-        this.properties = properties;
-    }
 
     public List<String> candidates(String projectKey, List<String> issueComponents) {
         return properties.repositories().entrySet().stream()

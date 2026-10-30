@@ -1,6 +1,7 @@
 package org.folio.factory.app.web;
 
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.pilot.admission.PilotAdmissionService;
 import org.folio.factory.app.pilot.admission.PilotCommands;
 import org.folio.factory.app.pilot.admission.PilotRetryService;
@@ -65,6 +66,7 @@ import java.util.stream.Collectors;
  * another site could send.
  */
 @Controller
+@RequiredArgsConstructor
 public class PilotTaskUiController {
 
     static final String FLOW_ID = "dev-factory";
@@ -97,29 +99,6 @@ public class PilotTaskUiController {
     private final DevFactoryProperties repositories;
     private final DevDeliveryProperties delivery;
     private final PilotRunSettings runSettings;
-
-    public PilotTaskUiController(PilotTaskQuery taskQuery, PilotInstallationRepository installations,
-                                 PilotAttemptRepository attempts, PilotAdmissionService admissions,
-                                 PilotRetryService retries, PilotDiscoveryService discovery,
-                                 PilotDispatcher dispatcher, ObjectProvider<PilotOutcomeService> outcomes,
-                                 PilotSourceProperties source, PilotJiraInstance jira, FlowRegistry flows,
-                                 DevFactoryProperties repositories, DevDeliveryProperties delivery,
-                                 PilotRunSettings runSettings) {
-        this.taskQuery = taskQuery;
-        this.installations = installations;
-        this.attempts = attempts;
-        this.admissions = admissions;
-        this.retries = retries;
-        this.discovery = discovery;
-        this.dispatcher = dispatcher;
-        this.outcomes = outcomes;
-        this.source = source;
-        this.jira = jira;
-        this.flows = flows;
-        this.repositories = repositories;
-        this.delivery = delivery;
-        this.runSettings = runSettings;
-    }
 
     /** The Developer Flow page, tab My tasks; {@code ?view=definition} is served by {@link FlowUiController}. */
     @GetMapping(value = FLOW_PAGE, params = "!view")

@@ -1,5 +1,7 @@
 package org.folio.factory.app.pilot.execution;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.app.pilot.admission.PilotAdmissionService;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
@@ -9,8 +11,6 @@ import org.folio.factory.app.pilot.persistence.PilotTaskRepository;
 import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.CodingRequest;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -28,18 +28,13 @@ import java.util.UUID;
  * snapshot approved at the click.
  */
 @Component
+@RequiredArgsConstructor
+@Slf4j
 public class PilotPublicationGuard {
-
-    private static final Logger log = LoggerFactory.getLogger(PilotPublicationGuard.class);
 
     private final PilotAttemptRepository attempts;
     private final PilotTaskRepository tasks;
     private final JsonMapper json = JsonMapper.builder().build();
-
-    public PilotPublicationGuard(PilotAttemptRepository attempts, PilotTaskRepository tasks) {
-        this.attempts = attempts;
-        this.tasks = tasks;
-    }
 
     public void requireCurrent(UUID executionId, CodingRequest consumedRequest, DeliveryTarget destination) {
         try {

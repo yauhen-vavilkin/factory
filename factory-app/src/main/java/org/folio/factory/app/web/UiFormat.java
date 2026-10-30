@@ -1,5 +1,7 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.registry.model.StepDescriptor;
@@ -20,6 +22,7 @@ import java.util.Map;
  * Shared formatting and request-parsing helpers for the server-rendered views.
  * All methods are pure so the controllers stay thin and consistent.
  */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 final class UiFormat {
 
     /** Longest message carried in a redirect; a remote error body could otherwise overflow the headers. */
@@ -29,9 +32,6 @@ final class UiFormat {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC);
     private static final DateTimeFormatter CLOCK =
             DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneOffset.UTC);
-
-    private UiFormat() {
-    }
 
     /** Formats an instant as {@code yyyy-MM-dd HH:mm:ss} UTC, or {@code null} when the instant is null. */
     static String format(Instant instant) {

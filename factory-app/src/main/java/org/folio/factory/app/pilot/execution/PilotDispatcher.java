@@ -1,11 +1,11 @@
 package org.folio.factory.app.pilot.execution;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.app.pilot.persistence.PilotAttempt;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
 import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
@@ -25,9 +25,9 @@ import java.util.UUID;
  * the queue.
  */
 @Component
+@RequiredArgsConstructor
+@Slf4j
 public class PilotDispatcher {
-
-    private static final Logger log = LoggerFactory.getLogger(PilotDispatcher.class);
 
     private final PilotAttemptRepository attempts;
     private final PilotInstallationRepository installations;
@@ -36,16 +36,6 @@ public class PilotDispatcher {
     private final ObjectProvider<PilotOutcomeService> outcomes;
     /** Why the queue head could not start, until a dispatch succeeds or finds nothing to start. */
     private volatile String deferral;
-
-    public PilotDispatcher(PilotAttemptRepository attempts, PilotInstallationRepository installations,
-                           PilotExecutionLauncher launcher, PilotExecutionProperties properties,
-                           ObjectProvider<PilotOutcomeService> outcomes) {
-        this.attempts = attempts;
-        this.installations = installations;
-        this.launcher = launcher;
-        this.properties = properties;
-        this.outcomes = outcomes;
-    }
 
     /**
      * @return the execution bound to the active attempt, the newly launched

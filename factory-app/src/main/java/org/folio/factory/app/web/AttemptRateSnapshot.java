@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.devfactory.feedback.AttemptPricing;
 import org.springframework.stereotype.Component;
 
@@ -7,12 +8,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
+@RequiredArgsConstructor
 public class AttemptRateSnapshot implements AttemptPricing {
     private final DeveloperPricingProperties prices;
-
-    public AttemptRateSnapshot(DeveloperPricingProperties prices) {
-        this.prices = prices;
-    }
 
     @Override
     public Map<String, Object> snapshot(String model) {

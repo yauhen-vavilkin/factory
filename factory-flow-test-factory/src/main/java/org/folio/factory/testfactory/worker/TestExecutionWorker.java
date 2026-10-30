@@ -1,5 +1,7 @@
 package org.folio.factory.testfactory.worker;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
@@ -8,8 +10,6 @@ import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.testfactory.TestFactoryProperties;
 import org.folio.factory.testfactory.artifact.ScriptBundleCodec;
 import org.folio.factory.testfactory.model.ScriptBundle;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.util.FileSystemUtils;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -29,27 +29,20 @@ import java.util.concurrent.TimeUnit;
  * runs in advisory mode (the document's Phase 1 default) and records the results
  * as NOT_EXECUTED so the pipeline still reaches QA sign-off.
  */
+@RequiredArgsConstructor
+@Slf4j
 public class TestExecutionWorker implements AgentWorker {
 
     public static final String ID = "test-execution-agent";
 
     static final int MAX_CONSOLE_LOG_CHARS = 20_000;
 
-    private static final Logger log = LoggerFactory.getLogger(TestExecutionWorker.class);
     private static final long EXECUTION_TIMEOUT_MINUTES = 15;
 
     private final ScriptBundleCodec bundleCodec;
     private final FrontmatterCodec frontmatterCodec;
     private final TestFactoryProperties properties;
     private final JsonMapper jsonMapper;
-
-    public TestExecutionWorker(ScriptBundleCodec bundleCodec, FrontmatterCodec frontmatterCodec,
-                               TestFactoryProperties properties, JsonMapper jsonMapper) {
-        this.bundleCodec = bundleCodec;
-        this.frontmatterCodec = frontmatterCodec;
-        this.properties = properties;
-        this.jsonMapper = jsonMapper;
-    }
 
     @Override
     public String id() {

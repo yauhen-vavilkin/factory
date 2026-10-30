@@ -2,6 +2,8 @@ package org.folio.factory.devfactory.feedback;
 
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
@@ -20,6 +22,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 /** One feedback attempt. Saves partial edits before returning a question or failure. */
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class FeedbackCodingAttempt {
     private final CandidateFreezer freezer;
     private final CodingRuntime coding;
@@ -27,21 +30,6 @@ final class FeedbackCodingAttempt {
     private final DevRuntimeProperties runtime;
     private final AttemptPricing pricing;
     private final CodingTranscripts transcripts;
-
-    FeedbackCodingAttempt(
-            CandidateFreezer freezer,
-            CodingRuntime coding,
-            DockerWorkloads docker,
-            DevRuntimeProperties runtime,
-            AttemptPricing pricing,
-            CodingTranscripts transcripts) {
-        this.freezer = freezer;
-        this.coding = coding;
-        this.docker = docker;
-        this.runtime = runtime;
-        this.pricing = pricing;
-        this.transcripts = transcripts;
-    }
 
     CodingOutcome run(
             AgentContext context,

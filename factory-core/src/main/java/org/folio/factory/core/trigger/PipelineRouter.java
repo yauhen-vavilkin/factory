@@ -1,5 +1,6 @@
 package org.folio.factory.core.trigger;
 
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.limits.DailyBudgetExceededException;
@@ -10,8 +11,6 @@ import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.TriggerContract;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
@@ -40,9 +39,8 @@ import java.util.UUID;
  * rejects oversize webhook bodies before any execution is persisted.</p>
  */
 @Component
+@Slf4j
 public class PipelineRouter {
-
-    private static final Logger log = LoggerFactory.getLogger(PipelineRouter.class);
 
     private final FlowRegistry flowRegistry;
     private final StateManager stateManager;

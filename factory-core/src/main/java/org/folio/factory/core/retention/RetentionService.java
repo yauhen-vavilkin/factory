@@ -1,8 +1,8 @@
 package org.folio.factory.core.retention;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.domain.ExecutionStatus;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -25,6 +25,8 @@ import java.util.UUID;
  */
 @Component
 @ConditionalOnProperty(prefix = "factory.retention", name = "enabled", havingValue = "true", matchIfMissing = false)
+@RequiredArgsConstructor
+@Slf4j
 public class RetentionService {
 
     /**
@@ -37,18 +39,9 @@ public class RetentionService {
             ExecutionStatus.REJECTED.name(),
             ExecutionStatus.CANCELLED.name());
 
-    private static final Logger log = LoggerFactory.getLogger(RetentionService.class);
-
     private final RetentionRepository repository;
     private final RetentionPurger purger;
     private final RetentionProperties properties;
-
-    public RetentionService(RetentionRepository repository, RetentionPurger purger,
-                            RetentionProperties properties) {
-        this.repository = repository;
-        this.purger = purger;
-        this.properties = properties;
-    }
 
     @Scheduled(cron = "${factory.retention.run-cron:0 30 3 * * *}")
     public void purgeExpired() {

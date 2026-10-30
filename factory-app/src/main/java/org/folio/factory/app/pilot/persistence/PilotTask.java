@@ -8,6 +8,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import lombok.Getter;
+import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -20,6 +22,7 @@ import java.util.UUID;
  * latest bounded intake view, kept separate from the approved snapshots stored
  * on attempts.
  */
+@Getter
 @Entity
 @Table(name = "pilot_task")
 public class PilotTask {
@@ -34,32 +37,41 @@ public class PilotTask {
     private String issueId;
 
     @Column(name = "display_key", nullable = false, length = 64)
+    @Setter
     private String displayKey;
 
     @Column(nullable = false, length = 500)
+    @Setter
     private String title;
 
     @Column(name = "project_key", nullable = false, length = 64)
+    @Setter
     private String projectKey;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "issue_snapshot", nullable = false)
+    @Setter
     private String issueSnapshot;
 
     @Column(name = "source_revision", nullable = false, length = 64)
+    @Setter
     private String sourceRevision;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
+    @Setter
     private Eligibility eligibility;
 
     @Column(name = "routing_reason", nullable = false, length = 500)
+    @Setter
     private String routingReason;
 
     @Column(name = "in_scope", nullable = false)
+    @Setter
     private boolean inScope = true;
 
     @Column(name = "jira_created_at")
+    @Setter
     private Instant jiraCreatedAt;
 
     @Version
@@ -95,102 +107,6 @@ public class PilotTask {
     @PreUpdate
     void onUpdate() {
         this.updatedAt = Instant.now();
-    }
-
-    public UUID getId() {
-        return id;
-    }
-
-    public String getJiraInstance() {
-        return jiraInstance;
-    }
-
-    public String getIssueId() {
-        return issueId;
-    }
-
-    public String getDisplayKey() {
-        return displayKey;
-    }
-
-    public void setDisplayKey(String displayKey) {
-        this.displayKey = displayKey;
-    }
-
-    public String getTitle() {
-        return title;
-    }
-
-    public void setTitle(String title) {
-        this.title = title;
-    }
-
-    public String getProjectKey() {
-        return projectKey;
-    }
-
-    public void setProjectKey(String projectKey) {
-        this.projectKey = projectKey;
-    }
-
-    public String getIssueSnapshot() {
-        return issueSnapshot;
-    }
-
-    public void setIssueSnapshot(String issueSnapshot) {
-        this.issueSnapshot = issueSnapshot;
-    }
-
-    public String getSourceRevision() {
-        return sourceRevision;
-    }
-
-    public void setSourceRevision(String sourceRevision) {
-        this.sourceRevision = sourceRevision;
-    }
-
-    public Eligibility getEligibility() {
-        return eligibility;
-    }
-
-    public void setEligibility(Eligibility eligibility) {
-        this.eligibility = eligibility;
-    }
-
-    public String getRoutingReason() {
-        return routingReason;
-    }
-
-    public void setRoutingReason(String routingReason) {
-        this.routingReason = routingReason;
-    }
-
-    public boolean isInScope() {
-        return inScope;
-    }
-
-    public void setInScope(boolean inScope) {
-        this.inScope = inScope;
-    }
-
-    public Instant getJiraCreatedAt() {
-        return jiraCreatedAt;
-    }
-
-    public void setJiraCreatedAt(Instant jiraCreatedAt) {
-        this.jiraCreatedAt = jiraCreatedAt;
-    }
-
-    public long getVersion() {
-        return version;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
     }
 
     public enum Eligibility {

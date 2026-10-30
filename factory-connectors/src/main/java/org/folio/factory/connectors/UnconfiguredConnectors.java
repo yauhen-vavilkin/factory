@@ -1,5 +1,7 @@
 package org.folio.factory.connectors;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.connectors.github.GitHubConnector;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.jira.JiraIssue;
@@ -15,10 +17,8 @@ import java.util.Map;
  * with a message naming the exact environment variables to set, so pipelines and
  * operators immediately know what is missing.
  */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class UnconfiguredConnectors {
-
-    private UnconfiguredConnectors() {
-    }
 
     public static final class Jira implements JiraConnector, JiraSourceConnector, ConnectorHealth {
 

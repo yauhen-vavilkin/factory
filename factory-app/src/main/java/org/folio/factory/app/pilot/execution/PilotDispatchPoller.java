@@ -1,5 +1,6 @@
 package org.folio.factory.app.pilot.execution;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -13,13 +14,10 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @ConditionalOnProperty(prefix = "factory.pilot.execution", name = "enabled", havingValue = "true")
+@RequiredArgsConstructor
 public class PilotDispatchPoller {
 
     private final PilotDispatcher dispatcher;
-
-    public PilotDispatchPoller(PilotDispatcher dispatcher) {
-        this.dispatcher = dispatcher;
-    }
 
     @Scheduled(fixedDelayString = "${factory.pilot.execution.dispatch-interval-ms:30000}")
     public void poll() {

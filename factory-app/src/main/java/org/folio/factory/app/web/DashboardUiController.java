@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.TokenUsage;
 import org.folio.factory.app.web.dashboard.DashboardStatsService;
@@ -44,6 +45,7 @@ import java.util.UUID;
  * the same beans as their REST counterparts.
  */
 @Controller
+@RequiredArgsConstructor
 public class DashboardUiController {
 
     private static final int DEFAULT_DAYS = 14;
@@ -59,23 +61,6 @@ public class DashboardUiController {
     private final AuditEventRepository audit;
     private final JsonMapper jsonMapper;
     private final DashboardStatsService dashboardStats;
-
-    public DashboardUiController(List<ConnectorHealth> connectors, FlowRegistry flowRegistry,
-                                 EngineProperties engineProperties,
-                                 FlowRegistryEntryRepository flowRegistryEntries,
-                                 PipelineExecutionRepository executions, HitlReviewRepository reviews,
-                                 AuditEventRepository audit, JsonMapper jsonMapper,
-                                 DashboardStatsService dashboardStats) {
-        this.connectors = connectors;
-        this.flowRegistry = flowRegistry;
-        this.engineProperties = engineProperties;
-        this.flowRegistryEntries = flowRegistryEntries;
-        this.executions = executions;
-        this.reviews = reviews;
-        this.audit = audit;
-        this.jsonMapper = jsonMapper;
-        this.dashboardStats = dashboardStats;
-    }
 
     @GetMapping("/")
     public String dashboard(@RequestParam(name = "days", defaultValue = "14") int days, Model model) {

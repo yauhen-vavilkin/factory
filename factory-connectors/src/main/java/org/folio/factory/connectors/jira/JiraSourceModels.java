@@ -1,5 +1,7 @@
 package org.folio.factory.connectors.jira;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 import java.time.Instant;
 import java.util.List;
 
@@ -7,10 +9,8 @@ import java.util.List;
  * Immutable discovery models for My tasks. Identity is anchored to
  * the immutable Jira issue id; the issue key is display data that can change.
  */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class JiraSourceModels {
-
-    private JiraSourceModels() {
-    }
 
     public record DiscoveredIssue(
             String id,

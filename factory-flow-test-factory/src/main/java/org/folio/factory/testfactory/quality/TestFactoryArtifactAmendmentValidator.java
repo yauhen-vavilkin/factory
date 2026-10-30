@@ -1,5 +1,6 @@
 package org.folio.factory.testfactory.quality;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.artifact.ArtifactFormatException;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.hitl.ArtifactAmendmentValidator;
@@ -14,6 +15,7 @@ import java.util.Set;
  * breaks it must be rejected at decision time (422), not discovered mid-pipeline.
  */
 @Component
+@RequiredArgsConstructor
 public class TestFactoryArtifactAmendmentValidator implements ArtifactAmendmentValidator {
 
     private static final Set<String> FRONTMATTER_ARTIFACTS =
@@ -21,11 +23,6 @@ public class TestFactoryArtifactAmendmentValidator implements ArtifactAmendmentV
 
     private final FrontmatterCodec frontmatterCodec;
     private final ScriptBundleCodec bundleCodec;
-
-    public TestFactoryArtifactAmendmentValidator(FrontmatterCodec frontmatterCodec, ScriptBundleCodec bundleCodec) {
-        this.frontmatterCodec = frontmatterCodec;
-        this.bundleCodec = bundleCodec;
-    }
 
     @Override
     public void validate(String artifactName, String content) {

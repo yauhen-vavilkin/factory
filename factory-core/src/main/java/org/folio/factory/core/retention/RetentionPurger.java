@@ -1,9 +1,9 @@
 package org.folio.factory.core.retention;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.service.AuditLog;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,17 +19,12 @@ import java.util.UUID;
  * self-invocation the proxy would ignore.
  */
 @Service
+@RequiredArgsConstructor
+@Slf4j
 public class RetentionPurger {
-
-    private static final Logger log = LoggerFactory.getLogger(RetentionPurger.class);
 
     private final RetentionRepository repository;
     private final AuditLog auditLog;
-
-    public RetentionPurger(RetentionRepository repository, AuditLog auditLog) {
-        this.repository = repository;
-        this.auditLog = auditLog;
-    }
 
     /**
      * Deletes the root and all descendants: artifacts, then hitl_reviews, then the

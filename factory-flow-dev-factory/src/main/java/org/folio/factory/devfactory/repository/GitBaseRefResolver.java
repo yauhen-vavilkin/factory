@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.repository;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.devfactory.runtime.Processes;
 
@@ -11,6 +12,7 @@ import java.util.regex.Pattern;
  * Native {@code git ls-remote} resolution. Runs without credentials or prompts:
  * supported source repositories are public.
  */
+@RequiredArgsConstructor
 public class GitBaseRefResolver implements BaseRefResolver {
 
     private static final Pattern SHA = Pattern.compile("[0-9a-f]{40}|[0-9a-f]{64}");
@@ -18,10 +20,6 @@ public class GitBaseRefResolver implements BaseRefResolver {
     private static final int MAX_ERROR_CHARS = 500;
 
     private final String gitBaseUrl;
-
-    public GitBaseRefResolver(String gitBaseUrl) {
-        this.gitBaseUrl = gitBaseUrl;
-    }
 
     @Override
     public Optional<String> resolve(String sourceRepo, String branch) {

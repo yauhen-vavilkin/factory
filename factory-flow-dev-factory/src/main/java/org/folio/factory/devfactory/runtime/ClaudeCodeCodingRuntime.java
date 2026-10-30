@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.runtime;
 
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -12,16 +13,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** One stateless print-mode session in the existing Factory-owned coding workload. */
+@Slf4j
 public final class ClaudeCodeCodingRuntime implements CodingRuntime {
     public static final String VERSION = "2.1.287";
     private static final String INPUT = "/tmp/factory-claude";
     private static final String TOOLS = "Bash,Read,Edit,Write,Glob,Grep,WebFetch";
     private static final JsonMapper JSON = JsonMapper.builder().build();
-    private static final Logger log = LoggerFactory.getLogger(ClaudeCodeCodingRuntime.class);
     private final DevRuntimeProperties.ClaudeCode config;
     private final RunProfiles profiles;
 

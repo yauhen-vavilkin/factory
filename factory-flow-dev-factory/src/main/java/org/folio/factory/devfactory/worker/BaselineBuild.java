@@ -1,5 +1,7 @@
 package org.folio.factory.devfactory.worker;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
@@ -13,12 +15,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /** Executes the trusted starting build and reports its diagnostic evidence. */
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class BaselineBuild {
     private final DevRuntimeProperties runtime;
-
-    BaselineBuild(DevRuntimeProperties runtime) {
-        this.runtime = runtime;
-    }
 
     Result run(
             DockerWorkloads.Workload baseline,

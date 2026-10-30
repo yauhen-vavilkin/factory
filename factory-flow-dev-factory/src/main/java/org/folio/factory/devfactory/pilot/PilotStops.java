@@ -1,5 +1,7 @@
 package org.folio.factory.devfactory.pilot;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 import java.util.Set;
 
 /**
@@ -7,6 +9,7 @@ import java.util.Set;
  * classified by the application's outcome service, so both sides read one
  * authority instead of duplicating string knowledge.
  */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class PilotStops {
 
     /** The whole-attempt budget was exhausted before a stage could run. */
@@ -18,9 +21,6 @@ public final class PilotStops {
     /** Coding-runtime failure codes that indicate a shared provider or runtime outage. */
     public static final Set<String> SHARED_PROVIDER_FAILURE_CODES =
             Set.of("PROVIDER_FAILED", "RUNTIME_ERROR", "RUNTIME_VERSION");
-
-    private PilotStops() {
-    }
 
     /** True when the recorded failure looks like one shared provider/auth/environment outage. */
     public static boolean sharedFailure(String reason, String codingFailureCode) {

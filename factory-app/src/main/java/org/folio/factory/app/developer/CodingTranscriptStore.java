@@ -1,8 +1,7 @@
 package org.folio.factory.app.developer;
 
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.devfactory.runtime.CodingTranscripts;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -28,10 +27,10 @@ import java.util.UUID;
  * transcript; it never fails the attempt.
  */
 @Component
+@Slf4j
 public class CodingTranscriptStore implements CodingTranscripts {
     static final int BATCH_SIZE = 20;
     static final Duration BATCH_AGE = Duration.ofSeconds(2);
-    private static final Logger log = LoggerFactory.getLogger(CodingTranscriptStore.class);
 
     private final JdbcClient jdbc;
     private final TransactionTemplate transactions;

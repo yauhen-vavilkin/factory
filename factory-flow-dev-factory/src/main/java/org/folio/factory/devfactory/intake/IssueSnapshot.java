@@ -1,5 +1,7 @@
 package org.folio.factory.devfactory.intake;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.connectors.jira.JiraIssue;
 import tools.jackson.databind.JsonNode;
 
@@ -14,6 +16,7 @@ import java.util.regex.Pattern;
  * listed in {@code truncated}; linked issues are read from the issue itself only,
  * never fetched.
  */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class IssueSnapshot {
 
     public static final Pattern ISSUE_KEY = Pattern.compile("[A-Z][A-Z0-9_]{0,31}-[1-9][0-9]{0,8}");
@@ -24,9 +27,6 @@ public final class IssueSnapshot {
     static final int MAX_NAME = 100;
     static final int MAX_COMMENTS = 10;
     static final int MAX_COMMENT = 2_000;
-
-    private IssueSnapshot() {
-    }
 
     public static String projectKey(String issueKey) {
         return issueKey.substring(0, issueKey.lastIndexOf('-'));

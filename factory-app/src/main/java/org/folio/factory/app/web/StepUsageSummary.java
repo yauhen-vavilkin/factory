@@ -1,5 +1,7 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import tools.jackson.databind.JsonNode;
@@ -12,12 +14,9 @@ import java.util.List;
 import java.util.Map;
 
 /** Step metrics for technical rows and totals from flows without attempt-level accounting. */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 final class StepUsageSummary {
     private final Map<String, ReportedUsage> usageByStep;
-
-    private StepUsageSummary(Map<String, ReportedUsage> usageByStep) {
-        this.usageByStep = usageByStep;
-    }
 
     boolean incomplete() {
         return usageByStep.values().stream().anyMatch(ReportedUsage::usageIncomplete);

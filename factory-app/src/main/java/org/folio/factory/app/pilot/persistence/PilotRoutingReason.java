@@ -1,16 +1,17 @@
 package org.folio.factory.app.pilot.persistence;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
+
 /**
  * The eligible routing-reason form shared by discovery (producer) and the
  * attempt policy (parser), so the admitted repository key stored in
  * {@code pilot_task.routing_reason} cannot drift out of the stored text.
  */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class PilotRoutingReason {
 
     public static final String ELIGIBLE_PREFIX = "repository ";
-
-    private PilotRoutingReason() {
-    }
 
     /** The repository key of an eligible reason, or {@code null} for any other form. */
     public static String eligibleRepositoryKey(String routingReason) {

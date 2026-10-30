@@ -1,5 +1,7 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEvent;
@@ -21,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class DeveloperExecutionView {
     private static final String STARTING_BUILD_NETWORK_FAILURE =
             "Starting build hit a network/download failure";
@@ -45,10 +48,6 @@ final class DeveloperExecutionView {
             new Phase("Verify changes", 6, 6, List.of("verify")),
             new Phase("Create pull request", 7, 7, List.of("publish")));
     private final JsonMapper json;
-
-    DeveloperExecutionView(JsonMapper json) {
-        this.json = json;
-    }
 
     String productStatus(PipelineExecution execution, List<Artifact> artifacts) {
         var latest = latestArtifacts(artifacts);

@@ -1,5 +1,7 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -8,13 +10,10 @@ import java.time.LocalDate;
 import java.util.Collection;
 
 @Component
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class DeveloperCostEstimator {
     private static final BigDecimal MILLION = BigDecimal.valueOf(1_000_000);
     private final DeveloperPricingProperties properties;
-
-    DeveloperCostEstimator(DeveloperPricingProperties properties) {
-        this.properties = properties;
-    }
 
     Estimate estimate(Collection<Usage> usages) {
         BigDecimal total = BigDecimal.ZERO;

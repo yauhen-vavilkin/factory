@@ -1,20 +1,19 @@
 package org.folio.factory.core.engine;
 
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.agent.*;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.metrics.EngineMetrics;
 import org.folio.factory.core.registry.model.*;
 import org.springframework.stereotype.Component;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.util.UUID;
 import java.util.function.Supplier;
 
 /** Executes a single durable phase; the existing poller owns further scheduling. */
 @Component
+@Slf4j
 public class ResumableAgentDriver {
-    private static final Logger log = LoggerFactory.getLogger(ResumableAgentDriver.class);
     private final AgentWorkerRegistry workers;
     private final AgentLeaseHeartbeat heartbeat;
     private final ResumableStepTransactions transactions;

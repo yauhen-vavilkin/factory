@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.FlowRegistryEntry;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.registry.model.FlowDescriptor;
@@ -22,15 +23,11 @@ import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/flows")
+@RequiredArgsConstructor
 public class FlowController {
 
     private final FlowRegistry flowRegistry;
     private final FlowRegistryEntryRepository mirror;
-
-    public FlowController(FlowRegistry flowRegistry, FlowRegistryEntryRepository mirror) {
-        this.flowRegistry = flowRegistry;
-        this.mirror = mirror;
-    }
 
     public record TriggerInfo(String eventType, Map<String, String> filters) {
     }

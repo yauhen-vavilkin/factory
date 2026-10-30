@@ -1,5 +1,6 @@
 package org.folio.factory.app.web.dashboard;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.web.dashboard.DashboardStats.ConnectorOutcome;
 import org.folio.factory.app.web.dashboard.DashboardStats.DailyCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.FlowStatusCount;
@@ -25,13 +26,10 @@ import java.util.List;
  * JPQL, and the project is Postgres-only.
  */
 @Service
+@RequiredArgsConstructor
 public class DashboardStatsService {
 
     private final JdbcClient jdbc;
-
-    public DashboardStatsService(JdbcClient jdbc) {
-        this.jdbc = jdbc;
-    }
 
     public DashboardStats compute(int days) {
         OffsetDateTime since = since(days);

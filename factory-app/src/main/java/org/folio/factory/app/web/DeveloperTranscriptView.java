@@ -1,5 +1,7 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.app.developer.CodingTranscriptStore;
 import tools.jackson.databind.JsonNode;
 
@@ -11,9 +13,8 @@ import java.util.Map;
 import java.util.UUID;
 
 /** Display rows of the transcript page: one block per coding run, each tool call next to its result. */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 final class DeveloperTranscriptView {
-    private DeveloperTranscriptView() {
-    }
 
     static List<Map<String, Object>> runs(List<CodingTranscriptStore.Entry> entries) {
         Map<UUID, Map<String, Object>> runs = new LinkedHashMap<>();

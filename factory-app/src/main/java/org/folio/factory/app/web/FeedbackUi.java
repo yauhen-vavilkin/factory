@@ -2,6 +2,7 @@ package org.folio.factory.app.web;
 
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -23,12 +24,9 @@ import java.util.Set;
 import java.util.TreeMap;
 
 @Component
+@RequiredArgsConstructor
 public class FeedbackUi {
     private final FeedbackActions actions;
-
-    public FeedbackUi(FeedbackActions actions) {
-        this.actions = actions;
-    }
 
     public void populate(
             PipelineExecution execution,

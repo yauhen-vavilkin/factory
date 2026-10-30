@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.hitl.HitlDecision;
@@ -32,6 +33,7 @@ import java.util.UUID;
  * service the REST API uses.
  */
 @Controller
+@RequiredArgsConstructor
 public class ReviewUiController {
 
     private static final String ARTIFACT_FIELD_PREFIX = "artifact:";
@@ -42,13 +44,6 @@ public class ReviewUiController {
     private final HitlReviewRepository reviews;
     private final HitlDecisionService decisionService;
     private final JsonMapper jsonMapper;
-
-    public ReviewUiController(HitlReviewRepository reviews, HitlDecisionService decisionService,
-                              JsonMapper jsonMapper) {
-        this.reviews = reviews;
-        this.decisionService = decisionService;
-        this.jsonMapper = jsonMapper;
-    }
 
     @GetMapping("/reviews")
     public String reviews(@RequestParam(name = "status", defaultValue = "PENDING") String status,

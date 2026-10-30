@@ -1,5 +1,7 @@
 package org.folio.factory.app.pilot;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -9,10 +11,8 @@ import java.util.HexFormat;
  * SHA-256 hex helper shared by the pilot's fingerprint and identity hashes
  * (source authority, task input/destination, runtime identity).
  */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class Digests {
-
-    private Digests() {
-    }
 
     public static String sha256Hex(String value) {
         try {

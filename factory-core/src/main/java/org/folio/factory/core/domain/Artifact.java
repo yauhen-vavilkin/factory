@@ -4,6 +4,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -12,6 +13,7 @@ import java.util.UUID;
  * Immutable, versioned flow document. Instances are insert-only: amendments create
  * a new row with an incremented version, never an update.
  */
+@Getter
 @Entity
 @Table(name = "artifact")
 public class Artifact {
@@ -59,39 +61,4 @@ public class Artifact {
         this.createdAt = Instant.now();
     }
 
-    public UUID getId() {
-        return id;
-    }
-
-    public UUID getExecutionId() {
-        return executionId;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public int getVersion() {
-        return version;
-    }
-
-    public String getContentType() {
-        return contentType;
-    }
-
-    public String getContent() {
-        return content;
-    }
-
-    public String getSha256() {
-        return sha256;
-    }
-
-    public String getCreatedBy() {
-        return createdBy;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
 }

@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.worker;
 
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
@@ -23,8 +24,6 @@ import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.runtime.RunProfiles;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -41,8 +40,8 @@ import java.util.UUID;
  * Executes initial-development attempts and their explicit clarification continuation. Unlike PR
  * feedback, only completed attempts export a candidate.
  */
+@Slf4j
 public final class InitialCodingAttempt {
-    private static final Logger log = LoggerFactory.getLogger(InitialCodingAttempt.class);
     private final DevFactoryProperties properties;
     private final DevRuntimeProperties runtime;
     private final DockerWorkloads docker;

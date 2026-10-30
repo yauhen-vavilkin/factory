@@ -4,6 +4,9 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -14,8 +17,10 @@ import java.util.UUID;
  * authoritative; lost push or pull-request responses are reconciled against it
  * and its rows are never rewritten.
  */
+@Getter
 @Entity
 @Table(name = "pilot_publication_intent")
+@RequiredArgsConstructor(access = AccessLevel.PROTECTED)
 public class PilotPublicationIntent {
 
     @Id
@@ -48,9 +53,6 @@ public class PilotPublicationIntent {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    protected PilotPublicationIntent() {
-    }
-
     public static PilotPublicationIntent of(UUID attemptId, UUID executionId, String repository,
                                             String baseBranch, String headBranch, String baseSha,
                                             String treeSha, String patchSha256) {
@@ -68,43 +70,4 @@ public class PilotPublicationIntent {
         return intent;
     }
 
-    public UUID getId() {
-        return id;
-    }
-
-    public UUID getAttemptId() {
-        return attemptId;
-    }
-
-    public UUID getExecutionId() {
-        return executionId;
-    }
-
-    public String getRepository() {
-        return repository;
-    }
-
-    public String getBaseBranch() {
-        return baseBranch;
-    }
-
-    public String getHeadBranch() {
-        return headBranch;
-    }
-
-    public String getBaseSha() {
-        return baseSha;
-    }
-
-    public String getTreeSha() {
-        return treeSha;
-    }
-
-    public String getPatchSha256() {
-        return patchSha256;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
 }

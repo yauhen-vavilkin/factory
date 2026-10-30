@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.llm.AbstractLlmAgentWorker;
 import org.folio.factory.agents.prompt.PromptCatalog;
 import org.folio.factory.core.agent.AgentWorker;
@@ -46,6 +47,7 @@ import java.util.UUID;
  * {@link PipelineRouter} the REST trigger API uses.
  */
 @Controller
+@RequiredArgsConstructor
 public class FlowUiController {
 
     private static final String SAMPLES_PATTERN = "classpath:samples/*.json";
@@ -58,16 +60,6 @@ public class FlowUiController {
     private final JsonMapper jsonMapper;
     private final PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
     private volatile Map<String, List<Map<String, Object>>> samplesByFlow;
-
-    public FlowUiController(FlowRegistry flowRegistry, FlowRegistryEntryRepository mirror, PipelineRouter router,
-                            AgentWorkerRegistry workers, PromptCatalog promptCatalog, JsonMapper jsonMapper) {
-        this.flowRegistry = flowRegistry;
-        this.mirror = mirror;
-        this.router = router;
-        this.workers = workers;
-        this.promptCatalog = promptCatalog;
-        this.jsonMapper = jsonMapper;
-    }
 
     @GetMapping("/flows")
     public String flows(Model model) {
