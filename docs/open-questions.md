@@ -21,7 +21,8 @@ Source: [manual run review, 2026-10-27](superpowers/plans/2026-10-27-manual-run-
   could send the secret elsewhere, so it stays off. So item 12 of the
   [developer flow fixes](superpowers/specs/2026-10-27-developer-flow-fixes.md) is met only
   partly: the CLI does not load the files, and a prompt line asks the agent to read and
-  follow them, which the agent can skip. The prompt is shared, so Pi prompts got this line
+  follow them, which the agent can skip (in the GLM-5.3 run of MGRAPPS-120 on 2026-10-28 it
+  read `AGENTS.md` as its first step). The prompt is shared, so Pi prompts got this line
   too (and, as the spec asks, the "Factory's rules win" line and the operator instructions
   block). Option: Factory reads `CLAUDE.md`, or `AGENTS.md` when there is none, from the
   frozen workspace and passes it in itself (`--append-system-prompt` or a titled prompt
