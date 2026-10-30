@@ -83,16 +83,7 @@ public class PilotAdmissionService {
         Map<UUID, String> rejected = new LinkedHashMap<>();
         Map<String, String> pushProblems = new HashMap<>();
         for (PilotCommands.Selection selection : run.selections()) {
-            if (attempts.findByRequestId(attemptRequestId(requestId, selection.taskId())).isPresent()) {
-                admitted.add(selection.taskId());
-                continue;
-            }
-            String reason = tasks.findById(selection.taskId())
-                    .map(task -> pushProblem(task.getRoutingReason(), pushProblems))
-                    .orElse(null);
-            if (reason == null) {
-                reason = admitSelection(requestId, selection, run.runSettings());
-            }
+            String reason = admitSelected(requestId, selection, run.runSettings(), pushProblems);
             if (reason == null) {
                 admitted.add(selection.taskId());
             } else {
@@ -105,6 +96,18 @@ public class PilotAdmissionService {
             dispatcher.dispatchNextQuietly();
         }
         return new AdmissionResult(admitted, rejected);
+    }
+
+    /** Null when the task is admitted, now or by an earlier request with the same id; the refusal otherwise. */
+    private String admitSelected(String requestId, PilotCommands.Selection selection, String runSettings,
+                                 Map<String, String> pushProblems) {
+        if (attempts.findByRequestId(attemptRequestId(requestId, selection.taskId())).isPresent()) {
+            return null;
+        }
+        String pushProblem = tasks.findById(selection.taskId())
+                .map(task -> pushProblem(task.getRoutingReason(), pushProblems))
+                .orElse(null);
+        return pushProblem != null ? pushProblem : admitSelection(requestId, selection, runSettings);
     }
 
     /**
@@ -125,6 +128,19 @@ public class PilotAdmissionService {
         } catch (IllegalArgumentException e) {
             return new KeyResult(null, null, e.getMessage());
         }
+        var fetched = fetch(issueKey);
+        var problem = fetched.problem() != null ? fetched.problem() : routingProblem(fetched.issue());
+        if (problem != null) {
+            return new KeyResult(issueKey, null, problem);
+        }
+        var result = admitByKey(run, issueKey, fetched.issue(), runSettings);
+        if (result.problem() == null) {
+            dispatcher.dispatchNextQuietly();
+        }
+        return result;
+    }
+
+    private FetchedIssue fetch(String issueKey) {
         DiscoveredIssue issue;
         try {
             issue = discovery.fetch(issueKey);
@@ -132,33 +148,32 @@ public class PilotAdmissionService {
             issue = null;
         } catch (RestClientResponseException e) {
             // The response body may be a whole HTML error page; the status says enough.
-            return new KeyResult(issueKey, null, "Jira could not be read: HTTP " + e.getStatusCode().value());
+            return FetchedIssue.refused("Jira could not be read: HTTP " + e.getStatusCode().value());
         } catch (RuntimeException e) {
-            return new KeyResult(issueKey, null, "Jira could not be read: " + e.getMessage());
+            return FetchedIssue.refused("Jira could not be read: " + e.getMessage());
         }
         if (issue == null) {
-            return new KeyResult(issueKey, null, "Jira has no task " + issueKey + " that Factory can read");
+            return FetchedIssue.refused("Jira has no task " + issueKey + " that Factory can read");
         }
+        return new FetchedIssue(issue, null);
+    }
+
+    /** Null when the issue routes to a repository the token can push to; the refusal otherwise. */
+    private String routingProblem(DiscoveredIssue issue) {
         PilotDiscoveryService.Routing routing = discovery.routing(issue);
         if (routing.eligibility() != PilotTask.Eligibility.ELIGIBLE) {
-            return new KeyResult(issueKey, null, routing.reason());
+            return routing.reason();
         }
-        String pushProblem = pushProblem(routing.reason(), new HashMap<>());
-        if (pushProblem != null) {
-            return new KeyResult(issueKey, null, pushProblem);
-        }
-        DiscoveredIssue fetched = issue;
-        KeyResult result;
+        return pushProblem(routing.reason(), new HashMap<>());
+    }
+
+    private KeyResult admitByKey(String requestId, String issueKey, DiscoveredIssue issue, String runSettings) {
         try {
-            result = transactions.execute(status -> admitKey(run, fetched, runSettings));
+            return transactions.execute(status -> admitKey(requestId, issue, runSettings));
         } catch (DataIntegrityViolationException | OptimisticLockingFailureException e) {
             return new KeyResult(issueKey, null,
                     "Jira was being scanned at the same moment; add " + issueKey + " again");
         }
-        if (result.problem() == null) {
-            dispatcher.dispatchNextQuietly();
-        }
-        return result;
     }
 
     private KeyResult admitKey(String requestId, DiscoveredIssue issue, String runSettings) {
@@ -203,6 +218,18 @@ public class PilotAdmissionService {
         if (task == null) {
             return "task " + selection.taskId() + " no longer exists";
         }
+        String refusal = selectionRefusal(task, selection);
+        if (refusal != null) {
+            return refusal;
+        }
+        reserve(task, PilotAttempt.Kind.INITIAL, attemptRequestId(requestId, task.getId()),
+                PilotAttempt.AdmittedVia.MANUAL, selection.inputFingerprint(), selection.destinationFingerprint(),
+                runSettings);
+        return null;
+    }
+
+    /** Null when the locked task still matches the selection and can get a first attempt; the reason otherwise. */
+    private String selectionRefusal(PilotTask task, PilotCommands.Selection selection) {
         if (task.getVersion() != selection.expectedVersion()
                 || !matches(selection.inputFingerprint(), inputFingerprint(task))
                 || !matches(selection.destinationFingerprint(), destinationFingerprint(task))) {
@@ -221,9 +248,6 @@ public class PilotAdmissionService {
                 .anyMatch(attempt -> attempt.getState() != PilotAttempt.State.WITHDRAWN)) {
             return "task already has an attempt; use Retry";
         }
-        reserve(task, PilotAttempt.Kind.INITIAL, attemptRequestId(requestId, task.getId()),
-                PilotAttempt.AdmittedVia.MANUAL, selection.inputFingerprint(), selection.destinationFingerprint(),
-                runSettings);
         return null;
     }
 
@@ -292,5 +316,12 @@ public class PilotAdmissionService {
     /** Identity of the task's routing decision; a re-mapped project yields a different value. */
     public static String destinationFingerprint(PilotTask task) {
         return Digests.sha256Hex(task.getRoutingReason());
+    }
+
+    /** The issue Jira returned for a run by key, or why it could not be read. */
+    private record FetchedIssue(DiscoveredIssue issue, String problem) {
+        static FetchedIssue refused(String problem) {
+            return new FetchedIssue(null, problem);
+        }
     }
 }
