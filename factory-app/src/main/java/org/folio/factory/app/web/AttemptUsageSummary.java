@@ -128,91 +128,98 @@ public final class AttemptUsageSummary {
 
         Totals totals(boolean live) {
             var models = new LinkedHashSet<String>();
-            var totals = new TreeMap<String, BigDecimal>();
             var sources = new LinkedHashSet<String>();
-            long tokens = 0;
-            var breakdown = new EnumMap<AttemptCharge.Category, Long>(AttemptCharge.Category.class);
-            boolean partial = legacyUnknown;
-            boolean provisional = false;
-            boolean tokensReported = false;
-            for (var entry : attempts.entrySet()) {
-                var a = entry.getValue();
+            var sum = new ChargeSum(legacyUnknown);
+            for (var a : attempts.values()) {
                 if (!a.model.isBlank()) models.add(a.model);
-                String source = a.rate.path("source").asString("");
-                String asOf = a.rate.path("asOf").asString("");
-                if (!source.isBlank())
-                    sources.add(asOf.isBlank() ? source : source + " (" + asOf + ")");
-                var charge = AttemptCharge.calculate(a.usage, a.rate, a.complete);
-                provisional |= live && !a.complete;
-                tokensReported |= !charge.breakdown().isEmpty();
-                tokens += charge.tokens();
-                charge.breakdown()
-                        .forEach((category, count) -> breakdown.merge(category, count, Long::sum));
-                // Interrupted attempts retain their observed subtotal, even when pricing is
-                // incomplete.
-                if (charge.subtotalPresent())
-                    totals.merge(charge.currency(), charge.cost(), BigDecimal::add);
-                if (!charge.known()) partial = true;
+                var source = rateSource(a.rate);
+                if (!source.isBlank()) sources.add(source);
+                sum.add(AttemptCharge.calculate(a.usage, a.rate, a.complete), live && !a.complete);
             }
             return new Totals(
                     !attempts.isEmpty() || legacyUnknown,
-                    tokens,
-                    tokensReported,
-                    Collections.unmodifiableMap(breakdown),
-                    Collections.unmodifiableSortedMap(totals),
-                    partial,
-                    provisional,
+                    sum.tokens,
+                    sum.tokensReported,
+                    Collections.unmodifiableMap(sum.breakdown),
+                    Collections.unmodifiableSortedMap(sum.costs),
+                    sum.partial,
+                    sum.provisional,
                     attempts.size(),
                     List.copyOf(models),
                     List.copyOf(sources));
         }
 
+        /** Blank when the rate names no source. */
+        private static String rateSource(JsonNode rate) {
+            var source = rate.path("source").asString("");
+            var asOf = rate.path("asOf").asString("");
+            if (source.isBlank() || asOf.isBlank()) {
+                return source;
+            }
+            return source + " (" + asOf + ")";
+        }
+
         Map<String, Object> summary(boolean live) {
             var t = totals(live);
-            String cost =
-                    t.costByCurrency().entrySet().stream()
-                            .map(
-                                    e ->
-                                            e.getValue()
-                                                            .setScale(6, RoundingMode.HALF_UP)
-                                                            .stripTrailingZeros()
-                                                            .toPlainString()
-                                                    + " "
-                                                    + e.getKey())
-                            .collect(Collectors.joining(" + "));
-            if (cost.isBlank()) cost = t.present() ? "—" : "0";
-            String tokensDisplay = t.tokensReported() || !t.present()
-                    ? UiFormat.count(t.tokens())
-                    : "—";
+            var tokensDisplay = t.tokensReported() || !t.present() ? UiFormat.count(t.tokens()) : "—";
             return Map.of(
-                    "present",
-                    t.present(),
-                    "cost",
-                    cost,
-                    "partial",
-                    t.partial(),
-                    "tokens",
-                    t.tokens(),
-                    "tokensDisplay",
-                    tokensDisplay,
-                    "provisional",
-                    t.provisional(),
-                    "models",
-                    String.join(", ", t.models()),
-                    "attempts",
-                    t.attempts(),
-                    "sources",
-                    t.rateSources(),
-                    "breakdown",
-                    Map.of(
-                            "input",
-                            t.breakdown().getOrDefault(AttemptCharge.Category.INPUT, 0L),
-                            "cacheRead",
-                            t.breakdown().getOrDefault(AttemptCharge.Category.CACHE_READ, 0L),
-                            "cacheWrite",
-                            t.breakdown().getOrDefault(AttemptCharge.Category.CACHE_WRITE, 0L),
-                            "output",
-                            t.breakdown().getOrDefault(AttemptCharge.Category.OUTPUT, 0L)));
+                    "present", t.present(),
+                    "cost", costDisplay(t),
+                    "partial", t.partial(),
+                    "tokens", t.tokens(),
+                    "tokensDisplay", tokensDisplay,
+                    "provisional", t.provisional(),
+                    "models", String.join(", ", t.models()),
+                    "attempts", t.attempts(),
+                    "sources", t.rateSources(),
+                    "breakdown", breakdownCounts(t.breakdown()));
+        }
+
+        private static String costDisplay(Totals t) {
+            var cost = t.costByCurrency().entrySet().stream()
+                    .map(e -> e.getValue().setScale(6, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+                            + " " + e.getKey())
+                    .collect(Collectors.joining(" + "));
+            if (!cost.isBlank()) {
+                return cost;
+            }
+            return t.present() ? "—" : "0";
+        }
+
+        private static Map<String, Long> breakdownCounts(Map<AttemptCharge.Category, Long> breakdown) {
+            return Map.of(
+                    "input", breakdown.getOrDefault(AttemptCharge.Category.INPUT, 0L),
+                    "cacheRead", breakdown.getOrDefault(AttemptCharge.Category.CACHE_READ, 0L),
+                    "cacheWrite", breakdown.getOrDefault(AttemptCharge.Category.CACHE_WRITE, 0L),
+                    "output", breakdown.getOrDefault(AttemptCharge.Category.OUTPUT, 0L));
+        }
+    }
+
+    /** Running sums over the priced attempts of one group. */
+    private static final class ChargeSum {
+        private final Map<AttemptCharge.Category, Long> breakdown = new EnumMap<>(AttemptCharge.Category.class);
+        private final SortedMap<String, BigDecimal> costs = new TreeMap<>();
+        private long tokens;
+        private boolean tokensReported;
+        private boolean partial;
+        private boolean provisional;
+
+        ChargeSum(boolean partial) {
+            this.partial = partial;
+        }
+
+        void add(AttemptCharge charge, boolean provisionalAttempt) {
+            provisional |= provisionalAttempt;
+            tokensReported |= !charge.breakdown().isEmpty();
+            tokens += charge.tokens();
+            charge.breakdown().forEach((category, count) -> breakdown.merge(category, count, Long::sum));
+            // Interrupted attempts retain their observed subtotal, even when pricing is incomplete.
+            if (charge.subtotalPresent()) {
+                costs.merge(charge.currency(), charge.cost(), BigDecimal::add);
+            }
+            if (!charge.known()) {
+                partial = true;
+            }
         }
     }
 
@@ -222,28 +229,28 @@ public final class AttemptUsageSummary {
         for (var e : events) {
             // Only one step is active per execution. HITL and recovery end an abandoned interval.
             if (e.getEventType() == AuditEventType.STEP_STARTED) {
-                if (start != null)
-                    millis += Math.max(0, Duration.between(start, e.getOccurredAt()).toMillis());
+                if (start != null) millis += elapsedMillis(start, e.getOccurredAt());
                 start = e.getOccurredAt();
             }
-            boolean stop =
-                    e.getEventType() == AuditEventType.STEP_COMPLETED
-                            || e.getEventType() == AuditEventType.STEP_FAILED
-                            || e.getEventType() == AuditEventType.HITL_REQUESTED
-                            || e.getEventType() == AuditEventType.EXECUTION_COMPLETED;
-            if (e.getEventType() == AuditEventType.STATE_TRANSITION) {
-                String to =
-                        JSON.readTree(e.getDetail() == null ? "{}" : e.getDetail())
-                                .path("to")
-                                .asString("");
-                stop |= !to.equals("RUNNING");
-            }
-            if (stop && start != null) {
-                millis += Math.max(0, Duration.between(start, e.getOccurredAt()).toMillis());
+            if (endsActiveInterval(e) && start != null) {
+                millis += elapsedMillis(start, e.getOccurredAt());
                 start = null;
             }
         }
-        if (start != null) millis += Math.max(0, Duration.between(start, now).toMillis());
+        if (start != null) millis += elapsedMillis(start, now);
         return millis / 1000;
+    }
+
+    private static boolean endsActiveInterval(AuditEvent event) {
+        return switch (event.getEventType()) {
+            case STEP_COMPLETED, STEP_FAILED, HITL_REQUESTED, EXECUTION_COMPLETED -> true;
+            case STATE_TRANSITION -> !JSON.readTree(event.getDetail() == null ? "{}" : event.getDetail())
+                    .path("to").asString("").equals("RUNNING");
+            default -> false;
+        };
+    }
+
+    private static long elapsedMillis(Instant start, Instant end) {
+        return Math.max(0, Duration.between(start, end).toMillis());
     }
 }
