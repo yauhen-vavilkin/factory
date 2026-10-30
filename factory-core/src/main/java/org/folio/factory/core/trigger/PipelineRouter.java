@@ -82,27 +82,30 @@ public class PipelineRouter {
         List<FlowDescriptor> toCreate = new ArrayList<>();
         for (FlowDescriptor flow : flowRegistry.all()) {
             if (matches(flow, event) && hasRequiredInputs(flow, event.payload())) {
-                Optional<PipelineExecution> existing = recentDuplicate(flow, event, dedupKey);
-                if (existing.isPresent()) {
-                    created.add(existing.get().getId());
-                } else {
-                    toCreate.add(flow);
-                }
+                recentDuplicate(flow, event, dedupKey).ifPresentOrElse(
+                        existing -> created.add(existing.getId()), () -> toCreate.add(flow));
             }
         }
         if (!toCreate.isEmpty()) {
-            enforceDailyBudget(toCreate);
-            for (FlowDescriptor flow : toCreate) {
-                requireReady(flow.id(), event.payload());
-            }
-            for (FlowDescriptor flow : toCreate) {
-                created.add(create(flow, event, dedupKey).getId());
-            }
+            created.addAll(createAll(toCreate, event, dedupKey));
         }
         if (created.isEmpty()) {
             log.debug("No flow matched trigger event type '{}' from {}", event.type(), event.source());
         }
         return created;
+    }
+
+    /** The budget and every flow's readiness are checked before the first execution is created. */
+    private List<UUID> createAll(List<FlowDescriptor> flows, TriggerEvent event, String dedupKey) {
+        enforceDailyBudget(flows);
+        for (FlowDescriptor flow : flows) {
+            requireReady(flow.id(), event.payload());
+        }
+        List<UUID> ids = new ArrayList<>();
+        for (FlowDescriptor flow : flows) {
+            ids.add(create(flow, event, dedupKey).getId());
+        }
+        return ids;
     }
 
     /**
