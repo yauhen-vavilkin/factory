@@ -20,51 +20,66 @@ final class DeveloperTranscriptView {
         Map<UUID, Map<String, Object>> runs = new LinkedHashMap<>();
         Map<String, Map<String, Object>> calls = new HashMap<>();
         for (var entry : entries) {
-            var run = runs.computeIfAbsent(entry.runId(), id -> {
-                Map<String, Object> created = new LinkedHashMap<>();
-                created.put("label", "Run " + (runs.size() + 1) + " · " + ("pr-follow-up".equals(entry.stepId())
-                        ? "PR feedback" : DeveloperExecutionView.technicalStepLabel(entry.stepId())));
-                created.put("started", UiFormat.format(entry.at()));
-                created.put("entries", new ArrayList<Map<String, Object>>());
-                return created;
-            });
-            @SuppressWarnings("unchecked")
-            var rows = (List<Map<String, Object>>) run.get("entries");
-            JsonNode detail = entry.detail();
-            String callKey = entry.runId() + "/" + detail.path("id").asString("");
+            var run = runs.computeIfAbsent(entry.runId(), id -> runRow(entry, runs.size() + 1));
+            var detail = entry.detail();
+            var callKey = entry.runId() + "/" + detail.path("id").asString("");
             if (entry.kind().equals("tool_result") && calls.containsKey(callKey)) {
                 addResult(calls.remove(callKey), detail);
                 continue;
             }
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("kind", entry.kind());
-            row.put("time", UiFormat.clock(entry.at()));
-            row.put("timeTitle", UiFormat.format(entry.at()));
-            row.put("text", detail.path("text").asString(""));
-            switch (entry.kind()) {
-                case "tool_call" -> {
-                    row.put("kind", "tool");
-                    row.put("tool", detail.path("tool").asString("Tool"));
-                    row.put("input", detail.path("input").asString(""));
-                    row.put("hasResult", false);
-                    calls.put(callKey, row);
-                }
-                case "tool_result" -> {
-                    row.put("kind", "tool");
-                    row.put("tool", detail.path("tool").asString("Tool"));
-                    row.put("input", "");
-                    addResult(row, detail);
-                }
-                case "result" -> {
-                    row.put("subtype", detail.path("subtype").asString(""));
-                    row.put("error", detail.path("error").asBoolean(false));
-                    row.put("facts", resultFacts(detail));
-                }
-                default -> { }
+            var row = entryRow(entry, detail);
+            if (entry.kind().equals("tool_call")) {
+                calls.put(callKey, row);
             }
-            rows.add(row);
+            entriesOf(run).add(row);
         }
         return List.copyOf(runs.values());
+    }
+
+    private static Map<String, Object> runRow(CodingTranscriptStore.Entry first, int number) {
+        var step = "pr-follow-up".equals(first.stepId())
+                ? "PR feedback" : DeveloperExecutionView.technicalStepLabel(first.stepId());
+        Map<String, Object> run = new LinkedHashMap<>();
+        run.put("label", "Run " + number + " · " + step);
+        run.put("started", UiFormat.format(first.at()));
+        run.put("entries", new ArrayList<Map<String, Object>>());
+        return run;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> entriesOf(Map<String, Object> run) {
+        return (List<Map<String, Object>>) run.get("entries");
+    }
+
+    private static Map<String, Object> entryRow(CodingTranscriptStore.Entry entry, JsonNode detail) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("kind", entry.kind());
+        row.put("time", UiFormat.clock(entry.at()));
+        row.put("timeTitle", UiFormat.format(entry.at()));
+        row.put("text", detail.path("text").asString(""));
+        switch (entry.kind()) {
+            case "tool_call" -> {
+                putTool(row, detail, detail.path("input").asString(""));
+                row.put("hasResult", false);
+            }
+            case "tool_result" -> {
+                putTool(row, detail, "");
+                addResult(row, detail);
+            }
+            case "result" -> {
+                row.put("subtype", detail.path("subtype").asString(""));
+                row.put("error", detail.path("error").asBoolean(false));
+                row.put("facts", resultFacts(detail));
+            }
+            default -> { }
+        }
+        return row;
+    }
+
+    private static void putTool(Map<String, Object> row, JsonNode detail, String input) {
+        row.put("kind", "tool");
+        row.put("tool", detail.path("tool").asString("Tool"));
+        row.put("input", input);
     }
 
     private static void addResult(Map<String, Object> row, JsonNode detail) {
