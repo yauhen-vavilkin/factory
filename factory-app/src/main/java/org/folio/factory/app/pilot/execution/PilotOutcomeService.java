@@ -97,12 +97,8 @@ public class PilotOutcomeService {
     public AttemptOutcome refresh(UUID attemptId) {
         PilotAttempt attempt = attempts.findById(attemptId)
                 .orElseThrow(() -> new NoSuchElementException("No pilot attempt " + attemptId));
-        if (attempt.getState() == PilotAttempt.State.WITHDRAWN
-                || attempt.getState() == PilotAttempt.State.PR_READY
-                || attempt.getState() == PilotAttempt.State.STOPPED) {
-            return new AttemptOutcome(attempt.getState() == PilotAttempt.State.PR_READY
-                    ? AttemptOutcome.State.PR_READY : AttemptOutcome.State.STOPPED,
-                    null, attempt.getResultReason(), attempt.getPublicationIdentity(), true, null);
+        if (isSettled(attempt)) {
+            return settledOutcome(attempt);
         }
         UUID executionId = attempt.getExecutionId();
         if (executionId == null) {
@@ -120,6 +116,18 @@ public class PilotOutcomeService {
             return processing(attempt);
         }
         return resolveTerminal(attempt, executionId, execution.get().getStatus());
+    }
+
+    private static boolean isSettled(PilotAttempt attempt) {
+        return attempt.getState() == PilotAttempt.State.WITHDRAWN
+                || attempt.getState() == PilotAttempt.State.PR_READY
+                || attempt.getState() == PilotAttempt.State.STOPPED;
+    }
+
+    private static AttemptOutcome settledOutcome(PilotAttempt attempt) {
+        return new AttemptOutcome(attempt.getState() == PilotAttempt.State.PR_READY
+                ? AttemptOutcome.State.PR_READY : AttemptOutcome.State.STOPPED,
+                null, attempt.getResultReason(), attempt.getPublicationIdentity(), true, null);
     }
 
     /**
@@ -260,13 +268,7 @@ public class PilotOutcomeService {
                 return "Only a task that needs inspection can be marked as stopped";
             }
             String previous = attempt.getResultReason();
-            // A held run that reached publication may have opened a pull request whose
-            // response was lost; the reason names the branch so nobody assumes there is none.
-            String publication = attempt.getExecutionId() == null ? null
-                    : intents.findByExecutionId(attempt.getExecutionId())
-                            .map(intent -> "; " + PULL_REQUEST_MAY_EXIST + " from " + intent.getHeadBranch()
-                                    + " to " + intent.getRepository())
-                            .orElse(null);
+            String publication = publicationNote(attempt);
             attempt.setState(PilotAttempt.State.STOPPED);
             attempt.setResultReason(capReason(MARKED_STOPPED
                     + (publication == null ? "" : publication)
@@ -279,6 +281,20 @@ public class PilotOutcomeService {
                     });
             return null;
         });
+    }
+
+    /**
+     * A held run that reached publication may have opened a pull request whose
+     * response was lost; the reason names the branch so nobody assumes there is none.
+     */
+    private String publicationNote(PilotAttempt attempt) {
+        if (attempt.getExecutionId() == null) {
+            return null;
+        }
+        return intents.findByExecutionId(attempt.getExecutionId())
+                .map(intent -> "; " + PULL_REQUEST_MAY_EXIST + " from " + intent.getHeadBranch()
+                        + " to " + intent.getRepository())
+                .orElse(null);
     }
 
     private AttemptOutcome hold(PilotAttempt attempt, String uncertainty) {
