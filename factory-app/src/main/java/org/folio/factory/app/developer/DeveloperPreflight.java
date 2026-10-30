@@ -1,5 +1,6 @@
 package org.folio.factory.app.developer;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.web.DeveloperPricingProperties;
 import org.folio.factory.connectors.github.GitHubProperties;
 import org.folio.factory.connectors.jira.JiraConnector;
@@ -29,6 +30,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -36,9 +38,13 @@ import java.util.stream.Collectors;
 
 /** Safe effective configuration and task admission, independent of application health. */
 @Component
+@RequiredArgsConstructor
 public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryPreflight {
 
     private static final String FLOW_ID = "dev-factory";
+    private static final String ISSUE_MISSING = "Jira did not return the requested issue.";
+    private static final String ISSUE_UNREADABLE =
+            "Cannot read the requested Jira issue; check URL, credentials and issue access.";
     private static final Pattern COMMIT_SHA = Pattern.compile("[0-9a-f]{40}|[0-9a-f]{64}");
     /**
      * Checks that fail because of the task itself or the run profile it chose, not because of Factory,
@@ -88,22 +94,6 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     private final DeveloperPricingProperties pricing;
     private final DeveloperPreflightProbe probe;
     private final RunProfiles profiles;
-
-    public DeveloperPreflight(DevFactoryProperties repositories, DevDeliveryProperties delivery,
-                              DevRuntimeProperties settings, CodingRuntime coding, JiraProperties jiraProperties,
-                              JiraConnector jiraConnector, GitHubProperties github, DeveloperPricingProperties pricing,
-                              DeveloperPreflightProbe probe, RunProfiles profiles) {
-        this.repositories = repositories;
-        this.delivery = delivery;
-        this.settings = settings;
-        this.coding = coding;
-        this.jiraProperties = jiraProperties;
-        this.jira = jiraConnector;
-        this.github = github;
-        this.pricing = pricing;
-        this.probe = probe;
-        this.profiles = profiles;
-    }
 
     /**
      * Runs a trigger (and with it this preflight) for a pilot run that uses these settings. The trigger
@@ -320,39 +310,43 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
                     "Configure the Jira base URL and any credentials needed to read the issue.");
             return;
         }
+        var candidates = repositoryCandidates(issueKey, checks);
+        if (candidates.isEmpty()) {
+            return;
+        }
+        add(checks, "jira", Status.PASS, "Requested issue is readable.");
+        if (candidates.get().isEmpty()) {
+            add(checks, "mapping", Status.FAIL, "No configured repository matches the issue project and components.");
+            return;
+        }
+        checkCandidates(candidates.get(), checks);
+    }
 
-        List<String> candidates;
+    /** The repositories that match the issue; empty when Jira cannot give the issue, with the failed check added. */
+    private Optional<List<String>> repositoryCandidates(String issueKey, List<Check> checks) {
         try {
             JiraIssue issue = jira.getIssue(issueKey);
             if (issue == null || !issueKey.equals(issue.key())) {
-                add(checks, "issue", Status.FAIL, "Jira did not return the requested issue.");
-                return;
+                add(checks, "issue", Status.FAIL, ISSUE_MISSING);
+                return Optional.empty();
             }
             RepositoryPolicy policy = new RepositoryPolicy(repositories);
-            candidates = policy.candidates(IssueSnapshot.projectKey(issueKey),
-                    IssueSnapshot.components(IssueSnapshot.of(issue)));
+            return Optional.of(policy.candidates(IssueSnapshot.projectKey(issueKey),
+                    IssueSnapshot.components(IssueSnapshot.of(issue))));
         } catch (HttpClientErrorException.NotFound e) {
             // Jira itself answers 404 with its errorMessages JSON for a deleted issue or one the
             // reader may not see. Any other 404 (a wrong base URL, a proxy page) is Jira being
             // unreachable, which must keep the queue waiting instead of stopping every task.
             if (e.getResponseBodyAsString().contains("\"errorMessages\"")) {
-                add(checks, "issue", Status.FAIL, "Jira did not return the requested issue.");
+                add(checks, "issue", Status.FAIL, ISSUE_MISSING);
             } else {
-                add(checks, "jira", Status.FAIL,
-                        "Cannot read the requested Jira issue; check URL, credentials and issue access.");
+                add(checks, "jira", Status.FAIL, ISSUE_UNREADABLE);
             }
-            return;
+            return Optional.empty();
         } catch (RestClientException | IllegalStateException | IllegalArgumentException e) {
-            add(checks, "jira", Status.FAIL,
-                    "Cannot read the requested Jira issue; check URL, credentials and issue access.");
-            return;
+            add(checks, "jira", Status.FAIL, ISSUE_UNREADABLE);
+            return Optional.empty();
         }
-        add(checks, "jira", Status.PASS, "Requested issue is readable.");
-        if (candidates.isEmpty()) {
-            add(checks, "mapping", Status.FAIL, "No configured repository matches the issue project and components.");
-            return;
-        }
-        checkCandidates(candidates, checks);
     }
 
     private void checkCandidates(List<String> candidates, List<Check> checks) {
@@ -506,51 +500,70 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         Map<String, Boolean> reachable = new HashMap<>();
         List<Map<String, Object>> rows = new ArrayList<>();
         for (RunProfiles.Profile profile : profiles.all()) {
-            List<Check> checks = new ArrayList<>();
-            boolean secret = profile.secret() != null && !profile.secret().isBlank();
-            checks.add(secret ? new Check("secret", Status.PASS, profile.secretVariable() + " is set.")
-                    : new Check("secret", Status.FAIL, profile.problem()));
-            if (secret && profile.problem() != null) {
-                checks.add(new Check("settings", Status.FAIL, profile.problem()));
-            }
-            String origin;
-            try {
-                origin = profile.endpointOrigin();
-                boolean open = reachable.computeIfAbsent(origin, key -> probe.gatewayReachable(endpoint(key)));
-                checks.add(new Check("endpoint", open ? Status.PASS : Status.WARN, open
-                        ? origin + " is reachable over TCP from Factory; the API itself is not tested."
-                        : origin + " is not reachable over TCP from Factory; check the base URL and the network."));
-            } catch (IllegalArgumentException e) {
-                origin = "unset or invalid";
-                checks.add(new Check("endpoint", Status.FAIL, "The base URL must be an HTTP(S) URL without"
-                        + " credentials, query or fragment."));
-            }
-            checks.add(pricing.rateFor(profile.model()).isPresent()
-                    ? new Check("rate card", Status.PASS, "config/developer-pricing.yaml has a rate for "
-                            + profile.model() + ".")
-                    : new Check("rate card", Status.WARN, "No rate for " + profile.model()
-                            + " in config/developer-pricing.yaml; runs work, but cost is not estimated."));
-            boolean effortsValid = RunProfiles.EFFORTS.containsAll(profile.efforts())
-                    && (profile.defaultEffort() == null || profile.efforts().contains(profile.defaultEffort()));
-            checks.add(new Check("efforts", effortsValid ? Status.PASS : Status.FAIL, effortsValid
-                    ? String.join(", ", profile.efforts()) + "; default "
-                            + RunProfiles.effortLabel(profile.defaultEffort())
-                    : "The default effort is not in the effort list."));
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("id", profile.id());
-            row.put("label", profile.label());
-            row.put("default", profile.id().equals(profiles.defaultProfile().id()));
-            row.put("model", profile.model());
-            row.put("endpointOrigin", origin);
-            row.put("authentication", safeAuthentication(profile.authentication(), true));
-            row.put("efforts", profile.efforts());
-            row.put("effort", RunProfiles.effortLabel(profile.defaultEffort()));
-            row.put("maxTurns", profile.maxTurns());
-            row.put("maxOutputTokens", profile.maxOutputTokens());
-            row.put("checks", List.copyOf(checks));
-            rows.add(row);
+            rows.add(profileRow(profile, reachable));
         }
         return List.copyOf(rows);
+    }
+
+    /** One run profile with its checks; {@code reachable} remembers the TCP probe of each endpoint origin. */
+    private Map<String, Object> profileRow(RunProfiles.Profile profile, Map<String, Boolean> reachable) {
+        List<Check> checks = new ArrayList<>(secretChecks(profile));
+        var endpoint = checkEndpoint(profile, reachable);
+        checks.add(endpoint.check());
+        checks.add(checkRateCard(profile));
+        checks.add(checkEfforts(profile));
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", profile.id());
+        row.put("label", profile.label());
+        row.put("default", profile.id().equals(profiles.defaultProfile().id()));
+        row.put("model", profile.model());
+        row.put("endpointOrigin", endpoint.origin());
+        row.put("authentication", safeAuthentication(profile.authentication(), true));
+        row.put("efforts", profile.efforts());
+        row.put("effort", RunProfiles.effortLabel(profile.defaultEffort()));
+        row.put("maxTurns", profile.maxTurns());
+        row.put("maxOutputTokens", profile.maxOutputTokens());
+        row.put("checks", List.copyOf(checks));
+        return row;
+    }
+
+    private static List<Check> secretChecks(RunProfiles.Profile profile) {
+        boolean secret = profile.secret() != null && !profile.secret().isBlank();
+        if (!secret) {
+            return List.of(new Check("secret", Status.FAIL, profile.problem()));
+        }
+        var set = new Check("secret", Status.PASS, profile.secretVariable() + " is set.");
+        return profile.problem() == null ? List.of(set) : List.of(set, new Check("settings", Status.FAIL,
+                profile.problem()));
+    }
+
+    private EndpointCheck checkEndpoint(RunProfiles.Profile profile, Map<String, Boolean> reachable) {
+        try {
+            String origin = profile.endpointOrigin();
+            boolean open = reachable.computeIfAbsent(origin, key -> probe.gatewayReachable(endpoint(key)));
+            return new EndpointCheck(origin, new Check("endpoint", open ? Status.PASS : Status.WARN, open
+                    ? origin + " is reachable over TCP from Factory; the API itself is not tested."
+                    : origin + " is not reachable over TCP from Factory; check the base URL and the network."));
+        } catch (IllegalArgumentException e) {
+            return new EndpointCheck("unset or invalid", new Check("endpoint", Status.FAIL,
+                    "The base URL must be an HTTP(S) URL without credentials, query or fragment."));
+        }
+    }
+
+    private Check checkRateCard(RunProfiles.Profile profile) {
+        return pricing.rateFor(profile.model()).isPresent()
+                ? new Check("rate card", Status.PASS, "config/developer-pricing.yaml has a rate for "
+                        + profile.model() + ".")
+                : new Check("rate card", Status.WARN, "No rate for " + profile.model()
+                        + " in config/developer-pricing.yaml; runs work, but cost is not estimated.");
+    }
+
+    private static Check checkEfforts(RunProfiles.Profile profile) {
+        boolean effortsValid = RunProfiles.EFFORTS.containsAll(profile.efforts())
+                && (profile.defaultEffort() == null || profile.efforts().contains(profile.defaultEffort()));
+        return new Check("efforts", effortsValid ? Status.PASS : Status.FAIL, effortsValid
+                ? String.join(", ", profile.efforts()) + "; default " + RunProfiles.effortLabel(profile.defaultEffort())
+                : "The default effort is not in the effort list.");
     }
 
     private List<Map<String, Object>> effectiveRepositories() {
@@ -591,5 +604,9 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
 
     private static void add(List<Check> checks, String name, Status status, String message) {
         checks.add(new Check(name, status, message));
+    }
+
+    /** The endpoint check of a run profile and the origin shown next to it. */
+    private record EndpointCheck(String origin, Check check) {
     }
 }
