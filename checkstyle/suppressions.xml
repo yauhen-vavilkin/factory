@@ -19,8 +19,6 @@
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='CandidateDelivery']]/OBJBLOCK/METHOD_DEF/IDENT[@text='deliver']"/>
   <suppress-xpath files="CandidateDelivery\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='CandidateDelivery']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='deliver']]"/>
-  <suppress-xpath files="CandidateVerifier\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='CandidateVerifier']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='verify']]"/>
   <suppress-xpath files="ClaudeCodeCodingRuntime\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='ClaudeCodeCodingRuntime']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='code']]"/>
   <suppress-xpath files="ClaudeCodeProtocol\.java" checks="MethodLength"
@@ -83,12 +81,6 @@
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DeveloperTranscriptView']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='runs']]"/>
   <suppress-xpath files="DockerWorkloads\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DockerWorkloads']]/OBJBLOCK/METHOD_DEF/IDENT[@text='createCommand']"/>
-  <suppress-xpath files="ExecutionEngine\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='ExecutionEngine']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='advance']]"/>
-  <suppress-xpath files="ExecutionEngine\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='ExecutionEngine']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='handleStepFailure']]"/>
-  <suppress-xpath files="ExecutionEngine\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='ExecutionEngine']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='runAgentStep']]"/>
   <suppress-xpath files="ExecutionUiController\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='ExecutionUiController']]/OBJBLOCK/CTOR_DEF/IDENT[@text='ExecutionUiController']"/>
   <suppress-xpath files="ExecutionUiController\.java" checks="MethodLength"
@@ -125,18 +117,10 @@
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='FeedbackWorker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='execute']]"/>
   <suppress-xpath files="FeedbackWorker\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='FeedbackWorker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='prepare']]"/>
-  <suppress-xpath files="FlowDescriptorParser\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='FlowDescriptorParser']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='validate']]"/>
   <suppress-xpath files="FlowUiController\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='FlowUiController']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='loadSamples']]"/>
   <suppress-xpath files="FlowUiController\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='FlowUiController']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='stepRows']]"/>
-  <suppress-xpath files="FrontmatterCodec\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='FrontmatterCodec']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='parse']]"/>
-  <suppress-xpath files="GitHubRestConnector\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='GitHubRestConnector']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='findPullRequests']]"/>
-  <suppress-xpath files="HitlDecisionService\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='HitlDecisionService']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='decide']]"/>
   <suppress-xpath files="InitialCodingAttempt\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='InitialCodingAttempt']]/OBJBLOCK/CTOR_DEF/IDENT[@text='InitialCodingAttempt']"/>
   <suppress-xpath files="InitialCodingAttempt\.java" checks="MethodLength"
@@ -151,8 +135,6 @@
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='IntakeWorker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='execute']]"/>
   <suppress-xpath files="IntakeWorker\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='IntakeWorker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='pilotOutcome']]"/>
-  <suppress-xpath files="JiraRestConnector\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='JiraRestConnector']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='searchIssues']]"/>
   <suppress-xpath files="MavenBaselineOutput\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='MavenBaselineOutput']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='isTransientDownloadFailure']]"/>
   <suppress-xpath files="PiCodingRuntime\.java" checks="MethodLength"
@@ -209,8 +191,6 @@
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PilotTaskUiController']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='runSelected']]"/>
   <suppress-xpath files="PilotTaskUiController\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PilotTaskUiController']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='triggeredRow']]"/>
-  <suppress-xpath files="PipelineRouter\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PipelineRouter']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='route']]"/>
   <suppress-xpath files="Processes\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='Processes']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='readLines']]"/>
   <suppress-xpath files="Processes\.java" checks="MethodLength"
@@ -227,38 +207,14 @@
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PullRequestRenderer']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='prose']]"/>
   <suppress-xpath files="PullRequestRenderer\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PullRequestRenderer']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='render']]"/>
-  <suppress-xpath files="ResumableAgentDriver\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='ResumableAgentDriver']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='run']]"/>
-  <suppress-xpath files="ResumableStepTransactions\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='ResumableStepTransactions']]/OBJBLOCK/CTOR_DEF/IDENT[@text='ResumableStepTransactions']"/>
-  <suppress-xpath files="ResumableStepTransactions\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='ResumableStepTransactions']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='complete']]"/>
-  <suppress-xpath files="RetentionService\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='RetentionService']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='purgeExpired']]"/>
   <suppress-xpath files="RunProfiles\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='RunProfiles']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='choose']]"/>
   <suppress-xpath files="RunProfiles\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='RunProfiles']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='fromFile']]"/>
   <suppress-xpath files="StepUsageSummary\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='StepUsageSummary']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='from']]"/>
-  <suppress-xpath files="SubFlowInvoker\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='SubFlowInvoker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='onChildCompleted']]"/>
-  <suppress-xpath files="SurefireEvidence\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/RECORD_DEF[./IDENT[@text='SurefireEvidence']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='inspect']]"/>
-  <suppress-xpath files="SurefireEvidence\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/RECORD_DEF[./IDENT[@text='SurefireEvidence']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='parse']]"/>
-  <suppress-xpath files="TestExecutionWorker\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TestExecutionWorker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='executeWithKarate']]"/>
-  <suppress-xpath files="TestExecutionWorker\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TestExecutionWorker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='executedResults']]"/>
   <suppress-xpath files="TestFactoryConfiguration\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TestFactoryConfiguration']]/OBJBLOCK/METHOD_DEF/IDENT[@text='testFactoryFinalizerWorker']"/>
-  <suppress-xpath files="TestFactoryFinalizerWorker\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TestFactoryFinalizerWorker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='syncGitHub']]"/>
-  <suppress-xpath files="TestFactoryFinalizerWorker\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TestFactoryFinalizerWorker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='syncJira']]"/>
-  <suppress-xpath files="TestFactoryFinalizerWorker\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TestFactoryFinalizerWorker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='syncTestRail']]"/>
   <suppress-xpath files="VerificationReceipt\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/RECORD_DEF[./IDENT[@text='VerificationReceipt']]/OBJBLOCK/COMPACT_CTOR_DEF[./IDENT[@text='VerificationReceipt']]"/>
   <suppress-xpath files="VerificationReceipt\.java" checks="ParameterNumber"
