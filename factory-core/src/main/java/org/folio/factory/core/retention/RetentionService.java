@@ -57,29 +57,42 @@ public class RetentionService {
         if (roots.isEmpty()) {
             return;
         }
-        int trees = 0;
-        int executions = 0;
-        int artifacts = 0;
-        int hitlReviews = 0;
-        int skipped = 0;
+        var totals = purgeTrees(roots);
+        log.info("Retention purge removed {} tree(s): {} executions, {} artifacts, {} hitl reviews "
+                        + "({} candidate(s), {} skipped, ttl {} day(s))",
+                totals.trees, totals.executions, totals.artifacts, totals.hitlReviews, roots.size(),
+                totals.skipped, properties.ttlDays());
+    }
+
+    private PurgeTotals purgeTrees(List<UUID> roots) {
+        var totals = new PurgeTotals();
         for (UUID root : roots) {
             try {
-                RetentionPurger.Outcome outcome = purger.purgeTree(root);
-                if (outcome.skipped()) {
-                    skipped++;
-                    continue;
-                }
-                trees++;
-                executions += outcome.executions();
-                artifacts += outcome.artifacts();
-                hitlReviews += outcome.hitlReviews();
+                totals.add(purger.purgeTree(root));
             } catch (RuntimeException e) {
                 // One bad tree must not abort the whole run.
                 log.warn("Retention purge failed for execution tree {}: {}", root, e.getMessage());
             }
         }
-        log.info("Retention purge removed {} tree(s): {} executions, {} artifacts, {} hitl reviews "
-                        + "({} candidate(s), {} skipped, ttl {} day(s))",
-                trees, executions, artifacts, hitlReviews, roots.size(), skipped, properties.ttlDays());
+        return totals;
+    }
+
+    private static final class PurgeTotals {
+        private int trees;
+        private int executions;
+        private int artifacts;
+        private int hitlReviews;
+        private int skipped;
+
+        void add(RetentionPurger.Outcome outcome) {
+            if (outcome.skipped()) {
+                skipped++;
+                return;
+            }
+            trees++;
+            executions += outcome.executions();
+            artifacts += outcome.artifacts();
+            hitlReviews += outcome.hitlReviews();
+        }
     }
 }
