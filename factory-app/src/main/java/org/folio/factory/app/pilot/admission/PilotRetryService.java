@@ -88,9 +88,13 @@ public class PilotRetryService {
             return rejection(command.taskId(), pushProblem);
         }
         DiscoveredIssue fresh = current == null ? null : freshIssue(current);
+        return reserveAndDispatch(attemptRequestId, command, fresh);
+    }
+
+    private RetryResult reserveAndDispatch(String attemptRequestId, PilotCommands.Retry command,
+                                           DiscoveredIssue fresh) {
         try {
-            Reservation reservation =
-                    transactions.execute(status -> reserve(requestId, attemptRequestId, command, fresh));
+            Reservation reservation = transactions.execute(status -> reserve(attemptRequestId, command, fresh));
             if (reservation.rejectionReason() != null) {
                 return rejection(command.taskId(), reservation.rejectionReason());
             }
@@ -120,8 +124,7 @@ public class PilotRetryService {
         }
     }
 
-    private Reservation reserve(String requestId, String attemptRequestId, PilotCommands.Retry command,
-                                DiscoveredIssue fresh) {
+    private Reservation reserve(String attemptRequestId, PilotCommands.Retry command, DiscoveredIssue fresh) {
         PilotTask task = tasks.lockById(command.taskId()).orElse(null);
         if (task == null) {
             return new Reservation(null, "task " + command.taskId() + " no longer exists");
@@ -133,13 +136,26 @@ public class PilotRetryService {
         if (fresh != null) {
             String checkedDestination = PilotAdmissionService.destinationFingerprint(task);
             task = discovery.upsert(fresh, false);
-            if (task.getEligibility() != PilotTask.Eligibility.ELIGIBLE) {
-                return new Reservation(null, "task is not eligible: " + task.getRoutingReason());
-            }
-            if (!checkedDestination.equals(PilotAdmissionService.destinationFingerprint(task))) {
-                return new Reservation(null, "the task now routes to another repository in Jira; review it and retry");
+            String freshProblem = freshTaskProblem(task, checkedDestination);
+            if (freshProblem != null) {
+                return new Reservation(null, freshProblem);
             }
         }
+        return new Reservation(saveRetryAttempt(task, attemptRequestId, command.runSettings()), null);
+    }
+
+    /** Null when the task re-read from Jira can still retry on the repository this click checked. */
+    private static String freshTaskProblem(PilotTask task, String checkedDestination) {
+        if (task.getEligibility() != PilotTask.Eligibility.ELIGIBLE) {
+            return "task is not eligible: " + task.getRoutingReason();
+        }
+        if (!checkedDestination.equals(PilotAdmissionService.destinationFingerprint(task))) {
+            return "the task now routes to another repository in Jira; review it and retry";
+        }
+        return null;
+    }
+
+    private UUID saveRetryAttempt(PilotTask task, String attemptRequestId, String runSettings) {
         PilotAttempt attempt = new PilotAttempt(task.getId(),
                 PilotAdmissionService.nextOrdinal(attempts, task.getId()),
                 PilotAttempt.Kind.RETRY, attemptRequestId, PilotAttempt.State.RESERVED);
@@ -147,9 +163,9 @@ public class PilotRetryService {
         attempt.setDestinationFingerprint(PilotAdmissionService.destinationFingerprint(task));
         attempt.setApprovedSnapshot(task.getIssueSnapshot());
         attempt.setAdmittedVia(PilotAttempt.AdmittedVia.MANUAL);
-        attempt.setRunSettings(command.runSettings());
+        attempt.setRunSettings(runSettings);
         attempts.save(attempt);
-        return new Reservation(attempt.getId(), null);
+        return attempt.getId();
     }
 
     private String retryProblem(PilotTask task, PilotCommands.Retry command) {
@@ -163,7 +179,11 @@ public class PilotRetryService {
         if (task.getEligibility() != PilotTask.Eligibility.ELIGIBLE) {
             return "task is not eligible: " + task.getRoutingReason();
         }
-        List<PilotAttempt> history = attempts.findByTaskIdOrderByOrdinalAsc(task.getId());
+        return historyProblem(attempts.findByTaskIdOrderByOrdinalAsc(task.getId()));
+    }
+
+    /** Null when the attempt history allows a fresh Retry; the reason otherwise. */
+    private static String historyProblem(List<PilotAttempt> history) {
         if (history.isEmpty()) {
             return "the task has never been attempted; select it for admission instead";
         }
