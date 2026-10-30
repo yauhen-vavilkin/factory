@@ -304,8 +304,8 @@ public class FeedbackWorker implements AgentWorker {
         if (!state.answer.isBlank()) {
             request = withSavedAnswer(state, request, outputs);
         }
-        var outcome = codingAttempt.run(context, state, request, candidate(outputs), source(state), operation.id(),
-                outputs, operation.metrics(), event -> progress(context, state, event));
+        var outcome = codingAttempt.run(operation, request, candidate(outputs), source(state),
+                event -> progress(context, state, event));
         state.coded(outcome);
     }
 
@@ -479,7 +479,7 @@ public class FeedbackWorker implements AgentWorker {
     }
 
     /** The working set of one engine invocation; {@code id} names its Docker step and verification run. */
-    private record Operation(
+    record Operation(
             AgentContext context,
             FeedbackState state,
             Map<String, String> outputs,
