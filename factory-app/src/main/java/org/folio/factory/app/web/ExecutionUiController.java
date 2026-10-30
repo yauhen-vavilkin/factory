@@ -3,6 +3,7 @@ package org.folio.factory.app.web;
 import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.presentation.PilotTaskQuery;
+import org.folio.factory.app.pilot.presentation.PilotTaskRows;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -149,7 +150,7 @@ public class ExecutionUiController {
 
     private Map<String, Object> pilotRun(UUID id) {
         return pilotAttempts.findByExecutionId(id)
-                .map(attempt -> PilotTaskUiController.runContext(pilotTasks.detail(attempt.getTaskId()), id))
+                .map(attempt -> PilotTaskRows.runContext(pilotTasks.detail(attempt.getTaskId()), id))
                 .orElse(null);
     }
 

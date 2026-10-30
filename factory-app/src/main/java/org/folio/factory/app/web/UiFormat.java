@@ -23,7 +23,7 @@ import java.util.Map;
  * All methods are pure so the controllers stay thin and consistent.
  */
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
-final class UiFormat {
+public final class UiFormat {
 
     /** Longest message carried in a redirect; a remote error body could otherwise overflow the headers. */
     static final int MAX_REDIRECT_MESSAGE = 300;
@@ -34,7 +34,7 @@ final class UiFormat {
             DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneOffset.UTC);
 
     /** Formats an instant as {@code yyyy-MM-dd HH:mm:ss} UTC, or {@code null} when the instant is null. */
-    static String format(Instant instant) {
+    public static String format(Instant instant) {
         return instant == null ? null : TIMESTAMP.format(instant);
     }
 
@@ -48,7 +48,7 @@ final class UiFormat {
     }
 
     /** Groups a count with thousands separators — token totals reach seven figures. */
-    static String count(long value) {
+    public static String count(long value) {
         return NumberFormat.getIntegerInstance(Locale.US).format(value);
     }
 

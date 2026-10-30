@@ -11,6 +11,7 @@ import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
 import org.folio.factory.app.pilot.persistence.PilotInstallation;
 import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
 import org.folio.factory.app.pilot.presentation.PilotTaskQuery;
+import org.folio.factory.app.pilot.presentation.PilotTaskRows;
 import org.folio.factory.app.pilot.presentation.PilotTaskUsage;
 import org.folio.factory.app.pilot.presentation.PilotTaskView;
 import org.folio.factory.app.pilot.source.PilotDiscoveryService;
@@ -136,9 +137,10 @@ class PilotTaskUiControllerTest {
         var repositories = new DevFactoryProperties("https://github.com", new TreeMap<>(Map.of("mod-bar",
                 new DevFactoryProperties.Repository("folio-org/mod-bar", "master", "build:image", "unit",
                         List.of("MODBAR"), List.of(), new DeliveryTarget("folio-org/mod-bar", null)))));
+        var rows = new PilotTaskRows(new PilotSourceProperties("Jane Developer"), jira, repositories,
+                new DevDeliveryProperties(Map.of(), true));
         var controller = new PilotTaskUiController(taskQuery, installations, attempts, admissions, retries,
-                discovery, dispatcher, outcomes, new PilotSourceProperties("Jane Developer"), jira, flows,
-                repositories, new DevDeliveryProperties(Map.of(), true), runSettings);
+                discovery, dispatcher, outcomes, rows, flows, runSettings);
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new UiExceptionHandler())
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
@@ -336,10 +338,10 @@ class PilotTaskUiControllerTest {
                 .containsEntry("resultClass", "state-pill state-pill-warning")
                 .containsEntry("result", "Pull request #7 opened as a draft");
         // The execution page header uses the same label for the attempt behind the run.
-        assertThat(PilotTaskUiController.runContext(draft, EXECUTION_ID))
+        assertThat(PilotTaskRows.runContext(draft, EXECUTION_ID))
                 .containsEntry("stateLabel", "Draft PR")
                 .containsEntry("stateClass", "state-pill state-pill-warning");
-        assertThat(PilotTaskUiController.runContext(ready, EXECUTION_ID))
+        assertThat(PilotTaskRows.runContext(ready, EXECUTION_ID))
                 .containsEntry("stateLabel", "PR ready");
     }
 
