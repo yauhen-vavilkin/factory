@@ -73,121 +73,12 @@ public class CandidateDelivery {
             String githubToken,
             boolean stableBranch,
             int gitTimeoutSeconds) {
-        Objects.requireNonNull(verification, "Verification receipt is missing")
-                .requireVerified(executionId, candidate);
-        Objects.requireNonNull(target, "Delivery target is missing").requireValid();
-        if (githubToken == null || githubToken.isBlank())
-            throw new DeliveryBlockedException("FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
-        if (issueKey == null || !issueKey.matches("[A-Z][A-Z0-9]*-[0-9]+"))
-            throw new DeliveryBlockedException("Invalid delivery issue key");
-        String branch = branchFor(executionId, issueKey, candidate, stableBranch);
-        try {
-            CandidateFreezer.git(null, "check-ref-format", "--branch", branch);
-            CandidateFreezer.git(null, "check-ref-format", "--branch", target.baseBranch());
-        } catch (RuntimeException e) {
-            throw new DeliveryBlockedException("Delivery branch configuration is invalid");
-        }
-        String remote = remoteRoot + target.repository() + ".git";
-        Map<String, String> auth =
-                PublicationGit.authentication("https://github.com/", githubToken);
-        Path workspace = freezer.reconstruct(sourceUrl, candidate);
-        try {
-            requireRemote(
-                    workspace,
-                    auth,
-                    gitTimeoutSeconds,
-                    "fetch",
-                    "--quiet",
-                    remote,
-                    "refs/heads/" + target.baseBranch());
-            Processes.Result ancestry =
-                    gitResult(
-                            workspace,
-                            Map.of(),
-                            gitTimeoutSeconds,
-                            "merge-base",
-                            "--is-ancestor",
-                            candidate.baseSha(),
-                            "FETCH_HEAD");
-            if (ancestry.exitCode() == 1) {
-                throw new DeliveryBlockedException(
-                        "Destination base no longer contains the candidate base; synchronize the"
-                                + " fork");
-            }
-            requireSuccess(ancestry, "merge-base");
-            String date =
-                    CandidateFreezer.git(
-                                    workspace, "show", "-s", "--format=%cI", candidate.baseSha())
-                            .strip();
-            Map<String, String> identity =
-                    PublicationGit.identity(date, "Factory", "factory@localhost");
-            String title =
-                    issueKey
-                            + ": "
-                            + (summary == null
-                                    ? "Developer Flow candidate"
-                                    : summary.replaceAll("[\\r\\n]", " ").strip());
-            String commit =
-                    git(
-                                    workspace,
-                                    identity,
-                                    gitTimeoutSeconds,
-                                    "commit-tree",
-                                    candidate.treeSha(),
-                                    "-p",
-                                    candidate.baseSha(),
-                                    "-m",
-                                    title)
-                            .strip();
-            String ref = "refs/heads/" + branch;
-            Processes.Result remoteBranch =
-                    gitResult(workspace, auth, gitTimeoutSeconds, "ls-remote", "--heads", remote, ref);
-            if (remoteBranch.exitCode() != 0 && permanentRemoteFailure(remoteBranch)) {
-                throw new DeliveryBlockedException(
-                        "Delivery destination is missing or unauthorized");
-            }
-            requireSuccess(remoteBranch, "ls-remote");
-            String existing = remoteBranch.output().strip();
-            if (!existing.isEmpty() && !existing.split("\\s+")[0].equals(commit)) {
-                throw new DeliveryBlockedException(
-                        "Delivery branch conflicts with an existing remote commit");
-            }
-            if (existing.isEmpty()) {
-                Processes.Result push =
-                        gitResult(
-                                workspace, auth, gitTimeoutSeconds, "push", "--porcelain", remote, commit + ":" + ref);
-                String error = push.error().toLowerCase(Locale.ROOT);
-                if (push.exitCode() != 0
-                        && (permanentRemoteFailure(push)
-                                || error.contains("non-fast-forward")
-                                || error.contains("rejected"))) {
-                    throw new DeliveryBlockedException(
-                            "Delivery branch was rejected or now conflicts at the destination");
-                }
-                requireSuccess(push, "push");
-            }
-            requireRemote(workspace, auth, gitTimeoutSeconds, "fetch", "--quiet", remote, ref);
-            if (!CandidateFreezer.git(workspace, "rev-parse", "FETCH_HEAD").strip().equals(commit)
-                    || !CandidateFreezer.git(workspace, "rev-parse", "FETCH_HEAD^{tree}")
-                            .strip()
-                            .equals(candidate.treeSha())
-                    || !CandidateFreezer.git(workspace, "rev-parse", "FETCH_HEAD^")
-                            .strip()
-                            .equals(candidate.baseSha())) {
-                throw new DeliveryBlockedException(
-                        "Remote delivery identity does not match the verified candidate");
-            }
-            return new DeliveryReceipt(
-                    executionId,
-                    target.repository(),
-                    branch,
-                    candidate.baseSha(),
-                    candidate.treeSha(),
-                    candidate.patchSha256(),
-                    commit);
-        } finally {
-            CandidateFreezer.cleanup(workspace);
-        }
+        var request = new Request(executionId, issueKey, summary, sourceUrl, candidate, verification, target,
+                githubToken, gitTimeoutSeconds);
+        requireDeliverable(request);
+        var branch = branchFor(executionId, issueKey, candidate, stableBranch);
+        requireValidBranches(branch, target.baseBranch());
+        return publishFromWorkspace(request, branch);
     }
 
     /**
@@ -204,25 +95,112 @@ public class CandidateDelivery {
                         : candidate.patchSha256().substring(0, 8));
     }
 
-    private static String git(
-            Path workspace, Map<String, String> environment, int timeoutSeconds, String... args) {
-        Processes.Result result = gitResult(workspace, environment, timeoutSeconds, args);
-        requireSuccess(result, args[0]);
-        return result.output();
-    }
-
-    private static Processes.Result gitResult(
-            Path workspace, Map<String, String> environment, int timeoutSeconds, String... args) {
-        return PublicationGit.run(workspace, environment, timeoutSeconds, args);
-    }
-
-    private static void requireRemote(
-            Path workspace, Map<String, String> environment, int timeoutSeconds, String... args) {
-        Processes.Result result = gitResult(workspace, environment, timeoutSeconds, args);
-        if (result.exitCode() != 0 && permanentRemoteFailure(result)) {
-            throw new DeliveryBlockedException("Delivery destination is missing or unauthorized");
+    private static void requireDeliverable(Request request) {
+        Objects.requireNonNull(request.verification(), "Verification receipt is missing")
+                .requireVerified(request.executionId(), request.candidate());
+        Objects.requireNonNull(request.target(), "Delivery target is missing").requireValid();
+        if (request.githubToken() == null || request.githubToken().isBlank()) {
+            throw new DeliveryBlockedException("FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
         }
-        requireSuccess(result, args[0]);
+        if (request.issueKey() == null || !request.issueKey().matches("[A-Z][A-Z0-9]*-[0-9]+")) {
+            throw new DeliveryBlockedException("Invalid delivery issue key");
+        }
+    }
+
+    private static void requireValidBranches(String branch, String baseBranch) {
+        try {
+            CandidateFreezer.git(null, "check-ref-format", "--branch", branch);
+            CandidateFreezer.git(null, "check-ref-format", "--branch", baseBranch);
+        } catch (RuntimeException e) {
+            throw new DeliveryBlockedException("Delivery branch configuration is invalid");
+        }
+    }
+
+    private DeliveryReceipt publishFromWorkspace(Request request, String branch) {
+        var remote = remoteRoot + request.target().repository() + ".git";
+        var auth = PublicationGit.authentication("https://github.com/", request.githubToken());
+        var workspace = freezer.reconstruct(request.sourceUrl(), request.candidate());
+        try {
+            return publish(new GitSession(workspace, remote, auth, request.gitTimeoutSeconds()), request, branch);
+        } finally {
+            CandidateFreezer.cleanup(workspace);
+        }
+    }
+
+    private static DeliveryReceipt publish(GitSession git, Request request, String branch) {
+        var candidate = request.candidate();
+        git.fetch("refs/heads/" + request.target().baseBranch());
+        requireBaseAncestry(git, candidate);
+        var commit = commitCandidate(git, request.issueKey(), request.summary(), candidate);
+        var ref = "refs/heads/" + branch;
+        if (!remoteHasCommit(git, ref, commit)) {
+            push(git, commit, ref);
+        }
+        git.fetch(ref);
+        requireRemoteIdentity(git.workspace(), commit, candidate);
+        return new DeliveryReceipt(
+                request.executionId(),
+                request.target().repository(),
+                branch,
+                candidate.baseSha(),
+                candidate.treeSha(),
+                candidate.patchSha256(),
+                commit);
+    }
+
+    private static void requireBaseAncestry(GitSession git, Candidate candidate) {
+        var ancestry = git.run(Map.of(), "merge-base", "--is-ancestor", candidate.baseSha(), "FETCH_HEAD");
+        if (ancestry.exitCode() == 1) {
+            throw new DeliveryBlockedException(
+                    "Destination base no longer contains the candidate base; synchronize the fork");
+        }
+        requireSuccess(ancestry, "merge-base");
+    }
+
+    private static String commitCandidate(GitSession git, String issueKey, String summary, Candidate candidate) {
+        var date = CandidateFreezer.git(git.workspace(), "show", "-s", "--format=%cI", candidate.baseSha())
+                .strip();
+        var identity = PublicationGit.identity(date, "Factory", "factory@localhost");
+        var commit = git.run(identity, "commit-tree", candidate.treeSha(), "-p", candidate.baseSha(),
+                "-m", commitTitle(issueKey, summary));
+        requireSuccess(commit, "commit-tree");
+        return commit.output().strip();
+    }
+
+    private static String commitTitle(String issueKey, String summary) {
+        return issueKey + ": "
+                + (summary == null ? "Developer Flow candidate" : summary.replaceAll("[\\r\\n]", " ").strip());
+    }
+
+    /** True when the branch already holds this commit; any other commit there is a conflict. */
+    private static boolean remoteHasCommit(GitSession git, String ref, String commit) {
+        var existing = git.requireRemote("ls-remote", "--heads", git.remote(), ref).output().strip();
+        if (!existing.isEmpty() && !existing.split("\\s+")[0].equals(commit)) {
+            throw new DeliveryBlockedException("Delivery branch conflicts with an existing remote commit");
+        }
+        return !existing.isEmpty();
+    }
+
+    private static void push(GitSession git, String commit, String ref) {
+        var push = git.run(git.auth(), "push", "--porcelain", git.remote(), commit + ":" + ref);
+        var error = push.error().toLowerCase(Locale.ROOT);
+        if (push.exitCode() != 0
+                && (permanentRemoteFailure(push) || error.contains("non-fast-forward") || error.contains("rejected"))) {
+            throw new DeliveryBlockedException("Delivery branch was rejected or now conflicts at the destination");
+        }
+        requireSuccess(push, "push");
+    }
+
+    private static void requireRemoteIdentity(Path workspace, String commit, Candidate candidate) {
+        if (!revParse(workspace, "FETCH_HEAD").equals(commit)
+                || !revParse(workspace, "FETCH_HEAD^{tree}").equals(candidate.treeSha())
+                || !revParse(workspace, "FETCH_HEAD^").equals(candidate.baseSha())) {
+            throw new DeliveryBlockedException("Remote delivery identity does not match the verified candidate");
+        }
+    }
+
+    private static String revParse(Path workspace, String revision) {
+        return CandidateFreezer.git(workspace, "rev-parse", revision).strip();
     }
 
     private static void requireSuccess(Processes.Result result, String operation) {
@@ -242,5 +220,49 @@ public class CandidateDelivery {
                 || error.contains("error: 404")
                 || error.contains("couldn't find remote ref")
                 || error.contains("does not appear to be a git repository");
+    }
+
+    private record Request(
+            String executionId,
+            String issueKey,
+            String summary,
+            String sourceUrl,
+            Candidate candidate,
+            VerificationReceipt verification,
+            DeliveryTarget target,
+            String githubToken,
+            int gitTimeoutSeconds) {
+        // The default toString would print the token.
+        @Override
+        public String toString() {
+            return "Request[executionId=" + executionId + ", issueKey=" + issueKey + ", target=" + target + "]";
+        }
+    }
+
+    /** One reconstructed workspace and its destination; every command shares the attempt's timeout. */
+    private record GitSession(Path workspace, String remote, Map<String, String> auth, int timeoutSeconds) {
+        Processes.Result run(Map<String, String> environment, String... args) {
+            return PublicationGit.run(workspace, environment, timeoutSeconds, args);
+        }
+
+        void fetch(String ref) {
+            requireRemote("fetch", "--quiet", remote, ref);
+        }
+
+        /** A destination that is missing or refuses the credentials blocks delivery instead of failing it. */
+        Processes.Result requireRemote(String... args) {
+            var result = run(auth, args);
+            if (result.exitCode() != 0 && permanentRemoteFailure(result)) {
+                throw new DeliveryBlockedException("Delivery destination is missing or unauthorized");
+            }
+            requireSuccess(result, args[0]);
+            return result;
+        }
+
+        // The default toString would print the authorization header.
+        @Override
+        public String toString() {
+            return "GitSession[workspace=" + workspace + ", remote=" + remote + "]";
+        }
     }
 }
