@@ -90,8 +90,8 @@ class ExecutionUiControllerTest {
         mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(executions, artifactStore, auditLog,
                 flowRegistry, reviews, json, estimator,
                 new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class)),
-                mock(org.folio.factory.app.pilot.persistence.PilotAttemptRepository.class),
-                mock(org.folio.factory.app.pilot.presentation.PilotTaskQuery.class), transcripts))
+                mock(org.folio.factory.app.tasks.persistence.TaskAttemptRepository.class),
+                mock(org.folio.factory.app.tasks.presentation.TaskQuery.class), transcripts))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }

@@ -8,8 +8,8 @@ import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.devfactory.decision.DecisionArtifacts;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Answer;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Request;
-import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
-import org.folio.factory.devfactory.pilot.PilotExecutionContext;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskExecutionContext;
 import org.folio.factory.devfactory.repository.BaseRefResolver;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.folio.factory.devfactory.runtime.CodingRequest;
@@ -25,7 +25,7 @@ import java.util.Map;
  * Produces the trusted task brief: applies the validated decision (if any), then
  * pins the configured base branch to a full SHA. {@code INTAKE_READY} means the
  * issue and trusted configuration are sufficient; it says nothing about the
- * build environment. Pilot executions never resolve a required repository
+ * build environment. Task executions never resolve a required repository
  * decision, so the seeded recommendation cannot be accepted without a human.
  */
 public class IntakeResolveWorker implements AgentWorker {
@@ -39,19 +39,19 @@ public class IntakeResolveWorker implements AgentWorker {
     private final RepositoryPolicy policy;
     private final BaseRefResolver baseRefResolver;
     private final FrontmatterCodec codec;
-    private final PilotAttemptPolicy pilotPolicy;
+    private final TaskAttemptPolicy taskPolicy;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public IntakeResolveWorker(RepositoryPolicy policy, BaseRefResolver baseRefResolver, FrontmatterCodec codec) {
-        this(policy, baseRefResolver, codec, PilotAttemptPolicy.none());
+        this(policy, baseRefResolver, codec, TaskAttemptPolicy.none());
     }
 
     public IntakeResolveWorker(RepositoryPolicy policy, BaseRefResolver baseRefResolver, FrontmatterCodec codec,
-                               PilotAttemptPolicy pilotPolicy) {
+                               TaskAttemptPolicy taskPolicy) {
         this.policy = policy;
         this.baseRefResolver = baseRefResolver;
         this.codec = codec;
-        this.pilotPolicy = pilotPolicy;
+        this.taskPolicy = taskPolicy;
     }
 
     @Override
@@ -67,9 +67,9 @@ public class IntakeResolveWorker implements AgentWorker {
             return brief(intake, state, intake.path("reason").asString(""), null, null, null, null);
         }
         var request = DecisionArtifacts.parseRequest(codec, context.requireInput(DecisionArtifacts.REQUEST).content());
-        var pilot = pilotPolicy.find(context.executionId());
-        if (request.required() && pilot.isPresent()) {
-            pilotPolicy.recordStop(context.executionId(), context.stepId(),
+        var taskRun = taskPolicy.find(context.executionId());
+        if (request.required() && taskRun.isPresent()) {
+            taskPolicy.recordStop(context.executionId(), context.stepId(),
                     "repository selection requires a human choice; the approved admission must resolve to"
                             + " one repository");
             return brief(intake, "BLOCKED", "REPOSITORY_SELECTION_REQUIRES_HUMAN", Map.of(), null, null, null);
@@ -78,7 +78,7 @@ public class IntakeResolveWorker implements AgentWorker {
                 ? validAnswer(context, request).choice()
                 : intake.path("candidates").path(0).asString("");
         // The settings chosen at Run or Retry; a run without them (manual API trigger) uses the defaults.
-        var settings = pilot.map(PilotExecutionContext::runSettings).orElse(null);
+        var settings = taskRun.map(TaskExecutionContext::runSettings).orElse(null);
         return briefForChoice(intake, decision(request, choice), choice, settings);
     }
 

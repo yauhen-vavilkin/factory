@@ -4,8 +4,8 @@ import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.devfactory.candidate.Candidate;
-import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
-import org.folio.factory.devfactory.pilot.PilotStops;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -20,16 +20,16 @@ public class VerifyWorker implements AgentWorker {
     public static final String RESULT = "dev_result.json";
 
     private final CandidateVerifier verifier;
-    private final PilotAttemptPolicy pilotPolicy;
+    private final TaskAttemptPolicy taskPolicy;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public VerifyWorker(CandidateVerifier verifier) {
-        this(verifier, PilotAttemptPolicy.none());
+        this(verifier, TaskAttemptPolicy.none());
     }
 
-    public VerifyWorker(CandidateVerifier verifier, PilotAttemptPolicy pilotPolicy) {
+    public VerifyWorker(CandidateVerifier verifier, TaskAttemptPolicy taskPolicy) {
         this.verifier = verifier;
-        this.pilotPolicy = pilotPolicy;
+        this.taskPolicy = taskPolicy;
     }
 
     @Override
@@ -52,12 +52,12 @@ public class VerifyWorker implements AgentWorker {
                     RESULT, json.writeValueAsString(outcome)), Map.of());
         }
         Candidate candidate = json.readValue(content, Candidate.class);
-        Stop guard = pilotStop(context);
+        Stop guard = taskStop(context);
         if (guard != null) {
             return stopped(guard);
         }
         var receipt = verifier.verify(context.executionId(), context.stepId(), candidate,
-                pilotPolicy.deadline(context.executionId()));
+                taskPolicy.deadline(context.executionId()));
         Map<String, Object> outcome = new LinkedHashMap<>();
         outcome.put("state", receipt.result().equals("PASS") ? "VERIFIED" : "VERIFICATION_FAILED");
         outcome.put("repository", candidate.repository());
@@ -84,20 +84,20 @@ public class VerifyWorker implements AgentWorker {
                 RESULT, json.writeValueAsString(outcome)), Map.of());
     }
 
-    /** A stopped, expired or no-longer-owned pilot attempt must not verify again. */
-    private Stop pilotStop(AgentContext context) {
-        if (pilotPolicy.find(context.executionId()).isEmpty()) {
+    /** A stopped, expired or no-longer-owned task attempt must not verify again. */
+    private Stop taskStop(AgentContext context) {
+        if (taskPolicy.find(context.executionId()).isEmpty()) {
             return null;
         }
-        if (!pilotPolicy.ownsActiveSlot(context.executionId())) {
-            return stop(context, PilotStops.INSPECTION_STATE,
-                    "the pilot attempt no longer owns the installation's active slot;"
+        if (!taskPolicy.ownsActiveSlot(context.executionId())) {
+            return stop(context, TaskStops.INSPECTION_STATE,
+                    "the task attempt no longer owns the installation's active slot;"
                             + " a stopped, superseded or released attempt must not continue");
         }
-        var expired = pilotPolicy.deadline(context.executionId())
+        var expired = taskPolicy.deadline(context.executionId())
                 .filter(deadline -> deadline.expired(Clock.systemUTC()));
         if (expired.isPresent()) {
-            return stop(context, PilotStops.DEADLINE_STATE,
+            return stop(context, TaskStops.DEADLINE_STATE,
                     "the whole-attempt deadline expired before verification;"
                             + " queue and human-review waiting are excluded from the budget");
         }
@@ -105,7 +105,7 @@ public class VerifyWorker implements AgentWorker {
     }
 
     private Stop stop(AgentContext context, String state, String reason) {
-        pilotPolicy.recordStop(context.executionId(), context.stepId(), reason);
+        taskPolicy.recordStop(context.executionId(), context.stepId(), reason);
         return new Stop(state, reason);
     }
 

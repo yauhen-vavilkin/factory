@@ -85,13 +85,13 @@ class PipelineRouterIntegrationTest {
     void preparedManualRoundTripPersistsFlowPayloadAndDedupKey() {
         var payload = json.readTree("{\"issueKey\": \"ERM-7\"}");
 
-        var prepared = router.prepareManual("fake-webhook", payload, "pilot-attempt-1");
+        var prepared = router.prepareManual("fake-webhook", payload, "task-attempt-1");
         UUID id = router.routePrepared(prepared);
 
         var execution = stateManager.get(id);
         assertThat(execution.getFlowId()).isEqualTo("fake-webhook");
         assertThat(execution.getTriggerPayload()).contains("ERM-7");
-        assertThat(execution.getDedupKey()).isEqualTo("pilot-attempt-1");
+        assertThat(execution.getDedupKey()).isEqualTo("task-attempt-1");
     }
 
     @Test

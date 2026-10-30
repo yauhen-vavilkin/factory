@@ -61,7 +61,7 @@ public class CandidateDelivery {
                 target, githubToken, stableBranch, PublicationGit.DEFAULT_TIMEOUT_SECONDS);
     }
 
-    /** Delivery Git operations bounded by the pilot attempt's remaining whole-attempt budget. */
+    /** Delivery Git operations bounded by the task attempt's remaining whole-attempt budget. */
     public DeliveryReceipt deliver(
             String executionId,
             String issueKey,

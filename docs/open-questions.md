@@ -47,7 +47,7 @@ Source: manual run review, 2026-10-27 (commit c068793).
 
 Source: GLM runs of MGRAPPS-120 on 2026-10-27.
 
-- `pilot_attempt.state` stays `QUEUED` while the attempt runs: no code sets `RUNNING`.
+- `task_attempt.state` stays `QUEUED` while the attempt runs: no code sets `RUNNING`.
   The UI shows "Working" from the execution instead.
 - After an attempt stops, the execution page still shows "Verify changes" and
   "Create pull request" as "Waiting", while the engine status is `COMPLETED`.

@@ -5,9 +5,9 @@ import org.folio.factory.core.agent.ArtifactContent;
 import org.folio.factory.connectors.github.GitHubConnector;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
-import org.folio.factory.devfactory.pilot.AttemptDeadline;
-import org.folio.factory.devfactory.pilot.PilotStops;
-import org.folio.factory.devfactory.pilot.RecordingPilotAttempts;
+import org.folio.factory.devfactory.tasks.AttemptDeadline;
+import org.folio.factory.devfactory.tasks.TaskStops;
+import org.folio.factory.devfactory.tasks.RecordingTaskAttempts;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
 import org.folio.factory.devfactory.verification.VerificationFailure;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
@@ -134,45 +134,45 @@ class VerifyWorkerTest {
     }
 
     @Test
-    void aPilotAttemptThatLostItsSlotCannotVerifyAndStopsForInspection() {
-        var pilots = RecordingPilotAttempts.pilot("source");
-        pilots.ownsSlot = false;
+    void aTaskAttemptThatLostItsSlotCannotVerifyAndStopsForInspection() {
+        var taskAttempts = RecordingTaskAttempts.taskRun("source");
+        taskAttempts.ownsSlot = false;
         var verifier = mock(CandidateVerifier.class);
 
-        var result = new VerifyWorker(verifier, pilots).execute(candidateContext());
+        var result = new VerifyWorker(verifier, taskAttempts).execute(candidateContext());
 
         var outcome = json.readTree(result.outputs().get(VerifyWorker.RESULT));
-        assertThat(outcome.path("state").asString()).isEqualTo(PilotStops.INSPECTION_STATE);
+        assertThat(outcome.path("state").asString()).isEqualTo(TaskStops.INSPECTION_STATE);
         assertThat(outcome.path("reason").asString()).contains("no longer owns");
         assertThat(json.readTree(result.outputs().get(VerifyWorker.RECEIPT)).path("state").asString())
                 .isEqualTo("NOT_RUN");
         verifyNoInteractions(verifier);
-        assertThat(pilots.stops).singleElement().asString().startsWith("verify: ");
+        assertThat(taskAttempts.stops).singleElement().asString().startsWith("verify: ");
     }
 
     @Test
-    void anExpiredPilotDeadlineCannotVerifyAndStopsWithTheDeadlineState() {
-        var pilots = RecordingPilotAttempts.pilot("source")
+    void anExpiredTaskDeadlineCannotVerifyAndStopsWithTheDeadlineState() {
+        var taskAttempts = RecordingTaskAttempts.taskRun("source")
                 .withDeadline(new AttemptDeadline(Instant.now().minusSeconds(1)));
         var verifier = mock(CandidateVerifier.class);
 
-        var result = new VerifyWorker(verifier, pilots).execute(candidateContext());
+        var result = new VerifyWorker(verifier, taskAttempts).execute(candidateContext());
 
         var outcome = json.readTree(result.outputs().get(VerifyWorker.RESULT));
-        assertThat(outcome.path("state").asString()).isEqualTo(PilotStops.DEADLINE_STATE);
+        assertThat(outcome.path("state").asString()).isEqualTo(TaskStops.DEADLINE_STATE);
         assertThat(outcome.path("reason").asString()).contains("deadline expired before verification");
         verifyNoInteractions(verifier);
     }
 
     @Test
-    void aCurrentPilotAttemptVerifiesUnderItsRemainingBudget() {
-        var pilots = RecordingPilotAttempts.pilot("source")
+    void aCurrentTaskAttemptVerifiesUnderItsRemainingBudget() {
+        var taskAttempts = RecordingTaskAttempts.taskRun("source")
                 .withDeadline(new AttemptDeadline(Instant.now().plusSeconds(45)));
         var verifier = mock(CandidateVerifier.class);
         when(verifier.verify(eq(executionId()), eq("verify"), any(Candidate.class), any(Optional.class)))
                 .thenReturn(failedReceipt());
 
-        var result = new VerifyWorker(verifier, pilots).execute(candidateContext());
+        var result = new VerifyWorker(verifier, taskAttempts).execute(candidateContext());
 
         assertThat(json.readTree(result.outputs().get(VerifyWorker.RESULT)).path("state").asString())
                 .isEqualTo("VERIFICATION_FAILED");

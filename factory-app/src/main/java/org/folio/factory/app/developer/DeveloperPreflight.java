@@ -51,7 +51,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
      * Docker, Jira or GitHub.
      */
     private static final Set<String> TASK_CHECKS = Set.of("task", "issue", "mapping", "profile");
-    /** The settings of the pilot run being launched on this thread; see {@link #forRun}. */
+    /** The settings of the task run being launched on this thread; see {@link #forRun}. */
     private static final ThreadLocal<CodingRequest.RunSettings> LAUNCHING = new ThreadLocal<>();
 
     public enum Status {
@@ -96,7 +96,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     private final RunProfiles profiles;
 
     /**
-     * Runs a trigger (and with it this preflight) for a pilot run that uses these settings. The trigger
+     * Runs a trigger (and with it this preflight) for a task run that uses these settings. The trigger
      * payload cannot carry them, so the launcher hands them over here: a broken default profile then does
      * not block a run with another profile, and a run whose own profile cannot be used stops alone.
      */
@@ -268,7 +268,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         return settings.coding().piProfile().model();
     }
 
-    /** The profile of the run being checked: the launching pilot run's, or the default. */
+    /** The profile of the run being checked: the launching task run's, or the default. */
     private RunProfiles.Profile runProfile() {
         return profiles.resolve(LAUNCHING.get()).profile();
     }

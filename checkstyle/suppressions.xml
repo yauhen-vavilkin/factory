@@ -61,22 +61,22 @@
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='MavenBaselineOutput']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='isTransientDownloadFailure']]"/>
   <suppress-xpath files="PiUsage\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PiUsage']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='add']]"/>
-  <suppress-xpath files="PilotDiscoveryService\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PilotDiscoveryService']]/OBJBLOCK/CTOR_DEF/IDENT[@text='PilotDiscoveryService']"/>
-  <suppress-xpath files="PilotDiscoveryService\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PilotDiscoveryService']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='upsert']]"/>
-  <suppress-xpath files="PilotExecutionLauncher\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PilotExecutionLauncher']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='launchLocked']]"/>
-  <suppress-xpath files="PilotOutcomeService\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PilotOutcomeService']]/OBJBLOCK/CTOR_DEF/IDENT[@text='PilotOutcomeService']"/>
-  <suppress-xpath files="PilotPublicationGuard\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PilotPublicationGuard']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='requireCurrentOrThrow']]"/>
-  <suppress-xpath files="PilotPublicationIntent\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PilotPublicationIntent']]/OBJBLOCK/METHOD_DEF/IDENT[@text='of']"/>
-  <suppress-xpath files="PilotRunSettings\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PilotRunSettings']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='form']]"/>
-  <suppress-xpath files="PilotTask\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PilotTask']]/OBJBLOCK/CTOR_DEF/IDENT[@text='PilotTask']"/>
+  <suppress-xpath files="TaskDiscoveryService\.java" checks="ParameterNumber"
+      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TaskDiscoveryService']]/OBJBLOCK/CTOR_DEF/IDENT[@text='TaskDiscoveryService']"/>
+  <suppress-xpath files="TaskDiscoveryService\.java" checks="MethodLength"
+      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TaskDiscoveryService']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='upsert']]"/>
+  <suppress-xpath files="TaskExecutionLauncher\.java" checks="MethodLength"
+      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TaskExecutionLauncher']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='launchLocked']]"/>
+  <suppress-xpath files="TaskOutcomeService\.java" checks="ParameterNumber"
+      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TaskOutcomeService']]/OBJBLOCK/CTOR_DEF/IDENT[@text='TaskOutcomeService']"/>
+  <suppress-xpath files="TaskPublicationGuard\.java" checks="MethodLength"
+      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TaskPublicationGuard']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='requireCurrentOrThrow']]"/>
+  <suppress-xpath files="TaskPublicationIntent\.java" checks="ParameterNumber"
+      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TaskPublicationIntent']]/OBJBLOCK/METHOD_DEF/IDENT[@text='of']"/>
+  <suppress-xpath files="TaskRunSettings\.java" checks="MethodLength"
+      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TaskRunSettings']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='form']]"/>
+  <suppress-xpath files="Task\.java" checks="ParameterNumber"
+      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='Task']]/OBJBLOCK/CTOR_DEF/IDENT[@text='Task']"/>
   <suppress-xpath files="TestFactoryConfiguration\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TestFactoryConfiguration']]/OBJBLOCK/METHOD_DEF/IDENT[@text='testFactoryFinalizerWorker']"/>
   <suppress-xpath files="VerificationReceipt\.java" checks="ParameterNumber"

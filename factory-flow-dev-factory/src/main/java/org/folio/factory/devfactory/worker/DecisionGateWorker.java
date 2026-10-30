@@ -7,14 +7,14 @@ import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.registry.model.HitlGateSpec;
 import org.folio.factory.devfactory.decision.ConditionalDecisionGate;
 import org.folio.factory.devfactory.decision.DecisionArtifacts;
-import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 
 import java.util.List;
 import java.util.Map;
 
 /**
  * Pauses the execution for review only when intake recorded a required decision.
- * Pilot executions never wait for a review: a required decision records a stop
+ * Task executions never wait for a review: a required decision records a stop
  * instead, and intake already keeps ambiguous mappings from reaching this gate.
  */
 public class DecisionGateWorker implements AgentWorker {
@@ -31,17 +31,17 @@ public class DecisionGateWorker implements AgentWorker {
 
     private final ConditionalDecisionGate gate;
     private final FrontmatterCodec codec;
-    private final PilotAttemptPolicy pilotPolicy;
+    private final TaskAttemptPolicy taskPolicy;
 
     public DecisionGateWorker(ConditionalDecisionGate gate, FrontmatterCodec codec) {
-        this(gate, codec, PilotAttemptPolicy.none());
+        this(gate, codec, TaskAttemptPolicy.none());
     }
 
     public DecisionGateWorker(ConditionalDecisionGate gate, FrontmatterCodec codec,
-                              PilotAttemptPolicy pilotPolicy) {
+                              TaskAttemptPolicy taskPolicy) {
         this.gate = gate;
         this.codec = codec;
-        this.pilotPolicy = pilotPolicy;
+        this.taskPolicy = taskPolicy;
     }
 
     @Override
@@ -53,13 +53,13 @@ public class DecisionGateWorker implements AgentWorker {
     public AgentResult execute(AgentContext context) {
         var request = DecisionArtifacts.parseRequest(codec, context.requireInput(DecisionArtifacts.REQUEST).content());
         boolean required = request.required();
-        boolean pilot = pilotPolicy.find(context.executionId()).isPresent();
-        if (required && pilot) {
-            pilotPolicy.recordStop(context.executionId(), context.stepId(),
-                    "repository selection requires a human choice; a pilot attempt stops instead of waiting"
+        boolean taskRun = taskPolicy.find(context.executionId()).isPresent();
+        if (required && taskRun) {
+            taskPolicy.recordStop(context.executionId(), context.stepId(),
+                    "repository selection requires a human choice; a task attempt stops instead of waiting"
                             + " for review");
         }
-        boolean opened = required && !pilot && gate.open(context, GATE);
+        boolean opened = required && !taskRun && gate.open(context, GATE);
         return new AgentResult(Map.of(), Map.of("decisionRequired", required, "reviewOpened", opened));
     }
 }

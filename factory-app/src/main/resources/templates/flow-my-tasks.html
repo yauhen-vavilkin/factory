@@ -14,7 +14,7 @@
                     <strong th:text="${source['assignee']}">Jane Developer</strong> · not done<th:block
                             th:if="${source['jiraHost'] != null}" th:text="' · ' + ${source['jiraHost']}"></th:block></span>
                 <span class="source-card-scope" th:if="${source['assignee'] == null}">Set
-                    <code>FACTORY_PILOT_ASSIGNEE</code> in <code>.env</code> to your name as shown in Jira, then
+                    <code>FACTORY_TASKS_ASSIGNEE</code> in <code>.env</code> to your name as shown in Jira, then
                     <code>docker compose up -d</code>.</span>
                 <span class="source-card-problem" th:if="${source['problem'] != null}"
                       th:text="'Last scan failed: ' + ${source['problem']}"></span>
@@ -33,14 +33,14 @@
             <div class="source-details-grid">
                 <span class="muted">Query</span>
                 <div class="source-details-query">
-                    <pre th:text="${source['query'] != null} ? ${source['query']} : 'Set FACTORY_PILOT_ASSIGNEE first'">query</pre>
+                    <pre th:text="${source['query'] != null} ? ${source['query']} : 'Set FACTORY_TASKS_ASSIGNEE first'">query</pre>
                     <span th:if="${source['searchUrl'] != null}"><a class="dev-link" th:href="${source['searchUrl']}">Open
                         this search in Jira</a> <span class="muted">· shows the same issues Factory sees</span></span>
                 </div>
                 <span class="muted">Repositories</span>
                 <span th:text="${repositoryMap}">Projects</span>
                 <span class="muted">Change it</span>
-                <span><code>FACTORY_PILOT_ASSIGNEE</code> in <code>.env</code>, then <code>docker compose up -d</code>.
+                <span><code>FACTORY_TASKS_ASSIGNEE</code> in <code>.env</code>, then <code>docker compose up -d</code>.
                     Projects: <code>config/developer-repositories.yaml</code></span>
             </div>
         </details>

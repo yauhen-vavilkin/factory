@@ -41,7 +41,7 @@ class ComposeConfigurationTest {
     void everyDocumentedApplicationSettingAndSpringPlaceholderHasAComposeEntry() throws IOException {
         var documented = names(Files.readString(ROOT.resolve(".env.example")),
                 "(?m)^\\s*(?:#\\s*)?([A-Z][A-Z0-9_]+)=");
-        documented.addAll(names(Files.readString(ROOT.resolve(".env.pilot.example")),
+        documented.addAll(names(Files.readString(ROOT.resolve(".env.tasks.example")),
                 "(?m)^\\s*(?:#\\s*)?([A-Z][A-Z0-9_]+)="));
         for (String path : new String[]{"factory-app/src/main/resources/application.yaml",
                 "config/developer-repositories.yaml", "config/developer-run-profiles.yaml"}) {
@@ -121,20 +121,20 @@ class ComposeConfigurationTest {
     }
 
     @Test
-    void pilotExampleAsksOnlyForTheAssigneeAndTokenAndStaysOnTheSupportedLocalProfile() throws Exception {
-        Map<String, String> pilot = exampleEnvironment(".env.pilot.example");
-        var config = render(pilot, Map.of());
+    void taskExampleAsksOnlyForTheAssigneeAndTokenAndStaysOnTheSupportedLocalProfile() throws Exception {
+        Map<String, String> taskRun = exampleEnvironment(".env.tasks.example");
+        var config = render(taskRun, Map.of());
         var environment = config.path("services").path("factory").path("environment");
 
-        assertThat(pilot).containsOnlyKeys("FACTORY_CONNECTORS_JIRA_BASE_URL", "FACTORY_PILOT_ASSIGNEE",
-                "FACTORY_CONNECTORS_GITHUB_TOKEN", "FACTORY_PILOT_EXECUTION_ENABLED");
+        assertThat(taskRun).containsOnlyKeys("FACTORY_CONNECTORS_JIRA_BASE_URL", "FACTORY_TASKS_ASSIGNEE",
+                "FACTORY_CONNECTORS_GITHUB_TOKEN", "FACTORY_TASKS_EXECUTION_ENABLED");
         assertLocalCodeMieProfile(environment);
         assertEnvironmentContains(environment, Map.of(
                 "FACTORY_CONNECTORS_JIRA_BASE_URL", "https://folio-org.atlassian.net",
-                "FACTORY_PILOT_EXECUTION_ENABLED", "true"));
-        // Retention keeps its off default; pilot execution refuses to start tasks while it is on.
+                "FACTORY_TASKS_EXECUTION_ENABLED", "true"));
+        // Retention keeps its off default; task execution refuses to start tasks while it is on.
         assertThat(isUnset(environment.path("FACTORY_RETENTION_ENABLED"))).isTrue();
-        assertThat(isUnset(environment.path("FACTORY_PILOT_EXECUTION_DISPATCH_INTERVAL_MS"))).isTrue();
+        assertThat(isUnset(environment.path("FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS"))).isTrue();
     }
 
     @Test

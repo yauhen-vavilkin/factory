@@ -11,10 +11,10 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.feedback.AttemptPricing;
-import org.folio.factory.devfactory.pilot.AttemptDeadline;
-import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
-import org.folio.factory.devfactory.pilot.PilotExecutionContext;
-import org.folio.factory.devfactory.pilot.PilotStops;
+import org.folio.factory.devfactory.tasks.AttemptDeadline;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskExecutionContext;
+import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
@@ -53,7 +53,7 @@ public final class InitialCodingAttempt {
     private final AuditLog audit;
     private final AttemptPricing pricing;
     private final SelectedRepositoryPreflight repositoryPreflight;
-    private final PilotAttemptPolicy pilotPolicy;
+    private final TaskAttemptPolicy taskPolicy;
     private final CodingTranscripts transcripts;
     private final JsonMapper json = JsonMapper.builder().build();
 
@@ -102,11 +102,11 @@ public final class InitialCodingAttempt {
     private Run newRun(AgentContext context, CodingRequest request, DevFactoryProperties.Repository repository,
                        DockerWorkloads.StepScope scope) {
         var url = properties.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
-        var pilot = pilotPolicy.find(context.executionId());
-        var deadline = pilot.isPresent()
-                ? pilotPolicy.deadline(context.executionId())
+        var taskRun = taskPolicy.find(context.executionId());
+        var deadline = taskRun.isPresent()
+                ? taskPolicy.deadline(context.executionId())
                 : Optional.<AttemptDeadline>empty();
-        return new Run(context, request, repository, url, scope, pilot, deadline);
+        return new Run(context, request, repository, url, scope, taskRun, deadline);
     }
 
     private Attempt develop(Run run, Mode mode, RunState state) {
@@ -120,7 +120,7 @@ public final class InitialCodingAttempt {
     }
 
     private Optional<Stop> prepare(Run run, Mode mode, RunState state) {
-        var stop = pilotStop(run, "preparation");
+        var stop = taskStop(run, "preparation");
         if (stop.isPresent()) {
             return stop;
         }
@@ -171,17 +171,17 @@ public final class InitialCodingAttempt {
     }
 
     private Optional<Stop> claimPaidStart(Run run) {
-        var stop = pilotStop(run, "coding");
+        var stop = taskStop(run, "coding");
         if (stop.isPresent()) {
             return stop;
         }
-        if (run.pilot().isEmpty() || pilotPolicy.claimPaidStart(run.executionId())) {
+        if (run.taskRun().isEmpty() || taskPolicy.claimPaidStart(run.executionId())) {
             return Optional.empty();
         }
-        var reason = "Paid coding was already started for pilot attempt " + run.pilot().orElseThrow().attemptId()
+        var reason = "Paid coding was already started for task attempt " + run.taskRun().orElseThrow().attemptId()
                 + "; a replayed or retried engine step cannot start a second initial"
                 + " coding invocation";
-        pilotPolicy.recordStop(run.executionId(), run.stepId(), reason);
+        taskPolicy.recordStop(run.executionId(), run.stepId(), reason);
         return Optional.of(new Stop("PAID_START_CONSUMED", reason));
     }
 
@@ -230,7 +230,7 @@ public final class InitialCodingAttempt {
     }
 
     private Attempt completedAttempt(Run run, RunState state, CodingOutcome outcome) {
-        var stop = pilotStop(run, "candidate freeze");
+        var stop = taskStop(run, "candidate freeze");
         if (stop.isPresent()) {
             return failedAttempt(stop.get(), state);
         }
@@ -239,27 +239,27 @@ public final class InitialCodingAttempt {
                 CodingDecisionArtifacts.Request.none());
     }
 
-    private Optional<Stop> pilotStop(Run run, String stage) {
-        var stop = pilotGuardProblem(run, stage);
-        stop.ifPresent(found -> pilotPolicy.recordStop(run.executionId(), run.stepId(), found.reason()));
+    private Optional<Stop> taskStop(Run run, String stage) {
+        var stop = taskGuardProblem(run, stage);
+        stop.ifPresent(found -> taskPolicy.recordStop(run.executionId(), run.stepId(), found.reason()));
         return stop;
     }
 
     /**
-     * A stopped, superseded or expired pilot attempt must start no further side
-     * effects. Legacy executions without pilot policy never produce a guard stop.
+     * A stopped, superseded or expired task attempt must start no further side
+     * effects. Legacy executions without task policy never produce a guard stop.
      */
-    private Optional<Stop> pilotGuardProblem(Run run, String stage) {
-        if (run.pilot().isEmpty()) {
+    private Optional<Stop> taskGuardProblem(Run run, String stage) {
+        if (run.taskRun().isEmpty()) {
             return Optional.empty();
         }
-        if (!pilotPolicy.ownsActiveSlot(run.executionId())) {
-            return Optional.of(new Stop(PilotStops.INSPECTION_STATE,
-                    "the pilot attempt no longer owns the installation's active slot;"
+        if (!taskPolicy.ownsActiveSlot(run.executionId())) {
+            return Optional.of(new Stop(TaskStops.INSPECTION_STATE,
+                    "the task attempt no longer owns the installation's active slot;"
                             + " a stopped, superseded or released attempt must not continue"));
         }
         if (run.deadline().filter(budget -> budget.expired(Clock.systemUTC())).isPresent()) {
-            return Optional.of(new Stop(PilotStops.DEADLINE_STATE,
+            return Optional.of(new Stop(TaskStops.DEADLINE_STATE,
                     "the whole-attempt deadline expired before " + stage
                             + "; queue and human-review waiting are excluded from the budget"));
         }
@@ -393,20 +393,20 @@ public final class InitialCodingAttempt {
     }
 
     /**
-     * The state and reason that end an attempt without a candidate. Pilot stops are classified like
+     * The state and reason that end an attempt without a candidate. Task stops are classified like
      * VerifyWorker and DeliveryWorker.
      */
     private record Stop(String state, String reason) {
     }
 
-    /** One attempt inside its engine step. A pilot deadline exists only for a pilot execution. */
+    /** One attempt inside its engine step. A task deadline exists only for a task execution. */
     private record Run(
             AgentContext context,
             CodingRequest request,
             DevFactoryProperties.Repository repository,
             String url,
             DockerWorkloads.StepScope scope,
-            Optional<PilotExecutionContext> pilot,
+            Optional<TaskExecutionContext> taskRun,
             Optional<AttemptDeadline> deadline) {
 
         UUID executionId() {

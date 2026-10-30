@@ -138,7 +138,7 @@ class DeveloperPreflightTest {
     }
 
     @Test
-    void aPilotRunIsCheckedWithItsOwnProfileSoABrokenDefaultDoesNotBlockIt() throws Exception {
+    void aTaskRunIsCheckedWithItsOwnProfileSoABrokenDefaultDoesNotBlockIt() throws Exception {
         var broken = new DevRuntimeProperties.ClaudeCode("coding:image", "anthropic-messages",
                 "http://gateway.fixture.invalid:4001", "exact-model", "api-key", null, null, 40, 16384, null);
         var service = profileService(broken, "zai-fixture-secret");

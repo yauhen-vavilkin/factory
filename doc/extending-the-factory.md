@@ -1161,7 +1161,7 @@ organisation/project:
 
 1. **Keep** `factory-core`, `factory-agents`, `factory-connectors` — they contain no
    flow-specific logic — and `factory-app`. Note that `factory-app` is not flow-neutral:
-   its Developer Flow pages and pilot code import `factory-flow-dev-factory` directly, so
+   its Developer Flow pages and My tasks code import `factory-flow-dev-factory` directly, so
    that module cannot be dropped without changing `factory-app`.
 2. **Choose flows**: drop the `factory-flow-test-factory` dependency from
    `factory-app/pom.xml` (and the module from the root pom) if the Test Factory flow is not

@@ -4,7 +4,7 @@ import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.ArtifactContent;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
-import org.folio.factory.devfactory.pilot.RecordingPilotAttempts;
+import org.folio.factory.devfactory.tasks.RecordingTaskAttempts;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.junit.jupiter.api.Test;
@@ -110,12 +110,12 @@ class DevelopContinuationWorkerTest {
         verify(develop).retry(any(), any(), any());
     }
 
-    @Test void aPilotAttemptNeverContinuesWithAnotherPaidAttempt() {
+    @Test void aTaskAttemptNeverContinuesWithAnotherPaidAttempt() {
         InitialCodingAttempt develop = mock(InitialCodingAttempt.class);
-        var pilots = RecordingPilotAttempts.pilot();
+        var taskAttempts = RecordingTaskAttempts.taskRun();
         var requestArtifact = CodingDecisionArtifacts.Request.from(decision());
 
-        var result = new DevelopContinuationWorker(develop, codec, pilots)
+        var result = new DevelopContinuationWorker(develop, codec, taskAttempts)
                 .execute(context(requestArtifact, "Use the public API"));
 
         assertThat(json.readValue(result.outputs().get(DevelopWorker.OUTCOME), CodingOutcome.class).status())
@@ -123,8 +123,8 @@ class DevelopContinuationWorkerTest {
         assertThat(json.readValue(result.outputs().get(IntakeResolveWorker.CODING_REQUEST), CodingRequest.class))
                 .isEqualTo(request());
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).isEqualTo("{\"state\":\"NEEDS_DECISION\"}");
-        assertThat(pilots.stops).singleElement().satisfies(stop ->
-                assertThat(stop).contains("cannot continue a pilot attempt automatically"));
+        assertThat(taskAttempts.stops).singleElement().satisfies(stop ->
+                assertThat(stop).contains("cannot continue a task attempt automatically"));
         verifyNoInteractions(develop);
     }
 

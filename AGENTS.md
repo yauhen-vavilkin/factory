@@ -15,7 +15,7 @@ Factory, B — Kong & Keycloak Release Automation, C — Release Pipeline
 Orchestrator, D — AI Junior Developer, E — Grails-to-Java Rewrite Orchestrator
 (which composes A and D as sub-flows). **This repo ships the shared framework,
 the Test Factory flow, and the Developer Flow (`factory-flow-dev-factory`,
-including the M1 sprint pilot machinery).** New flows must be added as plugins —
+including My tasks: the Jira task queue in `factory-app/tasks`).** New flows must be added as plugins —
 never by modifying the control plane.
 
 ## Product postulates
@@ -85,7 +85,7 @@ factory-agents              LLM worker base (Spring AI ChatClient), prompt loadi
                             frontmatter codec, secret-scan post-processor
 factory-flow-test-factory   Test Factory plugin: flows/test-factory.yaml + 5 workers + prompts
 factory-flow-dev-factory    Developer Flow plugin: dev-factory.yaml, Claude Code / Pi coding
-                            runtimes, verification, delivery, PR feedback, sprint pilot
+                            runtimes, verification, delivery, PR feedback, task attempt policy
 factory-app                 Spring Boot composition root: management console (server-rendered
                             Thymeleaf UI), REST API, Flyway
 ```

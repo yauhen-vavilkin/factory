@@ -2,13 +2,13 @@ package org.folio.factory.app;
 
 import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.app.developer.DeveloperPreflight;
-import org.folio.factory.app.pilot.admission.PilotRunSettings;
-import org.folio.factory.app.pilot.persistence.PilotAttempt;
-import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
-import org.folio.factory.app.pilot.persistence.PilotInstallation;
-import org.folio.factory.app.pilot.persistence.PilotInstallationRepository;
-import org.folio.factory.app.pilot.persistence.PilotTask;
-import org.folio.factory.app.pilot.persistence.PilotTaskRepository;
+import org.folio.factory.app.tasks.admission.TaskRunSettings;
+import org.folio.factory.app.tasks.persistence.TaskAttempt;
+import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
+import org.folio.factory.app.tasks.persistence.TaskInstallation;
+import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
+import org.folio.factory.app.tasks.persistence.Task;
+import org.folio.factory.app.tasks.persistence.TaskRepository;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
@@ -67,7 +67,7 @@ import static org.mockito.Mockito.when;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false",
                 "factory.connectors.jira.base-url=https://jira.example.org",
-                "factory.pilot.source.assignee=Jane Developer",
+                "factory.tasks.source.assignee=Jane Developer",
                 "factory.developer-pricing.rates.test.model=test-model",
                 "factory.developer-pricing.rates.test.currency=USD",
                 "factory.developer-pricing.rates.test.as-of=2026-09-19",
@@ -103,13 +103,13 @@ class UiRenderSmokeTest {
     private AuditLog auditLog;
 
     @Autowired
-    private PilotTaskRepository pilotTasks;
+    private TaskRepository taskTasks;
 
     @Autowired
-    private PilotAttemptRepository pilotAttempts;
+    private TaskAttemptRepository taskAttempts;
 
     @Autowired
-    private PilotInstallationRepository pilotInstallations;
+    private TaskInstallationRepository taskInstallations;
 
     @Autowired
     private ITemplateEngine templateEngine;
@@ -122,7 +122,7 @@ class UiRenderSmokeTest {
 
     /** Real unless a test changes it; Mockito resets it after each test. */
     @MockitoSpyBean
-    private PilotRunSettings runSettings;
+    private TaskRunSettings runSettings;
 
     @Autowired
     private CodingRuntime codingRuntime;
@@ -506,23 +506,23 @@ class UiRenderSmokeTest {
 
     @Test
     void codingFailureReasonsReachTheTaskScreensAndTheRunPage() {
-        resetPilotData();
+        resetTaskData();
         String turnLimit = "Claude Code used all 40 turns before it finished the task."
                 + " Retry with more turns or a different effort.";
-        PilotTask stopped = seedTask("70081", "MODBAR-781", "Turn limit task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        Task stopped = seedTask("70081", "MODBAR-781", "Turn limit task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
         PipelineExecution execution = new PipelineExecution("dev-factory", "0.8.0", "{}");
         execution.setStatus(ExecutionStatus.COMPLETED);
         execution = executions.save(execution);
         artifactStore.putMarkdown(execution.getId(), "dev_result.json",
                 "{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"" + turnLimit + "\"}", "verify");
-        PilotAttempt attempt = seedAttempt(stopped, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.STOPPED,
+        TaskAttempt attempt = seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
                 "DEVELOPMENT_FAILED: " + turnLimit);
         attempt.setExecutionId(execution.getId());
-        pilotAttempts.save(attempt);
-        PilotTask provider = seedTask("70082", "MODBAR-782", "Provider task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        seedAttempt(provider, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.STOPPED,
+        taskAttempts.save(attempt);
+        Task provider = seedTask("70082", "MODBAR-782", "Provider task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(provider, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
                 "shared: DEVELOPMENT_FAILED: Claude Code stopped with an error (subtype success, API status 429)."
                         + " Check the provider and the Developer Flow settings, then retry. Error: API Error: 429");
 
@@ -821,39 +821,39 @@ class UiRenderSmokeTest {
         assertThat(response.getBody()).contains("\"error\"").contains("No execution");
     }
 
-    // ----- pilot task screens -----
+    // ----- task screens -----
 
-    private void resetPilotData() {
-        pilotAttempts.deleteAll();
-        pilotTasks.deleteAll();
-        pilotInstallations.deleteAll();
-        pilotInstallations.save(PilotInstallation.initial());
+    private void resetTaskData() {
+        taskAttempts.deleteAll();
+        taskTasks.deleteAll();
+        taskInstallations.deleteAll();
+        taskInstallations.save(TaskInstallation.initial());
     }
 
-    private PilotTask seedTask(String issueId, String key, String title,
-                               PilotTask.Eligibility eligibility, String routingReason) {
+    private Task seedTask(String issueId, String key, String title,
+                               Task.Eligibility eligibility, String routingReason) {
         return seedTask(issueId, key, title, "Open", eligibility, routingReason);
     }
 
-    private PilotTask seedTask(String issueId, String key, String title, String jiraStatus,
-                               PilotTask.Eligibility eligibility, String routingReason) {
-        return pilotTasks.save(new PilotTask("jira.example.org", issueId, key, title, "MODBAR",
+    private Task seedTask(String issueId, String key, String title, String jiraStatus,
+                               Task.Eligibility eligibility, String routingReason) {
+        return taskTasks.save(new Task("jira.example.org", issueId, key, title, "MODBAR",
                 "{\"key\": \"" + key + "\", \"status\": \"" + jiraStatus + "\"}", "revision-" + issueId,
                 eligibility, routingReason));
     }
 
-    private PilotAttempt seedAttempt(PilotTask task, int ordinal, PilotAttempt.Kind kind,
-                                     PilotAttempt.State state, String reason) {
-        PilotAttempt attempt = new PilotAttempt(task.getId(), ordinal, kind,
+    private TaskAttempt seedAttempt(Task task, int ordinal, TaskAttempt.Kind kind,
+                                     TaskAttempt.State state, String reason) {
+        TaskAttempt attempt = new TaskAttempt(task.getId(), ordinal, kind,
                 "smoke-" + task.getId() + "-" + ordinal, state);
         attempt.setResultReason(reason);
-        return pilotAttempts.save(attempt);
+        return taskAttempts.save(attempt);
     }
 
-    private void holdTheSlot(PilotAttempt attempt) {
-        PilotInstallation installation = pilotInstallations.findById(1).orElseThrow();
+    private void holdTheSlot(TaskAttempt attempt) {
+        TaskInstallation installation = taskInstallations.findById(1).orElseThrow();
         installation.setActiveAttemptId(attempt.getId());
-        pilotInstallations.save(installation);
+        taskInstallations.save(installation);
     }
 
     private PipelineExecution runningExecution() {
@@ -864,50 +864,50 @@ class UiRenderSmokeTest {
 
     @Test
     void myTasksRendersAvailableTriggeredAndTheWaitingQueue() {
-        resetPilotData();
-        seedTask("70001", "MODBAR-701", "Awaiting task", PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        seedTask("70002", "MODBAR-702", "Unsupported task", PilotTask.Eligibility.INELIGIBLE,
+        resetTaskData();
+        seedTask("70001", "MODBAR-701", "Awaiting task", Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedTask("70002", "MODBAR-702", "Unsupported task", Task.Eligibility.INELIGIBLE,
                 "Project MODX is not configured: no repository for it in config/developer-repositories.yaml");
-        seedTask("70003", "MODBAR-703", "Reviewed task", "In Review", PilotTask.Eligibility.ELIGIBLE,
+        seedTask("70003", "MODBAR-703", "Reviewed task", "In Review", Task.Eligibility.ELIGIBLE,
                 "repository mod-bar");
-        PilotTask queued = seedTask("70004", "MODBAR-704", "Queued task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        seedAttempt(queued, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.RESERVED, null);
-        PilotTask stopped = seedTask("70005", "MODBAR-705", "Stopped task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        seedAttempt(stopped, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.STOPPED,
+        Task queued = seedTask("70004", "MODBAR-704", "Queued task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(queued, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.RESERVED, null);
+        Task stopped = seedTask("70005", "MODBAR-705", "Stopped task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
                 "VERIFICATION_FAILED: 2 tests in error");
-        PilotTask delivered = seedTask("70006", "MODBAR-706", "Delivered task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        PilotAttempt ready = seedAttempt(delivered, 1, PilotAttempt.Kind.INITIAL,
-                PilotAttempt.State.PR_READY, null);
+        Task delivered = seedTask("70006", "MODBAR-706", "Delivered task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        TaskAttempt ready = seedAttempt(delivered, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.PR_READY, null);
         ready.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/7");
-        pilotAttempts.save(ready);
-        PilotTask held = seedTask("70007", "MODBAR-707", "Held task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        holdTheSlot(seedAttempt(held, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.NEEDS_INSPECTION, null));
-        PilotTask byKey = seedTask("70008", "MODBAR-708", "Task added by key",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        taskAttempts.save(ready);
+        Task held = seedTask("70007", "MODBAR-707", "Held task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        holdTheSlot(seedAttempt(held, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.NEEDS_INSPECTION, null));
+        Task byKey = seedTask("70008", "MODBAR-708", "Task added by key",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
         byKey.setInScope(false);
-        pilotTasks.save(byKey);
-        PilotAttempt byKeyAttempt = seedAttempt(byKey, 1, PilotAttempt.Kind.INITIAL,
-                PilotAttempt.State.RESERVED, null);
-        byKeyAttempt.setAdmittedVia(PilotAttempt.AdmittedVia.BY_KEY);
-        pilotAttempts.save(byKeyAttempt);
-        PilotTask live = seedTask("70009", "MODBAR-709", "Live task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        taskTasks.save(byKey);
+        TaskAttempt byKeyAttempt = seedAttempt(byKey, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.RESERVED, null);
+        byKeyAttempt.setAdmittedVia(TaskAttempt.AdmittedVia.BY_KEY);
+        taskAttempts.save(byKeyAttempt);
+        Task live = seedTask("70009", "MODBAR-709", "Live task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
         PipelineExecution liveExecution = runningExecution();
-        PilotAttempt liveAttempt = seedAttempt(live, 1, PilotAttempt.Kind.INITIAL,
-                PilotAttempt.State.RUNNING, null);
+        TaskAttempt liveAttempt = seedAttempt(live, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.RUNNING, null);
         liveAttempt.setExecutionId(liveExecution.getId());
-        pilotAttempts.save(liveAttempt);
+        taskAttempts.save(liveAttempt);
         auditLog.record(liveExecution.getId(), AuditEventType.STEP_STARTED, "implement", Map.of());
-        PilotTask draft = seedTask("70010", "MODBAR-710", "Draft task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        PilotAttempt draftAttempt = seedAttempt(draft, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.PR_READY, null);
+        Task draft = seedTask("70010", "MODBAR-710", "Draft task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        TaskAttempt draftAttempt = seedAttempt(draft, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.PR_READY, null);
         draftAttempt.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/8");
         draftAttempt.setDraftReasons("[\"1 acceptance criterion is not met.\"]");
-        pilotAttempts.save(draftAttempt);
+        taskAttempts.save(draftAttempt);
 
         String body = assertRendered("/flows/dev-factory", "My Jira tasks");
         // A draft pull request is not the green PR ready.
@@ -941,7 +941,7 @@ class UiRenderSmokeTest {
                         + "#retry\"\\s+aria-label=\"Retry MODBAR-705\">Retry</a>")
                 .contains("name=\"returnTo\" value=\"flow\"")
                 .doesNotContain(">Retry</button>")
-                .contains("Queued tasks are not starting.", "FACTORY_PILOT_EXECUTION_ENABLED=true")
+                .contains("Queued tasks are not starting.", "FACTORY_TASKS_EXECUTION_ENABLED=true")
                 .contains("data-task-selection", "data-run-selected", "data-selected-count",
                         "data-select-all", "data-poll-notice", "data-poll-url=\"/tasks/poll\"",
                         "data-poll-fields=\"revision\"", "data-poll-baseline=")
@@ -984,12 +984,12 @@ class UiRenderSmokeTest {
 
     @Test
     void myTasksDisablesRunWhenNoShownTaskCanRun() {
-        resetPilotData();
+        resetTaskData();
         for (int i = 1; i <= 3; i++) {
-            seedTask("7010" + i, "MODBAR-71" + i, "Unsupported task " + i, PilotTask.Eligibility.INELIGIBLE,
+            seedTask("7010" + i, "MODBAR-71" + i, "Unsupported task " + i, Task.Eligibility.INELIGIBLE,
                     "Project MODX is not configured: no repository for it in config/developer-repositories.yaml");
         }
-        seedTask("70104", "MODBAR-714", "Hidden eligible task", "In Review", PilotTask.Eligibility.ELIGIBLE,
+        seedTask("70104", "MODBAR-714", "Hidden eligible task", "In Review", Task.Eligibility.ELIGIBLE,
                 "repository mod-bar");
 
         String body = assertRendered("/flows/dev-factory", "My Jira tasks");
@@ -1002,10 +1002,10 @@ class UiRenderSmokeTest {
 
     @Test
     void aProfileWithoutItsSecretIsShownAsNotConfiguredAndCannotBeChosen() {
-        resetPilotData();
-        seedTask("70201", "MODBAR-761", "Eligible task", PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        resetTaskData();
+        seedTask("70201", "MODBAR-761", "Eligible task", Task.Eligibility.ELIGIBLE, "repository mod-bar");
         // The same profiles file, but FACTORY_ZAI_API_KEY is empty.
-        var withoutKey = new PilotRunSettings(codingRuntime,
+        var withoutKey = new TaskRunSettings(codingRuntime,
                 new RunProfiles(devRuntime.coding().claudeCode(), runProfilesFile, name -> ""));
         doAnswer(call -> withoutKey.form(call.getArgument(0))).when(runSettings).form(any());
 
@@ -1019,10 +1019,10 @@ class UiRenderSmokeTest {
 
     @Test
     void piRetryFormHasOnlyTheInstructionsAndNoProfileChoice() {
-        resetPilotData();
-        PilotTask stopped = seedTask("70202", "MODBAR-762", "Stopped task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        seedAttempt(stopped, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.STOPPED,
+        resetTaskData();
+        Task stopped = seedTask("70202", "MODBAR-762", "Stopped task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
                 "VERIFICATION_FAILED: 2 tests in error");
         // With the Pi runtime there are no run profiles, so the form has no Profile, Effort and Max turns.
         doReturn(null).when(runSettings).form(any());
@@ -1037,14 +1037,14 @@ class UiRenderSmokeTest {
 
     @Test
     void myTasksShowsEmptyStatesAndTheLastScanProblem() {
-        resetPilotData();
+        resetTaskData();
 
         String body = assertRendered("/flows/dev-factory", "Press Scan Jira to load the tasks assigned to you.");
         assertThat(body).contains("Not scanned yet", "Nothing has run yet.");
 
-        PilotInstallation installation = pilotInstallations.findById(1).orElseThrow();
+        TaskInstallation installation = taskInstallations.findById(1).orElseThrow();
         installation.setSyncProblem("search page 2 failed");
-        pilotInstallations.save(installation);
+        taskInstallations.save(installation);
         assertThat(assertRendered("/flows/dev-factory", "Last scan failed: search page 2 failed"))
                 .contains("My Jira tasks");
     }
@@ -1058,14 +1058,14 @@ class UiRenderSmokeTest {
     }
 
     @Test
-    void pilotTaskScreensEscapeIssueText() {
-        resetPilotData();
-        PilotTask hostile = seedTask("70011", "MODBAR-711",
+    void taskScreensEscapeIssueText() {
+        resetTaskData();
+        Task hostile = seedTask("70011", "MODBAR-711",
                 "Fix <routing> & permissions <script>alert(1)</script>",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
         String longTitle = "Modular routing regression " + "x".repeat(300);
-        PilotTask longTitled = seedTask("70012", "MODBAR-712", longTitle,
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        Task longTitled = seedTask("70012", "MODBAR-712", longTitle,
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
 
         String list = assertRendered("/flows/dev-factory", "Fix &lt;routing&gt; &amp; permissions");
         assertThat(list).doesNotContain("<script>alert(1)</script>").contains(longTitle);
@@ -1078,17 +1078,17 @@ class UiRenderSmokeTest {
 
     @Test
     void taskSummaryShowsResultCostAttemptsAndRetry() {
-        resetPilotData();
-        PilotTask stopped = seedTask("70021", "MODBAR-721", "Stopped task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        resetTaskData();
+        Task stopped = seedTask("70021", "MODBAR-721", "Stopped task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
         PipelineExecution execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
-        PilotAttempt attempt = seedAttempt(stopped, 1, PilotAttempt.Kind.INITIAL,
-                PilotAttempt.State.STOPPED, "VERIFICATION_FAILED: 2 tests in error");
+        TaskAttempt attempt = seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.STOPPED, "VERIFICATION_FAILED: 2 tests in error");
         attempt.setExecutionId(execution.getId());
         attempt.setRunSettings("{\"profileId\":\"glm-5.3\",\"profileLabel\":\"GLM-5.3 (Z.ai)\",\"model\":\"glm-5.3\","
                 + "\"endpointOrigin\":\"https://api.z.ai\",\"effort\":\"low\",\"maxTurns\":77,"
                 + "\"instructions\":\"Read the ADR through the wiki <REST> URL.\"}");
-        pilotAttempts.save(attempt);
+        taskAttempts.save(attempt);
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", "smoke",
                 Map.of("attemptId", "a1", "round", -1, "model", "test-model",
                         "inputTokens", 100_000, "cacheReadTokens", 10_000, "cacheWriteTokens", 0,
@@ -1116,13 +1116,13 @@ class UiRenderSmokeTest {
                 .contains("href=\"/executions/" + execution.getId() + "\">Open last run</a>",
                         "1 · first run", "Technical details", stopped.getId().toString());
 
-        PilotTask partial = seedTask("70022", "MODBAR-722", "Partial task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        Task partial = seedTask("70022", "MODBAR-722", "Partial task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
         PipelineExecution partialExecution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
-        PilotAttempt partialAttempt = seedAttempt(partial, 1, PilotAttempt.Kind.INITIAL,
-                PilotAttempt.State.STOPPED, "verification: incomplete");
+        TaskAttempt partialAttempt = seedAttempt(partial, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.STOPPED, "verification: incomplete");
         partialAttempt.setExecutionId(partialExecution.getId());
-        pilotAttempts.save(partialAttempt);
+        taskAttempts.save(partialAttempt);
         auditLog.record(partialExecution.getId(), AuditEventType.STEP_COMPLETED, "implement", "smoke",
                 Map.of("attemptId", "a1", "round", -1, "model", "test-model",
                         "inputTokens", 50_000, "cacheReadTokens", 0, "cacheWriteTokens", 0,
@@ -1138,13 +1138,13 @@ class UiRenderSmokeTest {
         assertThat(partialList.substring(partialList.indexOf("id=\"triggered-title\"")))
                 .containsPattern(costNote).doesNotContain(">incomplete<");
 
-        PilotTask live = seedTask("70023", "MODBAR-723", "Live task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        Task live = seedTask("70023", "MODBAR-723", "Live task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
         PipelineExecution liveExecution = runningExecution();
-        PilotAttempt liveAttempt = seedAttempt(live, 1, PilotAttempt.Kind.INITIAL,
-                PilotAttempt.State.RUNNING, null);
+        TaskAttempt liveAttempt = seedAttempt(live, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.RUNNING, null);
         liveAttempt.setExecutionId(liveExecution.getId());
-        pilotAttempts.save(liveAttempt);
+        taskAttempts.save(liveAttempt);
         auditLog.record(liveExecution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement", "smoke",
                 Map.of("attemptId", "a1", "round", -1, "activity", "coding_usage", "model", "test-model",
                         "inputTokens", 10_000, "cacheReadTokens", 0, "cacheWriteTokens", 0,
@@ -1162,14 +1162,14 @@ class UiRenderSmokeTest {
 
         // A paid start that stopped before the runtime reported any usage, for example on a Docker error:
         // there is no cost figure, so the note says the cost is unknown, not that it may be higher.
-        PilotTask unreported = seedTask("70024", "MODBAR-724", "Unreported task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        Task unreported = seedTask("70024", "MODBAR-724", "Unreported task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
         PipelineExecution unreportedExecution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
-        PilotAttempt unreportedAttempt = seedAttempt(unreported, 1, PilotAttempt.Kind.INITIAL,
-                PilotAttempt.State.STOPPED, "DEVELOPMENT_FAILED: the coding container did not start");
+        TaskAttempt unreportedAttempt = seedAttempt(unreported, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.STOPPED, "DEVELOPMENT_FAILED: the coding container did not start");
         unreportedAttempt.setExecutionId(unreportedExecution.getId());
         unreportedAttempt.setPaidStartAt(Instant.now());
-        pilotAttempts.save(unreportedAttempt);
+        taskAttempts.save(unreportedAttempt);
 
         String unknownCost = "<span>—</span>\\s*<span class=\"dev-note\"\\s+title=\"The runtime did not report usage,"
                 + " or the usage has no price, so the cost is not known.\">cost unknown</span>";
@@ -1184,15 +1184,15 @@ class UiRenderSmokeTest {
 
     @Test
     void taskSummaryForPrReadyLinksThePullRequestAndItsFeedback() {
-        resetPilotData();
-        PilotTask delivered = seedTask("70031", "MODBAR-731", "Delivered task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        resetTaskData();
+        Task delivered = seedTask("70031", "MODBAR-731", "Delivered task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
         PipelineExecution execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
-        PilotAttempt attempt = seedAttempt(delivered, 1, PilotAttempt.Kind.INITIAL,
-                PilotAttempt.State.PR_READY, null);
+        TaskAttempt attempt = seedAttempt(delivered, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.PR_READY, null);
         attempt.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/7");
         attempt.setExecutionId(execution.getId());
-        pilotAttempts.save(attempt);
+        taskAttempts.save(attempt);
 
         String body = assertRendered("/tasks/" + delivered.getId(), "Pull request #7 is ready for review.");
         assertThat(body)
@@ -1205,21 +1205,21 @@ class UiRenderSmokeTest {
 
     @Test
     void draftPrShowsItsReasonsOnTheTaskPageAndDraftOnTheRunPage() {
-        resetPilotData();
-        PilotTask delivered = seedTask("70032", "MODBAR-732", "Draft task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        resetTaskData();
+        Task delivered = seedTask("70032", "MODBAR-732", "Draft task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
         PipelineExecution execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
         // A finished run, so the run page shows its result sentence instead of a live stage.
         execution.setCurrentStepIndex(6);
         execution.setStatus(ExecutionStatus.COMPLETED);
         execution = executions.save(execution);
-        PilotAttempt attempt = seedAttempt(delivered, 1, PilotAttempt.Kind.INITIAL,
-                PilotAttempt.State.PR_READY, null);
+        TaskAttempt attempt = seedAttempt(delivered, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.PR_READY, null);
         attempt.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/8");
         attempt.setDraftReasons("[\"1 acceptance criterion is not met.\","
                 + "\"The agent made assumptions that a reviewer should confirm.\"]");
         attempt.setExecutionId(execution.getId());
-        pilotAttempts.save(attempt);
+        taskAttempts.save(attempt);
         artifactStore.putMarkdown(execution.getId(), "dev_delivery.json",
                 "{\"state\":\"DELIVERED\",\"pullRequestUrl\":\"https://github.com/folio-org/mod-bar/pull/8\","
                         + "\"pullRequestDraft\":true,\"draftReasons\":[\"1 acceptance criterion is not met.\"]}",
@@ -1248,11 +1248,11 @@ class UiRenderSmokeTest {
 
     @Test
     void taskSummaryOffersMarkAsStoppedOnlyForAHeldTask() {
-        resetPilotData();
-        PilotTask held = seedTask("70061", "MODBAR-761", "Held task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
-        PilotAttempt heldAttempt = seedAttempt(held, 1, PilotAttempt.Kind.INITIAL,
-                PilotAttempt.State.NEEDS_INSPECTION, null);
+        resetTaskData();
+        Task held = seedTask("70061", "MODBAR-761", "Held task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        TaskAttempt heldAttempt = seedAttempt(held, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.NEEDS_INSPECTION, null);
         holdTheSlot(heldAttempt);
 
         assertThat(assertRendered("/tasks/" + held.getId(), "Needs inspection"))
@@ -1263,21 +1263,21 @@ class UiRenderSmokeTest {
 
     @Test
     void taskSummaryRendersFullAttemptHistoryOldestFirst() {
-        resetPilotData();
-        PilotTask retried = seedTask("70041", "MODBAR-741", "Retried task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        resetTaskData();
+        Task retried = seedTask("70041", "MODBAR-741", "Retried task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
         PipelineExecution first = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
         PipelineExecution second = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
-        seedAttempt(retried, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.WITHDRAWN,
-                "task left the pilot scope before start");
-        PilotAttempt retry = seedAttempt(retried, 2, PilotAttempt.Kind.RETRY,
-                PilotAttempt.State.STOPPED, "verification: first failure");
+        seedAttempt(retried, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.WITHDRAWN,
+                "task left the My tasks scope before start");
+        TaskAttempt retry = seedAttempt(retried, 2, TaskAttempt.Kind.RETRY,
+                TaskAttempt.State.STOPPED, "verification: first failure");
         retry.setExecutionId(first.getId());
-        pilotAttempts.save(retry);
-        PilotAttempt fresh = seedAttempt(retried, 3, PilotAttempt.Kind.RETRY,
-                PilotAttempt.State.STOPPED, "verification: second failure");
+        taskAttempts.save(retry);
+        TaskAttempt fresh = seedAttempt(retried, 3, TaskAttempt.Kind.RETRY,
+                TaskAttempt.State.STOPPED, "verification: second failure");
         fresh.setExecutionId(second.getId());
-        pilotAttempts.save(fresh);
+        taskAttempts.save(fresh);
 
         String body = assertRendered("/tasks/" + retried.getId(), "Attempts");
         assertThat(body)
@@ -1299,13 +1299,13 @@ class UiRenderSmokeTest {
 
     @Test
     void runPageLinksBackToItsTaskAndShowsTheAttemptState() {
-        resetPilotData();
-        PilotTask task = seedTask("70071", "MODBAR-771", "Running task",
-                PilotTask.Eligibility.ELIGIBLE, "repository mod-bar");
+        resetTaskData();
+        Task task = seedTask("70071", "MODBAR-771", "Running task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
         PipelineExecution execution = runningExecution();
-        PilotAttempt attempt = seedAttempt(task, 1, PilotAttempt.Kind.INITIAL, PilotAttempt.State.RUNNING, null);
+        TaskAttempt attempt = seedAttempt(task, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.RUNNING, null);
         attempt.setExecutionId(execution.getId());
-        pilotAttempts.save(attempt);
+        taskAttempts.save(attempt);
 
         String body = assertRendered("/executions/" + execution.getId(), "Now · updates live");
         assertThat(body)

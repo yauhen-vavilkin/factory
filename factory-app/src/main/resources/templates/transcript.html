@@ -7,8 +7,8 @@
         <div class="dev-heading">
             <nav class="dev-breadcrumb" aria-label="Breadcrumb"><a th:href="@{/flows/dev-factory}">Developer Flow</a>
                 /
-                <th:block th:if="${pilotRun != null}"><a th:href="@{'/tasks/' + ${pilotRun['taskId']}}"
-                                                         th:text="${pilotRun['key']}">KEY-1</a> / </th:block>
+                <th:block th:if="${taskRun != null}"><a th:href="@{'/tasks/' + ${taskRun['taskId']}}"
+                                                         th:text="${taskRun['key']}">KEY-1</a> / </th:block>
                 <a th:href="@{'/executions/' + ${execution.id}}"
                    th:text="'run ' + ${#strings.substring(execution.id.toString(), 0, 4)} + '…'">run</a>
                 / Transcript</nav>

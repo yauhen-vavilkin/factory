@@ -18,7 +18,7 @@ import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.PublicationGit;
 import org.folio.factory.devfactory.delivery.PullRequestRenderer;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
-import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.verification.VerificationPolicy;
@@ -49,7 +49,7 @@ public class DeliveryWorker implements AgentWorker {
     private final GitHubConnector github;
     private final FrontmatterCodec frontmatter;
     private final StateManager executionState;
-    private final PilotAttemptPolicy pilotPolicy;
+    private final TaskAttemptPolicy taskPolicy;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public DeliveryWorker(
@@ -63,7 +63,7 @@ public class DeliveryWorker implements AgentWorker {
             FrontmatterCodec frontmatter,
             StateManager executionState) {
         this(repositories, runtime, properties, delivery, githubProperties, jiraProperties, github,
-                frontmatter, executionState, PilotAttemptPolicy.none());
+                frontmatter, executionState, TaskAttemptPolicy.none());
     }
 
     public DeliveryWorker(
@@ -76,7 +76,7 @@ public class DeliveryWorker implements AgentWorker {
             GitHubConnector github,
             FrontmatterCodec frontmatter,
             StateManager executionState,
-            PilotAttemptPolicy pilotPolicy) {
+            TaskAttemptPolicy taskPolicy) {
         this.repositories = repositories;
         this.verificationPolicy = new VerificationPolicy(repositories, runtime);
         this.executionState = executionState;
@@ -86,7 +86,7 @@ public class DeliveryWorker implements AgentWorker {
         this.jiraProperties = jiraProperties;
         this.github = github;
         this.frontmatter = frontmatter;
-        this.pilotPolicy = pilotPolicy;
+        this.taskPolicy = taskPolicy;
     }
 
     @Override
@@ -102,7 +102,7 @@ public class DeliveryWorker implements AgentWorker {
         }
         var inputs = readInputs(context, previous);
         var sourceUrl = sourceUrl(inputs.candidate());
-        var stop = pilotStop(context);
+        var stop = taskStop(context);
         if (stop != null) {
             return blocked(inputs, stop);
         }
@@ -155,7 +155,7 @@ public class DeliveryWorker implements AgentWorker {
             return blocked(inputs, "FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
         }
         var consumedRequest = consumedRequest(context);
-        pilotPolicy.beforePublication(context.executionId(), consumedRequest, target);
+        taskPolicy.beforePublication(context.executionId(), consumedRequest, target);
         var feedbackVersion = FeedbackArtifacts.VERSION.equals(
                 executionState.get(context.executionId()).getFlowVersion());
         recordPublicationIntent(context, inputs, target, feedbackVersion);
@@ -170,13 +170,13 @@ public class DeliveryWorker implements AgentWorker {
 
     private void recordPublicationIntent(
             AgentContext context, Inputs inputs, DeliveryTarget target, boolean feedbackVersion) {
-        if (pilotPolicy.find(context.executionId()).isEmpty()) {
+        if (taskPolicy.find(context.executionId()).isEmpty()) {
             return;
         }
         var candidate = inputs.candidate();
         var branch = CandidateDelivery.branchFor(
                 context.executionId().toString(), inputs.issueKey(), candidate, feedbackVersion);
-        pilotPolicy.recordPublicationIntent(context.executionId(), new PilotAttemptPolicy.PublicationIntent(
+        taskPolicy.recordPublicationIntent(context.executionId(), new TaskAttemptPolicy.PublicationIntent(
                 target.repository(), target.baseBranch(), branch,
                 candidate.baseSha(), candidate.treeSha(), candidate.patchSha256()));
     }
@@ -222,7 +222,7 @@ public class DeliveryWorker implements AgentWorker {
         if (!verificationPolicy.matches(candidate, verification)) {
             return blocked(inputs, PLAN_CHANGED, receipt);
         }
-        pilotPolicy.beforePublication(context.executionId(), publication.consumedRequest(), publication.target());
+        taskPolicy.beforePublication(context.executionId(), publication.consumedRequest(), publication.target());
         var title = inputs.issueKey() + ": " + inputs.summary();
         var body = renderer.render(inputs.issueKey(), jiraProperties.baseUrl(), candidate, verification, receipt,
                 inputJson(context, "dev_coding_request.json"), outcome);
@@ -282,30 +282,30 @@ public class DeliveryWorker implements AgentWorker {
         return new AgentResult(Map.of(DELIVERY, content, VerifyWorker.RESULT, content), Map.of());
     }
 
-    /** A stopped, expired or no-longer-owned pilot attempt must not publish. */
-    private String pilotStop(AgentContext context) {
-        if (pilotPolicy.find(context.executionId()).isEmpty()) {
+    /** A stopped, expired or no-longer-owned task attempt must not publish. */
+    private String taskStop(AgentContext context) {
+        if (taskPolicy.find(context.executionId()).isEmpty()) {
             return null;
         }
-        if (!pilotPolicy.ownsActiveSlot(context.executionId())) {
-            String reason = "the pilot attempt no longer owns the installation's active slot;"
+        if (!taskPolicy.ownsActiveSlot(context.executionId())) {
+            String reason = "the task attempt no longer owns the installation's active slot;"
                     + " a stopped, superseded or released attempt must not publish";
-            pilotPolicy.recordStop(context.executionId(), context.stepId(), reason);
+            taskPolicy.recordStop(context.executionId(), context.stepId(), reason);
             return reason;
         }
-        var expired = pilotPolicy.deadline(context.executionId())
+        var expired = taskPolicy.deadline(context.executionId())
                 .filter(deadline -> deadline.expired(Clock.systemUTC()));
         if (expired.isPresent()) {
             String reason = "the whole-attempt deadline expired before publication;"
                     + " queue and human-review waiting are excluded from the budget";
-            pilotPolicy.recordStop(context.executionId(), context.stepId(), reason);
+            taskPolicy.recordStop(context.executionId(), context.stepId(), reason);
             return reason;
         }
         return null;
     }
 
     private int stageTimeoutSeconds(AgentContext context) {
-        return pilotPolicy.deadline(context.executionId())
+        return taskPolicy.deadline(context.executionId())
                 .map(budget -> budget.capSeconds(Clock.systemUTC(),
                         PublicationGit.DEFAULT_TIMEOUT_SECONDS))
                 .orElse(PublicationGit.DEFAULT_TIMEOUT_SECONDS);

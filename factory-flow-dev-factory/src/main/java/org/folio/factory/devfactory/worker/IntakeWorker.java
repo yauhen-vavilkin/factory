@@ -15,8 +15,8 @@ import org.folio.factory.devfactory.decision.DecisionArtifacts.Answer;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Option;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Request;
 import org.folio.factory.devfactory.intake.IssueSnapshot;
-import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
-import org.folio.factory.devfactory.pilot.PilotExecutionContext;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskExecutionContext;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.springframework.web.client.HttpClientErrorException;
 
@@ -30,7 +30,7 @@ import java.util.Optional;
  * Reads the Jira issue (read-only), finds the configured repositories that may
  * implement it and records whether a human decision is needed. Also seeds the
  * decision answer with the recommended option so the review can APPROVE it.
- * Pilot executions consume the approved bounded snapshot instead: no second
+ * Task executions consume the approved bounded snapshot instead: no second
  * Jira read, and ambiguity — or an admitted repository that cannot be verified
  * against the current mapping — stops instead of seeding a recommendation or
  * continuing on the re-derived mapping.
@@ -51,21 +51,21 @@ public class IntakeWorker implements AgentWorker {
     private final FrontmatterCodec codec;
     private final CodingRuntime runtime;
     private final AuditLog audit;
-    private final PilotAttemptPolicy pilotPolicy;
+    private final TaskAttemptPolicy taskPolicy;
 
     public IntakeWorker(JiraConnector jira, RepositoryPolicy policy, FrontmatterCodec codec,
                         CodingRuntime runtime, AuditLog audit) {
-        this(jira, policy, codec, runtime, audit, PilotAttemptPolicy.none());
+        this(jira, policy, codec, runtime, audit, TaskAttemptPolicy.none());
     }
 
     public IntakeWorker(JiraConnector jira, RepositoryPolicy policy, FrontmatterCodec codec,
-                        CodingRuntime runtime, AuditLog audit, PilotAttemptPolicy pilotPolicy) {
+                        CodingRuntime runtime, AuditLog audit, TaskAttemptPolicy taskPolicy) {
         this.jira = jira;
         this.policy = policy;
         this.codec = codec;
         this.runtime = runtime;
         this.audit = audit;
-        this.pilotPolicy = pilotPolicy;
+        this.taskPolicy = taskPolicy;
     }
 
     @Override
@@ -75,10 +75,10 @@ public class IntakeWorker implements AgentWorker {
 
     @Override
     public AgentResult execute(AgentContext context) {
-        Optional<PilotExecutionContext> pilot = pilotPolicy.find(context.executionId());
-        recordRuntimeConfiguration(context, pilot.map(PilotExecutionContext::runSettings).orElse(null));
-        if (pilot.isPresent()) {
-            return pilotOutcome(context, pilot.get());
+        Optional<TaskExecutionContext> taskRun = taskPolicy.find(context.executionId());
+        recordRuntimeConfiguration(context, taskRun.map(TaskExecutionContext::runSettings).orElse(null));
+        if (taskRun.isPresent()) {
+            return taskOutcome(context, taskRun.get());
         }
         var requested = context.triggerPayload() == null ? ""
                 : context.triggerPayload().path("issueKey").asString("");
@@ -109,8 +109,8 @@ public class IntakeWorker implements AgentWorker {
         return outcome(key, MAPPED, null, snapshot, candidates);
     }
 
-    private AgentResult pilotOutcome(AgentContext context, PilotExecutionContext pilot) {
-        var snapshot = pilot.approvedSnapshot();
+    private AgentResult taskOutcome(AgentContext context, TaskExecutionContext taskRun) {
+        var snapshot = taskRun.approvedSnapshot();
         var key = Objects.toString(snapshot.get("key"), "");
         if (!IssueSnapshot.ISSUE_KEY.matcher(key).matches()) {
             return stop(context, outcome(key, UNSUPPORTED, "INVALID_ISSUE_KEY", snapshot, List.of()),
@@ -127,13 +127,13 @@ public class IntakeWorker implements AgentWorker {
             return stop(context, outcome(key, BLOCKED, "AMBIGUOUS_REPOSITORY_MAPPING", snapshot, candidates),
                     "ambiguous repository mapping requires a human choice: " + String.join(", ", candidates));
         }
-        return admittedOutcome(context, pilot, key, snapshot, candidates);
+        return admittedOutcome(context, taskRun, key, snapshot, candidates);
     }
 
-    /** The single mapped repository must still be the one recorded when the pilot attempt was admitted. */
-    private AgentResult admittedOutcome(AgentContext context, PilotExecutionContext pilot, String key,
+    /** The single mapped repository must still be the one recorded when the task attempt was admitted. */
+    private AgentResult admittedOutcome(AgentContext context, TaskExecutionContext taskRun, String key,
                                         Map<String, Object> snapshot, List<String> candidates) {
-        var admitted = pilot.repositoryKey();
+        var admitted = taskRun.repositoryKey();
         if (admitted == null || admitted.isBlank()) {
             return mappingStop(context, key, snapshot, candidates,
                     "the repository mapping recorded at admission cannot be verified");
@@ -152,7 +152,7 @@ public class IntakeWorker implements AgentWorker {
     }
 
     private AgentResult stop(AgentContext context, AgentResult result, String reason) {
-        pilotPolicy.recordStop(context.executionId(), context.stepId(), reason);
+        taskPolicy.recordStop(context.executionId(), context.stepId(), reason);
         return result;
     }
 

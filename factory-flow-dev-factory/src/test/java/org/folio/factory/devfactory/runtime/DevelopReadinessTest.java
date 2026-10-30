@@ -9,10 +9,10 @@ import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
-import org.folio.factory.devfactory.pilot.AttemptDeadline;
-import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
-import org.folio.factory.devfactory.pilot.PilotStops;
-import org.folio.factory.devfactory.pilot.RecordingPilotAttempts;
+import org.folio.factory.devfactory.tasks.AttemptDeadline;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskStops;
+import org.folio.factory.devfactory.tasks.RecordingTaskAttempts;
 import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.worker.DevelopWorker;
 import org.folio.factory.devfactory.worker.IntakeResolveWorker;
@@ -98,7 +98,7 @@ class DevelopReadinessTest {
         var audit = mock(AuditLog.class);
         var attempt = new InitialCodingAttempt(
                 properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of(),
-                selectedRepository, PilotAttemptPolicy.none(), CodingTranscripts.none());
+                selectedRepository, TaskAttemptPolicy.none(), CodingTranscripts.none());
         var worker = new DevelopWorker(attempt, codec);
 
         assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class);
@@ -189,7 +189,7 @@ class DevelopReadinessTest {
         var audit = mock(AuditLog.class);
         var initialAttempt = new InitialCodingAttempt(
                 properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of(),
-                SelectedRepositoryPreflight.none(), PilotAttemptPolicy.none(), CodingTranscripts.none());
+                SelectedRepositoryPreflight.none(), TaskAttemptPolicy.none(), CodingTranscripts.none());
         var worker = new DevelopWorker(initialAttempt, codec);
         if (retryable) {
             // Repeated worker attempts retain the configured repository and do not add a global -U.
@@ -230,7 +230,7 @@ class DevelopReadinessTest {
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, new FrontmatterCodec(),
                 mock(AuditLog.class), model -> Map.of(),
-                SelectedRepositoryPreflight.none(), PilotAttemptPolicy.none(), CodingTranscripts.none());
+                SelectedRepositoryPreflight.none(), TaskAttemptPolicy.none(), CodingTranscripts.none());
 
         var result = attempt.start(context, request());
 
@@ -247,7 +247,7 @@ class DevelopReadinessTest {
     }
 
     @Test
-    void aPilotExecutionClaimsOnePaidStartAndAReplayedStepCannotStartAnother() {
+    void aTaskExecutionClaimsOnePaidStartAndAReplayedStepCannotStartAnother() {
         var repository = new DevFactoryProperties.Repository(
                 "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
         var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
@@ -257,7 +257,7 @@ class DevelopReadinessTest {
         var workload = mock(DockerWorkloads.Workload.class);
         var freezer = mock(CandidateFreezer.class);
         var coding = mock(CodingRuntime.class);
-        var pilots = RecordingPilotAttempts.pilot("repo");
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo");
         var codec = new FrontmatterCodec();
         var request = request();
         var context = context(codec, request);
@@ -275,7 +275,7 @@ class DevelopReadinessTest {
                         Map.of()));
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, codec,
-                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), pilots,
+                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), taskAttempts,
                 CodingTranscripts.none());
         var worker = new DevelopWorker(attempt, codec);
 
@@ -283,7 +283,7 @@ class DevelopReadinessTest {
         var replay = worker.execute(context);
 
         assertThat(first.outputs().get(DevelopWorker.CANDIDATE)).contains("NEEDS_DECISION");
-        assertThat(pilots.paidStartClaims).isEqualTo(2);
+        assertThat(taskAttempts.paidStartClaims).isEqualTo(2);
         assertThat(replay.outputs().get(DevelopWorker.CANDIDATE))
                 .contains("PAID_START_CONSUMED")
                 .contains("cannot start a second initial coding invocation");
@@ -291,14 +291,14 @@ class DevelopReadinessTest {
         verify(docker, times(2)).beginStep(any(), any());
         verify(freezer, times(2)).checkout(anyString(), anyString());
         verify(freezer, never()).freeze(anyString(), anyString(), anyString(), any());
-        assertThat(pilots.stops).singleElement().satisfies(stop -> {
+        assertThat(taskAttempts.stops).singleElement().satisfies(stop -> {
             assertThat(stop).startsWith("implement: ");
-            assertThat(stop).contains("pilot attempt");
+            assertThat(stop).contains("task attempt");
         });
     }
 
     @Test
-    void aPilotBaselineFailureKeepsTheClaimUnconsumedAndTheEngineRetrySucceeds() {
+    void aTaskBaselineFailureKeepsTheClaimUnconsumedAndTheEngineRetrySucceeds() {
         var repository = new DevFactoryProperties.Repository(
                 "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
         var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
@@ -309,7 +309,7 @@ class DevelopReadinessTest {
         var codingWorkload = mock(DockerWorkloads.Workload.class);
         var freezer = mock(CandidateFreezer.class);
         var coding = mock(CodingRuntime.class);
-        var pilots = RecordingPilotAttempts.pilot("repo");
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo");
         var codec = new FrontmatterCodec();
         var request = request();
         var context = context(codec, request);
@@ -330,22 +330,22 @@ class DevelopReadinessTest {
                         Map.of()));
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, codec,
-                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), pilots,
+                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), taskAttempts,
                 CodingTranscripts.none());
         var worker = new DevelopWorker(attempt, codec);
 
         assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class)
                 .hasMessageContaining("Starting build hit a network/download failure")
                 .hasMessageContaining("coding has not started");
-        assertThat(pilots.paidStartClaims).isZero();
-        assertThat(pilots.stops).isEmpty();
+        assertThat(taskAttempts.paidStartClaims).isZero();
+        assertThat(taskAttempts.stops).isEmpty();
 
         var retried = worker.execute(context);
 
         assertThat(retried.outputs().get(DevelopWorker.CANDIDATE)).contains("NEEDS_DECISION");
         assertThat(retried.outputs().get(DevelopWorker.READINESS)).contains("BASELINE_PASSED");
-        assertThat(pilots.paidStartClaims).isEqualTo(1);
-        assertThat(pilots.stops).isEmpty();
+        assertThat(taskAttempts.paidStartClaims).isEqualTo(1);
+        assertThat(taskAttempts.stops).isEmpty();
         verify(coding, times(1)).code(any(), any(), anyInt(), any(), any());
     }
 
@@ -370,7 +370,7 @@ class DevelopReadinessTest {
                 .requireRepositoryReady("repo", request.repository().baseSha());
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, new FrontmatterCodec(),
-                mock(AuditLog.class), model -> Map.of(), selectedRepository, PilotAttemptPolicy.none(),
+                mock(AuditLog.class), model -> Map.of(), selectedRepository, TaskAttemptPolicy.none(),
                 CodingTranscripts.none());
         var readiness = JsonMapper.builder().build().readTree("{\"state\":\"BASELINE_PASSED\"}");
 
@@ -401,21 +401,21 @@ class DevelopReadinessTest {
     }
 
     @Test
-    void anExpiredPilotDeadlinePreventsEveryStageSideEffect() {
-        var pilots = RecordingPilotAttempts.pilot("repo")
+    void anExpiredTaskDeadlinePreventsEveryStageSideEffect() {
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo")
                 .withDeadline(new AttemptDeadline(Instant.now().minusSeconds(1)));
-        var harness = pilotHarness(pilots);
+        var harness = taskHarness(taskAttempts);
 
         var result = harness.worker().execute(harness.context());
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
-                .contains(PilotStops.DEADLINE_STATE)
+                .contains(TaskStops.DEADLINE_STATE)
                 .contains("expired before preparation");
         verify(harness.freezer(), never()).checkout(anyString(), anyString());
         verify(harness.scope(), never()).createTrusted(anyString(), any(), anyString());
         verify(harness.scope(), never()).createSeeded(anyString(), any(), anyString(), anyString());
         verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
-        assertThat(pilots.stops).singleElement().satisfies(stop -> {
+        assertThat(taskAttempts.stops).singleElement().satisfies(stop -> {
             assertThat(stop).startsWith("implement: ");
             assertThat(stop).contains("deadline expired");
         });
@@ -423,9 +423,9 @@ class DevelopReadinessTest {
 
     @Test
     void aDeadlineExpiringDuringBaselinePreventsCodingWithoutConsumingThePaidStart() {
-        var pilots = RecordingPilotAttempts.pilot("repo")
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo")
                 .withDeadline(new AttemptDeadline(Instant.now().plusSeconds(3)));
-        var harness = pilotHarness(pilots);
+        var harness = taskHarness(taskAttempts);
         when(harness.baseline().execute(anyList(), anyInt(), anyInt(), any())).thenAnswer(
                 invocation -> {
                     Thread.sleep(4000);
@@ -435,18 +435,18 @@ class DevelopReadinessTest {
         var result = harness.worker().execute(harness.context());
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
-                .contains(PilotStops.DEADLINE_STATE)
+                .contains(TaskStops.DEADLINE_STATE)
                 .contains("expired before coding");
         verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
-        assertThat(pilots.paidStartClaims).isZero();
-        assertThat(pilots.stops).anyMatch(stop -> stop.contains("deadline expired before coding"));
+        assertThat(taskAttempts.paidStartClaims).isZero();
+        assertThat(taskAttempts.stops).anyMatch(stop -> stop.contains("deadline expired before coding"));
     }
 
     @Test
     void theRemainingBudgetCapsEveryStageTimeoutBelowTheConfiguredPerOperationLimit() {
-        var pilots = RecordingPilotAttempts.pilot("repo")
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo")
                 .withDeadline(new AttemptDeadline(Instant.now().plusSeconds(45)));
-        var harness = pilotHarness(pilots);
+        var harness = taskHarness(taskAttempts);
 
         var result = harness.worker().execute(harness.context());
 
@@ -461,18 +461,18 @@ class DevelopReadinessTest {
 
     @Test
     void aLegacyAttemptWithoutPersistedDeadlineRunsUnboundedWithoutGuardStops() {
-        // RecordingPilotAttempts without a deadline mirrors pre-S05 rows: no
+        // RecordingTaskAttempts without a deadline mirrors pre-S05 rows: no
         // deadline_at is persisted, so the whole-attempt budget never applies.
-        var pilots = RecordingPilotAttempts.pilot("repo");
-        var harness = pilotHarness(pilots);
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo");
+        var harness = taskHarness(taskAttempts);
 
         var result = harness.worker().execute(harness.context());
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains("NEEDS_DECISION");
         verify(harness.baseline()).execute(anyList(), anyInt(), anyInt(), any());
         verify(harness.coding()).code(any(), any(CodingRequest.class), anyInt(), any(), any());
-        assertThat(pilots.paidStartClaims).isEqualTo(1);
-        assertThat(pilots.stops).isEmpty();
+        assertThat(taskAttempts.paidStartClaims).isEqualTo(1);
+        assertThat(taskAttempts.stops).isEmpty();
     }
 
     @Test
@@ -487,7 +487,7 @@ class DevelopReadinessTest {
                 @Override public void close() { closed.set(true); }
             };
         };
-        var harness = pilotHarness(RecordingPilotAttempts.pilot("repo"), transcripts);
+        var harness = taskHarness(RecordingTaskAttempts.taskRun("repo"), transcripts);
         when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any())).thenAnswer(call -> {
             CodingTranscripts.Sink sink = call.getArgument(4);
             sink.add(new CodingTranscripts.Entry("prompt", Instant.now(), Map.of("text", "Implement")));
@@ -513,7 +513,7 @@ class DevelopReadinessTest {
         var audit = mock(AuditLog.class);
         doThrow(new IllegalStateException("database down"))
                 .when(audit).record(any(), any(), any(), org.mockito.ArgumentMatchers.<Map<String, ?>>any());
-        var harness = pilotHarness(RecordingPilotAttempts.pilot("repo"), CodingTranscripts.none(), audit);
+        var harness = taskHarness(RecordingTaskAttempts.taskRun("repo"), CodingTranscripts.none(), audit);
         var reported = new java.util.concurrent.atomic.AtomicReference<Throwable>();
         when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any())).thenAnswer(call -> {
             Consumer<Map<String, Object>> progress = call.getArgument(3);
@@ -531,35 +531,35 @@ class DevelopReadinessTest {
     }
 
     @Test
-    void aPilotAttemptThatLostItsSlotStopsWithoutAnyStageSideEffect() {
-        var pilots = RecordingPilotAttempts.pilot("repo");
-        pilots.ownsSlot = false;
-        var harness = pilotHarness(pilots);
+    void aTaskAttemptThatLostItsSlotStopsWithoutAnyStageSideEffect() {
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo");
+        taskAttempts.ownsSlot = false;
+        var harness = taskHarness(taskAttempts);
 
         var result = harness.worker().execute(harness.context());
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
-                .contains(PilotStops.INSPECTION_STATE)
+                .contains(TaskStops.INSPECTION_STATE)
                 .contains("no longer owns the installation's active slot");
         verify(harness.freezer(), never()).checkout(anyString(), anyString());
         verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
-        assertThat(pilots.stops).anyMatch(stop -> stop.contains("no longer owns"));
+        assertThat(taskAttempts.stops).anyMatch(stop -> stop.contains("no longer owns"));
     }
 
     /**
-     * Shared pilot harness: docker, freezer and coding stubs allow the attempt to
+     * Shared task harness: docker, freezer and coding stubs allow the attempt to
      * run through baseline into coding; individual tests override specific stubs
-     * or the recording pilot policy state.
+     * or the recording task policy state.
      */
-    private PilotHarness pilotHarness(RecordingPilotAttempts pilots) {
-        return pilotHarness(pilots, CodingTranscripts.none());
+    private TaskHarness taskHarness(RecordingTaskAttempts taskAttempts) {
+        return taskHarness(taskAttempts, CodingTranscripts.none());
     }
 
-    private PilotHarness pilotHarness(RecordingPilotAttempts pilots, CodingTranscripts transcripts) {
-        return pilotHarness(pilots, transcripts, mock(AuditLog.class));
+    private TaskHarness taskHarness(RecordingTaskAttempts taskAttempts, CodingTranscripts transcripts) {
+        return taskHarness(taskAttempts, transcripts, mock(AuditLog.class));
     }
 
-    private PilotHarness pilotHarness(RecordingPilotAttempts pilots, CodingTranscripts transcripts, AuditLog audit) {
+    private TaskHarness taskHarness(RecordingTaskAttempts taskAttempts, CodingTranscripts transcripts, AuditLog audit) {
         var repository = new DevFactoryProperties.Repository(
                 "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
         var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
@@ -587,12 +587,12 @@ class DevelopReadinessTest {
                         Map.of()));
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, codec,
-                audit, model -> Map.of(), SelectedRepositoryPreflight.none(), pilots, transcripts);
-        return new PilotHarness(docker, scope, baseline, codingWorkload, freezer, coding,
+                audit, model -> Map.of(), SelectedRepositoryPreflight.none(), taskAttempts, transcripts);
+        return new TaskHarness(docker, scope, baseline, codingWorkload, freezer, coding,
                 new DevelopWorker(attempt, codec), context);
     }
 
-    private record PilotHarness(
+    private record TaskHarness(
             DockerWorkloads docker,
             DockerWorkloads.StepScope scope,
             DockerWorkloads.Workload baseline,

@@ -482,32 +482,32 @@ class DeliveryWorkerTest {
     }
 
     @Test
-    void aPilotAttemptThatLostItsSlotCannotPublish() {
+    void aTaskAttemptThatLostItsSlotCannotPublish() {
         CandidateDelivery delivery = mock(CandidateDelivery.class);
         GitHubConnector github = mock(GitHubConnector.class);
-        var pilots = org.folio.factory.devfactory.pilot.RecordingPilotAttempts.pilot("sidecar");
-        pilots.ownsSlot = false;
-        var pilotWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
-                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), pilots);
+        var taskAttempts = org.folio.factory.devfactory.tasks.RecordingTaskAttempts.taskRun("sidecar");
+        taskAttempts.ownsSlot = false;
+        var taskWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), taskAttempts);
 
-        var result = json.readTree(pilotWorker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
+        var result = json.readTree(taskWorker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
 
         assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
         assertThat(result.path("reason").asString()).contains("no longer owns");
         verifyNoInteractions(delivery, github);
-        assertThat(pilots.stops).singleElement().asString().startsWith("publish: ");
+        assertThat(taskAttempts.stops).singleElement().asString().startsWith("publish: ");
     }
 
     @Test
-    void anExpiredPilotDeadlineCannotPublish() {
+    void anExpiredTaskDeadlineCannotPublish() {
         CandidateDelivery delivery = mock(CandidateDelivery.class);
         GitHubConnector github = mock(GitHubConnector.class);
-        var pilots = org.folio.factory.devfactory.pilot.RecordingPilotAttempts.pilot("sidecar")
-                .withDeadline(new org.folio.factory.devfactory.pilot.AttemptDeadline(Instant.now().minusSeconds(1)));
-        var pilotWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
-                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), pilots);
+        var taskAttempts = org.folio.factory.devfactory.tasks.RecordingTaskAttempts.taskRun("sidecar")
+                .withDeadline(new org.folio.factory.devfactory.tasks.AttemptDeadline(Instant.now().minusSeconds(1)));
+        var taskWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), taskAttempts);
 
-        var result = json.readTree(pilotWorker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
+        var result = json.readTree(taskWorker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
 
         assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
         assertThat(result.path("reason").asString()).contains("deadline expired before publication");
@@ -609,7 +609,7 @@ class DeliveryWorkerTest {
         GitHubConnector github = mock(GitHubConnector.class);
         var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
                 new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null),
-                org.folio.factory.devfactory.pilot.RecordingPilotAttempts.none(),
+                org.folio.factory.devfactory.tasks.RecordingTaskAttempts.none(),
                 new DeliveryTarget("folio-org/folio-module-sidecar", "master"));
         var delivered = new DeliveryReceipt("execution", "folio-org/folio-module-sidecar", "factory/final",
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
@@ -635,18 +635,18 @@ class DeliveryWorkerTest {
     void changedConsumedInputStopsBeforeAnyRemoteWriteAndPreservesTheCandidate() {
         CandidateDelivery delivery = mock(CandidateDelivery.class);
         GitHubConnector github = mock(GitHubConnector.class);
-        var pilots = org.folio.factory.devfactory.pilot.RecordingPilotAttempts.pilot("sidecar");
-        pilots.authorityFailure = new org.folio.factory.devfactory.delivery.DeliveryBlockedException(
+        var taskAttempts = org.folio.factory.devfactory.tasks.RecordingTaskAttempts.taskRun("sidecar");
+        taskAttempts.authorityFailure = new org.folio.factory.devfactory.delivery.DeliveryBlockedException(
                 "the task's requirements changed after admission");
-        var pilotWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
-                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), pilots);
+        var taskWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), taskAttempts);
 
-        var result = json.readTree(pilotWorker.execute(pilotContext()).outputs().get(DeliveryWorker.DELIVERY));
+        var result = json.readTree(taskWorker.execute(taskContext()).outputs().get(DeliveryWorker.DELIVERY));
 
         assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
         assertThat(result.path("reason").asString()).contains("requirements changed after admission");
-        assertThat(pilots.authorityChecks).hasSize(1);
-        assertThat(pilots.intents).isEmpty();
+        assertThat(taskAttempts.authorityChecks).hasSize(1);
+        assertThat(taskAttempts.intents).isEmpty();
         verifyNoInteractions(delivery, github);
     }
 
@@ -654,12 +654,12 @@ class DeliveryWorkerTest {
     void authorityFailureOnTheSecondRecheckStopsBeforePullRequestCreation() {
         CandidateDelivery delivery = mock(CandidateDelivery.class);
         GitHubConnector github = mock(GitHubConnector.class);
-        var pilots = org.folio.factory.devfactory.pilot.RecordingPilotAttempts.pilot("sidecar");
-        pilots.authorityFailure = new DeliveryBlockedException(
+        var taskAttempts = org.folio.factory.devfactory.tasks.RecordingTaskAttempts.taskRun("sidecar");
+        taskAttempts.authorityFailure = new DeliveryBlockedException(
                 "the task's requirements changed after admission");
-        pilots.authorityFailureOnCall = 2;
-        var pilotWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
-                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), pilots);
+        taskAttempts.authorityFailureOnCall = 2;
+        var taskWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), taskAttempts);
         var candidate = new Candidate("sidecar", "a".repeat(40), "b".repeat(40),
                 Candidate.sha256(""), "", "CANDIDATE_UNVERIFIED");
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
@@ -667,12 +667,12 @@ class DeliveryWorkerTest {
                         candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40)));
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
 
-        var result = json.readTree(pilotWorker.execute(pilotContext()).outputs().get(DeliveryWorker.DELIVERY));
+        var result = json.readTree(taskWorker.execute(taskContext()).outputs().get(DeliveryWorker.DELIVERY));
 
         assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
         assertThat(result.path("reason").asString()).contains("requirements changed after admission");
-        assertThat(pilots.authorityChecks).hasSize(2);
-        assertThat(pilots.intents).hasSize(1);
+        assertThat(taskAttempts.authorityChecks).hasSize(2);
+        assertThat(taskAttempts.intents).hasSize(1);
         assertThat(result.path("repository").asString()).isEqualTo(candidate.repository());
         assertThat(result.path("patchSha256").asString()).isEqualTo(candidate.patchSha256());
         verify(delivery, times(1)).deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt());
@@ -684,26 +684,26 @@ class DeliveryWorkerTest {
     void publicationIntentIsRecordedBeforeTheFirstRemoteMutation() {
         CandidateDelivery delivery = mock(CandidateDelivery.class);
         GitHubConnector github = mock(GitHubConnector.class);
-        var pilots = org.folio.factory.devfactory.pilot.RecordingPilotAttempts.pilot("sidecar");
+        var taskAttempts = org.folio.factory.devfactory.tasks.RecordingTaskAttempts.taskRun("sidecar");
         var candidate = new Candidate("sidecar", "a".repeat(40), "b".repeat(40),
                 Candidate.sha256(""), "", "CANDIDATE_UNVERIFIED");
         var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
-                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), pilots);
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), taskAttempts);
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
                 .thenAnswer(invocation -> {
-                    assertThat(pilots.intents).hasSize(1);
+                    assertThat(taskAttempts.intents).hasSize(1);
                     return new DeliveryReceipt("execution", "user/folio-module-sidecar",
-                            pilots.intents.get(0).headBranch(), candidate.baseSha(), candidate.treeSha(),
+                            taskAttempts.intents.get(0).headBranch(), candidate.baseSha(), candidate.treeSha(),
                             candidate.patchSha256(), "c".repeat(40));
                 });
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
         when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
                 .thenReturn("https://github.com/user/folio-module-sidecar/pull/2");
 
-        var result = json.readTree(worker.execute(pilotContext()).outputs().get(DeliveryWorker.DELIVERY));
+        var result = json.readTree(worker.execute(taskContext()).outputs().get(DeliveryWorker.DELIVERY));
 
         assertThat(result.path("state").asString()).isEqualTo("DELIVERED");
-        var intent = pilots.intents.get(0);
+        var intent = taskAttempts.intents.get(0);
         assertThat(intent.repository()).isEqualTo("user/folio-module-sidecar");
         assertThat(intent.baseBranch()).isEqualTo("master");
         assertThat(intent.headBranch()).isEqualTo("factory/modsidecar-196-"
@@ -728,7 +728,7 @@ class DeliveryWorkerTest {
         var original = verifiedContext();
         var inputs = new java.util.HashMap<>(original.inputs());
         inputs.put(IntakeResolveWorker.CODING_REQUEST, new ArtifactContent(IntakeResolveWorker.CODING_REQUEST, 1,
-                "application/json", json.writeValueAsString(pilotCodingRequest())));
+                "application/json", json.writeValueAsString(taskCodingRequest())));
         inputs.put("dev_coding_outcome.json", new ArtifactContent("dev_coding_outcome.json", 1,
                 "application/json", json.writeValueAsString(Map.of("summary",
                 "See [evil link](https://attacker.example.org) and #123 for details"))));
@@ -768,21 +768,21 @@ class DeliveryWorkerTest {
                                          GitHubProperties githubProperties, String plan, String image,
                                          DevRuntimeProperties runtime) {
         return worker(delivery, github, githubProperties, plan, image, runtime,
-                org.folio.factory.devfactory.pilot.RecordingPilotAttempts.none());
+                org.folio.factory.devfactory.tasks.RecordingTaskAttempts.none());
     }
 
     private static DeliveryWorker worker(CandidateDelivery delivery, GitHubConnector github,
                                          GitHubProperties githubProperties, String plan, String image,
                                          DevRuntimeProperties runtime,
-                                         org.folio.factory.devfactory.pilot.PilotAttemptPolicy pilotPolicy) {
-        return worker(delivery, github, githubProperties, plan, image, runtime, pilotPolicy,
+                                         org.folio.factory.devfactory.tasks.TaskAttemptPolicy taskPolicy) {
+        return worker(delivery, github, githubProperties, plan, image, runtime, taskPolicy,
                 new DeliveryTarget("user/folio-module-sidecar", "master"));
     }
 
     private static DeliveryWorker worker(CandidateDelivery delivery, GitHubConnector github,
                                          GitHubProperties githubProperties, String plan, String image,
                                          DevRuntimeProperties runtime,
-                                         org.folio.factory.devfactory.pilot.PilotAttemptPolicy pilotPolicy,
+                                         org.folio.factory.devfactory.tasks.TaskAttemptPolicy taskPolicy,
                                          DeliveryTarget destination) {
         var repository = new DevFactoryProperties.Repository(
                 "folio-org/folio-module-sidecar", "master", image, plan, List.of("MODSIDECAR"), List.of(),
@@ -794,7 +794,7 @@ class DeliveryWorkerTest {
         when(state.get(any())).thenReturn(new org.folio.factory.core.domain.PipelineExecution("dev-factory", "0.8.0", null));
         return new DeliveryWorker(repositories, runtime, targets, delivery, githubProperties,
                 new org.folio.factory.connectors.jira.JiraProperties("https://jira.example.org", null, null),
-                github, new FrontmatterCodec(), state, pilotPolicy);
+                github, new FrontmatterCodec(), state, taskPolicy);
     }
 
     private static GitHubConnector.PullRequest pr(String url, String headSha, String state) {
@@ -805,7 +805,7 @@ class DeliveryWorkerTest {
         return contextWithId(UUID.randomUUID().toString(), inputs);
     }
 
-    private static org.folio.factory.devfactory.runtime.CodingRequest pilotCodingRequest() {
+    private static org.folio.factory.devfactory.runtime.CodingRequest taskCodingRequest() {
         return new org.folio.factory.devfactory.runtime.CodingRequest(
                 "MODSIDECAR-196", "Task", "Description", List.of(), List.of(), List.of(), List.of(),
                 new org.folio.factory.devfactory.runtime.CodingRequest.RepositoryTarget(
@@ -813,11 +813,11 @@ class DeliveryWorkerTest {
                 null);
     }
 
-    private AgentContext pilotContext() {
+    private AgentContext taskContext() {
         var original = verifiedContext();
         var inputs = new java.util.HashMap<>(original.inputs());
         inputs.put(IntakeResolveWorker.CODING_REQUEST, new ArtifactContent(IntakeResolveWorker.CODING_REQUEST, 1,
-                "application/json", json.writeValueAsString(pilotCodingRequest())));
+                "application/json", json.writeValueAsString(taskCodingRequest())));
         return new AgentContext(original.executionId(), original.stepId(), inputs, null, Map.of(), List.of());
     }
 

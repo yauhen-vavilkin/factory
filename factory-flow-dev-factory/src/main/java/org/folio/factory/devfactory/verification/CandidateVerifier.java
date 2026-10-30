@@ -8,7 +8,7 @@ import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.runtime.Processes;
-import org.folio.factory.devfactory.pilot.AttemptDeadline;
+import org.folio.factory.devfactory.tasks.AttemptDeadline;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -29,7 +29,7 @@ public class CandidateVerifier {
         return verify(executionId, stepId, candidate, Optional.empty());
     }
 
-    /** Verification bounded by the pilot attempt's remaining whole-attempt budget. */
+    /** Verification bounded by the task attempt's remaining whole-attempt budget. */
     public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate,
                                       Optional<AttemptDeadline> deadline) {
         var repository = requireRepository(candidate);

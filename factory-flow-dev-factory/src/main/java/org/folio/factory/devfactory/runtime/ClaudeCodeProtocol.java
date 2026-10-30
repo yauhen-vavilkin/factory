@@ -426,7 +426,7 @@ final class ClaudeCodeProtocol implements Consumer<String> {
             return fail("TIME_LIMIT", "Claude Code did not finish within the time limit of " + minutes
                     + (minutes == 1 ? " minute" : " minutes") + ", so Factory stopped it. Retry with a lower effort"
                     + " or a smaller task, or raise the limit (FACTORY_DEV_FACTORY_TIMEOUT_SECONDS,"
-                    + " FACTORY_PILOT_EXECUTION_DEADLINE).");
+                    + " FACTORY_TASKS_EXECUTION_DEADLINE).");
         }
         if (run.lineTooLarge() && failure == null) {
             return fail("FRAME_TOO_LARGE", "Claude Code wrote one output line larger than "

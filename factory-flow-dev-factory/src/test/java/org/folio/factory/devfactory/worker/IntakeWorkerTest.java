@@ -6,8 +6,8 @@ import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.decision.DecisionArtifacts;
-import org.folio.factory.devfactory.pilot.PilotExecutionContext;
-import org.folio.factory.devfactory.pilot.RecordingPilotAttempts;
+import org.folio.factory.devfactory.tasks.TaskExecutionContext;
+import org.folio.factory.devfactory.tasks.RecordingTaskAttempts;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
@@ -45,13 +45,13 @@ class IntakeWorkerTest {
         verifyNoMoreInteractions(audit);
     }
 
-    @Test void pilotAmbiguityStopsIntakeWithoutJiraReadOrSeededRecommendation() {
+    @Test void taskAmbiguityStopsIntakeWithoutJiraReadOrSeededRecommendation() {
         var jira = mock(JiraConnector.class);
         var audit = mock(AuditLog.class);
         var repositoryPolicy = mock(RepositoryPolicy.class);
-        var pilots = new RecordingPilotAttempts(pilotContext("mod-foo"));
+        var taskAttempts = new RecordingTaskAttempts(taskContext("mod-foo"));
         var worker = new IntakeWorker(jira, repositoryPolicy, new FrontmatterCodec(),
-                codingRuntime(), audit, pilots);
+                codingRuntime(), audit, taskAttempts);
         when(repositoryPolicy.candidates("MODFOO", List.of("storage")))
                 .thenReturn(List.of("mod-foo", "mod-foo-storage"));
         var context = new AgentContext(UUID.randomUUID(), "read-task", Map.of(), null, Map.of(), List.of());
@@ -67,20 +67,20 @@ class IntakeWorkerTest {
         assertThat(request.required()).isFalse();
         var answer = DecisionArtifacts.parseAnswer(codec, result.outputs().get(DecisionArtifacts.ANSWER));
         assertThat(answer.choice()).isEqualTo("none");
-        assertThat(pilots.stops).singleElement().satisfies(stop -> {
+        assertThat(taskAttempts.stops).singleElement().satisfies(stop -> {
             assertThat(stop).startsWith("read-task: ");
             assertThat(stop).contains("ambiguous");
         });
         verifyNoInteractions(jira);
     }
 
-    @Test void pilotSingleCandidateMapsFromTheApprovedSnapshotWithoutJiraRead() {
+    @Test void taskSingleCandidateMapsFromTheApprovedSnapshotWithoutJiraRead() {
         var jira = mock(JiraConnector.class);
         var audit = mock(AuditLog.class);
         var repositoryPolicy = mock(RepositoryPolicy.class);
-        var pilots = new RecordingPilotAttempts(pilotContext("mod-foo"));
+        var taskAttempts = new RecordingTaskAttempts(taskContext("mod-foo"));
         var worker = new IntakeWorker(jira, repositoryPolicy, new FrontmatterCodec(),
-                codingRuntime(), audit, pilots);
+                codingRuntime(), audit, taskAttempts);
         when(repositoryPolicy.candidates("MODFOO", List.of("storage")))
                 .thenReturn(List.of("mod-foo"));
         var context = new AgentContext(UUID.randomUUID(), "read-task", Map.of(), null, Map.of(), List.of());
@@ -93,18 +93,18 @@ class IntakeWorkerTest {
         assertThat(intake.path("candidates").get(0).asString()).isEqualTo("mod-foo");
         assertThat(DecisionArtifacts.parseRequest(codec, result.outputs().get(DecisionArtifacts.REQUEST)).required())
                 .isFalse();
-        assertThat(pilots.stops).isEmpty();
+        assertThat(taskAttempts.stops).isEmpty();
         verify(repositoryPolicy).candidates("MODFOO", List.of("storage"));
         verifyNoInteractions(jira);
     }
 
-    @Test void pilotRoutingAwayFromTheApprovedRepositoryStops() {
+    @Test void taskRoutingAwayFromTheApprovedRepositoryStops() {
         var jira = mock(JiraConnector.class);
         var audit = mock(AuditLog.class);
         var repositoryPolicy = mock(RepositoryPolicy.class);
-        var pilots = new RecordingPilotAttempts(pilotContext("mod-foo"));
+        var taskAttempts = new RecordingTaskAttempts(taskContext("mod-foo"));
         var worker = new IntakeWorker(jira, repositoryPolicy, new FrontmatterCodec(),
-                codingRuntime(), audit, pilots);
+                codingRuntime(), audit, taskAttempts);
         when(repositoryPolicy.candidates("MODFOO", List.of("storage")))
                 .thenReturn(List.of("mod-foo-storage"));
         var context = new AgentContext(UUID.randomUUID(), "read-task", Map.of(), null, Map.of(), List.of());
@@ -114,17 +114,17 @@ class IntakeWorkerTest {
         var intake = new FrontmatterCodec().parse(result.outputs().get(IntakeWorker.INTAKE)).metadata();
         assertThat(intake.path("state").asString()).isEqualTo("BLOCKED");
         assertThat(intake.path("reason").asString()).isEqualTo("REPOSITORY_MAPPING_CHANGED");
-        assertThat(pilots.stops).singleElement().satisfies(stop -> assertThat(stop).contains("mod-foo"));
+        assertThat(taskAttempts.stops).singleElement().satisfies(stop -> assertThat(stop).contains("mod-foo"));
         verifyNoInteractions(jira);
     }
 
-    @Test void pilotUnverifiableAdmittedRepositoryStopsInsteadOfTrustingTheReDerivedMapping() {
+    @Test void taskUnverifiableAdmittedRepositoryStopsInsteadOfTrustingTheReDerivedMapping() {
         var jira = mock(JiraConnector.class);
         var audit = mock(AuditLog.class);
         var repositoryPolicy = mock(RepositoryPolicy.class);
-        var pilots = new RecordingPilotAttempts(pilotContext(null));
+        var taskAttempts = new RecordingTaskAttempts(taskContext(null));
         var worker = new IntakeWorker(jira, repositoryPolicy, new FrontmatterCodec(),
-                codingRuntime(), audit, pilots);
+                codingRuntime(), audit, taskAttempts);
         when(repositoryPolicy.candidates("MODFOO", List.of("storage")))
                 .thenReturn(List.of("mod-foo"));
         var context = new AgentContext(UUID.randomUUID(), "read-task", Map.of(), null, Map.of(), List.of());
@@ -134,18 +134,18 @@ class IntakeWorkerTest {
         var intake = new FrontmatterCodec().parse(result.outputs().get(IntakeWorker.INTAKE)).metadata();
         assertThat(intake.path("state").asString()).isEqualTo("BLOCKED");
         assertThat(intake.path("reason").asString()).isEqualTo("REPOSITORY_MAPPING_CHANGED");
-        assertThat(pilots.stops).singleElement().satisfies(stop ->
+        assertThat(taskAttempts.stops).singleElement().satisfies(stop ->
                 assertThat(stop).contains("cannot be verified"));
         verifyNoInteractions(jira);
     }
 
-    private static PilotExecutionContext pilotContext(String repositoryKey) {
-        return new PilotExecutionContext(
+    private static TaskExecutionContext taskContext(String repositoryKey) {
+        return new TaskExecutionContext(
                 UUID.randomUUID(),
                 Map.of("key", "MODFOO-101", "summary", "Summary", "description", "Description",
                         "components", List.of("storage"), "comments", List.of(), "links", List.of()),
                 repositoryKey,
-                PilotExecutionContext.Kind.INITIAL,
+                TaskExecutionContext.Kind.INITIAL,
                 "input-fingerprint", "destination-fingerprint");
     }
 

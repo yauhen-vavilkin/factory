@@ -6,7 +6,7 @@ import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
-import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 
@@ -17,7 +17,7 @@ import java.util.Map;
 
 /**
  * Retries a product clarification once; repository mismatches stop with an explicit non-candidate
- * outcome. Pilot attempts never continue automatically: an explicit retry is a
+ * outcome. Task attempts never continue automatically: an explicit retry is a
  * new execution.
  */
 public class DevelopContinuationWorker implements AgentWorker {
@@ -25,18 +25,18 @@ public class DevelopContinuationWorker implements AgentWorker {
 
     private final InitialCodingAttempt develop;
     private final FrontmatterCodec codec;
-    private final PilotAttemptPolicy pilotPolicy;
+    private final TaskAttemptPolicy taskPolicy;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public DevelopContinuationWorker(InitialCodingAttempt develop, FrontmatterCodec codec) {
-        this(develop, codec, PilotAttemptPolicy.none());
+        this(develop, codec, TaskAttemptPolicy.none());
     }
 
     public DevelopContinuationWorker(InitialCodingAttempt develop, FrontmatterCodec codec,
-                                     PilotAttemptPolicy pilotPolicy) {
+                                     TaskAttemptPolicy taskPolicy) {
         this.develop = develop;
         this.codec = codec;
-        this.pilotPolicy = pilotPolicy;
+        this.taskPolicy = taskPolicy;
     }
 
     @Override
@@ -53,8 +53,8 @@ public class DevelopContinuationWorker implements AgentWorker {
             return passThrough(context, request, outcome);
         }
         var clarification = readClarification(context);
-        if (pilotPolicy.find(context.executionId()).isPresent()) {
-            stopAnsweredPilot(context, clarification);
+        if (taskPolicy.find(context.executionId()).isPresent()) {
+            stopAnsweredTask(context, clarification);
             return passThrough(context, request, outcome);
         }
         if (clarification.isUnanswered()) {
@@ -74,12 +74,12 @@ public class DevelopContinuationWorker implements AgentWorker {
         return new Clarification(decisionRequest, answer);
     }
 
-    private void stopAnsweredPilot(AgentContext context, Clarification clarification) {
+    private void stopAnsweredTask(AgentContext context, Clarification clarification) {
         if (clarification.isUnanswered()) {
             return;
         }
-        pilotPolicy.recordStop(context.executionId(), context.stepId(),
-                "a clarification answer cannot continue a pilot attempt automatically;"
+        taskPolicy.recordStop(context.executionId(), context.stepId(),
+                "a clarification answer cannot continue a task attempt automatically;"
                         + " an explicit retry is a new execution");
     }
 

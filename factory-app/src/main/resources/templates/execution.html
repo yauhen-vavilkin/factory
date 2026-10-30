@@ -11,16 +11,16 @@
         <div class="dev-heading">
             <nav class="dev-breadcrumb" aria-label="Breadcrumb"><a th:href="@{/flows/dev-factory}">Developer Flow</a>
                 /
-                <a th:if="${pilotRun != null}" th:href="@{'/tasks/' + ${pilotRun['taskId']}}" th:text="${pilotRun['key']}">KEY-1</a><span
-                        th:if="${pilotRun == null}" th:text="${#strings.isEmpty(developer['taskKey'])} ? 'Task' : ${developer['taskKey']}">KEY-1</span>
+                <a th:if="${taskRun != null}" th:href="@{'/tasks/' + ${taskRun['taskId']}}" th:text="${taskRun['key']}">KEY-1</a><span
+                        th:if="${taskRun == null}" th:text="${#strings.isEmpty(developer['taskKey'])} ? 'Task' : ${developer['taskKey']}">KEY-1</span>
                 / <span th:text="'run ' + ${#strings.substring(execution.id.toString(), 0, 4)} + '…'">run</span></nav>
-            <h1 class="dev-title" th:text="${pilotRun != null ? pilotRun['title'] : developer['summary']}">Developer task</h1>
+            <h1 class="dev-title" th:text="${taskRun != null ? taskRun['title'] : developer['summary']}">Developer task</h1>
             <div class="dev-meta">
-                <a class="task-key" th:if="${pilotRun != null}" th:href="${pilotRun['jiraUrl']}" th:text="${pilotRun['key']}">KEY-1</a>
-                <span class="task-key" th:if="${pilotRun == null and !#strings.isEmpty(developer['taskKey'])}"
+                <a class="task-key" th:if="${taskRun != null}" th:href="${taskRun['jiraUrl']}" th:text="${taskRun['key']}">KEY-1</a>
+                <span class="task-key" th:if="${taskRun == null and !#strings.isEmpty(developer['taskKey'])}"
                       th:text="${developer['taskKey']}">KEY-1</span>
-                <span th:if="${pilotRun != null}" th:class="${pilotRun['stateClass']}" th:text="${pilotRun['stateLabel']}">State</span>
-                <th:block th:if="${pilotRun == null}">
+                <span th:if="${taskRun != null}" th:class="${taskRun['stateClass']}" th:text="${taskRun['stateLabel']}">State</span>
+                <th:block th:if="${taskRun == null}">
                     <span th:replace="~{fragments/components :: statusBadge(${displayStatus})}"></span>
                 </th:block>
                 <span th:if="${!#strings.isEmpty(repo)}"

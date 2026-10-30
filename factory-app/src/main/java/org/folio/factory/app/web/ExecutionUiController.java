@@ -1,9 +1,9 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.app.developer.CodingTranscriptStore;
-import org.folio.factory.app.pilot.persistence.PilotAttemptRepository;
-import org.folio.factory.app.pilot.presentation.PilotTaskQuery;
-import org.folio.factory.app.pilot.presentation.PilotTaskRows;
+import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
+import org.folio.factory.app.tasks.presentation.TaskQuery;
+import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -56,8 +56,8 @@ public class ExecutionUiController {
     private final DeveloperCostEstimator costEstimator;
     private final FeedbackUi feedbackUi;
     private final DeveloperExecutionView developerView;
-    private final PilotAttemptRepository pilotAttempts;
-    private final PilotTaskQuery pilotTasks;
+    private final TaskAttemptRepository taskAttempts;
+    private final TaskQuery taskTasks;
     private final CodingTranscriptStore transcripts;
 
     public ExecutionUiController(
@@ -69,8 +69,8 @@ public class ExecutionUiController {
             JsonMapper jsonMapper,
             DeveloperCostEstimator costEstimator,
             FeedbackUi feedbackUi,
-            PilotAttemptRepository pilotAttempts,
-            PilotTaskQuery pilotTasks,
+            TaskAttemptRepository taskAttempts,
+            TaskQuery taskTasks,
             CodingTranscriptStore transcripts) {
         this.executions = executions;
         this.artifactStore = artifactStore;
@@ -81,8 +81,8 @@ public class ExecutionUiController {
         this.costEstimator = costEstimator;
         this.feedbackUi = feedbackUi;
         this.developerView = new DeveloperExecutionView(jsonMapper);
-        this.pilotAttempts = pilotAttempts;
-        this.pilotTasks = pilotTasks;
+        this.taskAttempts = taskAttempts;
+        this.taskTasks = taskTasks;
         this.transcripts = transcripts;
     }
 
@@ -139,7 +139,7 @@ public class ExecutionUiController {
     public String transcript(@PathVariable("id") UUID id, Model model) {
         var execution = findExecution(id);
         model.addAttribute("execution", execution);
-        model.addAttribute("pilotRun", pilotRun(id));
+        model.addAttribute("taskRun", taskRun(id));
         model.addAttribute("runs", DeveloperTranscriptView.runs(transcripts.read(id)));
         return "transcript";
     }
@@ -148,9 +148,9 @@ public class ExecutionUiController {
         return executions.findById(id).orElseThrow(() -> new NoSuchElementException("No execution " + id));
     }
 
-    private Map<String, Object> pilotRun(UUID id) {
-        return pilotAttempts.findByExecutionId(id)
-                .map(attempt -> PilotTaskRows.runContext(pilotTasks.detail(attempt.getTaskId()), id))
+    private Map<String, Object> taskRun(UUID id) {
+        return taskAttempts.findByExecutionId(id)
+                .map(attempt -> TaskRows.runContext(taskTasks.detail(attempt.getTaskId()), id))
                 .orElse(null);
     }
 
@@ -160,7 +160,7 @@ public class ExecutionUiController {
         populateFactoryTime(model, detail, now);
         var developer = developerView.build(execution, detail.artifacts(), detail.events(), now);
         model.addAttribute("developer", developer);
-        model.addAttribute("pilotRun", pilotRun(detail.id()));
+        model.addAttribute("taskRun", taskRun(detail.id()));
         model.addAttribute("progressSteps", developer.get("phases"));
         flowRegistry.find(execution.getFlowId())
                 .ifPresent(flow -> labelTechnicalSteps(steps, flow, detail, now));

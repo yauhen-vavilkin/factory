@@ -555,8 +555,8 @@ Prerequisites: Docker Desktop with Compose 2.20+, a local CodeMie proxy on port
 4001, and a GitHub token that can push to the delivery repositories.
 
 ```bash
-cp .env.pilot.example .env
-# Set FACTORY_PILOT_ASSIGNEE (your name as Jira shows it) and FACTORY_CONNECTORS_GITHUB_TOKEN.
+cp .env.tasks.example .env
+# Set FACTORY_TASKS_ASSIGNEE (your name as Jira shows it) and FACTORY_CONNECTORS_GITHUB_TOKEN.
 docker compose up -d
 ```
 
@@ -577,7 +577,7 @@ could not confirm how the run ended (for example, workload cleanup or a lost
 publication response) and rechecks every minute. If the run is really over, use
 **Mark as stopped…**: the task becomes Could not complete and the queue moves on.
 Destructive retention must stay disabled: while `FACTORY_RETENTION_ENABLED` is
-true, pilot execution refuses to start tasks (see `docker compose logs factory`).
+true, task execution refuses to start tasks (see `docker compose logs factory`).
 
 The agent ends each run with a short report under four headings: Changes,
 Acceptance criteria (met, not met or not checked), Assumptions and Could not read.
@@ -633,8 +633,8 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_TEST_FACTORY_JIRA_TRANSITION` | Optional Jira transition on completion |
 | `FACTORY_TEST_FACTORY_EXECUTION_BASE_URL` + `_KARATE_JAR` | Enable real Karate execution (otherwise advisory mode) |
 | `FACTORY_LIMITS_MAX_CONCURRENT_EXECUTIONS` / `_MAX_EXECUTIONS_PER_DAY` | Concurrency cap / daily budget (`0` disables; defaults `8` / `200`, 429 on budget) |
-| `FACTORY_PILOT_ASSIGNEE` | Whose open Jira tasks **Scan Jira** finds: the name as Jira shows it, or an accountId; see [My tasks quick start](#my-tasks-quick-start) |
-| `FACTORY_PILOT_EXECUTION_ENABLED` | Runs the My tasks queue (opt-in, default off) |
+| `FACTORY_TASKS_ASSIGNEE` | Whose open Jira tasks **Scan Jira** finds: the name as Jira shows it, or an accountId; see [My tasks quick start](#my-tasks-quick-start) |
+| `FACTORY_TASKS_EXECUTION_ENABLED` | Runs the My tasks queue (opt-in, default off) |
 | `FACTORY_LIMITS_DEDUP_ENABLED` / `_DEDUP_WINDOW` / `_DEDUP_ID_POINTERS` | Trigger dedup (default on, `10m`, `/issueKey`) |
 | `FACTORY_LIMITS_MAX_ARTIFACT_BYTES` / `_MAX_TRIGGER_PAYLOAD_BYTES` | Write-time size caps (defaults `5000000` / `262144`) |
 | `FACTORY_RETENTION_ENABLED` / `_TTL_DAYS` / `_RUN_CRON` | Purge of old terminal runs (**off** by default; audit is never purged) |

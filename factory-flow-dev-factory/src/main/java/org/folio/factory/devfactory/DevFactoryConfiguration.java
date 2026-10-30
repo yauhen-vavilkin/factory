@@ -42,7 +42,7 @@ import org.folio.factory.devfactory.runtime.PiCodingRuntime;
 import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
 import org.folio.factory.devfactory.runtime.RunProfiles;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
-import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 import org.folio.factory.devfactory.worker.CodingDecisionGateWorker;
 import org.folio.factory.devfactory.worker.DecisionGateWorker;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
@@ -118,7 +118,7 @@ public class DevFactoryConfiguration {
             AuditLog audit,
             ObjectProvider<AttemptPricing> pricing,
             ObjectProvider<SelectedRepositoryPreflight> repositoryPreflight,
-            ObjectProvider<PilotAttemptPolicy> pilotPolicy,
+            ObjectProvider<TaskAttemptPolicy> taskPolicy,
             ObjectProvider<CodingTranscripts> transcripts) {
         return new InitialCodingAttempt(
                 properties,
@@ -130,7 +130,7 @@ public class DevFactoryConfiguration {
                 audit,
                 pricing.getIfAvailable(() -> model -> Map.of()),
                 repositoryPreflight.getIfAvailable(SelectedRepositoryPreflight::none),
-                pilotPolicy.getIfAvailable(PilotAttemptPolicy::none),
+                taskPolicy.getIfAvailable(TaskAttemptPolicy::none),
                 transcripts.getIfAvailable(CodingTranscripts::none));
     }
 
@@ -141,17 +141,17 @@ public class DevFactoryConfiguration {
 
     @Bean
     public CodingDecisionGateWorker devCodingDecisionGateWorker(
-            ConditionalDecisionGate gate, ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
-        return new CodingDecisionGateWorker(gate, pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
+            ConditionalDecisionGate gate, ObjectProvider<TaskAttemptPolicy> taskPolicy) {
+        return new CodingDecisionGateWorker(gate, taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
     }
 
     @Bean
     public DevelopContinuationWorker devDevelopContinuationWorker(
             InitialCodingAttempt develop,
             FrontmatterCodec codec,
-            ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
+            ObjectProvider<TaskAttemptPolicy> taskPolicy) {
         return new DevelopContinuationWorker(develop, codec,
-                pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
+                taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
     }
 
     @Bean
@@ -165,8 +165,8 @@ public class DevFactoryConfiguration {
 
     @Bean
     public VerifyWorker devVerifyWorker(
-            CandidateVerifier verifier, ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
-        return new VerifyWorker(verifier, pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
+            CandidateVerifier verifier, ObjectProvider<TaskAttemptPolicy> taskPolicy) {
+        return new VerifyWorker(verifier, taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
     }
 
     @Bean
@@ -185,7 +185,7 @@ public class DevFactoryConfiguration {
             @Qualifier("gitHubConnector") GitHubConnector github,
             FrontmatterCodec frontmatter,
             StateManager state,
-            ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
+            ObjectProvider<TaskAttemptPolicy> taskPolicy) {
         return new DeliveryWorker(
                 repositories,
                 runtime,
@@ -196,7 +196,7 @@ public class DevFactoryConfiguration {
                 github,
                 frontmatter,
                 state,
-                pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
+                taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
     }
 
     @Bean
@@ -231,17 +231,17 @@ public class DevFactoryConfiguration {
             FrontmatterCodec codec,
             CodingRuntime runtime,
             AuditLog audit,
-            ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
+            ObjectProvider<TaskAttemptPolicy> taskPolicy) {
         return new IntakeWorker(jiraConnector, policy, codec, runtime, audit,
-                pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
+                taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
     }
 
     @Bean
     public DecisionGateWorker devDecisionGateWorker(
             ConditionalDecisionGate gate,
             FrontmatterCodec codec,
-            ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
-        return new DecisionGateWorker(gate, codec, pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
+            ObjectProvider<TaskAttemptPolicy> taskPolicy) {
+        return new DecisionGateWorker(gate, codec, taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
     }
 
     @Bean
@@ -249,9 +249,9 @@ public class DevFactoryConfiguration {
             RepositoryPolicy policy,
             BaseRefResolver baseRefResolver,
             FrontmatterCodec codec,
-            ObjectProvider<PilotAttemptPolicy> pilotPolicy) {
+            ObjectProvider<TaskAttemptPolicy> taskPolicy) {
         return new IntakeResolveWorker(policy, baseRefResolver, codec,
-                pilotPolicy.getIfAvailable(PilotAttemptPolicy::none));
+                taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
     }
 
     @Bean

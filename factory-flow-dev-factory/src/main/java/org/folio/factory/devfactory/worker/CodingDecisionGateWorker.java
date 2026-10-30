@@ -6,7 +6,7 @@ import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.registry.model.HitlGateSpec;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.decision.ConditionalDecisionGate;
-import org.folio.factory.devfactory.pilot.PilotAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -15,7 +15,7 @@ import java.util.Map;
 
 /**
  * Pauses only when the configured coding runtime returned NEEDS_DECISION.
- * Pilot executions stop instead: no review is opened and no continuation is
+ * Task executions stop instead: no review is opened and no continuation is
  * authorized.
  */
 public class CodingDecisionGateWorker implements AgentWorker {
@@ -30,16 +30,16 @@ public class CodingDecisionGateWorker implements AgentWorker {
                     CodingDecisionArtifacts.REQUEST, CodingDecisionArtifacts.ANSWER));
 
     private final ConditionalDecisionGate gate;
-    private final PilotAttemptPolicy pilotPolicy;
+    private final TaskAttemptPolicy taskPolicy;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public CodingDecisionGateWorker(ConditionalDecisionGate gate) {
-        this(gate, PilotAttemptPolicy.none());
+        this(gate, TaskAttemptPolicy.none());
     }
 
-    public CodingDecisionGateWorker(ConditionalDecisionGate gate, PilotAttemptPolicy pilotPolicy) {
+    public CodingDecisionGateWorker(ConditionalDecisionGate gate, TaskAttemptPolicy taskPolicy) {
         this.gate = gate;
-        this.pilotPolicy = pilotPolicy;
+        this.taskPolicy = taskPolicy;
     }
 
     @Override public String id() { return ID; }
@@ -48,12 +48,12 @@ public class CodingDecisionGateWorker implements AgentWorker {
         CodingOutcome outcome = json.readValue(context.requireInput(DevelopWorker.OUTCOME).content(),
                 CodingOutcome.class);
         boolean required = outcome.status() == CodingOutcome.Status.NEEDS_DECISION;
-        boolean pilot = pilotPolicy.find(context.executionId()).isPresent();
-        if (required && pilot) {
-            pilotPolicy.recordStop(context.executionId(), context.stepId(),
+        boolean taskRun = taskPolicy.find(context.executionId()).isPresent();
+        if (required && taskRun) {
+            taskPolicy.recordStop(context.executionId(), context.stepId(),
                     "coding requested a human decision: " + outcome.decision().question());
         }
-        boolean opened = required && !pilot && gate.open(context, GATE);
+        boolean opened = required && !taskRun && gate.open(context, GATE);
         return new AgentResult(Map.of(), Map.of("decisionRequired", required, "reviewOpened", opened));
     }
 }
