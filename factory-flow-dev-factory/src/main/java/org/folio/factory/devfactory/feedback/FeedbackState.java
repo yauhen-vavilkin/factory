@@ -37,7 +37,6 @@ public class FeedbackState {
         SKIPPED
     }
 
-    private Phase phase = Phase.INIT;
     Phase resumePhase;
     Phase cleanupResumePhase;
     String lastCleanedInvocation = "";
@@ -67,6 +66,7 @@ public class FeedbackState {
     VerificationReceipt verification;
     Map<String, Object> usage = Map.of();
     Map<String, Object> rate = Map.of();
+    private Phase phase = Phase.INIT;
 
     public FeedbackState() {}
 

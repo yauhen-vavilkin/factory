@@ -33,9 +33,10 @@ public class TestExecutionWorker implements AgentWorker {
 
     public static final String ID = "test-execution-agent";
 
+    static final int MAX_CONSOLE_LOG_CHARS = 20_000;
+
     private static final Logger log = LoggerFactory.getLogger(TestExecutionWorker.class);
     private static final long EXECUTION_TIMEOUT_MINUTES = 15;
-    static final int MAX_CONSOLE_LOG_CHARS = 20_000;
 
     private final ScriptBundleCodec bundleCodec;
     private final FrontmatterCodec frontmatterCodec;

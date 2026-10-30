@@ -59,7 +59,8 @@ public class FlowRegistry {
             String yaml = read(resource);
             FlowDescriptor descriptor = parser.parse(yaml, resource.getFilename());
             if (flows.containsKey(descriptor.id())) {
-                throw new FlowValidationException("Duplicate flow id '" + descriptor.id() + "' in " + resource.getFilename());
+                throw new FlowValidationException(
+                        "Duplicate flow id '" + descriptor.id() + "' in " + resource.getFilename());
             }
             flows.put(descriptor.id(), descriptor);
             loaded.add(new LoadedFlow(descriptor, yaml));

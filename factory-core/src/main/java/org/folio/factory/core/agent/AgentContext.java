@@ -43,7 +43,8 @@ public record AgentContext(
         ArtifactContent artifact = inputs.get(name);
         if (artifact == null) {
             throw new NoSuchElementException(
-                    "Step '" + stepId + "' has no input artifact '" + name + "' — is it declared in the flow descriptor?");
+                    "Step '" + stepId + "' has no input artifact '" + name
+                            + "' — is it declared in the flow descriptor?");
         }
         return artifact;
     }

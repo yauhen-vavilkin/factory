@@ -16,6 +16,8 @@ import java.util.regex.Pattern;
  */
 public final class PromptLoader {
 
+    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{(.+?)}}");
+
     private PromptLoader() {
     }
 
@@ -27,8 +29,6 @@ public final class PromptLoader {
             throw new UncheckedIOException("Cannot load prompt template classpath:" + location, e);
         }
     }
-
-    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{(.+?)}}");
 
     /**
      * Single-pass substitution: placeholders inside substituted values are never

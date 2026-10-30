@@ -40,7 +40,8 @@ final class DeveloperExecutionView {
             new Phase("Create pull request", 5, 5, List.of("publish")));
     private static final List<Phase> CURRENT_PHASES = List.of(
             new Phase("Prepare task", 0, 2, List.of("read-task", "select-repository", "prepare-task")),
-            new Phase("Implement changes", 3, 5, List.of("implement", "clarify-implementation", "continue-implementation")),
+            new Phase("Implement changes", 3, 5,
+                    List.of("implement", "clarify-implementation", "continue-implementation")),
             new Phase("Verify changes", 6, 6, List.of("verify")),
             new Phase("Create pull request", 7, 7, List.of("publish")));
     private final JsonMapper json;
@@ -82,7 +83,8 @@ final class DeveloperExecutionView {
         return "OUTCOME_UNAVAILABLE";
     }
 
-    Map<String, Object> build(PipelineExecution execution, List<Artifact> artifacts, List<AuditEvent> events, Instant now) {
+    Map<String, Object> build(PipelineExecution execution, List<Artifact> artifacts, List<AuditEvent> events,
+            Instant now) {
         var latest = latestArtifacts(artifacts);
         var brief = artifact(latest, "dev_task_brief.md");
         var readiness = artifact(latest, "dev_readiness.json");
@@ -170,7 +172,8 @@ final class DeveloperExecutionView {
         view.put("livePhase", phases.stream().filter(phase -> "current".equals(phase.get("state")))
                 .findFirst().orElse(null));
         view.put("startingBuild", outcomeState(startingBuildState(readiness.path("state").asString("")), phases, 1));
-        view.put("verification", outcomeState(first(verification.path("result"), verification.path("state")), phases, 2));
+        view.put("verification",
+                outcomeState(first(verification.path("result"), verification.path("state")), phases, 2));
         view.put("testCount", verification.isEmpty() ? "" : counter(verification, "testCount"));
         view.put("delivery", outcomeState(delivery.path("state").asString(""), phases, 3));
         view.put("deliveryRepository", delivery.path("deliveryRepository").asString(""));
@@ -274,7 +277,8 @@ final class DeveloperExecutionView {
         if (!preparation.isBlank() && !"INTAKE_READY".equals(preparation)) return 0;
         String candidateState = candidate.path("state").asString("");
         if ("BASELINE_FAILED".equals(readiness.path("state").asString(""))
-                || (!candidateState.isBlank() && !Set.of("CANDIDATE_UNVERIFIED", "NEEDS_DECISION").contains(candidateState))) return 1;
+                || (!candidateState.isBlank()
+                        && !Set.of("CANDIDATE_UNVERIFIED", "NEEDS_DECISION").contains(candidateState))) return 1;
         if ("FAIL".equals(verification.path("result").asString(""))
                 || "VERIFICATION_FAILED".equals(result.path("state").asString(""))) return 2;
         if ("DELIVERY_BLOCKED".equals(delivery.path("state").asString(""))) return 3;

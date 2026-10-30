@@ -96,7 +96,8 @@ public class ExecutionClaimService {
         Instant threshold = Instant.now().minusSeconds(leaseTimeoutSeconds);
         List<PipelineExecution> stale = executions.findByStatusAndUpdatedAtBefore(ExecutionStatus.RUNNING, threshold);
         for (PipelineExecution execution : stale) {
-            log.warn("Reaping stale RUNNING execution {} (last update {})", execution.getId(), execution.getUpdatedAt());
+            log.warn("Reaping stale RUNNING execution {} (last update {})", execution.getId(),
+                    execution.getUpdatedAt());
             execution.setStatus(ExecutionStatus.PENDING);
             execution.setNextRunAt(Instant.now());
         }

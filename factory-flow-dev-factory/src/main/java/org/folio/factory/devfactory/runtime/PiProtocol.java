@@ -103,7 +103,9 @@ final class PiProtocol {
     private static boolean isOversizedAgentEnd(String line, JsonMapper mapper) {
         try (var parser = mapper.tokenStreamFactory().createParser(line)) {
             if (parser.nextToken() != JsonToken.START_OBJECT) return false;
-            boolean type = false, messages = false, willRetry = false;
+            boolean type = false;
+            boolean messages = false;
+            boolean willRetry = false;
             JsonToken token;
             while ((token = parser.nextToken()) != JsonToken.END_OBJECT) {
                 if (token != JsonToken.PROPERTY_NAME) return false;

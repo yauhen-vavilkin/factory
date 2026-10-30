@@ -32,7 +32,8 @@ public class DevArtifactAmendmentValidator implements ArtifactAmendmentValidator
     @Override
     public void validate(String artifactName, String content) {
         if (TRUSTED.contains(artifactName)) {
-            throw new IllegalArgumentException("'" + artifactName + "' is trusted Developer Flow data and cannot be amended");
+            throw new IllegalArgumentException(
+                    "'" + artifactName + "' is trusted Developer Flow data and cannot be amended");
         }
         if (CodingDecisionArtifacts.ANSWER.equals(artifactName)) {
             try {

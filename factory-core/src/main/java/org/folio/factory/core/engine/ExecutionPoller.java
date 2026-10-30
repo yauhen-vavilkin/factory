@@ -71,7 +71,8 @@ public class ExecutionPoller {
             if (properties.reclaimRunningOnStartup()) {
                 int reclaimed = claimService.reclaimOrphanedRunning();
                 if (reclaimed > 0) {
-                    log.warn("Startup reclaim: requeued {} orphaned RUNNING execution(s) from a prior process", reclaimed);
+                    log.warn("Startup reclaim: requeued {} orphaned RUNNING execution(s) from a prior process",
+                            reclaimed);
                 }
             }
             startupReclaimDone = true;

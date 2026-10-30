@@ -77,7 +77,8 @@ public final class DecisionArtifacts {
     public static Request parseRequest(FrontmatterCodec codec, String content) {
         JsonNode m = codec.parse(content).metadata();
         List<Option> options = new ArrayList<>();
-        m.path("options").forEach(o -> options.add(new Option(o.path("id").asString(""), o.path("label").asString(""))));
+        m.path("options").forEach(o -> options.add(
+                new Option(o.path("id").asString(""), o.path("label").asString(""))));
         return new Request(m.path("required").asBoolean(false), m.path("request_id").asString(""),
                 m.path("issue_key").asString(""), m.path("question").asString(""), options,
                 m.path("recommended").asString(null));

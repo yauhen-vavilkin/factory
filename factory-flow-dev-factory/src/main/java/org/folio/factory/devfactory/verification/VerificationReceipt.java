@@ -29,7 +29,8 @@ public record VerificationReceipt(String executionId, String repository, String 
         argv = List.copyOf(argv);
         requiredReports = requiredReports == null ? List.of() : List.copyOf(requiredReports);
         missingRequiredReports = missingRequiredReports == null ? List.of() : List.copyOf(missingRequiredReports);
-        failureKind = failureKind == null ? ("PASS".equals(result) ? VerificationFailure.NONE : VerificationFailure.UNKNOWN)
+        failureKind = failureKind == null
+                ? ("PASS".equals(result) ? VerificationFailure.NONE : VerificationFailure.UNKNOWN)
                 : failureKind;
         if (surefireReportCount < 0 || failsafeReportCount < 0 || ((long) surefireReportCount + failsafeReportCount == 0
                 ? testCount != null || failureCount != null || errorCount != null
@@ -40,8 +41,9 @@ public record VerificationReceipt(String executionId, String repository, String 
         }
         if (!requiredReports.containsAll(missingRequiredReports))
             throw new IllegalArgumentException("Missing reports must belong to the trusted plan");
-        if (!Objects.equals(result, exitCode == 0 && (long) surefireReportCount + failsafeReportCount > 0 && testCount > 0
-                && failureCount == 0 && errorCount == 0 && missingRequiredReports.isEmpty() ? "PASS" : "FAIL")) {
+        if (!Objects.equals(result, exitCode == 0 && (long) surefireReportCount + failsafeReportCount > 0
+                && testCount > 0 && failureCount == 0 && errorCount == 0 && missingRequiredReports.isEmpty()
+                ? "PASS" : "FAIL")) {
             throw new IllegalArgumentException("Verification result must reflect exit code and fresh executed tests");
         }
         if ("PASS".equals(result) != (failureKind == VerificationFailure.NONE)

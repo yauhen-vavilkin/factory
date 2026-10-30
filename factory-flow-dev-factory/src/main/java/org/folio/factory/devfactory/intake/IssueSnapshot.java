@@ -54,16 +54,16 @@ public final class IssueSnapshot {
         return (List<String>) snapshot.get("components");
     }
 
-    private static String description(JiraIssue issue) {
-        String description = issue.description();
-        // The connector renders a missing description as the JSON literal "null".
-        return description == null || "null".equals(description) ? "" : description.strip();
-    }
-
     private static List<String> components(JsonNode fields, List<String> truncated) {
         List<String> names = new ArrayList<>();
         fields.path("components").forEach(c -> names.add(c.path("name").asString("")));
         return names(names, "components", truncated);
+    }
+
+    private static String description(JiraIssue issue) {
+        String description = issue.description();
+        // The connector renders a missing description as the JSON literal "null".
+        return description == null || "null".equals(description) ? "" : description.strip();
     }
 
     private static List<String> names(List<String> values, String field, List<String> truncated) {

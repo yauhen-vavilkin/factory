@@ -27,7 +27,8 @@ public final class AttemptUsageSummary {
 
     private static class Attempt {
         String model = "";
-        JsonNode usage = JSON.createObjectNode(), rate = JSON.createObjectNode();
+        JsonNode usage = JSON.createObjectNode();
+        JsonNode rate = JSON.createObjectNode();
         boolean complete;
     }
 
@@ -131,7 +132,9 @@ public final class AttemptUsageSummary {
             var sources = new LinkedHashSet<String>();
             long tokens = 0;
             var breakdown = new EnumMap<AttemptCharge.Category, Long>(AttemptCharge.Category.class);
-            boolean partial = legacyUnknown, provisional = false, tokensReported = false;
+            boolean partial = legacyUnknown;
+            boolean provisional = false;
+            boolean tokensReported = false;
             for (var entry : attempts.entrySet()) {
                 var a = entry.getValue();
                 if (!a.model.isBlank()) models.add(a.model);

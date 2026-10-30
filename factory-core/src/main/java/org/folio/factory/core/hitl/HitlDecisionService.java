@@ -42,10 +42,6 @@ public class HitlDecisionService {
     private final JsonMapper jsonMapper;
     private List<HitlDecisionPolicy> policies = List.of();
 
-    @org.springframework.beans.factory.annotation.Autowired
-    public void setPolicies(List<HitlDecisionPolicy> policies) { this.policies = List.copyOf(policies); }
-
-
     public HitlDecisionService(HitlReviewRepository reviews, StateManager stateManager,
                                ArtifactStore artifactStore, AuditLog auditLog, FlowRegistry flowRegistry,
                                List<ArtifactAmendmentValidator> amendmentValidators, JsonMapper jsonMapper) {
@@ -57,6 +53,9 @@ public class HitlDecisionService {
         this.amendmentValidators = amendmentValidators;
         this.jsonMapper = jsonMapper;
     }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setPolicies(List<HitlDecisionPolicy> policies) { this.policies = List.copyOf(policies); }
 
     @Transactional
     public HitlReview decide(UUID reviewId, HitlDecision decision, String reviewer,
@@ -101,7 +100,8 @@ public class HitlDecisionService {
             }
             case REJECT -> {
                 review.decide(HitlReviewStatus.REJECTED, decision.name(), reviewer, comments, null);
-                boolean cancel = escalation || policies.stream().anyMatch(policy -> policy.cancelOnReject(review, execution));
+                boolean cancel = escalation
+                        || policies.stream().anyMatch(policy -> policy.cancelOnReject(review, execution));
                 stateManager.transition(review.getExecutionId(),
                         cancel ? ExecutionStatus.CANCELLED : ExecutionStatus.REJECTED,
                         Map.of("gateId", review.getGateId(), "reviewer", reviewer));

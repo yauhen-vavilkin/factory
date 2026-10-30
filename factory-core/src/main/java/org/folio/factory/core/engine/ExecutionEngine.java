@@ -149,7 +149,8 @@ public class ExecutionEngine {
         MDC.put("stepId", step.stepId());
         try {
             auditLog.record(executionId, AuditEventType.STEP_STARTED, step.stepId(),
-                    Map.of("workerId", step.workerId(), "attempt", stateManager.retryCount(executionId, step.stepId()) + 1));
+                    Map.of("workerId", step.workerId(),
+                            "attempt", stateManager.retryCount(executionId, step.stepId()) + 1));
             long startNanos = System.nanoTime();
             // Recorded exactly once in finally, classified by whether the step reached
             // success — so a fault in advanceStep is not counted as both success and failure.
@@ -202,7 +203,8 @@ public class ExecutionEngine {
                 handleStepFailure(execution, flow, step, e);
                 return false;
             } finally {
-                engineMetrics.recordAgentStep(step.workerId(), success, Duration.ofNanos(System.nanoTime() - startNanos));
+                engineMetrics.recordAgentStep(step.workerId(), success,
+                        Duration.ofNanos(System.nanoTime() - startNanos));
             }
         } finally {
             MDC.remove("stepId");
@@ -293,7 +295,8 @@ public class ExecutionEngine {
             auditLog.record(executionId, AuditEventType.ESCALATED, step.stepId(),
                     Map.of("attempts", attempts, "error", error));
             engineMetrics.stepEscalated();
-            log.error("Step '{}' of execution {} exhausted its retry budget after {} attempts; escalated to human review",
+            log.error("Step '{}' of execution {} exhausted its retry budget after {} attempts; "
+                            + "escalated to human review",
                     step.stepId(), executionId, attempts);
         } else {
             log.warn("Step '{}' of execution {} exhausted retries but the run is already resolved; skipping escalation",

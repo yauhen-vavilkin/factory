@@ -70,7 +70,8 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         boolean validLegacyPath = MAVEN_REPORT_PATH.matcher(requirement).matches()
                 && !Arrays.asList(requirement.split("/")).contains("..");
         if (!validLegacyPath) {
-            throw new IllegalArgumentException("Required Maven reports must name surefire, failsafe or a valid report path");
+            throw new IllegalArgumentException(
+                    "Required Maven reports must name surefire, failsafe or a valid report path");
         }
     }
 
@@ -92,7 +93,8 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         }
         @Override
         public String toString() {
-            return "Coding[runtime=" + runtime + ", image=" + image + ", provider=" + provider + ", model=" + model + "]";
+            return "Coding[runtime=" + runtime + ", image=" + image + ", provider=" + provider
+                    + ", model=" + model + "]";
         }
         public void requireConfigured() {
             piProfile().requireConfigured();
@@ -119,7 +121,8 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
             if (api == null || !List.of("openai-completions", "openai-responses", "anthropic-messages",
                     "mistral-conversations", "azure-openai-responses", "openai-codex-responses",
                     "bedrock-converse-stream", "google-generative-ai", "google-vertex", "pi-messages").contains(api)) {
-                throw new IllegalStateException("Unsupported Pi API type; configure a built-in API supported by Pi 0.85.1");
+                throw new IllegalStateException(
+                        "Unsupported Pi API type; configure a built-in API supported by Pi 0.85.1");
             }
             if (!"api-key".equals(authentication)) {
                 throw new IllegalStateException("Pi authentication must be api-key");
@@ -151,7 +154,8 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         }
         public void requireConfigured() {
             if (!"anthropic-messages".equals(api)) {
-                throw new IllegalStateException("Claude Code requires api=anthropic-messages; OpenAI API endpoints need a different runtime");
+                throw new IllegalStateException("Claude Code requires api=anthropic-messages; "
+                        + "OpenAI API endpoints need a different runtime");
             }
             if (!"api-key".equals(authentication) && !"bearer-token".equals(authentication)) {
                 throw new IllegalStateException("Claude Code authentication must be api-key or bearer-token");
@@ -181,7 +185,8 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
             boolean http = "http".equals(endpoint.getScheme()) || "https".equals(endpoint.getScheme());
             if (!http || endpoint.getHost() == null || endpoint.getUserInfo() != null
                     || endpoint.getRawQuery() != null || endpoint.getFragment() != null) {
-                throw new IllegalStateException("Claude Code base-url must be HTTP(S), without credentials, query or fragment");
+                throw new IllegalStateException(
+                        "Claude Code base-url must be HTTP(S), without credentials, query or fragment");
             }
         }
 

@@ -32,7 +32,8 @@ public class CandidateVerifier {
 
     public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate) {
         var repository = repositories.repositories().get(candidate.repository());
-        if (repository == null) throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
+        if (repository == null)
+            throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
         return verify(executionId, stepId, candidate,
                 repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git");
     }
@@ -54,7 +55,8 @@ public class CandidateVerifier {
     private VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate,
                                        String sourceUrl, Optional<AttemptDeadline> deadline) {
         var repository = repositories.repositories().get(candidate.repository());
-        if (repository == null) throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
+        if (repository == null)
+            throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
         var command = runtime.command(repository.verificationPlan());
         var requiredReports = runtime.requiredReports(repository.verificationPlan());
         int timeoutSeconds = stageTimeoutSeconds(deadline);
@@ -72,7 +74,8 @@ public class CandidateVerifier {
                     observation = workload.execute(command, timeoutSeconds);
                 } catch (IllegalStateException e) {
                     // Transport failure has no process exit status. Still preserve available reports.
-                    observation = new Processes.Result(-1, Objects.toString(e.getMessage(), "Command failed without diagnostic"));
+                    observation = new Processes.Result(-1,
+                            Objects.toString(e.getMessage(), "Command failed without diagnostic"));
                 }
                 Instant finished = Instant.now();
                 SurefireEvidence evidence = null;
@@ -105,11 +108,13 @@ public class CandidateVerifier {
                         && evidence.errorCount() == 0 && missingReports.isEmpty() ? "PASS" : "FAIL";
                 var failure = VerificationFailure.classify(result, output, invalidEvidence,
                         evidence == null || evidence.testCount() == 0 || !missingReports.isEmpty(),
-                        evidence == null ? null : evidence.failureCount(), evidence == null ? null : evidence.errorCount());
+                        evidence == null ? null : evidence.failureCount(),
+                        evidence == null ? null : evidence.errorCount());
                 return new VerificationReceipt(executionId.toString(), candidate.repository(), candidate.baseSha(),
                         candidate.treeSha(), candidate.patchSha256(), repository.verificationPlan(),
                         repository.buildImage(), command, workload.name(), started, finished,
-                        observation.exitCode(), evidence == null ? 0 : evidence.reportCount() - evidence.failsafeReportCount(),
+                        observation.exitCode(),
+                        evidence == null ? 0 : evidence.reportCount() - evidence.failsafeReportCount(),
                         evidence == null ? null : evidence.testCount(),
                         evidence == null ? null : evidence.failureCount(),
                         evidence == null ? null : evidence.errorCount(), result,

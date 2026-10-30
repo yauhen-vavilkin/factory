@@ -35,6 +35,9 @@ import java.util.UUID;
 public class ReviewUiController {
 
     private static final String ARTIFACT_FIELD_PREFIX = "artifact:";
+    private static final int PAGE_SIZE = 50;
+    private static final List<String> STATUS_TABS =
+            List.of("PENDING", "APPROVED", "AMENDED", "REJECTED", "ALL");
 
     private final HitlReviewRepository reviews;
     private final HitlDecisionService decisionService;
@@ -46,10 +49,6 @@ public class ReviewUiController {
         this.decisionService = decisionService;
         this.jsonMapper = jsonMapper;
     }
-
-    private static final int PAGE_SIZE = 50;
-    private static final List<String> STATUS_TABS =
-            List.of("PENDING", "APPROVED", "AMENDED", "REJECTED", "ALL");
 
     @GetMapping("/reviews")
     public String reviews(@RequestParam(name = "status", defaultValue = "PENDING") String status,

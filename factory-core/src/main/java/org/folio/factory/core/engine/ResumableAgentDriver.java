@@ -41,7 +41,8 @@ public class ResumableAgentDriver {
                         transactions.check(execution.getId(), execution.getCurrentStepIndex(), version);
                         return null;
                     }), detail -> ownedLease.checked(version -> {
-                        transactions.progress(execution.getId(), execution.getCurrentStepIndex(), version, step.stepId(), detail);
+                        transactions.progress(execution.getId(), execution.getCurrentStepIndex(), version,
+                                step.stepId(), detail);
                         return null;
                     })));
             AgentResult result;

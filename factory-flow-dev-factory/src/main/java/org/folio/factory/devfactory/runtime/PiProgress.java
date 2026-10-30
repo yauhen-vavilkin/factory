@@ -97,7 +97,9 @@ final class PiProgress implements Consumer<String> {
                     StringBuilder summary = new StringBuilder();
                     for (String word : words) {
                         if (word.matches(
-                                "(?:\\./)?(?:mvnw?|gradlew?|npm|npx|pytest|go|cargo)|test|verify|compile|build|clean|package|check|run|--offline|-o|-q|-B|-D(?:test|it.test)=[A-Za-z0-9_.*,#-]+")) {
+                                "(?:\\./)?(?:mvnw?|gradlew?|npm|npx|pytest|go|cargo)|test|verify|compile|build|clean"
+                                        + "|package|check|run|--offline|-o|-q|-B"
+                                        + "|-D(?:test|it.test)=[A-Za-z0-9_.*,#-]+")) {
                             if (!summary.isEmpty()) summary.append(' ');
                             summary.append(word);
                         }

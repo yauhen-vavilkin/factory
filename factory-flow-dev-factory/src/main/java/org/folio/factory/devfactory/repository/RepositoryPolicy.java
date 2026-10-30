@@ -27,7 +27,8 @@ public class RepositoryPolicy {
                 .filter(e -> e.getValue().jiraProjects().contains(projectKey))
                 .filter(e -> e.getValue().jiraComponents().isEmpty()
                         || e.getValue().jiraComponents().stream().anyMatch(issueComponents::contains))
-                .sorted(Comparator.comparing((Map.Entry<String, Repository> e) -> e.getValue().jiraComponents().isEmpty())
+                .sorted(Comparator.comparing(
+                                (Map.Entry<String, Repository> e) -> e.getValue().jiraComponents().isEmpty())
                         .thenComparing(Map.Entry::getKey))
                 .map(Map.Entry::getKey)
                 .toList();

@@ -97,7 +97,8 @@ public class ResumableStepTransactions {
                 pkg.put("invocationId", invocation.toString());
                 pkg.put("artifacts", List.of());
                 state.transition(id, ExecutionStatus.AWAITING_HITL, Map.of("gateId", request.gate().gateId()));
-                var review = reviews.save(new HitlReview(id, request.gate().gateId(), index, json.writeValueAsString(pkg)));
+                var review = reviews.save(
+                        new HitlReview(id, request.gate().gateId(), index, json.writeValueAsString(pkg)));
                 audit.record(id, AuditEventType.HITL_REQUESTED, step.stepId(),
                         Map.of("gateId", request.gate().gateId(), "reviewId", review.getId().toString()));
             }

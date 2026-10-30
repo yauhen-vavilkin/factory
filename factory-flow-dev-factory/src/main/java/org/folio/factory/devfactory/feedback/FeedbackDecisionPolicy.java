@@ -10,10 +10,12 @@ public class FeedbackDecisionPolicy implements HitlDecisionPolicy {
     private record Authorization(UUID reviewId, HitlDecision decision) { }
     private final ThreadLocal<Authorization> authorized = new ThreadLocal<>();
     public FeedbackDecisionPolicy(FlowRegistry flows) { this.flows = flows; }
-    public void validate(HitlReview review, PipelineExecution execution, HitlDecision decision, Map<String,String> amendments) {
+    public void validate(HitlReview review, PipelineExecution execution, HitlDecision decision,
+            Map<String,String> amendments) {
         if (!execution.getFlowId().equals("dev-factory")) return;
         var flow = flows.require(execution.getFlowId());
-        if (!flow.hasStep(review.getStepIndex()) || !flow.step(review.getStepIndex()).stepId().equals(FeedbackArtifacts.STEP)) return;
+        if (!flow.hasStep(review.getStepIndex())
+                || !flow.step(review.getStepIndex()).stepId().equals(FeedbackArtifacts.STEP)) return;
         if (!new Authorization(review.getId(),decision).equals(authorized.get()) || !amendments.isEmpty())
             throw new IllegalArgumentException("Use the PR feedback actions on the execution page");
     }

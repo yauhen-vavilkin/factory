@@ -27,8 +27,6 @@ import java.util.UUID;
 @ConditionalOnProperty(prefix = "factory.retention", name = "enabled", havingValue = "true", matchIfMissing = false)
 public class RetentionService {
 
-    private static final Logger log = LoggerFactory.getLogger(RetentionService.class);
-
     /**
      * Statuses that are safe to purge. FAILED_ESCALATED is deliberately excluded:
      * although it is terminal, such a run has a pending escalation review and can
@@ -38,6 +36,8 @@ public class RetentionService {
             ExecutionStatus.COMPLETED.name(),
             ExecutionStatus.REJECTED.name(),
             ExecutionStatus.CANCELLED.name());
+
+    private static final Logger log = LoggerFactory.getLogger(RetentionService.class);
 
     private final RetentionRepository repository;
     private final RetentionPurger purger;

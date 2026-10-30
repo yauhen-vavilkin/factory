@@ -9,10 +9,17 @@ import java.util.Map;
 /** Adds incremental Pi message/compaction usage and emits cumulative attempt snapshots. */
 final class PiUsage {
 
-    private long input, cacheRead, cacheWrite, output;
-    private int ignoredOversizedFrames, largestIgnoredFrameChars;
+    private long input;
+    private long cacheRead;
+    private long cacheWrite;
+    private long output;
+    private int ignoredOversizedFrames;
+    private int largestIgnoredFrameChars;
     private BigDecimal cost;
-    private boolean inputPresent, cacheReadPresent, cacheWritePresent, outputPresent;
+    private boolean inputPresent;
+    private boolean cacheReadPresent;
+    private boolean cacheWritePresent;
+    private boolean outputPresent;
     private boolean incomplete;
 
     boolean record(JsonNode frame) {

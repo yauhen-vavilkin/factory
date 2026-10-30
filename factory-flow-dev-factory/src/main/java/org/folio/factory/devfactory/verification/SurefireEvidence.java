@@ -90,7 +90,8 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
                 failures = Math.addExact(failures, suiteFailures);
                 errors = Math.addExact(errors, suiteErrors);
             }
-            return new SurefireEvidence(reports, tests, failures, errors, failsafeReports, Map.copyOf(executedByReport));
+            return new SurefireEvidence(reports, tests, failures, errors, failsafeReports,
+                    Map.copyOf(executedByReport));
         } catch (IOException | UncheckedIOException | ArithmeticException e) {
             throw new IllegalStateException("Cannot inspect fresh Surefire evidence", e);
         }
@@ -113,7 +114,9 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
                 @Override public void error(org.xml.sax.SAXParseException e) throws SAXException { throw e; }
                 @Override public void fatalError(org.xml.sax.SAXParseException e) throws SAXException { throw e; }
             });
-            builder.setEntityResolver((publicId, systemId) -> { throw new SAXException("External entities forbidden"); });
+            builder.setEntityResolver((publicId, systemId) -> {
+                throw new SAXException("External entities forbidden");
+            });
             var root = builder.parse(new ByteArrayInputStream(xml)).getDocumentElement();
             if (!"testsuite".equals(root.getTagName()) || root.getElementsByTagName("testsuite").getLength() != 0) {
                 throw new IllegalStateException("Invalid Surefire report root");

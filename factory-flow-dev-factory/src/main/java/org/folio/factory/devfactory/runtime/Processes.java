@@ -51,7 +51,8 @@ public final class Processes {
             var stderr = new ByteArrayOutputStream();
             var total = new AtomicInteger();
             var overflow = new AtomicBoolean();
-            Thread stdoutReader = reader(process, process.getInputStream(), stdout, outputLimit, total, overflow, stdoutLine);
+            Thread stdoutReader = reader(process, process.getInputStream(), stdout, outputLimit, total, overflow,
+                    stdoutLine);
             Thread stderrReader = reader(process, process.getErrorStream(), stderr, outputLimit, total, overflow, null);
             if (!process.waitFor(seconds, TimeUnit.SECONDS)) {
                 process.destroyForcibly();

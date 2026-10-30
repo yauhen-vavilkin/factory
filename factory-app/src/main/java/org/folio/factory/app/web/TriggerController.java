@@ -16,6 +16,10 @@ import java.util.UUID;
 @RequestMapping("/api/triggers")
 public class TriggerController {
 
+    // Matches the dedup_key varchar(255) column; an unvalidated longer key would only
+    // surface as a DB constraint error deep in the router's dedup-race handling.
+    private static final int MAX_DEDUP_KEY_LENGTH = 255;
+
     private final PipelineRouter router;
 
     public TriggerController(PipelineRouter router) {
@@ -24,10 +28,6 @@ public class TriggerController {
 
     public record ManualTriggerRequest(String flowId, JsonNode payload, String dedupKey) {
     }
-
-    // Matches the dedup_key varchar(255) column; an unvalidated longer key would only
-    // surface as a DB constraint error deep in the router's dedup-race handling.
-    private static final int MAX_DEDUP_KEY_LENGTH = 255;
 
     @PostMapping("/manual")
     public ResponseEntity<Map<String, String>> manual(@RequestBody ManualTriggerRequest request) {

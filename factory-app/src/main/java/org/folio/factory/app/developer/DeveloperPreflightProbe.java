@@ -138,7 +138,8 @@ public class DeveloperPreflightProbe {
 
     private boolean command(List<String> argv) {
         try {
-            Processes.Result result = Processes.run(null, argv, COMMAND_TIMEOUT_SECONDS, Map.of(), COMMAND_OUTPUT_LIMIT);
+            Processes.Result result = Processes.run(null, argv, COMMAND_TIMEOUT_SECONDS, Map.of(),
+                    COMMAND_OUTPUT_LIMIT);
             return result.exitCode() == 0;
         } catch (IllegalStateException e) {
             return false;

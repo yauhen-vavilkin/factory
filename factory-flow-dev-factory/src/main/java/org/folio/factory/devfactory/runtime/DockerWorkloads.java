@@ -231,7 +231,8 @@ public class DockerWorkloads {
         }
         public void export(Path destination) {
             if (!stopped) throw new IllegalStateException("Stop workload before export");
-            Processes.run(null, List.of("docker", "cp", name + ":/workspace/.", destination.toString()), 120).requireSuccess();
+            Processes.run(null, List.of("docker", "cp", name + ":/workspace/.", destination.toString()), 120)
+                    .requireSuccess();
         }
         @Override public void close() {
             try {
