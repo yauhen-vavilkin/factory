@@ -11,7 +11,9 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 import org.w3c.dom.Element;
@@ -43,81 +45,47 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
     }
 
     static SurefireEvidence inspect(Path workspace, Instant verificationStarted) {
-        int reports = 0;
-        int tests = 0;
-        int failures = 0;
-        int errors = 0;
-        int failsafeReports = 0;
-        Map<String, Integer> executedByReport = new LinkedHashMap<>();
-        Instant oldestAccepted = verificationStarted.minusSeconds(2);
+        var oldestAccepted = verificationStarted.minusSeconds(2);
+        var totals = new Totals();
         try (var paths = Files.walk(workspace)) {
             for (Path report : paths.toList()) {
-                Path relative = workspace.relativize(report);
+                var relative = workspace.relativize(report);
                 if (!isSurefireReport(relative)) {
                     continue;
                 }
-                if (!Files.isRegularFile(report, LinkOption.NOFOLLOW_LINKS)) {
-                    throw new IllegalStateException("Unsafe Surefire report file");
-                }
-                if (Files.getLastModifiedTime(report, LinkOption.NOFOLLOW_LINKS).toInstant()
-                        .isBefore(oldestAccepted)) {
-                    continue;
-                }
-                if (Files.size(report) > MAX_REPORT_BYTES) {
-                    throw new IllegalStateException("Surefire report exceeds evidence limit");
-                }
-                byte[] xml;
-                try (var input = Files.newInputStream(report, LinkOption.NOFOLLOW_LINKS)) {
-                    xml = input.readNBytes(MAX_REPORT_BYTES + 1);
-                }
-                if (xml.length > MAX_REPORT_BYTES) {
-                    throw new IllegalStateException("Surefire report exceeds evidence limit");
-                }
-                Element suite = parse(xml);
-                int suiteTests = attribute(suite, "tests");
-                int suiteSkipped = attribute(suite, "skipped");
-                int suiteFailures = attribute(suite, "failures");
-                int suiteErrors = attribute(suite, "errors");
-                if ((long) suiteSkipped + suiteFailures + suiteErrors > suiteTests) {
-                    throw new IllegalStateException("Invalid Surefire counters");
-                }
-                reports++;
-                if (relative.getParent().getFileName().toString().equals("failsafe-reports")) {
-                    failsafeReports++;
-                }
-                executedByReport.put(relative.toString().replace('\\', '/'), suiteTests - suiteSkipped);
-                tests = Math.addExact(tests, suiteTests - suiteSkipped);
-                failures = Math.addExact(failures, suiteFailures);
-                errors = Math.addExact(errors, suiteErrors);
+                readFreshReport(report, oldestAccepted)
+                        .ifPresent(xml -> totals.add(relative, SuiteCounts.of(parse(xml))));
             }
-            return new SurefireEvidence(reports, tests, failures, errors, failsafeReports,
-                    Map.copyOf(executedByReport));
+            return totals.toEvidence();
         } catch (IOException | UncheckedIOException | ArithmeticException e) {
             throw new IllegalStateException("Cannot inspect fresh Surefire evidence", e);
         }
     }
 
+    /** The report bytes, or empty for a report written before this verification run. */
+    private static Optional<byte[]> readFreshReport(Path report, Instant oldestAccepted) throws IOException {
+        if (!Files.isRegularFile(report, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IllegalStateException("Unsafe Surefire report file");
+        }
+        if (Files.getLastModifiedTime(report, LinkOption.NOFOLLOW_LINKS).toInstant().isBefore(oldestAccepted)) {
+            return Optional.empty();
+        }
+        if (Files.size(report) > MAX_REPORT_BYTES) {
+            throw new IllegalStateException("Surefire report exceeds evidence limit");
+        }
+        byte[] xml;
+        try (var input = Files.newInputStream(report, LinkOption.NOFOLLOW_LINKS)) {
+            xml = input.readNBytes(MAX_REPORT_BYTES + 1);
+        }
+        if (xml.length > MAX_REPORT_BYTES) {
+            throw new IllegalStateException("Surefire report exceeds evidence limit");
+        }
+        return Optional.of(xml);
+    }
+
     private static Element parse(byte[] xml) {
         try {
-            var factory = DocumentBuilderFactory.newInstance();
-            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-            factory.setXIncludeAware(false);
-            factory.setExpandEntityReferences(false);
-            var builder = factory.newDocumentBuilder();
-            builder.setErrorHandler(new DefaultHandler() {
-                @Override public void error(org.xml.sax.SAXParseException e) throws SAXException { throw e; }
-                @Override public void fatalError(org.xml.sax.SAXParseException e) throws SAXException { throw e; }
-            });
-            builder.setEntityResolver((publicId, systemId) -> {
-                throw new SAXException("External entities forbidden");
-            });
-            var root = builder.parse(new ByteArrayInputStream(xml)).getDocumentElement();
+            var root = secureDocumentBuilder().parse(new ByteArrayInputStream(xml)).getDocumentElement();
             if (!"testsuite".equals(root.getTagName()) || root.getElementsByTagName("testsuite").getLength() != 0) {
                 throw new IllegalStateException("Invalid Surefire report root");
             }
@@ -125,6 +93,28 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
         } catch (ParserConfigurationException | SAXException | IOException e) {
             throw new IllegalStateException("Invalid or unsafe Surefire XML", e);
         }
+    }
+
+    private static DocumentBuilder secureDocumentBuilder() throws ParserConfigurationException {
+        var factory = DocumentBuilderFactory.newInstance();
+        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+        factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+        factory.setXIncludeAware(false);
+        factory.setExpandEntityReferences(false);
+        var builder = factory.newDocumentBuilder();
+        builder.setErrorHandler(new DefaultHandler() {
+            @Override public void error(org.xml.sax.SAXParseException e) throws SAXException { throw e; }
+            @Override public void fatalError(org.xml.sax.SAXParseException e) throws SAXException { throw e; }
+        });
+        builder.setEntityResolver((publicId, systemId) -> {
+            throw new SAXException("External entities forbidden");
+        });
+        return builder;
     }
 
     private static int attribute(Element suite, String name) {
@@ -147,5 +137,45 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
                     && i + 3 == relative.getNameCount()) return true;
         }
         return false;
+    }
+
+    private record SuiteCounts(int tests, int skipped, int failures, int errors) {
+        static SuiteCounts of(Element suite) {
+            var counts = new SuiteCounts(attribute(suite, "tests"), attribute(suite, "skipped"),
+                    attribute(suite, "failures"), attribute(suite, "errors"));
+            if ((long) counts.skipped() + counts.failures() + counts.errors() > counts.tests()) {
+                throw new IllegalStateException("Invalid Surefire counters");
+            }
+            return counts;
+        }
+
+        int executed() {
+            return tests - skipped;
+        }
+    }
+
+    private static final class Totals {
+        private final Map<String, Integer> executedByReport = new LinkedHashMap<>();
+        private int reports;
+        private int tests;
+        private int failures;
+        private int errors;
+        private int failsafeReports;
+
+        void add(Path relative, SuiteCounts suite) {
+            reports++;
+            if (relative.getParent().getFileName().toString().equals("failsafe-reports")) {
+                failsafeReports++;
+            }
+            executedByReport.put(relative.toString().replace('\\', '/'), suite.executed());
+            tests = Math.addExact(tests, suite.executed());
+            failures = Math.addExact(failures, suite.failures());
+            errors = Math.addExact(errors, suite.errors());
+        }
+
+        SurefireEvidence toEvidence() {
+            return new SurefireEvidence(reports, tests, failures, errors, failsafeReports,
+                    Map.copyOf(executedByReport));
+        }
     }
 }
