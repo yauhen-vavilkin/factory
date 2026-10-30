@@ -50,38 +50,7 @@ public class FlowDescriptorParser {
         }
         Set<String> stepIds = new HashSet<>();
         for (StepDescriptor step : descriptor.agentChain()) {
-            requireText(step.stepId(), sourceName, "step_id");
-            if (!stepIds.add(step.stepId())) {
-                throw new FlowValidationException(sourceName + ": duplicate step_id '" + step.stepId() + "'");
-            }
-            if (step.type() == null) {
-                throw new FlowValidationException(sourceName + ": step '" + step.stepId() + "' has no type");
-            }
-            switch (step.type()) {
-                case AGENT -> {
-                    if (isBlank(step.workerId())) {
-                        throw new FlowValidationException(
-                                sourceName + ": AGENT step '" + step.stepId() + "' must declare worker_id");
-                    }
-                }
-                case HITL_GATE -> {
-                    if (step.gate() == null || isBlank(step.gate().gateId())) {
-                        throw new FlowValidationException(
-                                sourceName + ": HITL_GATE step '" + step.stepId() + "' must declare gate.gate_id");
-                    }
-                    if (HitlGateOpener.ESCALATION_GATE_ID.equals(step.gate().gateId())) {
-                        throw new FlowValidationException(sourceName + ": gate id '"
-                                + HitlGateOpener.ESCALATION_GATE_ID
-                                + "' is reserved for retry-budget escalations");
-                    }
-                }
-                case SUB_FLOW -> {
-                    if (step.subFlow() == null || isBlank(step.subFlow().flowId())) {
-                        throw new FlowValidationException(
-                                sourceName + ": SUB_FLOW step '" + step.stepId() + "' must declare sub_flow.flow_id");
-                    }
-                }
-            }
+            validateStep(step, stepIds, sourceName);
         }
         for (var trigger : descriptor.triggers()) {
             if (isBlank(trigger.eventType())) {
@@ -90,6 +59,43 @@ public class FlowDescriptorParser {
         }
         if (descriptor.agentChain().stream().noneMatch(s -> s.type() == StepType.AGENT)) {
             throw new FlowValidationException(sourceName + ": flow must contain at least one AGENT step");
+        }
+    }
+
+    private void validateStep(StepDescriptor step, Set<String> stepIds, String sourceName) {
+        requireText(step.stepId(), sourceName, "step_id");
+        if (!stepIds.add(step.stepId())) {
+            throw new FlowValidationException(sourceName + ": duplicate step_id '" + step.stepId() + "'");
+        }
+        if (step.type() == null) {
+            throw new FlowValidationException(sourceName + ": step '" + step.stepId() + "' has no type");
+        }
+        switch (step.type()) {
+            case AGENT -> {
+                if (isBlank(step.workerId())) {
+                    throw new FlowValidationException(
+                            sourceName + ": AGENT step '" + step.stepId() + "' must declare worker_id");
+                }
+            }
+            case HITL_GATE -> validateGate(step, sourceName);
+            case SUB_FLOW -> {
+                if (step.subFlow() == null || isBlank(step.subFlow().flowId())) {
+                    throw new FlowValidationException(
+                            sourceName + ": SUB_FLOW step '" + step.stepId() + "' must declare sub_flow.flow_id");
+                }
+            }
+        }
+    }
+
+    private void validateGate(StepDescriptor step, String sourceName) {
+        if (step.gate() == null || isBlank(step.gate().gateId())) {
+            throw new FlowValidationException(
+                    sourceName + ": HITL_GATE step '" + step.stepId() + "' must declare gate.gate_id");
+        }
+        if (HitlGateOpener.ESCALATION_GATE_ID.equals(step.gate().gateId())) {
+            throw new FlowValidationException(sourceName + ": gate id '"
+                    + HitlGateOpener.ESCALATION_GATE_ID
+                    + "' is reserved for retry-budget escalations");
         }
     }
 
