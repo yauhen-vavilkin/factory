@@ -50,58 +50,70 @@ public class HitlDecisionService {
     @Transactional
     public HitlReview decide(UUID reviewId, HitlDecision decision, String reviewer,
                              String comments, Map<String, String> amendedArtifacts) {
-        HitlReview review = reviews.findById(reviewId)
-                .orElseThrow(() -> new NoSuchElementException("No HITL review " + reviewId));
-        if (review.getStatus() != HitlReviewStatus.PENDING) {
-            throw new IllegalStateException("Review " + reviewId + " has already been decided ("
-                    + review.getStatus() + ")");
-        }
+        var review = requirePendingReview(reviewId);
         if (reviewer == null || reviewer.isBlank()) {
             throw new IllegalArgumentException("reviewer is required");
         }
         boolean escalation = HitlGateOpener.ESCALATION_GATE_ID.equals(review.getGateId());
-        PipelineExecution execution = stateManager.get(review.getExecutionId());
+        var execution = stateManager.get(review.getExecutionId());
         requireExecutionStillAtReview(review, execution, escalation);
-
-        for (var policy : policies) policy.validate(review, execution, decision,
-                amendedArtifacts == null ? Map.of() : amendedArtifacts);
-
+        for (var policy : policies) {
+            policy.validate(review, execution, decision, amendedArtifacts == null ? Map.of() : amendedArtifacts);
+        }
+        var pending = new Pending(review, execution, escalation);
         switch (decision) {
-            case APPROVE -> {
-                review.decide(HitlReviewStatus.APPROVED, decision.name(), reviewer, comments, null);
-                resume(review, execution, escalation);
-            }
-            case AMEND -> {
-                Map<String, String> amendments = changedAmendments(review, amendedArtifacts);
-                if (amendments.isEmpty()) {
-                    throw new IllegalArgumentException(
-                            "AMEND decision requires amendedArtifacts with changed content");
-                }
-                for (Map.Entry<String, String> amendment : amendments.entrySet()) {
-                    for (ArtifactAmendmentValidator validator : amendmentValidators) {
-                        validator.validate(amendment.getKey(), amendment.getValue());
-                    }
-                    artifactStore.putMarkdown(review.getExecutionId(), amendment.getKey(),
-                            amendment.getValue(), "hitl:" + reviewer);
-                }
-                review.decide(HitlReviewStatus.AMENDED, decision.name(), reviewer, comments,
-                        jsonMapper.writeValueAsString(amendments.keySet()));
-                resume(review, execution, escalation);
-            }
-            case REJECT -> {
-                review.decide(HitlReviewStatus.REJECTED, decision.name(), reviewer, comments, null);
-                boolean cancel = escalation
-                        || policies.stream().anyMatch(policy -> policy.cancelOnReject(review, execution));
-                stateManager.transition(review.getExecutionId(),
-                        cancel ? ExecutionStatus.CANCELLED : ExecutionStatus.REJECTED,
-                        Map.of("gateId", review.getGateId(), "reviewer", reviewer));
-            }
+            case APPROVE -> approve(pending, reviewer, comments);
+            case AMEND -> amend(pending, reviewer, comments, amendedArtifacts);
+            case REJECT -> reject(pending, reviewer, comments);
         }
         reviews.save(review);
         auditLog.record(review.getExecutionId(), AuditEventType.HITL_DECIDED, null, reviewer,
                 Map.of("reviewId", reviewId.toString(), "gateId", review.getGateId(),
                         "decision", decision.name()));
         return review;
+    }
+
+    private HitlReview requirePendingReview(UUID reviewId) {
+        var review = reviews.findById(reviewId)
+                .orElseThrow(() -> new NoSuchElementException("No HITL review " + reviewId));
+        if (review.getStatus() != HitlReviewStatus.PENDING) {
+            throw new IllegalStateException("Review " + reviewId + " has already been decided ("
+                    + review.getStatus() + ")");
+        }
+        return review;
+    }
+
+    private void approve(Pending pending, String reviewer, String comments) {
+        pending.review().decide(HitlReviewStatus.APPROVED, HitlDecision.APPROVE.name(), reviewer, comments, null);
+        resume(pending.review(), pending.execution(), pending.escalation());
+    }
+
+    private void amend(Pending pending, String reviewer, String comments, Map<String, String> amendedArtifacts) {
+        var review = pending.review();
+        var amendments = changedAmendments(review, amendedArtifacts);
+        if (amendments.isEmpty()) {
+            throw new IllegalArgumentException("AMEND decision requires amendedArtifacts with changed content");
+        }
+        for (var amendment : amendments.entrySet()) {
+            for (var validator : amendmentValidators) {
+                validator.validate(amendment.getKey(), amendment.getValue());
+            }
+            artifactStore.putMarkdown(review.getExecutionId(), amendment.getKey(),
+                    amendment.getValue(), "hitl:" + reviewer);
+        }
+        review.decide(HitlReviewStatus.AMENDED, HitlDecision.AMEND.name(), reviewer, comments,
+                jsonMapper.writeValueAsString(amendments.keySet()));
+        resume(review, pending.execution(), pending.escalation());
+    }
+
+    private void reject(Pending pending, String reviewer, String comments) {
+        var review = pending.review();
+        review.decide(HitlReviewStatus.REJECTED, HitlDecision.REJECT.name(), reviewer, comments, null);
+        boolean cancel = pending.escalation()
+                || policies.stream().anyMatch(policy -> policy.cancelOnReject(review, pending.execution()));
+        stateManager.transition(review.getExecutionId(),
+                cancel ? ExecutionStatus.CANCELLED : ExecutionStatus.REJECTED,
+                Map.of("gateId", review.getGateId(), "reviewer", reviewer));
     }
 
     /**
@@ -184,5 +196,8 @@ public class HitlDecisionService {
                     + " moved while the decision was being applied; please re-review");
         }
         stateManager.scheduleRetry(executionId, 0, null);
+    }
+
+    private record Pending(HitlReview review, PipelineExecution execution, boolean escalation) {
     }
 }
