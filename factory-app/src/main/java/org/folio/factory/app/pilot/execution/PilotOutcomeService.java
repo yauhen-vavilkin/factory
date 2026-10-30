@@ -40,6 +40,12 @@ import java.util.UUID;
 @ConditionalOnProperty(prefix = "factory.pilot.execution", name = "enabled", havingValue = "true")
 public class PilotOutcomeService {
 
+    /** The reason prefix of an attempt the developer marked as stopped. */
+    public static final String MARKED_STOPPED = "Marked as stopped by the operator";
+
+    /** Part of the reason when the stopped run may already have opened a pull request. */
+    public static final String PULL_REQUEST_MAY_EXIST = "a pull request may already exist";
+
     private final PilotAttemptRepository attempts;
     private final PilotInstallationRepository installations;
     private final PilotPublicationIntentRepository intents;
@@ -67,12 +73,6 @@ public class PilotOutcomeService {
         this.flows = flows;
         this.transactions = new TransactionTemplate(transactionManager);
     }
-
-    /** The reason prefix of an attempt the developer marked as stopped. */
-    public static final String MARKED_STOPPED = "Marked as stopped by the operator";
-
-    /** Part of the reason when the stopped run may already have opened a pull request. */
-    public static final String PULL_REQUEST_MAY_EXIST = "a pull request may already exist";
 
     public record AttemptOutcome(State state, String stage, String reason, String publicationIdentity,
                                  boolean workloadInactive, String uncertainty) {

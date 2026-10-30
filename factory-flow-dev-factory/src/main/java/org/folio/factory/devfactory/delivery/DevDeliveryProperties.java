@@ -23,6 +23,16 @@ public record DevDeliveryProperties(Map<String, DeliveryTarget> targets, boolean
         return target;
     }
 
+    public DeliveryTarget requireTarget(String repositoryKey, DevFactoryProperties repositories) {
+        DeliveryTarget target = target(repositoryKey, repositories);
+        if (target == null) {
+            throw new DeliveryBlockedException(
+                    "Missing delivery configuration for repository '" + repositoryKey + "'");
+        }
+        target.requireValid();
+        return target;
+    }
+
     /** Legacy targets override catalog fields, inheriting missing repository/base values. */
     public Map<String, DeliveryTarget> effectiveTargets(DevFactoryProperties repositories) {
         Map<String, DeliveryTarget> effectiveTargets = new LinkedHashMap<>();
@@ -43,16 +53,6 @@ public record DevDeliveryProperties(Map<String, DeliveryTarget> targets, boolean
 
     public DeliveryTarget target(String repositoryKey, DevFactoryProperties repositories) {
         return effectiveTargets(repositories).get(repositoryKey);
-    }
-
-    public DeliveryTarget requireTarget(String repositoryKey, DevFactoryProperties repositories) {
-        DeliveryTarget target = target(repositoryKey, repositories);
-        if (target == null) {
-            throw new DeliveryBlockedException(
-                    "Missing delivery configuration for repository '" + repositoryKey + "'");
-        }
-        target.requireValid();
-        return target;
     }
 
     private static DeliveryTarget legacyOverride(DeliveryTarget catalog, DeliveryTarget legacy) {

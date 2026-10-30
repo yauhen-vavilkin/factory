@@ -188,7 +188,9 @@ final class DeveloperRuntimeActivity {
     private static String toolEndText(JsonNode detail, BashActivity bashActivity) {
         boolean failed = detail.path("error").asBoolean(false);
         String text = toolEndSubject(detail, bashActivity) + (failed ? " failed" : " completed");
-        if (detail.path("durationMs").isIntegralNumber()) text += " in " + milliseconds(detail.path("durationMs").asLong());
+        if (detail.path("durationMs").isIntegralNumber()) {
+            text += " in " + milliseconds(detail.path("durationMs").asLong());
+        }
         String errorText = detail.path("errorText").asString("").strip();
         return failed && !errorText.isBlank() ? text + " · " + errorText : text;
     }

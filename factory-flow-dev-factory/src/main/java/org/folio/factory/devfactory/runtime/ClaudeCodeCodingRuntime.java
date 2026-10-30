@@ -90,7 +90,8 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
             temporary = CandidateFreezer.temporary("factory-dev-claude-");
             String prompt = CodingProtocol.prompt(request);
             Files.writeString(temporary.resolve("environment"), environment(run.profile()));
-            Files.setPosixFilePermissions(temporary.resolve("environment"), PosixFilePermissions.fromString("rw-------"));
+            Files.setPosixFilePermissions(
+                    temporary.resolve("environment"), PosixFilePermissions.fromString("rw-------"));
             Files.writeString(temporary.resolve("task.txt"), prompt);
             workload.execute(List.of("mkdir", "-p", INPUT), 30).requireSuccess();
             workload.copy(temporary.resolve(".").toString(), INPUT);

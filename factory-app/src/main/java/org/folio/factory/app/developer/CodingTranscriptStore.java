@@ -29,9 +29,9 @@ import java.util.UUID;
  */
 @Component
 public class CodingTranscriptStore implements CodingTranscripts {
-    private static final Logger log = LoggerFactory.getLogger(CodingTranscriptStore.class);
     static final int BATCH_SIZE = 20;
     static final Duration BATCH_AGE = Duration.ofSeconds(2);
+    private static final Logger log = LoggerFactory.getLogger(CodingTranscriptStore.class);
 
     private final JdbcClient jdbc;
     private final TransactionTemplate transactions;

@@ -22,6 +22,9 @@ import java.util.Map;
  */
 final class UiFormat {
 
+    /** Longest message carried in a redirect; a remote error body could otherwise overflow the headers. */
+    static final int MAX_REDIRECT_MESSAGE = 300;
+
     private static final DateTimeFormatter TIMESTAMP =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC);
     private static final DateTimeFormatter CLOCK =
@@ -84,9 +87,6 @@ final class UiFormat {
     static String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
-
-    /** Longest message carried in a redirect; a remote error body could otherwise overflow the headers. */
-    static final int MAX_REDIRECT_MESSAGE = 300;
 
     static String errorRedirect(String path, String message) {
         String text = message == null ? "Request failed" : message.strip();

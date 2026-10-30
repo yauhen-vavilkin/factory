@@ -67,11 +67,13 @@ public class IntakeResolveWorker implements AgentWorker {
         if (!IntakeWorker.MAPPED.equals(state)) {
             return brief(intake, state, intake.path("reason").asString(""), null, null, null, null);
         }
-        Request request = DecisionArtifacts.parseRequest(codec, context.requireInput(DecisionArtifacts.REQUEST).content());
+        Request request =
+                DecisionArtifacts.parseRequest(codec, context.requireInput(DecisionArtifacts.REQUEST).content());
         Optional<PilotExecutionContext> pilot = pilotPolicy.find(context.executionId());
         if (request.required() && pilot.isPresent()) {
             pilotPolicy.recordStop(context.executionId(), context.stepId(),
-                    "repository selection requires a human choice; the approved admission must resolve to one repository");
+                    "repository selection requires a human choice; the approved admission must resolve to"
+                            + " one repository");
             return brief(intake, "BLOCKED", "REPOSITORY_SELECTION_REQUIRES_HUMAN", Map.of(), null, null, null);
         }
         String choice;

@@ -13,6 +13,12 @@ import java.util.concurrent.TimeUnit;
 /** Bounded subprocess transport with an explicit environment allowlist. */
 public final class Processes {
     public static final int OUTPUT_LIMIT = 2 * 1024 * 1024;
+    public static final int STREAM_LINE_LIMIT = 8 * 1024 * 1024;
+    public static final int STDERR_TAIL = 64 * 1024;
+
+    /** How long the line reader may still work after the command ended, for example on slow best-effort writes. */
+    static final java.time.Duration READER_DRAIN = java.time.Duration.ofMinutes(2);
+
     private Processes() { }
     public record Result(int exitCode, String output, String error) {
         public Result(int exitCode, String output) {
@@ -84,12 +90,6 @@ public final class Processes {
         }
     }
 
-    /** How long the line reader may still work after the command ended, for example on slow best-effort writes. */
-    static final java.time.Duration READER_DRAIN = java.time.Duration.ofMinutes(2);
-
-    public static final int STREAM_LINE_LIMIT = 8 * 1024 * 1024;
-    public static final int STDERR_TAIL = 64 * 1024;
-
     /**
      * Gives each stdout line to {@code stdoutLine} as it arrives and keeps no stdout in memory. There is
      * no total output limit. A single line over {@link #STREAM_LINE_LIMIT} bytes stops the command, and so
@@ -132,7 +132,9 @@ public final class Processes {
             }
             stdoutReader.join(READER_DRAIN);
             stderrReader.join(5000);
-            if (readerFailure.get() != null) throw new IllegalStateException("Output reader failed", readerFailure.get());
+            if (readerFailure.get() != null) {
+                throw new IllegalStateException("Output reader failed", readerFailure.get());
+            }
             return new Streamed(process.isAlive() ? -1 : process.exitValue(), timedOut, lineTooLarge.get(),
                     stderr.text(), stdoutReader.isAlive());
         } catch (InterruptedException e) {

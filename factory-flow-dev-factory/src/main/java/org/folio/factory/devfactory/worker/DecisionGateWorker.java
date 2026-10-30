@@ -56,7 +56,8 @@ public class DecisionGateWorker implements AgentWorker {
         boolean pilot = pilotPolicy.find(context.executionId()).isPresent();
         if (required && pilot) {
             pilotPolicy.recordStop(context.executionId(), context.stepId(),
-                    "repository selection requires a human choice; a pilot attempt stops instead of waiting for review");
+                    "repository selection requires a human choice; a pilot attempt stops instead of waiting"
+                            + " for review");
         }
         boolean opened = required && !pilot && gate.open(context, GATE);
         return new AgentResult(Map.of(), Map.of("decisionRequired", required, "reviewOpened", opened));

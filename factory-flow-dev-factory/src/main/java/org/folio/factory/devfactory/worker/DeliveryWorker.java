@@ -294,6 +294,24 @@ public class DeliveryWorker implements AgentWorker {
         return blocked(previous, candidate, reason, null);
     }
 
+    private AgentResult blocked(
+            JsonNode previous, Candidate candidate, String reason, DeliveryReceipt receipt) {
+        Map<String, Object> result = identity("DELIVERY_BLOCKED", candidate);
+        result.put("reason", reason);
+        result.put("verificationPlan", previous.path("verificationPlan").asString(""));
+        if (receipt != null) {
+            deliveredIdentity(result, receipt);
+            result.put("pullRequestState", "BLOCKED");
+        }
+        return new AgentResult(
+                Map.of(
+                        DELIVERY,
+                        json.writeValueAsString(result),
+                        VerifyWorker.RESULT,
+                        json.writeValueAsString(result)),
+                Map.of());
+    }
+
     /** A stopped, expired or no-longer-owned pilot attempt must not publish. */
     private String pilotStop(AgentContext context) {
         if (pilotPolicy.find(context.executionId()).isEmpty()) {
@@ -321,24 +339,6 @@ public class DeliveryWorker implements AgentWorker {
                 .map(budget -> budget.capSeconds(Clock.systemUTC(),
                         PublicationGit.DEFAULT_TIMEOUT_SECONDS))
                 .orElse(PublicationGit.DEFAULT_TIMEOUT_SECONDS);
-    }
-
-    private AgentResult blocked(
-            JsonNode previous, Candidate candidate, String reason, DeliveryReceipt receipt) {
-        Map<String, Object> result = identity("DELIVERY_BLOCKED", candidate);
-        result.put("reason", reason);
-        result.put("verificationPlan", previous.path("verificationPlan").asString(""));
-        if (receipt != null) {
-            deliveredIdentity(result, receipt);
-            result.put("pullRequestState", "BLOCKED");
-        }
-        return new AgentResult(
-                Map.of(
-                        DELIVERY,
-                        json.writeValueAsString(result),
-                        VerifyWorker.RESULT,
-                        json.writeValueAsString(result)),
-                Map.of());
     }
 
     private static void deliveredIdentity(Map<String, Object> result, DeliveryReceipt receipt) {

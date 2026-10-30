@@ -300,7 +300,8 @@ public class PilotTaskUiController {
         String back = "flow".equals(returnTo) ? FLOW_PAGE : "/tasks/" + taskId;
         PilotOutcomeService outcomeService = outcomes.getIfAvailable();
         if (outcomeService == null) {
-            return UiFormat.errorRedirect(back, "Pilot execution is disabled; set FACTORY_PILOT_EXECUTION_ENABLED=true.");
+            return UiFormat.errorRedirect(
+                    back, "Pilot execution is disabled; set FACTORY_PILOT_EXECUTION_ENABLED=true.");
         }
         String refusal;
         try {
@@ -465,7 +466,8 @@ public class PilotTaskUiController {
         row.put("key", view.displayKey());
         row.put("jiraUrl", view.jiraUrl());
         row.put("title", view.title());
-        row.put("repository", view.destinationRepository() == null ? null : repositoryName(view.destinationRepository()));
+        row.put("repository",
+                view.destinationRepository() == null ? null : repositoryName(view.destinationRepository()));
         row.put("version", view.version());
         row.put("inputFingerprint", view.inputFingerprint());
         row.put("destinationFingerprint", view.destinationFingerprint());
@@ -532,7 +534,8 @@ public class PilotTaskUiController {
         row.put("result", resultSentence(view, label));
         row.put("chips", resultChips(view));
         row.put("retryAllowed", view.allowedActions().retry());
-        row.put("lastRunUrl", latest == null || latest.executionId() == null ? null : "/executions/" + latest.executionId());
+        row.put("lastRunUrl",
+                latest == null || latest.executionId() == null ? null : "/executions/" + latest.executionId());
         row.put("prUrl", view.pullRequestUrl());
         row.put("prLabel", view.pullRequestUrl() == null ? null : pullRequestLabel(view.pullRequestUrl()));
         row.put("prAction", view.pullRequestUrl() == null ? null

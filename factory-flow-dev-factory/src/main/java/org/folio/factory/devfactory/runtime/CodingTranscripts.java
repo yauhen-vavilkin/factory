@@ -10,6 +10,9 @@ import java.util.UUID;
  */
 public interface CodingTranscripts {
 
+    Sink NONE = entry -> {
+    };
+
     /** One coding run of an execution: the initial run, a continuation, or a PR feedback round. */
     Sink open(UUID executionId, UUID runId, String stepId);
 
@@ -25,9 +28,6 @@ public interface CodingTranscripts {
 
     record Entry(String kind, Instant at, Map<String, Object> detail) {
     }
-
-    Sink NONE = entry -> {
-    };
 
     static CodingTranscripts none() {
         return (executionId, runId, stepId) -> NONE;

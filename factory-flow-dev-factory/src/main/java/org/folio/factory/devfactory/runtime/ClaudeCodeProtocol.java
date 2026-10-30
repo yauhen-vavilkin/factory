@@ -22,9 +22,9 @@ import java.util.function.UnaryOperator;
  * activity and the transcript; only a single terminal result can complete an attempt.
  */
 final class ClaudeCodeProtocol implements Consumer<String> {
-    private static final Logger log = LoggerFactory.getLogger(ClaudeCodeProtocol.class);
     static final int TOOL_RESULT_LIMIT = 8 * 1024;
     static final int TRANSCRIPT_LIMIT = 5 * 1024 * 1024;
+    private static final Logger log = LoggerFactory.getLogger(ClaudeCodeProtocol.class);
     private static final int MAX_TOOL_NAME_LENGTH = 80;
     private static final int SUMMARY_LIMIT = 240;
     private static final int REASON_DETAIL_LIMIT = 300;
@@ -460,7 +460,9 @@ final class ClaudeCodeProtocol implements Consumer<String> {
     private List<String> errorsOrResult(JsonNode result) {
         var texts = new ArrayList<String>();
         result.path("errors").forEach(error -> texts.add(error.isString() ? error.asString() : error.toString()));
-        if (texts.isEmpty() && !result.path("result").asString("").isBlank()) texts.add(result.path("result").asString());
+        if (texts.isEmpty() && !result.path("result").asString("").isBlank()) {
+            texts.add(result.path("result").asString());
+        }
         return texts;
     }
 

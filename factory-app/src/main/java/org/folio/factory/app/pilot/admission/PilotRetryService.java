@@ -82,7 +82,8 @@ public class PilotRetryService {
             return stored;
         }
         PilotTask current = tasks.findById(command.taskId()).orElse(null);
-        String pushProblem = current == null ? null : admission.pushProblem(current.getRoutingReason(), new HashMap<>());
+        String pushProblem =
+                current == null ? null : admission.pushProblem(current.getRoutingReason(), new HashMap<>());
         if (pushProblem != null) {
             return rejection(command.taskId(), pushProblem);
         }
@@ -153,7 +154,8 @@ public class PilotRetryService {
 
     private String retryProblem(PilotTask task, PilotCommands.Retry command) {
         if (task.getVersion() != command.expectedVersion()
-                || !PilotAdmissionService.matches(command.inputFingerprint(), PilotAdmissionService.inputFingerprint(task))
+                || !PilotAdmissionService.matches(command.inputFingerprint(),
+                        PilotAdmissionService.inputFingerprint(task))
                 || !PilotAdmissionService.matches(command.destinationFingerprint(),
                         PilotAdmissionService.destinationFingerprint(task))) {
             return "task changed since the retry was requested; review the current result and retry again";

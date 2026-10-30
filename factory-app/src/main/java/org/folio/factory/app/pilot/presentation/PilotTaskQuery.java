@@ -77,7 +77,8 @@ public class PilotTaskQuery {
     @Transactional(readOnly = true)
     public MyTasks myTasks(Pageable triggeredPage) {
         Map<UUID, Integer> queue = queuePositions();
-        List<PilotTaskView> available = tasks.findAvailable(jiraInstance.current(), PilotAttempt.State.WITHDRAWN).stream()
+        List<PilotTaskView> available = tasks.findAvailable(jiraInstance.current(), PilotAttempt.State.WITHDRAWN)
+                .stream()
                 .map(task -> project(task, queue))
                 .toList();
         Page<UUID> triggeredIds = attempts.findTriggeredTaskIds(PilotAttempt.State.WITHDRAWN, triggeredPage);

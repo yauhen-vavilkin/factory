@@ -215,7 +215,8 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
             coding.requireConfigured(LAUNCHING.get());
             endpoint();
             return new Check("runtime", Status.PASS, usesClaudeCode()
-                    ? "Run profile " + runProfile().id() + " is configured." : "Selected coding profile is configured.");
+                    ? "Run profile " + runProfile().id() + " is configured."
+                    : "Selected coding profile is configured.");
         } catch (RunProfiles.ProfileException e) {
             // Written to be shown; a run that cannot use its own profile stops alone instead of the whole queue.
             return new Check("profile", Status.FAIL, coding.redact(e.getMessage()));
@@ -532,7 +533,8 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
             boolean effortsValid = RunProfiles.EFFORTS.containsAll(profile.efforts())
                     && (profile.defaultEffort() == null || profile.efforts().contains(profile.defaultEffort()));
             checks.add(new Check("efforts", effortsValid ? Status.PASS : Status.FAIL, effortsValid
-                    ? String.join(", ", profile.efforts()) + "; default " + RunProfiles.effortLabel(profile.defaultEffort())
+                    ? String.join(", ", profile.efforts()) + "; default "
+                            + RunProfiles.effortLabel(profile.defaultEffort())
                     : "The default effort is not in the effort list."));
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("id", profile.id());

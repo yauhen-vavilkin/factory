@@ -42,7 +42,9 @@ public class CandidateVerifier {
     public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate,
                                       Optional<AttemptDeadline> deadline) {
         var repository = repositories.repositories().get(candidate.repository());
-        if (repository == null) throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
+        if (repository == null) {
+            throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
+        }
         return verify(executionId, stepId, candidate,
                 repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git", deadline);
     }
