@@ -12,6 +12,7 @@ import java.math.RoundingMode;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /** Step metrics for technical rows and totals from flows without attempt-level accounting. */
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
@@ -54,51 +55,52 @@ final class StepUsageSummary {
         Map<String, ReportedUsage> completed = new LinkedHashMap<>();
         Map<String, ReportedUsage> progress = new LinkedHashMap<>();
         Map<String, String> runtimeModels = new LinkedHashMap<>();
-        for (AuditEvent event : events) {
+        for (var event : events) {
             if (event.getStepId() == null) continue;
-            JsonNode detail =
-                    jsonMapper.readTree(event.getDetail() == null ? "{}" : event.getDetail());
-            boolean completedEvent = event.getEventType() == AuditEventType.STEP_COMPLETED;
-            String activity = detail.path("activity").asString("");
-            if (includeCodingProgress
-                    && event.getEventType() == AuditEventType.RUNTIME_PROGRESS
-                    && ("pi_starting".equals(activity) || "coding_starting".equals(activity))) {
-                runtimeModels.put(event.getStepId(), text(detail, "model"));
-                continue;
+            var stepId = event.getStepId();
+            var detail = jsonMapper.readTree(event.getDetail() == null ? "{}" : event.getDetail());
+            switch (usageEvent(event, detail, includeCodingProgress)) {
+                case RUNTIME_STARTING -> runtimeModels.put(stepId, text(detail, "model"));
+                case CODING_USAGE -> reportedUsage(detail, runtimeModels.get(stepId))
+                        .ifPresent(usage -> progress.put(stepId, usage));
+                case STEP_COMPLETED -> reportedUsage(detail, null)
+                        .ifPresent(usage -> completed.put(stepId, usage));
+                case OTHER -> { }
             }
-            boolean codingProgress =
-                    includeCodingProgress
-                            && event.getEventType() == AuditEventType.RUNTIME_PROGRESS
-                            && ("pi_usage".equals(activity) || "coding_usage".equals(activity));
-            if (!completedEvent && !codingProgress) continue;
-            Long prompt = token(detail, "promptTokens");
-            Long completion = token(detail, "completionTokens");
-            Long input = token(detail, "inputTokens");
-            Long cacheRead = token(detail, "cacheReadTokens");
-            Long cacheWrite = token(detail, "cacheWriteTokens");
-            Long output = token(detail, "outputTokens");
-            if (prompt == null
-                    && completion == null
-                    && input == null
-                    && cacheRead == null
-                    && cacheWrite == null
-                    && output == null) continue;
-            String model = text(detail, "model");
-            if (model == null && codingProgress) model = runtimeModels.get(event.getStepId());
-            var usage =
-                    new ReportedUsage(
-                            prompt,
-                            completion,
-                            input,
-                            cacheRead,
-                            cacheWrite,
-                            output,
-                            model,
-                            detail.path("usageIncomplete").asBoolean(false));
-            (codingProgress ? progress : completed).put(event.getStepId(), usage);
         }
         progress.forEach(completed::putIfAbsent);
         return new StepUsageSummary(completed);
+    }
+
+    private static UsageEvent usageEvent(AuditEvent event, JsonNode detail, boolean includeCodingProgress) {
+        if (event.getEventType() == AuditEventType.STEP_COMPLETED) {
+            return UsageEvent.STEP_COMPLETED;
+        }
+        if (!includeCodingProgress || event.getEventType() != AuditEventType.RUNTIME_PROGRESS) {
+            return UsageEvent.OTHER;
+        }
+        return switch (detail.path("activity").asString("")) {
+            case "pi_starting", "coding_starting" -> UsageEvent.RUNTIME_STARTING;
+            case "pi_usage", "coding_usage" -> UsageEvent.CODING_USAGE;
+            default -> UsageEvent.OTHER;
+        };
+    }
+
+    /** Empty when the event reports no token counts at all. */
+    private static Optional<ReportedUsage> reportedUsage(JsonNode detail, String runtimeModel) {
+        var prompt = token(detail, "promptTokens");
+        var completion = token(detail, "completionTokens");
+        var input = token(detail, "inputTokens");
+        var cacheRead = token(detail, "cacheReadTokens");
+        var cacheWrite = token(detail, "cacheWriteTokens");
+        var output = token(detail, "outputTokens");
+        if (prompt == null && completion == null && input == null
+                && cacheRead == null && cacheWrite == null && output == null) {
+            return Optional.empty();
+        }
+        var model = text(detail, "model");
+        return Optional.of(new ReportedUsage(prompt, completion, input, cacheRead, cacheWrite, output,
+                model == null ? runtimeModel : model, detail.path("usageIncomplete").asBoolean(false)));
     }
 
     private static Long token(JsonNode detail, String key) {
@@ -166,6 +168,8 @@ final class StepUsageSummary {
                         .toPlainString()
                 + suffix;
     }
+
+    private enum UsageEvent { RUNTIME_STARTING, CODING_USAGE, STEP_COMPLETED, OTHER }
 
     private record ReportedUsage(
             Long prompt,
