@@ -86,36 +86,9 @@ public class TestExecutionWorker implements AgentWorker {
         Path workDir = null;
         try {
             workDir = Files.createTempDirectory("factory-test-factory-run");
-            for (ScriptBundle.ScriptFile file : bundle.files()) {
-                Path target = workDir.resolve(file.path()).normalize();
-                if (!target.startsWith(workDir)) {
-                    throw new AgentExecutionException("Script path escapes work directory: " + file.path());
-                }
-                Files.createDirectories(target.getParent() == null ? workDir : target.getParent());
-                Files.writeString(target, file.content());
-            }
-            List<String> command = new ArrayList<>(List.of(
-                    "java", "-jar", properties.execution().karateJar(),
-                    "-o", workDir.resolve("reports").toString()));
-            bundle.files().forEach(f -> command.add(f.path()));
-
-            // Output goes to a file rather than a pipe: reading a pipe would block
-            // until the child exits, which would make the timeout below dead code
-            // for a hung run.
-            Path consoleLog = workDir.resolve("karate-console.log");
-            Process process = new ProcessBuilder(command)
-                    .directory(workDir.toFile())
-                    .redirectErrorStream(true)
-                    .redirectOutput(consoleLog.toFile())
-                    .start();
-            if (!process.waitFor(EXECUTION_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
-                process.destroyForcibly();
-                throw new AgentExecutionException("Karate execution timed out after "
-                        + EXECUTION_TIMEOUT_MINUTES + " minutes");
-            }
-            String output = Files.exists(consoleLog) ? Files.readString(consoleLog) : "";
-            log.info("Karate run finished with exit code {}", process.exitValue());
-            return executedResults(bundle, workDir, process.exitValue(), output);
+            writeScripts(bundle, workDir);
+            var run = runKarate(bundle, workDir);
+            return executedResults(bundle, workDir, run.exitCode(), run.output());
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
@@ -128,6 +101,42 @@ public class TestExecutionWorker implements AgentWorker {
         }
     }
 
+    private static void writeScripts(ScriptBundle bundle, Path workDir) throws IOException {
+        for (ScriptBundle.ScriptFile file : bundle.files()) {
+            var target = workDir.resolve(file.path()).normalize();
+            if (!target.startsWith(workDir)) {
+                throw new AgentExecutionException("Script path escapes work directory: " + file.path());
+            }
+            Files.createDirectories(target.getParent() == null ? workDir : target.getParent());
+            Files.writeString(target, file.content());
+        }
+    }
+
+    private KarateRun runKarate(ScriptBundle bundle, Path workDir) throws IOException, InterruptedException {
+        List<String> command = new ArrayList<>(List.of(
+                "java", "-jar", properties.execution().karateJar(),
+                "-o", workDir.resolve("reports").toString()));
+        bundle.files().forEach(file -> command.add(file.path()));
+
+        // Output goes to a file rather than a pipe: reading a pipe would block
+        // until the child exits, which would make the timeout below dead code
+        // for a hung run.
+        var consoleLog = workDir.resolve("karate-console.log");
+        var process = new ProcessBuilder(command)
+                .directory(workDir.toFile())
+                .redirectErrorStream(true)
+                .redirectOutput(consoleLog.toFile())
+                .start();
+        if (!process.waitFor(EXECUTION_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
+            process.destroyForcibly();
+            throw new AgentExecutionException("Karate execution timed out after "
+                    + EXECUTION_TIMEOUT_MINUTES + " minutes");
+        }
+        var output = Files.exists(consoleLog) ? Files.readString(consoleLog) : "";
+        log.info("Karate run finished with exit code {}", process.exitValue());
+        return new KarateRun(process.exitValue(), output);
+    }
+
     private void deleteRecursively(Path directory) {
         try {
             FileSystemUtils.deleteRecursively(directory);
@@ -137,34 +146,51 @@ public class TestExecutionWorker implements AgentWorker {
     }
 
     private String executedResults(ScriptBundle bundle, Path workDir, int exitCode, String consoleOutput) {
-        Map<String, Boolean> filePassed = new LinkedHashMap<>();
-        int passedFeatures = 0;
-        int failedFeatures = 0;
-        Path summaryFile = workDir.resolve("reports").resolve("karate-summary-json.txt");
+        var features = readFeatureSummary(workDir);
+        var cases = caseResults(bundle, features.passedByFile(), exitCode);
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("mode", "EXECUTED");
+        metadata.put("exit_code", exitCode);
+        metadata.put("totals", Map.of("passed", cases.passed(), "failed", cases.failed(), "not_executed", 0));
+        metadata.put("features", Map.of("passed", features.passed(), "failed", features.failed()));
+        metadata.put("case_results", cases.rows());
+        String body = "# Test Results\n\nKarate exit code: " + exitCode
+                + "\n\n<details><summary>Console output</summary>\n\n````\n"
+                + truncateConsole(consoleOutput.strip()) + "\n````\n</details>\n";
+        return frontmatterCodec.render(metadata, body);
+    }
+
+    private FeatureSummary readFeatureSummary(Path workDir) {
+        Map<String, Boolean> passedByFile = new LinkedHashMap<>();
+        int passed = 0;
+        int failed = 0;
+        var summaryFile = workDir.resolve("reports").resolve("karate-summary-json.txt");
         try {
             JsonNode summary = jsonMapper.readTree(Files.readString(summaryFile));
             for (JsonNode feature : summary.path("featureSummary")) {
-                boolean failed = feature.path("failed").asBoolean(false);
-                filePassed.put(feature.path("relativePath").asString(""), !failed);
-                if (failed) {
-                    failedFeatures++;
+                boolean featureFailed = feature.path("failed").asBoolean(false);
+                passedByFile.put(feature.path("relativePath").asString(""), !featureFailed);
+                if (featureFailed) {
+                    failed++;
                 } else {
-                    passedFeatures++;
+                    passed++;
                 }
             }
         } catch (IOException e) {
             // Fall back to the process exit code when the summary is unavailable.
             log.warn("Karate summary not readable ({}); falling back to exit code", e.getMessage());
         }
+        return new FeatureSummary(passedByFile, passed, failed);
+    }
 
-        List<Map<String, Object>> caseResults = new ArrayList<>();
+    private static CaseResults caseResults(ScriptBundle bundle, Map<String, Boolean> passedByFile, int exitCode) {
+        List<Map<String, Object>> rows = new ArrayList<>();
         int passed = 0;
         int failed = 0;
         for (ScriptBundle.ScriptFile file : bundle.files()) {
-            boolean filePass = filePassed.getOrDefault(file.path(), exitCode == 0);
+            boolean filePass = passedByFile.getOrDefault(file.path(), exitCode == 0);
             for (String caseId : file.caseIds()) {
-                caseResults.add(Map.of("case_id", caseId,
-                        "status", filePass ? "PASSED" : "FAILED", "file", file.path()));
+                rows.add(Map.of("case_id", caseId, "status", filePass ? "PASSED" : "FAILED", "file", file.path()));
                 if (filePass) {
                     passed++;
                 } else {
@@ -172,16 +198,7 @@ public class TestExecutionWorker implements AgentWorker {
                 }
             }
         }
-        Map<String, Object> metadata = new LinkedHashMap<>();
-        metadata.put("mode", "EXECUTED");
-        metadata.put("exit_code", exitCode);
-        metadata.put("totals", Map.of("passed", passed, "failed", failed, "not_executed", 0));
-        metadata.put("features", Map.of("passed", passedFeatures, "failed", failedFeatures));
-        metadata.put("case_results", caseResults);
-        String body = "# Test Results\n\nKarate exit code: " + exitCode
-                + "\n\n<details><summary>Console output</summary>\n\n````\n"
-                + truncateConsole(consoleOutput.strip()) + "\n````\n</details>\n";
-        return frontmatterCodec.render(metadata, body);
+        return new CaseResults(rows, passed, failed);
     }
 
     /**
@@ -198,5 +215,14 @@ public class TestExecutionWorker implements AgentWorker {
         return "[console output truncated: " + omitted + " of " + console.length()
                 + " characters omitted; showing last " + MAX_CONSOLE_LOG_CHARS + "]\n\n"
                 + console.substring(console.length() - MAX_CONSOLE_LOG_CHARS);
+    }
+
+    private record KarateRun(int exitCode, String output) {
+    }
+
+    private record FeatureSummary(Map<String, Boolean> passedByFile, int passed, int failed) {
+    }
+
+    private record CaseResults(List<Map<String, Object>> rows, int passed, int failed) {
     }
 }
