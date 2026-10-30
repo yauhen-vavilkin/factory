@@ -38,6 +38,7 @@ mvn verify                               # full build + all tests (Docker requir
 mvn -B -ntp -pl factory-core -am test -Dtest=SubFlowIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false   # one test class
 mvn -B -ntp -pl factory-core -am test -Dtest='SubFlowIntegrationTest#method' -Dsurefire.failIfNoSpecifiedTests=false   # one method
 node --test factory-app/src/test/js/poll.test.js   # console JS tests (not run by Maven or CI)
+mvn validate                             # Checkstyle only; it also runs first in every build
 ```
 
 Tests run under Surefire only. This repo has no Failsafe, so the workspace-level
@@ -172,8 +173,11 @@ Conventions that are easy to violate silently:
   four names stay in scope inside the inserted page body, shadowing any
   same-named model attribute. Never name a model attribute `title`,
   `activeNav`, `content`, or `scripts`.
-- **Templates stay dumb** — controllers build row `Map`s (template access is
-  `${row['key']}`, so records don't work); shared row/format helpers live in
+- **Templates stay dumb** — controllers build page rows as public records; SpEL reads
+  `${row['key']}` and `${row.key}` from a record, and a missing component fails the
+  render instead of showing an empty cell. A row record carries every key its template
+  reads (nullable where the old `Map` left a key out). Older pages still build `Map`
+  rows; convert them when you rework the page. Shared row/format helpers live in
   `UiFormat` (timestamps, audit rows, event labels/tones, step labels).
 - **Slice, not Page, for unbounded tables** — audit and artifact feeds page
   with `Slice`/`slicePagination`/`SliceResponse` so no per-request `count(*)`
@@ -239,11 +243,51 @@ the side.
   wrong, and fix that. When behavior changes on purpose, update the tests that assert
   the old behavior instead of deleting them.
 
+## Code style
+
+The target is the style of the Eureka modules in this workspace (`mgr-tenant-entitlements`,
+`mod-roles-keycloak`, `applications-poc-tools`): short methods, one job per class, types
+instead of strings. `mvn verify` runs Checkstyle with `checkstyle/checkstyle.xml`;
+`checkstyle/suppressions.xml` lists the methods that were over the limits when the check
+was added. Never add an entry there; delete the entry when you bring its method under the limit.
+
+- A method has at most 25 lines (blank and comment lines not counted) and at most 7
+  parameters. A public method reads as a short list of steps, each step a private method
+  named for what it does or returns (adapted from `mgr-tenant-entitlements`):
+
+  ```java
+  public ExtendedEntitlements performRequest(EntitlementRequest request) {
+      var flow = flowProvider.createFlow(request);
+      executeFlow(request, flow);
+      var entitlements = request.getApplications().stream()
+              .map(applicationId -> buildEntitlement(request.getTenantId(), applicationId))
+              .toList();
+      return buildEntitlements(entitlements, UUID.fromString(flow.getId()));
+  }
+  ```
+
+  Parameters that travel together become a record.
+- A class has one job. A bean with more than about 8 dependencies, or a class past about
+  300 lines, does several jobs: split it along them.
+- Types, not strings: states, outcomes and kinds are enums, structured data is a record.
+  `Map<String, Object>` is only for JSON whose shape is open (audit details, external payloads).
+- Values are non-null by construction. A lookup that can find nothing returns `Optional`;
+  fields and parameters are never `Optional`. Check for null or blank input only at trust
+  boundaries (HTTP, webhooks, external APIs, configuration).
+- Lombok: `@RequiredArgsConstructor` for beans, `@Slf4j` for loggers, `@Getter`/`@Setter` on
+  JPA entities for the fields that need them, `@Builder` where a constructor would take many
+  optional values. Never add setters to artifact or audit entities. No `@Data`,
+  `@SneakyThrows`, or `@EqualsAndHashCode`/`@ToString` on entities.
+- `var` for local variables when the right side shows the type. Guard clauses and early
+  returns instead of nested `if`.
+- A method name says what it does or returns (`findActiveAttempt`, `toRow`, `isExpired`).
+  Full words; `id`, `url` and `sha` are fine.
+- Comments explain why, never what. Javadoc only where the name and types do not explain
+  the contract.
+
 ## Code and commits
 
 - Touch only what the task needs; don't refactor unrelated code.
-- Comments only where intent is not obvious (for example a non-standard workaround);
-  never restate what the code does.
 - UI text, code comments and commit messages: plain English, B2 level.
 
 ## Communication

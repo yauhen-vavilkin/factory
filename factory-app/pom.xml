@@ -141,6 +141,14 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <excludes>
+            <exclude>
+              <groupId>org.projectlombok</groupId>
+              <artifactId>lombok</artifactId>
+            </exclude>
+          </excludes>
+        </configuration>
       </plugin>
       <!-- CycloneDX SBOM (DEP-1). Version + execution (makeAggregateBom @
            generate-resources, output META-INF/sbom/application.cdx.json) are
