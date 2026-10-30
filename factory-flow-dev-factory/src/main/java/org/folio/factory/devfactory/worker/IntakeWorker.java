@@ -80,25 +80,29 @@ public class IntakeWorker implements AgentWorker {
         if (pilot.isPresent()) {
             return pilotOutcome(context, pilot.get());
         }
-        String requested = context.triggerPayload() == null ? ""
+        var requested = context.triggerPayload() == null ? ""
                 : context.triggerPayload().path("issueKey").asString("");
         if (!IssueSnapshot.ISSUE_KEY.matcher(requested).matches()) {
-            String echoed = requested.length() <= MAX_ECHOED_INPUT ? requested
+            var echoed = requested.length() <= MAX_ECHOED_INPUT ? requested
                     : requested.substring(0, MAX_ECHOED_INPUT) + "...";
             return outcome(echoed, UNSUPPORTED, "INVALID_ISSUE_KEY", null, List.of());
         }
+        return issueOutcome(requested);
+    }
+
+    private AgentResult issueOutcome(String requested) {
         JiraIssue issue;
         try {
             issue = jira.getIssue(requested);
         } catch (HttpClientErrorException.NotFound e) {
             return outcome(requested, BLOCKED, "ISSUE_NOT_FOUND", null, List.of());
         }
-        Map<String, Object> snapshot = IssueSnapshot.of(issue);
-        String key = issue.key();
+        var snapshot = IssueSnapshot.of(issue);
+        var key = issue.key();
         if (!IssueSnapshot.ISSUE_KEY.matcher(key).matches()) {
             return outcome(requested, BLOCKED, "UNEXPECTED_ISSUE_KEY", null, List.of());
         }
-        List<String> candidates = policy.candidates(IssueSnapshot.projectKey(key), IssueSnapshot.components(snapshot));
+        var candidates = policy.candidates(IssueSnapshot.projectKey(key), IssueSnapshot.components(snapshot));
         if (candidates.isEmpty()) {
             return outcome(key, UNSUPPORTED, "NO_REPOSITORY_MAPPING", snapshot, candidates);
         }
@@ -106,14 +110,14 @@ public class IntakeWorker implements AgentWorker {
     }
 
     private AgentResult pilotOutcome(AgentContext context, PilotExecutionContext pilot) {
-        Map<String, Object> snapshot = pilot.approvedSnapshot();
-        String key = Objects.toString(snapshot.get("key"), "");
+        var snapshot = pilot.approvedSnapshot();
+        var key = Objects.toString(snapshot.get("key"), "");
         if (!IssueSnapshot.ISSUE_KEY.matcher(key).matches()) {
             return stop(context, outcome(key, UNSUPPORTED, "INVALID_ISSUE_KEY", snapshot, List.of()),
                     "the approved snapshot carries no valid issue key");
         }
-        List<String> components = IssueSnapshot.components(snapshot);
-        List<String> candidates = policy.candidates(IssueSnapshot.projectKey(key),
+        var components = IssueSnapshot.components(snapshot);
+        var candidates = policy.candidates(IssueSnapshot.projectKey(key),
                 components == null ? List.of() : components);
         if (candidates.isEmpty()) {
             return stop(context, outcome(key, UNSUPPORTED, "NO_REPOSITORY_MAPPING", snapshot, candidates),
@@ -123,7 +127,13 @@ public class IntakeWorker implements AgentWorker {
             return stop(context, outcome(key, BLOCKED, "AMBIGUOUS_REPOSITORY_MAPPING", snapshot, candidates),
                     "ambiguous repository mapping requires a human choice: " + String.join(", ", candidates));
         }
-        String admitted = pilot.repositoryKey();
+        return admittedOutcome(context, pilot, key, snapshot, candidates);
+    }
+
+    /** The single mapped repository must still be the one recorded when the pilot attempt was admitted. */
+    private AgentResult admittedOutcome(AgentContext context, PilotExecutionContext pilot, String key,
+                                        Map<String, Object> snapshot, List<String> candidates) {
+        var admitted = pilot.repositoryKey();
         if (admitted == null || admitted.isBlank()) {
             return mappingStop(context, key, snapshot, candidates,
                     "the repository mapping recorded at admission cannot be verified");
