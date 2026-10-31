@@ -1,3 +1,5 @@
+# Every class with this profile keeps @DirtiesContext: a cached engine would keep polling the shared
+# database and claim the next class's executions with the wrong mocks and catalog.
 # The engine claims and advances executions, polling quickly so flows finish within a test.
 factory:
   engine:

@@ -15,7 +15,7 @@ class ProcessesTest {
         var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
         try {
             var process = executor.submit(() -> Processes.run(null,
-                    List.of("/bin/sh", "-c", "printf 'first\\n'; sleep 1; printf 'last'"), 10,
+                    List.of("/bin/sh", "-c", "printf 'first\\n'; sleep 2; printf 'last'"), 10,
                     java.util.Map.of(), 1024, line -> { received.countDown(); throw new IllegalArgumentException(); }));
             assertThat(received.await(1, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             assertThat(process.isDone()).isFalse();
@@ -101,7 +101,8 @@ class ProcessesTest {
             assertThat(result.outputUnread()).isFalse();
             assertThat(seen).containsExactly("first", "last");
         } finally { executor.shutdownNow(); }
-        assertThat(Processes.READER_DRAIN).as("a reader busy for 6 s is still waited for")
+        assertThat(Processes.READER_DRAIN)
+                .as("stream() waits for a busy reader up to this bound, longer than the 5 s join it replaced")
                 .isGreaterThan(java.time.Duration.ofSeconds(6));
     }
 

@@ -33,6 +33,7 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
  * a repeated request resolves to the existing admission instead of new attempts.
  */
 @FactoryIntegrationTest
+// Inert here (admission creates no execution); it gives this class TaskDispatchIntegrationTest's context.
 @TestPropertySource(properties = "factory.limits.dedup.window=PT0S")
 class TaskAdmissionIntegrationTest {
 
