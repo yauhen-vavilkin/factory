@@ -1,7 +1,7 @@
 package org.folio.factory.app.tasks;
 
-import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.execution.PersistedTaskAttemptPolicy;
@@ -26,9 +26,9 @@ import org.folio.factory.devfactory.worker.VerifyWorker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -44,7 +44,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
-import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * Crash/restart semantics for in-flight task work against real PostgreSQL: a
@@ -53,13 +52,10 @@ import org.folio.factory.app.support.SharedDatabase;
  * resetting the persisted deadline and only with proven workload inactivity;
  * and a restart never duplicates attempt rows or executions for an admitted task.
  */
-@SpringBootTest(properties = {
-        "spring.ai.model.chat=none",
-        "factory.engine.enabled=false",
+@FactoryIntegrationTest
+@ActiveProfiles("task-execution")
+@TestPropertySource(properties = {
         "factory.limits.dedup.window=PT0S",
-        "factory.tasks.execution.enabled=true",
-        "factory.tasks.execution.deadline=PT30M",
-        "factory.tasks.execution.dispatch-interval-ms=3600000",
         "factory.tasks.source.assignee=Jane Developer",
         "factory.connectors.jira.base-url=https://jira.example.org",
         "factory.dev-factory.repositories.mod-bar.source-repo=folio-org/mod-bar",
@@ -67,7 +63,7 @@ import org.folio.factory.app.support.SharedDatabase;
         "factory.dev-factory.repositories.mod-bar.build-image=maven:3.9-eclipse-temurin-21",
         "factory.dev-factory.repositories.mod-bar.verification-plan=java21-unit",
         "factory.dev-factory.repositories.mod-bar.jira-projects[0]=MODBAR"})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
+// Own context: task queue with its own Jira, assignee and mod-bar catalog; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class TaskRestartIntegrationTest {
 

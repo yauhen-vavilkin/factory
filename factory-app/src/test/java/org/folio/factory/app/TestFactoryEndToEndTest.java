@@ -2,6 +2,7 @@ package org.folio.factory.app;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReviewStatus;
@@ -9,18 +10,16 @@ import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
-import org.folio.factory.app.support.SharedDatabase;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.core.env.Environment;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.client.RestClient;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -51,11 +50,9 @@ import static org.awaitility.Awaitility.await;
  * plan → QA amend at gate 1 → script generation → advisory execution → QA
  * approve at gate 2 → finalizer syncs all three connectors.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "spring.ai.model.chat=none",
-        "factory.engine.poll-interval-ms=250"
-})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
+@FactoryIntegrationTest
+@ActiveProfiles("engine")
+// Own context: running engine against WireMock Jira, GitHub and TestRail; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class TestFactoryEndToEndTest {
 

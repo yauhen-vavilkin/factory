@@ -1,7 +1,7 @@
 package org.folio.factory.app.tasks;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
-import org.folio.factory.app.StubLlmConfiguration;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
@@ -10,16 +10,14 @@ import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
 import org.folio.factory.app.tasks.source.TaskDiscoveryService;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
-import org.folio.factory.app.support.SharedDatabase;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
@@ -48,11 +46,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * background scan; every scan here is an explicit call, as the Scan Jira button
  * makes it.
  */
-@SpringBootTest(properties = {
-        "spring.ai.model.chat=none",
-        "factory.engine.enabled=false",
-        "factory.tasks.source.assignee=Jane Developer"})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
+@FactoryIntegrationTest
+@TestPropertySource(properties = "factory.tasks.source.assignee=Jane Developer")
+// Own context: WireMock Jira with its own repository catalog; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class TaskDiscoveryIntegrationTest {
 

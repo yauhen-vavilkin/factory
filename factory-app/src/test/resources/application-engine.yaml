@@ -1,0 +1,5 @@
+# The engine claims and advances executions, polling quickly so flows finish within a test.
+factory:
+  engine:
+    enabled: true
+    poll-interval-ms: 250

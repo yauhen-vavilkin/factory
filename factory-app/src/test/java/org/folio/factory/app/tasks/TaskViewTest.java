@@ -1,7 +1,7 @@
 package org.folio.factory.app.tasks;
 
-import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
@@ -29,10 +29,10 @@ import org.folio.factory.devfactory.worker.VerifyWorker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -48,7 +48,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
-import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * Logical-task projection against real PostgreSQL: every distinct outcome has
@@ -57,14 +56,10 @@ import org.folio.factory.app.support.SharedDatabase;
  * filter, task totals sum each attempt contribution exactly once, and attempt
  * durations exclude human-review waiting.
  */
-@SpringBootTest(properties = {
-        "spring.ai.model.chat=none",
-        "factory.engine.enabled=false",
-        "factory.tasks.execution.enabled=true",
-        "factory.tasks.execution.deadline=PT30M",
-        "factory.tasks.execution.dispatch-interval-ms=3600000",
-        "factory.connectors.jira.base-url=https://jira.example.org"})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
+@FactoryIntegrationTest
+@ActiveProfiles("task-execution")
+@TestPropertySource(properties = "factory.connectors.jira.base-url=https://jira.example.org")
+// Own context: task queue with jira.example.org configured; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class TaskViewTest {
 

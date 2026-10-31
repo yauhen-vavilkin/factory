@@ -2,8 +2,8 @@ package org.folio.factory.app.tasks;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
-import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
@@ -46,9 +46,9 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -85,7 +85,6 @@ import java.time.Clock;
 import org.folio.factory.devfactory.DevFlowSettings;
 import org.folio.factory.devfactory.delivery.DeliveryServices;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
-import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * Publication authority against real PostgreSQL and a mocked GitHub HTTP
@@ -94,14 +93,10 @@ import org.folio.factory.app.support.SharedDatabase;
  * first remote mutation, a changed authority stops before any remote write, and a lost create response is reconciled through the
  * state-covering lookup instead of creating a duplicate pull request.
  */
-@SpringBootTest(properties = {
-        "spring.ai.model.chat=none",
-        "factory.engine.enabled=false",
-        "factory.tasks.execution.enabled=true",
-        "factory.tasks.execution.deadline=PT30M",
-        "factory.tasks.execution.dispatch-interval-ms=3600000",
-        "factory.connectors.github.token=fixture-github-token"})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
+@FactoryIntegrationTest
+@ActiveProfiles("task-execution")
+@TestPropertySource(properties = "factory.connectors.github.token=fixture-github-token")
+// Own context: task queue with WireMock GitHub and a scripted delivery; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class TaskPublicationIntegrationTest {
 

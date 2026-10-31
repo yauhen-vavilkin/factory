@@ -1,7 +1,7 @@
 package org.folio.factory.app.tasks;
 
-import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
@@ -28,9 +28,7 @@ import org.folio.factory.core.trigger.TriggerPreflight;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 import tools.jackson.databind.json.JsonMapper;
@@ -49,7 +47,6 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
-import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * Serial dispatch against real PostgreSQL: one queued attempt at a time gets one
@@ -60,10 +57,8 @@ import org.folio.factory.app.support.SharedDatabase;
  * reservation back together. Enabled retention refuses a new launch before any
  * execution exists.
  */
-@SpringBootTest(properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false",
-        "factory.limits.dedup.window=PT0S"})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
-@DirtiesContext
+@FactoryIntegrationTest
+@TestPropertySource(properties = "factory.limits.dedup.window=PT0S")
 class TaskDispatchIntegrationTest {
 
     private static final String INSTANCE = "jira.example.org";

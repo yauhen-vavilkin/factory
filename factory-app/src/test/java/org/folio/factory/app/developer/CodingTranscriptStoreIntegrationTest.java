@@ -1,16 +1,12 @@
 package org.folio.factory.app.developer;
 
-import org.folio.factory.app.StubLlmConfiguration;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.devfactory.runtime.CodingTranscripts;
-import org.folio.factory.app.support.SharedDatabase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.test.annotation.DirtiesContext;
 
 import java.time.Instant;
 import java.util.Map;
@@ -19,10 +15,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Batches reach the database while a run is going, write failures leave a note, retention removes the rows. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE,
-        properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false"})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
-@DirtiesContext
+@FactoryIntegrationTest
 class CodingTranscriptStoreIntegrationTest {
 
     @Autowired

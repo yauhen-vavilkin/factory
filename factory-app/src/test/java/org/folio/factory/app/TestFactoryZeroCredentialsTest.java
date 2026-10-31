@@ -1,5 +1,6 @@
 package org.folio.factory.app;
 
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReviewStatus;
@@ -10,12 +11,10 @@ import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.core.trigger.PipelineRouter;
-import org.folio.factory.app.support.SharedDatabase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ActiveProfiles;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
@@ -29,11 +28,9 @@ import static org.awaitility.Awaitility.await;
  * still runs end-to-end (inline issue payload, advisory execution) and records
  * every skipped side effect instead of failing.
  */
-@SpringBootTest(properties = {
-        "spring.ai.model.chat=none",
-        "factory.engine.poll-interval-ms=250"
-})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
+@FactoryIntegrationTest
+@ActiveProfiles("engine")
+// Own context: running engine with no connector configured; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class TestFactoryZeroCredentialsTest {
 

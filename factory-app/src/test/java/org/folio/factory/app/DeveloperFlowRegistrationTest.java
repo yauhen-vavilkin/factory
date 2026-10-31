@@ -1,19 +1,18 @@
 package org.folio.factory.app;
 
 import org.folio.factory.app.developer.DeveloperPreflightProbe;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
-import org.folio.factory.app.support.SharedDatabase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
@@ -39,16 +38,14 @@ import static org.mockito.Mockito.verify;
  * through the existing flow API/UI. Execution is covered by
  * {@link DeveloperIntakeDecisionTest}.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "spring.ai.model.chat=none",
-        "factory.engine.enabled=false",
+@FactoryIntegrationTest
+@TestPropertySource(properties = {
         "factory.connectors.jira.base-url=",
         "factory.dev-factory.runtime.coding.runtime=claude-code",
         // A missing API key must block admission even when local proxy defaults are available.
         "factory.dev-factory.runtime.coding.claude-code.authentication=api-key",
-        "factory.dev-factory.runtime.coding.claude-code.api-key="
-})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
+        "factory.dev-factory.runtime.coding.claude-code.api-key="})
+// Own context: the default repository catalog with a real preflight; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class DeveloperFlowRegistrationTest {
 

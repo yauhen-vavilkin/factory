@@ -1,7 +1,7 @@
 package org.folio.factory.app.tasks;
 
-import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.execution.TaskDispatchPoller;
@@ -27,11 +27,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
-import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.time.Duration;
@@ -44,7 +43,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
-import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * Whole-attempt bounds, ownership and queue progress against real PostgreSQL:
@@ -56,13 +54,9 @@ import org.folio.factory.app.support.SharedDatabase;
  * queue after a release. The engine is disabled, so execution states and
  * artifacts are driven directly.
  */
-@SpringBootTest(properties = {
-        "spring.ai.model.chat=none",
-        "factory.engine.enabled=false",
-        "factory.tasks.execution.enabled=true",
-        "factory.tasks.execution.deadline=PT30M",
-        "factory.tasks.execution.dispatch-interval-ms=3600000"})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
+@FactoryIntegrationTest
+@ActiveProfiles("task-execution")
+// Own context: task queue with Jira unconfigured; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 @ExtendWith(OutputCaptureExtension.class)
 class TaskLifecycleIntegrationTest {

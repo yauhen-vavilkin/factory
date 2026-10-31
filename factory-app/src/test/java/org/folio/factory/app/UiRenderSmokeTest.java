@@ -2,6 +2,7 @@ package org.folio.factory.app;
 
 import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.admission.TaskRunSettings;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
@@ -25,9 +26,7 @@ import org.folio.factory.devfactory.runtime.RunProfiles;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -35,6 +34,7 @@ import org.springframework.data.domain.SliceImpl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.web.client.RestClient;
@@ -54,7 +54,6 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
 import org.folio.factory.app.tasks.persistence.TaskInstallations;
-import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * The only test that actually renders the Thymeleaf templates end to end;
@@ -62,19 +61,19 @@ import org.folio.factory.app.support.SharedDatabase;
  * fragments. Boots the app, seeds one execution + review, and asserts every
  * UI page renders through the shared layout.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false",
-                "factory.connectors.jira.base-url=https://jira.example.org",
-                "factory.tasks.source.assignee=Jane Developer",
-                "factory.developer-pricing.rates.test.model=test-model",
-                "factory.developer-pricing.rates.test.currency=USD",
-                "factory.developer-pricing.rates.test.as-of=2026-09-19",
-                "factory.developer-pricing.rates.test.source=https://example.test/pricing",
-                "factory.developer-pricing.rates.test.input-per-million=0.15",
-                "factory.developer-pricing.rates.test.cache-read-per-million=0.03",
-                "factory.developer-pricing.rates.test.output-per-million=0.50",
-                "FACTORY_ZAI_API_KEY=" + UiRenderSmokeTest.ZAI_KEY})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
+@FactoryIntegrationTest
+@TestPropertySource(properties = {
+        "factory.connectors.jira.base-url=https://jira.example.org",
+        "factory.tasks.source.assignee=Jane Developer",
+        "factory.developer-pricing.rates.test.model=test-model",
+        "factory.developer-pricing.rates.test.currency=USD",
+        "factory.developer-pricing.rates.test.as-of=2026-09-19",
+        "factory.developer-pricing.rates.test.source=https://example.test/pricing",
+        "factory.developer-pricing.rates.test.input-per-million=0.15",
+        "factory.developer-pricing.rates.test.cache-read-per-million=0.03",
+        "factory.developer-pricing.rates.test.output-per-million=0.50",
+        "FACTORY_ZAI_API_KEY=" + UiRenderSmokeTest.ZAI_KEY})
+// Own context: its own Jira, assignee, pricing and Z.AI key for the rendered pages; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class UiRenderSmokeTest {
 

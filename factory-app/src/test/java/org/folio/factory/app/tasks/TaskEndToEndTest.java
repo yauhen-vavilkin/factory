@@ -1,8 +1,8 @@
 package org.folio.factory.app.tasks;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
-import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.execution.PersistedTaskAttemptPolicy;
@@ -44,12 +44,12 @@ import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -91,7 +91,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.isNull;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
-import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * The full deterministic M1 scenario in one Spring context against real
@@ -107,13 +106,10 @@ import org.folio.factory.app.support.SharedDatabase;
  * keeps the task projection incomplete. Jira stays read-only, no task attempt opens an intermediate
  * review, coding starts once per attempt and no pull request is duplicated.
  */
-@SpringBootTest(properties = {
-        "spring.ai.model.chat=none",
-        "factory.engine.poll-interval-ms=250",
+@FactoryIntegrationTest
+@ActiveProfiles({"engine", "task-execution"})
+@TestPropertySource(properties = {
         "factory.limits.dedup.window=PT0S",
-        "factory.tasks.execution.enabled=true",
-        "factory.tasks.execution.deadline=PT30M",
-        "factory.tasks.execution.dispatch-interval-ms=3600000",
         "factory.tasks.source.assignee=Jane Developer",
         "factory.connectors.github.token=fixture-github-token",
         "factory.dev-factory.runtime.plans.java21-unit[0]=mvn",
@@ -130,7 +126,7 @@ import org.folio.factory.app.support.SharedDatabase;
         "factory.dev-factory.repositories.mod-foo.verification-plan=java21-unit",
         "factory.dev-factory.repositories.mod-foo.jira-projects[0]=MODFOO",
         "factory.dev-factory.repositories.mod-foo.delivery.repository=folio-org/mod-foo"})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
+// Own context: running engine and task queue with its own catalog, Jira and GitHub; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class TaskEndToEndTest {

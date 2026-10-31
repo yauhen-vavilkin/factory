@@ -1,7 +1,7 @@
 package org.folio.factory.app.tasks;
 
-import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
@@ -27,9 +27,8 @@ import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -44,7 +43,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
-import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * Explicit fresh Retry against real PostgreSQL: a STOPPED latest attempt can
@@ -55,9 +53,8 @@ import org.folio.factory.app.support.SharedDatabase;
  * whatever happens in Jira; only a destination change before start stops a
  * queued retry, and a token without push access refuses it up front.
  */
-@SpringBootTest(properties = {
-        "spring.ai.model.chat=none",
-        "factory.engine.enabled=false",
+@FactoryIntegrationTest
+@TestPropertySource(properties = {
         "factory.limits.dedup.window=PT0S",
         "factory.tasks.execution.deadline=PT30M",
         "factory.connectors.jira.base-url=https://jira.example.org",
@@ -66,7 +63,7 @@ import org.folio.factory.app.support.SharedDatabase;
         "factory.dev-factory.repositories.mod-bar.build-image=maven:3.9-eclipse-temurin-21",
         "factory.dev-factory.repositories.mod-bar.verification-plan=java21-unit",
         "factory.dev-factory.repositories.mod-bar.jira-projects[0]=MODBAR"})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
+// Own context: a scripted Jira source with its own mod-bar catalog; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class TaskRetryIntegrationTest {
 

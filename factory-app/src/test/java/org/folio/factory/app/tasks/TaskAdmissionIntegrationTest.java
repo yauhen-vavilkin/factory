@@ -1,7 +1,7 @@
 package org.folio.factory.app.tasks;
 
-import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
@@ -14,9 +14,7 @@ import org.folio.factory.app.tasks.persistence.TaskRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.Arrays;
@@ -28,7 +26,6 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
-import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * Manual admission against real PostgreSQL: only the selected eligible rows are
@@ -36,9 +33,8 @@ import org.folio.factory.app.support.SharedDatabase;
  * anything is queued, a failed scan does not block the tasks already shown, and
  * a repeated request resolves to the existing admission instead of new attempts.
  */
-@SpringBootTest(properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false"})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
-@DirtiesContext
+@FactoryIntegrationTest
+@TestPropertySource(properties = "factory.limits.dedup.window=PT0S")
 class TaskAdmissionIntegrationTest {
 
     private static final String INSTANCE = "jira.example.org";

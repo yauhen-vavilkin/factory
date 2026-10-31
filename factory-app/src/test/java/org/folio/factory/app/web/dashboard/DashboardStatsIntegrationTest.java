@@ -1,6 +1,6 @@
 package org.folio.factory.app.web.dashboard;
 
-import org.folio.factory.app.StubLlmConfiguration;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
@@ -9,15 +9,11 @@ import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
-import org.folio.factory.app.support.SharedDatabase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 
@@ -34,10 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code date_trunc}, {@code FILTER (WHERE ...)} and {@code detail->>'connector'}
  * that no unit test with a mocked repository can validate.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false"})
-@Import({StubLlmConfiguration.class, SharedDatabase.class})
-@DirtiesContext
+@FactoryIntegrationTest
 class DashboardStatsIntegrationTest {
 
     private static final String FLOW_A = "test-factory";
