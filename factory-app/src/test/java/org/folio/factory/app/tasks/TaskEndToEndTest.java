@@ -398,6 +398,7 @@ class TaskEndToEndTest {
     @Test
     @Order(5)
     void explicitRetryRunsAFreshAttemptToANewOutcomeAndKeepsHistoryAndCosts() {
+        stubPullRequestReadOnDelivery(FOO, 21);
         UUID heldExecutionId = dispatcher.dispatchNext().orElseThrow();
         UUID heldAttemptId = attempts.findByExecutionId(heldExecutionId).orElseThrow().getId();
         Task failedTask = tasks.findById(taskId("8103")).orElseThrow();
@@ -434,7 +435,6 @@ class TaskEndToEndTest {
         awaitDelivered(retryExecutionId);
         TaskPublicationIntent intent = intents.findByExecutionId(retryExecutionId).orElseThrow();
         assertThat(intent.getRepository()).isEqualTo(FOO);
-        stubPullRequestRead(FOO, 21, intent.getHeadBranch());
 
         TaskOutcomeService.AttemptOutcome retryOutcome = outcomes.refresh(firstClick.attemptId());
 
@@ -732,14 +732,16 @@ class TaskEndToEndTest {
     }
 
     /**
-     * Stubs the pull request read while the delivery answers, before the flow reaches the follow-up
-     * step; stubbed later, the step's first read fails and the flow retries it 30 seconds later.
+     * Stubs the pull request read while a delivery to the repository answers, before the flow reaches
+     * the follow-up step; stubbed later, the step's first read fails and the flow retries it 30 seconds later.
      */
     private void stubPullRequestReadOnDelivery(String repository, int number) {
         when(delivery.deliver(argThat(TaskEndToEndTest::isComplete)))
                 .thenAnswer(invocation -> {
                     DeliveryReceipt receipt = delivered(invocation.getArgument(0));
-                    stubPullRequestRead(repository, number, receipt.branch());
+                    if (receipt.repository().equals(repository)) {
+                        stubPullRequestRead(repository, number, receipt.branch());
+                    }
                     return receipt;
                 });
     }
