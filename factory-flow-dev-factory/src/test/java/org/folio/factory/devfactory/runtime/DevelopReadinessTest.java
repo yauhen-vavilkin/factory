@@ -26,11 +26,13 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.*;
@@ -418,12 +420,16 @@ class DevelopReadinessTest {
 
     @Test
     void aDeadlineExpiringDuringBaselinePreventsCodingWithoutConsumingThePaidStart() {
+        var now = new AtomicReference<>(Instant.now());
+        var clock = mock(Clock.class);
+        when(clock.instant()).thenAnswer(invocation -> now.get());
         var taskAttempts = RecordingTaskAttempts.taskRun("repo")
-                .withDeadline(new AttemptDeadline(Instant.now().plusSeconds(3)));
+                .withDeadline(new AttemptDeadline(now.get().plusSeconds(3)))
+                .withClock(clock);
         var harness = taskHarness(taskAttempts);
         when(harness.baseline().execute(anyList(), anyInt(), anyInt(), any())).thenAnswer(
                 invocation -> {
-                    Thread.sleep(4000);
+                    now.set(now.get().plusSeconds(4));
                     return new Processes.Result(0, "[INFO] BUILD SUCCESS");
                 });
 

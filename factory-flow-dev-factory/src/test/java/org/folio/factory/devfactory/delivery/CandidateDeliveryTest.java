@@ -2,7 +2,9 @@ package org.folio.factory.devfactory.delivery;
 
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
+import org.folio.factory.devfactory.candidate.FixtureDirectories;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -16,6 +18,9 @@ import static org.assertj.core.api.Assertions.*;
 import org.folio.factory.devfactory.runtime.Git;
 
 class CandidateDeliveryTest {
+    /** Source and remote are built once; each test delivers into its own copy, because delivery changes the remote. */
+    @TempDir static Path template;
+    static Candidate frozen;
     @TempDir Path root;
     Path source;
     Path remote;
@@ -23,21 +28,27 @@ class CandidateDeliveryTest {
     CandidateDelivery delivery;
     DeliveryTarget target = new DeliveryTarget("fixture/fork", "master");
 
-    @BeforeEach void setup() throws Exception {
-        source = Files.createDirectory(root.resolve("source"));
-        remote = root.resolve("fixture/fork.git");
+    @BeforeAll static void createRepositories() throws Exception {
+        Path source = Files.createDirectory(template.resolve("source"));
+        Path remote = template.resolve("fixture/fork.git");
         Files.createDirectories(remote.getParent());
         CandidateFreezer.git(source, "init", "--quiet", "--initial-branch=master");
         Files.writeString(source.resolve("old.txt"), "before\n");
         CandidateFreezer.git(source, "add", ".");
         CandidateFreezer.git(source, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.org", "commit", "-qm", "base");
         String base = CandidateFreezer.git(source, "rev-parse", "HEAD").strip();
-        CandidateFreezer.git(root, "clone", "--quiet", "--bare", source.toString(), remote.toString());
+        CandidateFreezer.git(template, "clone", "--quiet", "--bare", source.toString(), remote.toString());
         Files.delete(source.resolve("old.txt"));
         Files.write(source.resolve("binary.dat"), new byte[]{0, 1, (byte)255});
-        var freezer = new CandidateFreezer();
-        candidate = freezer.freeze("fixture", source.toString(), base, source, false);
-        delivery = new CandidateDelivery(freezer, root + "/");
+        frozen = new CandidateFreezer().freeze("fixture", source.toString(), base, source, false);
+    }
+
+    @BeforeEach void setup() throws Exception {
+        FixtureDirectories.copy(template, root);
+        source = root.resolve("source");
+        remote = root.resolve("fixture/fork.git");
+        candidate = frozen;
+        delivery = new CandidateDelivery(new CandidateFreezer(), root + "/");
     }
 
     private VerificationReceipt receipt(String execution, int exit) {

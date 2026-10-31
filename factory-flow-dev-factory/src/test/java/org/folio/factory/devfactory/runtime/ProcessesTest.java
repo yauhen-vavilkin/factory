@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import java.util.Map;
 
 class ProcessesTest {
@@ -14,7 +15,7 @@ class ProcessesTest {
         var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
         try {
             var process = executor.submit(() -> Processes.run(null,
-                    List.of("/bin/sh", "-c", "printf 'first\\n'; sleep 2; printf 'last'"), 10,
+                    List.of("/bin/sh", "-c", "printf 'first\\n'; sleep 1; printf 'last'"), 10,
                     java.util.Map.of(), 1024, line -> { received.countDown(); throw new IllegalArgumentException(); }));
             assertThat(received.await(1, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             assertThat(process.isDone()).isFalse();
@@ -28,7 +29,7 @@ class ProcessesTest {
                 List.of("/bin/sh", "-c", "printf '123456789'"), 10, java.util.Map.of(), 4, line -> { }))
                 .hasMessageContaining("output limit");
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> Processes.run(null,
-                List.of("/bin/sh", "-c", "exec sleep 3"), 1, java.util.Map.of(), 100, line -> { }))
+                List.of("/bin/sh", "-c", "exec sleep 2"), 1, java.util.Map.of(), 100, line -> { }))
                 .hasMessageContaining("exceeded 1 seconds");
     }
     @Test
@@ -76,23 +77,45 @@ class ProcessesTest {
     }
 
     @Test
-    void streamWaitsForASlowReaderBeforeItReturns() {
-        var seen = new java.util.ArrayList<String>();
-        var result = Processes.stream(null, List.of("/bin/sh", "-c", "printf 'first\\nlast\\n'"), 30, s -> s,
-                line -> {
-                    if (line.equals("last")) {
-                        try { Thread.sleep(6000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                    }
-                    seen.add(line);
-                    return true;
-                });
-        assertThat(result.outputUnread()).isFalse();
-        assertThat(seen).containsExactly("first", "last");
+    void streamWaitsForASlowReaderBeforeItReturns() throws Exception {
+        var seen = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        var readingLast = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var streamed = executor.submit(() -> Processes.stream(null,
+                    List.of("/bin/sh", "-c", "printf 'first\\nlast\\n'"), 30, s -> s, line -> {
+                        if (line.equals("last")) {
+                            readingLast.countDown();
+                            awaitRelease(release);
+                        }
+                        seen.add(line);
+                        return true;
+                    }));
+            assertThat(readingLast.await(1, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            await("stream keeps waiting while the reader is busy after the command ended")
+                    .during(java.time.Duration.ofMillis(500)).atMost(java.time.Duration.ofSeconds(2))
+                    .until(() -> !streamed.isDone());
+            release.countDown();
+            var result = streamed.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(result.outputUnread()).isFalse();
+            assertThat(seen).containsExactly("first", "last");
+        } finally { executor.shutdownNow(); }
+        assertThat(Processes.READER_DRAIN).as("a reader busy for 6 s is still waited for")
+                .isGreaterThan(java.time.Duration.ofSeconds(6));
+    }
+
+    private static void awaitRelease(java.util.concurrent.CountDownLatch release) {
+        try {
+            release.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Test
     void streamReportsTheTimeLimitAndKeepsOnlyARedactedStderrTail() {
-        var timedOut = Processes.stream(null, List.of("/bin/sh", "-c", "exec sleep 5"), 1, s -> s, line -> true);
+        var timedOut = Processes.stream(null, List.of("/bin/sh", "-c", "exec sleep 2"), 1, s -> s, line -> true);
         assertThat(timedOut.timedOut()).isTrue();
 
         var result = Processes.stream(null, List.of("/bin/sh", "-c",

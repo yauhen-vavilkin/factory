@@ -21,6 +21,7 @@ public final class RecordingTaskAttempts implements TaskAttemptPolicy {
 
     private final TaskExecutionContext context;
     private boolean claimUsed;
+    private Clock clock = Clock.systemUTC();
 
     public RecordingTaskAttempts(TaskExecutionContext context) {
         this.context = context;
@@ -40,7 +41,13 @@ public final class RecordingTaskAttempts implements TaskAttemptPolicy {
 
     /** The guard the workers take, over this fake. */
     public TaskGuard guard() {
-        return new TaskGuard(this, Clock.systemUTC());
+        return new TaskGuard(this, clock);
+    }
+
+    /** Sets the clock the guard checks deadlines against, so a test can move time instead of waiting. */
+    public RecordingTaskAttempts withClock(Clock clock) {
+        this.clock = clock;
+        return this;
     }
 
     private static TaskExecutionContext context(String repositoryKey) {

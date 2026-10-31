@@ -6,6 +6,7 @@ import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.Processes;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -28,19 +29,20 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class CandidateVerifierTest {
-    @TempDir Path root;
-    private Candidate candidate;
+    /** The source repository; no test changes it, so the class builds it once. */
+    @TempDir static Path root;
+    private static Path original;
+    private static Candidate candidate;
     private CandidateVerifier verifier;
     private DockerWorkloads docker;
     private DockerWorkloads.StepScope stepScope;
     private final UUID executionId = UUID.randomUUID();
     private DockerWorkloads.Workload workload;
-    private Path original;
     private DevFactoryProperties properties;
     private final List<String> command = List.of("mvn", "-B", "-ntp", "clean", "test");
 
-    @BeforeEach
-    void prepare() throws Exception {
+    @BeforeAll
+    static void createSource() throws Exception {
         original = Files.createDirectories(root.resolve("owner/source.git"));
         git(original, "init", "--quiet");
         Files.writeString(original.resolve("code.txt"), "base\n");
@@ -52,6 +54,10 @@ class CandidateVerifierTest {
         String patch = git(original, "diff", "--cached", "--binary", "--full-index", base);
         candidate = new Candidate("source", base, git(original, "write-tree").strip(),
                 Candidate.sha256(patch), patch, "CANDIDATE_UNVERIFIED");
+    }
+
+    @BeforeEach
+    void prepare() {
         var repository = new DevFactoryProperties.Repository("owner/source", "master", "trusted-java21",
                 "unit", List.of("TASK"), List.of(), null);
         properties = new DevFactoryProperties(root.toString(), new TreeMap<>(Map.of("source", repository)));
