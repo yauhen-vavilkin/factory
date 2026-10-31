@@ -2,6 +2,7 @@ package org.folio.factory.app.tasks;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.folio.factory.app.support.FactoryIntegrationTest;
+import org.folio.factory.app.support.SharedWireMock;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
@@ -10,10 +11,10 @@ import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
 import org.folio.factory.app.tasks.source.TaskDiscoveryService;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -47,6 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * makes it.
  */
 @FactoryIntegrationTest
+@Import(SharedWireMock.Jira.class)
 @TestPropertySource(properties = "factory.tasks.source.assignee=Jane Developer")
 // Own context: WireMock Jira with its own repository catalog; closing it stops its schedulers and frees its connections.
 @DirtiesContext
@@ -57,12 +59,10 @@ class TaskDiscoveryIntegrationTest {
     private static final String QUERY =
             "assignee = \"Jane Developer\" AND statusCategory != Done ORDER BY updated DESC";
 
-    static WireMockServer jira = new WireMockServer(0);
+    static final WireMockServer jira = SharedWireMock.JIRA;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        jira.start();
-        registry.add("factory.connectors.jira.base-url", jira::baseUrl);
         repository(registry, "mod-bar", "MODBAR");
         repository(registry, "mod-foo", "MODFOO");
         repository(registry, "mod-foo2", "MODFOO");
@@ -75,11 +75,6 @@ class TaskDiscoveryIntegrationTest {
         registry.add(prefix + "build-image", () -> "maven:3.9-eclipse-temurin-21");
         registry.add(prefix + "verification-plan", () -> "java21-unit");
         registry.add(prefix + "jira-projects[0]", () -> project);
-    }
-
-    @AfterAll
-    static void stopWireMock() {
-        jira.stop();
     }
 
     @Autowired

@@ -4,6 +4,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.support.FactoryIntegrationTest;
+import org.folio.factory.app.support.SharedWireMock;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
@@ -42,16 +43,14 @@ import org.folio.factory.devfactory.worker.DevelopWorker;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.folio.factory.devfactory.worker.IntakeResolveWorker;
 import org.folio.factory.devfactory.worker.VerifyWorker;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.json.JsonMapper;
@@ -94,6 +93,7 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
  * state-covering lookup instead of creating a duplicate pull request.
  */
 @FactoryIntegrationTest
+@Import(SharedWireMock.GitHub.class)
 @ActiveProfiles("task-execution")
 @TestPropertySource(properties = "factory.connectors.github.token=fixture-github-token")
 // Own context: task queue with WireMock GitHub and a scripted delivery; closing it stops its schedulers and frees its connections.
@@ -107,18 +107,7 @@ class TaskPublicationIntegrationTest {
 
     private final JsonMapper json = JsonMapper.builder().build();
 
-    @DynamicPropertySource
-    static void githubMockBaseUrl(DynamicPropertyRegistry registry) {
-        GITHUB.start();
-        registry.add("factory.connectors.github.base-url", GITHUB::baseUrl);
-    }
-
-    static final WireMockServer GITHUB = new WireMockServer(0);
-
-    @AfterAll
-    static void stopWireMock() {
-        GITHUB.stop();
-    }
+    static final WireMockServer GITHUB = SharedWireMock.GITHUB;
 
     @MockitoBean
     DeveloperPreflight preflight;

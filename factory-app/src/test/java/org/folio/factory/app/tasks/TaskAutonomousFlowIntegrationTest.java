@@ -4,6 +4,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.support.FactoryIntegrationTest;
+import org.folio.factory.app.support.SharedWireMock;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
@@ -33,11 +34,11 @@ import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.worker.CodingDecisionGateWorker;
 import org.folio.factory.devfactory.worker.DecisionGateWorker;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -84,6 +85,7 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
  * while the same flow started manually still opens its existing reviews.
  */
 @FactoryIntegrationTest
+@Import({SharedWireMock.Jira.class, SharedWireMock.GitHub.class})
 @ActiveProfiles("engine")
 // Own context: running engine with its own repository catalog and git fixture; closing it stops its schedulers and frees its connections.
 @DirtiesContext
@@ -92,8 +94,8 @@ class TaskAutonomousFlowIntegrationTest {
     private static final String INSTANCE = "jira.example.org";
     private static final String DESCRIPTION = "As an operator I want X. AC1: X happens.";
 
-    static WireMockServer jira = new WireMockServer(0);
-    static WireMockServer github = new WireMockServer(0);
+    static final WireMockServer jira = SharedWireMock.JIRA;
+    static final WireMockServer github = SharedWireMock.GITHUB;
     static final Path gitRoot = createGitRoot();
     static final String barSha = createRepository("folio-org/mod-bar", "master");
     static final String fooSha = createRepository("folio-org/mod-foo", "master");
@@ -101,12 +103,8 @@ class TaskAutonomousFlowIntegrationTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        jira.start();
-        github.start();
-        registry.add("factory.connectors.jira.base-url", jira::baseUrl);
         registry.add("factory.connectors.jira.email", () -> "bot@example.org");
         registry.add("factory.connectors.jira.api-token", () -> "token");
-        registry.add("factory.connectors.github.base-url", github::baseUrl);
         registry.add("factory.connectors.github.token", () -> "token");
         registry.add("factory.dev-factory.git-base-url", () -> gitRoot.toUri().toString());
         registry.add("factory.dev-factory.runtime.plans.java-maven-test[0]", () -> "mvn");
@@ -124,12 +122,6 @@ class TaskAutonomousFlowIntegrationTest {
         registry.add(prefix + "build-image", () -> "maven:3.9-eclipse-temurin-21");
         registry.add(prefix + "verification-plan", () -> "java-maven-test");
         registry.add(prefix + "jira-projects[0]", () -> project);
-    }
-
-    @AfterAll
-    static void stopWireMock() {
-        jira.stop();
-        github.stop();
     }
 
     @TempDir

@@ -4,6 +4,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.support.FactoryIntegrationTest;
+import org.folio.factory.app.support.SharedWireMock;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.ArtifactContent;
 import org.folio.factory.core.domain.AuditEventType;
@@ -20,12 +21,12 @@ import org.folio.factory.core.service.StateManager;
 import org.folio.factory.core.trigger.PipelineRouter;
 import org.folio.factory.devfactory.decision.DevArtifactAmendmentValidator;
 import org.folio.factory.devfactory.worker.DecisionGateWorker;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
@@ -62,6 +63,7 @@ import static org.awaitility.Awaitility.await;
  * the plugin-local conditional decision gate.
  */
 @FactoryIntegrationTest
+@Import(SharedWireMock.Jira.class)
 @ActiveProfiles("engine")
 // Own context: running engine with its own repository catalog and git fixture; closing it stops its schedulers and frees its connections.
 @DirtiesContext
@@ -75,7 +77,7 @@ class DeveloperIntakeDecisionTest {
     private static final int DECISION_STEP_INDEX = 1;
     private static final String DESCRIPTION = "As an operator I want X. AC1: X happens.";
 
-    static WireMockServer jira = new WireMockServer(0);
+    static final WireMockServer jira = SharedWireMock.JIRA;
     static final Path gitRoot = createGitRoot();
     static final String barSha = createRepository("folio-org/mod-bar", "master");
     static final String fooSha = createRepository("folio-org/mod-foo", "master");
@@ -87,8 +89,6 @@ class DeveloperIntakeDecisionTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        jira.start();
-        registry.add("factory.connectors.jira.base-url", jira::baseUrl);
         registry.add("factory.connectors.jira.email", () -> "bot@example.org");
         registry.add("factory.connectors.jira.api-token", () -> "token");
         registry.add("factory.dev-factory.git-base-url", () -> gitRoot.toUri().toString());
@@ -106,11 +106,6 @@ class DeveloperIntakeDecisionTest {
         registry.add(prefix + "build-image", () -> "maven:3.9-eclipse-temurin-21");
         registry.add(prefix + "verification-plan", () -> "java-maven-test");
         registry.add(prefix + "jira-projects[0]", () -> project);
-    }
-
-    @AfterAll
-    static void stopWireMock() {
-        jira.stop();
     }
 
     @LocalServerPort

@@ -3,6 +3,7 @@ package org.folio.factory.app.tasks;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.support.FactoryIntegrationTest;
+import org.folio.factory.app.support.SharedWireMock;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.execution.PersistedTaskAttemptPolicy;
@@ -37,13 +38,14 @@ import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.folio.factory.devfactory.worker.DevelopWorker;
 import org.folio.factory.devfactory.worker.VerifyWorker;
-import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
@@ -107,6 +109,7 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
  * review, coding starts once per attempt and no pull request is duplicated.
  */
 @FactoryIntegrationTest
+@Import({SharedWireMock.Jira.class, SharedWireMock.GitHub.class})
 @ActiveProfiles({"engine", "task-execution"})
 @TestPropertySource(properties = {
         "factory.limits.dedup.window=PT0S",
@@ -142,8 +145,8 @@ class TaskEndToEndTest {
     private static final Map<String, Object> PARTIAL_USAGE = Map.of(
             "inputTokens", 50_000L, "outputTokens", 5_000L);
 
-    static final WireMockServer jira = new WireMockServer(0);
-    static final WireMockServer GITHUB = new WireMockServer(0);
+    static final WireMockServer jira = SharedWireMock.JIRA;
+    static final WireMockServer GITHUB = SharedWireMock.GITHUB;
 
     static final Path gitRoot = createGitRoot();
     static final Path BAR_WORK = createRepository("folio-org/mod-bar", "master");
@@ -153,11 +156,15 @@ class TaskEndToEndTest {
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
-        jira.start();
-        GITHUB.start();
-        registry.add("factory.connectors.jira.base-url", jira::baseUrl);
-        registry.add("factory.connectors.github.base-url", GITHUB::baseUrl);
         registry.add("factory.dev-factory.git-base-url", () -> gitRoot.toUri().toString());
+    }
+
+    // The ordered scenario builds on the stubs and requests of earlier tests, so the servers reset
+    // once per class instead of before each test.
+    @BeforeAll
+    static void resetWireMockAndStubPullRequestCreation() {
+        jira.resetAll();
+        GITHUB.resetAll();
         GITHUB.stubFor(get(urlPathEqualTo("/repos/" + BAR + "/pulls"))
                 .withQueryParam("state", equalTo("all")).willReturn(okJson("[]")));
         GITHUB.stubFor(get(urlPathEqualTo("/repos/" + FOO + "/pulls"))
@@ -166,12 +173,6 @@ class TaskEndToEndTest {
                 .willReturn(okJson("{\"html_url\": \"" + BAR_PR + "\"}")));
         GITHUB.stubFor(post(urlPathEqualTo("/repos/" + FOO + "/pulls"))
                 .willReturn(okJson("{\"html_url\": \"" + FOO_PR + "\"}")));
-    }
-
-    @AfterAll
-    static void stopWireMock() {
-        jira.stop();
-        GITHUB.stop();
     }
 
     @MockitoBean
