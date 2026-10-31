@@ -10,6 +10,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -126,28 +127,24 @@ final class StepUsageSummary {
     }
 
     private Map<String, Object> codingTokenTotals() {
-        var breakdown = new LinkedHashMap<String, Long>();
+        var breakdown = new EnumMap<AttemptCharge.Category, Long>(AttemptCharge.Category.class);
         long total = 0;
         for (var usage : usageByStep.values()) {
-            mergeReported(breakdown, "input", usage.input());
-            mergeReported(breakdown, "cacheRead", usage.cacheRead());
-            mergeReported(breakdown, "cacheWrite", usage.cacheWrite());
-            mergeReported(breakdown, "output", usage.output());
+            for (var category : AttemptCharge.Category.values()) {
+                mergeReported(breakdown, category, usage.count(category));
+            }
             total += usage.inputTotal() + usage.outputTotal();
         }
         Map<String, Object> totals = new LinkedHashMap<>();
         totals.put("present", total > 0);
         totals.put("coding", true);
         totals.put("total", compactTokenCount(total));
-        for (String category : List.of("input", "cacheRead", "cacheWrite", "output")) {
-            if (breakdown.containsKey(category)) {
-                totals.put(category, compactTokenCount(breakdown.get(category)));
-            }
-        }
+        breakdown.forEach((category, count) -> totals.put(category.key(), compactTokenCount(count)));
         return totals;
     }
 
-    private static void mergeReported(Map<String, Long> totals, String category, Long count) {
+    private static void mergeReported(Map<AttemptCharge.Category, Long> totals, AttemptCharge.Category category,
+                                      Long count) {
         if (count != null) totals.merge(category, count, Long::sum);
     }
 
@@ -183,6 +180,15 @@ final class StepUsageSummary {
 
         boolean codingTokensPresent() {
             return input != null || cacheRead != null || cacheWrite != null || output != null;
+        }
+
+        Long count(AttemptCharge.Category category) {
+            return switch (category) {
+                case INPUT -> input;
+                case CACHE_READ -> cacheRead;
+                case CACHE_WRITE -> cacheWrite;
+                case OUTPUT -> output;
+            };
         }
 
         long inputTotal() {

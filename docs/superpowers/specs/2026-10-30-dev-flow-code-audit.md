@@ -26,6 +26,7 @@ appears 123 times in dev-factory main code and 162 times in factory-app main cod
 `checkstyle/suppressions.xml` still lists 40 methods over the 25-line / 7-parameter limits; 15 of them
 are `ParameterNumber` on constructors or bean methods of the classes named below.
 Status (2026-10-31): Done: Split the remaining long methods into named steps and update the env docs. No entry could go without a change (all 27 still fired). 20 `MethodLength` entries were split into named private methods, so 7 entries remain: `DeveloperCostEstimator.estimate` (pre-0.9.0 cost path, out of scope by the cleanup prompt) and six `ParameterNumber` entries, which this commit does not change.
+Status (2026-10-31): Review follow-up in Fix the review findings on cleanup phases 1 to 6: the `ParameterNumber` entries of `CandidateDelivery.deliver`, `DockerWorkloads.createCommand` and `TaskPublicationIntent.of` go (see section 5), so 4 entries remain: `DeveloperCostEstimator.estimate`, `FeedbackUiController.command`, the `Task` constructor and `TestFactoryConfiguration` (Test Factory, out of scope).
 
 ## 2. Legacy and dead configuration layers
 
@@ -68,7 +69,7 @@ Each of these exists for a configuration shape that the shipped files no longer 
    `DevFactoryProperties.Repository` 6-arg (`:52-60`, main 0 / test 10 files), `Processes.Streamed` 4-arg.
    Tests pass the full form; the suppressions for `CodingRequest`, `Coding`, `VerificationReceipt`,
    `Repository` go with them.
-   Status (2026-10-31): Done: Remove legacy Pi, delivery and pilot configuration layers. Tests call the canonical constructor (one extra `null`, `false` or empty list); no fixture class was needed. `Repository` had no suppression left.
+   Status (2026-10-31): Done: Remove legacy Pi, delivery and pilot configuration layers. The cleanup prompt asked for one test fixture class per type; none was added: tests pass the canonical constructor with extra `null`, `false` or `List.of()` arguments instead. `Repository` had no suppression left. (No shared `VerificationReceipt` fixture either: its 11 test calls in 5 classes differ in exit code, counts and plan.)
 7. **Pre-0.9.0 history paths in the UI**: `DeveloperExecutionView.LEGACY_PHASES` (`:47`, used at `:341` for
    flow version `0.6.*`), `ExecutionUiController.populateLegacyUsage` (`:219`, taken when the flow version
    is not `0.9.0`, `:200-203`), `StepUsageSummary.estimate/incomplete`, `DeveloperCostEstimator` (75 lines),
@@ -93,6 +94,7 @@ move to the full forms.
   With `@RequiredArgsConstructor` (house style) each class keeps one constructor and tests pass
   `TaskAttemptPolicy.none()` / `CodingTranscripts.none()` themselves.
   Status (2026-10-31): Done: Give workers one constructor and operations one signature. `DeliveryWorker` and `FeedbackWorker` keep one hand-written constructor (they build `VerificationPolicy` and the feedback helpers); their `ParameterNumber` suppressions go in phase 4.
+  Status (2026-10-31): Review follow-up in Fix the review findings on cleanup phases 1 to 6: kept `CandidateDelivery(CandidateFreezer, String remoteRoot)`, the package-private constructor that `CandidateDeliveryTest` uses to push to a local bare repository. A test-side subclass would still need a non-public constructor in main code, and one public constructor that takes the root would let wiring code send the GitHub token to another host; today the only public constructor pins pushes to github.com.
 - Overload ladders with one real implementation: `CodingRuntime.code` x3 (`runtime/CodingRuntime.java:27-39`,
   both runtimes implement all three), `Processes.run` x4 (`runtime/Processes.java:50-60`),
   `DockerWorkloads.Workload.execute` x3 (`:207-215`), `CandidateVerifier.verify` x3 public + 1 private
@@ -137,7 +139,8 @@ Estimated delta: about -150 main lines, 6 suppressions. Risk: low (compile-check
    `TokenUsage` record (input, cacheRead, cacheWrite5m, cacheWrite1h, output, complete) serialised with the
    same JSON names replaces six parsers; `AttemptUsageSummary.Totals`, `ChargeSum`, `TaskUsage`,
    `StepUsageSummary.ReportedUsage` and `DeveloperCostEstimator.Usage` all model "count per category".
-   Status (2026-10-31): Done: Share the task guard, git runner, token usage and digest helpers. `TokenUsage` also carries the reported `promptTokens`/`completionTokens` (Test Factory steps report only those); `TokenUsage.withFactoryTotals(map)` is the old `withFactoryTokenMetrics`. Claude metrics now list token keys in `TokenUsage` order (input, cache, output) instead of Claude's; names and values are unchanged. `AttemptUsageSummary.Totals`, `ChargeSum`, `TaskUsage` and `DeveloperCostEstimator.Usage` stay: they are sums and prices, not parsers.
+   Status (2026-10-31): Done: Share the task guard, git runner, token usage and digest helpers. `TokenUsage` also carries the reported `promptTokens`/`completionTokens` (Test Factory steps report only those); `TokenUsage.withFactoryTotals(map)` is the old `withFactoryTokenMetrics`. Claude metrics now list token keys in `TokenUsage` order (input, cache, output) instead of Claude's; names and values are unchanged. `AttemptUsageSummary.Totals`, `ChargeSum`, `TaskUsage` and `DeveloperCostEstimator.Usage` stay: they are sums and prices, not parsers. Three of the six listed "parsers" never read usage keys and were left unchanged: `StepUsageSummary.codingTokenTotals`, `AttemptUsageSummary.breakdownCounts` and `FeedbackUi.populateUsage` read values that are already built.
+   Status (2026-10-31): Review follow-up in Fix the review findings on cleanup phases 1 to 6: the key order of the persisted metrics is the old one again. Claude metrics and the transcript `result` usage use `TokenUsage.toClaudeMetrics()` (input, output, cache read, cache write, 5m, 1h); Pi keeps input, cache read, cache write, output, then `costUsd`, then `usageIncomplete`. `TokenUsageTest` and `PiCodingRuntimeTest` assert the order. `TokenUsage.from(JsonNode)` now takes whole numbers only (`isIntegralNumber`), as `AttemptCharge.cacheWriteCost` and `DeveloperTranscriptView.resultFacts` did; `StepUsageSummary.reportedUsage` and the four main categories of `AttemptCharge.calculate` used to accept any number and drop the fraction (no runtime writes fractions). `AttemptUsageSummary` again counts a completed step that names `inputTokens` or `outputTokens` whatever the value (`TokenUsage.namesCodingTokens`). `StepUsageSummary.codingTokenTotals` now iterates `AttemptCharge.Category` (same keys, same order), and the category's key, label, token reader and rate field are all private with `key()` and `label()` getters.
 7. **SHA-256 hex** helper in four in-scope places: `app/tasks/Digests:17-24`, `candidate/Candidate:23`,
    `decision/CodingDecisionArtifacts:90`, `decision/DecisionArtifacts:128`.
    Status (2026-10-31): Done: Share the task guard, git runner, token usage and digest helpers. `Digests` is gone; the task fingerprints call `Candidate.sha256`.
@@ -166,6 +169,7 @@ Constructors with 10 to 14 dependencies (`FeedbackWorker` 14, `InitialCodingAtte
 AGENTS.md's own rule applies: parameters that travel together become a record (for example
 `DevFlowSettings(repositories, runtime, delivery)` and `CodingServices(coding, docker, freezer)`).
 Status (2026-10-31): Done: Group the Developer Flow wiring into hooks and parameter records. Records: `DevFlowSettings`, `CodingServices`, `DeliveryServices`, `FeedbackServices` (flow module), `EngineRecords`, `TaskSource` (app). `DeveloperPreflight` (9) and `TaskUiController` (11) use Lombok constructors, which Checkstyle does not count; they were not in the phase list and stay.
+Status (2026-10-31): Review follow-up in Fix the review findings on cleanup phases 1 to 6: three more `ParameterNumber` suppressions go. `CandidateDelivery.deliver` takes its existing `Request` record (now public, with `stableBranch`), `DockerWorkloads.createCommand` takes an `Owner(executionId, stepId, role)` record for the container labels, and `TaskPublicationIntent.of` takes `TaskAttemptPolicy.PublicationIntent`, which has the same six columns. Kept: `FeedbackUiController.command` (8): binding the form into a record with `@ModelAttribute` would bind a missing `reviewId` as null instead of answering 400 and lose the `""` defaults of `snapshotId` and `answer`, a change at an HTTP boundary; the `Task` JPA constructor (9), whose shape stays; `TestFactoryConfiguration` (out of scope). The `DeveloperPricingProperties.Rate` constructor was already removed in phase 6.
 
 Estimated delta: about -150 to -250 lines. Risk: low (Spring context tests in factory-app fail fast).
 
@@ -179,9 +183,11 @@ From the package audit; the sample claims below were re-checked by hand.
    `admitByKey:170-177` vs `reserveAndDispatch:102-111`; `fetch:143-159` vs `freshIssue:115-125`). Keep
    `historyProblem` (`TaskRetryService:186-208`) as the only retry-specific rule. About -140 lines.
    Status (2026-10-31): Done: Merge task admission and retry, fold startup recovery into dispatch. `TaskAdmissionService` runs selection, by-key and retry with one `reserve`, one Jira read, one conflict handler; `TaskAdmissionChecks` holds the checks (fingerprints, eligibility, history, push access). Refusal texts unchanged. `RetryResult.state` is typed; "in flight" is `TaskAttempt.State.isInFlight()`, derived from `LIVE_STATES` (the controller and the outcome service excluded `NEEDS_INSPECTION`, so `LIVE_STATES` itself would have changed what the Retry button reports).
+   Status (2026-10-31): Review follow-up in Fix the review findings on cleanup phases 1 to 6: `TaskAdmissionService` stays one class at 345 lines (274 without blank and comment lines). Its parts share `reserve`, `inTransaction` and the request-id rules; the only separable piece, the Retry answer (`dispatch`, `storedRetry`, `rejection`, `resolveConcurrentRetry`), would bring back a per-command `TaskRetryService`, which this phase removed on purpose.
 2. `TaskRecoveryService` (58) duplicates `TaskDispatcher.dispatchNextOrThrow` (`:71-77`), which already
    refreshes the active attempt; one scheduled class with an `ApplicationReadyEvent` hook. About -45.
    Status (2026-10-31): Done: Merge task admission and retry, fold startup recovery into dispatch. `FACTORY_TASKS_EXECUTION_RECOVERY_POLL_INTERVAL_MS` is removed (README says so); the startup run also starts the next queued attempt when the slot is free, which the 30-second poll did anyway.
+   Status (2026-10-31): Review follow-up in Fix the review findings on cleanup phases 1 to 6: the merge had dropped the log line of `TaskRecoveryService`, so nothing logged why an attempt was held. `TaskDispatcher` now logs "Reconciled active task attempt <id> to NEEDS_INSPECTION: <cause>" when a refresh holds the active attempt (not while it is processing, which would log every poll); `TaskLifecycleIntegrationTest` checks the line.
 3. `TaskInstallation.initial()` and its four `orElseGet` fallbacks (`TaskExecutionLauncher:107`,
    `TaskDiscoveryService:186, 208`, `TaskUiController:334`) never run: `V12__pilot_my_tasks.sql:29` seeds row 1.
    Status (2026-10-31): Done: Merge task admission and retry, fold startup recovery into dispatch. They did run in ten test classes that delete the row; those now re-seed it with the test fixture `TaskInstallations.seeded()`. Production fails with a message naming V12.
@@ -214,6 +220,7 @@ From the package audit; the sample claims below were re-checked by hand.
    twice; `FLOW_ID = "dev-factory"` in `TaskExecutionLauncher:37`, `TaskUiController:55`,
    `DeveloperPreflight:44`; slot release in `releaseLocked:247-252` and `markStopped:277-281`.
    Status (2026-10-31): Done: Remove dead task outcome code and unread fields, type the attempt history. `TaskAttempt.approvedSnapshotMap()`, one `PersistedTaskAttemptPolicy.capReason` with its `MAX_REASON_LENGTH`, `DevFactoryConfiguration.FLOW_ID` (it also replaces the `"dev-factory"` literals in `ExecutionUiController` and three feedback classes), `TaskOutcomeService.releaseSlot`. `TaskDiscoveryService` keeps its own `MAX_REASON_LENGTH`: it caps another column (`task.routing_reason`) with a strip-and-cut helper it also uses for titles and scan problems.
+   Status (2026-10-31): Review follow-up in Fix the review findings on cleanup phases 1 to 6: `TaskOutcomeService.releaseSlot` takes the locked `TaskInstallation`, not an `Optional`; both callers still lock the installation first and resolve the `Optional` with `ifPresent`.
 9. `TaskQuery` runs the full attempt, usage and audit projection for Available rows that by query
    definition have no attempts, loads the installation once per task instead of once per request, and
    `TaskUiController.taskLabel` (`:325-331`) and `ExecutionUiController.taskRun` (`:151-155`) call the full
@@ -240,6 +247,7 @@ low elsewhere.
    `/executions` with all artifact content loaded (`:226-228`). The audit event list is walked five times
    per page load. Guarding these with the branch the template already has removes the largest per-load cost.
    Status (2026-10-31): Done: Build only what the run page shows and remove dead presentation code. A Developer Flow run no longer builds `events`, `progressSteps`, step `tokens` or artifact `content/createdBy/label/panelId/latest` (`createdBy` was not rendered on either branch). `StepUsageSummary.from` still runs for Developer Flow runs before 0.9.0: their usage panel reads `tokenTotals`, `estimatedCost` and `usageIncomplete` from it. `build` parses each latest artifact at most once and returns `productStatus` with the view; `/executions` rows ask `ArtifactStore.getLatest` only for the artifacts their status needs. Two of the audit-event walks are gone; the others feed parts of the page. The rendered text of all 74 pages that `UiRenderSmokeTest` requests was compared before and after: identical.
+   Status (2026-10-31): Review follow-up in Fix the review findings on cleanup phases 1 to 6: `/executions` now runs one `ArtifactStore.getLatest` query per artifact name a Developer Flow row needs (3 for a delivered 0.9.0 run, up to 8), where it ran one `allForExecution` before; a batched query belongs in `factory-core`, so it is in `docs/open-questions.md`.
 3. **Dead members**: `AttemptUsageSummary.build` x2 (`:35-41`), summary keys `tokens` / `provisional`;
    `DeveloperExecutionView.technicalStepDuration` (`:327-330`), view keys `outcome`, `elapsed`, `elapsedStart`,
    phase row keys `type/attempts/tokens`; `FeedbackUi.duration` (`:189-191`), round card key `round`;
@@ -261,6 +269,7 @@ low elsewhere.
    `application.yaml:3-7` imports repositories and run profiles but not pricing, so `mvn spring-boot:run`
    prices nothing. One line: `optional:file:./config/developer-pricing.yaml`.
    Status (2026-10-31): Done: Build only what the run page shows and remove dead presentation code. The README pricing paragraph says the file is also loaded when Spring runs from the repository root.
+   Status (2026-10-31): Review follow-up in Fix the review findings on cleanup phases 1 to 6: `optional:file:./config/developer-pricing.yaml` found nothing under `mvn spring-boot:run -pl factory-app`, which runs in `factory-app/`. `factory-app/pom.xml` now packages `config/developer-pricing.yaml` like the other two config files, and `application.yaml` imports `classpath:developer-pricing.yaml` before the file. Compose is unchanged: its `SPRING_CONFIG_IMPORT` names only the mounted file.
 6. **Row shapes and label tables**: 1 public record row (`ExecutionRow`) against about 23 `Map` row shapes
    and about 21 label/tone tables across `DeveloperExecutionView`, `DeveloperRuntimeActivity`,
    `DeveloperTranscriptView`, `FeedbackUi`, `TaskRows`, `TaskLabels`, `UiFormat`. Restated relations: step
@@ -274,6 +283,7 @@ low elsewhere.
 7. `ExecutionUiController` (345 lines, suppressed constructor): the transcript route (`:138-155`) and its
    three dependencies belong in their own controller.
    Status (2026-10-31): Done: Group the Developer Flow wiring into hooks and parameter records. The execution page also shows the task context, so the controller keeps `TaskQuery` (now `TaskQuery.runContext`) and `TranscriptUiController` takes the transcript route with the store.
+   Status (2026-10-31): Review follow-up in Fix the review findings on cleanup phases 1 to 6: `artifactGroups` and `artifactLinks` share one `groupByName` with a per-version mapper, and the flow's step list is looked up once per request (`ExecutionDetail.chain`) instead of three times. The controller is 339 lines; the model keys and page text are unchanged.
 
 Estimated delta: about -450 lines. Risk: low; `UiRenderSmokeTest` covers page text.
 

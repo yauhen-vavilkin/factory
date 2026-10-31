@@ -7,6 +7,7 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -53,19 +54,18 @@ public class TaskPublicationIntent {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    public static TaskPublicationIntent of(UUID attemptId, UUID executionId, String repository,
-                                            String baseBranch, String headBranch, String baseSha,
-                                            String treeSha, String patchSha256) {
+    public static TaskPublicationIntent of(UUID attemptId, UUID executionId,
+                                            TaskAttemptPolicy.PublicationIntent publication) {
         TaskPublicationIntent intent = new TaskPublicationIntent();
         intent.id = UUID.randomUUID();
         intent.attemptId = attemptId;
         intent.executionId = executionId;
-        intent.repository = repository;
-        intent.baseBranch = baseBranch;
-        intent.headBranch = headBranch;
-        intent.baseSha = baseSha;
-        intent.treeSha = treeSha;
-        intent.patchSha256 = patchSha256;
+        intent.repository = publication.repository();
+        intent.baseBranch = publication.baseBranch();
+        intent.headBranch = publication.headBranch();
+        intent.baseSha = publication.baseSha();
+        intent.treeSha = publication.treeSha();
+        intent.patchSha256 = publication.patchSha256();
         intent.createdAt = Instant.now();
         return intent;
     }

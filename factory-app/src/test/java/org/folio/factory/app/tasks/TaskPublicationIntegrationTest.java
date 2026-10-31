@@ -76,10 +76,8 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -197,16 +195,12 @@ class TaskPublicationIntegrationTest {
         Candidate candidate = candidate();
         VerificationReceipt receipt = receipt(executionId, candidate);
         AtomicReference<String> deliveredBranch = new AtomicReference<>();
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(),
-                anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenAnswer(invocation -> {
                     assertThat(intents.findByExecutionId(executionId))
                             .as("the publication intent is durable before the first remote mutation")
                             .isPresent();
-                    String branch = CandidateDelivery.branchFor(invocation.getArgument(0, String.class),
-                            invocation.getArgument(1, String.class),
-                            invocation.getArgument(4, Candidate.class),
-                            invocation.getArgument(8, Boolean.class));
+                    String branch = branchFor(invocation.getArgument(0, CandidateDelivery.Request.class));
                     deliveredBranch.set(branch);
                     return new DeliveryReceipt(executionId.toString(), OFFICIAL, branch,
                             candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(),
@@ -221,8 +215,7 @@ class TaskPublicationIntegrationTest {
         assertThat(output.path("state").asString()).describedAs(output.path("reason").asString())
                 .isEqualTo("DELIVERED");
         assertThat(output.path("pullRequestUrl").asString()).isEqualTo(PR_URL);
-        verify(delivery).deliver(anyString(), anyString(), anyString(), anyString(), any(), any(),
-                eq(new DeliveryTarget(OFFICIAL, "master")), anyString(), anyBoolean(), anyInt());
+        verify(delivery).deliver(argThat(request -> request.target().equals(new DeliveryTarget(OFFICIAL, "master"))));
 
         TaskPublicationIntent intent = intents.findByExecutionId(executionId).orElseThrow();
         assertThat(intent.getRepository()).isEqualTo(OFFICIAL);
@@ -250,13 +243,9 @@ class TaskPublicationIntegrationTest {
         task.setInScope(false);
         tasks.save(task);
         Candidate candidate = candidate();
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(),
-                anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenAnswer(invocation -> new DeliveryReceipt(executionId.toString(), OFFICIAL,
-                        CandidateDelivery.branchFor(invocation.getArgument(0, String.class),
-                                invocation.getArgument(1, String.class),
-                                invocation.getArgument(4, Candidate.class),
-                                invocation.getArgument(8, Boolean.class)),
+                        branchFor(invocation.getArgument(0, CandidateDelivery.Request.class)),
                         candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40)));
         stubPullRequestLookup("[]");
         stubPullRequestCreation(prBody(PR_URL));
@@ -326,8 +315,7 @@ class TaskPublicationIntegrationTest {
         VerificationReceipt receipt = receipt(executionId, candidate);
         String branch = CandidateDelivery.branchFor(executionId.toString(), "MODSIDECAR-741",
                 candidate, true);
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(),
-                anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenAnswer(invocation -> new DeliveryReceipt(executionId.toString(), OFFICIAL, branch,
                         candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(),
                         "c".repeat(40)));
@@ -479,5 +467,10 @@ class TaskPublicationIntegrationTest {
                         TaskAdmissionChecks.destinationFingerprint(task))), null));
         assertThat(result.rejectedReasons()).isEmpty();
         return dispatcher.dispatchNext().orElseThrow();
+    }
+
+    private static String branchFor(CandidateDelivery.Request request) {
+        return CandidateDelivery.branchFor(request.executionId(), request.issueKey(), request.candidate(),
+                request.stableBranch());
     }
 }

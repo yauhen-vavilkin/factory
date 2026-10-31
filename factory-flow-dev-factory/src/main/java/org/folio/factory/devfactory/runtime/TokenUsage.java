@@ -15,6 +15,7 @@ public record TokenUsage(Long inputTokens, Long cacheReadTokens, Long cacheWrite
                          Long cacheWrite1hTokens, Long outputTokens, Long promptTokens, Long completionTokens,
                          boolean usageIncomplete) {
     public static final TokenUsage NONE = new TokenUsage(null, null, null, null, null, null, null, null, false);
+    static final String INCOMPLETE = "usageIncomplete";
 
     private static final String INPUT = "inputTokens";
     private static final String CACHE_READ = "cacheReadTokens";
@@ -24,10 +25,9 @@ public record TokenUsage(Long inputTokens, Long cacheReadTokens, Long cacheWrite
     private static final String OUTPUT = "outputTokens";
     private static final String PROMPT = "promptTokens";
     private static final String COMPLETION = "completionTokens";
-    private static final String INCOMPLETE = "usageIncomplete";
 
     public static TokenUsage from(JsonNode metrics) {
-        return read(key -> metrics.path(key).isNumber() ? metrics.path(key).asLong() : null,
+        return read(key -> metrics.path(key).isIntegralNumber() ? metrics.path(key).asLong() : null,
                 metrics.path(INCOMPLETE).asBoolean(false));
     }
 
@@ -45,6 +45,11 @@ public record TokenUsage(Long inputTokens, Long cacheReadTokens, Long cacheWrite
     /** True when the runtime reported input or output tokens, which only coding runtimes do. */
     public boolean hasCodingTokens() {
         return inputTokens != null || outputTokens != null;
+    }
+
+    /** True when the metrics name input or output tokens, whatever the value. */
+    public static boolean namesCodingTokens(JsonNode metrics) {
+        return metrics.has(INPUT) || metrics.has(OUTPUT);
     }
 
     /** The sum of two reports; a count stays null only when neither reported it. */
@@ -82,13 +87,27 @@ public record TokenUsage(Long inputTokens, Long cacheReadTokens, Long cacheWrite
 
     /** The reported counts under their metric keys; {@code usageIncomplete} appears only when it is true. */
     public Map<String, Object> toMetrics() {
+        return metrics(false);
+    }
+
+    /** {@link #toMetrics()} in the key order Claude Code metrics have always had: output right after input. */
+    public Map<String, Object> toClaudeMetrics() {
+        return metrics(true);
+    }
+
+    private Map<String, Object> metrics(boolean outputAfterInput) {
         var metrics = new LinkedHashMap<String, Object>();
         putReported(metrics, INPUT, inputTokens);
+        if (outputAfterInput) {
+            putReported(metrics, OUTPUT, outputTokens);
+        }
         putReported(metrics, CACHE_READ, cacheReadTokens);
         putReported(metrics, CACHE_WRITE, cacheWriteTokens);
         putReported(metrics, CACHE_WRITE_5M, cacheWrite5mTokens);
         putReported(metrics, CACHE_WRITE_1H, cacheWrite1hTokens);
-        putReported(metrics, OUTPUT, outputTokens);
+        if (!outputAfterInput) {
+            putReported(metrics, OUTPUT, outputTokens);
+        }
         putReported(metrics, PROMPT, promptTokens);
         putReported(metrics, COMPLETION, completionTokens);
         if (usageIncomplete) {

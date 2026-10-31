@@ -102,7 +102,7 @@ public final class AttemptUsageSummary {
                     && !activity.equals("pi_usage")
                     && event.getEventType() != AuditEventType.STEP_COMPLETED) return;
             if (event.getEventType() == AuditEventType.STEP_COMPLETED
-                    && !TokenUsage.from(d).hasCodingTokens()) return;
+                    && !TokenUsage.namesCodingTokens(d)) return;
             if (id.isBlank()) {
                 legacyUnknown = true;
                 return;
@@ -179,7 +179,7 @@ public final class AttemptUsageSummary {
         private static Map<String, Long> breakdownCounts(Map<AttemptCharge.Category, Long> breakdown) {
             Map<String, Long> counts = new LinkedHashMap<>();
             for (var category : AttemptCharge.Category.values()) {
-                counts.put(category.key, breakdown.getOrDefault(category, 0L));
+                counts.put(category.key(), breakdown.getOrDefault(category, 0L));
             }
             return counts;
         }

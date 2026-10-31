@@ -71,11 +71,22 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
   variable must be added there too. This includes the `secret-env` variable of every new run
   profile.
 - When Factory cannot prove that an attempt's containers are gone, `TaskOutcomeService.hold`
-  holds the attempt for inspection but stores no reason: the cause (for example "workload
-  inactivity could not be confirmed: docker ps failed") is only returned to the dispatcher, which
-  ignores it, and nothing logs it. The task page then says only that Factory could not confirm
-  how the run ended. The parameter that was meant to store it was always null and was removed in
-  the cleanup (phase 5).
+  holds the attempt for inspection but stores no reason. The dispatcher logs the cause ("Reconciled
+  active task attempt <id> to NEEDS_INSPECTION: workload inactivity could not be confirmed: docker
+  ps failed"), but the task page and the `task_attempt` row have none: the page says only that
+  Factory could not confirm how the run ended. The parameter that was meant to store it was always
+  null and was removed in the cleanup (phase 5).
+- `/executions` runs one `ArtifactStore.getLatest` query per artifact name for each Developer Flow
+  row (3 for a delivered run, up to 8 for an unusual one), where it ran one `allForExecution`
+  before (`ExecutionUiController.executionRow`, cleanup phase 6). A batched "latest by names"
+  query would belong in `factory-core`, which the cleanup did not touch.
+- `TaskOutcomeService.classify` maps any `DELIVERED` delivery to `NEEDS_INSPECTION` ("the
+  candidate was delivered without a known pull-request identity"), because `deliveredOutcome`
+  normally releases a delivery with a pull request first. An escalated run (`FAILED_ESCALATED` is
+  terminal but can be resumed) can be approved and publish while `proveInactive` runs: then
+  `deliveredOutcome` read the delivery before it was written and `classify` reads it after, so the
+  attempt is held for one dispatch poll. The next refresh releases it as `PR_READY` through
+  `deliveredOutcome`.
 
 ## Left after the Developer Flow fixes
 

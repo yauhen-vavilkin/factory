@@ -19,7 +19,7 @@ class DockerWorkloadsTest {
     void workloadsUseHostResourcesAndKeepIsolation() {
         for (var cache : DockerWorkloads.MavenCache.values()) {
             var command = DockerWorkloads.createCommand("build", "workload", "501:20", cache, "cache",
-                    executionId, STEP, "coding");
+                    new DockerWorkloads.Owner(executionId, STEP, "coding"));
             assertThat(command).doesNotContain("--cpus", "--memory")
                     .containsSubsequence("--pids-limit", "512", "--cap-drop", "ALL", "--security-opt", "no-new-privileges")
                     .containsSubsequence("--user", "501:20")
@@ -46,7 +46,7 @@ class DockerWorkloadsTest {
     void trustedBaselineGetsWritablePersistentMavenRepository() {
         var command = DockerWorkloads.createCommand("build", "baseline", "501:20",
                 DockerWorkloads.MavenCache.TRUSTED_WRITABLE, "factory-dev-m2-cache",
-                executionId, STEP, "baseline");
+                new DockerWorkloads.Owner(executionId, STEP, "baseline"));
 
         assertThat(command).containsSubsequence("--mount",
                 "type=volume,source=factory-dev-m2-cache,target=/tmp/factory-home/.m2/repository");
@@ -58,7 +58,7 @@ class DockerWorkloadsTest {
     void untrustedWorkloadGetsReadOnlySeedAndPrivateWritableRepository() {
         var command = DockerWorkloads.createCommand("build", "pi", "501:20",
                 DockerWorkloads.MavenCache.READ_ONLY_SEED, "factory-dev-m2-cache",
-                executionId, STEP, "coding");
+                new DockerWorkloads.Owner(executionId, STEP, "coding"));
 
         assertThat(command).containsSubsequence("--mount",
                 "type=volume,source=factory-dev-m2-cache,target=/tmp/factory-m2-seed,readonly");

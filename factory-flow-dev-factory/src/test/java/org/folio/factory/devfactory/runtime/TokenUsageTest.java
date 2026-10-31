@@ -57,10 +57,23 @@ class TokenUsageTest {
     }
 
     @Test
-    void ignoresValuesThatAreNotNumbers() {
-        var usage = TokenUsage.from(JSON.readTree("{\"inputTokens\":\"many\",\"outputTokens\":null}"));
+    void ignoresValuesThatAreNotWholeNumbers() {
+        var node = JSON.readTree("{\"inputTokens\":\"many\",\"outputTokens\":null,\"cacheReadTokens\":2.5}");
+        var usage = TokenUsage.from(node);
 
         assertThat(usage.hasCodingTokens()).isFalse();
         assertThat(usage.toMetrics()).isEmpty();
+        assertThat(TokenUsage.namesCodingTokens(node)).isTrue();
+        assertThat(TokenUsage.namesCodingTokens(JSON.readTree("{\"promptTokens\":3}"))).isFalse();
+    }
+
+    @Test
+    void keepsTheKeyOrderEachRuntimeHasAlwaysWritten() {
+        var usage = new TokenUsage(40L, 3L, 2L, 2L, 0L, 5L, null, null, true);
+
+        assertThat(List.copyOf(usage.toClaudeMetrics().keySet())).containsExactly("inputTokens", "outputTokens",
+                "cacheReadTokens", "cacheWriteTokens", "cacheWrite5mTokens", "cacheWrite1hTokens", "usageIncomplete");
+        assertThat(List.copyOf(usage.toMetrics().keySet())).containsExactly("inputTokens", "cacheReadTokens",
+                "cacheWriteTokens", "cacheWrite5mTokens", "cacheWrite1hTokens", "outputTokens", "usageIncomplete");
     }
 }

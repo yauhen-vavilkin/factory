@@ -6,7 +6,6 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.execution.TaskDispatchPoller;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
-import org.folio.factory.app.tasks.execution.TaskDispatchPoller;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
@@ -26,8 +25,11 @@ import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.folio.factory.devfactory.worker.VerifyWorker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
@@ -66,6 +68,7 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 @Import(StubLlmConfiguration.class)
 @Testcontainers
 @DirtiesContext
+@ExtendWith(OutputCaptureExtension.class)
 class TaskLifecycleIntegrationTest {
 
     private static final String INSTANCE = "jira.example.org";
@@ -155,7 +158,7 @@ class TaskLifecycleIntegrationTest {
     }
 
     @Test
-    void taskSpecificFailureReleasesTheQueueOnlyOnceWorkloadsAreProvenInactive() {
+    void taskSpecificFailureReleasesTheQueueOnlyOnceWorkloadsAreProvenInactive(CapturedOutput output) {
         admit("50011", "MODBAR-511");
         admit("50012", "MODBAR-512");
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
@@ -171,6 +174,8 @@ class TaskLifecycleIntegrationTest {
                 .isEqualTo(TaskAttempt.State.NEEDS_INSPECTION);
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isEqualTo(attempt.getId());
         assertThat(dispatcher.dispatchNext()).contains(executionId);
+        assertThat(output).contains("Reconciled active task attempt " + attempt.getId()
+                + " to NEEDS_INSPECTION: workload inactivity could not be confirmed: docker ps failed");
         long executionsBeforeNext = executions.count();
 
         org.mockito.Mockito.doNothing().when(docker).cleanOwned(any(), anyString());

@@ -65,7 +65,7 @@ class DeliveryWorkerTest {
         when(runtime.command("unit")).thenReturn(List.of("mvn", "test"), List.of("mvn", "verify"));
         when(runtime.requiredReports("unit")).thenReturn(List.of());
         var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image", runtime);
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
                         "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40)));
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
@@ -84,7 +84,7 @@ class DeliveryWorkerTest {
         var worker = worker(delivery, github, new GitHubProperties(null, "token"));
         var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
         when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
@@ -147,7 +147,7 @@ class DeliveryWorkerTest {
         GitHubConnector github = mock(GitHubConnector.class);
         var delivered = new DeliveryReceipt("execution", "user/sidecar", "factory/final",
                 candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40));
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
         var worker = worker(delivery, github, new GitHubProperties(null, "token"));
@@ -184,7 +184,7 @@ class DeliveryWorkerTest {
         GitHubConnector github = mock(GitHubConnector.class);
         var delivered = new DeliveryReceipt("execution", "user/sidecar", "factory/final",
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
 
@@ -203,7 +203,7 @@ class DeliveryWorkerTest {
         GitHubConnector github = mock(GitHubConnector.class);
         var delivered = new DeliveryReceipt("execution", "user/sidecar", "factory/final",
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
         var original = verifiedContext();
@@ -241,7 +241,7 @@ class DeliveryWorkerTest {
     void aClosingLineAfterTheLastSectionNeitherMakesADraftNorReachesThePr() {
         CandidateDelivery delivery = mock(CandidateDelivery.class);
         GitHubConnector github = mock(GitHubConnector.class);
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(new DeliveryReceipt("execution", "user/sidecar", "factory/final",
                         "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40)));
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
@@ -267,7 +267,7 @@ class DeliveryWorkerTest {
     void aLongReportLineReachesThePrWholeAndARunawayLineIsCutBetweenCharacters() {
         CandidateDelivery delivery = mock(CandidateDelivery.class);
         GitHubConnector github = mock(GitHubConnector.class);
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(new DeliveryReceipt("execution", "user/sidecar", "factory/final",
                         "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40)));
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
@@ -300,7 +300,7 @@ class DeliveryWorkerTest {
         GitHubConnector github = mock(GitHubConnector.class);
         var delivered = new DeliveryReceipt("execution", "user/sidecar", "factory/final",
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
         var original = verifiedContext();
@@ -341,7 +341,7 @@ class DeliveryWorkerTest {
                 json.writeValueAsString(receipt)));
         CandidateDelivery delivery = mock(CandidateDelivery.class);
         GitHubConnector github = mock(GitHubConnector.class);
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(new DeliveryReceipt("execution", "user/sidecar", "factory/final",
                         candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40)));
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
@@ -408,7 +408,7 @@ class DeliveryWorkerTest {
                 0, 1, 1, 0, 0, "PASS", "ok", null, 0, List.of(), List.of());
         String brief = new FrontmatterCodec().render(Map.of("issue", Map.of(
                 "key", "MODSIDECAR-196", "summary", "Task")), "Task");
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenThrow(new DeliveryBlockedException("Destination base no longer contains the candidate base"));
 
         var result = worker.execute(contextWithId("execution", Map.of(
@@ -430,7 +430,7 @@ class DeliveryWorkerTest {
         var worker = worker(delivery, github, new GitHubProperties(null, "token"));
         var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/modsidecar-196-12345678",
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(delivered);
         var rejection = new HttpClientErrorException(HttpStatus.FORBIDDEN, "sensitive remote diagnostic");
         if (lookupRejected) {
@@ -462,7 +462,7 @@ class DeliveryWorkerTest {
         var worker = worker(delivery, github, new GitHubProperties(null, "token"));
         var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/modsidecar-196-12345678",
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString()))
                 .thenReturn(List.of(), java.util.List.of(pr("https://github.com/user/folio-module-sidecar/pull/1",
@@ -478,7 +478,7 @@ class DeliveryWorkerTest {
         assertThat(result.path("deliveryCommitSha").asString()).isEqualTo(delivered.commitSha());
         assertThat(result.path("pullRequestUrl").asString()).endsWith("/pull/1");
         assertThat(result.has("pullRequestTitle")).isFalse();
-        verify(delivery, times(2)).deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt());
+        verify(delivery, times(2)).deliver(any());
         verify(github, times(1)).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
@@ -523,7 +523,7 @@ class DeliveryWorkerTest {
         var worker = worker(delivery, github, new GitHubProperties(null, "token"));
         var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString()))
                 .thenReturn(List.of(new GitHubConnector.PullRequest(
@@ -547,7 +547,7 @@ class DeliveryWorkerTest {
         var worker = worker(delivery, github, new GitHubProperties(null, "token"));
         var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString()))
                 .thenReturn(List.of(), List.of(pr("https://github.com/user/folio-module-sidecar/pull/5", "c".repeat(40), "closed")));
@@ -570,7 +570,7 @@ class DeliveryWorkerTest {
         var worker = worker(delivery, github, new GitHubProperties(null, "token"));
         var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString()))
                 .thenReturn(List.of(
@@ -592,7 +592,7 @@ class DeliveryWorkerTest {
         var worker = worker(delivery, github, new GitHubProperties(null, "token"));
         var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString()))
                 .thenReturn(List.of(pr("https://github.com/user/folio-module-sidecar/pull/3", "d".repeat(40), "open")));
@@ -614,7 +614,7 @@ class DeliveryWorkerTest {
                 new DeliveryTarget("folio-org/folio-module-sidecar", "master"));
         var delivered = new DeliveryReceipt("execution", "folio-org/folio-module-sidecar", "factory/final",
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
         when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
@@ -625,9 +625,8 @@ class DeliveryWorkerTest {
         assertThat(result.path("state").asString()).isEqualTo("DELIVERED");
         assertThat(result.path("pullRequestUrl").asString())
                 .isEqualTo("https://github.com/folio-org/folio-module-sidecar/pull/11");
-        verify(delivery).deliver(anyString(), anyString(), anyString(), anyString(), any(), any(),
-                eq(new DeliveryTarget("folio-org/folio-module-sidecar", "master")),
-                anyString(), anyBoolean(), anyInt());
+        verify(delivery).deliver(argThat(request ->
+                request.target().equals(new DeliveryTarget("folio-org/folio-module-sidecar", "master"))));
         verify(github).createPullRequest(eq("folio-org/folio-module-sidecar"), eq("factory/final"),
                 eq("master"), anyString(), anyString(), anyBoolean());
     }
@@ -663,7 +662,7 @@ class DeliveryWorkerTest {
                 new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null), taskAttempts);
         var candidate = new Candidate("sidecar", "a".repeat(40), "b".repeat(40),
                 Candidate.sha256(""), "", "CANDIDATE_UNVERIFIED");
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
                         candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40)));
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
@@ -676,7 +675,7 @@ class DeliveryWorkerTest {
         assertThat(taskAttempts.intents).hasSize(1);
         assertThat(result.path("repository").asString()).isEqualTo(candidate.repository());
         assertThat(result.path("patchSha256").asString()).isEqualTo(candidate.patchSha256());
-        verify(delivery, times(1)).deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt());
+        verify(delivery, times(1)).deliver(any());
         verify(github, times(1)).findPullRequests(anyString(), anyString(), anyString());
         verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
     }
@@ -690,7 +689,7 @@ class DeliveryWorkerTest {
                 Candidate.sha256(""), "", "CANDIDATE_UNVERIFIED");
         var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
                 new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null), taskAttempts);
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenAnswer(invocation -> {
                     assertThat(taskAttempts.intents).hasSize(1);
                     return new DeliveryReceipt("execution", "user/folio-module-sidecar",
@@ -721,7 +720,7 @@ class DeliveryWorkerTest {
         var worker = worker(delivery, github, new GitHubProperties(null, "token"));
         var delivered = new DeliveryReceipt("execution", "user/folio-module-sidecar", "factory/final",
                 "a".repeat(40), "b".repeat(40), "patch", "c".repeat(40));
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenReturn(delivered);
         when(github.findPullRequests(anyString(), anyString(), anyString())).thenReturn(List.of());
         when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))

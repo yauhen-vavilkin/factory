@@ -5,16 +5,10 @@
 <!-- Methods that were longer than 25 lines or had more than 7 parameters when the check was
      added. Never add an entry; delete one when its method is brought under the limit. -->
 <suppressions>
-  <suppress-xpath files="CandidateDelivery\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='CandidateDelivery']]/OBJBLOCK/METHOD_DEF/IDENT[@text='deliver']"/>
   <suppress-xpath files="DeveloperCostEstimator\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DeveloperCostEstimator']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='estimate']]"/>
-  <suppress-xpath files="DockerWorkloads\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DockerWorkloads']]/OBJBLOCK/METHOD_DEF/IDENT[@text='createCommand']"/>
   <suppress-xpath files="FeedbackUiController\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='FeedbackUiController']]/OBJBLOCK/METHOD_DEF/IDENT[@text='command']"/>
-  <suppress-xpath files="TaskPublicationIntent\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TaskPublicationIntent']]/OBJBLOCK/METHOD_DEF/IDENT[@text='of']"/>
   <suppress-xpath files="Task\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='Task']]/OBJBLOCK/CTOR_DEF/IDENT[@text='Task']"/>
   <suppress-xpath files="TestFactoryConfiguration\.java" checks="ParameterNumber"

@@ -292,7 +292,7 @@ final class ClaudeCodeProtocol implements Consumer<String> {
         entry.put("text", redactor.apply(String.join("\n", errorsOrResult(result))));
         if (result.path("num_turns").isIntegralNumber()) entry.put("turns", result.path("num_turns").asLong());
         if (result.path("duration_ms").isIntegralNumber()) entry.put("durationMs", result.path("duration_ms").asLong());
-        entry.put("usage", reportedUsage(result.path("usage")).toMetrics());
+        entry.put("usage", reportedUsage(result.path("usage")).toClaudeMetrics());
         record("result", entry);
     }
 
@@ -354,7 +354,7 @@ final class ClaudeCodeProtocol implements Consumer<String> {
             }
             total = total.plus(reportedUsage(usage));
         }
-        metrics.putAll((hasCompleteUsage ? total : total.incomplete()).toMetrics());
+        metrics.putAll((hasCompleteUsage ? total : total.incomplete()).toClaudeMetrics());
         addRuntimeEstimate(metrics);
         return metrics;
     }

@@ -154,10 +154,8 @@ public class PersistedTaskAttemptPolicy implements TaskAttemptPolicy {
         try {
             transactions.executeWithoutResult(status -> attempts.findByExecutionId(executionId)
                     .filter(attempt -> intents.findByAttemptId(attempt.getId()).isEmpty())
-                    .ifPresent(attempt -> intents.save(TaskPublicationIntent.of(
-                            attempt.getId(), executionId, intent.repository(), intent.baseBranch(),
-                            intent.headBranch(), intent.baseSha(), intent.treeSha(),
-                            intent.patchSha256()))));
+                    .ifPresent(attempt -> intents.save(
+                            TaskPublicationIntent.of(attempt.getId(), executionId, intent))));
         } catch (OptimisticLockingFailureException | DataIntegrityViolationException e) {
             // A concurrent save or insert recorded the same first intent; it stays authoritative.
         }

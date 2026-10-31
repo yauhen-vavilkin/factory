@@ -122,7 +122,7 @@ public class DockerWorkloads {
         String name = "factory-dev-" + UUID.randomUUID();
         String user = workloadUser(source);
         runCommand(createCommand(image, name, user, cache, mavenCacheVolume,
-                executionId, stepId, role), 120).requireSuccess();
+                new Owner(executionId, stepId, role)), 120).requireSuccess();
         var workload = new Workload(name);
         try {
             runCommand(List.of("docker", "start", name), 60).requireSuccess();
@@ -158,13 +158,17 @@ public class DockerWorkloads {
                 .requireSuccess();
     }
 
+    /** The run step a workload belongs to, written onto its container as labels. */
+    record Owner(UUID executionId, String stepId, String role) {
+    }
+
     static List<String> createCommand(String image, String name, String user, MavenCache cache, String volume,
-                                      UUID executionId, String stepId, String role) {
+                                      Owner owner) {
         var command = new ArrayList<>(List.of("docker", "create", "--name", name,
                 "--label", "factory.dev-owned=true",
-                "--label", "factory.dev-execution=" + executionId,
-                "--label", "factory.dev-step=" + stepId,
-                "--label", "factory.dev-role=" + role,
+                "--label", "factory.dev-execution=" + owner.executionId(),
+                "--label", "factory.dev-step=" + owner.stepId(),
+                "--label", "factory.dev-role=" + owner.role(),
                 "--pids-limit", "512", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
                 "--user", user, "--env", "HOME=/tmp/factory-home", "--env",
                 "MAVEN_OPTS=-Dmaven.repo.local=" + MAVEN_REPOSITORY, "--workdir", "/workspace"));

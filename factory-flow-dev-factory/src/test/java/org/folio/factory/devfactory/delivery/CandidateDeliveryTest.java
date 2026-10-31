@@ -48,7 +48,7 @@ class CandidateDeliveryTest {
     }
 
     private DeliveryReceipt deliver(VerificationReceipt receipt, DeliveryTarget destination, String token) {
-        return delivery.deliver("execution", "MODSIDECAR-196", "Fixture", source.toString(), candidate, receipt, destination, token, false, Git.TIMEOUT_SECONDS);
+        return delivery.deliver(new CandidateDelivery.Request("execution", "MODSIDECAR-196", "Fixture", source.toString(), candidate, receipt, destination, token, false, Git.TIMEOUT_SECONDS));
     }
 
     @Test void preservesExactTreeParentAndReusesDeterministicCommit() {
@@ -61,9 +61,9 @@ class CandidateDeliveryTest {
 
     @Test void newExecutionsUseStableExecutionIdentityInFirstBranch() {
         String id=java.util.UUID.randomUUID().toString();
-        var receipt=delivery.deliver(id,"MODSIDECAR-196","Fixture",source.toString(),candidate,receipt(id,0),target,"fixture-token",true, Git.TIMEOUT_SECONDS);
+        var receipt=delivery.deliver(new CandidateDelivery.Request(id,"MODSIDECAR-196","Fixture",source.toString(),candidate,receipt(id,0),target,"fixture-token",true, Git.TIMEOUT_SECONDS));
         assertThat(receipt.branch()).isEqualTo("factory/modsidecar-196-"+id);
-        assertThat(delivery.deliver(id,"MODSIDECAR-196","Fixture",source.toString(),candidate,receipt(id,0),target,"fixture-token",true, Git.TIMEOUT_SECONDS))
+        assertThat(delivery.deliver(new CandidateDelivery.Request(id,"MODSIDECAR-196","Fixture",source.toString(),candidate,receipt(id,0),target,"fixture-token",true, Git.TIMEOUT_SECONDS)))
                 .isEqualTo(receipt);
     }
 

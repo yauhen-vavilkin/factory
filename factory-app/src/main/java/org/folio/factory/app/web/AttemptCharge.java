@@ -29,9 +29,9 @@ public record AttemptCharge(
         /** Key of each category in the run page's token totals, mapped to its label, in display order. */
         static final Map<String, String> LABELS = labels();
 
-        final Function<TokenUsage, Long> tokens;
-        final String rateField;
-        final String key;
+        private final Function<TokenUsage, Long> tokens;
+        private final String rateField;
+        private final String key;
         private final String label;
 
         Category(Function<TokenUsage, Long> tokens, String rateField, String key, String label) {
@@ -39,6 +39,11 @@ public record AttemptCharge(
             this.rateField = rateField;
             this.key = key;
             this.label = label;
+        }
+
+        /** The category's key in token totals and breakdowns, for example {@code cacheRead}. */
+        public String key() {
+            return key;
         }
 
         public String label() {

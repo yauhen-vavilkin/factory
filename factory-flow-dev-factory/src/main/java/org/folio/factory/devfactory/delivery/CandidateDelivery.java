@@ -28,22 +28,10 @@ public class CandidateDelivery {
     }
 
     /** Delivery Git operations bounded by the task attempt's remaining whole-attempt budget. */
-    public DeliveryReceipt deliver(
-            String executionId,
-            String issueKey,
-            String summary,
-            String sourceUrl,
-            Candidate candidate,
-            VerificationReceipt verification,
-            DeliveryTarget target,
-            String githubToken,
-            boolean stableBranch,
-            int gitTimeoutSeconds) {
-        var request = new Request(executionId, issueKey, summary, sourceUrl, candidate, verification, target,
-                githubToken, gitTimeoutSeconds);
+    public DeliveryReceipt deliver(Request request) {
         requireDeliverable(request);
-        var branch = branchFor(executionId, issueKey, candidate, stableBranch);
-        requireValidBranches(branch, target.baseBranch());
+        var branch = branchFor(request.executionId(), request.issueKey(), request.candidate(), request.stableBranch());
+        requireValidBranches(branch, request.target().baseBranch());
         return publishFromWorkspace(request, branch);
     }
 
@@ -188,7 +176,13 @@ public class CandidateDelivery {
                 || error.contains("does not appear to be a git repository");
     }
 
-    private record Request(
+    /**
+     * One delivery: the verified candidate, where it goes, and the token that may push there.
+     *
+     * @param stableBranch true names the branch after the execution (runs with PR feedback), false after the
+     *                     patch
+     */
+    public record Request(
             String executionId,
             String issueKey,
             String summary,
@@ -197,6 +191,7 @@ public class CandidateDelivery {
             VerificationReceipt verification,
             DeliveryTarget target,
             String githubToken,
+            boolean stableBranch,
             int gitTimeoutSeconds) {
         // The default toString would print the token.
         @Override

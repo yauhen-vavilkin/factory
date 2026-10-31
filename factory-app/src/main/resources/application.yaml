@@ -5,6 +5,7 @@ spring:
       - optional:file:./config/developer-repositories.yaml
       - classpath:developer-run-profiles.yaml
       - optional:file:./config/developer-run-profiles.yaml
+      - classpath:developer-pricing.yaml
       - optional:file:./config/developer-pricing.yaml
   application:
     name: ai-factory

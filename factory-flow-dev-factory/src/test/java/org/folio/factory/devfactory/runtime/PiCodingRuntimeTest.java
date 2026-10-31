@@ -360,6 +360,8 @@ class PiCodingRuntimeTest {
                 .containsEntry("outputTokens", 3L)
                 .containsEntry("usageIncomplete", true);
         assertThat((java.math.BigDecimal) events.getLast().get("costUsd")).isEqualByComparingTo("0.125");
+        assertThat(List.copyOf(events.getLast().keySet())).containsSubsequence("inputTokens", "cacheReadTokens",
+                "cacheWriteTokens", "outputTokens", "costUsd", "usageIncomplete");
     }
 
     @ParameterizedTest

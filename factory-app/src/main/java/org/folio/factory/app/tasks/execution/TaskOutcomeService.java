@@ -226,16 +226,15 @@ public class TaskOutcomeService {
             current.setResultReason(PersistedTaskAttemptPolicy.capReason(classification.reason()));
         }
         attempts.save(current);
-        releaseSlot(installation, attemptId);
+        installation.ifPresent(locked -> releaseSlot(locked, attemptId));
     }
 
     /** Frees the installation's active slot when this attempt holds it. */
-    private void releaseSlot(Optional<TaskInstallation> installation, UUID attemptId) {
-        installation.filter(locked -> attemptId.equals(locked.getActiveAttemptId()))
-                .ifPresent(locked -> {
-                    locked.setActiveAttemptId(null);
-                    installations.save(locked);
-                });
+    private void releaseSlot(TaskInstallation installation, UUID attemptId) {
+        if (attemptId.equals(installation.getActiveAttemptId())) {
+            installation.setActiveAttemptId(null);
+            installations.save(installation);
+        }
     }
 
     /**
@@ -260,7 +259,7 @@ public class TaskOutcomeService {
                     + (publication == null ? "" : publication)
                     + (previous == null || previous.isBlank() ? "" : ": " + previous)));
             attempts.save(attempt);
-            releaseSlot(installation, attemptId);
+            installation.ifPresent(locked -> releaseSlot(locked, attemptId));
             return null;
         });
     }

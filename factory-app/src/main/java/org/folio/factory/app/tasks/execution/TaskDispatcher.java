@@ -69,12 +69,9 @@ public class TaskDispatcher {
 
     private Optional<UUID> dispatchNextOrThrow() {
         TaskInstallation installation = installations.findById(1).orElse(null);
-        if (installation != null && installation.getActiveAttemptId() != null) {
-            TaskOutcomeService outcomeService = outcomes.getIfAvailable();
-            if (outcomeService == null
-                    || !outcomeService.refresh(installation.getActiveAttemptId()).released()) {
-                return Optional.of(activeBinding(installation.getActiveAttemptId()));
-            }
+        if (installation != null && installation.getActiveAttemptId() != null
+                && !refreshReleases(installation.getActiveAttemptId())) {
+            return Optional.of(activeBinding(installation.getActiveAttemptId()));
         }
         // A head that stops before start leaves RESERVED, so the next pass takes the next attempt.
         while (true) {
@@ -88,6 +85,21 @@ public class TaskDispatcher {
                 return Optional.of(executionId);
             }
         }
+    }
+
+    /** Refreshes the active attempt; true when its outcome frees the slot for the next attempt. */
+    private boolean refreshReleases(UUID attemptId) {
+        TaskOutcomeService outcomeService = outcomes.getIfAvailable();
+        if (outcomeService == null) {
+            return false;
+        }
+        var outcome = outcomeService.refresh(attemptId);
+        // The page shows no cause for a held attempt, so the log is where it can be found.
+        if (outcome.state() == TaskOutcomeService.AttemptOutcome.State.NEEDS_INSPECTION) {
+            log.info("Reconciled active task attempt {} to {}{}", attemptId, outcome.state(),
+                    outcome.uncertainty() == null ? "" : ": " + outcome.uncertainty());
+        }
+        return outcome.released();
     }
 
     /** False while FACTORY_TASKS_EXECUTION_ENABLED is off: queued work then waits and nothing launches. */

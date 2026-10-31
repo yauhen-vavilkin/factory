@@ -126,9 +126,9 @@ public class DeliveryWorker implements AgentWorker {
         var feedbackVersion = FeedbackArtifacts.VERSION.equals(
                 executionState.get(context.executionId()).getFlowVersion());
         recordPublicationIntent(context, inputs, target, feedbackVersion);
-        var receipt = delivery.deliver(context.executionId().toString(), inputs.issueKey(), inputs.summary(),
-                sourceUrl, candidate, inputs.verification(), target, githubProperties.token(), feedbackVersion,
-                gitTimeoutSeconds);
+        var receipt = delivery.deliver(new CandidateDelivery.Request(context.executionId().toString(),
+                inputs.issueKey(), inputs.summary(), sourceUrl, candidate, inputs.verification(), target,
+                githubProperties.token(), feedbackVersion, gitTimeoutSeconds));
         return publishPullRequest(context, inputs, new Publication(target, receipt, consumedRequest));
     }
 

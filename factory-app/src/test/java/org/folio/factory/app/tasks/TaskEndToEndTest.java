@@ -29,7 +29,6 @@ import org.folio.factory.core.service.StateManager;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import org.folio.factory.devfactory.delivery.DeliveryReceipt;
-import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
@@ -84,7 +83,6 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -727,16 +725,13 @@ class TaskEndToEndTest {
     }
 
     private void stubDelivery() {
-        when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(),
-                anyString(), anyBoolean(), anyInt()))
+        when(delivery.deliver(any()))
                 .thenAnswer(invocation -> {
-                    String executionId = invocation.getArgument(0, String.class);
-                    String issueKey = invocation.getArgument(1, String.class);
-                    Candidate candidate = invocation.getArgument(4, Candidate.class);
-                    DeliveryTarget target = invocation.getArgument(6, DeliveryTarget.class);
-                    boolean stableBranch = invocation.getArgument(8, Boolean.class);
-                    return new DeliveryReceipt(executionId, target.repository(),
-                            CandidateDelivery.branchFor(executionId, issueKey, candidate, stableBranch),
+                    CandidateDelivery.Request request = invocation.getArgument(0);
+                    Candidate candidate = request.candidate();
+                    return new DeliveryReceipt(request.executionId(), request.target().repository(),
+                            CandidateDelivery.branchFor(request.executionId(), request.issueKey(), candidate,
+                                    request.stableBranch()),
                             candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "d".repeat(40));
                 });
     }
