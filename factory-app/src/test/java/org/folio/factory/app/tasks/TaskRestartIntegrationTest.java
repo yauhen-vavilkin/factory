@@ -27,14 +27,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import org.folio.factory.core.domain.ExecutionStatus;
 
 import java.time.Duration;
@@ -48,6 +44,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
+import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * Crash/restart semantics for in-flight task work against real PostgreSQL: a
@@ -70,16 +67,11 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
         "factory.dev-factory.repositories.mod-bar.build-image=maven:3.9-eclipse-temurin-21",
         "factory.dev-factory.repositories.mod-bar.verification-plan=java21-unit",
         "factory.dev-factory.repositories.mod-bar.jira-projects[0]=MODBAR"})
-@Import(StubLlmConfiguration.class)
-@Testcontainers
+@Import({StubLlmConfiguration.class, SharedDatabase.class})
 @DirtiesContext
 class TaskRestartIntegrationTest {
 
     private static final String INSTANCE = "jira.example.org";
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     @MockitoBean
     DeveloperPreflight preflight;

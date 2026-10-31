@@ -27,7 +27,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -39,9 +38,6 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.web.client.RestClient;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import org.thymeleaf.ITemplateEngine;
 import org.thymeleaf.context.Context;
 
@@ -58,6 +54,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
 import org.folio.factory.app.tasks.persistence.TaskInstallations;
+import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * The only test that actually renders the Thymeleaf templates end to end;
@@ -77,16 +74,11 @@ import org.folio.factory.app.tasks.persistence.TaskInstallations;
                 "factory.developer-pricing.rates.test.cache-read-per-million=0.03",
                 "factory.developer-pricing.rates.test.output-per-million=0.50",
                 "FACTORY_ZAI_API_KEY=" + UiRenderSmokeTest.ZAI_KEY})
-@Import(StubLlmConfiguration.class)
-@Testcontainers
+@Import({StubLlmConfiguration.class, SharedDatabase.class})
 @DirtiesContext
 class UiRenderSmokeTest {
 
     static final String ZAI_KEY = "smoke-zai-secret-key";
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     @LocalServerPort
     int port;

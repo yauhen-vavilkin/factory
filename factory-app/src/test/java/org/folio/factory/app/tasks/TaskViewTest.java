@@ -30,15 +30,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -52,6 +48,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
+import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * Logical-task projection against real PostgreSQL: every distinct outcome has
@@ -67,16 +64,11 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
         "factory.tasks.execution.deadline=PT30M",
         "factory.tasks.execution.dispatch-interval-ms=3600000",
         "factory.connectors.jira.base-url=https://jira.example.org"})
-@Import(StubLlmConfiguration.class)
-@Testcontainers
+@Import({StubLlmConfiguration.class, SharedDatabase.class})
 @DirtiesContext
 class TaskViewTest {
 
     private static final String INSTANCE = "jira.example.org";
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     @MockitoBean
     DeveloperPreflight preflight;

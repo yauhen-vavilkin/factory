@@ -10,21 +10,18 @@ import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
 import org.folio.factory.app.tasks.source.TaskDiscoveryService;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
+import org.folio.factory.app.support.SharedDatabase;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -55,8 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
         "spring.ai.model.chat=none",
         "factory.engine.enabled=false",
         "factory.tasks.source.assignee=Jane Developer"})
-@Import(StubLlmConfiguration.class)
-@Testcontainers
+@Import({StubLlmConfiguration.class, SharedDatabase.class})
 @DirtiesContext
 class TaskDiscoveryIntegrationTest {
 
@@ -64,10 +60,6 @@ class TaskDiscoveryIntegrationTest {
     private static final String FIXTURE_CREATED = "2026-10-01T09:30:00.000+0000";
     private static final String QUERY =
             "assignee = \"Jane Developer\" AND statusCategory != Done ORDER BY updated DESC";
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     static WireMockServer jira = new WireMockServer(0);
 

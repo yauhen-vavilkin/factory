@@ -19,6 +19,7 @@ import org.folio.factory.core.service.StateManager;
 import org.folio.factory.core.trigger.PipelineRouter;
 import org.folio.factory.devfactory.decision.DevArtifactAmendmentValidator;
 import org.folio.factory.devfactory.worker.DecisionGateWorker;
+import org.folio.factory.app.support.SharedDatabase;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,7 +27,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
@@ -34,9 +34,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.client.RestClient;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -69,8 +66,7 @@ import static org.awaitility.Awaitility.await;
         "spring.ai.model.chat=none",
         "factory.engine.poll-interval-ms=250"
 })
-@Import(StubLlmConfiguration.class)
-@Testcontainers
+@Import({StubLlmConfiguration.class, SharedDatabase.class})
 @DirtiesContext
 class DeveloperIntakeDecisionTest {
 
@@ -81,10 +77,6 @@ class DeveloperIntakeDecisionTest {
     private static final String GATE_ID = DecisionGateWorker.GATE_ID;
     private static final int DECISION_STEP_INDEX = 1;
     private static final String DESCRIPTION = "As an operator I want X. AC1: X happens.";
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     static WireMockServer jira = new WireMockServer(0);
     static final Path gitRoot = createGitRoot();

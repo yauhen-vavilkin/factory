@@ -9,19 +9,17 @@ import org.folio.factory.devfactory.feedback.*;
 import org.folio.factory.devfactory.candidate.*;
 import org.folio.factory.devfactory.runtime.*;
 import org.folio.factory.devfactory.verification.*;
+import org.folio.factory.app.support.SharedDatabase;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.client.RestClient;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.*;
 import java.nio.file.*;
 import java.time.*;
 import java.util.*;
@@ -35,11 +33,9 @@ import static org.folio.factory.devfactory.feedback.FeedbackActions.Action.*;
 
 /** Real engine, transactions, rendering and local fork Git; scripted coding/check boundaries. */
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={"spring.ai.model.chat=none","factory.engine.enabled=false"})
-@Import(StubLlmConfiguration.class)
-@Testcontainers
+@Import({StubLlmConfiguration.class, SharedDatabase.class})
 @DirtiesContext
 class PrFeedbackIntegrationTest {
-    @Container @ServiceConnection static PostgreSQLContainer<?> postgres=new PostgreSQLContainer<>("postgres:16");
     static final Path root=CandidateFreezer.temporary("factory-pr-test-");
     @DynamicPropertySource static void properties(DynamicPropertyRegistry r) {
         r.add("factory.dev-factory.git-base-url",()->root.toUri().toString());

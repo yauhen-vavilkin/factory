@@ -47,7 +47,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -55,9 +54,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.web.client.RestClient;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
@@ -89,6 +85,7 @@ import java.time.Clock;
 import org.folio.factory.devfactory.DevFlowSettings;
 import org.folio.factory.devfactory.delivery.DeliveryServices;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
+import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * Publication authority against real PostgreSQL and a mocked GitHub HTTP
@@ -104,8 +101,7 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
         "factory.tasks.execution.deadline=PT30M",
         "factory.tasks.execution.dispatch-interval-ms=3600000",
         "factory.connectors.github.token=fixture-github-token"})
-@Import(StubLlmConfiguration.class)
-@Testcontainers
+@Import({StubLlmConfiguration.class, SharedDatabase.class})
 @DirtiesContext
 class TaskPublicationIntegrationTest {
 
@@ -115,10 +111,6 @@ class TaskPublicationIntegrationTest {
     private static final String PR_URL = "https://github.com/" + OFFICIAL + "/pull/21";
 
     private final JsonMapper json = JsonMapper.builder().build();
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     @DynamicPropertySource
     static void githubMockBaseUrl(DynamicPropertyRegistry registry) {

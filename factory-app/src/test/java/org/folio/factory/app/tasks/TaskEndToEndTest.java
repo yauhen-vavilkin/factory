@@ -45,16 +45,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
@@ -95,6 +91,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.isNull;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
+import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * The full deterministic M1 scenario in one Spring context against real
@@ -133,8 +130,7 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
         "factory.dev-factory.repositories.mod-foo.verification-plan=java21-unit",
         "factory.dev-factory.repositories.mod-foo.jira-projects[0]=MODFOO",
         "factory.dev-factory.repositories.mod-foo.delivery.repository=folio-org/mod-foo"})
-@Import(StubLlmConfiguration.class)
-@Testcontainers
+@Import({StubLlmConfiguration.class, SharedDatabase.class})
 @DirtiesContext
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class TaskEndToEndTest {
@@ -149,10 +145,6 @@ class TaskEndToEndTest {
             "inputTokens", 150_000L, "outputTokens", 30_000L, "cacheReadTokens", 0L, "cacheWriteTokens", 0L);
     private static final Map<String, Object> PARTIAL_USAGE = Map.of(
             "inputTokens", 50_000L, "outputTokens", 5_000L);
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     static final WireMockServer jira = new WireMockServer(0);
     static final WireMockServer GITHUB = new WireMockServer(0);

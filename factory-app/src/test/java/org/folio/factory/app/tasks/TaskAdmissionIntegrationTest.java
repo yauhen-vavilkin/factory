@@ -15,13 +15,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Arrays;
 import java.util.List;
@@ -32,6 +28,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
+import org.folio.factory.app.support.SharedDatabase;
 
 /**
  * Manual admission against real PostgreSQL: only the selected eligible rows are
@@ -40,16 +37,11 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
  * a repeated request resolves to the existing admission instead of new attempts.
  */
 @SpringBootTest(properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false"})
-@Import(StubLlmConfiguration.class)
-@Testcontainers
+@Import({StubLlmConfiguration.class, SharedDatabase.class})
 @DirtiesContext
 class TaskAdmissionIntegrationTest {
 
     private static final String INSTANCE = "jira.example.org";
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     @Autowired
     TaskRepository tasks;

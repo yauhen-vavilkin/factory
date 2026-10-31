@@ -1,12 +1,12 @@
 package org.folio.factory.app.tasks;
 
 import org.flywaydb.core.Flyway;
+import org.folio.factory.app.support.SharedDatabase;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.UUID;
 
@@ -16,13 +16,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  * V12 on a database left by the removed sprint mode: work queued by the removed automatic
  * mode must not start without a click, and team sprint tasks must not pose as the
  * developer's own tasks until a scan finds them assigned. Each test migrates its
- * own schema.
+ * own schema of the shared database and drops it afterwards.
  */
-@Testcontainers
 class MyTasksMigrationTest {
 
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
+    private static final PostgreSQLContainer<?> postgres = SharedDatabase.container();
+
+    @AfterAll
+    static void dropSchemas() {
+        jdbc("public").execute("DROP SCHEMA IF EXISTS legacy, fresh CASCADE");
+    }
 
     @Test
     void legacyAutomaticQueueIsWithdrawnAndTeamTasksLeaveMyTasks() {

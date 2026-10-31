@@ -9,19 +9,16 @@ import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
+import org.folio.factory.app.support.SharedDatabase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.client.RestClient;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
 
 import java.time.LocalDate;
@@ -39,17 +36,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false"})
-@Import(StubLlmConfiguration.class)
-@Testcontainers
+@Import({StubLlmConfiguration.class, SharedDatabase.class})
 @DirtiesContext
 class DashboardStatsIntegrationTest {
 
     private static final String FLOW_A = "test-factory";
     private static final String FLOW_B = "release-pipeline";
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     @LocalServerPort
     int port;
