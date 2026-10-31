@@ -11,6 +11,7 @@ import org.folio.factory.devfactory.candidate.*;
 import org.folio.factory.devfactory.runtime.*;
 import org.folio.factory.devfactory.verification.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.annotation.DirtiesContext;
@@ -34,7 +35,9 @@ import static org.folio.factory.devfactory.feedback.FeedbackActions.Action.*;
 // Own context: its own fixture repository, pricing and scripted GitHub, Docker, coding and checks; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class PrFeedbackIntegrationTest {
-    static final Path root=CandidateFreezer.temporary("factory-pr-test-");
+    @TempDir static Path root;
+    static Path bare, work;
+    static String base;
     @DynamicPropertySource static void properties(DynamicPropertyRegistry r) {
         r.add("factory.dev-factory.git-base-url",()->root.toUri().toString());
         r.add("factory.dev-factory.repositories.fixture.source-repo",()->"upstream/repo");
@@ -70,19 +73,26 @@ class PrFeedbackIntegrationTest {
     @MockitoBean DockerWorkloads docker;
     @MockitoBean CodingRuntime coding;
     @MockitoBean CandidateVerifier verifier;
-    Path bare, work, codingSource;
+    Path codingSource;
     UUID id;
-    String branch, base;
+    String branch;
     int calls;
     boolean noChanges, ask, checksFail, cleanupFails, exportFails, closed, merged, mergeDuringCode, statusFails, badPolicy;
     String commentsRevision="1";
     Map<String,Object> usage=Map.of("model","fixture-model","inputTokens",100L,"cacheReadTokens",0L,"cacheWriteTokens",0L,"outputTokens",20L);
-    @BeforeEach void setup() throws Exception {
-        calls=0; noChanges=ask=checksFail=cleanupFails=exportFails=closed=merged=mergeDuringCode=statusFails=badPolicy=false; commentsRevision="1";
-        bare=root.resolve("fork/repo.git"); CandidateFreezer.delete(bare);
-        work=Files.createTempDirectory(root,"work-");
+    /** One fork and one working copy per class; every test starts from the initial commit with no refs. */
+    @BeforeAll static void createFork() throws Exception {
+        bare=root.resolve("fork/repo.git"); work=root.resolve("work");
         git(root,"init","--bare",bare.toString()); git(root,"init","-b","main",work.toString());
         Files.writeString(work.resolve("value.txt"),"initial\n"); commit("initial fork-only commit"); base=git(work,"rev-parse","HEAD").strip();
+    }
+    static void resetFork() {
+        for(String ref:git(bare,"for-each-ref","--format=%(refname)").lines().toList()) git(bare,"update-ref","-d",ref);
+        git(work,"reset","--quiet","--hard",base); git(work,"clean","-qfdx");
+    }
+    @BeforeEach void setup() throws Exception {
+        calls=0; noChanges=ask=checksFail=cleanupFails=exportFails=closed=merged=mergeDuringCode=statusFails=badPolicy=false; commentsRevision="1";
+        resetFork();
         id=state.createExecution("dev-factory",VERSION,null).getId(); branch="factory/test-1-"+id;
         git(work,"push",bare.toString(),"HEAD:refs/heads/"+branch);
         when(gateway.read(eq("fork/repo"),eq(7))).thenAnswer(i->pr());
@@ -123,7 +133,6 @@ class PrFeedbackIntegrationTest {
         var e=state.get(id); e.setCurrentStepIndex(8); executions.save(e);
     }
     @AfterEach void finish() { cleanupFails=false; if(!state.get(id).getStatus().isFinal()) state.transition(id,ExecutionStatus.CANCELLED,Map.of()); }
-    @AfterAll static void clean() { CandidateFreezer.cleanup(root); }
     PrFeedbackGateway.PullRequest pr() {return new PrFeedbackGateway.PullRequest("fork/repo",7,branch,"main",git(bare,"rev-parse",branch).strip(),"https://github.com/fork/repo/pull/7",!closed);}
     PrFeedbackGateway.Comment comment() {return new PrFeedbackGateway.Comment("inline:1","Reviewer","Fix selected behavior","value.txt",1,false,commentsRevision,"https://github.com/fork/repo/pull/7#discussion_r1");}
     void drive() {
@@ -325,6 +334,6 @@ class PrFeedbackIntegrationTest {
         statusFails=false; merged=true; actions.reconcilePr(id); drive();
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
     }
-    void commit(String message) {git(work,"add",".");git(work,"-c","user.name=Fixture","-c","user.email=fixture@example.org","commit","-m",message);}
+    static void commit(String message) {git(work,"add",".");git(work,"-c","user.name=Fixture","-c","user.email=fixture@example.org","commit","-m",message);}
     static String git(Path p,String...args) {return CandidateFreezer.git(p,args);}
 }

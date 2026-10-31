@@ -315,6 +315,7 @@ class TaskEndToEndTest {
     @Test
     @Order(3)
     void firstTaskRunsTheDeveloperFlowToAReadyPullRequest() {
+        stubPullRequestReadOnDelivery(BAR, 11);
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
         assertThat(stateManager.get(executionId).getTriggerPayload()).contains("MODBAR-101");
         assertThat(dispatcher.dispatchNext()).contains(executionId);
@@ -329,7 +330,6 @@ class TaskEndToEndTest {
         assertThat(intent.getTreeSha()).isEqualTo(candidate.treeSha());
         assertThat(intent.getPatchSha256()).isEqualTo(candidate.patchSha256());
         assertThat(intent.getHeadBranch()).startsWith("factory/modbar-101-");
-        stubPullRequestRead(BAR, 11, intent.getHeadBranch());
 
         TaskOutcomeService.AttemptOutcome ready = outcomes.refresh(attemptId);
 
@@ -352,7 +352,7 @@ class TaskEndToEndTest {
                 .isEmpty();
         assertThat(codingCalls).containsEntry("MODBAR-101", 1);
         assertThat(attempts.findById(attemptId).orElseThrow().getPaidStartAt()).isNotNull();
-        await().atMost(Duration.ofSeconds(90)).untilAsserted(() ->
+        await("the follow-up step opens the pr-feedback gate").atMost(Duration.ofSeconds(30)).untilAsserted(() ->
                 assertThat(reviewGateIds(executionId)).containsOnly("pr-feedback"));
         assertThat(jiraStayedReadOnly()).isTrue();
     }
@@ -723,14 +723,28 @@ class TaskEndToEndTest {
 
     private void stubDelivery() {
         when(delivery.deliver(argThat(TaskEndToEndTest::isComplete)))
+                .thenAnswer(invocation -> delivered(invocation.getArgument(0)));
+    }
+
+    /**
+     * Stubs the pull request read while the delivery answers, before the flow reaches the follow-up
+     * step; stubbed later, the step's first read fails and the flow retries it 30 seconds later.
+     */
+    private void stubPullRequestReadOnDelivery(String repository, int number) {
+        when(delivery.deliver(argThat(TaskEndToEndTest::isComplete)))
                 .thenAnswer(invocation -> {
-                    CandidateDelivery.Request request = invocation.getArgument(0);
-                    Candidate candidate = request.candidate();
-                    return new DeliveryReceipt(request.executionId(), request.target().repository(),
-                            CandidateDelivery.branchFor(request.executionId(), request.issueKey(), candidate,
-                                    request.stableBranch()),
-                            candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "d".repeat(40));
+                    DeliveryReceipt receipt = delivered(invocation.getArgument(0));
+                    stubPullRequestRead(repository, number, receipt.branch());
+                    return receipt;
                 });
+    }
+
+    private static DeliveryReceipt delivered(CandidateDelivery.Request request) {
+        Candidate candidate = request.candidate();
+        return new DeliveryReceipt(request.executionId(), request.target().repository(),
+                CandidateDelivery.branchFor(request.executionId(), request.issueKey(), candidate,
+                        request.stableBranch()),
+                candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "d".repeat(40));
     }
 
     private void stubSearch(String... issues) {
