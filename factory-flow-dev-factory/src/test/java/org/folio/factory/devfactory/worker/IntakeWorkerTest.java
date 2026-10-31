@@ -27,8 +27,8 @@ class IntakeWorkerTest {
     @Test void recordsOnlyDisplayIdentityBeforeReadingJiraEvenWhenIntakeFails() {
         var jira = mock(JiraConnector.class);
         var audit = mock(AuditLog.class);
-        var coding = new DevRuntimeProperties.Coding("coding-image", "provider", "model",
-                "https://private.example", "openai-completions", "secret-key", "pi", null, null);
+        var coding = new DevRuntimeProperties.Pi("coding-image", "provider", "model", "https://private.example",
+                "openai-completions", "secret-key", null, null, null);
         var worker = new IntakeWorker(jira, mock(RepositoryPolicy.class), new FrontmatterCodec(),
                 new PiCodingRuntime(coding), audit);
         var context = new AgentContext(UUID.randomUUID(), "read-task", Map.of(),
@@ -146,7 +146,7 @@ class IntakeWorkerTest {
                         "components", List.of("storage"), "comments", List.of(), "links", List.of()),
                 repositoryKey,
                 TaskExecutionContext.Kind.INITIAL,
-                "input-fingerprint", "destination-fingerprint");
+                "input-fingerprint", "destination-fingerprint", null);
     }
 
     private static CodingRuntime codingRuntime() {

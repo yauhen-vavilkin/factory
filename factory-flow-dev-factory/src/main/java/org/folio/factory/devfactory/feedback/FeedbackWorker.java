@@ -13,7 +13,6 @@ import org.folio.factory.core.service.StateManager;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
@@ -36,7 +35,6 @@ import java.util.Optional;
 /** One finite operation per engine invocation; all durable transitions are engine-owned. */
 public class FeedbackWorker implements AgentWorker {
     private final DevFactoryProperties repositories;
-    private final DevDeliveryProperties delivery;
     private final GitHubProperties github;
     private final PrFeedbackGateway gateway;
     private final CandidateFreezer freezer;
@@ -50,7 +48,6 @@ public class FeedbackWorker implements AgentWorker {
 
     public FeedbackWorker(
             DevFactoryProperties repositories,
-            DevDeliveryProperties delivery,
             DevRuntimeProperties runtime,
             GitHubProperties github,
             PrFeedbackGateway gateway,
@@ -62,13 +59,12 @@ public class FeedbackWorker implements AgentWorker {
             StateManager executions,
             AuditLog audit,
             AttemptPricing pricing) {
-        this(repositories, delivery, runtime, github, gateway, freezer, verifier, coding, docker, git,
+        this(repositories, runtime, github, gateway, freezer, verifier, coding, docker, git,
                 executions, audit, pricing, CodingTranscripts.none());
     }
 
     public FeedbackWorker(
             DevFactoryProperties repositories,
-            DevDeliveryProperties delivery,
             DevRuntimeProperties runtime,
             GitHubProperties github,
             PrFeedbackGateway gateway,
@@ -82,7 +78,6 @@ public class FeedbackWorker implements AgentWorker {
             AttemptPricing pricing,
             CodingTranscripts transcripts) {
         this.repositories = repositories;
-        this.delivery = delivery;
         this.github = github;
         this.gateway = gateway;
         this.freezer = freezer;
@@ -220,7 +215,7 @@ public class FeedbackWorker implements AgentWorker {
             return;
         }
         String repositoryKey = initial.path("repository").asString("");
-        DeliveryTarget target = delivery.requireTarget(repositoryKey, repositories);
+        DeliveryTarget target = repositories.requireDelivery(repositoryKey);
         String pullRequestPath = URI.create(initial.path("pullRequestUrl").asString()).getPath();
         String expectedPrefix = "/" + target.repository() + "/pull/";
         if (!pullRequestPath.startsWith(expectedPrefix)
@@ -378,7 +373,7 @@ public class FeedbackWorker implements AgentWorker {
         if (!verificationPolicy.matches(candidate, receipt)) {
             throw new IllegalStateException("Verification policy changed; run checks again");
         }
-        DeliveryTarget target = delivery.requireTarget(candidate.repository(), repositories);
+        DeliveryTarget target = repositories.requireDelivery(candidate.repository());
         if (!target.repository().equals(state.pr.repository())
                 || !target.baseBranch().equals(state.pr.baseBranch())) {
             throw new IllegalStateException("PR destination is no longer authorized");
@@ -401,13 +396,11 @@ public class FeedbackWorker implements AgentWorker {
     }
 
     private boolean isDestinationAuthorized(PrFeedbackGateway.PullRequest pullRequest) {
-        for (DeliveryTarget target : delivery.effectiveTargets(repositories).values()) {
-            if (pullRequest.repository().equals(target.repository())
-                    && pullRequest.baseBranch().equals(target.baseBranch())) {
-                return true;
-            }
-        }
-        return false;
+        return repositories.repositories().values().stream()
+                .map(DevFactoryProperties.Repository::delivery)
+                .filter(Objects::nonNull)
+                .anyMatch(target -> pullRequest.repository().equals(target.repository())
+                        && pullRequest.baseBranch().equals(target.baseBranch()));
     }
 
     private void requireHead(FeedbackState state) {

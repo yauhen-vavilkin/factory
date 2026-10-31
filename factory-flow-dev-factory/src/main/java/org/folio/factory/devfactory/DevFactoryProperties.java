@@ -1,8 +1,8 @@
 package org.folio.factory.devfactory;
 
+import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 import java.util.List;
 import java.util.SortedMap;
@@ -41,6 +41,17 @@ public record DevFactoryProperties(String gitBaseUrl, SortedMap<String, Reposito
         repositories = copy;
     }
 
+    /** The valid delivery destination of a configured repository. */
+    public DeliveryTarget requireDelivery(String repositoryKey) {
+        var repository = repositories.get(repositoryKey);
+        if (repository == null || repository.delivery() == null) {
+            throw new DeliveryBlockedException(
+                    "Missing delivery configuration for repository '" + repositoryKey + "'");
+        }
+        repository.delivery().requireValid();
+        return repository.delivery();
+    }
+
     public record Repository(
             String sourceRepo,
             String baseBranch,
@@ -50,17 +61,6 @@ public record DevFactoryProperties(String gitBaseUrl, SortedMap<String, Reposito
             List<String> jiraComponents,
             DeliveryTarget delivery) {
 
-        public Repository(
-                String sourceRepo,
-                String baseBranch,
-                String buildImage,
-                String verificationPlan,
-                List<String> jiraProjects,
-                List<String> jiraComponents) {
-            this(sourceRepo, baseBranch, buildImage, verificationPlan, jiraProjects, jiraComponents, null);
-        }
-
-        @ConstructorBinding
         public Repository {
             require(SOURCE_REPO, sourceRepo, "source-repo");
             require(BRANCH, baseBranch, "base-branch");

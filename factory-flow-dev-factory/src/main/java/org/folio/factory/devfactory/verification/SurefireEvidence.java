@@ -37,11 +37,7 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
 
     private boolean satisfies(String requirement) {
         MavenTestSuite suite = MavenTestSuite.fromRequirement(requirement);
-        if (suite != null) {
-            return suite.hasExecutedReports(executedByReport);
-        }
-        // Existing operator catalogs may still require an exact report path.
-        return executedByReport.getOrDefault(requirement, 0) > 0;
+        return suite != null && suite.hasExecutedReports(executedByReport);
     }
 
     static SurefireEvidence inspect(Path workspace, Instant verificationStarted) {

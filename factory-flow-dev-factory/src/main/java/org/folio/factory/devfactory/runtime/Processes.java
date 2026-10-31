@@ -80,9 +80,6 @@ public final class Processes {
      */
     public record Streamed(int exitCode, boolean timedOut, boolean lineTooLarge, String stderrTail,
                            boolean outputUnread) {
-        public Streamed(int exitCode, boolean timedOut, boolean lineTooLarge, String stderrTail) {
-            this(exitCode, timedOut, lineTooLarge, stderrTail, false);
-        }
     }
 
     /**

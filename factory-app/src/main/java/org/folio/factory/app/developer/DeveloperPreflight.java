@@ -9,7 +9,6 @@ import org.folio.factory.connectors.jira.JiraProperties;
 import org.folio.factory.core.trigger.TriggerPreflight;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.DevFactoryProperties.Repository;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.intake.IssueSnapshot;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
@@ -85,7 +84,6 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     }
 
     private final DevFactoryProperties repositories;
-    private final DevDeliveryProperties delivery;
     private final DevRuntimeProperties settings;
     private final CodingRuntime coding;
     private final JiraProperties jiraProperties;
@@ -136,7 +134,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
      * that could only fail at the pull request.
      */
     public void requirePushAccess(String repositoryKey) {
-        DeliveryTarget target = delivery.requireTarget(repositoryKey, repositories);
+        DeliveryTarget target = repositories.requireDelivery(repositoryKey);
         if (!github.isConfigured()) {
             throw new IllegalStateException("Set FACTORY_CONNECTORS_GITHUB_TOKEN to a token that can push to "
                     + target.repository());
@@ -265,7 +263,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
                 return ""; // The profile check already fails with the reason.
             }
         }
-        return settings.coding().piProfile().model();
+        return settings.coding().pi().model();
     }
 
     /** The profile of the run being checked: the launching task run's, or the default. */
@@ -278,7 +276,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         if (usesClaudeCode()) {
             baseUrl = runProfile().baseUrl();
         } else {
-            baseUrl = settings.coding().piProfile().baseUrl();
+            baseUrl = settings.coding().pi().baseUrl();
         }
         return endpoint(baseUrl);
     }
@@ -406,7 +404,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
             }
             add(checks, "source:" + key, Status.PASS, "Public source base is readable for " + key + ".");
         }
-        checks.add(checkDelivery(key, repository, sourceSha));
+        checks.add(checkDelivery(key, sourceSha));
     }
 
     private Check checkVerificationPlan(String key, Repository repository) {
@@ -420,13 +418,10 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         }
     }
 
-    private Check checkDelivery(String key, Repository repository, String sourceSha) {
+    private Check checkDelivery(String key, String sourceSha) {
         String checkName = "delivery:" + key;
         try {
-            DeliveryTarget target = delivery.requireTarget(key, repositories);
-            if (!repository.baseBranch().equals(target.baseBranch())) {
-                return new Check(checkName, Status.FAIL, "Delivery base must match the source base for " + key + ".");
-            }
+            DeliveryTarget target = repositories.requireDelivery(key);
             if (!github.isConfigured()) {
                 return new Check(checkName, Status.FAIL,
                         "Configure a GitHub token with push permission for " + key + ".");
@@ -452,7 +447,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
             identity.put("maxTurns", profile.maxTurns());
             identity.put("maxOutputTokens", profile.maxOutputTokens());
         } else {
-            DevRuntimeProperties.Pi profile = settings.coding().piProfile();
+            DevRuntimeProperties.Pi profile = settings.coding().pi();
             identity.put("authentication", safeAuthentication(profile.authentication(), false));
             if (profile.api() != null) {
                 identity.put("api", profile.api());
@@ -478,7 +473,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     private void addEndpointOrigin(Map<String, Object> identity) {
         try {
             URI endpoint = endpoint(usesClaudeCode()
-                    ? profiles.defaultProfile().baseUrl() : settings.coding().piProfile().baseUrl());
+                    ? profiles.defaultProfile().baseUrl() : settings.coding().pi().baseUrl());
             if (endpoint != null) {
                 URI origin = new URI(endpoint.getScheme(), null, endpoint.getHost(), endpoint.getPort(),
                         null, null, null);
@@ -570,7 +565,6 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Map.Entry<String, Repository> entry : repositories.repositories().entrySet()) {
             Repository repository = entry.getValue();
-            DeliveryTarget target = delivery.target(entry.getKey(), repositories);
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("key", entry.getKey());
             row.put("source", repository.sourceRepo());
@@ -578,7 +572,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
             row.put("buildImage", repository.buildImage());
             row.put("verificationPlan", repository.verificationPlan());
             row.put("jiraProjects", repository.jiraProjects());
-            row.put("delivery", deliveryRepository(target));
+            row.put("delivery", deliveryRepository(repository.delivery()));
             rows.add(Map.copyOf(row));
         }
         return List.copyOf(rows);

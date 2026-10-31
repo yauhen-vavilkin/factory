@@ -49,8 +49,7 @@ class PrFeedbackIntegrationTest {
         r.add("factory.dev-factory.repositories.fixture.build-image",()->"fixture-image");
         r.add("factory.dev-factory.repositories.fixture.verification-plan",()->"fixture-checks");
         r.add("factory.dev-factory.runtime.plans.fixture-checks[0]",()->"fixture-check");
-        r.add("factory.dev-factory.delivery.targets.fixture.repository",()->"fork/repo");
-        r.add("factory.dev-factory.delivery.targets.fixture.base-branch",()->"main");
+        r.add("factory.dev-factory.repositories.fixture.delivery.repository",()->"fork/repo");
         for(String model:List.of("fixture-model","second-fixture-model")) {
             String prefix="factory.developer-pricing.rates."+model+".";
             r.add(prefix+"model",()->model); r.add(prefix+"currency",()->"USD");
@@ -124,7 +123,7 @@ class PrFeedbackIntegrationTest {
             return new VerificationReceipt(id.toString(),c.repository(),c.baseSha(),c.treeSha(),c.patchSha256(),badPolicy?"previous-checks":"fixture-checks","fixture-image",List.of("fixture-check"),"scripted-checks",now,now,checksFail?1:0,1,1,checksFail?1:0,0,checksFail?"FAIL":"PASS","Independent fixture report",checksFail?VerificationFailure.CANDIDATE:VerificationFailure.NONE,0,List.of(),List.of());
         });
         var request=new CodingRequest("TEST-1","Fixture task","Fix behavior",List.of(),List.of(),List.of("Checks pass"),List.of(),
-                new CodingRequest.RepositoryTarget("fixture","upstream/repo","main",base),CodingRequest.Constraints.defaults());
+                new CodingRequest.RepositoryTarget("fixture","upstream/repo","main",base),CodingRequest.Constraints.defaults(), null);
         artifacts.putMarkdown(id,"dev_coding_request.json",JSON.writeValueAsString(request),"fixture");
         artifacts.putMarkdown(id,"dev_delivery.json",JSON.writeValueAsString(Map.of("state","DELIVERED","repository","fixture","deliveryBranch",branch,"pullRequestUrl","https://github.com/fork/repo/pull/7")),"fixture");
         var e=state.get(id); e.setCurrentStepIndex(8); executions.save(e);

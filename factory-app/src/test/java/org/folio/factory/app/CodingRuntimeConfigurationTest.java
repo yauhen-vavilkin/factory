@@ -18,40 +18,40 @@ import static org.assertj.core.api.Assertions.*;
 
 class CodingRuntimeConfigurationTest {
     @Test
-    void explicitPiSelectionPreservesLegacySettingsWithoutClaudeCredentials() throws Exception {
+    void explicitPiSelectionUsesPiSettingsWithoutClaudeCredentials() throws Exception {
         var properties = bind(Map.of(
                 "FACTORY_DEV_FACTORY_CODING_RUNTIME", "pi",
-                "FACTORY_MODEL_PROVIDER", "codemie",
-                "FACTORY_MODEL_ID", "legacy-model",
-                "FACTORY_MODEL_API_KEY", "legacy-key",
-                "FACTORY_MODEL_MAX_OUTPUT_TOKENS", "8192"));
+                "FACTORY_PI_PROVIDER", "codemie",
+                "FACTORY_PI_MODEL", "pi-model",
+                "FACTORY_PI_API_KEY", "pi-key",
+                "FACTORY_PI_MAX_OUTPUT_TOKENS", "8192"));
         var coding = properties.coding();
         var runtime = new DevFactoryConfiguration().devCodingRuntime(properties, RunProfiles.envOnly(properties.coding().claudeCode()));
 
         assertThat(runtime).isInstanceOf(PiCodingRuntime.class);
-        coding.piProfile().requireConfigured();
-        assertThat(coding.piProfile().model()).isEqualTo("legacy-model");
-        assertThat(coding.piProfile().maxOutputTokens()).isEqualTo(8192);
+        coding.pi().requireConfigured();
+        assertThat(coding.pi().model()).isEqualTo("pi-model");
+        assertThat(coding.pi().image()).isEqualTo("factory-dev-pi:0.85.1-java21");
+        assertThat(coding.pi().api()).isEqualTo("openai-completions");
+        assertThat(coding.pi().maxOutputTokens()).isEqualTo(8192);
         assertThat(coding.claudeCode().authToken()).isEqualTo("codemie-proxy");
     }
 
     @Test
-    void newPiEnvironmentOverridesLegacySettingsFieldByField() throws Exception {
+    void removedModelVariablesNoLongerConfigurePi() throws Exception {
         var coding = bind(Map.of(
                 "FACTORY_DEV_FACTORY_CODING_RUNTIME", "pi",
                 "FACTORY_MODEL_PROVIDER", "legacy-provider",
                 "FACTORY_MODEL_ID", "legacy-model",
                 "FACTORY_MODEL_API_KEY", "legacy-key",
-                "FACTORY_PI_MODEL", "new-model",
-                "FACTORY_PI_API_KEY", "new-key",
-                "FACTORY_PI_IMAGE", "new:image")).coding();
+                "FACTORY_DEV_FACTORY_CODING_IMAGE", "legacy:image")).coding();
 
-        coding.piProfile().requireConfigured();
-        assertThat(coding.piProfile().model()).isEqualTo("new-model");
-        assertThat(coding.piProfile().apiKey()).isEqualTo("new-key");
-        assertThat(coding.piProfile().image()).isEqualTo("new:image");
-        assertThat(coding.piProfile().provider()).isEqualTo("legacy-provider");
-        assertThat(coding.piProfile().maxOutputTokens()).isEqualTo(16384);
+        assertThat(coding.pi().model()).isBlank();
+        assertThat(coding.pi().apiKey()).isBlank();
+        assertThat(coding.pi().image()).isEqualTo("factory-dev-pi:0.85.1-java21");
+        assertThatThrownBy(() -> coding.pi().requireConfigured())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("factory.dev-factory.runtime.coding.pi");
     }
 
     @Test
@@ -72,16 +72,16 @@ class CodingRuntimeConfigurationTest {
         assertThat(profile.effort()).isBlank();
         assertThat(properties.timeoutSeconds()).isEqualTo(1800);
         runtime.requireConfigured(null);
-        assertThat(properties.coding().piProfile().apiKey()).isBlank();
+        assertThat(properties.coding().pi().apiKey()).isBlank();
     }
 
     @Test
-    void localCodeMieBearerTokenDoesNotUseLegacyPiApiKey() throws Exception {
-        var properties = bind(Map.of("FACTORY_MODEL_API_KEY", "legacy-pi-key"));
+    void localCodeMieBearerTokenDoesNotUseThePiApiKey() throws Exception {
+        var properties = bind(Map.of("FACTORY_PI_API_KEY", "pi-key"));
         var runtime = new DevFactoryConfiguration().devCodingRuntime(properties, RunProfiles.envOnly(properties.coding().claudeCode()));
 
         assertThat(properties.coding().claudeCode().secret()).isEqualTo("codemie-proxy");
-        assertThat(properties.coding().piProfile().apiKey()).isEqualTo("legacy-pi-key");
+        assertThat(properties.coding().pi().apiKey()).isEqualTo("pi-key");
         runtime.requireConfigured(null);
     }
 
@@ -97,7 +97,7 @@ class CodingRuntimeConfigurationTest {
 
         assertThat(runtime).isInstanceOf(ClaudeCodeCodingRuntime.class);
         runtime.requireConfigured(null);
-        assertThat(properties.coding().piProfile().apiKey()).isBlank();
+        assertThat(properties.coding().pi().apiKey()).isBlank();
         assertThat(properties.coding().claudeCode().secret()).isEqualTo("token");
         assertThat(runtime.identity(null)).containsEntry("model", "exact/Model");
     }

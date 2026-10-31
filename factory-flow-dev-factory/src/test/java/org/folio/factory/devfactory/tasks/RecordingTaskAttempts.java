@@ -44,7 +44,7 @@ public final class RecordingTaskAttempts implements TaskAttemptPolicy {
                         "components", List.of(), "comments", List.of(), "links", List.of()),
                 repositoryKey,
                 TaskExecutionContext.Kind.INITIAL,
-                "input-fingerprint", "destination-fingerprint");
+                "input-fingerprint", "destination-fingerprint", null);
     }
 
     @Override

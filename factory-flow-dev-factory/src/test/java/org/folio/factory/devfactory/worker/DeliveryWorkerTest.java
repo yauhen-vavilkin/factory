@@ -8,7 +8,6 @@ import org.folio.factory.core.agent.ArtifactContent;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryReceipt;
@@ -44,7 +43,7 @@ class DeliveryWorkerTest {
         String image = changed.equals("image") ? "different-image" : "image";
         var commands = Map.of("unit", changed.equals("command") ? List.of("mvn", "verify")
                 : List.of("mvn", "test"), "full", List.of("mvn", "verify"));
-        var required = changed.equals("required") ? Map.of("unit", List.of("target/failsafe-reports/TEST-required.xml"))
+        var required = changed.equals("required") ? Map.of("unit", List.of("failsafe"))
                 : Map.<String, List<String>>of();
         var worker = worker(delivery, github, new GitHubProperties(null, "token"),
                 plan, image, new DevRuntimeProperties(commands, null, 60, null, required));
@@ -127,7 +126,7 @@ class DeliveryWorkerTest {
         var receipt = new VerificationReceipt("00000000-0000-0000-0000-000000000001", "sidecar",
                 candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "unit", "image",
                 List.of("mvn", "test"), "fresh", Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
-                0, 112, 799, 0, 0, "PASS", "ok");
+                0, 112, 799, 0, 0, "PASS", "ok", null, 0, List.of(), List.of());
         var original = verifiedContext();
         var inputs = new java.util.HashMap<>(original.inputs());
         inputs.put(DevelopWorker.CANDIDATE, new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json",
@@ -331,7 +330,7 @@ class DeliveryWorkerTest {
         var receipt = new VerificationReceipt("00000000-0000-0000-0000-000000000001", "sidecar",
                 candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "unit", "image",
                 List.of("mvn", "test"), "fresh", Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
-                0, 1, 1, 0, 0, "PASS", "ok");
+                0, 1, 1, 0, 0, "PASS", "ok", null, 0, List.of(), List.of());
         var original = verifiedContext();
         var inputs = new java.util.HashMap<>(original.inputs());
         inputs.put(DevelopWorker.CANDIDATE, new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json",
@@ -379,7 +378,7 @@ class DeliveryWorkerTest {
                 Candidate.sha256(patch), patch, "CANDIDATE_UNVERIFIED");
         var receipt = new VerificationReceipt("execution", "sidecar", candidate.baseSha(), candidate.treeSha(),
                 candidate.patchSha256(), "unit", "image", List.of("mvn", "test"), "fresh", Instant.EPOCH,
-                Instant.EPOCH.plusSeconds(1), 0, 1, 1, 0, 0, "PASS", "ok");
+                Instant.EPOCH.plusSeconds(1), 0, 1, 1, 0, 0, "PASS", "ok", null, 0, List.of(), List.of());
         String brief = new FrontmatterCodec().render(Map.of("issue", Map.of(
                 "key", "MODSIDECAR-196", "summary", "Task")), "Task");
         var result = worker.execute(contextWithId("execution", Map.of(
@@ -404,7 +403,7 @@ class DeliveryWorkerTest {
         var receipt = new VerificationReceipt("00000000-0000-0000-0000-000000000001", "sidecar",
                 candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "unit", "image",
                 List.of("mvn", "test"), "fresh", Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
-                0, 1, 1, 0, 0, "PASS", "ok");
+                0, 1, 1, 0, 0, "PASS", "ok", null, 0, List.of(), List.of());
         String brief = new FrontmatterCodec().render(Map.of("issue", Map.of(
                 "key", "MODSIDECAR-196", "summary", "Task")), "Task");
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
@@ -488,7 +487,7 @@ class DeliveryWorkerTest {
         var taskAttempts = org.folio.factory.devfactory.tasks.RecordingTaskAttempts.taskRun("sidecar");
         taskAttempts.ownsSlot = false;
         var taskWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
-                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), taskAttempts);
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null), taskAttempts);
 
         var result = json.readTree(taskWorker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
 
@@ -505,7 +504,7 @@ class DeliveryWorkerTest {
         var taskAttempts = org.folio.factory.devfactory.tasks.RecordingTaskAttempts.taskRun("sidecar")
                 .withDeadline(new org.folio.factory.devfactory.tasks.AttemptDeadline(Instant.now().minusSeconds(1)));
         var taskWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
-                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), taskAttempts);
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null), taskAttempts);
 
         var result = json.readTree(taskWorker.execute(verifiedContext()).outputs().get(DeliveryWorker.DELIVERY));
 
@@ -608,7 +607,7 @@ class DeliveryWorkerTest {
         CandidateDelivery delivery = mock(CandidateDelivery.class);
         GitHubConnector github = mock(GitHubConnector.class);
         var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
-                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null),
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null),
                 org.folio.factory.devfactory.tasks.RecordingTaskAttempts.none(),
                 new DeliveryTarget("folio-org/folio-module-sidecar", "master"));
         var delivered = new DeliveryReceipt("execution", "folio-org/folio-module-sidecar", "factory/final",
@@ -639,7 +638,7 @@ class DeliveryWorkerTest {
         taskAttempts.authorityFailure = new org.folio.factory.devfactory.delivery.DeliveryBlockedException(
                 "the task's requirements changed after admission");
         var taskWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
-                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), taskAttempts);
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null), taskAttempts);
 
         var result = json.readTree(taskWorker.execute(taskContext()).outputs().get(DeliveryWorker.DELIVERY));
 
@@ -659,7 +658,7 @@ class DeliveryWorkerTest {
                 "the task's requirements changed after admission");
         taskAttempts.authorityFailureOnCall = 2;
         var taskWorker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
-                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), taskAttempts);
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null), taskAttempts);
         var candidate = new Candidate("sidecar", "a".repeat(40), "b".repeat(40),
                 Candidate.sha256(""), "", "CANDIDATE_UNVERIFIED");
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
@@ -688,7 +687,7 @@ class DeliveryWorkerTest {
         var candidate = new Candidate("sidecar", "a".repeat(40), "b".repeat(40),
                 Candidate.sha256(""), "", "CANDIDATE_UNVERIFIED");
         var worker = worker(delivery, github, new GitHubProperties(null, "token"), "unit", "image",
-                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null), taskAttempts);
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null), taskAttempts);
         when(delivery.deliver(anyString(), anyString(), anyString(), anyString(), any(), any(), any(), anyString(), anyBoolean(), anyInt()))
                 .thenAnswer(invocation -> {
                     assertThat(taskAttempts.intents).hasSize(1);
@@ -748,7 +747,7 @@ class DeliveryWorkerTest {
         var receipt = new VerificationReceipt("00000000-0000-0000-0000-000000000001", "sidecar",
                 candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "unit", "image",
                 List.of("mvn", "test"), "fresh", Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
-                0, 1, 1, 0, 0, "PASS", "ok");
+                0, 1, 1, 0, 0, "PASS", "ok", null, 0, List.of(), List.of());
         String brief = new FrontmatterCodec().render(Map.of("issue", Map.of(
                 "key", "MODSIDECAR-196", "summary", "Task")), "Task");
         return contextWithId("execution", Map.of(
@@ -761,7 +760,7 @@ class DeliveryWorkerTest {
     private static DeliveryWorker worker(CandidateDelivery delivery, GitHubConnector github,
                                          GitHubProperties githubProperties) {
         return worker(delivery, github, githubProperties, "unit", "image",
-                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null));
+                new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null));
     }
 
     private static DeliveryWorker worker(CandidateDelivery delivery, GitHubConnector github,
@@ -789,10 +788,9 @@ class DeliveryWorkerTest {
                 destination);
         var repositories = new DevFactoryProperties("https://github.com",
                 new TreeMap<>(Map.of("sidecar", repository)));
-        var targets = new DevDeliveryProperties(Map.of(), true);
         var state = mock(org.folio.factory.core.service.StateManager.class);
         when(state.get(any())).thenReturn(new org.folio.factory.core.domain.PipelineExecution("dev-factory", "0.8.0", null));
-        return new DeliveryWorker(repositories, runtime, targets, delivery, githubProperties,
+        return new DeliveryWorker(repositories, runtime, delivery, githubProperties,
                 new org.folio.factory.connectors.jira.JiraProperties("https://jira.example.org", null, null),
                 github, new FrontmatterCodec(), state, taskPolicy);
     }
@@ -810,7 +808,7 @@ class DeliveryWorkerTest {
                 "MODSIDECAR-196", "Task", "Description", List.of(), List.of(), List.of(), List.of(),
                 new org.folio.factory.devfactory.runtime.CodingRequest.RepositoryTarget(
                         "sidecar", "folio-org/folio-module-sidecar", "master", "a".repeat(40)),
-                null);
+                null, null);
     }
 
     private AgentContext taskContext() {

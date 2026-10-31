@@ -37,6 +37,7 @@ Each of these exists for a configuration shape that the shipped files no longer 
    README calls them legacy (`README.md:617, 623, 624`). Readers: `PiCodingRuntime:25` and
    `DeveloperPreflight.java:268, 281, 455, 481`. Flatten to `coding.runtime`, `coding.pi.*`,
    `coding.claude-code.*`; drop the 9-arg `Coding` constructor (test-only) and its suppression.
+   Status (2026-10-31): Done: Remove legacy Pi, delivery and pilot configuration layers.
 2. **`DevDeliveryProperties`** (`delivery/DevDeliveryProperties.java`, 72 lines). `targets` is never set by
    shipped configuration (only tests set `factory.dev-factory.delivery.targets.*`); `effectiveTargets` and
    `legacyOverride` (`:37-71`) exist only to merge that absent map over the catalog;
@@ -45,16 +46,20 @@ Each of these exists for a configuration shape that the shipped files no longer 
    with a `requireDelivery(key)` on `DevFactoryProperties` that returns `Repository.delivery()`, and delete
    the README paragraph at `README.md:323`. `FeedbackWorker.isDestinationAuthorized` (`:404`) then iterates
    the catalog directly.
+   Status (2026-10-31): Done: Remove legacy Pi, delivery and pilot configuration layers. The operator checkout has no `delivery.targets` and no catalog `authorized` key; its `.env` still names `FACTORY_DEV_FACTORY_DELIVERY_REPOSITORY`, `_BASE_BRANCH`, `_AUTHORIZED`, which nothing read before either (Compose does not forward them).
 3. **`RemovedDeliveryAuthorizationCheck`** (`app/RemovedDeliveryAuthorizationCheck.java`, 38 lines, test 41):
    refuses to start when an old `authorized` key is present. One-operator project; the key was removed
    before the current branch. Delete, keep one README sentence.
+   Status (2026-10-31): Done: Remove legacy Pi, delivery and pilot configuration layers. The deleted check matched only `*.authorized` keys, so it never guarded a stale `delivery.targets.<key>.repository`; a private catalog that still has one is now ignored, not refused.
 4. **`FACTORY_PILOT_*` fallbacks**: `application.yaml:145-158` (nested `${FACTORY_TASKS_X:${FACTORY_PILOT_X:}}`)
    and `docker-compose.yml:147-152`. The rename landed in `7e50d99` today. A stale `.env` then fails
    loudly instead of silently.
+   Status (2026-10-31): Done: Remove legacy Pi, delivery and pilot configuration layers. `application.yaml` keeps one comment line about the rename.
 5. **Legacy report-path requirements**: `DevRuntimeProperties.MAVEN_REPORT_PATH` (`:20`) and the
    `validLegacyPath` branch (`:67-75`) accept `target/surefire-reports/TEST-x.xml` paths next to the suite
    names `surefire` / `failsafe`; `config/developer-repositories.yaml:48-50` uses suite names only, and
    `verification/SurefireEvidence.satisfies` (`:38`) carries the matching path branch.
+   Status (2026-10-31): Done: Remove legacy Pi, delivery and pilot configuration layers.
 6. **Historical constructors**: `VerificationReceipt` 18-arg constructor (`verification/VerificationReceipt.java:18-27`,
    "historical Surefire-only receipts"; main code uses the full form at `CandidateVerifier:118-125`, so it is
    test-only), `TaskExecutionContext` 6-arg (`tasks/TaskExecutionContext.java:25-29`), `CodingRequest` 9-arg
@@ -62,13 +67,16 @@ Each of these exists for a configuration shape that the shipped files no longer 
    `DevFactoryProperties.Repository` 6-arg (`:52-60`, main 0 / test 10 files), `Processes.Streamed` 4-arg.
    Tests pass the full form; the suppressions for `CodingRequest`, `Coding`, `VerificationReceipt`,
    `Repository` go with them.
+   Status (2026-10-31): Done: Remove legacy Pi, delivery and pilot configuration layers. Tests call the canonical constructor (one extra `null`, `false` or empty list); no fixture class was needed. `Repository` had no suppression left.
 7. **Pre-0.9.0 history paths in the UI**: `DeveloperExecutionView.LEGACY_PHASES` (`:47`, used at `:341` for
    flow version `0.6.*`), `ExecutionUiController.populateLegacyUsage` (`:219`, taken when the flow version
    is not `0.9.0`, `:200-203`), `StepUsageSummary.estimate/incomplete`, `DeveloperCostEstimator` (75 lines),
    the `estimatedCost` / `usageIncomplete` branches of `templates/execution.html` (`:49, 115, 129-135,
    252-263`). About 150 lines. Operator decision: executions older than 0.9.0 lose their cost line
    (tokens stay). See section 10.
+   Status (2026-10-31): Kept: operator decision (section 10, item 3).
 8. **`DockerWorkloads.MavenCache.NONE`** (`runtime/DockerWorkloads.java:182`): no reference.
+   Status (2026-10-31): Done: Remove legacy Pi, delivery and pilot configuration layers.
 
 Estimated delta: about -300 main lines without item 7, about -450 with it; plus README and compose lines.
 Risk: low; each item is a config shape with no shipped producer. Tests that construct the legacy forms

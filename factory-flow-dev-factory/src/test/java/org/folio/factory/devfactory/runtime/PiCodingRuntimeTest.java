@@ -20,8 +20,8 @@ class PiCodingRuntimeTest {
     private static final String OVERSIZED_CONTENT = "private secret-key " + "x".repeat(512 * 1024);
 
     @Test void identityContainsOnlyDisplayFields() {
-        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding("pi:image", "provider", "model",
-                "https://private.example", "openai-completions", "secret-key", "pi", "high", 4096));
+        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Pi("pi:image", "provider", "model",
+                "https://private.example", "openai-completions", "secret-key", null, "high", 4096));
         assertThat(runtime.identity(null)).containsExactlyInAnyOrderEntriesOf(Map.of(
                 "runtime", "pi", "image", "pi:image", "provider", "provider", "model", "model"));
     }
@@ -30,9 +30,10 @@ class PiCodingRuntimeTest {
     @NullAndEmptySource
     @ValueSource(strings = {" "})
     void identityIsAvailableWithMissingConfiguration(String missing) {
-        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding(missing, missing, missing,
-                null, null, null, "pi", null, null));
-        assertThat(runtime.identity(null)).containsExactlyInAnyOrderEntriesOf(Map.of("runtime", "pi"));
+        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Pi(missing, missing, missing, null, null, null,
+                null, null, null));
+        assertThat(runtime.identity(null)).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "runtime", "pi", "image", "factory-dev-pi:0.85.1-java21"));
 
         var base = mock(CodingRuntime.class, CALLS_REAL_METHODS);
         when(base.id()).thenReturn(missing);
@@ -97,8 +98,8 @@ class PiCodingRuntimeTest {
     }
 
     @Test void codemieProfileProducesPiReasoningAndChatCompletionsSettings() throws Exception {
-        var coding = new DevRuntimeProperties.Coding("pi:image", "codemie", "gemini-3.8-flash",
-                "http://host.docker.internal:4001/v1", "openai-completions", "codemie-proxy", "pi", "high", 65536);
+        var coding = new DevRuntimeProperties.Pi("pi:image", "codemie", "gemini-3.8-flash",
+                "http://host.docker.internal:4001/v1", "openai-completions", "codemie-proxy", null, "high", 65536);
         var captured = captureConfiguration(coding);
         var provider = tools.jackson.databind.json.JsonMapper.builder().build().readTree(captured.modelsJson())
                 .path("providers").path("codemie");
@@ -118,8 +119,8 @@ class PiCodingRuntimeTest {
     }
 
     @Test void plainProfileKeepsExistingPiDefaults() throws Exception {
-        var coding = new DevRuntimeProperties.Coding("pi:image", "openai-compatible", "test-model",
-                "https://api.example.com/v1", null, "test-key", "pi", null, null);
+        var coding = new DevRuntimeProperties.Pi("pi:image", "openai-compatible", "test-model",
+                "https://api.example.com/v1", null, "test-key", null, null, null);
         var captured = captureConfiguration(coding);
         var provider = tools.jackson.databind.json.JsonMapper.builder().build().readTree(captured.modelsJson())
                 .path("providers").path("openai-compatible");
@@ -131,7 +132,7 @@ class PiCodingRuntimeTest {
         assertThat(captured.command()).doesNotContain("--thinking");
     }
 
-    private static CapturedConfiguration captureConfiguration(DevRuntimeProperties.Coding coding) {
+    private static CapturedConfiguration captureConfiguration(DevRuntimeProperties.Pi coding) {
         var workload = mock(DockerWorkloads.Workload.class);
         var modelsJson = new AtomicReference<String>();
         var command = new AtomicReference<List<String>>();
@@ -379,7 +380,8 @@ class PiCodingRuntimeTest {
                             USAGE_FRAME + frame + SETTLED);
                 });
         var events = new java.util.ArrayList<Map<String, Object>>();
-        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding("pi:image", "p", "m", null, null, "secret-key", "pi", null, null));
+        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Pi("pi:image", "p", "m", null, null, "secret-key",
+                null, null, null));
         if (outcome.equals("success")) {
             var result = runtime.code(workload, request(), 60, events::add);
             assertThat(result.summary()).contains("[REDACTED]").doesNotContain("secret-key");
@@ -480,6 +482,6 @@ class PiCodingRuntimeTest {
     private static CodingRequest request() {
         return new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(), List.of(),
                 List.of(), new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)),
-                CodingRequest.Constraints.defaults());
+                CodingRequest.Constraints.defaults(), null);
     }
 }

@@ -4,7 +4,6 @@ import org.folio.factory.app.developer.DeveloperPreflightProbe;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.devfactory.DevFactoryProperties;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,7 +34,6 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -73,9 +71,6 @@ class DeveloperFlowRegistrationTest {
 
     @Autowired
     DevRuntimeProperties devRuntimeProperties;
-
-    @Autowired
-    DevDeliveryProperties devDeliveryProperties;
 
     @Autowired
     StateManager state;
@@ -145,16 +140,6 @@ class DeveloperFlowRegistrationTest {
         assertThat(devRuntimeProperties.command("java21-roles-verify"))
                 .containsExactly("mvn", "-B", "-ntp", "verify");
         assertThat(devRuntimeProperties.requiredReports("java21-roles-verify")).containsExactly("surefire", "failsafe");
-        assertThat(devDeliveryProperties.createPullRequest()).isTrue();
-        assertThat(devDeliveryProperties.targets()).isEmpty();
-        assertThat(devDeliveryProperties.effectiveTargets(devFactoryProperties)).containsOnly(
-                entry("sidecar", new DeliveryTarget("folio-org/folio-module-sidecar", "master")),
-                entry("mod-roles-keycloak", new DeliveryTarget(
-                        "folio-org/mod-roles-keycloak", "master")),
-                entry("mgr-tenant-entitlements", new DeliveryTarget(
-                        "folio-org/mgr-tenant-entitlements", "master")),
-                entry("mgr-applications", new DeliveryTarget(
-                        "folio-org/mgr-applications", "master")));
     }
 
     @Test

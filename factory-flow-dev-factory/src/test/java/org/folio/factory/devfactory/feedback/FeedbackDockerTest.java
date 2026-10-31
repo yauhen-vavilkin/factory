@@ -30,10 +30,9 @@ class FeedbackDockerTest {
         CandidateFreezer.git(work,"-c","user.name=Fixture","-c","user.email=fixture@example.org","commit","-m","initial");
         CandidateFreezer.git(work,"push",bare.toString(),"feedback");
         String base=CandidateFreezer.git(work,"rev-parse","HEAD").strip();
-        var repositories=new DevFactoryProperties(root.toString(),new TreeMap<>(Map.of("fixture",new DevFactoryProperties.Repository("upstream/repo","main","alpine:3.21","checks",List.of("TEST"),List.of()))));
-        var delivery=new DevDeliveryProperties(Map.of("fixture",new DeliveryTarget("fork/repo","main")),true);
+        var repositories=new DevFactoryProperties(root.toString(),new TreeMap<>(Map.of("fixture",new DevFactoryProperties.Repository("upstream/repo","main","alpine:3.21","checks",List.of("TEST"),List.of(),new DeliveryTarget("fork/repo","main")))));
         var command=List.of("/bin/sh","-c","test \"$(cat value.txt)\" = corrected && mkdir -p target/surefire-reports && printf '%s' '<testsuite tests=\"1\" failures=\"0\" errors=\"0\" skipped=\"0\"><testcase name=\"behavior\"/></testsuite>' > target/surefire-reports/TEST-fixture.xml");
-        var runtime=new DevRuntimeProperties(Map.of("checks",command),null,60,volume);
+        var runtime=new DevRuntimeProperties(Map.of("checks",command),null,60,volume, null);
         var docker=new DockerWorkloads(); var freezer=new CandidateFreezer();
         var gateway=mock(PrFeedbackGateway.class);
         when(gateway.read("fork/repo",7)).thenAnswer(i->new PrFeedbackGateway.PullRequest("fork/repo",7,"feedback","main",CandidateFreezer.git(bare,"rev-parse","feedback").strip(),"https://github.com/fork/repo/pull/7",true));
@@ -51,7 +50,7 @@ class FeedbackDockerTest {
         };
         var state=mock(StateManager.class);when(state.get(id)).thenReturn(new PipelineExecution("dev-factory",VERSION,null));
         var audit=mock(AuditLog.class);when(audit.forExecution(id)).thenReturn(List.of());
-        var worker=new FeedbackWorker(repositories,delivery,runtime,new GitHubProperties("",""),gateway,freezer,
+        var worker=new FeedbackWorker(repositories,runtime,new GitHubProperties("",""),gateway,freezer,
                 new CandidateVerifier(repositories,runtime,freezer,docker),coding,docker,new FeedbackGit(freezer),state,audit,model->Map.of());
         var settings=new CodingRequest.RunSettings("glm-5.3","max",80,"Keep the public API.");
         var request=new CodingRequest("TEST-1","Correct value","Original task",List.of(),List.of(),List.of(),List.of(),new CodingRequest.RepositoryTarget("fixture","upstream/repo","main",base),null,settings);

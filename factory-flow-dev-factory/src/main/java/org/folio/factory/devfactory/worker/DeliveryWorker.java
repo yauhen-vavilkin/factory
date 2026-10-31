@@ -14,7 +14,6 @@ import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryReceipt;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.PublicationGit;
 import org.folio.factory.devfactory.delivery.PullRequestRenderer;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
@@ -42,7 +41,6 @@ public class DeliveryWorker implements AgentWorker {
     private final DevFactoryProperties repositories;
     private final VerificationPolicy verificationPolicy;
     private final PullRequestRenderer renderer = new PullRequestRenderer();
-    private final DevDeliveryProperties properties;
     private final CandidateDelivery delivery;
     private final GitHubProperties githubProperties;
     private final JiraProperties jiraProperties;
@@ -55,21 +53,19 @@ public class DeliveryWorker implements AgentWorker {
     public DeliveryWorker(
             DevFactoryProperties repositories,
             DevRuntimeProperties runtime,
-            DevDeliveryProperties properties,
             CandidateDelivery delivery,
             GitHubProperties githubProperties,
             JiraProperties jiraProperties,
             GitHubConnector github,
             FrontmatterCodec frontmatter,
             StateManager executionState) {
-        this(repositories, runtime, properties, delivery, githubProperties, jiraProperties, github,
+        this(repositories, runtime, delivery, githubProperties, jiraProperties, github,
                 frontmatter, executionState, TaskAttemptPolicy.none());
     }
 
     public DeliveryWorker(
             DevFactoryProperties repositories,
             DevRuntimeProperties runtime,
-            DevDeliveryProperties properties,
             CandidateDelivery delivery,
             GitHubProperties githubProperties,
             JiraProperties jiraProperties,
@@ -80,7 +76,6 @@ public class DeliveryWorker implements AgentWorker {
         this.repositories = repositories;
         this.verificationPolicy = new VerificationPolicy(repositories, runtime);
         this.executionState = executionState;
-        this.properties = properties;
         this.delivery = delivery;
         this.githubProperties = githubProperties;
         this.jiraProperties = jiraProperties;
@@ -147,7 +142,7 @@ public class DeliveryWorker implements AgentWorker {
 
     private AgentResult deliver(AgentContext context, Inputs inputs, String sourceUrl, int gitTimeoutSeconds) {
         var candidate = inputs.candidate();
-        var target = properties.requireTarget(candidate.repository(), repositories);
+        var target = repositories.requireDelivery(candidate.repository());
         if (!verificationPolicy.matches(candidate, inputs.verification())) {
             return blocked(inputs, PLAN_CHANGED);
         }
@@ -162,9 +157,6 @@ public class DeliveryWorker implements AgentWorker {
         var receipt = delivery.deliver(context.executionId().toString(), inputs.issueKey(), inputs.summary(),
                 sourceUrl, candidate, inputs.verification(), target, githubProperties.token(), feedbackVersion,
                 gitTimeoutSeconds);
-        if (!properties.createPullRequest()) {
-            return delivered(inputs, receipt);
-        }
         return publishPullRequest(context, inputs, new Publication(target, receipt, consumedRequest));
     }
 
@@ -237,12 +229,6 @@ public class DeliveryWorker implements AgentWorker {
         if (status == 408 || status == 429) {
             throw e;
         }
-    }
-
-    private AgentResult delivered(Inputs inputs, DeliveryReceipt receipt) {
-        var result = deliveredResult(inputs, receipt);
-        result.put("pullRequestUrl", "");
-        return toResult(result);
     }
 
     private AgentResult delivered(Inputs inputs, DeliveryReceipt receipt, PullRequestOutcome pullRequest) {

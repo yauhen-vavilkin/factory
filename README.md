@@ -169,7 +169,6 @@ Fill in the empty access values before triggering a task:
   repository decides where the pull request goes: each bundled entry delivers to
   its official folio-org repository unless you point it at your fork.
   Verification is followed by automatic push/PR publication to that repository.
-  `create-pull-request=false` does not disable git push.
 
 For example, send the sidecar's pull requests to your fork (replace
 `your-github-user`):
@@ -320,14 +319,9 @@ Test Factory, but Developer Flow preflight rejects it because Developer Flow's
 Git publication targets GitHub.com. Private source authentication, GitLab
 delivery, submodules and other build/report formats require implementation changes.
 
-Older deployments may still supply `factory.dev-factory.delivery.targets.<key>`.
-An explicit legacy target takes precedence over that entry's nested `delivery`
-settings; missing repository/base fields inherit the catalog values. Delivery has
-no on/off switch any more: Factory refuses to start while a catalog or legacy
-target still sets `authorized`, so remove the key and point the repository where
-pull requests should go. Remove legacy settings when migrating to the unified catalog. A different legacy
-delivery branch name is rejected by preflight; a conflicting nested delivery base
-is rejected while loading the catalog.
+Delivery has no `authorized` switch: pull requests always go to the entry's
+`delivery.repository`. A conflicting nested delivery base is rejected while loading
+the catalog.
 
 ### Checking configuration before a task
 
@@ -441,15 +435,11 @@ FACTORY_PI_AUTHENTICATION=api-key
 FACTORY_PI_API_KEY=replace-with-your-key
 ```
 
-Pi precedence is field-by-field: nonblank `FACTORY_PI_*` > legacy
-`FACTORY_MODEL_*` > defaults. `FACTORY_PI_MODEL` falls back to `FACTORY_MODEL_ID`;
-`FACTORY_PI_IMAGE` falls back to `FACTORY_DEV_FACTORY_CODING_IMAGE`. New empty values
-keep the legacy behavior; remove an old value to clear it. Legacy variables never
-configure Claude Code. Pi authentication is `api-key`; the Pi provider controls
-its wire format. Optional harness settings are Pi `REASONING_EFFORT` and
-`MAX_OUTPUT_TOKENS`, and Claude Code `EFFORT`, `MAX_TURNS` (40), and
-`MAX_OUTPUT_TOKENS` (16384). Use the `FACTORY_PI_` or `FACTORY_CLAUDE_CODE_`
-prefix respectively. Leave `FACTORY_CLAUDE_CODE_EFFORT` unset initially.
+Pi authentication is `api-key`; the Pi provider controls its wire format. Optional
+harness settings are Pi `REASONING_EFFORT` and `MAX_OUTPUT_TOKENS` (16384), and Claude
+Code `EFFORT`, `MAX_TURNS` (40), and `MAX_OUTPUT_TOKENS` (16384). Use the `FACTORY_PI_`
+or `FACTORY_CLAUDE_CODE_` prefix respectively. An empty `FACTORY_PI_IMAGE` uses
+`factory-dev-pi:0.85.1-java21`. Leave `FACTORY_CLAUDE_CODE_EFFORT` unset initially.
 The common attempt timeout remains `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` (1800).
 
 #### Run profiles (Claude Code)
@@ -614,14 +604,11 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME` | Persistent trusted Developer Flow Maven cache volume (default `factory-dev-m2-cache`) |
 | `FACTORY_DEV_FACTORY_REPOSITORIES_FILE` | Compose host path of the repository catalog (default `./config/developer-repositories.yaml`); mounted read-only |
 | `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `claude-code`) |
-| `FACTORY_MODEL_PROVIDER` / `_ID` / `_BASE_URL` / `_API` / `_API_KEY` | Legacy Pi profile settings; nonblank `FACTORY_PI_*` values override them |
 | `FACTORY_PI_*` / `FACTORY_CLAUDE_CODE_*` | Independent image, API, model, endpoint, authentication and harness profiles; see [Coding runtime profiles](#coding-runtime-profiles) |
 | `FACTORY_CLAUDE_CODE_EFFORT` | Default effort of run profile `env-default`: `low`, `medium`, `high`, `xhigh` or `max`; empty sends no `--effort` (the CLI uses `high`) |
 | `FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE` | Run profile preselected in the run forms and used by runs without a choice; empty means `env-default`. See [Run profiles](#run-profiles-claude-code) |
 | `FACTORY_DEV_FACTORY_RUN_PROFILES_FILE` | Compose host path of the run profiles file (default `./config/developer-run-profiles.yaml`); mounted read-only |
 | `FACTORY_ZAI_API_KEY` | Z.ai key for the `glm-5.3` and `glm-5.3-flash` run profiles; empty leaves them "not configured" |
-| `FACTORY_MODEL_REASONING_EFFORT` | Old Pi runtime only (legacy Pi profile): optional Pi thinking level, `max` for the CodeMie GPT-5.6 Luna profile. It does not change Claude Code; use `FACTORY_CLAUDE_CODE_EFFORT` or the run form |
-| `FACTORY_MODEL_MAX_OUTPUT_TOKENS` | Pi model output limit (default `16384`; CodeMie profile `65536`) |
 | `FACTORY_DB_POOL_MAX` / `_MIN_IDLE` | HikariCP pool sizing (defaults `16` / `4`; see `doc/performance.md`) |
 | `FACTORY_DB_POOL_CONNECTION_TIMEOUT_MS` / `_MAX_LIFETIME_MS` / `_IDLE_TIMEOUT_MS` / `_LEAK_DETECTION_MS` | HikariCP tuning (defaults `30000` / `1800000` / `600000` / `60000`) |
 | `FACTORY_HTTP_CONNECT_TIMEOUT` / `_READ_TIMEOUT` | Connector HTTP timeouts (Duration; defaults `5s` / `30s`) |

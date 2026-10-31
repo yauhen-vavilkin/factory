@@ -161,6 +161,6 @@ class DevelopContinuationWorkerTest {
     private static CodingRequest request() {
         return new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(), List.of(),
                 List.of(), new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)),
-                CodingRequest.Constraints.defaults());
+                CodingRequest.Constraints.defaults(), null);
     }
 }

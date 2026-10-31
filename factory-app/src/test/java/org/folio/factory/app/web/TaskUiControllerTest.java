@@ -21,7 +21,6 @@ import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
@@ -137,8 +136,7 @@ class TaskUiControllerTest {
         var repositories = new DevFactoryProperties("https://github.com", new TreeMap<>(Map.of("mod-bar",
                 new DevFactoryProperties.Repository("folio-org/mod-bar", "master", "build:image", "unit",
                         List.of("MODBAR"), List.of(), new DeliveryTarget("folio-org/mod-bar", null)))));
-        var rows = new TaskRows(new TaskSourceProperties("Jane Developer"), jira, repositories,
-                new DevDeliveryProperties(Map.of(), true));
+        var rows = new TaskRows(new TaskSourceProperties("Jane Developer"), jira, repositories);
         var controller = new TaskUiController(taskQuery, installations, attempts, admissions, retries,
                 discovery, dispatcher, outcomes, rows, flows, runSettings);
         mvc = MockMvcBuilders.standaloneSetup(controller)

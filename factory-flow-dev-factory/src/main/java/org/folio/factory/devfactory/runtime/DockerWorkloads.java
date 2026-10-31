@@ -179,7 +179,6 @@ public class DockerWorkloads {
     }
 
     enum MavenCache {
-        NONE("mkdir -p /tmp/factory-home; exec sleep infinity"),
         TRUSTED_WRITABLE("mkdir -p /tmp/factory-home/.m2/repository; exec sleep infinity"),
         READ_ONLY_SEED("mkdir -p /tmp/factory-home; exec sleep infinity");
         private final String startupCommand;

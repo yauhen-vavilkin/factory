@@ -65,7 +65,8 @@ class VerifyWorkerTest {
         var publishContext = new AgentContext(execution, "publish", Map.of(VerifyWorker.RESULT,
                 new ArtifactContent(VerifyWorker.RESULT, 1, "application/json",
                         verification.outputs().get(VerifyWorker.RESULT))), null, Map.of(), List.of());
-        var published = new DeliveryWorker(null, null, null, delivery, null, null, github, null, null).execute(publishContext);
+        var published = new DeliveryWorker(null, null, delivery, null, null, github, null,
+                null).execute(publishContext);
 
         assertThat(json.readTree(published.outputs().get(DeliveryWorker.DELIVERY)).path("state").asString())
                 .isEqualTo("NOT_RUN");
@@ -83,7 +84,8 @@ class VerifyWorkerTest {
                 Candidate.sha256(""), "", "CANDIDATE_UNVERIFIED");
         var receipt = new VerificationReceipt(execution.toString(), candidate.repository(), candidate.baseSha(),
                 candidate.treeSha(), candidate.patchSha256(), "unit", "image", List.of("mvn", "test"),
-                "workload", Instant.EPOCH, Instant.EPOCH, 1, 0, null, null, null, "FAIL", "No usable test evidence");
+                "workload", Instant.EPOCH, Instant.EPOCH, 1, 0, null, null, null, "FAIL", "No usable test evidence",
+                        null, 0, List.of(), List.of());
         when(verifier.verify(execution, "verify", candidate, java.util.Optional.empty())).thenReturn(receipt);
         var input = new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json", json.writeValueAsString(candidate));
         var context = new AgentContext(execution, "verify", Map.of(DevelopWorker.CANDIDATE, input),

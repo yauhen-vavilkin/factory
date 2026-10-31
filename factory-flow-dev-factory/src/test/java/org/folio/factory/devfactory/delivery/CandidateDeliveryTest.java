@@ -43,7 +43,7 @@ class CandidateDeliveryTest {
         return new VerificationReceipt(execution, candidate.repository(), candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(),
                 "focused", "fixture", List.of("true"), "fixture", Instant.EPOCH, Instant.EPOCH, exit,
                 exit == 0 ? 1 : 0, exit == 0 ? 1 : null, exit == 0 ? 0 : null, exit == 0 ? 0 : null,
-                exit == 0 ? "PASS" : "FAIL", "");
+                exit == 0 ? "PASS" : "FAIL", "", null, 0, List.of(), List.of());
     }
 
     private DeliveryReceipt deliver(VerificationReceipt receipt, DeliveryTarget destination, String token) {

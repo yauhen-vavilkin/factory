@@ -136,26 +136,25 @@ factory:
       username: ${FACTORY_CONNECTORS_TESTRAIL_USERNAME:}
       api-key: ${FACTORY_CONNECTORS_TESTRAIL_API_KEY:}
       project-id: ${FACTORY_CONNECTORS_TESTRAIL_PROJECT_ID:0}
-  # My tasks. Each FACTORY_TASKS_* variable falls back to its old FACTORY_PILOT_* name, so an
-  # existing .env keeps working.
+  # My tasks. These settings had the old pilot names until the rename on 2026-10-30.
   tasks:
     execution:
       # Task queue processing: opt-in; new launches are refused while retention is enabled.
       # Gates the outcome/recovery wiring; the engine itself knows nothing about tasks.
-      enabled: ${FACTORY_TASKS_EXECUTION_ENABLED:${FACTORY_PILOT_EXECUTION_ENABLED:false}}
+      enabled: ${FACTORY_TASKS_EXECUTION_ENABLED:false}
       # Whole-attempt budget from preparation through delivery (forty coding turns
       # and sixty minutes are the M1 defaults; queue and review waiting excluded).
       # The coding-turn cap stays the runtime default of 40
       # (factory.dev-factory.runtime.coding.claude-code.max-turns).
-      deadline: ${FACTORY_TASKS_EXECUTION_DEADLINE:${FACTORY_PILOT_EXECUTION_DEADLINE:60m}}
-      recovery-poll-interval-ms: ${FACTORY_TASKS_EXECUTION_RECOVERY_POLL_INTERVAL_MS:${FACTORY_PILOT_EXECUTION_RECOVERY_POLL_INTERVAL_MS:60000}}
+      deadline: ${FACTORY_TASKS_EXECUTION_DEADLINE:60m}
+      recovery-poll-interval-ms: ${FACTORY_TASKS_EXECUTION_RECOVERY_POLL_INTERVAL_MS:60000}
       # Dispatch poller: retries queued attempts after a refused or failed
       # dispatch and advances the queue when a terminal outcome frees the slot.
       # Admission itself also dispatches best-effort; this is the safety net.
-      dispatch-interval-ms: ${FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS:${FACTORY_PILOT_EXECUTION_DISPATCH_INTERVAL_MS:30000}}
+      dispatch-interval-ms: ${FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS:30000}
     source:
       # Whose open Jira tasks Scan Jira finds: the name as Jira shows it, or an accountId.
-      assignee: ${FACTORY_TASKS_ASSIGNEE:${FACTORY_PILOT_ASSIGNEE:}}
+      assignee: ${FACTORY_TASKS_ASSIGNEE:}
   dev-factory:
     git-base-url: ${FACTORY_DEV_FACTORY_GIT_BASE_URL:https://github.com}
     # Run profile used when a run names none (manual API trigger, older attempts) and preselected in
@@ -167,14 +166,6 @@ factory:
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
       coding:
         runtime: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:claude-code}
-        image: ${FACTORY_DEV_FACTORY_CODING_IMAGE:factory-dev-pi:0.85.1-java21}
-        provider: ${FACTORY_MODEL_PROVIDER:}
-        model: ${FACTORY_MODEL_ID:}
-        base-url: ${FACTORY_MODEL_BASE_URL:}
-        api: ${FACTORY_MODEL_API:openai-completions}
-        api-key: ${FACTORY_MODEL_API_KEY:}
-        reasoning-effort: ${FACTORY_MODEL_REASONING_EFFORT:}
-        max-output-tokens: ${FACTORY_MODEL_MAX_OUTPUT_TOKENS:16384}
         pi:
           image: ${FACTORY_PI_IMAGE:}
           provider: ${FACTORY_PI_PROVIDER:}
@@ -198,8 +189,6 @@ factory:
           # Default effort of profile env-default: low, medium, high, xhigh or max. Empty sends no
           # --effort, so the CLI uses high.
           effort: ${FACTORY_CLAUDE_CODE_EFFORT:}
-    delivery:
-      create-pull-request: true
   test-factory:
     execution:
       base-url: ${FACTORY_TEST_FACTORY_EXECUTION_BASE_URL:}

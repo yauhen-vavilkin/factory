@@ -48,10 +48,12 @@ class DevelopReadinessTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void retryStartsPiOnlyAfterBuildPassesAndNeverRetriesPiFailure(boolean piFails) {
-        var repo = new DevFactoryProperties.Repository("owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
+        var repo = new DevFactoryProperties.Repository("owner/repo", "master", "build:image", "unit", List.of("TASK"),
+                List.of(), null);
         var properties = new DevFactoryProperties("https://example.org", new TreeMap<>(Map.of("repo", repo)));
         var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")),
-                new DevRuntimeProperties.Coding("pi:image", "provider", "model", null, null, "secret", "pi", null, null), 60, null);
+                new DevRuntimeProperties.Coding("pi", new DevRuntimeProperties.Pi("pi:image", "provider", "model",
+                        null, null, "secret", null, null, null), null), 60, null, null);
         var docker = mock(DockerWorkloads.class);
         var stepScope = mock(DockerWorkloads.StepScope.class);
         when(docker.beginStep(any(), eq("implement"))).thenReturn(stepScope);
@@ -166,9 +168,10 @@ class DevelopReadinessTest {
     }
 
     private void verifyFailedBaseline(String failure, boolean retryable) {
-        var repo = new DevFactoryProperties.Repository("owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
+        var repo = new DevFactoryProperties.Repository("owner/repo", "master", "build:image", "unit", List.of("TASK"),
+                List.of(), null);
         var properties = new DevFactoryProperties("https://example.org", new TreeMap<>(Map.of("repo", repo)));
-        var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null);
         var docker = mock(DockerWorkloads.class);
         var stepScope = mock(DockerWorkloads.StepScope.class);
         when(docker.beginStep(any(), eq("implement"))).thenReturn(stepScope);
@@ -216,9 +219,9 @@ class DevelopReadinessTest {
     @Test
     void invalidCodingProfileReconcilesOwnedStepButNeverChecksOutOrBuilds() {
         var repository = new DevFactoryProperties.Repository(
-                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
+                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of(), null);
         var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
-        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null);
         var docker = mock(DockerWorkloads.class);
         var scope = mock(DockerWorkloads.StepScope.class);
         var freezer = mock(CandidateFreezer.class);
@@ -249,9 +252,9 @@ class DevelopReadinessTest {
     @Test
     void aTaskExecutionClaimsOnePaidStartAndAReplayedStepCannotStartAnother() {
         var repository = new DevFactoryProperties.Repository(
-                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
+                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of(), null);
         var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
-        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null);
         var docker = mock(DockerWorkloads.class);
         var scope = mock(DockerWorkloads.StepScope.class);
         var workload = mock(DockerWorkloads.Workload.class);
@@ -300,9 +303,9 @@ class DevelopReadinessTest {
     @Test
     void aTaskBaselineFailureKeepsTheClaimUnconsumedAndTheEngineRetrySucceeds() {
         var repository = new DevFactoryProperties.Repository(
-                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
+                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of(), null);
         var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
-        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null);
         var docker = mock(DockerWorkloads.class);
         var scope = mock(DockerWorkloads.StepScope.class);
         var baseline = mock(DockerWorkloads.Workload.class);
@@ -353,9 +356,9 @@ class DevelopReadinessTest {
     @ValueSource(booleans = {false, true})
     void blockedRepositoryStopsBeforeCheckoutForInitialAttemptAndContinuation(boolean continuation) {
         var repository = new DevFactoryProperties.Repository(
-                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
+                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of(), null);
         var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
-        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null);
         var docker = mock(DockerWorkloads.class);
         var scope = mock(DockerWorkloads.StepScope.class);
         var freezer = mock(CandidateFreezer.class);
@@ -561,9 +564,9 @@ class DevelopReadinessTest {
 
     private TaskHarness taskHarness(RecordingTaskAttempts taskAttempts, CodingTranscripts transcripts, AuditLog audit) {
         var repository = new DevFactoryProperties.Repository(
-                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of());
+                "owner/repo", "master", "build:image", "unit", List.of("TASK"), List.of(), null);
         var properties = new DevFactoryProperties(null, new TreeMap<>(Map.of("repo", repository)));
-        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null);
         var docker = mock(DockerWorkloads.class);
         var scope = mock(DockerWorkloads.StepScope.class);
         var baseline = mock(DockerWorkloads.Workload.class);
@@ -623,6 +626,6 @@ class DevelopReadinessTest {
     private static CodingRequest request() {
         return new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(), List.of(),
                 List.of(), new CodingRequest.RepositoryTarget("repo", "owner/repo", "master", "a".repeat(40)),
-                CodingRequest.Constraints.defaults());
+                CodingRequest.Constraints.defaults(), null);
     }
 }

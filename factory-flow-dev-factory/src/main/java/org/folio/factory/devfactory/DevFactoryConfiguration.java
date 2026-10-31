@@ -20,7 +20,6 @@ import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.decision.ConditionalDecisionGate;
 import org.folio.factory.devfactory.decision.DevArtifactAmendmentValidator;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.feedback.AttemptPricing;
 import org.folio.factory.devfactory.feedback.FeedbackActions;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
@@ -74,8 +73,7 @@ import java.util.Map;
 @EnableConfigurationProperties({
     DevFactoryProperties.class,
     DevRuntimeProperties.class,
-    RunProfiles.Properties.class,
-    DevDeliveryProperties.class
+    RunProfiles.Properties.class
 })
 public class DevFactoryConfiguration {
 
@@ -99,7 +97,7 @@ public class DevFactoryConfiguration {
     @Bean
     public CodingRuntime devCodingRuntime(DevRuntimeProperties runtime, RunProfiles profiles) {
         return switch (runtime.coding().runtime()) {
-            case "pi" -> new PiCodingRuntime(runtime.coding());
+            case "pi" -> new PiCodingRuntime(runtime.coding().pi());
             case "claude-code" -> new ClaudeCodeCodingRuntime(runtime.coding().claudeCode(), profiles);
             default ->
                     throw new IllegalStateException(
@@ -178,7 +176,6 @@ public class DevFactoryConfiguration {
     public DeliveryWorker devDeliveryWorker(
             DevFactoryProperties repositories,
             DevRuntimeProperties runtime,
-            DevDeliveryProperties properties,
             CandidateDelivery delivery,
             GitHubProperties githubProperties,
             JiraProperties jiraProperties,
@@ -189,7 +186,6 @@ public class DevFactoryConfiguration {
         return new DeliveryWorker(
                 repositories,
                 runtime,
-                properties,
                 delivery,
                 githubProperties,
                 jiraProperties,
@@ -325,7 +321,6 @@ public class DevFactoryConfiguration {
     @Bean
     public FeedbackWorker feedbackWorker(
             DevFactoryProperties repositories,
-            DevDeliveryProperties delivery,
             DevRuntimeProperties runtime,
             GitHubProperties github,
             PrFeedbackGateway gateway,
@@ -340,7 +335,6 @@ public class DevFactoryConfiguration {
             ObjectProvider<CodingTranscripts> transcripts) {
         return new FeedbackWorker(
                 repositories,
-                delivery,
                 runtime,
                 github,
                 gateway,

@@ -8,7 +8,6 @@ import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
@@ -28,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
 import static org.mockito.Mockito.*;
 
-/** Canonical catalog destinations must authorize the same feedback paths as legacy targets. */
+/** Catalog delivery destinations decide which pull requests PR feedback may follow. */
 class FeedbackCatalogTest {
     private final UUID executionId = UUID.randomUUID();
     private final PrFeedbackGateway gateway = mock(PrFeedbackGateway.class);
@@ -123,8 +122,7 @@ class FeedbackCatalogTest {
             catalog.put("unrelated", unrelatedRepository);
         }
         var repositories = new DevFactoryProperties(null, catalog);
-        var delivery = new DevDeliveryProperties(Map.of(), true);
-        var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null);
         var executions = mock(StateManager.class);
         when(executions.get(executionId))
                 .thenReturn(new PipelineExecution("dev-factory", VERSION, null));
@@ -132,7 +130,6 @@ class FeedbackCatalogTest {
         when(audit.forExecution(executionId)).thenReturn(List.of());
         return new FeedbackWorker(
                 repositories,
-                delivery,
                 runtime,
                 new GitHubProperties(null, "fixture-token"),
                 gateway,

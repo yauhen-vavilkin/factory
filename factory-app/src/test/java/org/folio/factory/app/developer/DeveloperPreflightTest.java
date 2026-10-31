@@ -10,7 +10,6 @@ import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.decision.DecisionArtifacts;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
@@ -69,7 +68,6 @@ class DeveloperPreflightTest {
     private final GitHubProperties github = new GitHubProperties("", "github-fixture-secret");
     private DevRuntimeProperties settings;
     private DevFactoryProperties repositories;
-    private DevDeliveryProperties delivery;
     private DeveloperPricingProperties pricing;
 
     @BeforeEach
@@ -77,11 +75,9 @@ class DeveloperPreflightTest {
         var profile = new DevRuntimeProperties.ClaudeCode("coding:image", "anthropic-messages",
                 "http://gateway.fixture.invalid:4001", "exact-model", "bearer-token", null,
                 "coding-fixture-secret", 40, 16384, null);
-        var runtime = new DevRuntimeProperties.Coding(null, null, null, null, null, null,
-                "claude-code", null, null, null, profile);
-        settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "-B", "test")), runtime, 1800, null);
+        var runtime = new DevRuntimeProperties.Coding("claude-code", null, profile);
+        settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "-B", "test")), runtime, 1800, null, null);
         repositories = catalog(Map.of("fixture", repository("source/module", true)));
-        delivery = new DevDeliveryProperties(Map.of(), true);
         pricing = new DeveloperPricingProperties(Map.of("fixture", new DeveloperPricingProperties.Rate(
                 "exact-model", "USD", LocalDate.of(2026, 10, 22), URI.create("https://pricing.fixture.invalid"),
                 BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE)));
@@ -196,10 +192,9 @@ class DeveloperPreflightTest {
                 "bearer-token", "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", 100, 16384);
         var profiles = new RunProfiles(environment, new RunProfiles.Properties(List.of(glm), null),
                 Map.of("FACTORY_ZAI_API_KEY", zaiKey)::get);
-        var runtime = new DevRuntimeProperties.Coding(null, null, null, null, null, null,
-                "claude-code", null, null, null, environment);
-        settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null);
-        return new DeveloperPreflight(repositories, delivery, settings,
+        var runtime = new DevRuntimeProperties.Coding("claude-code", null, environment);
+        settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null, null);
+        return new DeveloperPreflight(repositories, settings,
                 new ClaudeCodeCodingRuntime(environment, profiles), jiraProperties, jira, github, pricing, probe,
                 profiles);
     }
@@ -287,8 +282,8 @@ class DeveloperPreflightTest {
         var profile = new DevRuntimeProperties.ClaudeCode("coding:image", "anthropic-messages",
                 "http://host.docker.internal:4001", "exact-model", "bearer-token", null,
                 "coding-fixture-secret", 40, 16384, null);
-        settings = new DevRuntimeProperties(settings.plans(), new DevRuntimeProperties.Coding(
-                null, null, null, null, null, null, "claude-code", null, null, null, profile), 1800, null);
+        settings = new DevRuntimeProperties(settings.plans(), new DevRuntimeProperties.Coding("claude-code", null,
+                profile), 1800, null, null);
         when(probe.gatewayReachable(any())).thenReturn(false);
 
         var report = service().check("TASK-1");
@@ -417,7 +412,7 @@ class DeveloperPreflightTest {
     @Test
     void unsupportedEnterpriseApiIsBlockedBeforeRepositoryAccess() {
         var enterprise = new GitHubProperties("https://github.enterprise.invalid/api/v3", "github-fixture-secret");
-        var service = new DeveloperPreflight(repositories, delivery, settings, coding, jiraProperties, jira,
+        var service = new DeveloperPreflight(repositories, settings, coding, jiraProperties, jira,
                 enterprise, pricing, probe, RunProfiles.envOnly(settings.coding().claudeCode()));
 
         var report = service.check("TASK-1");
@@ -430,7 +425,7 @@ class DeveloperPreflightTest {
 
     @Test
     void defaultProxyProfileHasASafeEffectiveConfiguration() {
-        settings = new DevRuntimeProperties(Map.of(), null, 1800, null);
+        settings = new DevRuntimeProperties(Map.of(), null, 1800, null, null);
 
         var report = service().check(null);
 
@@ -447,9 +442,8 @@ class DeveloperPreflightTest {
     void invalidAuthenticationIsRedactedFromEffectiveConfiguration() {
         var profile = new DevRuntimeProperties.ClaudeCode(null, null, null, null,
                 "coding-fixture-secret", null, null, null, null, null);
-        var runtime = new DevRuntimeProperties.Coding(null, null, null, null, null, null,
-                "claude-code", null, null, null, profile);
-        settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null);
+        var runtime = new DevRuntimeProperties.Coding("claude-code", null, profile);
+        settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null, null);
         doThrow(new IllegalStateException("invalid coding-fixture-secret")).when(coding).requireConfigured(any());
 
         var report = service().check(null);
@@ -463,17 +457,6 @@ class DeveloperPreflightTest {
     @Test
     void invalidDestinationCannotReachDeliveryProbe() {
         repositories = catalog(Map.of("fixture", repository("source/module", false)));
-
-        var report = service().check("TASK-1");
-
-        assertThat(report.ready()).isFalse();
-        assertThat(check(report, "delivery:fixture").status()).isEqualTo(FAIL);
-        verify(probe, never()).requireDeliveryAccess(any(), anyString());
-    }
-
-    @Test
-    void legacyTargetWithDifferentBaseCannotReachDeliveryProbe() {
-        delivery = new DevDeliveryProperties(Map.of("fixture", new DeliveryTarget("fork/module", "other-base")), true);
 
         var report = service().check("TASK-1");
 
@@ -564,16 +547,15 @@ class DeveloperPreflightTest {
     }
 
     private DeveloperPreflight service() {
-        return new DeveloperPreflight(repositories, delivery, settings, coding, jiraProperties, jira, github, pricing,
+        return new DeveloperPreflight(repositories, settings, coding, jiraProperties, jira, github, pricing,
                 probe, RunProfiles.envOnly(settings.coding().claudeCode()));
     }
 
     private void usePiProfile(String baseUrl) {
         var pi = new DevRuntimeProperties.Pi("coding:image", "fixture-provider", "exact-model", baseUrl,
                 "openai-completions", "coding-fixture-secret", "api-key", null, 16384);
-        var runtime = new DevRuntimeProperties.Coding(null, null, null, null, null, null,
-                "pi", null, null, pi, null);
-        settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null);
+        var runtime = new DevRuntimeProperties.Coding("pi", pi, null);
+        settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null, null);
         when(coding.id()).thenReturn("pi");
         when(coding.identity(any())).thenReturn(Map.of("runtime", "pi", "model", "exact-model"));
     }

@@ -13,8 +13,6 @@
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='CandidateDelivery']]/OBJBLOCK/METHOD_DEF/IDENT[@text='deliver']"/>
   <suppress-xpath files="ClaudeCodeCodingRuntime\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='ClaudeCodeCodingRuntime']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='code']]"/>
-  <suppress-xpath files="CodingRequest\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/RECORD_DEF[./IDENT[@text='CodingRequest']]/OBJBLOCK/CTOR_DEF/IDENT[@text='CodingRequest']"/>
   <suppress-xpath files="DashboardUiController\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DashboardUiController']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='audit']]"/>
   <suppress-xpath files="DashboardUiController\.java" checks="MethodLength"
@@ -29,8 +27,6 @@
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DevFactoryConfiguration']]/OBJBLOCK/METHOD_DEF/IDENT[@text='feedbackWorker']"/>
   <suppress-xpath files="DevFactoryConfiguration\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DevFactoryConfiguration']]/OBJBLOCK/METHOD_DEF/IDENT[@text='initialCodingAttempt']"/>
-  <suppress-xpath files="DevRuntimeProperties\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/RECORD_DEF[./IDENT[@text='DevRuntimeProperties']]/OBJBLOCK/RECORD_DEF[./IDENT[@text='Coding']]/OBJBLOCK/CTOR_DEF/IDENT[@text='Coding']"/>
   <suppress-xpath files="DeveloperCostEstimator\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DeveloperCostEstimator']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='estimate']]"/>
   <suppress-xpath files="DeveloperPricingProperties\.java" checks="ParameterNumber"
@@ -79,8 +75,6 @@
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='Task']]/OBJBLOCK/CTOR_DEF/IDENT[@text='Task']"/>
   <suppress-xpath files="TestFactoryConfiguration\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TestFactoryConfiguration']]/OBJBLOCK/METHOD_DEF/IDENT[@text='testFactoryFinalizerWorker']"/>
-  <suppress-xpath files="VerificationReceipt\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/RECORD_DEF[./IDENT[@text='VerificationReceipt']]/OBJBLOCK/CTOR_DEF/IDENT[@text='VerificationReceipt']"/>
   <suppress-xpath files="VerifyWorker\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='VerifyWorker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='execute']]"/>
 </suppressions>

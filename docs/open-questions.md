@@ -53,8 +53,6 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
   "Create pull request" as "Waiting", while the engine status is `COMPLETED`.
 - `dev_coding_outcome.json` keeps the CLI's own cost estimate, which prices unknown models
   at Opus rates ($0.84 where the real GLM cost is $0.32). The UI uses Factory's rate card.
-- `.env` files may still set `FACTORY_DEV_FACTORY_DELIVERY_REPOSITORY`, `_BASE_BRANCH`,
-  `_AUTHORIZED` and `_CREATE_PR`; no code reads them.
 - `docker-compose.yml` passes environment variables by an explicit list, so a new secret
   variable must be added there too. This includes the `secret-env` variable of every new run
   profile.

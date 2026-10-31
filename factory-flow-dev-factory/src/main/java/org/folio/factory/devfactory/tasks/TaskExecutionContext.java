@@ -23,12 +23,6 @@ public record TaskExecutionContext(
 
     public enum Kind { INITIAL, RETRY }
 
-    public TaskExecutionContext(UUID attemptId, Map<String, Object> approvedSnapshot, String repositoryKey,
-                                 Kind admissionKind, String inputFingerprint, String destinationFingerprint) {
-        this(attemptId, approvedSnapshot, repositoryKey, admissionKind, inputFingerprint, destinationFingerprint,
-                null);
-    }
-
     public TaskExecutionContext {
         approvedSnapshot = approvedSnapshot == null ? Map.of() : Map.copyOf(approvedSnapshot);
     }

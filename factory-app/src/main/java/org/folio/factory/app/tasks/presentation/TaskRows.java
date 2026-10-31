@@ -8,7 +8,6 @@ import org.folio.factory.app.tasks.source.TaskJiraInstance;
 import org.folio.factory.app.tasks.source.TaskSourceProperties;
 import org.folio.factory.app.web.UiFormat;
 import org.folio.factory.devfactory.DevFactoryProperties;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.springframework.stereotype.Component;
 
 import java.time.ZoneOffset;
@@ -55,7 +54,6 @@ public class TaskRows {
     private final TaskSourceProperties source;
     private final TaskJiraInstance jira;
     private final DevFactoryProperties repositories;
-    private final DevDeliveryProperties delivery;
 
     public Map<String, Object> sourceCard(TaskInstallation installation) {
         Map<String, Object> card = new LinkedHashMap<>();
@@ -289,10 +287,8 @@ public class TaskRows {
     }
 
     private String destination(String repositoryKey) {
-        if (repositoryKey == null) {
-            return null;
-        }
-        var target = delivery.target(repositoryKey, repositories);
+        var repository = repositoryKey == null ? null : repositories.repositories().get(repositoryKey);
+        var target = repository == null ? null : repository.delivery();
         return target == null || target.repository() == null ? null
                 : target.repository() + " · base " + target.baseBranch();
     }

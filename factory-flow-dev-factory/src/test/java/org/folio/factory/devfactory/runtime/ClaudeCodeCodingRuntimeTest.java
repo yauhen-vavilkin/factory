@@ -231,7 +231,7 @@ class ClaudeCodeCodingRuntimeTest {
                 answers.add(keepReading);
                 if (!keepReading) break;
             }
-            return new Processes.Streamed(137, false, false, "");
+            return new Processes.Streamed(137, false, false, "", false);
         });
         var outcome = new ClaudeCodeCodingRuntime(config("api-key")).code(workload, request(), 60);
         assertThat(answers).containsExactly(true, false);
@@ -255,14 +255,14 @@ class ClaudeCodeCodingRuntimeTest {
         when(workload.stream(anyList(), eq(1800), any(), any()))
                 .thenAnswer(call -> {
                     feed(call.getArgument(3), INIT, -1, "");
-                    return new Processes.Streamed(-1, true, false, "");
+                    return new Processes.Streamed(-1, true, false, "", false);
                 });
         var timedOut = new ClaudeCodeCodingRuntime(config("api-key")).code(workload, request(), 1800);
         assertThat(timedOut.failure().code()).isEqualTo("TIME_LIMIT");
         assertThat(timedOut.failure().message()).contains("time limit of 30 minutes", "Retry with a lower effort");
 
         when(workload.stream(anyList(), eq(60), any(), any()))
-                .thenReturn(new Processes.Streamed(137, false, true, ""));
+                .thenReturn(new Processes.Streamed(137, false, true, "", false));
         var oversized = new ClaudeCodeCodingRuntime(config("api-key")).code(workload, request(), 60);
         assertThat(oversized.failure().code()).isEqualTo("FRAME_TOO_LARGE");
         assertThat(oversized.failure().message()).contains("larger than 8 MB", "Retry the task");
@@ -343,7 +343,7 @@ class ClaudeCodeCodingRuntimeTest {
                 e -> { }, CodingTranscripts.NONE);
         protocol.accept(INIT);
         var exited = protocol.outcome(new Processes.Streamed(2, false, false,
-                "y".repeat(5000) + "\nfatal: token secret-key rejected"), 60);
+                "y".repeat(5000) + "\nfatal: token secret-key rejected", false), 60);
         assertThat(exited.failure().code()).isEqualTo("RUNTIME_EXIT");
         assertThat(exited.failure().message())
                 .startsWith("Claude Code exited with code 2 before it returned a result. Check the coding runtime")
@@ -352,7 +352,7 @@ class ClaudeCodeCodingRuntimeTest {
         assertThat(exited.failure().message().length()).isLessThan(480);
 
         var docker = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s, e -> { }, CodingTranscripts.NONE)
-                .outcome(new Processes.Streamed(126, false, false, "OCI runtime exec failed"), 60);
+                .outcome(new Processes.Streamed(126, false, false, "OCI runtime exec failed", false), 60);
         assertThat(docker.failure().code()).isEqualTo("RUNTIME_ERROR");
         assertThat(docker.failure().message()).contains(
                 "Docker could not start Claude Code in the coding container (exit 126)", "OCI runtime exec failed");
@@ -631,7 +631,7 @@ class ClaudeCodeCodingRuntimeTest {
         for (String line : text.lines().toList()) {
             if (!lines.test(line)) break;
         }
-        return new Processes.Streamed(exitCode, false, false, stderr);
+        return new Processes.Streamed(exitCode, false, false, stderr, false);
     }
 
     private static String assistant(String id, int input) {
@@ -660,6 +660,6 @@ class ClaudeCodeCodingRuntimeTest {
 
     static CodingRequest request() {
         return new CodingRequest("TASK-1", "Implement task", "Description", List.of(), List.of(), List.of(), List.of(),
-                new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)), null);
+                new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)), null, null);
     }
 }

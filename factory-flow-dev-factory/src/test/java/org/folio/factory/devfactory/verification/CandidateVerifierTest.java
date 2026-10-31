@@ -53,9 +53,9 @@ class CandidateVerifierTest {
         candidate = new Candidate("source", base, git(original, "write-tree").strip(),
                 Candidate.sha256(patch), patch, "CANDIDATE_UNVERIFIED");
         var repository = new DevFactoryProperties.Repository("owner/source", "master", "trusted-java21",
-                "unit", List.of("TASK"), List.of());
+                "unit", List.of("TASK"), List.of(), null);
         properties = new DevFactoryProperties(root.toString(), new TreeMap<>(Map.of("source", repository)));
-        var runtime = new DevRuntimeProperties(Map.of("unit", command), null, 60, null);
+        var runtime = new DevRuntimeProperties(Map.of("unit", command), null, 60, null, null);
         docker = mock(DockerWorkloads.class);
         stepScope = mock(DockerWorkloads.StepScope.class);
         when(docker.beginStep(executionId, "verify")).thenReturn(stepScope);
@@ -208,10 +208,7 @@ class CandidateVerifierTest {
     @CsvSource({
             "failsafe, -1",
             "failsafe, 0",
-            "failsafe, 2",
-            "module/target/failsafe-reports/TEST-integration.xml, -1",
-            "module/target/failsafe-reports/TEST-integration.xml, 0",
-            "module/target/failsafe-reports/TEST-integration.xml, 2"
+            "failsafe, 2"
     })
     void requiredFailsafeEvidenceMustExecute(String requirement, int executed) {
         String reportPath = "module/target/failsafe-reports/TEST-integration.xml";

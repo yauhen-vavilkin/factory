@@ -14,17 +14,6 @@ public record VerificationReceipt(String executionId, String repository, String 
                                   String result, String output, VerificationFailure failureKind,
                                   int failsafeReportCount, List<String> requiredReports,
                                   List<String> missingRequiredReports) {
-    /** Historical Surefire-only receipts remain readable, but cannot opt into automatic repair. */
-    public VerificationReceipt(String executionId, String repository, String baseSha, String treeSha,
-                               String patchSha256, String planId, String image, List<String> argv,
-                               String workload, Instant startedAt, Instant finishedAt, int exitCode,
-                               int surefireReportCount, Integer testCount, Integer failureCount, Integer errorCount,
-                               String result, String output) {
-        this(executionId, repository, baseSha, treeSha, patchSha256, planId, image, argv, workload,
-                startedAt, finishedAt, exitCode, surefireReportCount, testCount, failureCount, errorCount,
-                result, output, null, 0, List.of(), List.of());
-    }
-
     public VerificationReceipt {
         Objects.requireNonNull(executionId);
         argv = List.copyOf(argv);

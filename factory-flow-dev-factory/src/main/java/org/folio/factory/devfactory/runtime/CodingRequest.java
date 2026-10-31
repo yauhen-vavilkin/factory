@@ -15,14 +15,6 @@ public record CodingRequest(
         Constraints constraints,
         RunSettings runSettings) {
 
-    public CodingRequest(String issueKey, String summary, String description, List<Comment> comments,
-                         List<LinkedIssue> linkedIssues, List<String> acceptanceCriteria,
-                         List<ConfirmedDecision> confirmedDecisions, RepositoryTarget repository,
-                         Constraints constraints) {
-        this(issueKey, summary, description, comments, linkedIssues, acceptanceCriteria, confirmedDecisions,
-                repository, constraints, null);
-    }
-
     public CodingRequest {
         issueKey = text(issueKey);
         summary = text(summary);

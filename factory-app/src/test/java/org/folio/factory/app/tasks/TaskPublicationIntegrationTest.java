@@ -32,7 +32,6 @@ import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryReceipt;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
@@ -406,8 +405,7 @@ class TaskPublicationIntegrationTest {
     }
 
     private DeliveryWorker worker(DevFactoryProperties repositoriesProperties, TaskAttemptPolicy policy) {
-        return new DeliveryWorker(repositoriesProperties, runtime,
-                new DevDeliveryProperties(Map.of(), true), delivery,
+        return new DeliveryWorker(repositoriesProperties, runtime, delivery,
                 new GitHubProperties(null, "fixture-github-token"),
                 new JiraProperties("https://jira.example.org", null, null),
                 new GitHubRestConnector(new GitHubProperties(GITHUB.baseUrl(), "fixture-github-token"),
@@ -436,7 +434,7 @@ class TaskPublicationIntegrationTest {
     private static CodingRequest codingRequest(String issueKey) {
         return new CodingRequest(issueKey, "Task", "Description", List.of(), List.of(), List.of(),
                 List.of(), new CodingRequest.RepositoryTarget("sidecar", OFFICIAL, "master", "a".repeat(40)),
-                null);
+                null, null);
     }
 
     private AgentContext context(UUID executionId, String issueKey, Candidate candidate,

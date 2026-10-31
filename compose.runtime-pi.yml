@@ -3,6 +3,6 @@ services:
     build:
       context: .
       dockerfile: factory-flow-dev-factory/docker/Dockerfile
-    image: ${FACTORY_PI_IMAGE:-${FACTORY_DEV_FACTORY_CODING_IMAGE:-factory-dev-pi:0.85.1-java21}}
+    image: ${FACTORY_PI_IMAGE:-factory-dev-pi:0.85.1-java21}
     entrypoint: ["/bin/sh", "-c"]
     command: ["test \"$$(pi --version)\" = '0.85.1'"]

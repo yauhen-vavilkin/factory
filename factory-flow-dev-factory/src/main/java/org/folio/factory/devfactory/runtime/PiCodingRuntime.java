@@ -21,8 +21,8 @@ public class PiCodingRuntime implements CodingRuntime {
     private final DevRuntimeProperties.Pi config;
     private final JsonMapper json = JsonMapper.builder().build();
 
-    public PiCodingRuntime(DevRuntimeProperties.Coding config) {
-        this.config = config.piProfile();
+    public PiCodingRuntime(DevRuntimeProperties.Pi config) {
+        this.config = config;
     }
 
     @Override
