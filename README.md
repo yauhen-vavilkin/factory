@@ -595,6 +595,15 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 
 ## Configuration
 
+Settings renamed or removed by the Developer Flow cleanup of 2026-10-31. Old names are ignored
+without a warning, so rename them in `.env`: `FACTORY_PILOT_ASSIGNEE`, `FACTORY_PILOT_EXECUTION_ENABLED`,
+`FACTORY_PILOT_EXECUTION_DEADLINE` and `FACTORY_PILOT_EXECUTION_DISPATCH_INTERVAL_MS` are now
+`FACTORY_TASKS_...` with the same ending; the Pi settings `FACTORY_MODEL_PROVIDER`, `_ID`, `_BASE_URL`,
+`_API`, `_API_KEY`, `_REASONING_EFFORT`, `_MAX_OUTPUT_TOKENS` and `FACTORY_DEV_FACTORY_CODING_IMAGE` are now
+`FACTORY_PI_PROVIDER`, `_MODEL`, `_BASE_URL`, `_API`, `_API_KEY`, `_REASONING_EFFORT`, `_MAX_OUTPUT_TOKENS`
+and `_IMAGE`. `FACTORY_DEV_FACTORY_DELIVERY_*`, `FACTORY_TASKS_EXECUTION_RECOVERY_POLL_INTERVAL_MS`,
+`factory.dev-factory.delivery.targets.*` and the delivery `authorized` key are no longer read.
+
 | Environment variable | Purpose |
 |---|---|
 | `ANTHROPIC_API_KEY` | LLM provider key (Spring AI Anthropic starter) |

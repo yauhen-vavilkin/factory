@@ -58,7 +58,11 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
   the Pi runtime and only legacy values, Pi is "not configured" and preflight says so. With a mix
   of `FACTORY_PI_*` values and a leftover `FACTORY_MODEL_BASE_URL`, the Pi base URL is now empty and
   Pi uses its provider's built-in endpoint with the configured key. The local `.env` still has
-  `FACTORY_MODEL_*` lines (runtime `claude-code`); delete them.
+  `FACTORY_MODEL_*` and `FACTORY_DEV_FACTORY_DELIVERY_*` lines (runtime `claude-code`); delete them.
+  It also still uses the old names `FACTORY_PILOT_ASSIGNEE` and `FACTORY_PILOT_EXECUTION_ENABLED`,
+  which this branch no longer reads: rename them to `FACTORY_TASKS_ASSIGNEE` and
+  `FACTORY_TASKS_EXECUTION_ENABLED` before running it, or My tasks stays off and Scan Jira finds
+  nobody. The README "Configuration" section lists every rename.
 - The same cleanup removed `factory.dev-factory.delivery.targets` and the startup check that
   refused an old `authorized` delivery key. A private catalog that still has either is now ignored
   without a message: pull requests go to the entry's `delivery.repository`.
