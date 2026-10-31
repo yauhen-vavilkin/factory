@@ -62,6 +62,11 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
 - The same cleanup removed `factory.dev-factory.delivery.targets` and the startup check that
   refused an old `authorized` delivery key. A private catalog that still has either is now ignored
   without a message: pull requests go to the entry's `delivery.repository`.
+- A run that waits for a coding decision shows the `NEEDS_DECISION` status badge without a colour:
+  `app.css` has no `badge-status-NEEDS_DECISION` rule, so `statusBadge` (`fragments/components.html`)
+  renders a plain badge on `/executions` and on a run page without a task
+  (`DeveloperExecutionView.runStatus`). Found in the cleanup (phase 6); a new rule is a visible
+  change, so it was left.
 - `docker-compose.yml` passes environment variables by an explicit list, so a new secret
   variable must be added there too. This includes the `secret-env` variable of every new run
   profile.

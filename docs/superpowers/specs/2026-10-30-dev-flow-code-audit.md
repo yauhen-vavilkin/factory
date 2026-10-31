@@ -228,6 +228,7 @@ low elsewhere.
    1341-1373`) are referenced by no template, JS or Java; the 10 task-state `badge-status-*` selectors
    (`:254-273`) are unreachable because task pages use `state-pill`; `.badge-status-UNSUPPORTED` is defined
    twice (`:242, 264`). About -220 lines, no risk.
+   Status (2026-10-31): Done: Delete unused Developer Flow styles and task status badge rules. The `badge-status-*` rules that stay look unused to grep because `statusBadge` builds the class from the status; each one names an `ExecutionStatus`, `HitlReviewStatus` or `productStatus` value. `NEEDS_DECISION` reaches `statusBadge` with no rule; it is in `docs/open-questions.md`, no style was added.
 2. **Work computed and discarded on the Developer run page**: `model.addAttribute("events", ...)`
    (pretty-printed JSON of every audit event, `ExecutionUiController:214-215`) renders only when
    `developer == null` (`execution.html:369-373`); `StepUsageSummary.from` (`:120`) feeds step `tokens` the
