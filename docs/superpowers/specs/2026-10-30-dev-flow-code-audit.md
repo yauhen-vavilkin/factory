@@ -432,6 +432,8 @@ What a reviewer should look at first:
 1. `TaskAdmissionService` (b78288f): admission and retry are one service, and startup recovery runs in
    `TaskDispatcher`. Refusal texts, locks and transaction boundaries are unchanged. The cause of a held
    attempt is logged again (94e72ff), on every dispatch poll (30 s) while the attempt stays held.
+   Since the fix after the last review (fed5a27), every settled outcome is logged, as the removed
+   recovery service did; a released slot is logged once.
 2. `TokenUsage` (08816e5, 94e72ff): one parser for the usage keys of both runtimes, integral numbers
    only. `toClaudeMetrics()` and `toMetrics()` keep each runtime's old key order in artifacts and audit
    details; tests pin both orders.
