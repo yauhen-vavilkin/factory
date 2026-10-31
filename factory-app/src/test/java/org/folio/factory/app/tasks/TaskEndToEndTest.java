@@ -665,6 +665,8 @@ class TaskEndToEndTest {
 
     private void stubCodingOutcomes() {
         when(coding.id()).thenReturn("stub");
+        // Real runtimes return the text unchanged when no secret matches; a bare mock would return null.
+        when(coding.redact(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
         when(coding.image()).thenReturn("stub:image");
         when(coding.identity(any())).thenReturn(Map.of("runtime", "stub", "image", "stub:image",
                 "model", "claude-sonnet-5-5"));
