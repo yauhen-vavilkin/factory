@@ -393,6 +393,8 @@ green `clean verify` runs: met. No `Thread.sleep` in the two modules' tests: met
 from `factory-app/pom.xml`: met. Checkstyle clean, no new suppression, no new configuration key, no main code
 change: met (the only non-test changes are the factory-app pom and these docs).
 
+Status (2026-10-31): Review follow-up in Start the preflight probe test's WireMock server once per class (017aef0): one of two independent `clean verify` runs of 919fec2 failed in `DeveloperPreflightProbeTest`, an empty-body Jetty 404 while the class started and stopped a server for each test; it now starts one server per class and resets it per test. The same review moved the mod-foo pull request stub in `TaskEndToEndTest` to delivery time (d990ed0), registered `SharedDatabaseCleanup` on `@FactoryIntegrationTest` instead of `META-INF/spring.factories` (e9a8dd5), and wrote down why the engine and task-execution profiles keep `@DirtiesContext` and why `TaskAdmissionIntegrationTest` sets an inert dedup window (5428d2e). After it, three factory-app runs (74, 69, 68 s) and one `clean verify` (164 s) were green; the Result table is unchanged.
+
 ## 10. Operator decisions
 
 1. **Pi runtime.** `PiProtocol` 246, `PiCodingRuntime` 199, `PiProgress` 171, `PiUsage` 119 (735 main
