@@ -37,6 +37,7 @@ import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.folio.factory.devfactory.worker.DevelopWorker;
 import org.folio.factory.devfactory.worker.VerifyWorker;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
@@ -177,6 +178,12 @@ class TaskEndToEndTest {
                 .willReturn(okJson("{\"html_url\": \"" + BAR_PR + "\"}")));
         GITHUB.stubFor(post(urlPathEqualTo("/repos/" + FOO + "/pulls"))
                 .willReturn(okJson("{\"html_url\": \"" + FOO_PR + "\"}")));
+    }
+
+    @AfterAll
+    static void stopWireMock() {
+        jira.stop();
+        GITHUB.stop();
     }
 
     @MockitoBean

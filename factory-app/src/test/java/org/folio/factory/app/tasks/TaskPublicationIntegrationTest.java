@@ -42,6 +42,7 @@ import org.folio.factory.devfactory.worker.DevelopWorker;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.folio.factory.devfactory.worker.IntakeResolveWorker;
 import org.folio.factory.devfactory.worker.VerifyWorker;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -126,6 +127,11 @@ class TaskPublicationIntegrationTest {
     }
 
     static final WireMockServer GITHUB = new WireMockServer(0);
+
+    @AfterAll
+    static void stopWireMock() {
+        GITHUB.stop();
+    }
 
     @MockitoBean
     DeveloperPreflight preflight;
