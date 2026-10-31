@@ -63,21 +63,35 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
         request.requireReady();
         var protocol = new ClaudeCodeProtocol(run.profile().model(), run.maxTurns(), this::redact, progress,
                 transcript);
-        Path temporary = null;
         try {
             var version = workload.execute(List.of("claude", "--version"), 30, Processes.OUTPUT_LIMIT, null);
             if (version.exitCode() != 0 || !version.output().strip().equals(VERSION + " (Claude Code)"))
                 return protocol.fail("RUNTIME_VERSION", "The coding image does not contain Claude Code " + VERSION
                         + ". Build the coding image again or fix the image name in the Developer Flow settings,"
                         + " then retry.");
-            temporary = CandidateFreezer.temporary("factory-dev-claude-");
+            return runSession(workload, request, run, protocol, timeoutSeconds);
+        } catch (IOException | RuntimeException e) {
+            // Diagnostics can echo request bodies: they go to the log redacted, never into the stored reason.
+            log.warn("Claude Code could not run in the coding container: {}", redact(String.valueOf(e.getMessage())));
+            return protocol.fail("RUNTIME_ERROR", "Factory could not prepare or start Claude Code in the coding"
+                    + " container. Check that Docker is running and the coding image exists, then retry. The"
+                    + " Factory log has the details.");
+        } finally {
+            // Only adapter input, outside the exported workspace. Caller still owns stop/export/close.
+            try {
+                workload.execute(List.of("rm", "-rf", INPUT), 30, Processes.OUTPUT_LIMIT, null);
+            } catch (RuntimeException ignored) {
+                // The caller removes the whole container.
+            }
+        }
+    }
+
+    private CodingOutcome runSession(DockerWorkloads.Workload workload, CodingRequest request, RunProfiles.Run run,
+                                     ClaudeCodeProtocol protocol, int timeoutSeconds) throws IOException {
+        var temporary = CandidateFreezer.temporary("factory-dev-claude-");
+        try {
             String prompt = CodingProtocol.prompt(request);
-            Files.writeString(temporary.resolve("environment"), environment(run.profile()));
-            Files.setPosixFilePermissions(
-                    temporary.resolve("environment"), PosixFilePermissions.fromString("rw-------"));
-            Files.writeString(temporary.resolve("task.txt"), prompt);
-            workload.execute(List.of("mkdir", "-p", INPUT), 30, Processes.OUTPUT_LIMIT, null).requireSuccess();
-            workload.copy(temporary.resolve(".").toString(), INPUT);
+            copyInput(workload, temporary, run.profile(), prompt);
             protocol.prompt(prompt);
             var streamed = workload.stream(command(run), timeoutSeconds, this::redact, line -> {
                 protocol.accept(line);
@@ -89,21 +103,20 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
                         + " reading its output in time, often because the Factory database was slow. Retry the task.",
                         Map.of());
             return protocol.outcome(streamed, timeoutSeconds);
-        } catch (IOException | RuntimeException e) {
-            // Diagnostics can echo request bodies: they go to the log redacted, never into the stored reason.
-            log.warn("Claude Code could not run in the coding container: {}", redact(String.valueOf(e.getMessage())));
-            return protocol.fail("RUNTIME_ERROR", "Factory could not prepare or start Claude Code in the coding"
-                    + " container. Check that Docker is running and the coding image exists, then retry. The"
-                    + " Factory log has the details.");
         } finally {
             CandidateFreezer.cleanup(temporary);
-            // Only adapter input, outside the exported workspace. Caller still owns stop/export/close.
-            try {
-                workload.execute(List.of("rm", "-rf", INPUT), 30, Processes.OUTPUT_LIMIT, null);
-            } catch (RuntimeException ignored) {
-                // The caller removes the whole container.
-            }
         }
+    }
+
+    /** The secret environment file stays owner-only, and both files go outside the exported workspace. */
+    private static void copyInput(DockerWorkloads.Workload workload, Path temporary, RunProfiles.Profile profile,
+                                  String prompt) throws IOException {
+        Files.writeString(temporary.resolve("environment"), environment(profile));
+        Files.setPosixFilePermissions(
+                temporary.resolve("environment"), PosixFilePermissions.fromString("rw-------"));
+        Files.writeString(temporary.resolve("task.txt"), prompt);
+        workload.execute(List.of("mkdir", "-p", INPUT), 30, Processes.OUTPUT_LIMIT, null).requireSuccess();
+        workload.copy(temporary.resolve(".").toString(), INPUT);
     }
 
     /**

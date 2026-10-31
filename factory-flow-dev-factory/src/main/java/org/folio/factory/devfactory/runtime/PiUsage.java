@@ -53,6 +53,11 @@ final class PiUsage {
 
     boolean add(JsonNode usage) {
         if (!usage.isObject()) return false;
+        // Not ||: a frame can report tokens and cost, and both must be added.
+        return addTokens(usage) | addCost(usage.path("cost").path("total"));
+    }
+
+    private boolean addTokens(JsonNode usage) {
         boolean found = false;
         if (usage.path("input").isNumber()) {
             inputPresent = true;
@@ -74,12 +79,15 @@ final class PiUsage {
             output += Math.max(0, usage.path("output").asLong(0));
             found = true;
         }
-        var total = usage.path("cost").path("total");
+        return found;
+    }
+
+    private boolean addCost(JsonNode total) {
         if (total.isNumber() && total.asDouble() >= 0 && Double.isFinite(total.asDouble())) {
             cost = (cost == null ? BigDecimal.ZERO : cost).add(total.decimalValue());
-            found = true;
+            return true;
         }
-        return found;
+        return false;
     }
 
     void ignoredOversizedAgentEnd(int frameChars) {

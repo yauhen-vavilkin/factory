@@ -27,23 +27,9 @@ public class FeedbackGit {
         Path path = freezer.reconstruct(source, candidate);
         try {
             String cleanMessage = message.replaceAll("[\\r\\n]", " ");
-            String sha =
-                    git(
-                            path,
-                            PublicationGit.identity(date, "Factory", "factory@localhost"),
-                            "commit-tree",
-                            candidate.treeSha(),
-                            "-p",
-                            candidate.baseSha(),
-                            "-m",
-                            cleanMessage);
-            return new Intent(
-                    candidate.baseSha(),
-                    candidate.treeSha(),
-                    sha,
-                    cleanMessage,
-                    date,
-                    "Factory",
+            String sha = commitTree(path, PublicationGit.identity(date, "Factory", "factory@localhost"),
+                    candidate.treeSha(), candidate.baseSha(), cleanMessage);
+            return new Intent(candidate.baseSha(), candidate.treeSha(), sha, cleanMessage, date, "Factory",
                     "factory@localhost");
         } finally {
             CandidateFreezer.cleanup(path);
@@ -57,24 +43,12 @@ public class FeedbackGit {
             Intent intent,
             String token,
             Runnable ownership) {
-        if (!candidate.baseSha().equals(intent.parent())
-                || !candidate.treeSha().equals(intent.tree()))
+        if (!candidate.baseSha().equals(intent.parent()) || !candidate.treeSha().equals(intent.tree()))
             throw new IllegalStateException("Publication intention does not match candidate");
         Path path = freezer.reconstruct(source, candidate);
         try {
             CandidateFreezer.git(path, "check-ref-format", "--branch", branch);
-            String sha =
-                    git(
-                            path,
-                            PublicationGit.identity(intent.date(), intent.authorName(), intent.authorEmail()),
-                            "commit-tree",
-                            intent.tree(),
-                            "-p",
-                            intent.parent(),
-                            "-m",
-                            intent.message());
-            if (!sha.equals(intent.sha()))
-                throw new IllegalStateException("Publication commit cannot be reproduced");
+            String sha = reproducedCommit(path, intent);
             Map<String, String> auth = authentication(source, token);
             String ref = "refs/heads/" + branch;
             ownership.run();
@@ -85,16 +59,33 @@ public class FeedbackGit {
                 throw new IllegalStateException("PR branch changed; refresh before continuing");
             ownership.run();
             git(path, auth, "push", "--porcelain", source, sha + ":" + ref);
-            git(path, auth, "fetch", "--quiet", source, ref);
-            if (!git(path, Map.of(), "rev-parse", "FETCH_HEAD").equals(sha)
-                    && !descendant(path, sha))
-                throw new IllegalStateException(
-                        "Published commit could not be confirmed; retry publication"
-                                + " reconciliation");
+            confirmPublished(path, auth, source, ref, sha);
             return sha;
         } finally {
             CandidateFreezer.cleanup(path);
         }
+    }
+
+    private static String commitTree(Path path, Map<String, String> identity, String tree, String parent,
+                                     String message) {
+        return git(path, identity, "commit-tree", tree, "-p", parent, "-m", message);
+    }
+
+    /** The commit that prepare recorded, built again: the same intent always gives the same SHA. */
+    private static String reproducedCommit(Path path, Intent intent) {
+        String sha = commitTree(path, PublicationGit.identity(intent.date(), intent.authorName(),
+                intent.authorEmail()), intent.tree(), intent.parent(), intent.message());
+        if (!sha.equals(intent.sha()))
+            throw new IllegalStateException("Publication commit cannot be reproduced");
+        return sha;
+    }
+
+    private static void confirmPublished(Path path, Map<String, String> auth, String source, String ref,
+                                         String sha) {
+        git(path, auth, "fetch", "--quiet", source, ref);
+        if (!git(path, Map.of(), "rev-parse", "FETCH_HEAD").equals(sha) && !descendant(path, sha))
+            throw new IllegalStateException(
+                    "Published commit could not be confirmed; retry publication reconciliation");
     }
 
     private static boolean descendant(Path path, String sha) {

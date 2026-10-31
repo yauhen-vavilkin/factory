@@ -33,17 +33,22 @@ public class DevArtifactAmendmentValidator implements ArtifactAmendmentValidator
                     "'" + artifactName + "' is trusted Developer Flow data and cannot be amended");
         }
         if (CodingDecisionArtifacts.ANSWER.equals(artifactName)) {
-            try {
-                CodingDecisionArtifacts.parseAnswer(codec, content);
-            } catch (RuntimeException e) {
-                throw new IllegalArgumentException("Amended coding decision answer is not valid: "
-                        + e.getMessage(), e);
-            }
-            return;
+            validateCodingAnswer(content);
+        } else if (DecisionArtifacts.ANSWER.equals(artifactName)) {
+            validateRepositoryAnswer(content);
         }
-        if (!DecisionArtifacts.ANSWER.equals(artifactName)) {
-            return;
+    }
+
+    private void validateCodingAnswer(String content) {
+        try {
+            CodingDecisionArtifacts.parseAnswer(codec, content);
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException("Amended coding decision answer is not valid: "
+                    + e.getMessage(), e);
         }
+    }
+
+    private void validateRepositoryAnswer(String content) {
         DecisionArtifacts.Answer answer;
         try {
             answer = DecisionArtifacts.parseAnswer(codec, content);

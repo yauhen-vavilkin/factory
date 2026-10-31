@@ -9,6 +9,7 @@ import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.runtime.Processes;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -45,6 +46,12 @@ final class BaselineBuild {
             heartbeat.shutdownNow();
         }
         String summary = MavenBaselineOutput.failureSummary(result.diagnostics()).orElse("");
+        return new Result(result, readiness(result, base, repository, command, summary), summary);
+    }
+
+    private static Map<String, Object> readiness(Processes.Result result, String base,
+                                                 DevFactoryProperties.Repository repository, List<String> command,
+                                                 String summary) {
         var details = new LinkedHashMap<String, Object>();
         details.put("state", result.exitCode() == 0 ? "BASELINE_PASSED" : "BASELINE_FAILED");
         details.put("baseSha", base);
@@ -54,8 +61,7 @@ final class BaselineBuild {
         details.put("exitCode", result.exitCode());
         if (!summary.isBlank()) details.put("summary", summary);
         details.put("output", tail(MavenBaselineOutput.sanitize(result.output())));
-
-        return new Result(result, Map.copyOf(details), summary);
+        return Map.copyOf(details);
     }
 
     record Result(Processes.Result process, Map<String, Object> readiness, String summary) {}

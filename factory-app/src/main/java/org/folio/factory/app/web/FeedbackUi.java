@@ -125,9 +125,7 @@ public class FeedbackUi {
             card.put("summary", state.summary());
             card.put("reason", state.reason());
             card.put("commit", state.commitSha());
-            card.put("selected", state.selected().stream()
-                    .map(comment -> Map.of("author", comment.author(), "body", comment.body()))
-                    .toList());
+            card.put("selected", selectedComments(state));
             card.put("usage", projection.summary(entry.getKey(), live));
             card.put("runtime", state.runtimeName());
             card.put("verification", state.verification());
@@ -135,6 +133,12 @@ public class FeedbackUi {
             cards.add(card);
         }
         return cards;
+    }
+
+    private static List<Map<String, String>> selectedComments(FeedbackState state) {
+        return state.selected().stream()
+                .map(comment -> Map.of("author", comment.author(), "body", comment.body()))
+                .toList();
     }
 
     private static String roundPhase(FeedbackState state) {

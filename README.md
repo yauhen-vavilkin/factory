@@ -565,8 +565,7 @@ One task runs at a time, in the order you clicked; Retry joins the same queue. A
 failed task releases the queue. A task in **Needs inspection** holds it: Factory
 could not confirm how the run ended (for example, workload cleanup or a lost
 publication response) and rechecks at startup and on every dispatch poll
-(`FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS`, default 30 seconds; the separate
-`FACTORY_TASKS_EXECUTION_RECOVERY_POLL_INTERVAL_MS` is gone). If the run is really over, use
+(`FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS`, default 30 seconds). If the run is really over, use
 **Mark as stopped…**: the task becomes Could not complete and the queue moves on.
 Destructive retention must stay disabled: while `FACTORY_RETENTION_ENABLED` is
 true, task execution refuses to start tasks (see `docker compose logs factory`).
@@ -603,10 +602,17 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_LLM_API_KEY` | API key for the OpenAI-compatible provider |
 | `FACTORY_LLM_BASE_URL` / `_COMPLETIONS_PATH` | OpenAI-compatible endpoint (defaults target Groq: `https://api.groq.com/openai/v1` + `/chat/completions`) |
 | `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (default `jdbc:postgresql://localhost:5432/factory`) |
+| `FACTORY_SERVER_ADDRESS` | Address the app listens on (default `127.0.0.1`); Compose sets the container's own listener |
+| `FACTORY_APP_IMAGE` | Compose image name of the Factory app (default `folio-factory-app:local`) |
+| `FACTORY_APP_PORT` / `FACTORY_DB_PORT` / `FACTORY_BIND_ADDRESS` | Compose host ports of Factory and PostgreSQL and the host address they are published on (defaults `8080` / `5432` / `127.0.0.1`) |
 | `FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME` | Persistent trusted Developer Flow Maven cache volume (default `factory-dev-m2-cache`) |
 | `FACTORY_DEV_FACTORY_REPOSITORIES_FILE` | Compose host path of the repository catalog (default `./config/developer-repositories.yaml`); mounted read-only |
+| `FACTORY_<REPO>_SOURCE_REPO` / `_DELIVERY_REPO` / `_BASE_BRANCH` | Overrides for the bundled catalog entries, `<REPO>` being `SIDECAR`, `MOD_ROLES_KEYCLOAK`, `MGR_TENANT_ENTITLEMENTS` or `MGR_APPLICATIONS`; see [Developer Flow with Docker Compose](#developer-flow-with-docker-compose) |
+| `FACTORY_DEV_FACTORY_GIT_BASE_URL` | Git host the source repositories are read from (default `https://github.com`) |
+| `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` | Time limit of one coding, build or verification run (default `1800`) |
 | `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `claude-code`) |
-| `FACTORY_PI_*` / `FACTORY_CLAUDE_CODE_*` | Independent image, API, model, endpoint, authentication and harness profiles; see [Coding runtime profiles](#coding-runtime-profiles) |
+| `FACTORY_PI_IMAGE` / `_PROVIDER` / `_MODEL` / `_BASE_URL` / `_API` / `_AUTHENTICATION` / `_API_KEY` / `_REASONING_EFFORT` / `_MAX_OUTPUT_TOKENS` | Pi runtime profile; see [Coding runtime profiles](#coding-runtime-profiles) |
+| `FACTORY_CLAUDE_CODE_IMAGE` / `_API` / `_BASE_URL` / `_MODEL` / `_AUTHENTICATION` / `_API_KEY` / `_AUTH_TOKEN` / `_MAX_TURNS` / `_MAX_OUTPUT_TOKENS` | Claude Code runtime profile, which is also run profile `env-default`; see [Coding runtime profiles](#coding-runtime-profiles) |
 | `FACTORY_CLAUDE_CODE_EFFORT` | Default effort of run profile `env-default`: `low`, `medium`, `high`, `xhigh` or `max`; empty sends no `--effort` (the CLI uses `high`) |
 | `FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE` | Run profile preselected in the run forms and used by runs without a choice; empty means `env-default`. See [Run profiles](#run-profiles-claude-code) |
 | `FACTORY_DEV_FACTORY_RUN_PROFILES_FILE` | Compose host path of the run profiles file (default `./config/developer-run-profiles.yaml`); mounted read-only |
@@ -624,6 +630,8 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_LIMITS_MAX_CONCURRENT_EXECUTIONS` / `_MAX_EXECUTIONS_PER_DAY` | Concurrency cap / daily budget (`0` disables; defaults `8` / `200`, 429 on budget) |
 | `FACTORY_TASKS_ASSIGNEE` | Whose open Jira tasks **Scan Jira** finds: the name as Jira shows it, or an accountId; see [My tasks quick start](#my-tasks-quick-start) |
 | `FACTORY_TASKS_EXECUTION_ENABLED` | Runs the My tasks queue (opt-in, default off) |
+| `FACTORY_TASKS_EXECUTION_DEADLINE` | Time budget of one task attempt from preparation through delivery, queue and review waiting excluded (Duration; default `60m`) |
+| `FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS` | How often the My tasks queue rechecks the active attempt and starts the next one (default `30000`; it also runs at startup) |
 | `FACTORY_LIMITS_DEDUP_ENABLED` / `_DEDUP_WINDOW` / `_DEDUP_ID_POINTERS` | Trigger dedup (default on, `10m`, `/issueKey`) |
 | `FACTORY_LIMITS_MAX_ARTIFACT_BYTES` / `_MAX_TRIGGER_PAYLOAD_BYTES` | Write-time size caps (defaults `5000000` / `262144`) |
 | `FACTORY_RETENTION_ENABLED` / `_TTL_DAYS` / `_RUN_CRON` | Purge of old terminal runs (**off** by default; audit is never purged) |

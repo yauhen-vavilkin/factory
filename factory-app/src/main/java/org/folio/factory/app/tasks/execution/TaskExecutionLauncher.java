@@ -116,8 +116,22 @@ public class TaskExecutionLauncher {
         if (attempt.getExecutionId() != null) {
             return attempt.getExecutionId();
         }
+        requireNewLaunchAllowed(attempt);
+        Task task = tasks.lockById(attempt.getTaskId())
+                .orElseThrow(() -> new NoSuchElementException("No task " + attempt.getTaskId()));
+        String change = attempt.getKind() == TaskAttempt.Kind.RETRY ? approvedRetryChange(attempt, task) : null;
+        if (change != null) {
+            attempt.setState(TaskAttempt.State.STOPPED);
+            attempt.setResultReason(change);
+            attempts.save(attempt);
+            return null;
+        }
+        return bind(installation, attempt, router.routePrepared(prepared));
+    }
+
+    private void requireNewLaunchAllowed(TaskAttempt attempt) {
         if (attempt.getState() != TaskAttempt.State.RESERVED) {
-            throw new IllegalStateException("Task attempt " + attemptId + " is not dispatchable (state "
+            throw new IllegalStateException("Task attempt " + attempt.getId() + " is not dispatchable (state "
                     + attempt.getState() + ")");
         }
         // Retention purges attempt history and costs, so a genuinely new launch is
@@ -128,18 +142,10 @@ public class TaskExecutionLauncher {
                     + " purge task attempt history and costs. Set FACTORY_RETENTION_ENABLED=false in .env"
                     + " and run docker compose up -d again.");
         }
-        Task task = tasks.lockById(attempt.getTaskId())
-                .orElseThrow(() -> new NoSuchElementException("No task " + attempt.getTaskId()));
-        if (attempt.getKind() == TaskAttempt.Kind.RETRY) {
-            String change = approvedRetryChange(attempt, task);
-            if (change != null) {
-                attempt.setState(TaskAttempt.State.STOPPED);
-                attempt.setResultReason(change);
-                attempts.save(attempt);
-                return null;
-            }
-        }
-        UUID executionId = router.routePrepared(prepared);
+    }
+
+    /** Binds the new execution to the attempt and gives the attempt the installation's active slot. */
+    private UUID bind(TaskInstallation installation, TaskAttempt attempt, UUID executionId) {
         attempt.setState(TaskAttempt.State.QUEUED);
         attempt.setExecutionId(executionId);
         // Preparation (and with it the whole-attempt budget) starts here: queue
@@ -149,7 +155,7 @@ public class TaskExecutionLauncher {
         attempt.setStartedAt(startedAt);
         attempt.setDeadlineAt(startedAt.plus(properties.deadline()));
         attempts.save(attempt);
-        installation.setActiveAttemptId(attemptId);
+        installation.setActiveAttemptId(attempt.getId());
         installations.save(installation);
         return executionId;
     }

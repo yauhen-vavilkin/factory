@@ -56,36 +56,38 @@ public record AttemptCharge(
 
     public static AttemptCharge calculate(JsonNode reported, JsonNode rate, boolean complete) {
         var usage = TokenUsage.from(reported);
-        boolean known = complete && !usage.usageIncomplete();
+        var breakdown = breakdown(usage);
+        boolean allReported = breakdown.size() == Category.values().length;
+        boolean known = complete && !usage.usageIncomplete() && allReported;
         boolean hasPricedTokens = false;
-        long tokens = 0;
-        var breakdown = new EnumMap<Category, Long>(Category.class);
         BigDecimal cost = BigDecimal.ZERO;
-        for (var category : Category.values()) {
-            var value = category.tokens.apply(usage);
-            if (value == null) {
-                known = false;
-                continue;
-            }
-            long count = Math.max(0, value);
-            breakdown.put(category, count);
-            tokens += count;
-            BigDecimal categoryCost = categoryCost(usage, rate, category, count);
+        for (var entry : breakdown.entrySet()) {
+            BigDecimal categoryCost = categoryCost(usage, rate, entry.getKey(), entry.getValue());
             if (categoryCost == null) {
                 known = false;
-                continue;
-            }
-            if (count > 0) {
+            } else if (entry.getValue() > 0) {
                 hasPricedTokens = true;
                 cost = cost.add(categoryCost);
             }
         }
+        long tokens = breakdown.values().stream().mapToLong(Long::longValue).sum();
         String currency = rate.path("currency").asString("");
         boolean hasCurrency = !currency.isBlank();
-        boolean allCategoriesAreZero = breakdown.size() == Category.values().length && tokens == 0;
-        boolean subtotalPresent = hasCurrency && (hasPricedTokens || allCategoriesAreZero);
+        boolean subtotalPresent = hasCurrency && (hasPricedTokens || allReported && tokens == 0);
         return new AttemptCharge(
                 tokens, Map.copyOf(breakdown), known && hasCurrency, subtotalPresent, cost, currency);
+    }
+
+    /** The count of each category the usage reports, never below zero; an unreported category is left out. */
+    private static Map<Category, Long> breakdown(TokenUsage usage) {
+        var breakdown = new EnumMap<Category, Long>(Category.class);
+        for (var category : Category.values()) {
+            var value = category.tokens.apply(usage);
+            if (value != null) {
+                breakdown.put(category, Math.max(0, value));
+            }
+        }
+        return breakdown;
     }
 
     private static BigDecimal categoryCost(TokenUsage usage, JsonNode rate, Category category, long tokens) {

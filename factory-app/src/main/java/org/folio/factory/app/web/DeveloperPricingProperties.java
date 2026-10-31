@@ -61,6 +61,10 @@ public record DeveloperPricingProperties(Map<String, Rate> rates) {
                 throw new IllegalArgumentException(
                         "Pricing rate " + id + " requires an HTTPS source");
             }
+            requireNonNegativeRates(id);
+        }
+
+        private void requireNonNegativeRates(String id) {
             BigDecimal[] categoryRates = {
                 inputPerMillion, cacheReadPerMillion, cacheWritePerMillion, outputPerMillion,
                 cacheWrite5mPerMillion, cacheWrite1hPerMillion

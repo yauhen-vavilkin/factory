@@ -5,58 +5,18 @@
 <!-- Methods that were longer than 25 lines or had more than 7 parameters when the check was
      added. Never add an entry; delete one when its method is brought under the limit. -->
 <suppressions>
-  <suppress-xpath files="AttemptCharge\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/RECORD_DEF[./IDENT[@text='AttemptCharge']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='calculate']]"/>
-  <suppress-xpath files="BaselineBuild\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='BaselineBuild']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='run']]"/>
   <suppress-xpath files="CandidateDelivery\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='CandidateDelivery']]/OBJBLOCK/METHOD_DEF/IDENT[@text='deliver']"/>
-  <suppress-xpath files="ClaudeCodeCodingRuntime\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='ClaudeCodeCodingRuntime']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='code']]"/>
-  <suppress-xpath files="DashboardUiController\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DashboardUiController']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='audit']]"/>
-  <suppress-xpath files="DashboardUiController\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DashboardUiController']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='dashboard']]"/>
-  <suppress-xpath files="DevArtifactAmendmentValidator\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DevArtifactAmendmentValidator']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='validate']]"/>
   <suppress-xpath files="DeveloperCostEstimator\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DeveloperCostEstimator']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='estimate']]"/>
-  <suppress-xpath files="DeveloperPricingProperties\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/RECORD_DEF[./IDENT[@text='DeveloperPricingProperties']]/OBJBLOCK/RECORD_DEF[./IDENT[@text='Rate']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='validate']]"/>
-  <suppress-xpath files="DeveloperRuntimeActivity\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DeveloperRuntimeActivity']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='record']]"/>
   <suppress-xpath files="DockerWorkloads\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DockerWorkloads']]/OBJBLOCK/METHOD_DEF/IDENT[@text='createCommand']"/>
-  <suppress-xpath files="FeedbackGit\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='FeedbackGit']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='prepare']]"/>
-  <suppress-xpath files="FeedbackGit\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='FeedbackGit']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='publish']]"/>
-  <suppress-xpath files="FeedbackUi\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='FeedbackUi']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='roundCards']]"/>
   <suppress-xpath files="FeedbackUiController\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='FeedbackUiController']]/OBJBLOCK/METHOD_DEF/IDENT[@text='command']"/>
-  <suppress-xpath files="FlowUiController\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='FlowUiController']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='loadSamples']]"/>
-  <suppress-xpath files="FlowUiController\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='FlowUiController']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='stepRows']]"/>
-  <suppress-xpath files="MavenBaselineOutput\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='MavenBaselineOutput']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='isTransientDownloadFailure']]"/>
-  <suppress-xpath files="PiUsage\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='PiUsage']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='add']]"/>
-  <suppress-xpath files="TaskDiscoveryService\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TaskDiscoveryService']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='upsert']]"/>
-  <suppress-xpath files="TaskExecutionLauncher\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TaskExecutionLauncher']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='launchLocked']]"/>
-  <suppress-xpath files="TaskPublicationGuard\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TaskPublicationGuard']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='requireCurrentOrThrow']]"/>
   <suppress-xpath files="TaskPublicationIntent\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TaskPublicationIntent']]/OBJBLOCK/METHOD_DEF/IDENT[@text='of']"/>
-  <suppress-xpath files="TaskRunSettings\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TaskRunSettings']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='form']]"/>
   <suppress-xpath files="Task\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='Task']]/OBJBLOCK/CTOR_DEF/IDENT[@text='Task']"/>
   <suppress-xpath files="TestFactoryConfiguration\.java" checks="ParameterNumber"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TestFactoryConfiguration']]/OBJBLOCK/METHOD_DEF/IDENT[@text='testFactoryFinalizerWorker']"/>
-  <suppress-xpath files="VerifyWorker\.java" checks="MethodLength"
-      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='VerifyWorker']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='execute']]"/>
 </suppressions>

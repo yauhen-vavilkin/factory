@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.runtime;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -80,21 +81,27 @@ public final class MavenBaselineOutput implements Consumer<String> {
             if (!line.contains("[error]") || !(line.contains("could not transfer artifact")
                     || line.contains("could not transfer metadata")
                     || line.contains("failed to transfer artifact"))) continue;
-            if (NETWORK_FAILURE.matcher(line).find()) return true;
-            // Maven can wrap a transfer exception onto adjacent diagnostic lines. Only
-            // recognizable exception continuations qualify, not arbitrary later test output.
-            for (int next = i + 1; next < Math.min(lines.size(), i + 4); next++) {
-                String continuation = lines.get(next).strip();
-                if (continuation.startsWith("[error]")) continuation = continuation.substring(7).strip();
-                boolean cause = continuation.startsWith("caused by:") || continuation.startsWith("connect to ")
-                        || EXCEPTION_CONTINUATION.matcher(continuation).matches()
-                        || NETWORK_FAILURE.matcher(continuation).matches()
-                        || continuation.startsWith("premature end of content-length")
-                        || continuation.startsWith("unexpected end of stream")
-                        || continuation.startsWith("incomplete http body");
-                if (!cause) break;
-                if (NETWORK_FAILURE.matcher(continuation).find()) return true;
-            }
+            if (NETWORK_FAILURE.matcher(line).find() || continuesWithNetworkFailure(lines, i)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Maven can wrap a transfer exception onto adjacent diagnostic lines. Only
+     * recognizable exception continuations qualify, not arbitrary later test output.
+     */
+    private static boolean continuesWithNetworkFailure(List<String> lines, int transferLine) {
+        for (int next = transferLine + 1; next < Math.min(lines.size(), transferLine + 4); next++) {
+            String continuation = lines.get(next).strip();
+            if (continuation.startsWith("[error]")) continuation = continuation.substring(7).strip();
+            boolean cause = continuation.startsWith("caused by:") || continuation.startsWith("connect to ")
+                    || EXCEPTION_CONTINUATION.matcher(continuation).matches()
+                    || NETWORK_FAILURE.matcher(continuation).matches()
+                    || continuation.startsWith("premature end of content-length")
+                    || continuation.startsWith("unexpected end of stream")
+                    || continuation.startsWith("incomplete http body");
+            if (!cause) return false;
+            if (NETWORK_FAILURE.matcher(continuation).find()) return true;
         }
         return false;
     }

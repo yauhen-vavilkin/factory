@@ -150,6 +150,14 @@ public class TaskDiscoveryService {
                     routing.eligibility(), truncated(routing.reason(), MAX_REASON_LENGTH));
             task.setInScope(fromScan);
         }
+        applyIssue(task, issue, snapshot, routing);
+        if (fromScan) {
+            task.setInScope(true);
+        }
+        return tasks.save(task);
+    }
+
+    private void applyIssue(Task task, DiscoveredIssue issue, Map<String, Object> snapshot, Routing routing) {
         task.setDisplayKey(issue.key());
         task.setTitle(truncated(issue.issue().summary(), MAX_TITLE_LENGTH));
         task.setJiraCreatedAt(issue.createdAt());
@@ -158,10 +166,6 @@ public class TaskDiscoveryService {
         task.setSourceRevision(revision(snapshot));
         task.setEligibility(routing.eligibility());
         task.setRoutingReason(truncated(routing.reason(), MAX_REASON_LENGTH));
-        if (fromScan) {
-            task.setInScope(true);
-        }
-        return tasks.save(task);
     }
 
     private void readAllPages(String query, List<DiscoveredIssue> discovered) {

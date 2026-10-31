@@ -87,24 +87,9 @@ public class TaskRunSettings {
             selected = profiles.defaultProfile();
             stored = null;
         }
-        List<Map<String, Object>> options = new ArrayList<>();
-        List<Map<String, Object>> efforts = new ArrayList<>();
-        for (RunProfiles.Profile profile : profiles.all()) {
-            Map<String, Object> option = new LinkedHashMap<>();
-            option.put("id", profile.id());
-            option.put("label", profile.configured() ? profile.label() : profile.label() + " (not configured)");
-            option.put("configured", profile.configured());
-            option.put("defaultEffort", value(profile.defaultEffort()));
-            option.put("maxTurns", profile.maxTurns());
-            options.add(option);
-            if (profile.defaultEffort() == null) {
-                efforts.add(effort(profile, ""));
-            }
-            profile.efforts().forEach(effort -> efforts.add(effort(profile, effort)));
-        }
         Map<String, Object> form = new LinkedHashMap<>();
-        form.put("profiles", options);
-        form.put("efforts", efforts);
+        form.put("profiles", profiles.all().stream().map(TaskRunSettings::option).toList());
+        form.put("efforts", profiles.all().stream().flatMap(profile -> effortChoices(profile).stream()).toList());
         form.put("profile", selected.id());
         String effort = stored == null ? selected.defaultEffort() : stored.effort();
         form.put("effort", value(effort == null || selected.efforts().contains(effort) ? effort
@@ -118,6 +103,26 @@ public class TaskRunSettings {
     public static String instructions(String previous) {
         Snapshot stored = read(previous);
         return stored == null ? null : stored.instructions();
+    }
+
+    private static Map<String, Object> option(RunProfiles.Profile profile) {
+        Map<String, Object> option = new LinkedHashMap<>();
+        option.put("id", profile.id());
+        option.put("label", profile.configured() ? profile.label() : profile.label() + " (not configured)");
+        option.put("configured", profile.configured());
+        option.put("defaultEffort", value(profile.defaultEffort()));
+        option.put("maxTurns", profile.maxTurns());
+        return option;
+    }
+
+    /** An empty choice first when the profile has no default effort, then each effort the profile allows. */
+    private static List<Map<String, Object>> effortChoices(RunProfiles.Profile profile) {
+        List<Map<String, Object>> choices = new ArrayList<>();
+        if (profile.defaultEffort() == null) {
+            choices.add(effort(profile, ""));
+        }
+        profile.efforts().forEach(effort -> choices.add(effort(profile, effort)));
+        return choices;
     }
 
     private static Map<String, Object> effort(RunProfiles.Profile profile, String value) {

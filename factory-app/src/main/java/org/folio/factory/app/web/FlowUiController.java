@@ -144,27 +144,30 @@ public class FlowUiController {
         List<StepDescriptor> chain = descriptor.agentChain();
         List<Map<String, Object>> rows = new ArrayList<>(chain.size());
         for (int i = 0; i < chain.size(); i++) {
-            StepDescriptor step = chain.get(i);
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("index", i);
-            row.put("stepId", step.stepId());
-            row.put("type", step.type().name());
-            row.put("label", UiFormat.stepLabel(step));
-            row.put("sublabel", step.stepId() + " · " + step.type());
-            row.put("state", "pending");
-            switch (step.type()) {
-                case AGENT -> {
-                    row.put("workerId", step.workerId());
-                    row.put("inputs", step.inputs());
-                    row.put("outputs", step.outputs());
-                    row.put("config", step.config());
-                }
-                case HITL_GATE -> row.put("gate", gateRow(step.gate()));
-                case SUB_FLOW -> row.put("subFlow", subFlowRow(step.subFlow()));
-            }
-            rows.add(row);
+            rows.add(stepRow(i, chain.get(i)));
         }
         return rows;
+    }
+
+    private static Map<String, Object> stepRow(int index, StepDescriptor step) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("index", index);
+        row.put("stepId", step.stepId());
+        row.put("type", step.type().name());
+        row.put("label", UiFormat.stepLabel(step));
+        row.put("sublabel", step.stepId() + " · " + step.type());
+        row.put("state", "pending");
+        switch (step.type()) {
+            case AGENT -> {
+                row.put("workerId", step.workerId());
+                row.put("inputs", step.inputs());
+                row.put("outputs", step.outputs());
+                row.put("config", step.config());
+            }
+            case HITL_GATE -> row.put("gate", gateRow(step.gate()));
+            case SUB_FLOW -> row.put("subFlow", subFlowRow(step.subFlow()));
+        }
+        return row;
     }
 
     private static Map<String, Object> gateRow(HitlGateSpec gate) {
@@ -232,17 +235,22 @@ public class FlowUiController {
             } catch (IOException | JacksonException unreadable) {
                 continue;
             }
-            JsonNode payload = root.path("payload");
-            JsonNode content = payload.isMissingNode() ? jsonMapper.createObjectNode() : payload;
-            Map<String, Object> sample = new LinkedHashMap<>();
-            sample.put("name", sampleName(resource.getFilename()));
-            sample.put("prettyJson", escapeScriptClosers(
-                    jsonMapper.writerWithDefaultPrettyPrinter().writeValueAsString(content)));
+            Map<String, Object> sample = sample(resource, root);
             byFlow.computeIfAbsent(root.path("flowId").asString(""), k -> new ArrayList<>()).add(sample);
         }
         byFlow.values().forEach(samples ->
                 samples.sort(Comparator.comparing(sample -> String.valueOf(sample.get("name")))));
         return byFlow;
+    }
+
+    private Map<String, Object> sample(Resource resource, JsonNode root) {
+        JsonNode payload = root.path("payload");
+        JsonNode content = payload.isMissingNode() ? jsonMapper.createObjectNode() : payload;
+        Map<String, Object> sample = new LinkedHashMap<>();
+        sample.put("name", sampleName(resource.getFilename()));
+        sample.put("prettyJson", escapeScriptClosers(
+                jsonMapper.writerWithDefaultPrettyPrinter().writeValueAsString(content)));
+        return sample;
     }
 
     /**

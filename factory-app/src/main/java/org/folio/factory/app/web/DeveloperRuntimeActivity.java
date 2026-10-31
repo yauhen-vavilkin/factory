@@ -82,6 +82,10 @@ final class DeveloperRuntimeActivity {
             }
             default -> {}
         }
+        addRow(event, detail, action);
+    }
+
+    private void addRow(AuditEvent event, JsonNode detail, String action) {
         String text = runtimeActivityText(detail, bashActivity);
         var row = Map.of("time", UiFormat.clock(event.getOccurredAt()),
                 "timeTitle", UiFormat.format(event.getOccurredAt()), "text", text);

@@ -56,6 +56,12 @@ public class TaskPublicationGuard {
                 .orElseThrow(() -> blocked("the task attempt bound to the execution is missing"));
         Task task = tasks.findById(attempt.getTaskId())
                 .orElseThrow(() -> blocked("the task behind the attempt is missing"));
+        requireApprovedAdmission(consumedRequest, attempt, task);
+        requireValidDestination(consumedRequest, destination);
+    }
+
+    /** The request, the task's routing and its destination are still what the developer approved. */
+    private static void requireApprovedAdmission(CodingRequest consumedRequest, TaskAttempt attempt, Task task) {
         String approvedKey = Objects.toString(attempt.approvedSnapshotMap().get("key"), "");
         if (!consumedRequest.issueKey().equals(approvedKey)) {
             throw blocked("the consumed issue identity no longer matches the approved admission");
@@ -70,6 +76,9 @@ public class TaskPublicationGuard {
         if (!attempt.getDestinationFingerprint().equals(TaskAdmissionChecks.destinationFingerprint(task))) {
             throw blocked("the task's destination routing changed after admission");
         }
+    }
+
+    private static void requireValidDestination(CodingRequest consumedRequest, DeliveryTarget destination) {
         if (destination == null) {
             throw blocked("the resolved delivery destination is missing");
         }

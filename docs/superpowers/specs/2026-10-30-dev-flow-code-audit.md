@@ -25,6 +25,7 @@ Configuration surface: 96 distinct env placeholders in `application.yaml`, 113 e
 appears 123 times in dev-factory main code and 162 times in factory-app main code (19 in core).
 `checkstyle/suppressions.xml` still lists 40 methods over the 25-line / 7-parameter limits; 15 of them
 are `ParameterNumber` on constructors or bean methods of the classes named below.
+Status (2026-10-31): Done: Split the remaining long methods into named steps and update the env docs. No entry could go without a change (all 27 still fired). 20 `MethodLength` entries were split into named private methods, so 7 entries remain: `DeveloperCostEstimator.estimate` (pre-0.9.0 cost path, out of scope by the cleanup prompt) and six `ParameterNumber` entries, which this commit does not change.
 
 ## 2. Legacy and dead configuration layers
 
@@ -354,10 +355,13 @@ drops to about a third, dev-factory to about half. Measure before and after with
 
 - Comment tags `OPS-2`, `PERF-1`, `REL-1`, `OBS-1`, `COST-1`, `DATA-1`, `DEP-1` in `application.yaml` and
   `.github/workflows/*.yml` point to no tracker; replace with the plain reason or delete.
+  Status (2026-10-31): Done: Split the remaining long methods into named steps and update the env docs. Tags whose sentence already said why were deleted; `REL-1`, `COST-1`, `DATA-1` (size caps) and the two `management` `OBS-1` lines got the reason in words. The same tags are still in files the prompt does not name: `pom.xml:147`, `factory-app/pom.xml:153`, `.github/dependabot.yml:1`, `doc/runbook.md:91, 105, 131`, `doc/backup-dr.md:44`, `doc/performance.md:133` and `factory-core` `DailyBudgetIntegrationTest:29`.
 - A stale agent worktree `.claude/worktrees/quizzical-banach-c345f0` (detached, gitignored) and 22 stale
   `Pilot*` / `PixelDumpTest` Surefire reports in `factory-app/target` from before the rename.
+  Status (2026-10-31): Skipped: the worktree `.claude/worktrees/quizzical-banach-c345f0` is the one this cleanup runs in, so it stays. The `Pilot*` / `PixelDumpTest` reports are in the gitignored `factory-app/target` of another checkout: they are not tracked, and a clean build there removes them.
 - README (697 lines) and `doc/extending-the-factory.md` (1,220 lines) document the legacy env vars; update
   the README table and the "Coding runtime profiles" section after sections 2 and 10 land.
+  Status (2026-10-31): Done: Split the remaining long methods into named steps and update the env docs. The env table now has a row for every `FACTORY_*` name in `application.yaml`, `docker-compose.yml` and the two `compose.runtime-*.yml` files, and none for a removed one. New rows: `FACTORY_SERVER_ADDRESS`, `FACTORY_APP_IMAGE`, `FACTORY_APP_PORT` / `FACTORY_DB_PORT` / `FACTORY_BIND_ADDRESS`, `FACTORY_<REPO>_SOURCE_REPO` / `_DELIVERY_REPO` / `_BASE_BRANCH`, `FACTORY_DEV_FACTORY_GIT_BASE_URL`, `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS`, `FACTORY_TASKS_EXECUTION_DEADLINE`, `FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS`; the `FACTORY_PI_*` / `FACTORY_CLAUDE_CODE_*` row became one row per runtime that names each variable. "Coding runtime profiles" already used only `FACTORY_PI_*` and `FACTORY_CLAUDE_CODE_*` (plus the runtime switch and the timeout); the My tasks section no longer names the removed recovery interval. `doc/*.md` name none of the removed variables or keys (`gitHub.createPullRequest` in `doc/extending-the-factory.md:444` is the connector method, not the removed flag).
 
 ## 12. Guardrails for whoever does the work
 
