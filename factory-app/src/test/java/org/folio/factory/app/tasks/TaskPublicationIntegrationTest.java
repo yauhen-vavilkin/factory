@@ -195,7 +195,7 @@ class TaskPublicationIntegrationTest {
         Candidate candidate = candidate();
         VerificationReceipt receipt = receipt(executionId, candidate);
         AtomicReference<String> deliveredBranch = new AtomicReference<>();
-        when(delivery.deliver(any()))
+        when(delivery.deliver(completeRequest()))
                 .thenAnswer(invocation -> {
                     assertThat(intents.findByExecutionId(executionId))
                             .as("the publication intent is durable before the first remote mutation")
@@ -215,7 +215,8 @@ class TaskPublicationIntegrationTest {
         assertThat(output.path("state").asString()).describedAs(output.path("reason").asString())
                 .isEqualTo("DELIVERED");
         assertThat(output.path("pullRequestUrl").asString()).isEqualTo(PR_URL);
-        verify(delivery).deliver(argThat(request -> request.target().equals(new DeliveryTarget(OFFICIAL, "master"))));
+        verify(delivery).deliver(argThat(request -> isComplete(request)
+                && request.target().equals(new DeliveryTarget(OFFICIAL, "master"))));
 
         TaskPublicationIntent intent = intents.findByExecutionId(executionId).orElseThrow();
         assertThat(intent.getRepository()).isEqualTo(OFFICIAL);
@@ -243,7 +244,7 @@ class TaskPublicationIntegrationTest {
         task.setInScope(false);
         tasks.save(task);
         Candidate candidate = candidate();
-        when(delivery.deliver(any()))
+        when(delivery.deliver(completeRequest()))
                 .thenAnswer(invocation -> new DeliveryReceipt(executionId.toString(), OFFICIAL,
                         branchFor(invocation.getArgument(0, CandidateDelivery.Request.class)),
                         candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40)));
@@ -315,7 +316,7 @@ class TaskPublicationIntegrationTest {
         VerificationReceipt receipt = receipt(executionId, candidate);
         String branch = CandidateDelivery.branchFor(executionId.toString(), "MODSIDECAR-741",
                 candidate, true);
-        when(delivery.deliver(any()))
+        when(delivery.deliver(completeRequest()))
                 .thenAnswer(invocation -> new DeliveryReceipt(executionId.toString(), OFFICIAL, branch,
                         candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(),
                         "c".repeat(40)));
@@ -472,5 +473,15 @@ class TaskPublicationIntegrationTest {
     private static String branchFor(CandidateDelivery.Request request) {
         return CandidateDelivery.branchFor(request.executionId(), request.issueKey(), request.candidate(),
                 request.stableBranch());
+    }
+
+    /** Matches a request with all text fields set, as the old {@code anyString()} matchers did. */
+    private static CandidateDelivery.Request completeRequest() {
+        return argThat(TaskPublicationIntegrationTest::isComplete);
+    }
+
+    private static boolean isComplete(CandidateDelivery.Request request) {
+        return request != null && request.executionId() != null && request.issueKey() != null
+                && request.summary() != null && request.sourceUrl() != null && request.githubToken() != null;
     }
 }

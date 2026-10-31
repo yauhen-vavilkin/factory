@@ -307,6 +307,7 @@ Persisted names must not change; enums serialised by name keep the JSON exactly 
 
 Estimated delta: roughly neutral in lines, fewer string comparisons. Risk: medium; fixtures with today's
 JSON must still deserialise, so the change ships with round-trip tests on existing artifact samples.
+Status (2026-10-31): Not started. Left for a later pass; phases 1 to 6 and 8 landed first and the usage budget ran out.
 
 ## 9. Tests: wall-clock and duplication
 

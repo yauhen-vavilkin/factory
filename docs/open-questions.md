@@ -87,6 +87,11 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
   `deliveredOutcome` read the delivery before it was written and `classify` reads it after, so the
   attempt is held for one dispatch poll. The next refresh releases it as `PR_READY` through
   `deliveredOutcome`.
+- Types instead of strings in the flow module (audit section 8 of
+  `docs/superpowers/specs/2026-10-30-dev-flow-code-audit.md`, cleanup phase 7) were not started:
+  stop and result states, `IntakeWorker` states and reason codes, `VerificationReceipt.result`,
+  `FeedbackState.failureKind` and the `VerifyWorker` outcome map are still strings. Each change
+  needs a round-trip test that keeps today's persisted JSON byte for byte.
 
 ## Left after the Developer Flow fixes
 
