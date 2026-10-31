@@ -3,7 +3,9 @@ package org.folio.factory.app.developer;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.folio.factory.connectors.github.GitHubProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -24,25 +26,31 @@ class DeveloperPreflightProbeTest {
     private static final String BRANCH_URL = REPOSITORY_URL + "/branches/campaign%2Fbase";
     private static final String COMPARE_URL = REPOSITORY_URL + "/compare/" + SOURCE + "..." + DESTINATION;
     private static final DeliveryTarget TARGET = new DeliveryTarget("fork/module", "campaign/base");
-    private WireMockServer server;
+    /** One server per class: starting and stopping Jetty per test let a request meet a bare Jetty 404. */
+    private static final WireMockServer server = new WireMockServer(0);
     private DeveloperPreflightProbe probe;
 
-    @BeforeEach
-    void startLocalServer() {
-        server = new WireMockServer(0);
+    @BeforeAll
+    static void startLocalServer() {
         server.start();
+    }
+
+    @AfterAll
+    static void stopLocalServer() {
+        server.stop();
+    }
+
+    @BeforeEach
+    void resetStubsAndRequests() {
+        server.resetAll();
         probe = new DeveloperPreflightProbe(new GitHubProperties(server.baseUrl(), "fixture-github-token"));
         stub(REPOSITORY_URL, "{\"permissions\":{\"push\":true}}");
     }
 
     @AfterEach
     void onlyReadRequestsWereSent() {
-        try {
-            assertThat(server.getAllServeEvents()).allSatisfy(event ->
-                    assertThat(event.getRequest().getMethod().getName()).isEqualTo("GET"));
-        } finally {
-            server.stop();
-        }
+        assertThat(server.getAllServeEvents()).allSatisfy(event ->
+                assertThat(event.getRequest().getMethod().getName()).isEqualTo("GET"));
     }
 
     @Test
