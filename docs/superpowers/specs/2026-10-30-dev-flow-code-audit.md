@@ -383,3 +383,71 @@ outputs in `flows/dev-factory.yaml` or `FeedbackArtifacts.VERSION`; migrations a
 and audit rows are immutable; never add a Checkstyle suppression, delete them as methods shrink; persisted
 JSON (artifacts, `task_attempt` columns, `dev_pr_state.json`) must stay readable by the new code; `mvn verify`
 is the acceptance test and needs Docker.
+
+## Result
+
+Status (2026-10-31): phases 1 to 6 and 8 are done; phase 7 (section 8) is not started. Nothing is pushed.
+"Before" is ad4020c (the code of `m1-sprint-pilot` 7e50d99 plus the spec files), "after" is f1d1d1d.
+
+| Measure | Before | After |
+|---|---|---|
+| `mvn -B -ntp clean verify`, wall-clock | 366 s | 306 s |
+| `factory-flow-dev-factory` main / test lines | 9,486 / 6,083 | 9,075 / 6,287 |
+| `factory-app` main / test lines | 9,640 / 15,335 | 9,484 / 15,277 |
+| `factory-app` CSS / template lines | 1,417 / 2,128 | 1,252 / 2,126 |
+| `factory-core`, `-connectors`, `-agents`, `-flow-test-factory` lines | 4,170+3,174, 933+685, 377+453, 1,008+814 | unchanged |
+| Tests: core, connectors, agents, test-factory | 126, 34, 34, 33 | 126, 34, 34, 33 |
+| Tests: `factory-flow-dev-factory` | 334 (18 skipped) | 350 (18 skipped) |
+| Tests: `factory-app` | 516 | 513 |
+| Checkstyle suppression entries | 39 | 4 |
+| Env placeholders in `application.yaml` | 95 | 81 |
+| Env variables in `docker-compose.yml` (unique `${...}` names) | 45 | 37 |
+| Main Java files added / deleted / changed since before | n/a | 14 / 5 / 74 |
+
+Both verify times are single runs on the same laptop; the phase runs in between took 306 to 353 s, so
+the difference is noise, not a speed-up. Every test that was removed belonged to removed behaviour, and
+each commit message says which. The four suppressions left: `DeveloperCostEstimator.estimate` (pre-0.9.0
+path), `FeedbackUiController.command` (HTTP form binding), the `Task` JPA constructor and
+`TestFactoryConfiguration` (out of scope). Class sizes: `DevFactoryConfiguration` 357 to 288 lines (the
+phase 4 target was under 250), `TaskOutcomeService` 369 to 332, `DeveloperPreflight` 612 to 586,
+`ExecutionUiController` 345 to 339, `TaskAdmissionService` 327 to 345 (it took over the retry service).
+
+Commits, oldest first:
+
+- ad4020c Add Developer Flow audit, cleanup and test-speed prompts
+- fb8905e Remove legacy Pi, delivery and pilot configuration layers (phase 1)
+- f1e71aa Give workers one constructor and operations one signature (phase 2)
+- 08816e5 Share the task guard, git runner, token usage and digest helpers (phase 3)
+- a23e7ec Group the Developer Flow wiring into hooks and parameter records (phase 4)
+- b78288f Merge task admission and retry, fold startup recovery into dispatch (phase 5)
+- da5ab5e Remove dead task outcome code and unread fields, type the attempt history (phase 5)
+- cc83f7d Delete unused Developer Flow styles and task status badge rules (phase 6)
+- 4f82d38 Build only what the run page shows and remove dead presentation code (phase 6)
+- da062e9 Split the remaining long methods into named steps and update the env docs (phase 8)
+- 94e72ff Fix the review findings on cleanup phases 1 to 6
+- f1d1d1d Restore the non-null checks on delivery requests in tests
+
+What a reviewer should look at first:
+
+1. `TaskAdmissionService` (b78288f): admission and retry are one service, and startup recovery runs in
+   `TaskDispatcher`. Refusal texts, locks and transaction boundaries are unchanged. The cause of a held
+   attempt is logged again (94e72ff), on every dispatch poll (30 s) while the attempt stays held.
+2. `TokenUsage` (08816e5, 94e72ff): one parser for the usage keys of both runtimes, integral numbers
+   only. `toClaudeMetrics()` and `toMetrics()` keep each runtime's old key order in artifacts and audit
+   details; tests pin both orders.
+3. `TaskGuard` (08816e5): one stop and timeout policy for every worker; `TaskGuardTest` pins the stop
+   texts. `CandidateVerifier` now takes the caller's capped timeout, so PR feedback no longer inherits the
+   task deadline.
+4. The run-page branch in `ExecutionUiController` (4f82d38, 94e72ff): a Developer Flow run builds only
+   what its template branch reads. `/executions` rows now ask `getLatest` per artifact name (up to 8
+   queries per Developer Flow row; noted in `docs/open-questions.md`).
+5. Smaller intended differences: stale `FACTORY_MODEL_*` variables and a private catalog's
+   `delivery.targets` or `authorized` keys are now ignored, not refused (fb8905e; both in
+   `docs/open-questions.md`); new `run_settings` values no longer hold `profileLabel`, `model` and
+   `endpointOrigin` (da5ab5e); every git call passes `core.hooksPath=/dev/null`, `credential.helper=` and
+   `core.autocrlf=false`, and the preflight `ls-remote` reads up to `Processes.OUTPUT_LIMIT` (2 MB)
+   instead of 4 KB (08816e5); `developer-pricing.yaml` is packaged on the classpath like the other two config files,
+   so under `mvn spring-boot:run` it merges with `./config` by rate key (94e72ff).
+6. Left open: phase 7 (section 8), and the comment tags still in `pom.xml`, `factory-app/pom.xml`,
+   `.github/dependabot.yml`, three `doc/*.md` files and one `factory-core` test, which the prompt did not
+   name (section 11).
