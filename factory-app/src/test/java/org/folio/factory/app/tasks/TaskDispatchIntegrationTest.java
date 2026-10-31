@@ -3,7 +3,6 @@ package org.folio.factory.app.tasks;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
-import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.execution.TaskExecutionLauncher;
 import org.folio.factory.app.tasks.execution.TaskExecutionProperties;
@@ -11,7 +10,6 @@ import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
-import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
@@ -46,7 +44,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 
 /**
  * Serial dispatch against real PostgreSQL: one queued attempt at a time gets one
@@ -61,7 +58,6 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 @TestPropertySource(properties = "factory.limits.dedup.window=PT0S")
 class TaskDispatchIntegrationTest {
 
-    private static final String INSTANCE = "jira.example.org";
     private static final String FLOW_ID = "dev-factory";
     private static final Instant JIRA_LATER = Instant.parse("2026-10-01T10:00:00Z");
     private static final Instant JIRA_EARLIER = Instant.parse("2026-10-01T09:00:00Z");
@@ -114,12 +110,12 @@ class TaskDispatchIntegrationTest {
     @Autowired
     List<TriggerPreflight> preflights;
 
+    private TaskFixture fixture;
+
     @BeforeEach
     void resetTaskState() {
-        attempts.deleteAll();
-        tasks.deleteAll();
-        installations.deleteAll();
-        installations.save(TaskInstallations.seeded());
+        fixture = new TaskFixture(tasks, attempts, installations, admissions);
+        fixture.reset();
         executions.deleteAll();
     }
 
@@ -312,26 +308,14 @@ class TaskDispatchIntegrationTest {
         };
     }
 
+    /** Some tests refuse admission on purpose, so the outcome is not checked here. */
     private UUID admit(String issueId, String displayKey) {
-        Task task = tasks.save(new Task(INSTANCE, issueId, displayKey, "Title of " + displayKey, "MODBAR",
-                "{\"key\": \"" + displayKey + "\"}", "revision-" + issueId,
-                Task.Eligibility.ELIGIBLE, "repository mod-bar"));
-        TaskInstallation installation = installations.findById(1).orElseThrow();
-        installation.setSyncComplete(true);
-        installation.setSyncProblem(null);
-        installations.save(installation);
-        admissions.runSelected(new TaskCommands.RunSelected("run-" + issueId, List.of(selectionFor(task)), null));
-        return task.getId();
+        return fixture.requestRun(TaskFixture.task(issueId, displayKey));
     }
 
     private void setJiraCreated(UUID taskId, Instant jiraCreatedAt) {
         Task task = tasks.findById(taskId).orElseThrow();
         task.setJiraCreatedAt(jiraCreatedAt);
         tasks.save(task);
-    }
-
-    private TaskCommands.Selection selectionFor(Task task) {
-        return new TaskCommands.Selection(task.getId(), task.getVersion(),
-                TaskAdmissionChecks.inputFingerprint(task), TaskAdmissionChecks.destinationFingerprint(task));
     }
 }

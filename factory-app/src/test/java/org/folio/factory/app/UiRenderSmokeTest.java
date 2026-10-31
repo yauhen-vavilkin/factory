@@ -3,6 +3,8 @@ package org.folio.factory.app;
 import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.support.FactoryIntegrationTest;
+import org.folio.factory.app.tasks.TaskFixture;
+import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskRunSettings;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
@@ -53,7 +55,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
-import org.folio.factory.app.tasks.persistence.TaskInstallations;
 
 /**
  * The only test that actually renders the Thymeleaf templates end to end;
@@ -102,6 +103,9 @@ class UiRenderSmokeTest {
 
     @Autowired
     private TaskInstallationRepository taskInstallations;
+
+    @Autowired
+    private TaskAdmissionService taskAdmissions;
 
     @Autowired
     private ITemplateEngine templateEngine;
@@ -816,10 +820,7 @@ class UiRenderSmokeTest {
     // ----- task screens -----
 
     private void resetTaskData() {
-        taskAttempts.deleteAll();
-        taskTasks.deleteAll();
-        taskInstallations.deleteAll();
-        taskInstallations.save(TaskInstallations.seeded());
+        new TaskFixture(taskTasks, taskAttempts, taskInstallations, taskAdmissions).reset();
     }
 
     private Task seedTask(String issueId, String key, String title,
@@ -829,9 +830,8 @@ class UiRenderSmokeTest {
 
     private Task seedTask(String issueId, String key, String title, String jiraStatus,
                                Task.Eligibility eligibility, String routingReason) {
-        return taskTasks.save(new Task("jira.example.org", issueId, key, title, "MODBAR",
-                "{\"key\": \"" + key + "\", \"status\": \"" + jiraStatus + "\"}", "revision-" + issueId,
-                eligibility, routingReason));
+        return taskTasks.save(TaskFixture.task("MODBAR", issueId, key, title,
+                "{\"key\": \"" + key + "\", \"status\": \"" + jiraStatus + "\"}", eligibility, routingReason));
     }
 
     private TaskAttempt seedAttempt(Task task, int ordinal, TaskAttempt.Kind kind,

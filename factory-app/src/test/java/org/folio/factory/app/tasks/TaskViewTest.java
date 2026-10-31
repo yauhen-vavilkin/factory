@@ -9,7 +9,6 @@ import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
-import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
@@ -38,7 +37,6 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -62,8 +60,6 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 // Own context: task queue with jira.example.org configured; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class TaskViewTest {
-
-    private static final String INSTANCE = "jira.example.org";
 
     @MockitoBean
     DeveloperPreflight preflight;
@@ -105,13 +101,12 @@ class TaskViewTest {
     @Autowired
     TaskQuery query;
 
+    private TaskFixture fixture;
+
     @BeforeEach
     void resetTaskState() {
-        attempts.deleteAll();
-        tasks.deleteAll();
-        installations.deleteAll();
-        installations.save(TaskInstallations.seeded());
-        // The migration seeds the single installation row; restore it as installed.
+        fixture = new TaskFixture(tasks, attempts, installations, admissions);
+        fixture.reset();
         doNothing().when(docker).cleanOwned(any(), anyString());
     }
 
@@ -138,8 +133,8 @@ class TaskViewTest {
     @Test
     void aWithdrawalAfterRealWorkShowsTheLastAttemptThatRan() {
         Task task = eligibleTask("90021", "MODBAR-921");
-        admit(task, "run-921");
-        forceState(task, TaskAttempt.State.STOPPED, "coding: verification failed");
+        fixture.admit(task, "run-921");
+        fixture.forceState(task, TaskAttempt.State.STOPPED, "coding: verification failed");
         TaskAttempt withdrawn = new TaskAttempt(task.getId(), 2, TaskAttempt.Kind.RETRY, "legacy-921",
                 TaskAttempt.State.WITHDRAWN);
         withdrawn.setResultReason("task left the My tasks scope before start");
@@ -158,11 +153,11 @@ class TaskViewTest {
         Task unsupported = task("90011", "MODBAR-911", Task.Eligibility.INELIGIBLE,
                 "depends on unsupported mod-data-import-converter-storage");
         Task withdrawn = eligibleTask("90012", "MODBAR-912");
-        admit(withdrawn, "run-912");
-        forceState(withdrawn, TaskAttempt.State.WITHDRAWN, "task left the My tasks scope before start");
+        fixture.admit(withdrawn, "run-912");
+        fixture.forceState(withdrawn, TaskAttempt.State.WITHDRAWN, "task left the My tasks scope before start");
         Task stopped = eligibleTask("90013", "MODBAR-913");
-        admit(stopped, "run-913");
-        forceState(stopped, TaskAttempt.State.STOPPED, "coding: verification failed");
+        fixture.admit(stopped, "run-913");
+        fixture.forceState(stopped, TaskAttempt.State.STOPPED, "coding: verification failed");
         Task left = tasks.findById(stopped.getId()).orElseThrow();
         left.setInScope(false);
         tasks.save(left);
@@ -202,7 +197,7 @@ class TaskViewTest {
     @Test
     void engineCompletedWithFailedVerificationProjectsAsStoppedWithRetryAvailable() {
         Task failed = eligibleTask("90021", "MODBAR-921");
-        admit(failed, "run-921");
+        fixture.admit(failed, "run-921");
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
         TaskAttempt attempt = attempts.findByExecutionId(executionId).orElseThrow();
         stateManager.transition(executionId, ExecutionStatus.COMPLETED, null);
@@ -229,7 +224,7 @@ class TaskViewTest {
     @Test
     void uncertainPausedAndPrReadyStatesStayDistinct() {
         Task paused = eligibleTask("90031", "MODBAR-931");
-        admit(paused, "run-931");
+        fixture.admit(paused, "run-931");
         UUID pausedExecution = dispatcher.dispatchNext().orElseThrow();
         TaskAttempt pausedAttempt = attempts.findByExecutionId(pausedExecution).orElseThrow();
         stateManager.transition(pausedExecution, ExecutionStatus.FAILED_ESCALATED,
@@ -252,7 +247,7 @@ class TaskViewTest {
         assertThat(query.detail(paused.getId()).state()).isEqualTo(TaskView.TaskState.STOPPED);
 
         Task ready = eligibleTask("90032", "MODBAR-932");
-        admit(ready, "run-932");
+        fixture.admit(ready, "run-932");
         UUID readyExecution = dispatcher.dispatchNext().orElseThrow();
         writeArtifact(readyExecution, DeliveryWorker.DELIVERY,
                 "{\"state\":\"DELIVERED\",\"pullRequestUrl\":\"https://github.com/folio-org/mod-bar/pull/7\"}");
@@ -267,8 +262,8 @@ class TaskViewTest {
         assertThat(readyView.allowedActions().select()).isFalse();
 
         Task uncertain = eligibleTask("90033", "MODBAR-933");
-        admit(uncertain, "run-933");
-        forceState(uncertain, TaskAttempt.State.NEEDS_INSPECTION,
+        fixture.admit(uncertain, "run-933");
+        fixture.forceState(uncertain, TaskAttempt.State.NEEDS_INSPECTION,
                 "publish: the candidate was delivered without a known pull-request identity");
         // An uncertain attempt projects distinctly because it does not own the
         // installation's pause slot; detach the admission's launch binding.
@@ -286,7 +281,7 @@ class TaskViewTest {
     @Test
     void queuedTaskProjectsWorkingWithoutControls() {
         Task working = eligibleTask("90041", "MODBAR-941");
-        admit(working, "run-941");
+        fixture.admit(working, "run-941");
         assertThat(dispatcher.dispatchNext()).isPresent();
 
         TaskView queued = query.detail(working.getId());
@@ -317,7 +312,7 @@ class TaskViewTest {
     @Test
     void taskTotalsSumInitialFeedbackAndRetryContributionsExactlyOnce() {
         Task retried = eligibleTask("90051", "MODBAR-951");
-        admit(retried, "run-951");
+        fixture.admit(retried, "run-951");
         UUID firstExecution = dispatcher.dispatchNext().orElseThrow();
         TaskAttempt first = attempts.findByExecutionId(firstExecution).orElseThrow();
         usageEvent(firstExecution, AuditEventType.STEP_COMPLETED, "a1", -1, 100_000, 20_000, false);
@@ -370,7 +365,7 @@ class TaskViewTest {
     @Test
     void attemptActiveSecondsExcludeHumanReviewWaiting() {
         Task task = eligibleTask("90061", "MODBAR-961");
-        admit(task, "run-961");
+        fixture.admit(task, "run-961");
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
         Instant base = Instant.parse("2026-10-23T10:00:00Z");
         timedEvent(executionId, AuditEventType.STEP_STARTED, "implement", base);
@@ -390,9 +385,9 @@ class TaskViewTest {
         Task first = eligibleTask("90073", "MODBAR-973");
         Task second = eligibleTask("90074", "MODBAR-974");
         Task third = eligibleTask("90075", "MODBAR-975");
-        admit(first, "run-973");
-        admit(second, "run-974");
-        admit(third, "run-975");
+        fixture.admit(first, "run-973");
+        fixture.admit(second, "run-974");
+        fixture.admit(third, "run-975");
         dispatcher.dispatchNext().orElseThrow();
 
         var myTasks = query.myTasks(PageRequest.of(0, 10));
@@ -423,28 +418,11 @@ class TaskViewTest {
     }
 
     private Task eligibleTask(String issueId, String displayKey) {
-        return task(issueId, displayKey, Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        return tasks.save(TaskFixture.task(issueId, displayKey));
     }
 
-    private Task task(String issueId, String displayKey, Task.Eligibility eligibility,
-                           String routingReason) {
-        return tasks.save(new Task(INSTANCE, issueId, displayKey, "Title of " + displayKey, "MODBAR",
-                "{\"key\": \"" + displayKey + "\"}", "revision-" + issueId, eligibility, routingReason));
-    }
-
-    private void admit(Task task, String runId) {
-        var result = admissions.runSelected(new TaskCommands.RunSelected(runId,
-                List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
-                        TaskAdmissionChecks.inputFingerprint(task),
-                        TaskAdmissionChecks.destinationFingerprint(task))), null));
-        assertThat(result.rejectedReasons()).isEmpty();
-    }
-
-    private void forceState(Task task, TaskAttempt.State state, String reason) {
-        TaskAttempt attempt = attempts.findByTaskIdOrderByOrdinalAsc(task.getId()).getFirst();
-        attempt.setState(state);
-        attempt.setResultReason(reason);
-        attempts.save(attempt);
+    private Task task(String issueId, String displayKey, Task.Eligibility eligibility, String routingReason) {
+        return tasks.save(TaskFixture.task(issueId, displayKey, eligibility, routingReason));
     }
 
     private void writeArtifact(UUID executionId, String name, String content) {

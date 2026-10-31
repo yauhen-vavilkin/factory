@@ -8,7 +8,6 @@ import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
-import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
@@ -67,7 +66,7 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 @DirtiesContext
 class TaskRetryIntegrationTest {
 
-    private static final String INSTANCE = "jira.example.org";
+    private static final String INSTANCE = TaskFixture.INSTANCE;
     private static final Instant EARLIER = Instant.parse("2026-10-01T09:00:00Z");
     private static final Instant LATER = Instant.parse("2026-10-01T10:00:00Z");
 
@@ -112,12 +111,12 @@ class TaskRetryIntegrationTest {
     private final StubSource source = new StubSource();
     private TaskDiscoveryService discovery;
 
+    private TaskFixture fixture;
+
     @BeforeEach
     void resetTaskState() {
-        attempts.deleteAll();
-        tasks.deleteAll();
-        installations.deleteAll();
-        installations.save(TaskInstallations.seeded());
+        fixture = new TaskFixture(tasks, attempts, installations, admissions);
+        fixture.reset();
         executions.deleteAll();
         source.reset();
         discovery = discovery(devFactory);
@@ -131,7 +130,7 @@ class TaskRetryIntegrationTest {
         var added = admissions.runByKey("by-key-591", "MODBAR-591", null);
         assertThat(added.problem()).isNull();
         Task task = tasks.findById(added.taskId()).orElseThrow();
-        forceState(task, TaskAttempt.State.STOPPED, "coding: the limit is not specified");
+        fixture.forceState(task, TaskAttempt.State.STOPPED, "coding: the limit is not specified");
         source.issues = List.of(issueWithSummary("50091", "MODBAR-591", EARLIER, "The limit is 100 per page"));
 
         var click = admissions.retry(new TaskCommands.Retry("retry-591", task.getId(), task.getVersion(),
@@ -220,17 +219,17 @@ class TaskRetryIntegrationTest {
         admit(queued, "run-522");
         Task running = directTask("50023", "MODBAR-523");
         admit(running, "run-523");
-        forceState(running, TaskAttempt.State.RUNNING, null);
+        fixture.forceState(running, TaskAttempt.State.RUNNING, null);
         Task inspecting = directTask("50024", "MODBAR-524");
         admit(inspecting, "run-524");
-        forceState(inspecting, TaskAttempt.State.NEEDS_INSPECTION,
+        fixture.forceState(inspecting, TaskAttempt.State.NEEDS_INSPECTION,
                 "publish: the candidate was delivered without a known pull-request identity");
         Task delivered = directTask("50025", "MODBAR-525");
         admit(delivered, "run-525");
-        forceState(delivered, TaskAttempt.State.PR_READY, null);
+        fixture.forceState(delivered, TaskAttempt.State.PR_READY, null);
         Task withdrawn = directTask("50026", "MODBAR-526");
         admit(withdrawn, "run-526");
-        forceState(withdrawn, TaskAttempt.State.WITHDRAWN, "task left the My tasks scope before start");
+        fixture.forceState(withdrawn, TaskAttempt.State.WITHDRAWN, "task left the My tasks scope before start");
         Task neverAttempted = directTask("50027", "MODBAR-527");
         Task unsupported = directTask("50029", "MODBAR-529");
         stopWithFailedInitialAttempt(unsupported, "run-529");
@@ -385,28 +384,16 @@ class TaskRetryIntegrationTest {
 
     private void stopWithFailedInitialAttempt(Task task, String runId) {
         admit(task, runId);
-        forceState(task, TaskAttempt.State.STOPPED, "coding: verification failed");
+        fixture.forceState(task, TaskAttempt.State.STOPPED, "coding: verification failed");
     }
 
     private void admit(Task task, String runId) {
-        var result = admissions.runSelected(new TaskCommands.RunSelected(runId,
-                List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
-                        TaskAdmissionChecks.inputFingerprint(task),
-                        TaskAdmissionChecks.destinationFingerprint(task))), null));
-        assertThat(result.rejectedReasons()).as(String.valueOf(result)).isEmpty();
-        assertThat(result.admittedTaskIds()).containsExactly(task.getId());
+        assertThat(fixture.admit(task, runId).admittedTaskIds()).containsExactly(task.getId());
     }
 
     private void admitAndDispatch(Task task, String runId) {
         admit(task, runId);
         assertThat(dispatcher.dispatchNext()).isPresent();
-    }
-
-    private void forceState(Task task, TaskAttempt.State state, String reason) {
-        TaskAttempt attempt = attempts.findByTaskIdOrderByOrdinalAsc(task.getId()).getFirst();
-        attempt.setState(state);
-        attempt.setResultReason(reason);
-        attempts.save(attempt);
     }
 
     /**

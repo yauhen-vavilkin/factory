@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @FactoryIntegrationTest
 class TaskPersistenceIntegrationTest {
 
-    private static final String INSTANCE = "jira.example.org";
+    private static final String INSTANCE = TaskFixture.INSTANCE;
 
     @Autowired
     TaskRepository tasks;
@@ -206,13 +206,11 @@ class TaskPersistenceIntegrationTest {
     }
 
     private Task task(String issueId, String displayKey, String instance) {
-        return new Task(instance, issueId, displayKey, "Title of " + displayKey, "MODBAR",
-                "{\"key\": \"" + displayKey + "\"}", "revision-" + issueId,
-                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        return TaskFixture.taskOn(instance, issueId, displayKey);
     }
 
     private TaskAttempt attempt(UUID taskId, int ordinal, TaskAttempt.State state, String requestId) {
-        return new TaskAttempt(taskId, ordinal, TaskAttempt.Kind.INITIAL, requestId, state);
+        return TaskFixture.attempt(taskId, ordinal, state, requestId);
     }
 
     private long tasksOn(String jiraInstance) {

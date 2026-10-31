@@ -1,8 +1,8 @@
 package org.folio.factory.app;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
-import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.support.DevFlowHarness;
 import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.support.SharedWireMock;
 import org.folio.factory.core.agent.AgentContext;
@@ -37,8 +37,6 @@ import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -46,7 +44,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyUrl;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
@@ -78,13 +75,13 @@ class DeveloperIntakeDecisionTest {
     private static final String DESCRIPTION = "As an operator I want X. AC1: X happens.";
 
     static final WireMockServer jira = SharedWireMock.JIRA;
-    static final Path gitRoot = createGitRoot();
-    static final String barSha = createRepository("folio-org/mod-bar", "master");
-    static final String fooSha = createRepository("folio-org/mod-foo", "master");
-    static final String fooStorageSha = createRepository("folio-org/mod-foo-storage", "main");
+    static final Path gitRoot = DevFlowHarness.createGitRoot("dev-factory-git");
+    static final String barSha = DevFlowHarness.createRepository(gitRoot, "folio-org/mod-bar", "master");
+    static final String fooSha = DevFlowHarness.createRepository(gitRoot, "folio-org/mod-foo", "master");
+    static final String fooStorageSha = DevFlowHarness.createRepository(gitRoot, "folio-org/mod-foo-storage", "main");
 
     static {
-        createRepository("folio-org/mod-wrong-branch", "main");
+        DevFlowHarness.createRepository(gitRoot, "folio-org/mod-wrong-branch", "main");
     }
 
     @DynamicPropertySource
@@ -139,11 +136,13 @@ class DeveloperIntakeDecisionTest {
     DevArtifactAmendmentValidator devValidator;
 
     private final JsonMapper json = JsonMapper.builder().build();
-    private final FrontmatterCodec codec = new FrontmatterCodec();
     private RestClient rest;
+
+    private DevFlowHarness harness;
 
     @BeforeEach
     void setUp() {
+        harness = new DevFlowHarness(stateManager, artifactStore, reviews);
         rest = RestClient.builder().baseUrl("http://localhost:" + port).build();
         jira.resetAll();
     }
@@ -160,7 +159,7 @@ class DeveloperIntakeDecisionTest {
     @Test
     void readyIssueResolvesWithoutReview() {
         String longDescription = DESCRIPTION + "x".repeat(25_000);
-        stubIssue("MODBAR-1", longDescription, """
+        DevFlowHarness.stubIssue(jira, "MODBAR-1", longDescription, """
                 "comment": {"comments": [
                   {"author": {"displayName": "PO"}, "created": "2026-09-01", "body": "Keep it small"}]},
                 "issuelinks": [
@@ -169,10 +168,10 @@ class DeveloperIntakeDecisionTest {
                 """);
 
         UUID executionId = start("MODBAR-1");
-        awaitStatus(executionId, ExecutionStatus.COMPLETED);
+        harness.awaitStatus(executionId, ExecutionStatus.COMPLETED);
 
         assertThat(reviews.findByExecutionIdOrderByCreatedAtAsc(executionId)).isEmpty();
-        JsonNode brief = metadata(executionId, "dev_task_brief.md");
+        JsonNode brief = harness.metadata(executionId, "dev_task_brief.md");
         assertThat(brief.path("state").asString()).isEqualTo("INTAKE_READY");
         assertThat(brief.path("decision").path("required").asBoolean()).isFalse();
         JsonNode repository = brief.path("repository");
@@ -192,7 +191,7 @@ class DeveloperIntakeDecisionTest {
         assertThat(issue.path("comments").get(0).path("body").asString()).isEqualTo("Keep it small");
         assertThat(issue.path("links").get(0).path("key").asString()).isEqualTo("MODBAR-0");
         assertThat(issue.path("links").get(0).path("relation").asString()).isEqualTo("is blocked by");
-        JsonNode codingRequest = json.readTree(latest(executionId, "dev_coding_request.json"));
+        JsonNode codingRequest = json.readTree(harness.latest(executionId, "dev_coding_request.json"));
         assertThat(codingRequest.path("issueKey").asString()).isEqualTo("MODBAR-1");
         assertThat(codingRequest.path("comments").get(0).path("body").asString()).isEqualTo("Keep it small");
         assertThat(codingRequest.path("linkedIssues").get(0).path("key").asString()).isEqualTo("MODBAR-0");
@@ -204,18 +203,18 @@ class DeveloperIntakeDecisionTest {
 
     @Test
     void emptyDescriptionIssueResolvesWithHonestCodingRequest() {
-        stubIssue("MODBAR-2", "   ", """
+        DevFlowHarness.stubIssue(jira, "MODBAR-2", "   ", """
                 "comment": {"comments": [
                   {"author": {"displayName": "PO"}, "created": "2026-09-02", "body": "Inspect the repository"}]}
                 """);
 
         UUID executionId = start("MODBAR-2");
-        awaitStatus(executionId, ExecutionStatus.COMPLETED);
+        harness.awaitStatus(executionId, ExecutionStatus.COMPLETED);
 
         assertThat(reviews.findByExecutionIdOrderByCreatedAtAsc(executionId)).isEmpty();
-        JsonNode brief = metadata(executionId, "dev_task_brief.md");
+        JsonNode brief = harness.metadata(executionId, "dev_task_brief.md");
         assertThat(brief.path("state").asString()).isEqualTo("INTAKE_READY");
-        JsonNode codingRequest = json.readTree(latest(executionId, "dev_coding_request.json"));
+        JsonNode codingRequest = json.readTree(harness.latest(executionId, "dev_coding_request.json"));
         assertThat(codingRequest.path("issueKey").asString()).isEqualTo("MODBAR-2");
         assertThat(codingRequest.path("summary").asString()).isEqualTo("Summary of MODBAR-2");
         assertThat(codingRequest.path("description").asString()).isEmpty();
@@ -228,9 +227,9 @@ class DeveloperIntakeDecisionTest {
     @Test
     void unsupportedAndBlockedIssuesEndHonestlyWithoutReview() {
         UUID invalidKey = start("modbar-1; rm -rf /");
-        stubIssue("OTHER-1", DESCRIPTION, "");
+        DevFlowHarness.stubIssue(jira, "OTHER-1", DESCRIPTION, "");
         UUID unmapped = start("OTHER-1");
-        stubIssue("MODWRONG-1", DESCRIPTION, "");
+        DevFlowHarness.stubIssue(jira, "MODWRONG-1", DESCRIPTION, "");
         UUID missingBase = start("MODWRONG-1");
 
         assertOutcome(invalidKey, "UNSUPPORTED", "INVALID_ISSUE_KEY");
@@ -241,10 +240,10 @@ class DeveloperIntakeDecisionTest {
 
     @Test
     void ambiguousIssueParksAtDecisionStepAndApproveAcceptsRecommendation() {
-        stubIssue("MODFOO-1", DESCRIPTION, "");
+        DevFlowHarness.stubIssue(jira, "MODFOO-1", DESCRIPTION, "");
         UUID executionId = start("MODFOO-1");
 
-        HitlReview review = awaitPendingReview(executionId);
+        HitlReview review = harness.awaitPendingReview(executionId, GATE_ID);
         assertThat(review.getStepIndex()).isEqualTo(DECISION_STEP_INDEX);
         assertThat(stateManager.get(executionId).getCurrentStepIndex()).isEqualTo(DECISION_STEP_INDEX);
         assertThat(stateManager.get(executionId).getStatus()).isEqualTo(ExecutionStatus.AWAITING_HITL);
@@ -263,8 +262,8 @@ class DeveloperIntakeDecisionTest {
                 .retrieve().body(JsonNode.class);
         assertThat(decided.path("status").asString()).isEqualTo("APPROVED");
 
-        awaitStatus(executionId, ExecutionStatus.COMPLETED);
-        JsonNode brief = metadata(executionId, "dev_task_brief.md");
+        harness.awaitStatus(executionId, ExecutionStatus.COMPLETED);
+        JsonNode brief = harness.metadata(executionId, "dev_task_brief.md");
         assertThat(brief.path("state").asString()).isEqualTo("INTAKE_READY");
         assertThat(brief.path("repository").path("key").asString()).isEqualTo("mod-foo");
         assertThat(brief.path("repository").path("base_sha").asString()).isEqualTo(fooSha);
@@ -274,16 +273,16 @@ class DeveloperIntakeDecisionTest {
 
     @Test
     void amendedAnswerIsUsedAfterResume() {
-        stubIssue("MODFOO-2", DESCRIPTION, "");
+        DevFlowHarness.stubIssue(jira, "MODFOO-2", DESCRIPTION, "");
         UUID executionId = start("MODFOO-2");
-        HitlReview review = awaitPendingReview(executionId);
+        HitlReview review = harness.awaitPendingReview(executionId, GATE_ID);
 
-        String answer = latest(executionId, "dev_decision_answer.md");
+        String answer = harness.latest(executionId, "dev_decision_answer.md");
         decisionService.decide(review.getId(), HitlDecision.AMEND, "dev-lead", "storage module",
                 Map.of("dev_decision_answer.md", answer.replace("choice: \"mod-foo\"", "choice: \"mod-foo-storage\"")));
 
-        awaitStatus(executionId, ExecutionStatus.COMPLETED);
-        JsonNode brief = metadata(executionId, "dev_task_brief.md");
+        harness.awaitStatus(executionId, ExecutionStatus.COMPLETED);
+        JsonNode brief = harness.metadata(executionId, "dev_task_brief.md");
         assertThat(brief.path("repository").path("key").asString()).isEqualTo("mod-foo-storage");
         assertThat(brief.path("repository").path("base_branch").asString()).isEqualTo("main");
         assertThat(brief.path("repository").path("base_sha").asString()).isEqualTo(fooStorageSha);
@@ -295,10 +294,10 @@ class DeveloperIntakeDecisionTest {
 
     @Test
     void invalidAmendmentsAreRejectedAndStaleAnswerFailsTheStep() {
-        stubIssue("MODFOO-3", DESCRIPTION, "");
+        DevFlowHarness.stubIssue(jira, "MODFOO-3", DESCRIPTION, "");
         UUID executionId = start("MODFOO-3");
-        HitlReview review = awaitPendingReview(executionId);
-        String answer = latest(executionId, "dev_decision_answer.md");
+        HitlReview review = harness.awaitPendingReview(executionId, GATE_ID);
+        String answer = harness.latest(executionId, "dev_decision_answer.md");
 
         assertThatThrownBy(() -> decisionService.decide(review.getId(), HitlDecision.AMEND, "dev-lead", null,
                 Map.of("dev_decision_answer.md", answer.replace("choice: \"mod-foo\"", "choice: \"evil/repo\""))))
@@ -327,13 +326,13 @@ class DeveloperIntakeDecisionTest {
 
     @Test
     void duplicateDecisionAndDuplicateGateAttemptDoNotDuplicateProgress() {
-        stubIssue("MODFOO-4", DESCRIPTION, "");
+        DevFlowHarness.stubIssue(jira, "MODFOO-4", DESCRIPTION, "");
         UUID executionId = start("MODFOO-4");
-        HitlReview review = awaitPendingReview(executionId);
+        HitlReview review = harness.awaitPendingReview(executionId, GATE_ID);
 
         AgentContext repeat = new AgentContext(executionId, "select-repository",
                 Map.of("dev_decision_request.md", new ArtifactContent(
-                        "dev_decision_request.md", 1, "text/markdown", latest(executionId, "dev_decision_request.md"))),
+                        "dev_decision_request.md", 1, "text/markdown", harness.latest(executionId, "dev_decision_request.md"))),
                 null, Map.of(), List.of());
         assertThat(decisionGateWorker.execute(repeat).metrics()).containsEntry("reviewOpened", false);
         assertThat(reviews.findByExecutionIdOrderByCreatedAtAsc(executionId)).hasSize(1);
@@ -342,7 +341,7 @@ class DeveloperIntakeDecisionTest {
         assertThatThrownBy(() -> decisionService.decide(review.getId(), HitlDecision.APPROVE, "dev-lead", null, null))
                 .isInstanceOf(IllegalStateException.class);
 
-        awaitStatus(executionId, ExecutionStatus.COMPLETED);
+        harness.awaitStatus(executionId, ExecutionStatus.COMPLETED);
         assertThat(decisionGateWorker.execute(repeat).metrics()).containsEntry("reviewOpened", false);
         assertThat(reviews.findByExecutionIdOrderByCreatedAtAsc(executionId)).hasSize(1);
         assertThat(stateManager.get(executionId).getCurrentStepIndex()).isEqualTo(10);
@@ -357,9 +356,9 @@ class DeveloperIntakeDecisionTest {
 
     @Test
     void rejectionStopsTheExecutionAndOtherFlowsAreUnaffected() {
-        stubIssue("MODFOO-5", DESCRIPTION, "");
+        DevFlowHarness.stubIssue(jira, "MODFOO-5", DESCRIPTION, "");
         UUID executionId = start("MODFOO-5");
-        HitlReview review = awaitPendingReview(executionId);
+        HitlReview review = harness.awaitPendingReview(executionId, GATE_ID);
 
         decisionService.decide(review.getId(), HitlDecision.REJECT, "dev-lead", "not now", null);
 
@@ -375,86 +374,12 @@ class DeveloperIntakeDecisionTest {
         return router.routeManual("dev-factory", json.readTree(json.writeValueAsString(Map.of("issueKey", issueKey))));
     }
 
-    private void stubIssue(String key, String description, String extraFields) {
-        String fields = json.writeValueAsString(Map.of(
-                "summary", "Summary of " + key,
-                "description", description,
-                "status", Map.of("name", "Open"),
-                "issuetype", Map.of("name", "Story"),
-                "labels", List.of("backend")));
-        if (!extraFields.isBlank()) {
-            fields = fields.substring(0, fields.length() - 1) + "," + extraFields + "}";
-        }
-        jira.stubFor(get(urlEqualTo("/rest/api/2/issue/" + key)).willReturn(aResponse()
-                .withHeader("Content-Type", "application/json")
-                .withBody("{\"key\": \"" + key + "\", \"fields\": " + fields + "}")));
-    }
-
-    private void awaitStatus(UUID executionId, ExecutionStatus status) {
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
-                assertThat(stateManager.get(executionId).getStatus()).isEqualTo(status));
-    }
-
-    private HitlReview awaitPendingReview(UUID executionId) {
-        await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
-                assertThat(reviews.findByExecutionIdOrderByCreatedAtAsc(executionId))
-                        .anyMatch(r -> r.getGateId().equals(GATE_ID) && r.getStatus() == HitlReviewStatus.PENDING));
-        List<HitlReview> all = reviews.findByExecutionIdOrderByCreatedAtAsc(executionId);
-        assertThat(all).hasSize(1);
-        return all.getFirst();
-    }
-
     private void assertOutcome(UUID executionId, String state, String reason) {
-        awaitStatus(executionId, ExecutionStatus.COMPLETED);
-        JsonNode brief = metadata(executionId, "dev_task_brief.md");
+        harness.awaitStatus(executionId, ExecutionStatus.COMPLETED);
+        JsonNode brief = harness.metadata(executionId, "dev_task_brief.md");
         assertThat(brief.path("state").asString()).isEqualTo(state);
         assertThat(brief.path("reason").asString()).isEqualTo(reason);
         assertThat(brief.path("repository").isMissingNode()).isTrue();
         assertThat(reviews.findByExecutionIdOrderByCreatedAtAsc(executionId)).isEmpty();
-    }
-
-    private String latest(UUID executionId, String name) {
-        return artifactStore.getLatest(executionId, name).orElseThrow().getContent();
-    }
-
-    private JsonNode metadata(UUID executionId, String name) {
-        return codec.parse(latest(executionId, name)).metadata();
-    }
-
-    private static Path createGitRoot() {
-        try {
-            return Files.createTempDirectory("dev-factory-git");
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    private static String createRepository(String sourceRepo, String branch) {
-        Path bare = gitRoot.resolve(sourceRepo + ".git");
-        Path work = gitRoot.resolve("work-" + sourceRepo.replace('/', '-'));
-        git(gitRoot, "init", "--bare", "-b", branch, bare.toString());
-        git(gitRoot, "init", "-b", branch, work.toString());
-        git(work, "-c", "user.name=fixture", "-c", "user.email=fixture@example.org",
-                "commit", "--allow-empty", "-m", "init " + sourceRepo);
-        git(work, "push", bare.toString(), branch);
-        return git(work, "rev-parse", "HEAD").strip();
-    }
-
-    private static String git(Path dir, String... args) {
-        List<String> command = new ArrayList<>(List.of("git"));
-        command.addAll(List.of(args));
-        try {
-            Process process = new ProcessBuilder(command).directory(dir.toFile()).redirectErrorStream(true).start();
-            String output = new String(process.getInputStream().readAllBytes());
-            if (process.waitFor() != 0) {
-                throw new IllegalStateException(command + " failed: " + output);
-            }
-            return output;
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException(e);
-        }
     }
 }

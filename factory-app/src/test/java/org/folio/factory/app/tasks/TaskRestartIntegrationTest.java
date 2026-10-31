@@ -11,8 +11,6 @@ import org.folio.factory.app.tasks.execution.TaskPublicationGuard;
 import org.folio.factory.app.tasks.execution.TaskDispatchPoller;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
-import org.folio.factory.app.tasks.persistence.TaskInstallation;
-import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.TaskPublicationIntentRepository;
 import org.folio.factory.app.tasks.persistence.Task;
@@ -22,7 +20,6 @@ import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
-import org.folio.factory.devfactory.worker.VerifyWorker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -67,8 +64,6 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 @DirtiesContext
 class TaskRestartIntegrationTest {
 
-    private static final String INSTANCE = "jira.example.org";
-
     @MockitoBean
     DeveloperPreflight preflight;
 
@@ -111,18 +106,18 @@ class TaskRestartIntegrationTest {
     @Autowired
     PlatformTransactionManager transactionManager;
 
+    private TaskFixture fixture;
+
     @BeforeEach
     void resetTaskState() {
-        attempts.deleteAll();
-        tasks.deleteAll();
-        installations.deleteAll();
-        installations.save(TaskInstallations.seeded());
+        fixture = new TaskFixture(tasks, attempts, installations, admissions);
+        fixture.reset();
         org.mockito.Mockito.doNothing().when(docker).cleanOwned(any(), anyString());
     }
 
     @Test
     void restartedRecoveryReclaimsTheRunningAttemptWithoutANewPaidStartOrDeadlineReset() {
-        syncReady();
+        fixture.completeSync();
         long attemptsBefore = attempts.count();
         long executionsBefore = executions.count();
         UUID firstTask = admit("90001", "MODBAR-901");
@@ -185,7 +180,7 @@ class TaskRestartIntegrationTest {
 
     @Test
     void restartResolvesAdmissionAndDispatchIdempotentlyWithoutDuplicateRows() {
-        syncReady();
+        fixture.completeSync();
         long attemptsBefore = attempts.count();
         long executionsBefore = executions.count();
         UUID taskId = admit("90021", "MODBAR-921");
@@ -223,28 +218,10 @@ class TaskRestartIntegrationTest {
     }
 
     private void failExecution(UUID executionId, String resultJson) {
-        stateManager.transition(executionId, ExecutionStatus.FAILED_ESCALATED,
-                Map.of("error", "step exhausted retries"));
-        artifactStore.putMarkdown(executionId, VerifyWorker.RESULT, resultJson, "task-restart-test");
-    }
-
-    private void syncReady() {
-        TaskInstallation installation = installations.findById(1).orElseThrow();
-        installation.setSyncComplete(true);
-        installation.setSyncProblem(null);
-        installations.save(installation);
+        TaskFixture.failExecution(stateManager, artifactStore, executionId, resultJson, "task-restart-test");
     }
 
     private UUID admit(String issueId, String displayKey) {
-        Task task = tasks.save(new Task(INSTANCE, issueId, displayKey, "Title of " + displayKey,
-                "MODBAR", "{\"key\": \"" + displayKey + "\"}", "revision-" + issueId,
-                Task.Eligibility.ELIGIBLE, "repository mod-bar"));
-        syncReady();
-        var result = admissions.runSelected(new TaskCommands.RunSelected("run-" + issueId,
-                List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
-                        TaskAdmissionChecks.inputFingerprint(task),
-                        TaskAdmissionChecks.destinationFingerprint(task))), null));
-        assertThat(result.rejectedReasons()).as(String.valueOf(result)).isEmpty();
-        return task.getId();
+        return fixture.admit(TaskFixture.task(issueId, displayKey));
     }
 }

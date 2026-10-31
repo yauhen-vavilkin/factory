@@ -2,6 +2,7 @@ package org.folio.factory.app.tasks;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.support.DevFlowHarness;
 import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.support.SharedWireMock;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
@@ -63,7 +64,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -148,9 +148,11 @@ class TaskEndToEndTest {
     static final WireMockServer jira = SharedWireMock.JIRA;
     static final WireMockServer GITHUB = SharedWireMock.GITHUB;
 
-    static final Path gitRoot = createGitRoot();
-    static final Path BAR_WORK = createRepository("folio-org/mod-bar", "master");
-    static final Path FOO_WORK = createRepository("folio-org/mod-foo", "master");
+    static final Path gitRoot = DevFlowHarness.createGitRoot("task-e2e-git");
+    static final Path BAR_WORK = DevFlowHarness.createRepositoryWithFiles(gitRoot, "folio-org/mod-bar", "master",
+            Map.of("README.md", "# fixture folio-org/mod-bar\n"));
+    static final Path FOO_WORK = DevFlowHarness.createRepositoryWithFiles(gitRoot, "folio-org/mod-foo", "master",
+            Map.of("README.md", "# fixture folio-org/mod-foo\n"));
     static final Path CODING_CHANGE = createCodingChangeFixture();
     static final Path VERIFICATION_REPORTS = createVerificationFixture();
 
@@ -305,8 +307,11 @@ class TaskEndToEndTest {
         assertThat(jiraStayedReadOnly()).isTrue();
     }
 
+    private DevFlowHarness harness;
+
     @BeforeEach
     void stubFlowCollaborators() {
+        harness = new DevFlowHarness(stateManager, artifactStore, reviews);
         stubCodingOutcomes();
         stubWorkloads();
         stubDelivery();
@@ -325,7 +330,7 @@ class TaskEndToEndTest {
         TaskPublicationIntent intent = intents.findByExecutionId(executionId).orElseThrow();
         assertThat(intent.getRepository()).isEqualTo(BAR);
         assertThat(intent.getBaseBranch()).isEqualTo("master");
-        Candidate candidate = json.readValue(latest(executionId, DevelopWorker.CANDIDATE), Candidate.class);
+        Candidate candidate = json.readValue(harness.latest(executionId, DevelopWorker.CANDIDATE), Candidate.class);
         assertThat(intent.getBaseSha()).isEqualTo(candidate.baseSha());
         assertThat(intent.getTreeSha()).isEqualTo(candidate.treeSha());
         assertThat(intent.getPatchSha256()).isEqualTo(candidate.patchSha256());
@@ -337,15 +342,15 @@ class TaskEndToEndTest {
         assertThat(attempts.findById(attemptId).orElseThrow().getState()).isEqualTo(TaskAttempt.State.PR_READY);
         assertThat(attempts.findById(attemptId).orElseThrow().getPublicationIdentity()).isEqualTo(BAR_PR);
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
-        assertThat(json.readTree(latest(executionId, DeliveryWorker.DELIVERY)).path("pullRequestUrl").asString())
+        assertThat(json.readTree(harness.latest(executionId, DeliveryWorker.DELIVERY)).path("pullRequestUrl").asString())
                 .isEqualTo(BAR_PR);
         // "Implemented the change" does not use the report template, so the pull request opens as a draft.
         assertThat(GITHUB.findAll(postRequestedFor(urlPathEqualTo("/repos/" + BAR + "/pulls"))).getFirst()
                 .getBodyAsString()).contains("\"draft\":true", "## Agent report");
-        assertThat(json.readTree(latest(executionId, DeliveryWorker.DELIVERY)).path("pullRequestDraft").asBoolean())
+        assertThat(json.readTree(harness.latest(executionId, DeliveryWorker.DELIVERY)).path("pullRequestDraft").asBoolean())
                 .isTrue();
         assertThat(attempts.findById(attemptId).orElseThrow().getDraftReasons()).contains("four expected sections");
-        assertThat(json.readTree(latest(executionId, VerifyWorker.RESULT)).path("state").asString())
+        assertThat(json.readTree(harness.latest(executionId, VerifyWorker.RESULT)).path("state").asString())
                 .isEqualTo("DELIVERED");
         assertThat(jira.findAll(getRequestedFor(urlEqualTo("/rest/api/2/issue/MODBAR-101"))))
                 .as("the approved snapshot is consumed without a second Jira read")
@@ -371,9 +376,9 @@ class TaskEndToEndTest {
         assertThat(stopped.reason()).contains("DEVELOPMENT_FAILED", "the coding model rejected the task");
         assertThat(attempts.findById(failedAttemptId).orElseThrow().getResultReason())
                 .contains("DEVELOPMENT_FAILED", "the coding model rejected the task");
-        assertThat(json.readTree(latest(failedExecutionId, VerifyWorker.RESULT)).path("state").asString())
+        assertThat(json.readTree(harness.latest(failedExecutionId, VerifyWorker.RESULT)).path("state").asString())
                 .isEqualTo("DEVELOPMENT_FAILED");
-        assertThat(json.readTree(latest(failedExecutionId, DeliveryWorker.DELIVERY)).path("state").asString())
+        assertThat(json.readTree(harness.latest(failedExecutionId, DeliveryWorker.DELIVERY)).path("state").asString())
                 .isEqualTo("NOT_RUN");
         declaredOutputs().forEach(name -> assertThat(artifactStore.getLatest(failedExecutionId, name))
                 .as(name).isPresent());
@@ -542,9 +547,9 @@ class TaskEndToEndTest {
         UUID executionId = retry.executionId();
 
         awaitTerminal(executionId);
-        assertThat(json.readTree(latest(executionId, DeliveryWorker.DELIVERY)).path("state").asString())
+        assertThat(json.readTree(harness.latest(executionId, DeliveryWorker.DELIVERY)).path("state").asString())
                 .isEqualTo("DELIVERED");
-        assertThat(json.readTree(latest(executionId, DeliveryWorker.DELIVERY)).path("pullRequestUrl").asString())
+        assertThat(json.readTree(harness.latest(executionId, DeliveryWorker.DELIVERY)).path("pullRequestUrl").asString())
                 .isEmpty();
 
         TaskOutcomeService.AttemptOutcome uncertain = outcomes.refresh(retry.attemptId());
@@ -777,10 +782,6 @@ class TaskEndToEndTest {
                 assertThat(stateManager.get(executionId).getStatus()).isEqualTo(ExecutionStatus.COMPLETED));
     }
 
-    private String latest(UUID executionId, String name) {
-        return artifactStore.getLatest(executionId, name).orElseThrow().getContent();
-    }
-
     private UUID taskId(String issueId) {
         return tasks.findByJiraInstanceAndIssueId(jiraInstance.current(), issueId).orElseThrow().getId();
     }
@@ -794,10 +795,7 @@ class TaskEndToEndTest {
     }
 
     private TaskCommands.Selection selectionFor(String issueId) {
-        Task task = tasks.findById(taskId(issueId)).orElseThrow();
-        return new TaskCommands.Selection(task.getId(), task.getVersion(),
-                TaskAdmissionChecks.inputFingerprint(task),
-                TaskAdmissionChecks.destinationFingerprint(task));
+        return TaskFixture.selection(tasks.findById(taskId(issueId)).orElseThrow());
     }
 
     private static String issue(String id, String key, String project, String summary, String created,
@@ -829,27 +827,6 @@ class TaskEndToEndTest {
         } catch (IOException e) {
             throw new IllegalStateException("Cannot export fixture workspace", e);
         }
-    }
-
-    private static Path createGitRoot() {
-        try {
-            return Files.createTempDirectory("task-e2e-git");
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    private static Path createRepository(String sourceRepo, String branch) {
-        Path bare = gitRoot.resolve(sourceRepo + ".git");
-        Path work = gitRoot.resolve("work-" + sourceRepo.replace('/', '-'));
-        git(gitRoot, "init", "--bare", "-b", branch, bare.toString());
-        git(gitRoot, "init", "-b", branch, work.toString());
-        writeWorkspaceFile(work, "README.md", "# fixture " + sourceRepo + "\n");
-        git(work, "add", ".");
-        git(work, "-c", "user.name=fixture", "-c", "user.email=fixture@example.org",
-                "commit", "--allow-empty", "-m", "init " + sourceRepo);
-        git(work, "push", bare.toString(), branch);
-        return work;
     }
 
     private static Path createCodingChangeFixture() {
@@ -884,24 +861,6 @@ class TaskEndToEndTest {
             Files.createDirectories(file.getParent());
             Files.writeString(file, content);
         } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    private static void git(Path dir, String... args) {
-        List<String> command = new ArrayList<>(List.of("git"));
-        command.addAll(List.of(args));
-        try {
-            Process process = new ProcessBuilder(command).directory(dir.toFile())
-                    .redirectErrorStream(true).start();
-            String output = new String(process.getInputStream().readAllBytes());
-            if (process.waitFor() != 0) {
-                throw new IllegalStateException(command + " failed: " + output);
-            }
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
             throw new IllegalStateException(e);
         }
     }

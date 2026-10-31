@@ -6,15 +6,12 @@ import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.support.SharedWireMock;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
-import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.app.tasks.execution.PersistedTaskAttemptPolicy;
 import org.folio.factory.app.tasks.execution.TaskPublicationGuard;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
-import org.folio.factory.app.tasks.persistence.TaskInstallation;
-import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.TaskPublicationIntent;
 import org.folio.factory.app.tasks.persistence.Task;
@@ -83,7 +80,6 @@ import org.folio.factory.devfactory.tasks.TaskGuard;
 import java.time.Clock;
 import org.folio.factory.devfactory.DevFlowSettings;
 import org.folio.factory.devfactory.delivery.DeliveryServices;
-import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 
 /**
  * Publication authority against real PostgreSQL and a mocked GitHub HTTP
@@ -100,7 +96,6 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 @DirtiesContext
 class TaskPublicationIntegrationTest {
 
-    private static final String INSTANCE = "jira.example.org";
     private static final String OFFICIAL = "folio-org/folio-module-sidecar";
     private static final String PR_PATH = "/repos/" + OFFICIAL + "/pulls";
     private static final String PR_URL = "https://github.com/" + OFFICIAL + "/pull/21";
@@ -160,14 +155,14 @@ class TaskPublicationIntegrationTest {
     @Autowired
     PlatformTransactionManager transactionManager;
 
+    private TaskFixture fixture;
+
     @BeforeEach
     void resetTaskState() {
         GITHUB.resetAll();
         intents.deleteAll();
-        attempts.deleteAll();
-        tasks.deleteAll();
-        installations.deleteAll();
-        installations.save(TaskInstallations.seeded());
+        fixture = new TaskFixture(tasks, attempts, installations, admissions);
+        fixture.reset();
         doNothing().when(docker).cleanOwned(any(), anyString());
     }
 
@@ -437,18 +432,9 @@ class TaskPublicationIntegrationTest {
     }
 
     private UUID admitAndDispatch(String issueId, String displayKey) {
-        Task task = tasks.save(new Task(INSTANCE, issueId, displayKey, "Title of " + displayKey,
-                "MODSIDECAR", "{\"key\": \"" + displayKey + "\", \"summary\": \"Task\"}",
-                "revision-" + issueId, Task.Eligibility.ELIGIBLE, "repository sidecar"));
-        TaskInstallation installation = installations.findById(1).orElseThrow();
-        installation.setSyncComplete(true);
-        installation.setSyncProblem(null);
-        installations.save(installation);
-        var result = admissions.runSelected(new TaskCommands.RunSelected("run-" + issueId,
-                List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
-                        TaskAdmissionChecks.inputFingerprint(task),
-                        TaskAdmissionChecks.destinationFingerprint(task))), null));
-        assertThat(result.rejectedReasons()).isEmpty();
+        fixture.admit(TaskFixture.task("MODSIDECAR", issueId, displayKey, "Title of " + displayKey,
+                "{\"key\": \"" + displayKey + "\", \"summary\": \"Task\"}",
+                Task.Eligibility.ELIGIBLE, "repository sidecar"));
         return dispatcher.dispatchNext().orElseThrow();
     }
 

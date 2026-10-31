@@ -7,7 +7,6 @@ import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
-import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
@@ -37,8 +36,6 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 @TestPropertySource(properties = "factory.limits.dedup.window=PT0S")
 class TaskAdmissionIntegrationTest {
 
-    private static final String INSTANCE = "jira.example.org";
-
     @Autowired
     TaskRepository tasks;
 
@@ -56,11 +53,9 @@ class TaskAdmissionIntegrationTest {
 
     @BeforeEach
     void resetTaskState() {
-        attempts.deleteAll();
-        tasks.deleteAll();
-        installations.deleteAll();
-        installations.save(TaskInstallations.seeded());
-        completeSync();
+        var fixture = new TaskFixture(tasks, attempts, installations, admissions);
+        fixture.reset();
+        fixture.completeSync();
     }
 
     @Test
@@ -240,7 +235,7 @@ class TaskAdmissionIntegrationTest {
     }
 
     private TaskAdmissionService.AdmissionResult run(String requestId, Task... selectedTasks) {
-        return run(requestId, Arrays.stream(selectedTasks).map(this::selectionFor).toList());
+        return run(requestId, Arrays.stream(selectedTasks).map(TaskFixture::selection).toList());
     }
 
     private TaskAdmissionService.AdmissionResult run(String requestId, TaskCommands.Selection... selections) {
@@ -251,21 +246,7 @@ class TaskAdmissionIntegrationTest {
         return admissions.runSelected(new TaskCommands.RunSelected(requestId, selections, null));
     }
 
-    private void completeSync() {
-        TaskInstallation installation = installations.findById(1).orElseThrow();
-        installation.setSyncComplete(true);
-        installation.setSyncProblem(null);
-        installations.save(installation);
-    }
-
     private Task task(String issueId, String displayKey) {
-        return tasks.save(new Task(INSTANCE, issueId, displayKey, "Title of " + displayKey, "MODBAR",
-                "{\"key\": \"" + displayKey + "\"}", "revision-" + issueId,
-                Task.Eligibility.ELIGIBLE, "repository mod-bar"));
-    }
-
-    private TaskCommands.Selection selectionFor(Task task) {
-        return new TaskCommands.Selection(task.getId(), task.getVersion(),
-                TaskAdmissionChecks.inputFingerprint(task), TaskAdmissionChecks.destinationFingerprint(task));
+        return tasks.save(TaskFixture.task(issueId, displayKey));
     }
 }

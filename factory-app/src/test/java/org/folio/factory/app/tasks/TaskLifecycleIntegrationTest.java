@@ -3,16 +3,12 @@ package org.folio.factory.app.tasks;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
-import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.execution.TaskDispatchPoller;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
-import org.folio.factory.app.tasks.persistence.TaskInstallation;
-import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
-import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
@@ -35,14 +31,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
-import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 
 /**
  * Whole-attempt bounds, ownership and queue progress against real PostgreSQL:
@@ -60,8 +54,6 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 @DirtiesContext
 @ExtendWith(OutputCaptureExtension.class)
 class TaskLifecycleIntegrationTest {
-
-    private static final String INSTANCE = "jira.example.org";
 
     @MockitoBean
     DeveloperPreflight preflight;
@@ -102,12 +94,12 @@ class TaskLifecycleIntegrationTest {
     @Autowired
     TaskAttemptPolicy taskPolicy;
 
+    private TaskFixture fixture;
+
     @BeforeEach
     void resetTaskState() {
-        attempts.deleteAll();
-        tasks.deleteAll();
-        installations.deleteAll();
-        installations.save(TaskInstallations.seeded());
+        fixture = new TaskFixture(tasks, attempts, installations, admissions);
+        fixture.reset();
         org.mockito.Mockito.doNothing().when(docker).cleanOwned(any(), anyString());
     }
 
@@ -398,9 +390,7 @@ class TaskLifecycleIntegrationTest {
     }
 
     private void failExecution(UUID executionId, String resultJson) {
-        stateManager.transition(executionId, ExecutionStatus.FAILED_ESCALATED,
-                java.util.Map.of("error", "step exhausted retries"));
-        writeArtifact(executionId, VerifyWorker.RESULT, resultJson);
+        TaskFixture.failExecution(stateManager, artifactStore, executionId, resultJson, "task-lifecycle-test");
     }
 
     private void writeArtifact(UUID executionId, String name, String content) {
@@ -408,19 +398,7 @@ class TaskLifecycleIntegrationTest {
     }
 
     private UUID admit(String issueId, String displayKey) {
-        Task task = tasks.save(new Task(INSTANCE, issueId, displayKey, "Title of " + displayKey,
-                "MODBAR", "{\"key\": \"" + displayKey + "\"}", "revision-" + issueId,
-                Task.Eligibility.ELIGIBLE, "repository mod-bar"));
-        TaskInstallation installation = installations.findById(1).orElseThrow();
-        installation.setSyncComplete(true);
-        installation.setSyncProblem(null);
-        installations.save(installation);
-        var result = admissions.runSelected(new TaskCommands.RunSelected("run-" + issueId,
-                List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
-                        TaskAdmissionChecks.inputFingerprint(task),
-                        TaskAdmissionChecks.destinationFingerprint(task))), null));
-        org.assertj.core.api.Assertions.assertThat(result.rejectedReasons()).isEmpty();
-        return task.getId();
+        return fixture.admit(TaskFixture.task(issueId, displayKey));
     }
 
 }
