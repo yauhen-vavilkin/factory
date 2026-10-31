@@ -20,10 +20,8 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -48,7 +46,6 @@ public class PersistedTaskAttemptPolicy implements TaskAttemptPolicy {
     private final TaskPublicationIntentRepository intents;
     private final TaskPublicationGuard publicationGuard;
     private final TransactionTemplate transactions;
-    private final JsonMapper json = JsonMapper.builder().build();
 
     public PersistedTaskAttemptPolicy(TaskAttemptRepository attempts, TaskRepository tasks,
                                        TaskInstallationRepository installations,
@@ -69,19 +66,8 @@ public class PersistedTaskAttemptPolicy implements TaskAttemptPolicy {
     }
 
     private TaskExecutionContext context(TaskAttempt attempt) {
-        return new TaskExecutionContext(attempt.getId(), approvedSnapshot(attempt), repositoryKey(attempt),
-                TaskExecutionContext.Kind.valueOf(attempt.getKind().name()),
-                attempt.getInputFingerprint(), attempt.getDestinationFingerprint(),
+        return new TaskExecutionContext(attempt.getId(), attempt.approvedSnapshotMap(), repositoryKey(attempt),
                 TaskRunSettings.settings(attempt.getRunSettings()));
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> approvedSnapshot(TaskAttempt attempt) {
-        String snapshot = attempt.getApprovedSnapshot();
-        if (snapshot == null || snapshot.isBlank()) {
-            return Map.of();
-        }
-        return json.readValue(snapshot, Map.class);
     }
 
     private String repositoryKey(TaskAttempt attempt) {
@@ -123,8 +109,12 @@ public class PersistedTaskAttemptPolicy implements TaskAttemptPolicy {
     }
 
     static String truncated(String stage, String reason) {
-        String value = (stage == null ? "" : stage) + ": " + (reason == null ? "" : reason);
-        return value.length() <= MAX_REASON_LENGTH ? value : value.substring(0, MAX_REASON_LENGTH);
+        return capReason((stage == null ? "" : stage) + ": " + (reason == null ? "" : reason));
+    }
+
+    /** A reason cut to the length of the result_reason column. */
+    static String capReason(String reason) {
+        return reason.length() <= MAX_REASON_LENGTH ? reason : reason.substring(0, MAX_REASON_LENGTH);
     }
 
     @Override

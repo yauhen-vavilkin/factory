@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.UUID;
+import static org.folio.factory.devfactory.DevFactoryConfiguration.FLOW_ID;
 
 /**
  * Turns one queued task attempt into one engine execution. Payload preparation
@@ -34,7 +35,6 @@ import java.util.UUID;
 @Service
 public class TaskExecutionLauncher {
 
-    static final String FLOW_ID = "dev-factory";
 
     private final PipelineRouter router;
     private final TaskRepository tasks;

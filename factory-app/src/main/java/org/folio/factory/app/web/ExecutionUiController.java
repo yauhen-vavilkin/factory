@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import org.folio.factory.devfactory.DevFactoryConfiguration;
 
 /**
  * Server-rendered execution views: a filterable, paged run list and a per-execution detail page
@@ -106,7 +107,7 @@ public class ExecutionUiController {
         var execution = findExecution(id);
         var terminal = execution.getStatus().isTerminal();
         var events = auditLog.forExecution(id);
-        var developerFlow = "dev-factory".equals(execution.getFlowId());
+        var developerFlow = DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId());
         var usage = StepUsageSummary.from(events, developerFlow, jsonMapper);
         var detail = new ExecutionDetail(id, execution, artifactStore.allForExecution(id), events);
         model.addAttribute("displayStatus",
@@ -198,7 +199,7 @@ public class ExecutionUiController {
     }
 
     private ExecutionRow executionRow(PipelineExecution execution) {
-        var status = "dev-factory".equals(execution.getFlowId())
+        var status = DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId())
                 ? developerView.productStatus(execution, artifactStore.allForExecution(execution.getId()))
                 : execution.getStatus().name();
         var parentId = execution.getParentExecutionId();

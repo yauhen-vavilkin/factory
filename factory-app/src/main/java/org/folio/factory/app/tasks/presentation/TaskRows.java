@@ -24,19 +24,20 @@ import java.util.stream.Collectors;
 
 import static org.folio.factory.app.tasks.presentation.TaskLabels.ago;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.attemptResult;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.attemptStateLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.categoryLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costNoteTitle;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.incompleteCostNote;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.minutes;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.pullRequestLabel;
+import static org.folio.factory.app.tasks.presentation.TaskLabels.queued;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.resultChips;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.resultSentence;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.stateClass;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.stateLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.triggeredDetail;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.usageNote;
+import static org.folio.factory.app.tasks.presentation.TaskLabels.working;
 
 /**
  * Page rows of My tasks, the task summary and the run page header, built from the
@@ -118,8 +119,8 @@ public class TaskRows {
 
     /** True when the latest attempt of a task needs inspection, so its row offers Mark as stopped. */
     public static boolean anyNeedsInspection(List<TaskView> views) {
-        return views.stream().anyMatch(view ->
-                !view.attempts().isEmpty() && "NEEDS_INSPECTION".equals(view.attempts().getLast().state()));
+        return views.stream().anyMatch(view -> !view.attempts().isEmpty()
+                && view.attempts().getLast().state() == TaskAttempt.State.NEEDS_INSPECTION);
     }
 
     public Map<String, Object> triggeredRow(TaskView view) {
@@ -130,16 +131,16 @@ public class TaskRows {
         row.put("stateClass", stateClass(label));
         // A task added by key stays marked after a Retry: it is still not one of My tasks.
         row.put("addedByKey", !view.inScope() && view.attempts().stream()
-                .anyMatch(attempt -> "BY_KEY".equals(attempt.admittedVia())));
-        row.put("link", "Working".equals(label) && latest.executionId() != null
+                .anyMatch(attempt -> attempt.admittedVia() == TaskAttempt.AdmittedVia.BY_KEY));
+        row.put("link", working(view) && latest.executionId() != null
                 ? "/executions/" + latest.executionId() : "/tasks/" + view.taskId());
-        row.put("detail", triggeredDetail(view, label));
+        row.put("detail", triggeredDetail(view));
         putPullRequest(row, view.pullRequestUrl());
         row.put("retryAllowed", view.allowedActions().retry());
-        row.put("markStoppedAttemptId", "NEEDS_INSPECTION".equals(latest.state()) ? latest.attemptId() : null);
+        row.put("markStoppedAttemptId", markStoppedAttemptId(latest));
         row.put("cost", costLabel(view.usage()));
-        putCostNote(row, triggeredCostNote(view, label));
-        putWhen(row, latest, label);
+        putCostNote(row, triggeredCostNote(view));
+        putWhen(row, latest, working(view));
         return row;
     }
 
@@ -150,7 +151,7 @@ public class TaskRows {
         row.put("stateLabel", label == null ? (view.state() == TaskView.TaskState.UNSUPPORTED
                 ? "Not eligible" : "Not started") : label);
         row.put("stateClass", stateClass(label));
-        row.put("result", resultSentence(view, label));
+        row.put("result", resultSentence(view));
         row.put("chips", resultChips(view));
         row.put("retryAllowed", view.allowedActions().retry());
         row.put("lastRunUrl",
@@ -159,8 +160,7 @@ public class TaskRows {
         row.put("prAction", view.pullRequestUrl() == null ? null
                 : "Open p" + pullRequestLabel(view.pullRequestUrl()).substring(1));
         row.put("draftReasons", view.draftReasons());
-        row.put("markStoppedAttemptId", latest != null && "NEEDS_INSPECTION".equals(latest.state())
-                ? latest.attemptId() : null);
+        row.put("markStoppedAttemptId", latest == null ? null : markStoppedAttemptId(latest));
         row.put("project", view.projectKey());
         row.put("destination", destination(view.destinationRepository()));
         putUsage(row, view.usage());
@@ -169,12 +169,12 @@ public class TaskRows {
 
     public static Map<String, Object> attemptRow(TaskView.AttemptHistoryEntry attempt) {
         Map<String, Object> row = new LinkedHashMap<>();
-        row.put("label", attempt.ordinal() + " · " + ("RETRY".equals(attempt.kind()) ? "retry" : "first run")
-                + ("BY_KEY".equals(attempt.admittedVia()) ? " by key" : ""));
+        row.put("label", attempt.ordinal() + " · " + (attempt.kind() == TaskAttempt.Kind.RETRY ? "retry" : "first run")
+                + (attempt.admittedVia() == TaskAttempt.AdmittedVia.BY_KEY ? " by key" : ""));
         row.put("ordinal", attempt.ordinal());
         row.put("run", TaskRunSettings.label(attempt.runSettings()));
         row.put("executionId", attempt.executionId());
-        boolean draft = "PR_READY".equals(attempt.state()) && attempt.draftReasons() != null;
+        boolean draft = attempt.state() == TaskAttempt.State.PR_READY && attempt.draftReasons() != null;
         row.put("resultLabel", draft ? "Draft PR" : null);
         row.put("resultClass", draft ? stateClass("Draft PR") : null);
         row.put("result", attemptResult(attempt));
@@ -191,7 +191,7 @@ public class TaskRows {
         String label = view.attempts().stream()
                 .filter(attempt -> executionId.equals(attempt.executionId()))
                 .findFirst()
-                .map(attempt -> attempt.draftReasons() == null ? attemptStateLabel(attempt.state()) : "Draft PR")
+                .map(TaskLabels::attemptLabel)
                 .orElseGet(() -> stateLabel(view));
         Map<String, Object> run = new LinkedHashMap<>();
         run.put("taskId", view.taskId());
@@ -231,18 +231,22 @@ public class TaskRows {
         row.put("prLabel", url == null ? null : pullRequestLabel(url));
     }
 
-    private static String triggeredCostNote(TaskView view, String label) {
-        return "Queued".equals(label) ? "not started"
-                : "Working".equals(label) ? "so far" : incompleteCostNote(view.usage());
+    private static String triggeredCostNote(TaskView view) {
+        return queued(view) ? "not started" : working(view) ? "so far" : incompleteCostNote(view.usage());
     }
 
     /** Same notes as Triggered; a queued attempt already says "not started" in Started. */
     private static String attemptCostNote(TaskView.AttemptHistoryEntry attempt) {
         return switch (attempt.state()) {
-            case "RESERVED" -> null;
-            case "QUEUED", "RUNNING" -> "so far";
+            case RESERVED -> null;
+            case QUEUED, RUNNING -> "so far";
             default -> incompleteCostNote(attempt.usage());
         };
+    }
+
+    /** An attempt that needs inspection offers Mark as stopped. */
+    private static UUID markStoppedAttemptId(TaskView.AttemptHistoryEntry attempt) {
+        return attempt.state() == TaskAttempt.State.NEEDS_INSPECTION ? attempt.attemptId() : null;
     }
 
     private static void putCostNote(Map<String, Object> row, String costNote) {
@@ -250,11 +254,11 @@ public class TaskRows {
         row.put("costNoteTitle", costNoteTitle(costNote));
     }
 
-    private static void putWhen(Map<String, Object> row, TaskView.AttemptHistoryEntry latest, String label) {
+    private static void putWhen(Map<String, Object> row, TaskView.AttemptHistoryEntry latest, boolean working) {
         boolean started = latest.startedAt() != null;
         row.put("when", ago(started ? latest.startedAt() : latest.createdAt()));
         row.put("whenTitle", UiFormat.format(started ? latest.startedAt() : latest.createdAt()));
-        row.put("whenNote", "Working".equals(label) ? "started"
+        row.put("whenNote", working ? "started"
                 : !started ? "triggered" : minutes(latest.activeSeconds()) + " active");
     }
 

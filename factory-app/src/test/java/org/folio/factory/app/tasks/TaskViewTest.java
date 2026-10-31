@@ -200,7 +200,7 @@ class TaskViewTest {
         assertThat(outOfScope.reason()).isEqualTo("coding: verification failed");
         assertThat(outOfScope.stage()).isEqualTo("coding");
         assertThat(outOfScope.attempts()).hasSize(1);
-        assertThat(outOfScope.attempts().getFirst().state()).isEqualTo("STOPPED");
+        assertThat(outOfScope.attempts().getFirst().state()).isEqualTo(TaskAttempt.State.STOPPED);
         // Started work holds after the task leaves My tasks: it can still be retried.
         assertThat(outOfScope.allowedActions().select()).isFalse();
         assertThat(outOfScope.allowedActions().retry()).isTrue();
@@ -233,8 +233,7 @@ class TaskViewTest {
         assertThat(view.reason()).isEqualTo("VERIFICATION_FAILED: tests failed");
         assertThat(view.stage()).isEqualTo("VERIFICATION_FAILED");
         var entry = view.attempts().getFirst();
-        assertThat(entry.state()).isEqualTo("STOPPED");
-        assertThat(entry.executionStatus()).isEqualTo("COMPLETED");
+        assertThat(entry.state()).isEqualTo(TaskAttempt.State.STOPPED);
         assertThat(entry.executionId()).isEqualTo(executionId);
         assertThat(view.allowedActions().retry()).isTrue();
         assertThat(view.allowedActions().select()).isFalse();
@@ -306,7 +305,7 @@ class TaskViewTest {
         TaskView queued = query.detail(working.getId());
         assertThat(queued.state()).isEqualTo(TaskView.TaskState.WORKING);
         assertThat(queued.stage()).isNull();
-        assertThat(queued.attempts().getFirst().state()).isEqualTo("QUEUED");
+        assertThat(queued.attempts().getFirst().state()).isEqualTo(TaskAttempt.State.QUEUED);
         assertThat(queued.attempts().getFirst().stage()).isNull();
 
         UUID executionId = attempts.findByTaskIdOrderByOrdinalAsc(working.getId())
@@ -320,10 +319,10 @@ class TaskViewTest {
         assertThat(view.stage()).isEqualTo("implement");
         var entry = view.attempts().getFirst();
         assertThat(entry.stage()).isEqualTo("implement");
-        assertThat(entry.state()).isEqualTo("QUEUED");
-        assertThat(entry.kind()).isEqualTo("INITIAL");
+        assertThat(entry.state()).isEqualTo(TaskAttempt.State.QUEUED);
+        assertThat(entry.kind()).isEqualTo(TaskAttempt.Kind.INITIAL);
         assertThat(entry.startedAt()).isNotNull();
-        assertThat(entry.deadlineAt()).isAfter(entry.startedAt());
+        assertThat(attempts.findById(entry.attemptId()).orElseThrow().getDeadlineAt()).isAfter(entry.startedAt());
         assertThat(view.allowedActions().select()).isFalse();
         assertThat(view.allowedActions().retry()).isFalse();
     }
@@ -345,7 +344,7 @@ class TaskViewTest {
         Task current = tasks.findById(retried.getId()).orElseThrow();
         var click = admissions.retry(new TaskCommands.Retry("retry-951", current.getId(), current.getVersion(),
                 TaskAdmissionChecks.inputFingerprint(current),
-                TaskAdmissionChecks.destinationFingerprint(current)));
+                TaskAdmissionChecks.destinationFingerprint(current), null));
         UUID secondExecution = click.executionId();
         assertThat(secondExecution).isNotNull();
         TaskAttempt second = attempts.findByExecutionId(secondExecution).orElseThrow();
@@ -374,7 +373,7 @@ class TaskViewTest {
         assertThat(view.attempts().get(1).usage().estimatesByCurrency().get("USD"))
                 .isEqualByComparingTo("0.60");
         assertThat(view.attempts().get(1).usage().complete()).isFalse();
-        assertThat(view.attempts().get(1).kind()).isEqualTo("RETRY");
+        assertThat(view.attempts().get(1).kind()).isEqualTo(TaskAttempt.Kind.RETRY);
         assertThat(query.myTasks(PageRequest.of(0, 10)).triggered().getContent().stream()
                 .filter(row -> row.taskId().equals(retried.getId()))
                 .findFirst().orElseThrow()
@@ -450,7 +449,7 @@ class TaskViewTest {
         var result = admissions.runSelected(new TaskCommands.RunSelected(runId,
                 List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
                         TaskAdmissionChecks.inputFingerprint(task),
-                        TaskAdmissionChecks.destinationFingerprint(task)))));
+                        TaskAdmissionChecks.destinationFingerprint(task))), null));
         assertThat(result.rejectedReasons()).isEmpty();
     }
 

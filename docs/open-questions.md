@@ -65,6 +65,12 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
 - `docker-compose.yml` passes environment variables by an explicit list, so a new secret
   variable must be added there too. This includes the `secret-env` variable of every new run
   profile.
+- When Factory cannot prove that an attempt's containers are gone, `TaskOutcomeService.hold`
+  holds the attempt for inspection but stores no reason: the cause (for example "workload
+  inactivity could not be confirmed: docker ps failed") is only returned to the dispatcher, which
+  ignores it, and nothing logs it. The task page then says only that Factory could not confirm
+  how the run ended. The parameter that was meant to store it was always null and was removed in
+  the cleanup (phase 5).
 
 ## Left after the Developer Flow fixes
 

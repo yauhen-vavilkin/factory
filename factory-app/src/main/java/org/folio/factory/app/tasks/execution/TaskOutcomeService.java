@@ -3,6 +3,7 @@ package org.folio.factory.app.tasks.execution;
 import org.folio.factory.app.EngineRecords;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
+import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.TaskPublicationIntentRepository;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -10,6 +11,7 @@ import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
+import org.folio.factory.devfactory.DevFactoryConfiguration;
 import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.worker.DevelopWorker;
@@ -73,10 +75,10 @@ public class TaskOutcomeService {
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
-    public record AttemptOutcome(State state, String stage, String reason, String publicationIdentity,
-                                 boolean workloadInactive, String uncertainty) {
+    /** What a refresh decided for the slot, and why an attempt is held for inspection. */
+    public record AttemptOutcome(State state, String reason, String uncertainty) {
 
-        public enum State { PROCESSING, PR_READY, STOPPED, NEEDS_INSPECTION, PROCESSING_PAUSED }
+        public enum State { PROCESSING, PR_READY, STOPPED, NEEDS_INSPECTION }
 
         /** Only released outcomes let the dispatcher start the next task. */
         public boolean released() {
@@ -84,13 +86,9 @@ public class TaskOutcomeService {
         }
     }
 
-    private record Classification(AttemptOutcome.State state, String stage, String reason,
-                                  String publicationIdentity, boolean shared, String draftReasons) {
-
-        Classification(AttemptOutcome.State state, String stage, String reason, String publicationIdentity,
-                       boolean shared) {
-            this(state, stage, reason, publicationIdentity, shared, null);
-        }
+    /** What a release writes onto the attempt. */
+    private record Classification(AttemptOutcome.State state, String reason, String publicationIdentity,
+                                  String draftReasons) {
     }
 
     public AttemptOutcome refresh(UUID attemptId) {
@@ -126,7 +124,7 @@ public class TaskOutcomeService {
     private static AttemptOutcome settledOutcome(TaskAttempt attempt) {
         return new AttemptOutcome(attempt.getState() == TaskAttempt.State.PR_READY
                 ? AttemptOutcome.State.PR_READY : AttemptOutcome.State.STOPPED,
-                null, attempt.getResultReason(), attempt.getPublicationIdentity(), true, null);
+                attempt.getResultReason(), null);
     }
 
     /**
@@ -147,8 +145,8 @@ public class TaskOutcomeService {
         if (uncertainty != null) {
             return hold(attempt, uncertainty);
         }
-        return release(attempt, new Classification(AttemptOutcome.State.PR_READY, "publish",
-                attempt.getResultReason(), pullRequestUrl, false, draftReasons(delivery)));
+        return release(attempt, new Classification(AttemptOutcome.State.PR_READY,
+                attempt.getResultReason(), pullRequestUrl, draftReasons(delivery)));
     }
 
     private AttemptOutcome resolveTerminal(TaskAttempt attempt, UUID executionId,
@@ -157,14 +155,6 @@ public class TaskOutcomeService {
         Classification classification = classify(attempt, executionId, status);
         if (uncertainty != null) {
             return hold(attempt, uncertainty);
-        }
-        if (classification.shared()) {
-            // Design 5.3: once inactivity is proven, a shared outage stops this
-            // attempt with its persisted cause while the queue continues; the
-            // same startup path rechecks the provider for the next attempts.
-            return release(attempt, new Classification(AttemptOutcome.State.STOPPED,
-                    classification.stage(), "shared: " + classification.reason(),
-                    classification.publicationIdentity(), false));
         }
         if (classification.state() == AttemptOutcome.State.NEEDS_INSPECTION) {
             return hold(attempt, classification.reason());
@@ -175,7 +165,7 @@ public class TaskOutcomeService {
     /** Strict owned-cleanup evidence; null only when every owned workload is gone. */
     private String proveInactive(UUID executionId) {
         try {
-            for (var step : flows.require(TaskExecutionLauncher.FLOW_ID).agentChain()) {
+            for (var step : flows.require(DevFactoryConfiguration.FLOW_ID).agentChain()) {
                 docker.cleanOwned(executionId, step.stepId());
             }
             docker.cleanOwnedExecution(executionId);
@@ -185,18 +175,12 @@ public class TaskOutcomeService {
         }
     }
 
+    /** A delivery with a pull-request identity never gets here: deliveredOutcome released it first. */
     private Classification classify(TaskAttempt attempt, UUID executionId, ExecutionStatus status) {
         JsonNode delivery = readArtifact(executionId, DeliveryWorker.DELIVERY);
-        String deliveryState = delivery.path("state").asString("");
-        String pullRequestUrl = delivery.path("pullRequestUrl").asString("");
-        if ("DELIVERED".equals(deliveryState)) {
-            if (pullRequestUrl.isBlank()) {
-                return new Classification(AttemptOutcome.State.NEEDS_INSPECTION, "publish",
-                        "the candidate was delivered without a known pull-request identity",
-                        null, false);
-            }
-            return new Classification(AttemptOutcome.State.PR_READY, "publish",
-                    attempt.getResultReason(), pullRequestUrl, false, draftReasons(delivery));
+        if ("DELIVERED".equals(delivery.path("state").asString(""))) {
+            return new Classification(AttemptOutcome.State.NEEDS_INSPECTION,
+                    "the candidate was delivered without a known pull-request identity", null, null);
         }
         JsonNode result = readArtifact(executionId, VerifyWorker.RESULT);
         String resultState = result.path("state").asString("");
@@ -206,9 +190,10 @@ public class TaskOutcomeService {
         String reason = firstNonBlank(attempt.getResultReason(),
                 resultReason.isBlank() ? "" : resultState + ": " + resultReason,
                 "engine execution ended in status " + status);
-        String stage = stageOf(attempt.getResultReason(), resultState);
-        return new Classification(AttemptOutcome.State.STOPPED, stage, reason, null,
-                TaskStops.sharedFailure(reason, codingFailureCode));
+        // Design 5.3: once inactivity is proven, a shared outage stops this attempt with its
+        // persisted cause while the queue continues; startup rechecks the provider for the next ones.
+        return new Classification(AttemptOutcome.State.STOPPED,
+                TaskStops.sharedFailure(reason, codingFailureCode) ? "shared: " + reason : reason, null, null);
     }
 
     private AttemptOutcome release(TaskAttempt attempt, Classification classification) {
@@ -221,8 +206,7 @@ public class TaskOutcomeService {
                     .filter(current -> current.getState().isInFlight())
                     .ifPresent(current -> releaseLocked(attempt.getId(), classification)));
         }
-        return new AttemptOutcome(classification.state(), classification.stage(),
-                classification.reason(), classification.publicationIdentity(), true, null);
+        return new AttemptOutcome(classification.state(), classification.reason(), null);
     }
 
     private void releaseLocked(UUID attemptId, Classification classification) {
@@ -239,15 +223,19 @@ public class TaskOutcomeService {
         }
         if (current.getResultReason() == null && classification.reason() != null
                 && !classification.reason().isBlank()) {
-            current.setResultReason(capReason(classification.reason()));
+            current.setResultReason(PersistedTaskAttemptPolicy.capReason(classification.reason()));
         }
         attempts.save(current);
-        installation.ifPresent(locked -> {
-            if (attemptId.equals(locked.getActiveAttemptId())) {
-                locked.setActiveAttemptId(null);
-                installations.save(locked);
-            }
-        });
+        releaseSlot(installation, attemptId);
+    }
+
+    /** Frees the installation's active slot when this attempt holds it. */
+    private void releaseSlot(Optional<TaskInstallation> installation, UUID attemptId) {
+        installation.filter(locked -> attemptId.equals(locked.getActiveAttemptId()))
+                .ifPresent(locked -> {
+                    locked.setActiveAttemptId(null);
+                    installations.save(locked);
+                });
     }
 
     /**
@@ -268,15 +256,11 @@ public class TaskOutcomeService {
             String previous = attempt.getResultReason();
             String publication = publicationNote(attempt);
             attempt.setState(TaskAttempt.State.STOPPED);
-            attempt.setResultReason(capReason(MARKED_STOPPED
+            attempt.setResultReason(PersistedTaskAttemptPolicy.capReason(MARKED_STOPPED
                     + (publication == null ? "" : publication)
                     + (previous == null || previous.isBlank() ? "" : ": " + previous)));
             attempts.save(attempt);
-            installation.filter(current -> attemptId.equals(current.getActiveAttemptId()))
-                    .ifPresent(current -> {
-                        current.setActiveAttemptId(null);
-                        installations.save(current);
-                    });
+            releaseSlot(installation, attemptId);
             return null;
         });
     }
@@ -296,28 +280,22 @@ public class TaskOutcomeService {
     }
 
     private AttemptOutcome hold(TaskAttempt attempt, String uncertainty) {
-        markNeedsInspection(attempt, null);
-        return new AttemptOutcome(AttemptOutcome.State.NEEDS_INSPECTION, null,
-                attempts.findById(attempt.getId()).map(TaskAttempt::getResultReason).orElse(null),
-                attempt.getPublicationIdentity(), false, uncertainty);
+        markNeedsInspection(attempt);
+        return new AttemptOutcome(AttemptOutcome.State.NEEDS_INSPECTION,
+                attempts.findById(attempt.getId()).map(TaskAttempt::getResultReason).orElse(null), uncertainty);
     }
 
-    private void markNeedsInspection(TaskAttempt attempt, String cause) {
+    private void markNeedsInspection(TaskAttempt attempt) {
         transactions.executeWithoutResult(status -> attempts.findById(attempt.getId())
                 .filter(current -> current.getState().isInFlight())
                 .ifPresent(current -> {
                     current.setState(TaskAttempt.State.NEEDS_INSPECTION);
-                    if ((current.getResultReason() == null || current.getResultReason().isBlank())
-                            && cause != null && !cause.isBlank()) {
-                        current.setResultReason(capReason(cause));
-                    }
                     attempts.save(current);
                 }));
     }
 
     private AttemptOutcome processing(TaskAttempt attempt) {
-        return new AttemptOutcome(AttemptOutcome.State.PROCESSING, null, attempt.getResultReason(),
-                attempt.getPublicationIdentity(), false, null);
+        return new AttemptOutcome(AttemptOutcome.State.PROCESSING, attempt.getResultReason(), null);
     }
 
     /** The draft reasons DeliveryWorker wrote, as stored on the attempt; null for a pull request ready for review. */
@@ -335,18 +313,13 @@ public class TaskOutcomeService {
                 .orElseGet(json::createObjectNode);
     }
 
-    /**
-     * The leading {@code stage: reason} label the outcome service composes, when
-     * present; the task screens parse the same persisted reason with this rule.
-     */
-    public static String stageOf(String resultReason, String resultState) {
-        if (resultReason != null) {
-            int boundary = resultReason.indexOf(": ");
-            if (boundary > 0) {
-                return resultReason.substring(0, boundary);
-            }
+    /** The leading {@code stage: reason} label of a persisted reason, when present. */
+    public static String stageOf(String resultReason) {
+        if (resultReason == null) {
+            return null;
         }
-        return resultState == null || resultState.isBlank() ? null : resultState;
+        int boundary = resultReason.indexOf(": ");
+        return boundary > 0 ? resultReason.substring(0, boundary) : null;
     }
 
     private static String firstNonBlank(String... values) {
@@ -356,11 +329,5 @@ public class TaskOutcomeService {
             }
         }
         return "";
-    }
-
-    private static String capReason(String reason) {
-        return reason.length() <= PersistedTaskAttemptPolicy.MAX_REASON_LENGTH
-                ? reason
-                : reason.substring(0, PersistedTaskAttemptPolicy.MAX_REASON_LENGTH);
     }
 }

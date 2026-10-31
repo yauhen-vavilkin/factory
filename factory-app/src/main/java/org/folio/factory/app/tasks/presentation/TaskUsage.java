@@ -25,15 +25,13 @@ public record TaskUsage(
         SortedMap<String, BigDecimal> estimatesByCurrency,
         boolean complete,
         boolean provisional,
-        List<String> models,
-        List<String> rateSources) {
+        List<String> models) {
 
     public static TaskUsage aggregate(List<AttemptUsageSummary.Totals> contributions,
                                            boolean usageMissingAfterPaidStart) {
         var categories = new EnumMap<AttemptCharge.Category, Long>(AttemptCharge.Category.class);
         var estimates = new TreeMap<String, BigDecimal>();
         var models = new LinkedHashSet<String>();
-        var sources = new LinkedHashSet<String>();
         long tokens = 0;
         boolean complete = !usageMissingAfterPaidStart;
         boolean provisional = false;
@@ -45,10 +43,9 @@ public record TaskUsage(
             complete &= !totals.partial();
             provisional |= totals.provisional();
             models.addAll(totals.models());
-            sources.addAll(totals.rateSources());
         }
         return new TaskUsage(tokens, Collections.unmodifiableMap(categories),
                 Collections.unmodifiableSortedMap(estimates), complete, provisional,
-                List.copyOf(models), List.copyOf(sources));
+                List.copyOf(models));
     }
 }

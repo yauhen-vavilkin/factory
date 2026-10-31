@@ -22,7 +22,6 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
-import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 
 class IntakeWorkerTest {
     @Test void recordsOnlyDisplayIdentityBeforeReadingJiraEvenWhenIntakeFails() {
@@ -146,8 +145,7 @@ class IntakeWorkerTest {
                 Map.of("key", "MODFOO-101", "summary", "Summary", "description", "Description",
                         "components", List.of("storage"), "comments", List.of(), "links", List.of()),
                 repositoryKey,
-                TaskExecutionContext.Kind.INITIAL,
-                "input-fingerprint", "destination-fingerprint", null);
+                null);
     }
 
     private static CodingRuntime codingRuntime() {

@@ -68,14 +68,15 @@ public class TaskQuery {
     @Transactional(readOnly = true)
     public MyTasks myTasks(Pageable triggeredPage) {
         Map<UUID, Integer> queue = queuePositions();
+        TaskInstallation installation = installation();
         List<TaskView> available = tasks.findAvailable(jiraInstance.current(), TaskAttempt.State.WITHDRAWN)
                 .stream()
-                .map(task -> project(task, queue))
+                .map(task -> project(task, queue, installation))
                 .toList();
         Page<UUID> triggeredIds = attempts.findTriggeredTaskIds(TaskAttempt.State.WITHDRAWN, triggeredPage);
         Map<UUID, Task> byId = tasks.findAllById(triggeredIds.getContent()).stream()
                 .collect(Collectors.toMap(Task::getId, Function.identity()));
-        return new MyTasks(available, triggeredIds.map(id -> project(byId.get(id), queue)));
+        return new MyTasks(available, triggeredIds.map(id -> project(byId.get(id), queue, installation)));
     }
 
     /** The task row context of an execution that a task attempt started; empty for any other run. */
@@ -88,7 +89,16 @@ public class TaskQuery {
     @Transactional(readOnly = true)
     public TaskView detail(UUID taskId) {
         return project(tasks.findById(taskId)
-                .orElseThrow(() -> new NoSuchElementException("No task " + taskId)), queuePositions());
+                .orElseThrow(() -> new NoSuchElementException("No task " + taskId)), queuePositions(), installation());
+    }
+
+    /** The Jira key of a task, for messages that name it; empty for an unknown task. */
+    public Optional<String> displayKey(UUID taskId) {
+        return tasks.findById(taskId).map(Task::getDisplayKey);
+    }
+
+    private TaskInstallation installation() {
+        return installations.findById(1).orElse(null);
     }
 
     /** 1-based place of each waiting attempt in the order the dispatcher starts them. */
@@ -101,10 +111,9 @@ public class TaskQuery {
         return positions;
     }
 
-    private TaskView project(Task task, Map<UUID, Integer> queue) {
+    private TaskView project(Task task, Map<UUID, Integer> queue, TaskInstallation installation) {
         var history = attempts.findByTaskIdOrderByOrdinalAsc(task.getId());
         var executionsById = executionsById(history);
-        var installation = installations.findById(1).orElse(null);
         var progress = attemptProgress(history, executionsById, Instant.now());
         var outcome = outcome(task, history, installation, progress);
         return toView(task, queue, outcome, progress);
@@ -137,23 +146,21 @@ public class TaskQuery {
                 && totals.tokens() == 0 && !totals.tokensReported();
         var stageStart = live ? liveStageStart(events) : null;
         var stage = live ? (stageStart == null ? null : stageStart.getStepId())
-                : TaskOutcomeService.stageOf(attempt.getResultReason(), null);
-        var entry = historyEntry(attempt, execution, stage, AttemptUsageSummary.activeSeconds(events, now),
+                : TaskOutcomeService.stageOf(attempt.getResultReason());
+        var entry = historyEntry(attempt, stage, AttemptUsageSummary.activeSeconds(events, now),
                 TaskUsage.aggregate(List.of(totals), usageMissingAfterPaidStart));
         return new AttemptRow(entry, totals, usageMissingAfterPaidStart, live,
                 stageStart == null ? null : stageStart.getOccurredAt());
     }
 
-    private TaskView.AttemptHistoryEntry historyEntry(TaskAttempt attempt, PipelineExecution execution,
-                                                           String stage, long activeSeconds, TaskUsage usage) {
+    private TaskView.AttemptHistoryEntry historyEntry(TaskAttempt attempt, String stage, long activeSeconds,
+                                                      TaskUsage usage) {
         var prReady = attempt.getState() == TaskAttempt.State.PR_READY;
-        return new TaskView.AttemptHistoryEntry(attempt.getId(), attempt.getOrdinal(),
-                attempt.getKind().name(), attempt.getAdmittedVia().name(), attempt.getState().name(), stage,
-                attempt.getResultReason(),
+        return new TaskView.AttemptHistoryEntry(attempt.getId(), attempt.getOrdinal(), attempt.getKind(),
+                attempt.getAdmittedVia(), attempt.getState(), stage, attempt.getResultReason(),
                 prReady ? attempt.getPublicationIdentity() : null,
                 prReady ? draftReasons(attempt) : null,
-                attempt.getExecutionId(), execution == null ? null : execution.getStatus().name(),
-                attempt.getCreatedAt(), attempt.getStartedAt(), attempt.getDeadlineAt(),
+                attempt.getExecutionId(), attempt.getCreatedAt(), attempt.getStartedAt(),
                 attempt.getPaidStartAt() != null, activeSeconds, usage, attempt.getRunSettings());
     }
 
@@ -167,12 +174,11 @@ public class TaskQuery {
                 .orElse(history.isEmpty() ? null : history.getLast());
         var allWithdrawn = !history.isEmpty() && history.stream()
                 .allMatch(attempt -> attempt.getState() == TaskAttempt.State.WITHDRAWN);
-        var inFlight = history.stream().anyMatch(attempt -> attempt.getState().isLive()
-                && attempt.getState() != TaskAttempt.State.NEEDS_INSPECTION);
+        var inFlight = history.stream().anyMatch(attempt -> attempt.getState().isInFlight());
         var state = projectState(task, latest, installation, inFlight, allWithdrawn);
         var reason = taskReason(task, state, latest);
         var working = state == TaskView.TaskState.WORKING;
-        var stage = working ? progress.liveStage() : TaskOutcomeService.stageOf(reason, null);
+        var stage = working ? progress.liveStage() : TaskOutcomeService.stageOf(reason);
         return new TaskOutcome(latest, state, reason, stage, working ? progress.liveStageStartedAt() : null,
                 allowedActions(task, history, latest, allWithdrawn));
     }
@@ -208,10 +214,9 @@ public class TaskQuery {
                 TaskRoutingReason.eligibleRepositoryKey(task.getRoutingReason()),
                 prReady ? latest.getPublicationIdentity() : null,
                 prReady ? draftReasons(latest) : null,
-                task.isInScope(), task.getEligibility().name(), task.getRoutingReason(), task.getVersion(),
+                task.isInScope(), task.getVersion(),
                 TaskAdmissionChecks.inputFingerprint(task), TaskAdmissionChecks.destinationFingerprint(task),
-                task.getJiraCreatedAt(), task.getUpdatedAt(), progress.entries(), progress.usage(),
-                outcome.allowedActions());
+                progress.entries(), progress.usage(), outcome.allowedActions());
     }
 
     private static TaskView.TaskState projectState(

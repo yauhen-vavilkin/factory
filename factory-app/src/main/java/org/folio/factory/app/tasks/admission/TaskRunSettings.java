@@ -1,5 +1,6 @@
 package org.folio.factory.app.tasks.admission;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.RequiredArgsConstructor;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
@@ -15,8 +16,7 @@ import java.util.Map;
 /**
  * The run settings of a task attempt: what a run form chose (profile, effort, max turns, instructions),
  * checked against the profile and stored on the attempt as a snapshot. The run uses the profile the
- * snapshot names; model and endpoint origin in it are for display. Profiles apply to the Claude Code
- * runtime only: with Pi a run keeps only its instructions.
+ * snapshot names. Profiles apply to the Claude Code runtime only: with Pi a run keeps only its instructions.
  */
 @Component
 @RequiredArgsConstructor
@@ -27,8 +27,9 @@ public class TaskRunSettings {
     private final CodingRuntime coding;
     private final RunProfiles profiles;
 
-    public record Snapshot(String profileId, String profileLabel, String model, String endpointOrigin,
-                           String effort, Integer maxTurns, String instructions) {
+    /** Snapshots stored before 2026-10-31 also hold profileLabel, model and endpointOrigin; reading skips them. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Snapshot(String profileId, String effort, Integer maxTurns, String instructions) {
     }
 
     public boolean profilesApply() {
@@ -42,13 +43,11 @@ public class TaskRunSettings {
     public String snapshot(String profileId, String effort, String maxTurns, String instructions) {
         if (!profilesApply()) {
             String text = RunProfiles.instructions(instructions);
-            return text == null ? null : JSON.writeValueAsString(
-                    new Snapshot(null, null, null, null, null, null, text));
+            return text == null ? null : JSON.writeValueAsString(new Snapshot(null, null, null, text));
         }
         RunProfiles.Run run = profiles.choose(profileId, effort, maxTurns, instructions);
-        RunProfiles.Profile profile = run.profile();
-        return JSON.writeValueAsString(new Snapshot(profile.id(), profile.label(), profile.model(),
-                profile.endpointOrigin(), run.effort(), run.maxTurns(), run.instructions()));
+        return JSON.writeValueAsString(new Snapshot(run.profile().id(), run.effort(), run.maxTurns(),
+                run.instructions()));
     }
 
     public static Snapshot read(String snapshot) {

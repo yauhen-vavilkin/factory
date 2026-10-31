@@ -129,7 +129,7 @@ class TaskDiscoveryIntegrationTest {
         assertThat(result.discoveredCount()).isEqualTo(5);
         assertThat(result.lastSuccessfulSync()).isNotNull();
         assertThat(result.problem()).isNull();
-        assertThat(tasks.countByJiraInstance(INSTANCE)).isEqualTo(5);
+        assertThat(tasksOn(INSTANCE)).isEqualTo(5);
         assertEligible("10001", "MODBAR-1", "repository mod-bar");
         assertIneligible("10002", "MODFOO-2", "Project MODFOO maps to several repositories: mod-foo, mod-foo2");
         assertIneligible("10003", "OTHERP-3",
@@ -245,7 +245,7 @@ class TaskDiscoveryIntegrationTest {
         TaskDiscoveryService.SyncResult result = discovery.sync();
 
         assertThat(result.complete()).isTrue();
-        assertThat(tasks.countByJiraInstance(INSTANCE)).isEqualTo(5);
+        assertThat(tasksOn(INSTANCE)).isEqualTo(5);
         Task renamed = tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow();
         assertThat(renamed.getId()).isEqualTo(original.getId());
         assertThat(renamed.getIssueId()).isEqualTo("10001");
@@ -311,7 +311,7 @@ class TaskDiscoveryIntegrationTest {
         assertThat(stale.isSyncComplete()).isFalse();
         assertThat(stale.getSyncProblem()).contains("500");
         assertThat(stale.getLastSuccessfulSyncAt()).isEqualTo(lastSync);
-        assertThat(tasks.countByJiraInstance(INSTANCE)).isEqualTo(5);
+        assertThat(tasksOn(INSTANCE)).isEqualTo(5);
         assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow().getSourceRevision())
                 .isEqualTo(revision);
     }
@@ -329,7 +329,7 @@ class TaskDiscoveryIntegrationTest {
 
         assertThat(result.complete()).isTrue();
         assertThat(result.discoveredCount()).isEqualTo(2);
-        assertThat(tasks.countByJiraInstance(INSTANCE)).isEqualTo(5);
+        assertThat(tasksOn(INSTANCE)).isEqualTo(5);
         assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10002").orElseThrow().isInScope()).isFalse();
         assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10003").orElseThrow().isInScope()).isFalse();
         assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10004").orElseThrow().isInScope()).isFalse();
@@ -361,7 +361,7 @@ class TaskDiscoveryIntegrationTest {
         assertThat(stale.isSyncComplete()).isFalse();
         assertThat(stale.getSyncProblem()).isNotBlank();
         assertThat(stale.getLastSuccessfulSyncAt()).isEqualTo(lastSync);
-        assertThat(tasks.countByJiraInstance(INSTANCE)).isEqualTo(5);
+        assertThat(tasksOn(INSTANCE)).isEqualTo(5);
         assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow().getSourceRevision())
                 .isEqualTo(revision);
         assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10006")).isEmpty();
@@ -415,5 +415,9 @@ class TaskDiscoveryIntegrationTest {
         assertThat(task.getDisplayKey()).isEqualTo(displayKey);
         assertThat(task.getEligibility()).isEqualTo(Task.Eligibility.INELIGIBLE);
         assertThat(task.getRoutingReason()).isEqualTo(reason);
+    }
+
+    private long tasksOn(String jiraInstance) {
+        return tasks.findAll().stream().filter(task -> jiraInstance.equals(task.getJiraInstance())).count();
     }
 }

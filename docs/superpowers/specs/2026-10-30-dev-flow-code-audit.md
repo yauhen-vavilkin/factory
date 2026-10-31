@@ -112,6 +112,7 @@ Estimated delta: about -150 main lines, 6 suppressions. Risk: low (compile-check
    `DevelopContinuationWorker:81`). One `TaskGuard` (or default methods on `TaskAttemptPolicy`):
    `Optional<Stop> stop(executionId, stepId, stage)` and `int capTimeout(executionId, seconds)`.
    Status (2026-10-31): Done: Share the task guard, git runner, token usage and digest helpers. Every worker now takes `TaskGuard` (one bean) instead of `TaskAttemptPolicy`; `policy()` reaches the rest of the policy. `CandidateVerifier.verify` now takes the already capped timeout instead of a deadline: PR feedback verifies in the same execution and must not inherit the task deadline.
+   Status (2026-10-31): Review follow-up in Remove dead task outcome code and unread fields, type the attempt history: `TaskGuardTest` pins both stop texts for each stage word and `capTimeout`.
 2. **`Stop(String state, String reason)`** is declared twice (`InitialCodingAttempt:399`, `VerifyWorker:123`)
    and as a bare String in `DeliveryWorker`.
    Status (2026-10-31): Done: Share the task guard, git runner, token usage and digest helpers.
@@ -120,6 +121,7 @@ Estimated delta: about -150 main lines, 6 suppressions. Risk: low (compile-check
    (`:109-128`, re-wraps `PublicationGit`), `GitBaseRefResolver.run` (`:48`). One `Git` helper with
    environment and timeout.
    Status (2026-10-31): Done: Share the task guard, git runner, token usage and digest helpers. `DeveloperPreflightProbe.sourceBase` had a fifth copy and uses `Git.run` too (its 4 KB output cap goes; `ls-remote` of one ref prints a line). `CandidateDelivery.deliver` lost its two delegating overloads.
+   Status (2026-10-31): Review follow-up in Remove dead task outcome code and unread fields, type the attempt history: `CandidateFreezer.checkout` no longer passes `-c credential.helper=` on top of `Git.run`.
 4. **`DecisionGateWorker` and `CodingDecisionGateWorker`** are the same 60-line shape (parse, required?,
    task run?, recordStop, `gate.open`) parameterised by the gate spec and the predicate.
    Status (2026-10-31): Done: Share the task guard, git runner, token usage and digest helpers.
@@ -185,12 +187,14 @@ From the package audit; the sample claims below were re-checked by hand.
 4. `TaskOutcomeService.classify` (`:199-200`) repeats what `deliveredOutcome` (`:138-153`) already decided;
    `AttemptOutcome.State.PROCESSING_PAUSED` is never produced; `AttemptOutcome.stage/publicationIdentity/
    workloadInactive` are never read; `markNeedsInspection` always gets `cause == null` (`:301, 313-316`).
+   Status (2026-10-31): Done: Remove dead task outcome code and unread fields, type the attempt history. `AttemptOutcome` keeps `state`, `reason` and `uncertainty` (tests read the last two; `TaskDispatcher` reads `released()`). `Classification` stays a separate private record: it carries what a release writes onto the attempt (pull-request identity, draft reasons), which callers of `refresh` never read, so one record would have two jobs. The `shared:` prefix moved into `classify`, and `stageOf` lost its always-null second argument.
 5. Test-only API: `TaskRepository.countByJiraInstance`, `TaskAdmissionService.runByKey(String, String)`
    (`:119-121`), the short `TaskCommands` constructors (`:27-37`), `TaskExecutionProperties(Duration)`,
    `TaskRecoveryService.reconcileActive` (public). Unread fields: `TaskView.eligibility, routingReason,
    updatedAt, jiraCreatedAt`, entry `executionStatus, deadlineAt`; `TaskUsage.rateSources`;
    `TaskRunSettings.Snapshot.profileLabel/model/endpointOrigin`; `TaskExecutionContext.inputFingerprint/
    destinationFingerprint/admissionKind` (no reader in the flow module).
+   Status (2026-10-31): Done: Remove dead task outcome code and unread fields, type the attempt history (the rest; `runByKey`, `TaskExecutionProperties(Duration)` and `reconcileActive` went in the previous commit). New `run_settings` snapshots no longer hold `profileLabel`, `model` and `endpointOrigin`; stored ones still read because `Snapshot` ignores unknown keys (`TaskRunSettingsTest`).
 6. `TaskPublicationIntent`: `base_branch, base_sha, tree_sha, patch_sha256` are written
    (`PersistedTaskAttemptPolicy:167-170`) and never read; main reads head branch and repository only
    (`TaskOutcomeService:295-296`); the index from `V7:22` serves no query. The reconciliation its javadoc
@@ -203,14 +207,17 @@ From the package audit; the sample claims below were re-checked by hand.
    (`PersistedTaskAttemptPolicy:125-128`) and parsed back (`TaskOutcomeService.stageOf:345-353`,
    `TaskLabels:28-29, 157-173`); the repository key is embedded in `routing_reason` with a prefix
    (`TaskRoutingReason:14-27`) and parsed in four places.
+   Status (2026-10-31): Done in part. Merge task admission and retry, fold startup recovery into dispatch: `RetryResult.state` is a `TaskAttempt.State` and the live set is defined once. Remove dead task outcome code and unread fields, type the attempt history: history entries carry `TaskAttempt.Kind/AdmittedVia/State`, `TaskLabels` and `TaskRows` switch on them, `attemptStateLabel` is gone, and `triggeredDetail`, `resultSentence` and the "Working"/"Queued" checks switch on the task state. `stateClass` stays keyed on the shown word: the pill colour belongs to that word, and both the task pill and the attempt pill map through it, so a typed form would repeat the colours in two switches. Not in this phase (Phase 5 does not list them): the `stage: reason` text and the repository key in `routing_reason`.
 8. Repeated helpers: `approved_snapshot` JSON to Map (`PersistedTaskAttemptPolicy:78-85` and
    `TaskPublicationGuard:86-93`); reason cap to 500 in three classes with `MAX_REASON_LENGTH` declared
    twice; `FLOW_ID = "dev-factory"` in `TaskExecutionLauncher:37`, `TaskUiController:55`,
    `DeveloperPreflight:44`; slot release in `releaseLocked:247-252` and `markStopped:277-281`.
+   Status (2026-10-31): Done: Remove dead task outcome code and unread fields, type the attempt history. `TaskAttempt.approvedSnapshotMap()`, one `PersistedTaskAttemptPolicy.capReason` with its `MAX_REASON_LENGTH`, `DevFactoryConfiguration.FLOW_ID` (it also replaces the `"dev-factory"` literals in `ExecutionUiController` and three feedback classes), `TaskOutcomeService.releaseSlot`. `TaskDiscoveryService` keeps its own `MAX_REASON_LENGTH`: it caps another column (`task.routing_reason`) with a strip-and-cut helper it also uses for titles and scan problems.
 9. `TaskQuery` runs the full attempt, usage and audit projection for Available rows that by query
    definition have no attempts, loads the installation once per task instead of once per request, and
    `TaskUiController.taskLabel` (`:325-331`) and `ExecutionUiController.taskRun` (`:151-155`) call the full
    projection to obtain a display key.
+   Status (2026-10-31): Done in part: Remove dead task outcome code and unread fields, type the attempt history. `TaskQuery` reads the installation once per request; `TaskUiController.taskLabel` reads the key through `TaskQuery.displayKey` (`tasks.findById(id).map(Task::getDisplayKey)`), so the controller gets no eleventh dependency. Skipped for Available rows: `TaskRepository.findAvailable:25` also returns tasks whose attempts are all `WITHDRAWN`, and that history decides "Withdrawn" against "Not eligible" (`TaskQuery.projectState`); withdrawn attempts never got an execution, so no execution or audit read runs for them today (`TaskQuery.attemptRow`). Skipped for `ExecutionUiController`: the run page header shows title, Jira link and the state of the attempt behind the run, so `TaskQuery.runContext` needs the attempt history, not only the key.
 
 Estimated delta: about -400 lines. Risk: medium for item 1 (`TaskRetryIntegrationTest` pins messages),
 low elsewhere.

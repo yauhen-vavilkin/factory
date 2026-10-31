@@ -15,6 +15,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
+import org.folio.factory.devfactory.DevFactoryConfiguration;
 
 /** Pages through waiting PR steps; GitHub calls run only on the dedicated executor. */
 @Slf4j
@@ -65,7 +66,7 @@ public class FeedbackPrMonitor {
     }
 
     private org.springframework.data.domain.Page<org.folio.factory.core.domain.PipelineExecution> page(int number) {
-        return executions.findByStatusAndFlowId(ExecutionStatus.AWAITING_HITL, "dev-factory",
+        return executions.findByStatusAndFlowId(ExecutionStatus.AWAITING_HITL, DevFactoryConfiguration.FLOW_ID,
                 PageRequest.of(number, PAGE_SIZE, Sort.by("createdAt", "id")));
     }
 

@@ -46,15 +46,29 @@ class TaskRunSettingsTest {
     }
 
     @Test
-    void theSnapshotHoldsTheDisplayFieldsButNeverTheSecret() {
+    void theSnapshotHoldsTheChoiceButNeverTheSecret() {
         String snapshot = settings("claude-code", "zai-key").snapshot("glm-5.3", "", "", "Note");
 
-        assertThat(TaskRunSettings.read(snapshot)).isEqualTo(new TaskRunSettings.Snapshot("glm-5.3",
-                "GLM-5.3 (Z.ai)", "glm-5.3", "https://api.z.ai", "max", 100, "Note"));
+        assertThat(TaskRunSettings.read(snapshot)).isEqualTo(new TaskRunSettings.Snapshot("glm-5.3", "max", 100,
+                "Note"));
         assertThat(snapshot).doesNotContain("zai-key", "/api/anthropic");
         assertThat(TaskRunSettings.label(snapshot)).isEqualTo("glm-5.3 · max");
         assertThat(TaskRunSettings.label(null)).isNull();
         assertThat(TaskRunSettings.settings(null)).isNull();
+    }
+
+    @Test
+    void snapshotsStoredWithTheFormerDisplayFieldsStillRead() {
+        String stored = "{\"effort\":\"low\",\"endpointOrigin\":\"https://api.z.ai\","
+                + "\"instructions\":\"Keep the API.\",\"maxTurns\":77,\"model\":\"glm-5.3\","
+                + "\"profileId\":\"glm-5.3\",\"profileLabel\":\"GLM-5.3 (Z.ai)\"}";
+
+        assertThat(TaskRunSettings.read(stored))
+                .isEqualTo(new TaskRunSettings.Snapshot("glm-5.3", "low", 77, "Keep the API."));
+        assertThat(TaskRunSettings.settings(stored))
+                .isEqualTo(new CodingRequest.RunSettings("glm-5.3", "low", 77, "Keep the API."));
+        assertThat(TaskRunSettings.label(stored)).isEqualTo("glm-5.3 · low");
+        assertThat(TaskRunSettings.instructions(stored)).isEqualTo("Keep the API.");
     }
 
     private static TaskRunSettings settings(String runtime, String zaiKey) {

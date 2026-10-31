@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import static org.folio.factory.devfactory.DevFactoryConfiguration.FLOW_ID;
 
 /**
  * My tasks on the Developer Flow page and the task summary. The list shows the
@@ -51,7 +52,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class TaskUiController {
 
-    static final String FLOW_ID = "dev-factory";
     private static final String FLOW_PAGE = "/flows/" + FLOW_ID;
     private static final int TRIGGERED_PAGE_SIZE = 20;
 
@@ -317,11 +317,7 @@ public class TaskUiController {
     }
 
     private String taskLabel(UUID taskId) {
-        try {
-            return taskQuery.detail(taskId).displayKey();
-        } catch (NoSuchElementException e) {
-            return UiFormat.abbreviate(taskId.toString());
-        }
+        return taskQuery.displayKey(taskId).orElseGet(() -> UiFormat.abbreviate(taskId.toString()));
     }
 
     private TaskInstallation installation() {

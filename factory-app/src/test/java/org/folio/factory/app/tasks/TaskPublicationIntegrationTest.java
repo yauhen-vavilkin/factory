@@ -237,7 +237,6 @@ class TaskPublicationIntegrationTest {
         TaskOutcomeService.AttemptOutcome ready = outcomes.refresh(attemptId);
 
         assertThat(ready.state()).isEqualTo(TaskOutcomeService.AttemptOutcome.State.PR_READY);
-        assertThat(ready.publicationIdentity()).isEqualTo(PR_URL);
         assertThat(attempts.findById(attemptId).orElseThrow().getPublicationIdentity()).isEqualTo(PR_URL);
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
     }
@@ -477,7 +476,7 @@ class TaskPublicationIntegrationTest {
         var result = admissions.runSelected(new TaskCommands.RunSelected("run-" + issueId,
                 List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
                         TaskAdmissionChecks.inputFingerprint(task),
-                        TaskAdmissionChecks.destinationFingerprint(task)))));
+                        TaskAdmissionChecks.destinationFingerprint(task))), null));
         assertThat(result.rejectedReasons()).isEmpty();
         return dispatcher.dispatchNext().orElseThrow();
     }

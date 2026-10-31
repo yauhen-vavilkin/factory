@@ -76,6 +76,9 @@ import java.util.Map;
 @EnableConfigurationProperties({DevFactoryProperties.class, DevRuntimeProperties.class, RunProfiles.Properties.class})
 public class DevFactoryConfiguration {
 
+    /** The id in {@code flows/dev-factory.yaml}. */
+    public static final String FLOW_ID = "dev-factory";
+
     /** The application's hooks, or the no-op defaults when the module runs without the application. */
     @Bean
     public DevFactoryHooks devFactoryHooks(ObjectProvider<TaskAttemptPolicy> taskPolicy,

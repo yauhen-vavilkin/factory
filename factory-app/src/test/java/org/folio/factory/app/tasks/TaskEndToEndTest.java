@@ -286,7 +286,7 @@ class TaskEndToEndTest {
         var selections = List.of(
                 selectionFor("8101"), selectionFor("8103"), selectionFor("8102"), selectionFor("8104"));
 
-        var result = admissions.runSelected(new TaskCommands.RunSelected("e2e-run-1", selections));
+        var result = admissions.runSelected(new TaskCommands.RunSelected("e2e-run-1", selections, null));
 
         assertThat(result.admittedTaskIds()).as(String.valueOf(result)).containsExactlyInAnyOrder(
                 taskId("8101"), taskId("8103"), taskId("8102"));
@@ -304,7 +304,7 @@ class TaskEndToEndTest {
         assertThat(executions.count()).isZero();
 
         var repeated = admissions.runSelected(new TaskCommands.RunSelected("e2e-run-1",
-                List.of(selectionFor("8101"))));
+                List.of(selectionFor("8101")), null));
         assertThat(repeated.admittedTaskIds()).containsExactly(taskId("8101"));
         assertThat(attempts.count()).isEqualTo(3);
         assertThat(jiraStayedReadOnly()).isTrue();
@@ -339,7 +339,6 @@ class TaskEndToEndTest {
         TaskOutcomeService.AttemptOutcome ready = outcomes.refresh(attemptId);
 
         assertThat(ready.state()).isEqualTo(TaskOutcomeService.AttemptOutcome.State.PR_READY);
-        assertThat(ready.publicationIdentity()).isEqualTo(BAR_PR);
         assertThat(attempts.findById(attemptId).orElseThrow().getState()).isEqualTo(TaskAttempt.State.PR_READY);
         assertThat(attempts.findById(attemptId).orElseThrow().getPublicationIdentity()).isEqualTo(BAR_PR);
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
@@ -411,7 +410,7 @@ class TaskEndToEndTest {
                 TaskAdmissionChecks.destinationFingerprint(failedTask), runSettings));
         var duplicateClick = admissions.retry(new TaskCommands.Retry("e2e-retry-103", failedTask.getId(),
                 failedTask.getVersion(), TaskAdmissionChecks.inputFingerprint(failedTask),
-                TaskAdmissionChecks.destinationFingerprint(failedTask)));
+                TaskAdmissionChecks.destinationFingerprint(failedTask), null));
 
         assertThat(firstClick.attemptId()).isNotEqualTo(heldAttemptId);
         assertThat(firstClick.state()).isEqualTo(TaskAttempt.State.RESERVED);
@@ -444,7 +443,7 @@ class TaskEndToEndTest {
         assertThat(codingRequests.get("MODFOO-103").runSettings())
                 .isEqualTo(new CodingRequest.RunSettings("glm-5.3", "low", 33, "Use the wiki REST URL."));
         assertThat(attempts.findById(firstClick.attemptId()).orElseThrow().getRunSettings()).contains("glm-5.3");
-        assertThat(retryOutcome.publicationIdentity()).isEqualTo(FOO_PR);
+        assertThat(attempts.findById(firstClick.attemptId()).orElseThrow().getPublicationIdentity()).isEqualTo(FOO_PR);
         List<TaskAttempt> history = attempts.findByTaskIdOrderByOrdinalAsc(taskId("8103"));
         assertThat(history).hasSize(2);
         assertThat(history.get(0).getState()).isEqualTo(TaskAttempt.State.STOPPED);
@@ -502,7 +501,7 @@ class TaskEndToEndTest {
 
         var queuedRetry = admissions.retry(new TaskCommands.Retry("e2e-retry-102", retryTarget.getId(),
                 retryTarget.getVersion(), TaskAdmissionChecks.inputFingerprint(retryTarget),
-                TaskAdmissionChecks.destinationFingerprint(retryTarget)));
+                TaskAdmissionChecks.destinationFingerprint(retryTarget), null));
         assertThat(queuedRetry.state()).isEqualTo(TaskAttempt.State.RESERVED);
         assertThat(queuedRetry.executionId()).isNull();
 
@@ -543,7 +542,7 @@ class TaskEndToEndTest {
 
         var retry = admissions.retry(new TaskCommands.Retry("e2e-retry-106", uncertainTask.getId(),
                 uncertainTask.getVersion(), TaskAdmissionChecks.inputFingerprint(uncertainTask),
-                TaskAdmissionChecks.destinationFingerprint(uncertainTask)));
+                TaskAdmissionChecks.destinationFingerprint(uncertainTask), null));
         assertThat(retry.executionId()).isNotNull();
         UUID executionId = retry.executionId();
 
@@ -563,7 +562,7 @@ class TaskEndToEndTest {
         assertThat(dispatcher.dispatchNext()).contains(executionId);
         var refused = admissions.retry(new TaskCommands.Retry("e2e-retry-106-late", uncertainTask.getId(),
                 uncertainTask.getVersion(), TaskAdmissionChecks.inputFingerprint(uncertainTask),
-                TaskAdmissionChecks.destinationFingerprint(uncertainTask)));
+                TaskAdmissionChecks.destinationFingerprint(uncertainTask), null));
         assertThat(refused.attemptId()).isEqualTo(retry.attemptId());
         assertThat(refused.state()).isEqualTo(TaskAttempt.State.NEEDS_INSPECTION);
         assertThat(GITHUB.findAll(postRequestedFor(urlPathEqualTo("/repos/" + BAR + "/pulls"))))

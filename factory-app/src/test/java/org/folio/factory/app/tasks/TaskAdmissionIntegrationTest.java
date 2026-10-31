@@ -260,7 +260,7 @@ class TaskAdmissionIntegrationTest {
     }
 
     private TaskAdmissionService.AdmissionResult run(String requestId, List<TaskCommands.Selection> selections) {
-        return admissions.runSelected(new TaskCommands.RunSelected(requestId, selections));
+        return admissions.runSelected(new TaskCommands.RunSelected(requestId, selections, null));
     }
 
     private void completeSync() {

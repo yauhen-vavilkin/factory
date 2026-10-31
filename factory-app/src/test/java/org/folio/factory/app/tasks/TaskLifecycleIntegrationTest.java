@@ -178,7 +178,7 @@ class TaskLifecycleIntegrationTest {
 
         assertThat(resolved.state()).isEqualTo(TaskOutcomeService.AttemptOutcome.State.STOPPED);
         assertThat(resolved.reason()).contains("DEVELOPMENT_FAILED: syntax");
-        assertThat(resolved.workloadInactive()).isTrue();
+        assertThat(resolved.released()).isTrue();
         assertThat(attempts.findById(attempt.getId()).orElseThrow().getState())
                 .isEqualTo(TaskAttempt.State.STOPPED);
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
@@ -230,7 +230,7 @@ class TaskLifecycleIntegrationTest {
         assertThat(outcome.state())
                 .as("with proven inactivity a shared outage is a readable stop, not a wedged hold")
                 .isEqualTo(TaskOutcomeService.AttemptOutcome.State.STOPPED);
-        assertThat(outcome.workloadInactive()).isTrue();
+        assertThat(outcome.released()).isTrue();
         assertThat(attempts.findById(attempt.getId()).orElseThrow().getState())
                 .isEqualTo(TaskAttempt.State.STOPPED);
         assertThat(attempts.findById(attempt.getId()).orElseThrow().getResultReason())
@@ -320,7 +320,7 @@ class TaskLifecycleIntegrationTest {
         assertThat(stopped.state())
                 .as("engine COMPLETED with failed verification is a stopped result, not PR_READY")
                 .isEqualTo(TaskOutcomeService.AttemptOutcome.State.STOPPED);
-        assertThat(stopped.publicationIdentity()).isNull();
+        assertThat(attempts.findById(failedAttempt.getId()).orElseThrow().getPublicationIdentity()).isNull();
 
         UUID deliveredExecutionId = dispatcher.dispatchNext().orElseThrow();
         TaskAttempt deliveredAttempt = attempts.findByExecutionId(deliveredExecutionId).orElseThrow();
@@ -331,7 +331,6 @@ class TaskLifecycleIntegrationTest {
         TaskOutcomeService.AttemptOutcome ready = outcomes.refresh(deliveredAttempt.getId());
 
         assertThat(ready.state()).isEqualTo(TaskOutcomeService.AttemptOutcome.State.PR_READY);
-        assertThat(ready.publicationIdentity()).isEqualTo("https://github.com/user/repo/pull/7");
         assertThat(attempts.findById(deliveredAttempt.getId()).orElseThrow().getPublicationIdentity())
                 .isEqualTo("https://github.com/user/repo/pull/7");
         assertThat(attempts.findById(deliveredAttempt.getId()).orElseThrow().getDraftReasons()).isNull();
@@ -428,7 +427,7 @@ class TaskLifecycleIntegrationTest {
         var result = admissions.runSelected(new TaskCommands.RunSelected("run-" + issueId,
                 List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
                         TaskAdmissionChecks.inputFingerprint(task),
-                        TaskAdmissionChecks.destinationFingerprint(task)))));
+                        TaskAdmissionChecks.destinationFingerprint(task))), null));
         org.assertj.core.api.Assertions.assertThat(result.rejectedReasons()).isEmpty();
         return task.getId();
     }

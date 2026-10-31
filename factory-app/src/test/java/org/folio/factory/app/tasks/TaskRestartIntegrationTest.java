@@ -210,14 +210,14 @@ class TaskRestartIntegrationTest {
         var repeat = admissions.runSelected(new TaskCommands.RunSelected("run-90021",
                 List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
                         TaskAdmissionChecks.inputFingerprint(task),
-                        TaskAdmissionChecks.destinationFingerprint(task)))));
+                        TaskAdmissionChecks.destinationFingerprint(task))), null));
         assertThat(repeat.admittedTaskIds()).containsExactly(taskId);
         assertThat(attempts.count()).isEqualTo(1);
 
         var conflicting = admissions.runSelected(new TaskCommands.RunSelected("run-90021-late",
                 List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
                         TaskAdmissionChecks.inputFingerprint(task),
-                        TaskAdmissionChecks.destinationFingerprint(task)))));
+                        TaskAdmissionChecks.destinationFingerprint(task))), null));
         assertThat(conflicting.admittedTaskIds()).isEmpty();
         assertThat(conflicting.rejectedReasons().get(taskId)).contains("already has a live admission");
         assertThat(attempts.count()).isEqualTo(attemptsBefore + 1);
@@ -255,7 +255,7 @@ class TaskRestartIntegrationTest {
         var result = admissions.runSelected(new TaskCommands.RunSelected("run-" + issueId,
                 List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
                         TaskAdmissionChecks.inputFingerprint(task),
-                        TaskAdmissionChecks.destinationFingerprint(task)))));
+                        TaskAdmissionChecks.destinationFingerprint(task))), null));
         assertThat(result.rejectedReasons()).as(String.valueOf(result)).isEmpty();
         return task.getId();
     }

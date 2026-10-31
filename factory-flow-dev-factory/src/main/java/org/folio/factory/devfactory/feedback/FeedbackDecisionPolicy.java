@@ -3,6 +3,7 @@ import org.folio.factory.core.hitl.*;
 import org.folio.factory.core.domain.*;
 import org.folio.factory.core.registry.FlowRegistry;
 import java.util.*;
+import org.folio.factory.devfactory.DevFactoryConfiguration;
 
 /** Generic review endpoints may never invent a paid feedback command or amend trusted receipts. */
 public class FeedbackDecisionPolicy implements HitlDecisionPolicy {
@@ -12,7 +13,7 @@ public class FeedbackDecisionPolicy implements HitlDecisionPolicy {
     public FeedbackDecisionPolicy(FlowRegistry flows) { this.flows = flows; }
     public void validate(HitlReview review, PipelineExecution execution, HitlDecision decision,
             Map<String,String> amendments) {
-        if (!execution.getFlowId().equals("dev-factory")) return;
+        if (!execution.getFlowId().equals(DevFactoryConfiguration.FLOW_ID)) return;
         var flow = flows.require(execution.getFlowId());
         if (!flow.hasStep(review.getStepIndex())
                 || !flow.step(review.getStepIndex()).stepId().equals(FeedbackArtifacts.STEP)) return;
@@ -20,7 +21,7 @@ public class FeedbackDecisionPolicy implements HitlDecisionPolicy {
             throw new IllegalArgumentException("Use the PR feedback actions on the execution page");
     }
     public boolean cancelOnReject(HitlReview review, PipelineExecution execution) {
-        if (!execution.getFlowId().equals("dev-factory")) return false;
+        if (!execution.getFlowId().equals(DevFactoryConfiguration.FLOW_ID)) return false;
         var flow = flows.require(execution.getFlowId());
         return flow.hasStep(review.getStepIndex())
                 && flow.step(review.getStepIndex()).stepId().equals(FeedbackArtifacts.STEP)

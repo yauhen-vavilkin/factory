@@ -34,13 +34,13 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import static org.folio.factory.devfactory.DevFactoryConfiguration.FLOW_ID;
 
 /** Safe effective configuration and task admission, independent of application health. */
 @Component
 @RequiredArgsConstructor
 public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryPreflight {
 
-    private static final String FLOW_ID = "dev-factory";
     private static final String ISSUE_MISSING = "Jira did not return the requested issue.";
     private static final String ISSUE_UNREADABLE =
             "Cannot read the requested Jira issue; check URL, credentials and issue access.";

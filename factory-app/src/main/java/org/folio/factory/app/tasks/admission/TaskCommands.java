@@ -23,17 +23,9 @@ public final class TaskCommands {
         public RunSelected {
             selections = selections == null ? List.of() : List.copyOf(selections);
         }
-
-        public RunSelected(String requestId, List<Selection> selections) {
-            this(requestId, selections, null);
-        }
     }
 
     public record Retry(String requestId, UUID taskId, long expectedVersion, String inputFingerprint,
                         String destinationFingerprint, String runSettings) {
-        public Retry(String requestId, UUID taskId, long expectedVersion, String inputFingerprint,
-                     String destinationFingerprint) {
-            this(requestId, taskId, expectedVersion, inputFingerprint, destinationFingerprint, null);
-        }
     }
 }

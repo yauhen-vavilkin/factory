@@ -333,7 +333,7 @@ class TaskDispatchIntegrationTest {
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
         installations.save(installation);
-        admissions.runSelected(new TaskCommands.RunSelected("run-" + issueId, List.of(selectionFor(task))));
+        admissions.runSelected(new TaskCommands.RunSelected("run-" + issueId, List.of(selectionFor(task)), null));
         return task.getId();
     }
 

@@ -12,9 +12,7 @@ import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.springframework.stereotype.Component;
-import tools.jackson.databind.json.JsonMapper;
 
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -34,7 +32,6 @@ public class TaskPublicationGuard {
 
     private final TaskAttemptRepository attempts;
     private final TaskRepository tasks;
-    private final JsonMapper json = JsonMapper.builder().build();
 
     public void requireCurrent(UUID executionId, CodingRequest consumedRequest, DeliveryTarget destination) {
         try {
@@ -59,7 +56,7 @@ public class TaskPublicationGuard {
                 .orElseThrow(() -> blocked("the task attempt bound to the execution is missing"));
         Task task = tasks.findById(attempt.getTaskId())
                 .orElseThrow(() -> blocked("the task behind the attempt is missing"));
-        String approvedKey = Objects.toString(approvedSnapshot(attempt).get("key"), "");
+        String approvedKey = Objects.toString(attempt.approvedSnapshotMap().get("key"), "");
         if (!consumedRequest.issueKey().equals(approvedKey)) {
             throw blocked("the consumed issue identity no longer matches the approved admission");
         }
@@ -81,15 +78,6 @@ public class TaskPublicationGuard {
             throw blocked("the delivery base branch does not match the base the candidate was"
                     + " prepared on");
         }
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> approvedSnapshot(TaskAttempt attempt) {
-        String snapshot = attempt.getApprovedSnapshot();
-        if (snapshot == null || snapshot.isBlank()) {
-            return Map.of();
-        }
-        return json.readValue(snapshot, Map.class);
     }
 
     private static DeliveryBlockedException blocked(String reason) {

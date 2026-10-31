@@ -3,6 +3,7 @@ package org.folio.factory.app.tasks.presentation;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
+import org.folio.factory.app.tasks.persistence.TaskAttempt;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -29,10 +30,6 @@ final class TaskLabels {
             Pattern.compile("^(?:shared: )?([A-Za-z][A-Za-z_-]*): (.+)$", Pattern.DOTALL);
 
     static String stateLabel(TaskView view) {
-        if (view.state() == TaskView.TaskState.WORKING) {
-            return !view.attempts().isEmpty() && "RESERVED".equals(view.attempts().getLast().state())
-                    ? "Queued" : "Working";
-        }
         return switch (view.state()) {
             case AWAITING_SELECTION -> "Not started";
             case WITHDRAWN -> "Withdrawn";
@@ -40,20 +37,31 @@ final class TaskLabels {
             case STOPPED -> "Could not complete";
             case UNCERTAIN, PROCESSING_PAUSED -> "Needs inspection";
             case PR_READY -> view.draftReasons() == null ? "PR ready" : "Draft PR";
-            case WORKING -> "Working";
+            case WORKING -> queued(view) ? "Queued" : "Working";
         };
     }
 
-    static String attemptStateLabel(String state) {
-        return switch (state) {
-            case "RESERVED" -> "Queued";
-            case "QUEUED", "RUNNING" -> "Working";
-            case "PR_READY" -> "PR ready";
-            case "STOPPED" -> "Could not complete";
-            case "NEEDS_INSPECTION" -> "Needs inspection";
-            case "WITHDRAWN" -> "Withdrawn";
-            default -> state;
+    /** The words of one attempt's state, as the run page shows them next to the task. */
+    static String attemptLabel(TaskView.AttemptHistoryEntry attempt) {
+        return switch (attempt.state()) {
+            case RESERVED -> "Queued";
+            case QUEUED, RUNNING -> "Working";
+            case PR_READY -> attempt.draftReasons() == null ? "PR ready" : "Draft PR";
+            case STOPPED -> "Could not complete";
+            case NEEDS_INSPECTION -> "Needs inspection";
+            case WITHDRAWN -> "Withdrawn";
         };
+    }
+
+    /** Work in flight whose latest attempt waits for the dispatcher. */
+    static boolean queued(TaskView view) {
+        return view.state() == TaskView.TaskState.WORKING && !view.attempts().isEmpty()
+                && view.attempts().getLast().state() == TaskAttempt.State.RESERVED;
+    }
+
+    /** Work in flight that the dispatcher has started. */
+    static boolean working(TaskView view) {
+        return view.state() == TaskView.TaskState.WORKING && !queued(view);
     }
 
     static String stateClass(String label) {
@@ -68,46 +76,50 @@ final class TaskLabels {
         };
     }
 
-    static String triggeredDetail(TaskView view, String label) {
-        return switch (label) {
-            case "Working" -> joinNonNull(stageLabel(view.stage()), view.stageStartedAt() == null ? null
-                    : minutes(Duration.between(view.stageStartedAt(), Instant.now()).getSeconds()));
-            case "Queued" -> view.queuePosition() == null || view.queuePosition() == 1
-                    ? "next in line" : ordinal(view.queuePosition()) + " in line";
-            case "PR ready", "Draft PR" -> null;
-            case "Needs inspection" -> "outcome not confirmed";
+    static String triggeredDetail(TaskView view) {
+        return switch (view.state()) {
+            case WORKING -> queued(view) ? linePlace(view) : joinNonNull(stageLabel(view.stage()),
+                    view.stageStartedAt() == null ? null
+                            : minutes(Duration.between(view.stageStartedAt(), Instant.now()).getSeconds()));
+            case PR_READY -> null;
+            case UNCERTAIN, PROCESSING_PAUSED -> "outcome not confirmed";
             default -> failureText(view.reason());
         };
     }
 
     static String attemptResult(TaskView.AttemptHistoryEntry attempt) {
         return switch (attempt.state()) {
-            case "PR_READY" -> pullRequestLabel(attempt.pullRequestUrl())
+            case PR_READY -> pullRequestLabel(attempt.pullRequestUrl())
                     + (attempt.draftReasons() == null ? " opened" : " opened as a draft");
-            case "RESERVED" -> "Queued";
-            case "QUEUED", "RUNNING" -> "In progress";
-            case "WITHDRAWN" -> "Withdrawn before start";
+            case RESERVED -> "Queued";
+            case QUEUED, RUNNING -> "In progress";
+            case WITHDRAWN -> "Withdrawn before start";
             default -> failureText(attempt.reason());
         };
     }
 
-    static String resultSentence(TaskView view, String label) {
-        if (label == null) {
+    static String resultSentence(TaskView view) {
+        if (view.attempts().isEmpty()) {
             return view.state() == TaskView.TaskState.UNSUPPORTED ? sentence(view.reason())
                     : "Not started yet. Select it in My tasks and press Run.";
         }
-        return switch (label) {
-            case "PR ready" -> pullRequestLabel(view.pullRequestUrl()) + " is ready for review.";
-            case "Draft PR" -> pullRequestLabel(view.pullRequestUrl()) + " is open as a draft.";
-            case "Working" -> stageLabel(view.stage()) == null ? "In progress." : "In progress: "
-                    + stageLabel(view.stage()) + ".";
-            case "Queued" -> view.queuePosition() == null || view.queuePosition() == 1
-                    ? "Queued: next in line." : "Queued: " + ordinal(view.queuePosition()) + " in line.";
-            case "Needs inspection" -> "Factory could not confirm how the last run ended.";
+        return switch (view.state()) {
+            case PR_READY -> pullRequestLabel(view.pullRequestUrl())
+                    + (view.draftReasons() == null ? " is ready for review." : " is open as a draft.");
+            case WORKING -> queued(view) ? "Queued: " + linePlace(view) + "."
+                    : stageLabel(view.stage()) == null ? "In progress."
+                    : "In progress: " + stageLabel(view.stage()) + ".";
+            case UNCERTAIN, PROCESSING_PAUSED -> "Factory could not confirm how the last run ended.";
             default -> view.reason() != null && view.reason().contains(TaskOutcomeService.PULL_REQUEST_MAY_EXIST)
                     ? sentence(failureText(view.reason())) + " Check the repository before you retry."
                     : sentence(failureText(view.reason())) + " No pull request was created.";
         };
+    }
+
+    /** "next in line" or "3rd in line" for a queued task. */
+    private static String linePlace(TaskView view) {
+        return view.queuePosition() == null || view.queuePosition() == 1
+                ? "next in line" : ordinal(view.queuePosition()) + " in line";
     }
 
     static List<String> resultChips(TaskView view) {

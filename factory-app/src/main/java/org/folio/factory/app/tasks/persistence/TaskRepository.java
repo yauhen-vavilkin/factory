@@ -16,8 +16,6 @@ public interface TaskRepository extends JpaRepository<Task, UUID> {
 
     List<Task> findByJiraInstanceAndInScopeTrue(String jiraInstance);
 
-    long countByJiraInstance(String jiraInstance);
-
     /** My tasks on the configured Jira never started (or only withdrawn before start), newest Jira task first. */
     @Query("""
             select t from Task t

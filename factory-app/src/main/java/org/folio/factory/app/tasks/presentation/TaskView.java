@@ -1,5 +1,7 @@
 package org.folio.factory.app.tasks.presentation;
 
+import org.folio.factory.app.tasks.persistence.TaskAttempt;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -27,13 +29,9 @@ public record TaskView(
         String pullRequestUrl,
         List<String> draftReasons,
         boolean inScope,
-        String eligibility,
-        String routingReason,
         long version,
         String inputFingerprint,
         String destinationFingerprint,
-        Instant jiraCreatedAt,
-        Instant updatedAt,
         List<AttemptHistoryEntry> attempts,
         TaskUsage usage,
         AllowedActions allowedActions) {
@@ -50,18 +48,16 @@ public record TaskView(
     public record AttemptHistoryEntry(
             UUID attemptId,
             int ordinal,
-            String kind,
-            String admittedVia,
-            String state,
+            TaskAttempt.Kind kind,
+            TaskAttempt.AdmittedVia admittedVia,
+            TaskAttempt.State state,
             String stage,
             String reason,
             String pullRequestUrl,
             List<String> draftReasons,
             UUID executionId,
-            String executionStatus,
             Instant createdAt,
             Instant startedAt,
-            Instant deadlineAt,
             boolean paidStart,
             long activeSeconds,
             TaskUsage usage,

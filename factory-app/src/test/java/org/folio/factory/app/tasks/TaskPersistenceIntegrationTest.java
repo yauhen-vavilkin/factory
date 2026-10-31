@@ -79,7 +79,7 @@ class TaskPersistenceIntegrationTest {
         tasks.save(stored);
 
         assertThat(tasks.findByJiraInstanceAndIssueId(instance, "10001")).isPresent();
-        assertThat(tasks.countByJiraInstance(instance)).isEqualTo(1);
+        assertThat(tasksOn(instance)).isEqualTo(1);
         Task renamed = tasks.findByJiraInstanceAndIssueId(instance, "10001").orElseThrow();
         assertThat(renamed.getId()).isEqualTo(saved.getId());
         assertThat(renamed.getDisplayKey()).isEqualTo("MODBAR-100");
@@ -227,5 +227,9 @@ class TaskPersistenceIntegrationTest {
 
     private TaskAttempt attempt(UUID taskId, int ordinal, TaskAttempt.State state, String requestId) {
         return new TaskAttempt(taskId, ordinal, TaskAttempt.Kind.INITIAL, requestId, state);
+    }
+
+    private long tasksOn(String jiraInstance) {
+        return tasks.findAll().stream().filter(task -> jiraInstance.equals(task.getJiraInstance())).count();
     }
 }

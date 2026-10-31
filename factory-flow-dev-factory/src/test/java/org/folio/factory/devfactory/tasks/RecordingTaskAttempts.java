@@ -49,8 +49,7 @@ public final class RecordingTaskAttempts implements TaskAttemptPolicy {
                 Map.of("key", "TASK-1", "summary", "Summary", "description", "Description",
                         "components", List.of(), "comments", List.of(), "links", List.of()),
                 repositoryKey,
-                TaskExecutionContext.Kind.INITIAL,
-                "input-fingerprint", "destination-fingerprint", null);
+                null);
     }
 
     @Override

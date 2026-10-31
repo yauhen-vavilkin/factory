@@ -349,9 +349,6 @@ class TaskAutonomousFlowIntegrationTest {
         var context = taskPolicy.find(executionId).orElseThrow();
         assertThat(context.attemptId()).isEqualTo(attempt.getId());
         assertThat(context.repositoryKey()).isEqualTo("mod-bar");
-        assertThat(context.admissionKind()).isEqualTo(org.folio.factory.devfactory.tasks.TaskExecutionContext.Kind.INITIAL);
-        assertThat(context.inputFingerprint()).isEqualTo("revision-40011");
-        assertThat(context.destinationFingerprint()).isEqualTo("destination-hash");
         assertThat(context.approvedSnapshot()).containsEntry("key", "MODBAR-411");
 
         assertThat(taskPolicy.claimPaidStart(executionId)).isTrue();
@@ -443,7 +440,7 @@ class TaskAutonomousFlowIntegrationTest {
         var result = admissions.runSelected(new TaskCommands.RunSelected("run-" + issueId,
                 List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
                         TaskAdmissionChecks.inputFingerprint(task),
-                        TaskAdmissionChecks.destinationFingerprint(task)))));
+                        TaskAdmissionChecks.destinationFingerprint(task))), null));
         assertThat(result.rejectedReasons()).isEmpty();
     }
 

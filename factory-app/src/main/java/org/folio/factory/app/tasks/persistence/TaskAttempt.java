@@ -12,10 +12,12 @@ import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -28,6 +30,8 @@ import java.util.UUID;
 @Entity
 @Table(name = "task_attempt")
 public class TaskAttempt {
+
+    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     @Id
     private UUID id;
@@ -131,6 +135,15 @@ public class TaskAttempt {
     @PreUpdate
     void onUpdate() {
         this.updatedAt = Instant.now();
+    }
+
+    /** The approved issue snapshot as JSON fields; empty when none was stored. */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> approvedSnapshotMap() {
+        if (approvedSnapshot == null || approvedSnapshot.isBlank()) {
+            return Map.of();
+        }
+        return JSON.readValue(approvedSnapshot, Map.class);
     }
 
     public enum Kind {

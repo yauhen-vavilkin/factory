@@ -21,7 +21,7 @@ public class CandidateFreezer {
         Path directory = temporary("factory-dev-base-");
         try {
             git(directory, "init", "--quiet");
-            git(directory, "-c", "credential.helper=", "fetch", "--quiet", "--depth=1", sourceUrl, baseSha);
+            git(directory, "fetch", "--quiet", "--depth=1", sourceUrl, baseSha);
             git(directory, "checkout", "--quiet", "--detach", "FETCH_HEAD");
             if (!git(directory, "rev-parse", "HEAD").strip().equals(baseSha))
                 throw new IllegalStateException("Base SHA mismatch");

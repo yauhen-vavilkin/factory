@@ -21,6 +21,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.folio.factory.devfactory.DevFactoryConfiguration;
 
 /** Network reads happen before short, version-checked command transactions. */
 public class FeedbackActions {
@@ -77,7 +78,7 @@ public class FeedbackActions {
 
     public View view(UUID id) {
         var execution = executions.findById(id).orElseThrow();
-        if (!execution.getFlowId().equals("dev-factory")) {
+        if (!execution.getFlowId().equals(DevFactoryConfiguration.FLOW_ID)) {
             throw new IllegalArgumentException("Not a Developer Flow");
         }
         var artifact = artifacts.getLatest(id, STATE).orElseThrow();

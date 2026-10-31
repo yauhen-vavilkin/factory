@@ -346,10 +346,9 @@ class TaskUiControllerTest {
         String turnLimit = "Claude Code used all 40 turns before it finished the task."
                 + " Retry with more turns or a different effort.";
         TaskView.AttemptHistoryEntry attempt = new TaskView.AttemptHistoryEntry(UUID.randomUUID(), 1,
-                "INITIAL", "MANUAL", "STOPPED", "coding", "DEVELOPMENT_FAILED: " + turnLimit, null, null,
-                EXECUTION_ID, "COMPLETED", Instant.parse("2026-10-23T07:59:00Z"),
-                Instant.parse("2026-10-23T08:00:00Z"), Instant.parse("2026-10-23T09:00:00Z"), true, 600,
-                incompleteUsage(), null);
+                TaskAttempt.Kind.INITIAL, TaskAttempt.AdmittedVia.MANUAL, TaskAttempt.State.STOPPED, "coding",
+                "DEVELOPMENT_FAILED: " + turnLimit, null, null, EXECUTION_ID, Instant.parse("2026-10-23T07:59:00Z"),
+                Instant.parse("2026-10-23T08:00:00Z"), true, 600, incompleteUsage(), null);
         TaskView stopped = withUsage(taskView(TASK_ID, "MODBAR-911", "Open", TaskView.TaskState.STOPPED,
                 false, true, attempt), incompleteUsage());
         when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), stopped));
@@ -537,8 +536,7 @@ class TaskUiControllerTest {
                 TASK_ID, 3L, "revision-MODBAR-901", "dest-MODBAR-901"));
         // Without a choice the run takes the default profile and its defaults.
         assertThat(TaskRunSettings.read(run.runSettings())).isEqualTo(new TaskRunSettings.Snapshot(
-                "env-default", "Configured in .env", "claude-sonnet-5-5", "http://gateway.example:4001", null, 40,
-                null));
+                "env-default", null, 40, null));
     }
 
     @Test
@@ -556,8 +554,6 @@ class TaskUiControllerTest {
         assertThat(runCaptor.getValue().selections()).hasSize(2);
         assertThat(TaskRunSettings.settings(runCaptor.getValue().runSettings()))
                 .isEqualTo(new CodingRequest.RunSettings("glm-5.3", "low", 120, null));
-        assertThat(TaskRunSettings.read(runCaptor.getValue().runSettings()).endpointOrigin())
-                .isEqualTo("https://api.z.ai");
         assertThat(runCaptor.getValue().runSettings()).doesNotContain("zai-key");
     }
 
@@ -586,8 +582,7 @@ class TaskUiControllerTest {
     void runSelected_surfacesPerRowRefusals() throws Exception {
         when(admissions.runSelected(any())).thenReturn(new TaskAdmissionService.AdmissionResult(List.of(),
                 Map.of(TASK_ID, "Your GitHub token cannot push to folio-org/mod-bar")));
-        when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-901", "Open",
-                TaskView.TaskState.AWAITING_SELECTION, true, false));
+        when(taskQuery.displayKey(TASK_ID)).thenReturn(Optional.of("MODBAR-901"));
 
         MvcResult result = mvc.perform(post("/tasks/run-selected")
                         .param("taskId", TASK_ID.toString())
@@ -840,9 +835,9 @@ class TaskUiControllerTest {
                 state == TaskView.TaskState.PR_READY ? "https://github.com/folio-org/mod-bar/pull/7" : null,
                 state == TaskView.TaskState.PR_READY && attempts.length > 0
                         ? attempts[attempts.length - 1].draftReasons() : null,
-                java.util.Arrays.stream(attempts).noneMatch(attempt -> "BY_KEY".equals(attempt.admittedVia())),
-                "ELIGIBLE", "repository mod-bar", 3L, "revision-" + key, "dest-" + key,
-                Instant.parse("2026-10-01T09:00:00Z"), Instant.parse("2026-10-23T09:00:00Z"),
+                java.util.Arrays.stream(attempts)
+                        .noneMatch(attempt -> attempt.admittedVia() == TaskAttempt.AdmittedVia.BY_KEY),
+                3L, "revision-" + key, "dest-" + key,
                 List.of(attempts), emptyUsage(), new TaskView.AllowedActions(select, retry));
     }
 
@@ -857,49 +852,48 @@ class TaskUiControllerTest {
     private static TaskView.AttemptHistoryEntry attempt(String state, String admittedVia, int ordinal,
                                                              String runSettings) {
         return new TaskView.AttemptHistoryEntry("NEEDS_INSPECTION".equals(state) ? ATTEMPT_ID : UUID.randomUUID(),
-                ordinal, "INITIAL", admittedVia, state, "verification", "VERIFICATION_FAILED: 2 tests failed", null,
-                null, EXECUTION_ID, "COMPLETED", Instant.parse("2026-10-23T07:59:00Z"),
-                Instant.parse("2026-10-23T08:00:00Z"), Instant.parse("2026-10-23T09:00:00Z"),
+                ordinal, TaskAttempt.Kind.INITIAL, TaskAttempt.AdmittedVia.valueOf(admittedVia),
+                TaskAttempt.State.valueOf(state), "verification", "VERIFICATION_FAILED: 2 tests failed", null,
+                null, EXECUTION_ID, Instant.parse("2026-10-23T07:59:00Z"), Instant.parse("2026-10-23T08:00:00Z"),
                 true, 600, emptyUsage(), runSettings);
     }
 
     /** A delivered attempt; {@code draftReasons} null means the pull request is ready for review. */
     private static TaskView.AttemptHistoryEntry prAttempt(List<String> draftReasons) {
-        return new TaskView.AttemptHistoryEntry(UUID.randomUUID(), 1, "INITIAL", "MANUAL", "PR_READY", "publish",
-                null, "https://github.com/folio-org/mod-bar/pull/7", draftReasons, EXECUTION_ID, "RUNNING",
+        return new TaskView.AttemptHistoryEntry(UUID.randomUUID(), 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.AdmittedVia.MANUAL, TaskAttempt.State.PR_READY, "publish",
+                null, "https://github.com/folio-org/mod-bar/pull/7", draftReasons, EXECUTION_ID,
                 Instant.parse("2026-10-23T07:59:00Z"), Instant.parse("2026-10-23T08:00:00Z"),
-                Instant.parse("2026-10-23T09:00:00Z"), true, 600, emptyUsage(), null);
+                true, 600, emptyUsage(), null);
     }
 
     private static TaskUsage emptyUsage() {
-        return new TaskUsage(0, Map.of(), new TreeMap<String, BigDecimal>(), true, false,
-                List.of(), List.of());
+        return new TaskUsage(0, Map.of(), new TreeMap<String, BigDecimal>(), true, false, List.of());
     }
 
     private static TaskView.AttemptHistoryEntry attempt(String state, int ordinal, TaskUsage usage) {
-        return new TaskView.AttemptHistoryEntry(UUID.randomUUID(), ordinal, "INITIAL", "MANUAL", state,
-                "verification", "VERIFICATION_FAILED: 2 tests failed", null, null, EXECUTION_ID, "COMPLETED",
-                Instant.parse("2026-10-23T07:59:00Z"), Instant.parse("2026-10-23T08:00:00Z"),
-                Instant.parse("2026-10-23T09:00:00Z"), true, 600, usage, null);
+        return new TaskView.AttemptHistoryEntry(UUID.randomUUID(), ordinal, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.AdmittedVia.MANUAL, TaskAttempt.State.valueOf(state),
+                "verification", "VERIFICATION_FAILED: 2 tests failed", null, null, EXECUTION_ID,
+                Instant.parse("2026-10-23T07:59:00Z"), Instant.parse("2026-10-23T08:00:00Z"), true, 600, usage, null);
     }
 
     /** A paid start with no reported usage: no cost figure, and the total is incomplete. */
     private static TaskUsage unreportedUsage() {
-        return new TaskUsage(0, Map.of(), new TreeMap<>(), false, false, List.of(), List.of());
+        return new TaskUsage(0, Map.of(), new TreeMap<>(), false, false, List.of());
     }
 
     /** $0.32 so far, but some usage was not reported, so the total is incomplete. */
     private static TaskUsage incompleteUsage() {
         return new TaskUsage(10_000, Map.of(), new TreeMap<>(Map.of("USD", new BigDecimal("0.32"))), false,
-                false, List.of(), List.of());
+                false, List.of());
     }
 
     private static TaskView withUsage(TaskView view, TaskUsage usage) {
         return new TaskView(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(), view.projectKey(),
                 view.jiraStatus(), view.state(), view.queuePosition(), view.reason(), view.stage(),
                 view.stageStartedAt(), view.destinationRepository(), view.pullRequestUrl(), view.draftReasons(),
-                view.inScope(), view.eligibility(), view.routingReason(), view.version(), view.inputFingerprint(),
-                view.destinationFingerprint(), view.jiraCreatedAt(), view.updatedAt(), view.attempts(), usage,
-                view.allowedActions());
+                view.inScope(), view.version(), view.inputFingerprint(), view.destinationFingerprint(),
+                view.attempts(), usage, view.allowedActions());
     }
 }

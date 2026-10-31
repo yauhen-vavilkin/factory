@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import org.folio.factory.devfactory.DevFactoryConfiguration;
 
 /**
  * Server-rendered flow catalog and worker library. The flow list/detail views and
@@ -86,7 +87,7 @@ public class FlowUiController {
         model.addAttribute("rawYaml", rawYaml(descriptor));
         model.addAttribute("samples", samples);
         model.addAttribute("defaultPayload", samples.isEmpty() ? "{}" : samples.get(0).get("prettyJson"));
-        model.addAttribute("myTasksTab", TaskUiController.FLOW_ID.equals(descriptor.id()));
+        model.addAttribute("myTasksTab", DevFactoryConfiguration.FLOW_ID.equals(descriptor.id()));
         model.addAttribute("error", error);
         return "flow";
     }
@@ -96,7 +97,7 @@ public class FlowUiController {
                           @RequestParam(name = "payload", required = false) String payload,
                           @RequestParam(name = "dedupKey", required = false) String dedupKey,
                           RedirectAttributes redirect) {
-        if (TaskUiController.FLOW_ID.equals(id)) {
+        if (DevFactoryConfiguration.FLOW_ID.equals(id)) {
             return UiFormat.errorRedirect("/flows/" + id,
                     "Developer Flow runs start from My tasks: select your tasks or add one by key.");
         }
