@@ -2,6 +2,7 @@ package org.folio.factory.app.web;
 
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.devfactory.runtime.TokenUsage;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -109,8 +110,7 @@ public final class AttemptUsageSummary {
                     && !activity.equals("pi_usage")
                     && event.getEventType() != AuditEventType.STEP_COMPLETED) return;
             if (event.getEventType() == AuditEventType.STEP_COMPLETED
-                    && !d.has("inputTokens")
-                    && !d.has("outputTokens")) return;
+                    && !TokenUsage.from(d).hasCodingTokens()) return;
             if (id.isBlank()) {
                 legacyUnknown = true;
                 return;

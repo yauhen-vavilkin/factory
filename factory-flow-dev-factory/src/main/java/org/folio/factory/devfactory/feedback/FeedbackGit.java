@@ -4,7 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.delivery.PublicationGit;
-import org.folio.factory.devfactory.runtime.Processes;
+import org.folio.factory.devfactory.runtime.Git;
 
 import java.nio.file.Path;
 import java.util.Map;
@@ -30,7 +30,7 @@ public class FeedbackGit {
             String sha =
                     git(
                             path,
-                            identity(date, "Factory", "factory@localhost"),
+                            PublicationGit.identity(date, "Factory", "factory@localhost"),
                             "commit-tree",
                             candidate.treeSha(),
                             "-p",
@@ -66,7 +66,7 @@ public class FeedbackGit {
             String sha =
                     git(
                             path,
-                            identity(intent.date(), intent.authorName(), intent.authorEmail()),
+                            PublicationGit.identity(intent.date(), intent.authorName(), intent.authorEmail()),
                             "commit-tree",
                             intent.tree(),
                             "-p",
@@ -98,12 +98,8 @@ public class FeedbackGit {
     }
 
     private static boolean descendant(Path path, String sha) {
-        return command(path, Map.of(), "merge-base", "--is-ancestor", sha, "FETCH_HEAD").exitCode()
+        return Git.run(path, Map.of(), Git.TIMEOUT_SECONDS, "merge-base", "--is-ancestor", sha, "FETCH_HEAD").exitCode()
                 == 0;
-    }
-
-    private static Map<String, String> identity(String date, String name, String email) {
-        return PublicationGit.identity(date, name, email);
     }
 
     private static Map<String, String> authentication(String source, String token) {
@@ -115,14 +111,10 @@ public class FeedbackGit {
     }
 
     private static String git(Path path, Map<String, String> env, String... args) {
-        var result = command(path, env, args);
+        var result = Git.run(path, env, Git.TIMEOUT_SECONDS, args);
         if (result.exitCode() != 0)
             throw new IllegalStateException(
                     "PR Git " + args[0] + " failed (exit " + result.exitCode() + ")");
         return result.output().strip();
-    }
-
-    private static Processes.Result command(Path path, Map<String, String> env, String... args) {
-        return PublicationGit.run(path, env, PublicationGit.DEFAULT_TIMEOUT_SECONDS, args);
     }
 }

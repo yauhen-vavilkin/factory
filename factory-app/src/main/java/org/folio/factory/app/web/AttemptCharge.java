@@ -1,10 +1,12 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.devfactory.runtime.TokenUsage;
 import tools.jackson.databind.JsonNode;
 
 import java.math.BigDecimal;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.function.Function;
 
 /** Pricing of one saved cumulative usage observation; unknown categories stay unknown. */
 public record AttemptCharge(
@@ -17,33 +19,34 @@ public record AttemptCharge(
     private static final BigDecimal TOKENS_PER_MILLION = BigDecimal.valueOf(1_000_000);
 
     public enum Category {
-        INPUT("inputTokens", "inputPerMillion"),
-        CACHE_READ("cacheReadTokens", "cacheReadPerMillion"),
-        CACHE_WRITE("cacheWriteTokens", "cacheWritePerMillion"),
-        OUTPUT("outputTokens", "outputPerMillion");
+        INPUT(TokenUsage::inputTokens, "inputPerMillion"),
+        CACHE_READ(TokenUsage::cacheReadTokens, "cacheReadPerMillion"),
+        CACHE_WRITE(TokenUsage::cacheWriteTokens, "cacheWritePerMillion"),
+        OUTPUT(TokenUsage::outputTokens, "outputPerMillion");
 
-        final String tokenField;
+        final Function<TokenUsage, Long> tokens;
         final String rateField;
 
-        Category(String tokenField, String rateField) {
-            this.tokenField = tokenField;
+        Category(Function<TokenUsage, Long> tokens, String rateField) {
+            this.tokens = tokens;
             this.rateField = rateField;
         }
     }
 
-    public static AttemptCharge calculate(JsonNode usage, JsonNode rate, boolean complete) {
-        boolean known = complete && !usage.path("usageIncomplete").asBoolean(false);
+    public static AttemptCharge calculate(JsonNode reported, JsonNode rate, boolean complete) {
+        var usage = TokenUsage.from(reported);
+        boolean known = complete && !usage.usageIncomplete();
         boolean hasPricedTokens = false;
         long tokens = 0;
         var breakdown = new EnumMap<Category, Long>(Category.class);
         BigDecimal cost = BigDecimal.ZERO;
         for (var category : Category.values()) {
-            var value = usage.path(category.tokenField);
-            if (!value.isNumber()) {
+            var value = category.tokens.apply(usage);
+            if (value == null) {
                 known = false;
                 continue;
             }
-            long count = Math.max(0, value.asLong());
+            long count = Math.max(0, value);
             breakdown.put(category, count);
             tokens += count;
             BigDecimal categoryCost = categoryCost(usage, rate, category, count);
@@ -64,7 +67,7 @@ public record AttemptCharge(
                 tokens, Map.copyOf(breakdown), known && hasCurrency, subtotalPresent, cost, currency);
     }
 
-    private static BigDecimal categoryCost(JsonNode usage, JsonNode rate, Category category, long tokens) {
+    private static BigDecimal categoryCost(TokenUsage usage, JsonNode rate, Category category, long tokens) {
         boolean hasCacheTtlRates = rate.has("cacheWrite5mPerMillion") || rate.has("cacheWrite1hPerMillion");
         if (category == Category.CACHE_WRITE && tokens > 0 && hasCacheTtlRates) {
             return cacheWriteCost(usage, rate, tokens);
@@ -72,15 +75,13 @@ public record AttemptCharge(
         return costForTokens(tokens, rate.path(category.rateField));
     }
 
-    private static BigDecimal cacheWriteCost(JsonNode usage, JsonNode rate, long totalTokens) {
-        JsonNode fiveMinuteUsage = usage.path("cacheWrite5mTokens");
-        JsonNode oneHourUsage = usage.path("cacheWrite1hTokens");
-        if (!fiveMinuteUsage.isIntegralNumber() || !oneHourUsage.isIntegralNumber()) {
+    private static BigDecimal cacheWriteCost(TokenUsage usage, JsonNode rate, long totalTokens) {
+        Long fiveMinuteTokens = usage.cacheWrite5mTokens();
+        Long oneHourTokens = usage.cacheWrite1hTokens();
+        if (fiveMinuteTokens == null || oneHourTokens == null) {
             return null;
         }
 
-        long fiveMinuteTokens = fiveMinuteUsage.asLong();
-        long oneHourTokens = oneHourUsage.asLong();
         if (fiveMinuteTokens < 0 || oneHourTokens < 0 || fiveMinuteTokens > totalTokens
                 || oneHourTokens != totalTokens - fiveMinuteTokens) {
             return null;

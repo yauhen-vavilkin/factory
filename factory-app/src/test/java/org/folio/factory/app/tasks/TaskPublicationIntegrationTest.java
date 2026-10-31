@@ -84,6 +84,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import org.folio.factory.devfactory.tasks.TaskGuard;
+import java.time.Clock;
 
 /**
  * Publication authority against real PostgreSQL and a mocked GitHub HTTP
@@ -410,7 +412,7 @@ class TaskPublicationIntegrationTest {
                 new JiraProperties("https://jira.example.org", null, null),
                 new GitHubRestConnector(new GitHubProperties(GITHUB.baseUrl(), "fixture-github-token"),
                         RestClient.builder()),
-                new FrontmatterCodec(), stateManager, policy);
+                new FrontmatterCodec(), stateManager, new TaskGuard(policy, Clock.systemUTC()));
     }
 
     private static DevFactoryProperties.Repository repository(DeliveryTarget destination) {

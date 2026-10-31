@@ -2,6 +2,7 @@ package org.folio.factory.devfactory.delivery;
 
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
+import org.folio.factory.devfactory.runtime.Git;
 import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
 
@@ -24,41 +25,6 @@ public class CandidateDelivery {
     CandidateDelivery(CandidateFreezer freezer, String remoteRoot) {
         this.freezer = freezer;
         this.remoteRoot = remoteRoot;
-    }
-
-    public DeliveryReceipt deliver(
-            String executionId,
-            String issueKey,
-            String summary,
-            String sourceUrl,
-            Candidate candidate,
-            VerificationReceipt verification,
-            DeliveryTarget target,
-            String githubToken) {
-        return deliver(
-                executionId,
-                issueKey,
-                summary,
-                sourceUrl,
-                candidate,
-                verification,
-                target,
-                githubToken,
-                false);
-    }
-
-    public DeliveryReceipt deliver(
-            String executionId,
-            String issueKey,
-            String summary,
-            String sourceUrl,
-            Candidate candidate,
-            VerificationReceipt verification,
-            DeliveryTarget target,
-            String githubToken,
-            boolean stableBranch) {
-        return deliver(executionId, issueKey, summary, sourceUrl, candidate, verification,
-                target, githubToken, stableBranch, PublicationGit.DEFAULT_TIMEOUT_SECONDS);
     }
 
     /** Delivery Git operations bounded by the task attempt's remaining whole-attempt budget. */
@@ -242,7 +208,7 @@ public class CandidateDelivery {
     /** One reconstructed workspace and its destination; every command shares the attempt's timeout. */
     private record GitSession(Path workspace, String remote, Map<String, String> auth, int timeoutSeconds) {
         Processes.Result run(Map<String, String> environment, String... args) {
-            return PublicationGit.run(workspace, environment, timeoutSeconds, args);
+            return Git.run(workspace, environment, timeoutSeconds, args);
         }
 
         void fetch(String ref) {

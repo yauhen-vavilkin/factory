@@ -7,7 +7,7 @@ import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
-import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskGuard;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 
@@ -27,7 +27,7 @@ public class DevelopContinuationWorker implements AgentWorker {
 
     private final InitialCodingAttempt develop;
     private final FrontmatterCodec codec;
-    private final TaskAttemptPolicy taskPolicy;
+    private final TaskGuard taskGuard;
     private final JsonMapper json = JsonMapper.builder().build();
 
     @Override
@@ -44,7 +44,7 @@ public class DevelopContinuationWorker implements AgentWorker {
             return passThrough(context, request, outcome);
         }
         var clarification = readClarification(context);
-        if (taskPolicy.find(context.executionId()).isPresent()) {
+        if (taskGuard.isTaskRun(context.executionId())) {
             stopAnsweredTask(context, clarification);
             return passThrough(context, request, outcome);
         }
@@ -69,7 +69,7 @@ public class DevelopContinuationWorker implements AgentWorker {
         if (clarification.isUnanswered()) {
             return;
         }
-        taskPolicy.recordStop(context.executionId(), context.stepId(),
+        taskGuard.recordStop(context.executionId(), context.stepId(),
                 "a clarification answer cannot continue a task attempt automatically;"
                         + " an explicit retry is a new execution");
     }

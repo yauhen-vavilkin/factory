@@ -773,7 +773,7 @@ class DeliveryWorkerTest {
     private static DeliveryWorker worker(CandidateDelivery delivery, GitHubConnector github,
                                          GitHubProperties githubProperties, String plan, String image,
                                          DevRuntimeProperties runtime,
-                                         org.folio.factory.devfactory.tasks.TaskAttemptPolicy taskPolicy) {
+                                         org.folio.factory.devfactory.tasks.RecordingTaskAttempts taskPolicy) {
         return worker(delivery, github, githubProperties, plan, image, runtime, taskPolicy,
                 new DeliveryTarget("user/folio-module-sidecar", "master"));
     }
@@ -781,7 +781,7 @@ class DeliveryWorkerTest {
     private static DeliveryWorker worker(CandidateDelivery delivery, GitHubConnector github,
                                          GitHubProperties githubProperties, String plan, String image,
                                          DevRuntimeProperties runtime,
-                                         org.folio.factory.devfactory.tasks.TaskAttemptPolicy taskPolicy,
+                                         org.folio.factory.devfactory.tasks.RecordingTaskAttempts taskPolicy,
                                          DeliveryTarget destination) {
         var repository = new DevFactoryProperties.Repository(
                 "folio-org/folio-module-sidecar", "master", image, plan, List.of("MODSIDECAR"), List.of(),
@@ -792,7 +792,7 @@ class DeliveryWorkerTest {
         when(state.get(any())).thenReturn(new org.folio.factory.core.domain.PipelineExecution("dev-factory", "0.8.0", null));
         return new DeliveryWorker(repositories, runtime, delivery, githubProperties,
                 new org.folio.factory.connectors.jira.JiraProperties("https://jira.example.org", null, null),
-                github, new FrontmatterCodec(), state, taskPolicy);
+                github, new FrontmatterCodec(), state, taskPolicy.guard());
     }
 
     private static GitHubConnector.PullRequest pr(String url, String headSha, String state) {

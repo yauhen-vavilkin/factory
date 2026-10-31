@@ -108,7 +108,7 @@ public final class RunProfiles {
         }
     }
 
-    /** Only env-default: for a runtime built without the profiles file. */
+    /** Only env-default, built from the FACTORY_CLAUDE_CODE_* settings; tests use it without a profiles file. */
     public static RunProfiles envOnly(DevRuntimeProperties.ClaudeCode environment) {
         return new RunProfiles(environment, null, name -> null);
     }

@@ -1,7 +1,6 @@
 package org.folio.factory.app.tasks.admission;
 
 import org.folio.factory.app.developer.DeveloperPreflight;
-import org.folio.factory.app.tasks.Digests;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
@@ -11,6 +10,7 @@ import org.folio.factory.app.tasks.persistence.TaskRepository;
 import org.folio.factory.app.tasks.source.TaskDiscoveryService;
 import org.folio.factory.app.tasks.source.TaskJiraInstance;
 import org.folio.factory.connectors.jira.JiraSourceModels.DiscoveredIssue;
+import org.folio.factory.devfactory.candidate.Candidate;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
@@ -315,7 +315,7 @@ public class TaskAdmissionService {
 
     /** Identity of the task's routing decision; a re-mapped project yields a different value. */
     public static String destinationFingerprint(Task task) {
-        return Digests.sha256Hex(task.getRoutingReason());
+        return Candidate.sha256(task.getRoutingReason());
     }
 
     /** The issue Jira returned for a run by key, or why it could not be read. */

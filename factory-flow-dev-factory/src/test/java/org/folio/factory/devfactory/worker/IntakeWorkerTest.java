@@ -31,7 +31,7 @@ class IntakeWorkerTest {
         var coding = new DevRuntimeProperties.Pi("coding-image", "provider", "model", "https://private.example",
                 "openai-completions", "secret-key", null, null, null);
         var worker = new IntakeWorker(jira, mock(RepositoryPolicy.class), new FrontmatterCodec(),
-                new PiCodingRuntime(coding), audit, TaskAttemptPolicy.none());
+                new PiCodingRuntime(coding), audit, RecordingTaskAttempts.none().guard());
         var context = new AgentContext(UUID.randomUUID(), "read-task", Map.of(),
                 JsonMapper.builder().build().readTree("{\"issueKey\":\"TASK-1\"}"), Map.of(), List.of());
         when(jira.getIssue("TASK-1")).thenThrow(new IllegalStateException("Jira unavailable"));
@@ -52,7 +52,7 @@ class IntakeWorkerTest {
         var repositoryPolicy = mock(RepositoryPolicy.class);
         var taskAttempts = new RecordingTaskAttempts(taskContext("mod-foo"));
         var worker = new IntakeWorker(jira, repositoryPolicy, new FrontmatterCodec(),
-                codingRuntime(), audit, taskAttempts);
+                codingRuntime(), audit, taskAttempts.guard());
         when(repositoryPolicy.candidates("MODFOO", List.of("storage")))
                 .thenReturn(List.of("mod-foo", "mod-foo-storage"));
         var context = new AgentContext(UUID.randomUUID(), "read-task", Map.of(), null, Map.of(), List.of());
@@ -81,7 +81,7 @@ class IntakeWorkerTest {
         var repositoryPolicy = mock(RepositoryPolicy.class);
         var taskAttempts = new RecordingTaskAttempts(taskContext("mod-foo"));
         var worker = new IntakeWorker(jira, repositoryPolicy, new FrontmatterCodec(),
-                codingRuntime(), audit, taskAttempts);
+                codingRuntime(), audit, taskAttempts.guard());
         when(repositoryPolicy.candidates("MODFOO", List.of("storage")))
                 .thenReturn(List.of("mod-foo"));
         var context = new AgentContext(UUID.randomUUID(), "read-task", Map.of(), null, Map.of(), List.of());
@@ -105,7 +105,7 @@ class IntakeWorkerTest {
         var repositoryPolicy = mock(RepositoryPolicy.class);
         var taskAttempts = new RecordingTaskAttempts(taskContext("mod-foo"));
         var worker = new IntakeWorker(jira, repositoryPolicy, new FrontmatterCodec(),
-                codingRuntime(), audit, taskAttempts);
+                codingRuntime(), audit, taskAttempts.guard());
         when(repositoryPolicy.candidates("MODFOO", List.of("storage")))
                 .thenReturn(List.of("mod-foo-storage"));
         var context = new AgentContext(UUID.randomUUID(), "read-task", Map.of(), null, Map.of(), List.of());
@@ -125,7 +125,7 @@ class IntakeWorkerTest {
         var repositoryPolicy = mock(RepositoryPolicy.class);
         var taskAttempts = new RecordingTaskAttempts(taskContext(null));
         var worker = new IntakeWorker(jira, repositoryPolicy, new FrontmatterCodec(),
-                codingRuntime(), audit, taskAttempts);
+                codingRuntime(), audit, taskAttempts.guard());
         when(repositoryPolicy.candidates("MODFOO", List.of("storage")))
                 .thenReturn(List.of("mod-foo"));
         var context = new AgentContext(UUID.randomUUID(), "read-task", Map.of(), null, Map.of(), List.of());

@@ -7,12 +7,11 @@ import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.registry.model.HitlGateSpec;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.decision.ConditionalDecisionGate;
-import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskGuard;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Pauses only when the configured coding runtime returned NEEDS_DECISION.
@@ -32,7 +31,7 @@ public class CodingDecisionGateWorker implements AgentWorker {
                     CodingDecisionArtifacts.REQUEST, CodingDecisionArtifacts.ANSWER));
 
     private final ConditionalDecisionGate gate;
-    private final TaskAttemptPolicy taskPolicy;
+    private final TaskGuard taskGuard;
     private final JsonMapper json = JsonMapper.builder().build();
 
     @Override public String id() { return ID; }
@@ -40,13 +39,7 @@ public class CodingDecisionGateWorker implements AgentWorker {
     @Override public AgentResult execute(AgentContext context) {
         CodingOutcome outcome = json.readValue(context.requireInput(DevelopWorker.OUTCOME).content(),
                 CodingOutcome.class);
-        boolean required = outcome.status() == CodingOutcome.Status.NEEDS_DECISION;
-        boolean taskRun = taskPolicy.find(context.executionId()).isPresent();
-        if (required && taskRun) {
-            taskPolicy.recordStop(context.executionId(), context.stepId(),
-                    "coding requested a human decision: " + outcome.decision().question());
-        }
-        boolean opened = required && !taskRun && gate.open(context, GATE);
-        return new AgentResult(Map.of(), Map.of("decisionRequired", required, "reviewOpened", opened));
+        return DecisionGates.openOrStop(context, gate, GATE, outcome.status() == CodingOutcome.Status.NEEDS_DECISION,
+                () -> "coding requested a human decision: " + outcome.decision().question(), taskGuard);
     }
 }

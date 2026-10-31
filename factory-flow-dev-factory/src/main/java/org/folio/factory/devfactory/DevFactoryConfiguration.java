@@ -42,6 +42,7 @@ import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
 import org.folio.factory.devfactory.runtime.RunProfiles;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
 import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskGuard;
 import org.folio.factory.devfactory.worker.CodingDecisionGateWorker;
 import org.folio.factory.devfactory.worker.DecisionGateWorker;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
@@ -76,6 +77,11 @@ import java.util.Map;
     RunProfiles.Properties.class
 })
 public class DevFactoryConfiguration {
+
+    @Bean
+    public TaskGuard devTaskGuard(ObjectProvider<TaskAttemptPolicy> taskPolicy) {
+        return new TaskGuard(taskPolicy.getIfAvailable(TaskAttemptPolicy::none), Clock.systemUTC());
+    }
 
     @Bean
     public DockerWorkloads devDockerWorkloads() {
@@ -116,7 +122,7 @@ public class DevFactoryConfiguration {
             AuditLog audit,
             ObjectProvider<AttemptPricing> pricing,
             ObjectProvider<SelectedRepositoryPreflight> repositoryPreflight,
-            ObjectProvider<TaskAttemptPolicy> taskPolicy,
+            TaskGuard taskGuard,
             ObjectProvider<CodingTranscripts> transcripts) {
         return new InitialCodingAttempt(
                 properties,
@@ -128,7 +134,7 @@ public class DevFactoryConfiguration {
                 audit,
                 pricing.getIfAvailable(() -> model -> Map.of()),
                 repositoryPreflight.getIfAvailable(SelectedRepositoryPreflight::none),
-                taskPolicy.getIfAvailable(TaskAttemptPolicy::none),
+                taskGuard,
                 transcripts.getIfAvailable(CodingTranscripts::none));
     }
 
@@ -139,17 +145,17 @@ public class DevFactoryConfiguration {
 
     @Bean
     public CodingDecisionGateWorker devCodingDecisionGateWorker(
-            ConditionalDecisionGate gate, ObjectProvider<TaskAttemptPolicy> taskPolicy) {
-        return new CodingDecisionGateWorker(gate, taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
+            ConditionalDecisionGate gate, TaskGuard taskGuard) {
+        return new CodingDecisionGateWorker(gate, taskGuard);
     }
 
     @Bean
     public DevelopContinuationWorker devDevelopContinuationWorker(
             InitialCodingAttempt develop,
             FrontmatterCodec codec,
-            ObjectProvider<TaskAttemptPolicy> taskPolicy) {
+            TaskGuard taskGuard) {
         return new DevelopContinuationWorker(develop, codec,
-                taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
+                taskGuard);
     }
 
     @Bean
@@ -165,8 +171,9 @@ public class DevFactoryConfiguration {
     public VerifyWorker devVerifyWorker(
             CandidateVerifier verifier,
             DevFactoryProperties repositories,
-            ObjectProvider<TaskAttemptPolicy> taskPolicy) {
-        return new VerifyWorker(verifier, repositories, taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
+            DevRuntimeProperties runtime,
+            TaskGuard taskGuard) {
+        return new VerifyWorker(verifier, repositories, runtime, taskGuard);
     }
 
     @Bean
@@ -184,7 +191,7 @@ public class DevFactoryConfiguration {
             @Qualifier("gitHubConnector") GitHubConnector github,
             FrontmatterCodec frontmatter,
             StateManager state,
-            ObjectProvider<TaskAttemptPolicy> taskPolicy) {
+            TaskGuard taskGuard) {
         return new DeliveryWorker(
                 repositories,
                 runtime,
@@ -194,7 +201,7 @@ public class DevFactoryConfiguration {
                 github,
                 frontmatter,
                 state,
-                taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
+                taskGuard);
     }
 
     @Bean
@@ -229,17 +236,17 @@ public class DevFactoryConfiguration {
             FrontmatterCodec codec,
             CodingRuntime runtime,
             AuditLog audit,
-            ObjectProvider<TaskAttemptPolicy> taskPolicy) {
+            TaskGuard taskGuard) {
         return new IntakeWorker(jiraConnector, policy, codec, runtime, audit,
-                taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
+                taskGuard);
     }
 
     @Bean
     public DecisionGateWorker devDecisionGateWorker(
             ConditionalDecisionGate gate,
             FrontmatterCodec codec,
-            ObjectProvider<TaskAttemptPolicy> taskPolicy) {
-        return new DecisionGateWorker(gate, codec, taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
+            TaskGuard taskGuard) {
+        return new DecisionGateWorker(gate, codec, taskGuard);
     }
 
     @Bean
@@ -247,9 +254,9 @@ public class DevFactoryConfiguration {
             RepositoryPolicy policy,
             BaseRefResolver baseRefResolver,
             FrontmatterCodec codec,
-            ObjectProvider<TaskAttemptPolicy> taskPolicy) {
+            TaskGuard taskGuard) {
         return new IntakeResolveWorker(policy, baseRefResolver, codec,
-                taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
+                taskGuard);
     }
 
     @Bean

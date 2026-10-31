@@ -17,7 +17,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.TreeMap;
 import java.util.UUID;
 
@@ -75,8 +74,7 @@ class CandidateVerifierTest {
     }
 
     private VerificationReceipt verifyCandidate(Candidate target) {
-        return verifier.verify(executionId, "verify", target, properties.sourceUrl(target.repository()),
-                Optional.empty());
+        return verifier.verify(executionId, "verify", target, properties.sourceUrl(target.repository()), 60);
     }
 
     @ParameterizedTest

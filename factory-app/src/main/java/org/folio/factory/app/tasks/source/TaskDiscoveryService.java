@@ -1,7 +1,6 @@
 package org.folio.factory.app.tasks.source;
 
 import lombok.extern.slf4j.Slf4j;
-import org.folio.factory.app.tasks.Digests;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
@@ -11,6 +10,7 @@ import org.folio.factory.app.tasks.persistence.TaskRepository;
 import org.folio.factory.connectors.jira.JiraSourceConnector;
 import org.folio.factory.connectors.jira.JiraSourceModels.DiscoveredIssue;
 import org.folio.factory.connectors.jira.JiraSourceModels.IssuePage;
+import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.intake.IssueSnapshot;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.springframework.stereotype.Component;
@@ -216,7 +216,7 @@ public class TaskDiscoveryService {
     }
 
     private String revision(Map<String, Object> snapshot) {
-        return Digests.sha256Hex(json.writeValueAsString(snapshot));
+        return Candidate.sha256(json.writeValueAsString(snapshot));
     }
 
     private static String truncated(String value, int max) {

@@ -3,13 +3,10 @@ package org.folio.factory.devfactory.decision;
 import lombok.RequiredArgsConstructor;
 import lombok.AccessLevel;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
+import org.folio.factory.devfactory.candidate.Candidate;
 import tools.jackson.databind.JsonNode;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -124,11 +121,6 @@ public final class DecisionArtifacts {
     private static String hashRequest(String issueKey, String question, List<Option> options) {
         StringBuilder identity = new StringBuilder(issueKey).append('\n').append(question);
         options.forEach(o -> identity.append('\n').append(o.id()));
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(identity.toString().getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
+        return Candidate.sha256(identity.toString());
     }
 }

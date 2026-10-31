@@ -4,6 +4,9 @@ import static org.folio.factory.devfactory.feedback.FeedbackState.Phase.*;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 
+import lombok.Getter;
+import lombok.experimental.Accessors;
+
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
 
@@ -17,6 +20,8 @@ import java.util.UUID;
 
 /** Bounded current operation. Earlier versions are the round history. */
 @JsonAutoDetect(fieldVisibility = JsonAutoDetect.Visibility.ANY)
+@Getter
+@Accessors(fluent = true)
 public class FeedbackState {
     public enum Phase {
         INIT,
@@ -70,112 +75,8 @@ public class FeedbackState {
 
     public FeedbackState() {}
 
-    public Phase phase() {
-        return phase;
-    }
-
-    public Phase resumePhase() {
-        return resumePhase;
-    }
-
-    public Phase cleanupResumePhase() {
-        return cleanupResumePhase;
-    }
-
-    public String lastCleanedInvocation() {
-        return lastCleanedInvocation;
-    }
-
     public List<String> cleanupSteps() {
         return List.copyOf(cleanupSteps);
-    }
-
-    public int round() {
-        return round;
-    }
-
-    public String attemptId() {
-        return attemptId;
-    }
-
-    public String reason() {
-        return reason;
-    }
-
-    public String failureKind() {
-        return failureKind;
-    }
-
-    public String answer() {
-        return answer;
-    }
-
-    public String question() {
-        return question;
-    }
-
-    public List<String> options() {
-        return options;
-    }
-
-    public PrFeedbackGateway.PullRequest pr() {
-        return pr;
-    }
-
-    public List<PrFeedbackGateway.Comment> selected() {
-        return selected;
-    }
-
-    public String snapshotId() {
-        return snapshotId;
-    }
-
-    public String startedAt() {
-        return startedAt;
-    }
-
-    public String roundStartedAt() {
-        return roundStartedAt;
-    }
-
-    public String finishedAt() {
-        return finishedAt;
-    }
-
-    public String summary() {
-        return summary;
-    }
-
-    public String taskSummary() {
-        return taskSummary;
-    }
-
-    public String completionReason() {
-        return completionReason;
-    }
-
-    public boolean manual() {
-        return manual;
-    }
-
-    public String commitSha() {
-        return commitSha;
-    }
-
-    public String runtimeName() {
-        return runtimeName;
-    }
-
-    public VerificationReceipt verification() {
-        return verification;
-    }
-
-    public Map<String, Object> usage() {
-        return usage;
-    }
-
-    public Map<String, Object> rate() {
-        return rate;
     }
 
     public boolean waiting() {

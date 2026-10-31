@@ -292,9 +292,7 @@ final class ClaudeCodeProtocol implements Consumer<String> {
         entry.put("text", redactor.apply(String.join("\n", errorsOrResult(result))));
         if (result.path("num_turns").isIntegralNumber()) entry.put("turns", result.path("num_turns").asLong());
         if (result.path("duration_ms").isIntegralNumber()) entry.put("durationMs", result.path("duration_ms").asLong());
-        var usage = new LinkedHashMap<String, Object>();
-        addUsage(usage, result.path("usage"));
-        entry.put("usage", usage);
+        entry.put("usage", reportedUsage(result.path("usage")).toMetrics());
         record("result", entry);
     }
 
@@ -349,28 +347,26 @@ final class ClaudeCodeProtocol implements Consumer<String> {
         boolean hasCompleteUsage = hasTerminalUsage
                 && !usageSnapshots.isEmpty()
                 && messageUsage.values().stream().allMatch(ClaudeCodeProtocol::hasTokenEvidence);
+        var total = TokenUsage.NONE;
         for (JsonNode usage : usageSnapshots) {
             if (!hasTokenEvidence(usage)) {
                 hasCompleteUsage = false;
             }
-            addUsage(metrics, usage);
+            total = total.plus(reportedUsage(usage));
         }
-        if (!hasCompleteUsage) {
-            metrics.put("usageIncomplete", true);
-        }
+        metrics.putAll((hasCompleteUsage ? total : total.incomplete()).toMetrics());
         addRuntimeEstimate(metrics);
         return metrics;
     }
 
-    private static void addUsage(Map<String, Object> metrics, JsonNode usage) {
-        addTokenCount(metrics, usage, "input_tokens", "inputTokens");
-        addTokenCount(metrics, usage, "output_tokens", "outputTokens");
-        addTokenCount(metrics, usage, "cache_read_input_tokens", "cacheReadTokens");
-        addTokenCount(metrics, usage, "cache_creation_input_tokens", "cacheWriteTokens");
-
+    /** The counts of one Anthropic usage object; a missing or negative count is not reported. */
+    private static TokenUsage reportedUsage(JsonNode usage) {
         JsonNode cacheCreation = usage.path("cache_creation");
-        addTokenCount(metrics, cacheCreation, "ephemeral_5m_input_tokens", "cacheWrite5mTokens");
-        addTokenCount(metrics, cacheCreation, "ephemeral_1h_input_tokens", "cacheWrite1hTokens");
+        return new TokenUsage(tokenCount(usage, "input_tokens"), tokenCount(usage, "cache_read_input_tokens"),
+                tokenCount(usage, "cache_creation_input_tokens"),
+                tokenCount(cacheCreation, "ephemeral_5m_input_tokens"),
+                tokenCount(cacheCreation, "ephemeral_1h_input_tokens"), tokenCount(usage, "output_tokens"),
+                null, null, false);
     }
 
     private void addRuntimeEstimate(Map<String, Object> metrics) {
@@ -401,12 +397,9 @@ final class ClaudeCodeProtocol implements Consumer<String> {
         return value.isIntegralNumber() && value.asLong() > 0;
     }
 
-    private static void addTokenCount(
-            Map<String, Object> metrics, JsonNode usage, String providerField, String metricField) {
+    private static Long tokenCount(JsonNode usage, String providerField) {
         JsonNode value = usage.path(providerField);
-        if (value.isIntegralNumber() && value.asLong() >= 0) {
-            metrics.merge(metricField, value.asLong(), (previous, current) -> (Long) previous + (Long) current);
-        }
+        return value.isIntegralNumber() && value.asLong() >= 0 ? value.asLong() : null;
     }
 
     /** The outcome of a finished command: Factory's own stops first, then what the CLI reported. */

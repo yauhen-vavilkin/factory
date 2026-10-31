@@ -2,6 +2,7 @@ package org.folio.factory.app.developer;
 
 import org.folio.factory.connectors.github.GitHubProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
+import org.folio.factory.devfactory.runtime.Git;
 import org.folio.factory.devfactory.runtime.Processes;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -68,10 +69,8 @@ public class DeveloperPreflightProbe {
 
     public String sourceBase(String gitBaseUrl, String sourceRepo, String branch) {
         String branchRef = "refs/heads/" + branch;
-        List<String> command = List.of("git", "-c", "credential.helper=", "ls-remote", "--exit-code",
+        Processes.Result result = Git.run(null, Map.of(), SOURCE_TIMEOUT_SECONDS, "ls-remote", "--exit-code",
                 gitBaseUrl + "/" + sourceRepo + ".git", branchRef);
-        Processes.Result result = Processes.run(null, command, SOURCE_TIMEOUT_SECONDS, Map.of(),
-                COMMAND_OUTPUT_LIMIT, null);
         if (result.exitCode() != 0) {
             throw new IllegalStateException("Public source base is not readable");
         }

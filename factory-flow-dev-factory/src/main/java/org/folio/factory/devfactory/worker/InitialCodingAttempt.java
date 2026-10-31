@@ -11,10 +11,9 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.feedback.AttemptPricing;
-import org.folio.factory.devfactory.tasks.AttemptDeadline;
-import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.Stop;
 import org.folio.factory.devfactory.tasks.TaskExecutionContext;
-import org.folio.factory.devfactory.tasks.TaskStops;
+import org.folio.factory.devfactory.tasks.TaskGuard;
 import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
@@ -24,14 +23,13 @@ import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.runtime.RunProfiles;
+import org.folio.factory.devfactory.runtime.TokenUsage;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.file.Path;
-import java.time.Clock;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -53,7 +51,7 @@ public final class InitialCodingAttempt {
     private final AuditLog audit;
     private final AttemptPricing pricing;
     private final SelectedRepositoryPreflight repositoryPreflight;
-    private final TaskAttemptPolicy taskPolicy;
+    private final TaskGuard taskGuard;
     private final CodingTranscripts transcripts;
     private final JsonMapper json = JsonMapper.builder().build();
 
@@ -102,11 +100,7 @@ public final class InitialCodingAttempt {
     private Run newRun(AgentContext context, CodingRequest request, DevFactoryProperties.Repository repository,
                        DockerWorkloads.StepScope scope) {
         var url = properties.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
-        var taskRun = taskPolicy.find(context.executionId());
-        var deadline = taskRun.isPresent()
-                ? taskPolicy.deadline(context.executionId())
-                : Optional.<AttemptDeadline>empty();
-        return new Run(context, request, repository, url, scope, taskRun, deadline);
+        return new Run(context, request, repository, url, scope, taskGuard.policy().find(context.executionId()));
     }
 
     private Attempt develop(Run run, Mode mode, RunState state) {
@@ -175,13 +169,13 @@ public final class InitialCodingAttempt {
         if (stop.isPresent()) {
             return stop;
         }
-        if (run.taskRun().isEmpty() || taskPolicy.claimPaidStart(run.executionId())) {
+        if (run.taskRun().isEmpty() || taskGuard.policy().claimPaidStart(run.executionId())) {
             return Optional.empty();
         }
         var reason = "Paid coding was already started for task attempt " + run.taskRun().orElseThrow().attemptId()
                 + "; a replayed or retried engine step cannot start a second initial"
                 + " coding invocation";
-        taskPolicy.recordStop(run.executionId(), run.stepId(), reason);
+        taskGuard.recordStop(run.executionId(), run.stepId(), reason);
         return Optional.of(new Stop("PAID_START_CONSUMED", reason));
     }
 
@@ -239,38 +233,13 @@ public final class InitialCodingAttempt {
                 CodingDecisionArtifacts.Request.none());
     }
 
+    /** A stopped, superseded or expired task attempt must start no further side effects. */
     private Optional<Stop> taskStop(Run run, String stage) {
-        var stop = taskGuardProblem(run, stage);
-        stop.ifPresent(found -> taskPolicy.recordStop(run.executionId(), run.stepId(), found.reason()));
-        return stop;
-    }
-
-    /**
-     * A stopped, superseded or expired task attempt must start no further side
-     * effects. Legacy executions without task policy never produce a guard stop.
-     */
-    private Optional<Stop> taskGuardProblem(Run run, String stage) {
-        if (run.taskRun().isEmpty()) {
-            return Optional.empty();
-        }
-        if (!taskPolicy.ownsActiveSlot(run.executionId())) {
-            return Optional.of(new Stop(TaskStops.INSPECTION_STATE,
-                    "the task attempt no longer owns the installation's active slot;"
-                            + " a stopped, superseded or released attempt must not continue"));
-        }
-        if (run.deadline().filter(budget -> budget.expired(Clock.systemUTC())).isPresent()) {
-            return Optional.of(new Stop(TaskStops.DEADLINE_STATE,
-                    "the whole-attempt deadline expired before " + stage
-                            + "; queue and human-review waiting are excluded from the budget"));
-        }
-        return Optional.empty();
+        return taskGuard.stop(run.executionId(), run.stepId(), stage);
     }
 
     private int stageTimeoutSeconds(Run run) {
-        var perOperationSeconds = runtime.timeoutSeconds();
-        return run.deadline()
-                .map(budget -> budget.capSeconds(Clock.systemUTC(), perOperationSeconds))
-                .orElse(perOperationSeconds);
+        return taskGuard.capTimeout(run.executionId(), runtime.timeoutSeconds());
     }
 
     private Optional<String> findEnvironmentProblem(
@@ -349,26 +318,10 @@ public final class InitialCodingAttempt {
 
     private static Map<String, Object> reportedMetrics(
             CodingOutcome outcome, String attemptId, Map<String, Object> rate) {
-        var reported = new LinkedHashMap<String, Object>(withFactoryTokenMetrics(outcome.metrics()));
+        var reported = new LinkedHashMap<String, Object>(TokenUsage.withFactoryTotals(outcome.metrics()));
         reported.put("attemptId", attemptId);
         reported.put("rate", rate);
         return reported;
-    }
-
-    private static Map<String, Object> withFactoryTokenMetrics(Map<String, Object> runtimeMetrics) {
-        var metrics = new LinkedHashMap<>(runtimeMetrics);
-        long prompt = 0;
-        boolean promptPresent = false;
-        for (String key : List.of("inputTokens", "cacheReadTokens", "cacheWriteTokens")) {
-            if (runtimeMetrics.get(key) instanceof Number value) {
-                prompt += Math.max(0, value.longValue());
-                promptPresent = true;
-            }
-        }
-        if (promptPresent) metrics.putIfAbsent("promptTokens", prompt);
-        if (runtimeMetrics.get("outputTokens") instanceof Number value)
-            metrics.putIfAbsent("completionTokens", Math.max(0, value.longValue()));
-        return Map.copyOf(metrics);
     }
 
     @SuppressWarnings("unchecked")
@@ -392,22 +345,14 @@ public final class InitialCodingAttempt {
         CONTINUATION
     }
 
-    /**
-     * The state and reason that end an attempt without a candidate. Task stops are classified like
-     * VerifyWorker and DeliveryWorker.
-     */
-    private record Stop(String state, String reason) {
-    }
-
-    /** One attempt inside its engine step. A task deadline exists only for a task execution. */
+    /** One attempt inside its engine step; {@code taskRun} is empty outside My tasks. */
     private record Run(
             AgentContext context,
             CodingRequest request,
             DevFactoryProperties.Repository repository,
             String url,
             DockerWorkloads.StepScope scope,
-            Optional<TaskExecutionContext> taskRun,
-            Optional<AttemptDeadline> deadline) {
+            Optional<TaskExecutionContext> taskRun) {
 
         UUID executionId() {
             return context.executionId();

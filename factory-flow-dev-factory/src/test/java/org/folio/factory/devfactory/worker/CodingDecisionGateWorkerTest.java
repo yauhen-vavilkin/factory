@@ -29,7 +29,7 @@ class CodingDecisionGateWorkerTest {
                 Map.of()));
         when(gate.open(context, CodingDecisionGateWorker.GATE)).thenReturn(true);
 
-        assertThat(new CodingDecisionGateWorker(gate, TaskAttemptPolicy.none()).execute(context).metrics())
+        assertThat(new CodingDecisionGateWorker(gate, RecordingTaskAttempts.none().guard()).execute(context).metrics())
                 .containsEntry("decisionRequired", true).containsEntry("reviewOpened", true);
         verify(gate).open(context, CodingDecisionGateWorker.GATE);
     }
@@ -38,7 +38,7 @@ class CodingDecisionGateWorkerTest {
         ConditionalDecisionGate gate = mock(ConditionalDecisionGate.class);
         var context = context(CodingOutcome.completed("Done", Map.of()));
 
-        assertThat(new CodingDecisionGateWorker(gate, TaskAttemptPolicy.none()).execute(context).metrics())
+        assertThat(new CodingDecisionGateWorker(gate, RecordingTaskAttempts.none().guard()).execute(context).metrics())
                 .containsEntry("decisionRequired", false).containsEntry("reviewOpened", false);
         verify(gate, never()).open(context, CodingDecisionGateWorker.GATE);
     }
@@ -50,7 +50,7 @@ class CodingDecisionGateWorkerTest {
                 CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which length limit applies?",
                 List.of(), "No limit is specified"), Map.of()));
 
-        assertThat(new CodingDecisionGateWorker(gate, taskAttempts).execute(context).metrics())
+        assertThat(new CodingDecisionGateWorker(gate, taskAttempts.guard()).execute(context).metrics())
                 .containsEntry("decisionRequired", true).containsEntry("reviewOpened", false);
 
         verify(gate, never()).open(context, CodingDecisionGateWorker.GATE);

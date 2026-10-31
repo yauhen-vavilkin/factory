@@ -9,7 +9,7 @@ import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.devfactory.decision.DecisionArtifacts;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Answer;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Request;
-import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskGuard;
 import org.folio.factory.devfactory.tasks.TaskExecutionContext;
 import org.folio.factory.devfactory.repository.BaseRefResolver;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
@@ -41,7 +41,7 @@ public class IntakeResolveWorker implements AgentWorker {
     private final RepositoryPolicy policy;
     private final BaseRefResolver baseRefResolver;
     private final FrontmatterCodec codec;
-    private final TaskAttemptPolicy taskPolicy;
+    private final TaskGuard taskGuard;
     private final JsonMapper json = JsonMapper.builder().build();
 
     @Override
@@ -57,9 +57,9 @@ public class IntakeResolveWorker implements AgentWorker {
             return brief(intake, state, intake.path("reason").asString(""), null, null, null, null);
         }
         var request = DecisionArtifacts.parseRequest(codec, context.requireInput(DecisionArtifacts.REQUEST).content());
-        var taskRun = taskPolicy.find(context.executionId());
+        var taskRun = taskGuard.policy().find(context.executionId());
         if (request.required() && taskRun.isPresent()) {
-            taskPolicy.recordStop(context.executionId(), context.stepId(),
+            taskGuard.recordStop(context.executionId(), context.stepId(),
                     "repository selection requires a human choice; the approved admission must resolve to"
                             + " one repository");
             return brief(intake, "BLOCKED", "REPOSITORY_SELECTION_REQUIRES_HUMAN", Map.of(), null, null, null);

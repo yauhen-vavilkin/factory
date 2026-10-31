@@ -3,6 +3,7 @@ package org.folio.factory.app.web;
 import lombok.RequiredArgsConstructor;
 import lombok.AccessLevel;
 import org.folio.factory.app.developer.CodingTranscriptStore;
+import org.folio.factory.devfactory.runtime.TokenUsage;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
@@ -94,13 +95,18 @@ final class DeveloperTranscriptView {
         List<String> facts = new ArrayList<>();
         if (detail.path("turns").isIntegralNumber()) facts.add(detail.path("turns").asLong() + " turns");
         if (detail.path("durationMs").isIntegralNumber()) facts.add(milliseconds(detail.path("durationMs").asLong()));
-        JsonNode usage = detail.path("usage");
-        for (var field : List.of(List.of("inputTokens", "input"), List.of("cacheReadTokens", "cache read"),
-                List.of("cacheWriteTokens", "cache write"), List.of("outputTokens", "output"))) {
-            if (usage.path(field.get(0)).isIntegralNumber())
-                facts.add(UiFormat.count(usage.path(field.get(0)).asLong()) + " " + field.get(1) + " tokens");
-        }
+        var usage = TokenUsage.from(detail.path("usage"));
+        addTokens(facts, usage.inputTokens(), "input");
+        addTokens(facts, usage.cacheReadTokens(), "cache read");
+        addTokens(facts, usage.cacheWriteTokens(), "cache write");
+        addTokens(facts, usage.outputTokens(), "output");
         return String.join(" · ", facts);
+    }
+
+    private static void addTokens(List<String> facts, Long count, String category) {
+        if (count != null) {
+            facts.add(UiFormat.count(count) + " " + category + " tokens");
+        }
     }
 
     private static String milliseconds(long value) {

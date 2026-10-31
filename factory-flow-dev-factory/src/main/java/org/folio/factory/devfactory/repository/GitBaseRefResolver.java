@@ -2,9 +2,9 @@ package org.folio.factory.devfactory.repository;
 
 import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.agent.AgentExecutionException;
+import org.folio.factory.devfactory.runtime.Git;
 import org.folio.factory.devfactory.runtime.Processes;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
 public class GitBaseRefResolver implements BaseRefResolver {
 
     private static final Pattern SHA = Pattern.compile("[0-9a-f]{40}|[0-9a-f]{64}");
-    private static final long TIMEOUT_SECONDS = 60;
+    private static final int TIMEOUT_SECONDS = 60;
     private static final int MAX_ERROR_CHARS = 500;
 
     private final String gitBaseUrl;
@@ -25,11 +25,11 @@ public class GitBaseRefResolver implements BaseRefResolver {
     @Override
     public Optional<String> resolve(String sourceRepo, String branch) {
         String ref = "refs/heads/" + branch;
-        if (run(List.of("git", "check-ref-format", ref)).exitCode() != 0) {
+        if (git("check-ref-format", ref).exitCode() != 0) {
             throw new AgentExecutionException("Configured base branch is not a valid Git ref: " + branch);
         }
         String url = gitBaseUrl + "/" + sourceRepo + ".git";
-        Processes.Result result = run(List.of("git", "-c", "credential.helper=", "ls-remote", "--exit-code", url, ref));
+        Processes.Result result = git("ls-remote", "--exit-code", url, ref);
         if (result.exitCode() == 2) {
             return Optional.empty();
         }
@@ -46,9 +46,9 @@ public class GitBaseRefResolver implements BaseRefResolver {
         throw new AgentExecutionException("git ls-remote returned no usable SHA for " + sourceRepo + " " + ref);
     }
 
-    private Processes.Result run(List<String> command) {
+    private static Processes.Result git(String... args) {
         try {
-            return Processes.run(null, command, (int) TIMEOUT_SECONDS, Map.of(), Processes.OUTPUT_LIMIT, null);
+            return Git.run(null, Map.of(), TIMEOUT_SECONDS, args);
         } catch (RuntimeException e) {
             throw new AgentExecutionException("Could not run git: " + e.getMessage(), e);
         }

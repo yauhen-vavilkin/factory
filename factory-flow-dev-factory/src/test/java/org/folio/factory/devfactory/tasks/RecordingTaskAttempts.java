@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.tasks;
 
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +36,11 @@ public final class RecordingTaskAttempts implements TaskAttemptPolicy {
 
     public static RecordingTaskAttempts none() {
         return new RecordingTaskAttempts(null);
+    }
+
+    /** The guard the workers take, over this fake. */
+    public TaskGuard guard() {
+        return new TaskGuard(this, Clock.systemUTC());
     }
 
     private static TaskExecutionContext context(String repositoryKey) {

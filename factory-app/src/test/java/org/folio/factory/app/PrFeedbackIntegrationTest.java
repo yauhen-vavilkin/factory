@@ -118,7 +118,7 @@ class PrFeedbackIntegrationTest {
             if(ask) return CodingOutcome.needsDecision(new CodingOutcome.Decision(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS,"Keep both options?",List.of("Yes","No"),"Partial patch saved"),usage);
             return CodingOutcome.completed("Corrected selected feedback",usage);
         });
-        when(verifier.verify(any(),anyString(),any(),anyString(),any())).thenAnswer(i->{
+        when(verifier.verify(any(),anyString(),any(),anyString(),anyInt())).thenAnswer(i->{
             Candidate c=i.getArgument(2); Instant now=Instant.now();
             return new VerificationReceipt(id.toString(),c.repository(),c.baseSha(),c.treeSha(),c.patchSha256(),badPolicy?"previous-checks":"fixture-checks","fixture-image",List.of("fixture-check"),"scripted-checks",now,now,checksFail?1:0,1,1,checksFail?1:0,0,checksFail?"FAIL":"PASS","Independent fixture report",checksFail?VerificationFailure.CANDIDATE:VerificationFailure.NONE,0,List.of(),List.of());
         });
@@ -203,7 +203,7 @@ class PrFeedbackIntegrationTest {
     }
     @Test void noChangesProducesVerificationWithoutEmptyCommitAndClosedPrCancels() {
         noChanges=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
-        assertThat(pr().headSha()).isEqualTo(base); verify(verifier).verify(eq(id),anyString(),any(),contains("fork/repo.git"),any());
+        assertThat(pr().headSha()).isEqualTo(base); verify(verifier).verify(eq(id),anyString(),any(),contains("fork/repo.git"),anyInt());
         closed=true; actions.reconcilePr(id);
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
         assertThat(view().state().completionReason()).isEqualTo("CLOSED_WITHOUT_MERGE");

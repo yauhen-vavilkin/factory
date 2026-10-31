@@ -201,7 +201,7 @@ public class FeedbackActions {
         var state = current.state();
         state.apply(command.action(), current.snapshot(), command.snapshotId(), command.selectedIds(),
                 command.answer());
-        policy.authorize(current.reviewId(), () -> decisions.decide(
+        policy.authorize(current.reviewId(), HitlDecision.APPROVE, () -> decisions.decide(
                 current.reviewId(), HitlDecision.APPROVE, reviewer, command.action().name(), null));
         artifacts.putMarkdown(id, STATE, JSON.writeValueAsString(state), "pr-feedback:" + command.action().name());
     }

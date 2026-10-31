@@ -35,6 +35,7 @@ import java.util.Optional;
 /** One finite operation per engine invocation; all durable transitions are engine-owned. */
 public class FeedbackWorker implements AgentWorker {
     private final DevFactoryProperties repositories;
+    private final DevRuntimeProperties runtime;
     private final GitHubProperties github;
     private final PrFeedbackGateway gateway;
     private final CandidateFreezer freezer;
@@ -45,7 +46,6 @@ public class FeedbackWorker implements AgentWorker {
     private final StateManager executions;
     private final FeedbackCodingAttempt codingAttempt;
     private final VerificationPolicy verificationPolicy;
-
 
     public FeedbackWorker(
             DevFactoryProperties repositories,
@@ -62,6 +62,7 @@ public class FeedbackWorker implements AgentWorker {
             AttemptPricing pricing,
             CodingTranscripts transcripts) {
         this.repositories = repositories;
+        this.runtime = runtime;
         this.github = github;
         this.gateway = gateway;
         this.freezer = freezer;
@@ -306,7 +307,7 @@ public class FeedbackWorker implements AgentWorker {
             String operation) {
         requireHead(state);
         var receipt = verifier.verify(
-                context.executionId(), operation, candidate(outputs), source(state), Optional.empty());
+                context.executionId(), operation, candidate(outputs), source(state), runtime.timeoutSeconds());
         state.verified(receipt);
         outputs.put(VERIFICATION, JSON.writeValueAsString(receipt));
     }

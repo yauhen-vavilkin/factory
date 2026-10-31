@@ -31,5 +31,4 @@ public class FeedbackDecisionPolicy implements HitlDecisionPolicy {
         authorized.set(new Authorization(review,decision));
         try { action.run(); } finally { authorized.remove(); }
     }
-    void authorize(UUID review, Runnable action) { authorize(review,HitlDecision.APPROVE,action); }
 }

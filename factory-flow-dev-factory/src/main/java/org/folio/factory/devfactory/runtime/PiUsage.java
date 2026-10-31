@@ -88,13 +88,11 @@ final class PiUsage {
     }
 
     Map<String, Object> snapshot() {
-        Map<String, Object> metrics = new LinkedHashMap<>();
-        if (inputPresent) metrics.put("inputTokens", input);
-        if (cacheReadPresent) metrics.put("cacheReadTokens", cacheRead);
-        if (cacheWritePresent) metrics.put("cacheWriteTokens", cacheWrite);
-        if (outputPresent) metrics.put("outputTokens", output);
+        var tokens = new TokenUsage(inputPresent ? input : null, cacheReadPresent ? cacheRead : null,
+                cacheWritePresent ? cacheWrite : null, null, null, outputPresent ? output : null, null, null,
+                incomplete);
+        Map<String, Object> metrics = new LinkedHashMap<>(tokens.toMetrics());
         if (cost != null) metrics.put("costUsd", cost);
-        if (incomplete) metrics.put("usageIncomplete", true);
         if (ignoredOversizedFrames > 0) {
             metrics.put("ignoredOversizedPiFrameType", "agent_end");
             metrics.put("ignoredOversizedPiFrameCount", ignoredOversizedFrames);

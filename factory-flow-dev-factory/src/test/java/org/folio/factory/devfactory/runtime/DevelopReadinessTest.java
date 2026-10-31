@@ -100,7 +100,7 @@ class DevelopReadinessTest {
         var audit = mock(AuditLog.class);
         var attempt = new InitialCodingAttempt(
                 properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of(),
-                selectedRepository, TaskAttemptPolicy.none(), CodingTranscripts.none());
+                selectedRepository, RecordingTaskAttempts.none().guard(), CodingTranscripts.none());
         var worker = new DevelopWorker(attempt, codec);
 
         assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class);
@@ -192,7 +192,7 @@ class DevelopReadinessTest {
         var audit = mock(AuditLog.class);
         var initialAttempt = new InitialCodingAttempt(
                 properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of(),
-                SelectedRepositoryPreflight.none(), TaskAttemptPolicy.none(), CodingTranscripts.none());
+                SelectedRepositoryPreflight.none(), RecordingTaskAttempts.none().guard(), CodingTranscripts.none());
         var worker = new DevelopWorker(initialAttempt, codec);
         if (retryable) {
             // Repeated worker attempts retain the configured repository and do not add a global -U.
@@ -233,7 +233,7 @@ class DevelopReadinessTest {
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, new FrontmatterCodec(),
                 mock(AuditLog.class), model -> Map.of(),
-                SelectedRepositoryPreflight.none(), TaskAttemptPolicy.none(), CodingTranscripts.none());
+                SelectedRepositoryPreflight.none(), RecordingTaskAttempts.none().guard(), CodingTranscripts.none());
 
         var result = attempt.start(context, request());
 
@@ -278,7 +278,7 @@ class DevelopReadinessTest {
                         Map.of()));
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, codec,
-                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), taskAttempts,
+                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), taskAttempts.guard(),
                 CodingTranscripts.none());
         var worker = new DevelopWorker(attempt, codec);
 
@@ -333,7 +333,7 @@ class DevelopReadinessTest {
                         Map.of()));
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, codec,
-                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), taskAttempts,
+                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), taskAttempts.guard(),
                 CodingTranscripts.none());
         var worker = new DevelopWorker(attempt, codec);
 
@@ -373,7 +373,7 @@ class DevelopReadinessTest {
                 .requireRepositoryReady("repo", request.repository().baseSha());
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, new FrontmatterCodec(),
-                mock(AuditLog.class), model -> Map.of(), selectedRepository, TaskAttemptPolicy.none(),
+                mock(AuditLog.class), model -> Map.of(), selectedRepository, RecordingTaskAttempts.none().guard(),
                 CodingTranscripts.none());
         var readiness = JsonMapper.builder().build().readTree("{\"state\":\"BASELINE_PASSED\"}");
 
@@ -589,7 +589,7 @@ class DevelopReadinessTest {
                         Map.of()));
         var attempt = new InitialCodingAttempt(
                 properties, settings, docker, freezer, coding, codec,
-                audit, model -> Map.of(), SelectedRepositoryPreflight.none(), taskAttempts, transcripts);
+                audit, model -> Map.of(), SelectedRepositoryPreflight.none(), taskAttempts.guard(), transcripts);
         return new TaskHarness(docker, scope, baseline, codingWorkload, freezer, coding,
                 new DevelopWorker(attempt, codec), context);
     }

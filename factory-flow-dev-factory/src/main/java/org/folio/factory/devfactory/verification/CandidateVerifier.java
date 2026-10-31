@@ -8,13 +8,11 @@ import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.runtime.Processes;
-import org.folio.factory.devfactory.tasks.AttemptDeadline;
 
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 
 /** Independent acceptance authority. No coding output or task text supplies executable policy. */
@@ -26,13 +24,12 @@ public class CandidateVerifier {
     private final DockerWorkloads docker;
 
     /**
-     * The source comes from Factory configuration or its authorized PR adapter, never from model output. A
-     * task attempt's deadline bounds the run by its remaining whole-attempt budget.
+     * The source comes from Factory configuration or its authorized PR adapter, never from model output. The
+     * caller bounds the verification command by the time it may still take.
      */
     public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate,
-                                      String sourceUrl, Optional<AttemptDeadline> deadline) {
+                                      String sourceUrl, int timeoutSeconds) {
         var plan = plan(requireRepository(candidate));
-        int timeoutSeconds = stageTimeoutSeconds(deadline);
         // reconstruct checks the Git tree before any command can execute.
         Path source = candidates.reconstruct(sourceUrl, candidate);
         Path exported = null;
@@ -117,13 +114,6 @@ public class CandidateVerifier {
                 exitCode, findings.surefireReportCount(), findings.testCount(), findings.failureCount(),
                 findings.errorCount(), result, safeOutput(findings.output()), failure,
                 findings.failsafeReportCount(), plan.requiredReports(), findings.missingReports());
-    }
-
-    /** min(existing per-operation limit, remaining whole-attempt budget). */
-    private int stageTimeoutSeconds(Optional<AttemptDeadline> deadline) {
-        return deadline
-                .map(budget -> budget.capSeconds(java.time.Clock.systemUTC(), runtime.timeoutSeconds()))
-                .orElse(runtime.timeoutSeconds());
     }
 
     private static String safeOutput(String output) {

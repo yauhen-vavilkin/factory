@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.AccessLevel;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.devfactory.runtime.TokenUsage;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -88,23 +89,19 @@ final class StepUsageSummary {
 
     /** Empty when the event reports no token counts at all. */
     private static Optional<ReportedUsage> reportedUsage(JsonNode detail, String runtimeModel) {
-        var prompt = token(detail, "promptTokens");
-        var completion = token(detail, "completionTokens");
-        var input = token(detail, "inputTokens");
-        var cacheRead = token(detail, "cacheReadTokens");
-        var cacheWrite = token(detail, "cacheWriteTokens");
-        var output = token(detail, "outputTokens");
-        if (prompt == null && completion == null && input == null
-                && cacheRead == null && cacheWrite == null && output == null) {
+        var usage = TokenUsage.from(detail);
+        if (!usage.hasCounts()) {
             return Optional.empty();
         }
         var model = text(detail, "model");
-        return Optional.of(new ReportedUsage(prompt, completion, input, cacheRead, cacheWrite, output,
-                model == null ? runtimeModel : model, detail.path("usageIncomplete").asBoolean(false)));
+        return Optional.of(new ReportedUsage(atLeastZero(usage.promptTokens()), atLeastZero(usage.completionTokens()),
+                atLeastZero(usage.inputTokens()), atLeastZero(usage.cacheReadTokens()),
+                atLeastZero(usage.cacheWriteTokens()), atLeastZero(usage.outputTokens()),
+                model == null ? runtimeModel : model, usage.usageIncomplete()));
     }
 
-    private static Long token(JsonNode detail, String key) {
-        return detail.path(key).isNumber() ? Math.max(0, detail.path(key).asLong(0)) : null;
+    private static Long atLeastZero(Long count) {
+        return count == null ? null : Math.max(0, count);
     }
 
     private static String text(JsonNode detail, String key) {

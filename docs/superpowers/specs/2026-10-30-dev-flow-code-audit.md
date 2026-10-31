@@ -111,16 +111,21 @@ Estimated delta: about -150 main lines, 6 suppressions. Risk: low (compile-check
    (`IntakeWorker:149`, `IntakeResolveWorker:72`, `DecisionGateWorker:58`, `CodingDecisionGateWorker:53`,
    `DevelopContinuationWorker:81`). One `TaskGuard` (or default methods on `TaskAttemptPolicy`):
    `Optional<Stop> stop(executionId, stepId, stage)` and `int capTimeout(executionId, seconds)`.
+   Status (2026-10-31): Done: Share the task guard, git runner, token usage and digest helpers. Every worker now takes `TaskGuard` (one bean) instead of `TaskAttemptPolicy`; `policy()` reaches the rest of the policy. `CandidateVerifier.verify` now takes the already capped timeout instead of a deadline: PR feedback verifies in the same execution and must not inherit the task deadline.
 2. **`Stop(String state, String reason)`** is declared twice (`InitialCodingAttempt:399`, `VerifyWorker:123`)
    and as a bare String in `DeliveryWorker`.
+   Status (2026-10-31): Done: Share the task guard, git runner, token usage and digest helpers.
 3. **Four git wrappers**: `PublicationGit.run` (`-c core.hooksPath=/dev/null -c credential.helper=`),
    `CandidateFreezer.git` (`:110`, `-c core.autocrlf=false`, 180 s), `FeedbackGit.git/command/authentication`
    (`:109-128`, re-wraps `PublicationGit`), `GitBaseRefResolver.run` (`:48`). One `Git` helper with
    environment and timeout.
+   Status (2026-10-31): Done: Share the task guard, git runner, token usage and digest helpers. `DeveloperPreflightProbe.sourceBase` had a fifth copy and uses `Git.run` too (its 4 KB output cap goes; `ls-remote` of one ref prints a line). `CandidateDelivery.deliver` lost its two delegating overloads.
 4. **`DecisionGateWorker` and `CodingDecisionGateWorker`** are the same 60-line shape (parse, required?,
    task run?, recordStop, `gate.open`) parameterised by the gate spec and the predicate.
+   Status (2026-10-31): Done: Share the task guard, git runner, token usage and digest helpers.
 5. **`FeedbackState`**: 25 hand-written accessors (`feedback/FeedbackState.java:73-179`) over package-private
    fields; Lombok `@Getter` on the class removes about 100 lines.
+   Status (2026-10-31): Done: Share the task guard, git runner, token usage and digest helpers. `@Getter @Accessors(fluent = true)` keeps the record-style names, so callers and Jackson see the same class; `FeedbackStateTest` pins today's JSON byte for byte.
 6. **Token usage** is a `Map<String, Object>` with string keys produced by `ClaudeCodeProtocol.addUsage/metrics`
    (`:349-383`) and `PiUsage`, extended by `InitialCodingAttempt.withFactoryTokenMetrics` (`:358-367`), and
    re-parsed by `StepUsageSummary.reportedUsage` (`:90-104`), `AttemptCharge.calculate` (`:40-58`),
@@ -129,8 +134,10 @@ Estimated delta: about -150 main lines, 6 suppressions. Risk: low (compile-check
    `TokenUsage` record (input, cacheRead, cacheWrite5m, cacheWrite1h, output, complete) serialised with the
    same JSON names replaces six parsers; `AttemptUsageSummary.Totals`, `ChargeSum`, `TaskUsage`,
    `StepUsageSummary.ReportedUsage` and `DeveloperCostEstimator.Usage` all model "count per category".
+   Status (2026-10-31): Done: Share the task guard, git runner, token usage and digest helpers. `TokenUsage` also carries the reported `promptTokens`/`completionTokens` (Test Factory steps report only those); `TokenUsage.withFactoryTotals(map)` is the old `withFactoryTokenMetrics`. Claude metrics now list token keys in `TokenUsage` order (input, cache, output) instead of Claude's; names and values are unchanged. `AttemptUsageSummary.Totals`, `ChargeSum`, `TaskUsage` and `DeveloperCostEstimator.Usage` stay: they are sums and prices, not parsers.
 7. **SHA-256 hex** helper in four in-scope places: `app/tasks/Digests:17-24`, `candidate/Candidate:23`,
    `decision/CodingDecisionArtifacts:90`, `decision/DecisionArtifacts:128`.
+   Status (2026-10-31): Done: Share the task guard, git runner, token usage and digest helpers. `Digests` is gone; the task fingerprints call `Candidate.sha256`.
 
 Estimated delta: about -250 main lines. Risk: low to medium; item 1 touches stop wording that
 `TaskOutcomeService` and tests read, so wording stays identical.

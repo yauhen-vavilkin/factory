@@ -1,7 +1,7 @@
 package org.folio.factory.devfactory.candidate;
 
 import lombok.extern.slf4j.Slf4j;
-import org.folio.factory.devfactory.runtime.Processes;
+import org.folio.factory.devfactory.runtime.Git;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -9,7 +9,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -105,10 +104,7 @@ public class CandidateFreezer {
         return tracked;
     }
     public static String git(Path directory, String... args) {
-        var command = new java.util.ArrayList<>(
-                List.of("git", "-c", "core.hooksPath=/dev/null", "-c", "core.autocrlf=false"));
-        command.addAll(List.of(args));
-        return Processes.run(directory, command, 180, Map.of(), Processes.OUTPUT_LIMIT, null).requireSuccess().output();
+        return Git.run(directory, Map.of(), Git.TIMEOUT_SECONDS, args).requireSuccess().output();
     }
     public static Path temporary(String prefix) {
         try { return Files.createTempDirectory(prefix); }

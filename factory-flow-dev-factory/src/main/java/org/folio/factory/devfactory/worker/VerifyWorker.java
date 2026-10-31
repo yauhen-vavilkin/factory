@@ -6,12 +6,12 @@ import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
-import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
-import org.folio.factory.devfactory.tasks.TaskStops;
+import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.tasks.Stop;
+import org.folio.factory.devfactory.tasks.TaskGuard;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -24,7 +24,8 @@ public class VerifyWorker implements AgentWorker {
 
     private final CandidateVerifier verifier;
     private final DevFactoryProperties repositories;
-    private final TaskAttemptPolicy taskPolicy;
+    private final DevRuntimeProperties runtime;
+    private final TaskGuard taskGuard;
     private final JsonMapper json = JsonMapper.builder().build();
 
     @Override
@@ -47,12 +48,13 @@ public class VerifyWorker implements AgentWorker {
                     RESULT, json.writeValueAsString(outcome)), Map.of());
         }
         Candidate candidate = json.readValue(content, Candidate.class);
-        Stop guard = taskStop(context);
-        if (guard != null) {
-            return stopped(guard);
+        var stop = taskGuard.stop(context.executionId(), context.stepId(), "verification");
+        if (stop.isPresent()) {
+            return stopped(stop.get());
         }
         var receipt = verifier.verify(context.executionId(), context.stepId(), candidate,
-                repositories.sourceUrl(candidate.repository()), taskPolicy.deadline(context.executionId()));
+                repositories.sourceUrl(candidate.repository()),
+                taskGuard.capTimeout(context.executionId(), runtime.timeoutSeconds()));
         Map<String, Object> outcome = new LinkedHashMap<>();
         outcome.put("state", receipt.result().equals("PASS") ? "VERIFIED" : "VERIFICATION_FAILED");
         outcome.put("repository", candidate.repository());
@@ -79,31 +81,6 @@ public class VerifyWorker implements AgentWorker {
                 RESULT, json.writeValueAsString(outcome)), Map.of());
     }
 
-    /** A stopped, expired or no-longer-owned task attempt must not verify again. */
-    private Stop taskStop(AgentContext context) {
-        if (taskPolicy.find(context.executionId()).isEmpty()) {
-            return null;
-        }
-        if (!taskPolicy.ownsActiveSlot(context.executionId())) {
-            return stop(context, TaskStops.INSPECTION_STATE,
-                    "the task attempt no longer owns the installation's active slot;"
-                            + " a stopped, superseded or released attempt must not continue");
-        }
-        var expired = taskPolicy.deadline(context.executionId())
-                .filter(deadline -> deadline.expired(Clock.systemUTC()));
-        if (expired.isPresent()) {
-            return stop(context, TaskStops.DEADLINE_STATE,
-                    "the whole-attempt deadline expired before verification;"
-                            + " queue and human-review waiting are excluded from the budget");
-        }
-        return null;
-    }
-
-    private Stop stop(AgentContext context, String state, String reason) {
-        taskPolicy.recordStop(context.executionId(), context.stepId(), reason);
-        return new Stop(state, reason);
-    }
-
     private AgentResult stopped(Stop stop) {
         Map<String, Object> skipped = new LinkedHashMap<>();
         skipped.put("state", "NOT_RUN");
@@ -115,5 +92,4 @@ public class VerifyWorker implements AgentWorker {
                 RESULT, json.writeValueAsString(outcome)), Map.of());
     }
 
-    private record Stop(String state, String reason) {}
 }

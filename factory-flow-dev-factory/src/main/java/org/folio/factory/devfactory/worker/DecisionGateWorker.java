@@ -8,10 +8,9 @@ import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.registry.model.HitlGateSpec;
 import org.folio.factory.devfactory.decision.ConditionalDecisionGate;
 import org.folio.factory.devfactory.decision.DecisionArtifacts;
-import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskGuard;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Pauses the execution for review only when intake recorded a required decision.
@@ -33,7 +32,7 @@ public class DecisionGateWorker implements AgentWorker {
 
     private final ConditionalDecisionGate gate;
     private final FrontmatterCodec codec;
-    private final TaskAttemptPolicy taskPolicy;
+    private final TaskGuard taskGuard;
 
     @Override
     public String id() {
@@ -43,14 +42,8 @@ public class DecisionGateWorker implements AgentWorker {
     @Override
     public AgentResult execute(AgentContext context) {
         var request = DecisionArtifacts.parseRequest(codec, context.requireInput(DecisionArtifacts.REQUEST).content());
-        boolean required = request.required();
-        boolean taskRun = taskPolicy.find(context.executionId()).isPresent();
-        if (required && taskRun) {
-            taskPolicy.recordStop(context.executionId(), context.stepId(),
-                    "repository selection requires a human choice; a task attempt stops instead of waiting"
-                            + " for review");
-        }
-        boolean opened = required && !taskRun && gate.open(context, GATE);
-        return new AgentResult(Map.of(), Map.of("decisionRequired", required, "reviewOpened", opened));
+        return DecisionGates.openOrStop(context, gate, GATE, request.required(),
+                () -> "repository selection requires a human choice; a task attempt stops instead of waiting"
+                        + " for review", taskGuard);
     }
 }

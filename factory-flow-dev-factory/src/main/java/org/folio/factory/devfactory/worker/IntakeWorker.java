@@ -16,7 +16,7 @@ import org.folio.factory.devfactory.decision.DecisionArtifacts.Answer;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Option;
 import org.folio.factory.devfactory.decision.DecisionArtifacts.Request;
 import org.folio.factory.devfactory.intake.IssueSnapshot;
-import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskGuard;
 import org.folio.factory.devfactory.tasks.TaskExecutionContext;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.springframework.web.client.HttpClientErrorException;
@@ -53,7 +53,7 @@ public class IntakeWorker implements AgentWorker {
     private final FrontmatterCodec codec;
     private final CodingRuntime runtime;
     private final AuditLog audit;
-    private final TaskAttemptPolicy taskPolicy;
+    private final TaskGuard taskGuard;
 
     @Override
     public String id() {
@@ -62,7 +62,7 @@ public class IntakeWorker implements AgentWorker {
 
     @Override
     public AgentResult execute(AgentContext context) {
-        Optional<TaskExecutionContext> taskRun = taskPolicy.find(context.executionId());
+        Optional<TaskExecutionContext> taskRun = taskGuard.policy().find(context.executionId());
         recordRuntimeConfiguration(context, taskRun.map(TaskExecutionContext::runSettings).orElse(null));
         if (taskRun.isPresent()) {
             return taskOutcome(context, taskRun.get());
@@ -139,7 +139,7 @@ public class IntakeWorker implements AgentWorker {
     }
 
     private AgentResult stop(AgentContext context, AgentResult result, String reason) {
-        taskPolicy.recordStop(context.executionId(), context.stepId(), reason);
+        taskGuard.recordStop(context.executionId(), context.stepId(), reason);
         return result;
     }
 

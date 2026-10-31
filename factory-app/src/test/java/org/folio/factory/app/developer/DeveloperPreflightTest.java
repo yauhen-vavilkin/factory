@@ -55,6 +55,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskGuard;
+import java.time.Clock;
 
 class DeveloperPreflightTest {
 
@@ -484,7 +486,8 @@ class DeveloperPreflightTest {
         var payload = JSON.readTree("{\"issueKey\":\"TASK-1\"}");
         assertThatCode(() -> service().requireReady("dev-factory", payload)).doesNotThrowAnyException();
         var codec = new FrontmatterCodec();
-        var intake = new IntakeWorker(jira, new RepositoryPolicy(repositories), codec, coding, mock(AuditLog.class), TaskAttemptPolicy.none());
+        var intake = new IntakeWorker(jira, new RepositoryPolicy(repositories), codec, coding, mock(AuditLog.class),
+                new TaskGuard(TaskAttemptPolicy.none(), Clock.systemUTC()));
         var result = intake.execute(new AgentContext(UUID.randomUUID(),
                 "read-task", Map.of(), payload, Map.of(), List.of()));
         var decision = DecisionArtifacts.parseRequest(codec, result.outputs().get(DecisionArtifacts.REQUEST));
