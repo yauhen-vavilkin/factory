@@ -54,6 +54,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 
 class DeveloperPreflightTest {
 
@@ -93,7 +94,6 @@ class DeveloperPreflightTest {
 
     @AfterEach
     void neverInvokesCoding() {
-        verify(coding, never()).code(any(), any(), anyInt());
         verify(coding, never()).code(any(), any(), anyInt(), any(), any());
     }
 
@@ -484,7 +484,7 @@ class DeveloperPreflightTest {
         var payload = JSON.readTree("{\"issueKey\":\"TASK-1\"}");
         assertThatCode(() -> service().requireReady("dev-factory", payload)).doesNotThrowAnyException();
         var codec = new FrontmatterCodec();
-        var intake = new IntakeWorker(jira, new RepositoryPolicy(repositories), codec, coding, mock(AuditLog.class));
+        var intake = new IntakeWorker(jira, new RepositoryPolicy(repositories), codec, coding, mock(AuditLog.class), TaskAttemptPolicy.none());
         var result = intake.execute(new AgentContext(UUID.randomUUID(),
                 "read-task", Map.of(), payload, Map.of(), List.of()));
         var decision = DecisionArtifacts.parseRequest(codec, result.outputs().get(DecisionArtifacts.REQUEST));

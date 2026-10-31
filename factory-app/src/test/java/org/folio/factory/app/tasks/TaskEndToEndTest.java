@@ -94,6 +94,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.isNull;
 
 /**
  * The full deterministic M1 scenario in one Spring context against real
@@ -714,7 +715,7 @@ class TaskEndToEndTest {
         when(scope.createSeeded(anyString(), any(), anyString(), eq("verification"))).thenReturn(verification);
         when(baseline.execute(anyList(), anyInt(), anyInt(), any()))
                 .thenReturn(new Processes.Result(0, "[INFO] BUILD SUCCESS"));
-        when(verification.execute(anyList(), anyInt()))
+        when(verification.execute(anyList(), anyInt(), eq(Processes.OUTPUT_LIMIT), isNull()))
                 .thenReturn(new Processes.Result(0, "[INFO] BUILD SUCCESS"));
         when(baseline.name()).thenReturn("stub-baseline");
         when(codingWorkload.name()).thenReturn("stub-coding");

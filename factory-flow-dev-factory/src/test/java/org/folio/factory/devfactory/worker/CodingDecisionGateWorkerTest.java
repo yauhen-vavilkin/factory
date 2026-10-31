@@ -17,6 +17,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 
 class CodingDecisionGateWorkerTest {
     private final JsonMapper json = JsonMapper.builder().build();
@@ -28,7 +29,7 @@ class CodingDecisionGateWorkerTest {
                 Map.of()));
         when(gate.open(context, CodingDecisionGateWorker.GATE)).thenReturn(true);
 
-        assertThat(new CodingDecisionGateWorker(gate).execute(context).metrics())
+        assertThat(new CodingDecisionGateWorker(gate, TaskAttemptPolicy.none()).execute(context).metrics())
                 .containsEntry("decisionRequired", true).containsEntry("reviewOpened", true);
         verify(gate).open(context, CodingDecisionGateWorker.GATE);
     }
@@ -37,7 +38,7 @@ class CodingDecisionGateWorkerTest {
         ConditionalDecisionGate gate = mock(ConditionalDecisionGate.class);
         var context = context(CodingOutcome.completed("Done", Map.of()));
 
-        assertThat(new CodingDecisionGateWorker(gate).execute(context).metrics())
+        assertThat(new CodingDecisionGateWorker(gate, TaskAttemptPolicy.none()).execute(context).metrics())
                 .containsEntry("decisionRequired", false).containsEntry("reviewOpened", false);
         verify(gate, never()).open(context, CodingDecisionGateWorker.GATE);
     }

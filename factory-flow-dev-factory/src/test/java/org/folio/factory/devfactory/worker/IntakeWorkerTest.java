@@ -22,6 +22,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 
 class IntakeWorkerTest {
     @Test void recordsOnlyDisplayIdentityBeforeReadingJiraEvenWhenIntakeFails() {
@@ -30,7 +31,7 @@ class IntakeWorkerTest {
         var coding = new DevRuntimeProperties.Pi("coding-image", "provider", "model", "https://private.example",
                 "openai-completions", "secret-key", null, null, null);
         var worker = new IntakeWorker(jira, mock(RepositoryPolicy.class), new FrontmatterCodec(),
-                new PiCodingRuntime(coding), audit);
+                new PiCodingRuntime(coding), audit, TaskAttemptPolicy.none());
         var context = new AgentContext(UUID.randomUUID(), "read-task", Map.of(),
                 JsonMapper.builder().build().readTree("{\"issueKey\":\"TASK-1\"}"), Map.of(), List.of());
         when(jira.getIssue("TASK-1")).thenThrow(new IllegalStateException("Jira unavailable"));

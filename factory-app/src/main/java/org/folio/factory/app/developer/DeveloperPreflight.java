@@ -118,7 +118,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
             throw new IllegalArgumentException("Developer Flow preflight failed: a valid Jira issueKey is required.");
         }
 
-        Report report = check(issueKey, false);
+        Report report = report(issueKey, false);
         if (!report.ready()) {
             if (report.checks().stream().filter(check -> check.status() == Status.FAIL)
                     .allMatch(check -> TASK_CHECKS.contains(check.name()))) {
@@ -163,11 +163,11 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     }
 
     public Report check(String requestedIssue) {
-        return check(requestedIssue, true);
+        return report(requestedIssue, true);
     }
 
     /** A trigger needs only the checks of its own run; the page also lists every run profile. */
-    private Report check(String requestedIssue, boolean listProfiles) {
+    private Report report(String requestedIssue, boolean listProfiles) {
         String issueKey = requestedIssue == null ? "" : requestedIssue;
         List<Check> checks = new ArrayList<>();
         checkRuntime(checks);
@@ -449,12 +449,8 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         } else {
             DevRuntimeProperties.Pi profile = settings.coding().pi();
             identity.put("authentication", safeAuthentication(profile.authentication(), false));
-            if (profile.api() != null) {
-                identity.put("api", profile.api());
-            }
-            if (profile.maxOutputTokens() != null) {
-                identity.put("maxOutputTokens", profile.maxOutputTokens());
-            }
+            identity.put("api", profile.api());
+            identity.put("maxOutputTokens", profile.maxOutputTokens());
         }
         addEndpointOrigin(identity);
         return Map.copyOf(identity);

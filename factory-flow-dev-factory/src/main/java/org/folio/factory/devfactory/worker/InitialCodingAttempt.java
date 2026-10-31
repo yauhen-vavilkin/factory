@@ -234,7 +234,7 @@ public final class InitialCodingAttempt {
         if (stop.isPresent()) {
             return failedAttempt(stop.get(), state);
         }
-        var candidate = freezer.freeze(run.repositoryKey(), run.url(), run.baseSha(), state.exported);
+        var candidate = freezer.freeze(run.repositoryKey(), run.url(), run.baseSha(), state.exported, false);
         return attempt(run.request(), outcome, json.writeValueAsString(candidate), state,
                 CodingDecisionArtifacts.Request.none());
     }

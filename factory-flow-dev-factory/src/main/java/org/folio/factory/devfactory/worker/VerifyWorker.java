@@ -1,8 +1,10 @@
 package org.folio.factory.devfactory.worker;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
+import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 import org.folio.factory.devfactory.tasks.TaskStops;
@@ -14,23 +16,16 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** Persists Factory's independent observation of the exact frozen candidate. */
+@RequiredArgsConstructor
 public class VerifyWorker implements AgentWorker {
     public static final String ID = "dev-verify";
     public static final String RECEIPT = "dev_verification.json";
     public static final String RESULT = "dev_result.json";
 
     private final CandidateVerifier verifier;
+    private final DevFactoryProperties repositories;
     private final TaskAttemptPolicy taskPolicy;
     private final JsonMapper json = JsonMapper.builder().build();
-
-    public VerifyWorker(CandidateVerifier verifier) {
-        this(verifier, TaskAttemptPolicy.none());
-    }
-
-    public VerifyWorker(CandidateVerifier verifier, TaskAttemptPolicy taskPolicy) {
-        this.verifier = verifier;
-        this.taskPolicy = taskPolicy;
-    }
 
     @Override
     public String id() {
@@ -57,7 +52,7 @@ public class VerifyWorker implements AgentWorker {
             return stopped(guard);
         }
         var receipt = verifier.verify(context.executionId(), context.stepId(), candidate,
-                taskPolicy.deadline(context.executionId()));
+                repositories.sourceUrl(candidate.repository()), taskPolicy.deadline(context.executionId()));
         Map<String, Object> outcome = new LinkedHashMap<>();
         outcome.put("state", receipt.result().equals("PASS") ? "VERIFIED" : "VERIFICATION_FAILED");
         outcome.put("repository", candidate.repository());

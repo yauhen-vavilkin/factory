@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.util.List;
 import java.util.UUID;
 import static org.assertj.core.api.Assertions.*;
+import java.util.Map;
 
 class DockerWorkloadsTest {
     private final UUID executionId = UUID.randomUUID();
@@ -36,7 +37,7 @@ class DockerWorkloadsTest {
     @org.junit.jupiter.api.AfterEach
     void removeFixtureVolume() {
         if ("true".equals(System.getenv("FACTORY_DOCKER_TEST")))
-            Processes.run(null, List.of("docker", "volume", "rm", fixtureVolume), 30);
+            Processes.run(null, List.of("docker", "volume", "rm", fixtureVolume), 30, Map.of(), Processes.OUTPUT_LIMIT, null);
     }
 
     @TempDir Path source;
@@ -76,13 +77,13 @@ class DockerWorkloadsTest {
                 source, fixtureVolume, "coding")) {
             name = workload.name();
             assertThatThrownBy(() -> workload.export(exported)).hasMessageContaining("Stop");
-            assertThat(workload.execute(List.of("sh", "-c", "test ! -e /var/run/docker.sock && test -z \"$GH_TOKEN$GITHUB_TOKEN$JIRA_API_TOKEN\" && test -f /workspace/source.txt && printf changed > /workspace/source.txt && mkdir target && printf generated > new-source.txt"), 30).exitCode()).isZero();
+            assertThat(workload.execute(List.of("sh", "-c", "test ! -e /var/run/docker.sock && test -z \"$GH_TOKEN$GITHUB_TOKEN$JIRA_API_TOKEN\" && test -f /workspace/source.txt && printf changed > /workspace/source.txt && mkdir target && printf generated > new-source.txt"), 30, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
             workload.stop();
             workload.export(exported);
             assertThat(Files.readString(exported.resolve("source.txt"))).isEqualTo("changed");
             assertThat(Files.readString(exported.resolve("new-source.txt"))).isEqualTo("generated");
         }
-        assertThat(Processes.run(null, List.of("docker", "inspect", name), 30).exitCode()).isNotZero();
+        assertThat(Processes.run(null, List.of("docker", "inspect", name), 30, Map.of(), Processes.OUTPUT_LIMIT, null).exitCode()).isNotZero();
     }
 
     @Test @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
@@ -96,22 +97,22 @@ class DockerWorkloadsTest {
             Processes.run(null, List.of("docker", "create", "--name", (String) entry[0],
                     "--label", "factory.dev-owned=true", "--label", "factory.dev-execution=" + entry[1],
                     "--label", "factory.dev-step=" + STEP, "--entrypoint", "/bin/sh", image,
-                    "-c", "sleep infinity"), 30).requireSuccess();
+                    "-c", "sleep infinity"), 30, Map.of(), Processes.OUTPUT_LIMIT, null).requireSuccess();
         }
         try {
-            assertThat(Processes.run(null, List.of("docker", "start", old), 30).exitCode()).isZero();
+            assertThat(Processes.run(null, List.of("docker", "start", old), 30, Map.of(), Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
             try (var scope = scope()) {
-                assertThat(Processes.run(null, List.of("docker", "inspect", old), 30).exitCode()).isNotZero();
-                assertThat(Processes.run(null, List.of("docker", "inspect", other), 30).exitCode()).isZero();
+                assertThat(Processes.run(null, List.of("docker", "inspect", old), 30, Map.of(), Processes.OUTPUT_LIMIT, null).exitCode()).isNotZero();
+                assertThat(Processes.run(null, List.of("docker", "inspect", other), 30, Map.of(), Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
                 try (var replacement = scope.createSeeded(image, source, fixtureVolume, "coding")) {
                     assertThat(Processes.run(null, List.of("docker", "inspect", "-f",
-                            "{{index .Config.Labels \"factory.dev-execution\"}}", replacement.name()), 30)
+                            "{{index .Config.Labels \"factory.dev-execution\"}}", replacement.name()), 30, Map.of(), Processes.OUTPUT_LIMIT, null)
                             .output().strip()).isEqualTo(executionId.toString());
                 }
             }
         } finally {
-            Processes.run(null, List.of("docker", "rm", "--force", old), 30);
-            Processes.run(null, List.of("docker", "rm", "--force", other), 30);
+            Processes.run(null, List.of("docker", "rm", "--force", old), 30, Map.of(), Processes.OUTPUT_LIMIT, null);
+            Processes.run(null, List.of("docker", "rm", "--force", other), 30, Map.of(), Processes.OUTPUT_LIMIT, null);
         }
     }
 
@@ -130,11 +131,11 @@ class DockerWorkloadsTest {
         try (var scope = scope();
              var workload = scope.createSeeded("maven:3.9-eclipse-temurin-21", source, fixtureVolume, "coding")) {
             String name = workload.name();
-            assertThatThrownBy(() -> workload.execute(List.of("sh", "-c", "sleep 30"), 2))
+            assertThatThrownBy(() -> workload.execute(List.of("sh", "-c", "sleep 30"), 2, Processes.OUTPUT_LIMIT, null))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("exceeded 2 seconds");
             // Killing the docker exec client did not stop the owned workload.
             assertThat(Processes.run(null, List.of("docker", "inspect", "-f",
-                    "{{.State.Running}}", name), 30).output().strip()).isEqualTo("true");
+                    "{{.State.Running}}", name), 30, Map.of(), Processes.OUTPUT_LIMIT, null).output().strip()).isEqualTo("true");
         }
         new DockerWorkloads().cleanOwned(executionId, STEP);
     }
@@ -150,13 +151,13 @@ class DockerWorkloadsTest {
             assertThatThrownBy(() -> docker.cleanOwned(executionId, STEP))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("still active");
             assertThat(Processes.run(null, List.of("docker", "inspect", "-f",
-                    "{{.State.Running}}", name), 30).output().strip()).isEqualTo("true");
+                    "{{.State.Running}}", name), 30, Map.of(), Processes.OUTPUT_LIMIT, null).output().strip()).isEqualTo("true");
         } finally {
             workload.close();
             scope.close();
         }
         new DockerWorkloads().cleanOwned(executionId, STEP);
-        assertThat(Processes.run(null, List.of("docker", "inspect", name), 30).exitCode()).isNotZero();
+        assertThat(Processes.run(null, List.of("docker", "inspect", name), 30, Map.of(), Processes.OUTPUT_LIMIT, null).exitCode()).isNotZero();
     }
 
     @Test @EnabledIfEnvironmentVariable(named = "FACTORY_DOCKER_TEST", matches = "true")
@@ -169,23 +170,23 @@ class DockerWorkloadsTest {
             Processes.run(null, List.of("docker", "create", "--name", stray,
                     "--label", "factory.dev-owned=true", "--label", "factory.dev-execution=" + executionId,
                     "--label", "factory.dev-step=pr-feedback-" + UUID.randomUUID(),
-                    "--entrypoint", "/bin/sh", image, "-c", "sleep infinity"), 30).requireSuccess();
+                    "--entrypoint", "/bin/sh", image, "-c", "sleep infinity"), 30, Map.of(), Processes.OUTPUT_LIMIT, null).requireSuccess();
             Processes.run(null, List.of("docker", "create", "--name", other,
                     "--label", "factory.dev-owned=true", "--label", "factory.dev-execution=" + otherExecution,
                     "--label", "factory.dev-step=" + STEP,
-                    "--entrypoint", "/bin/sh", image, "-c", "sleep infinity"), 30).requireSuccess();
+                    "--entrypoint", "/bin/sh", image, "-c", "sleep infinity"), 30, Map.of(), Processes.OUTPUT_LIMIT, null).requireSuccess();
 
             new DockerWorkloads().cleanOwnedExecution(executionId);
 
-            assertThat(Processes.run(null, List.of("docker", "inspect", stray), 30).exitCode())
+            assertThat(Processes.run(null, List.of("docker", "inspect", stray), 30, Map.of(), Processes.OUTPUT_LIMIT, null).exitCode())
                     .as("a feedback step id outside the agent chain is still removed")
                     .isNotZero();
-            assertThat(Processes.run(null, List.of("docker", "inspect", other), 30).exitCode())
+            assertThat(Processes.run(null, List.of("docker", "inspect", other), 30, Map.of(), Processes.OUTPUT_LIMIT, null).exitCode())
                     .as("another execution's owned workloads are untouched")
                     .isZero();
         } finally {
-            Processes.run(null, List.of("docker", "rm", "--force", stray), 30);
-            Processes.run(null, List.of("docker", "rm", "--force", other), 30);
+            Processes.run(null, List.of("docker", "rm", "--force", stray), 30, Map.of(), Processes.OUTPUT_LIMIT, null);
+            Processes.run(null, List.of("docker", "rm", "--force", other), 30, Map.of(), Processes.OUTPUT_LIMIT, null);
         }
     }
 
@@ -212,38 +213,38 @@ class DockerWorkloadsTest {
         try (var scope = scope()) {
             try (var baseline = scope.createTrusted(
                     "maven:3.9-eclipse-temurin-21", source, volume)) {
-                assertThat(baseline.execute(List.of("mvn", "-B", "-ntp", "-X", "validate"), 30).output())
+                assertThat(baseline.execute(List.of("mvn", "-B", "-ntp", "-X", "validate"), 30, Processes.OUTPUT_LIMIT, null).output())
                         .contains("Using local repository at /tmp/factory-home/.m2/repository");
                 assertThat(baseline.execute(List.of("mvn", "-B", "-ntp",
                         "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get",
-                        "-Dartifact=org.apache.commons:commons-lang3:3.17.0"), 120).exitCode()).isZero();
+                        "-Dartifact=org.apache.commons:commons-lang3:3.17.0"), 120, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
                 assertThat(baseline.execute(List.of("sh", "-c",
-                        "printf cached > $HOME/.m2/repository/cached.txt"), 30).exitCode()).isZero();
+                        "printf cached > $HOME/.m2/repository/cached.txt"), 30, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
             }
             try (var repeatedBaseline = scope.createTrusted(
                     "maven:3.9-eclipse-temurin-21", source, volume)) {
                 assertThat(repeatedBaseline.execute(List.of("sh", "-c",
-                        "test \"$(cat $HOME/.m2/repository/cached.txt)\" = cached"), 30).exitCode()).isZero();
-                assertThat(repeatedBaseline.execute(OFFLINE_REUSE, 120).exitCode()).isZero();
+                        "test \"$(cat $HOME/.m2/repository/cached.txt)\" = cached"), 30, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
+                assertThat(repeatedBaseline.execute(OFFLINE_REUSE, 120, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
             }
             try (var seeded = scope.createSeeded(
                     "maven:3.9-eclipse-temurin-21", source, volume, "coding")) {
                 // createSeeded returns only after the private copy is complete.
-                assertThat(seeded.execute(List.of("mvn", "-B", "-ntp", "-X", "validate"), 30).output())
+                assertThat(seeded.execute(List.of("mvn", "-B", "-ntp", "-X", "validate"), 30, Processes.OUTPUT_LIMIT, null).output())
                         .contains("Using local repository at /tmp/factory-home/.m2/repository");
-                assertThat(seeded.execute(OFFLINE_REUSE, 120).exitCode()).isZero();
+                assertThat(seeded.execute(OFFLINE_REUSE, 120, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
                 assertThat(seeded.execute(List.of("sh", "-c",
                         "test -f $HOME/.m2/repository/cached.txt "
                                 + "&& printf private > $HOME/.m2/repository/private.txt "
-                                + "&& ! touch /tmp/factory-m2-seed/pi-write"), 30).exitCode()).isZero();
+                                + "&& ! touch /tmp/factory-m2-seed/pi-write"), 30, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
             }
             var persistent = Processes.run(null, List.of("docker", "run", "--rm", "--mount",
                     "type=volume,source=" + volume + ",target=/cache,readonly",
                     "--entrypoint", "sh", "maven:3.9-eclipse-temurin-21", "-c",
-                    "test -f /cache/cached.txt && test ! -e /cache/private.txt && test ! -e /cache/pi-write"), 60);
+                    "test -f /cache/cached.txt && test ! -e /cache/private.txt && test ! -e /cache/pi-write"), 60, Map.of(), Processes.OUTPUT_LIMIT, null);
             assertThat(persistent.exitCode()).isZero();
         } finally {
-            Processes.run(null, List.of("docker", "volume", "rm", volume), 30);
+            Processes.run(null, List.of("docker", "volume", "rm", volume), 30, Map.of(), Processes.OUTPUT_LIMIT, null);
         }
     }
 
@@ -266,41 +267,41 @@ class DockerWorkloadsTest {
                             + "&& printf original > /cache/org/example/dependency/1.0/artifact.pom "
                             + "&& chmod 0000 /cache/org /cache/org/example /cache/org/example/dependency "
                             + "/cache/org/example/dependency/1.0 "
-                            + "&& chmod 0000 /cache/org/example/dependency/1.0/artifact.pom"), 60)
+                            + "&& chmod 0000 /cache/org/example/dependency/1.0/artifact.pom"), 60, Map.of(), Processes.OUTPUT_LIMIT, null)
                     .exitCode()).isZero();
 
             try (var baseline = scope.createTrusted(image, source, volume)) {
                 assertThat(baseline.execute(List.of("sh", "-c",
                         "test \"$(cat $HOME/.m2/repository/org/example/dependency/1.0/artifact.pom)\" = original "
                                 + "&& printf updated > $HOME/.m2/repository/org/example/dependency/1.0/artifact.pom "
-                                + "&& printf nested > $HOME/.m2/repository/org/example/dependency/1.0/new.pom"), 30)
+                                + "&& printf nested > $HOME/.m2/repository/org/example/dependency/1.0/new.pom"), 30, Processes.OUTPUT_LIMIT, null)
                         .exitCode()).isZero();
                 assertThat(baseline.execute(List.of("mvn", "-B", "-ntp",
                         "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get",
-                        "-Dartifact=org.apache.commons:commons-lang3:3.17.0"), 120).exitCode()).isZero();
+                        "-Dartifact=org.apache.commons:commons-lang3:3.17.0"), 120, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
             }
             try (var repeated = scope.createTrusted(image, source, volume)) {
                 assertThat(repeated.execute(List.of("sh", "-c",
                         "test \"$(cat $HOME/.m2/repository/org/example/dependency/1.0/artifact.pom)\" = updated "
-                                + "&& test \"$(cat $HOME/.m2/repository/org/example/dependency/1.0/new.pom)\" = nested"), 30)
+                                + "&& test \"$(cat $HOME/.m2/repository/org/example/dependency/1.0/new.pom)\" = nested"), 30, Processes.OUTPUT_LIMIT, null)
                         .exitCode()).isZero();
-                assertThat(repeated.execute(OFFLINE_REUSE, 120).exitCode()).isZero();
+                assertThat(repeated.execute(OFFLINE_REUSE, 120, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
             }
             try (var seeded = scope.createSeeded(image, source, volume, "coding")) {
                 assertThat(seeded.execute(List.of("sh", "-c",
                         "test \"$(cat $HOME/.m2/repository/org/example/dependency/1.0/artifact.pom)\" = updated "
                                 + "&& printf private > $HOME/.m2/repository/org/example/dependency/1.0/new.pom "
-                                + "&& ! touch /tmp/factory-m2-seed/org/example/dependency/1.0/forbidden"), 30)
+                                + "&& ! touch /tmp/factory-m2-seed/org/example/dependency/1.0/forbidden"), 30, Processes.OUTPUT_LIMIT, null)
                         .exitCode()).isZero();
-                assertThat(seeded.execute(OFFLINE_REUSE, 120).exitCode()).isZero();
+                assertThat(seeded.execute(OFFLINE_REUSE, 120, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
             }
             assertThat(Processes.run(null, List.of("docker", "run", "--rm", "--mount",
                     "type=volume,source=" + volume + ",target=/cache,readonly",
                     "--entrypoint", "sh", image, "-c",
                     "test \"$(cat /cache/org/example/dependency/1.0/new.pom)\" = nested "
-                            + "&& test ! -e /cache/org/example/dependency/1.0/forbidden"), 60).exitCode()).isZero();
+                            + "&& test ! -e /cache/org/example/dependency/1.0/forbidden"), 60, Map.of(), Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
         } finally {
-            Processes.run(null, List.of("docker", "volume", "rm", volume), 30);
+            Processes.run(null, List.of("docker", "volume", "rm", volume), 30, Map.of(), Processes.OUTPUT_LIMIT, null);
         }
     }
 }

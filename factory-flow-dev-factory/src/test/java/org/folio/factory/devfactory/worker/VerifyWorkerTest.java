@@ -3,9 +3,11 @@ package org.folio.factory.devfactory.worker;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.ArtifactContent;
 import org.folio.factory.connectors.github.GitHubConnector;
+import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import org.folio.factory.devfactory.tasks.AttemptDeadline;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.tasks.RecordingTaskAttempts;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
@@ -19,6 +21,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,6 +33,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class VerifyWorkerTest {
+    private static final DevFactoryProperties REPOSITORIES = new DevFactoryProperties("https://github.com",
+            new TreeMap<>(Map.of("source", new DevFactoryProperties.Repository("owner/source", "master", "image",
+                    "unit", List.of("TASK"), List.of(), null))));
+    private static final String SOURCE = "https://github.com/owner/source.git";
     @Test
     void eligibleCandidateFailureExplicitlyDefersRepairAndCannotReachDelivery() {
         var verifier = mock(CandidateVerifier.class);
@@ -43,13 +50,13 @@ class VerifyWorkerTest {
                 candidate.treeSha(), candidate.patchSha256(), "unit", "image", List.of("mvn", "test"),
                 "workload", Instant.EPOCH, Instant.EPOCH.plusSeconds(10), 1, 1, 3, 1, 0, "FAIL",
                 "AssertionFailedError: expected: <ready> but was: <failed>", VerificationFailure.CANDIDATE,
-                0, List.of("target/surefire-reports/TEST-Example.xml"), List.of());
-        when(verifier.verify(execution, "verify", candidate, java.util.Optional.empty())).thenReturn(receipt);
+                0, List.of("surefire"), List.of());
+        when(verifier.verify(execution, "verify", candidate, SOURCE, java.util.Optional.empty())).thenReturn(receipt);
         var context = new AgentContext(execution, "verify", Map.of(DevelopWorker.CANDIDATE,
                 new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json", json.writeValueAsString(candidate))),
                 null, Map.of(), List.of());
 
-        var verification = new VerifyWorker(verifier).execute(context);
+        var verification = new VerifyWorker(verifier, REPOSITORIES, TaskAttemptPolicy.none()).execute(context);
 
         assertThat(receipt.failureKind().repairable()).isTrue();
         assertThat(json.readValue(verification.outputs().get(VerifyWorker.RECEIPT), VerificationReceipt.class))
@@ -66,7 +73,7 @@ class VerifyWorkerTest {
                 new ArtifactContent(VerifyWorker.RESULT, 1, "application/json",
                         verification.outputs().get(VerifyWorker.RESULT))), null, Map.of(), List.of());
         var published = new DeliveryWorker(null, null, delivery, null, null, github, null,
-                null).execute(publishContext);
+                null, TaskAttemptPolicy.none()).execute(publishContext);
 
         assertThat(json.readTree(published.outputs().get(DeliveryWorker.DELIVERY)).path("state").asString())
                 .isEqualTo("NOT_RUN");
@@ -86,12 +93,12 @@ class VerifyWorkerTest {
                 candidate.treeSha(), candidate.patchSha256(), "unit", "image", List.of("mvn", "test"),
                 "workload", Instant.EPOCH, Instant.EPOCH, 1, 0, null, null, null, "FAIL", "No usable test evidence",
                         null, 0, List.of(), List.of());
-        when(verifier.verify(execution, "verify", candidate, java.util.Optional.empty())).thenReturn(receipt);
+        when(verifier.verify(execution, "verify", candidate, SOURCE, java.util.Optional.empty())).thenReturn(receipt);
         var input = new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json", json.writeValueAsString(candidate));
         var context = new AgentContext(execution, "verify", Map.of(DevelopWorker.CANDIDATE, input),
                 null, Map.of(), List.of());
 
-        var result = new VerifyWorker(verifier).execute(context);
+        var result = new VerifyWorker(verifier, REPOSITORIES, TaskAttemptPolicy.none()).execute(context);
 
         assertThat(json.readValue(result.outputs().get(VerifyWorker.RECEIPT), VerificationReceipt.class)).isEqualTo(receipt);
         var outcome = json.readTree(result.outputs().get(VerifyWorker.RESULT));
@@ -112,7 +119,7 @@ class VerifyWorkerTest {
         var context = new AgentContext(UUID.randomUUID(), "verify", Map.of(DevelopWorker.CANDIDATE, candidate),
                 null, Map.of(), List.of());
 
-        var result = new VerifyWorker(verifier).execute(context);
+        var result = new VerifyWorker(verifier, REPOSITORIES, TaskAttemptPolicy.none()).execute(context);
 
         assertThat(result.outputs().get(VerifyWorker.RECEIPT)).contains("NOT_RUN");
         assertThat(result.outputs().get(VerifyWorker.RESULT)).contains("DEVELOPMENT_FAILED", "provider unavailable");
@@ -127,7 +134,7 @@ class VerifyWorkerTest {
         var context = new AgentContext(UUID.randomUUID(), "verify", Map.of(DevelopWorker.CANDIDATE, candidate),
                 null, Map.of(), List.of());
 
-        var result = new VerifyWorker(verifier).execute(context);
+        var result = new VerifyWorker(verifier, REPOSITORIES, TaskAttemptPolicy.none()).execute(context);
 
         assertThat(result.outputs().get(VerifyWorker.RECEIPT)).contains("NOT_RUN");
         assertThat(result.outputs().get(VerifyWorker.RESULT))
@@ -141,7 +148,7 @@ class VerifyWorkerTest {
         taskAttempts.ownsSlot = false;
         var verifier = mock(CandidateVerifier.class);
 
-        var result = new VerifyWorker(verifier, taskAttempts).execute(candidateContext());
+        var result = new VerifyWorker(verifier, REPOSITORIES, taskAttempts).execute(candidateContext());
 
         var outcome = json.readTree(result.outputs().get(VerifyWorker.RESULT));
         assertThat(outcome.path("state").asString()).isEqualTo(TaskStops.INSPECTION_STATE);
@@ -158,7 +165,7 @@ class VerifyWorkerTest {
                 .withDeadline(new AttemptDeadline(Instant.now().minusSeconds(1)));
         var verifier = mock(CandidateVerifier.class);
 
-        var result = new VerifyWorker(verifier, taskAttempts).execute(candidateContext());
+        var result = new VerifyWorker(verifier, REPOSITORIES, taskAttempts).execute(candidateContext());
 
         var outcome = json.readTree(result.outputs().get(VerifyWorker.RESULT));
         assertThat(outcome.path("state").asString()).isEqualTo(TaskStops.DEADLINE_STATE);
@@ -171,17 +178,18 @@ class VerifyWorkerTest {
         var taskAttempts = RecordingTaskAttempts.taskRun("source")
                 .withDeadline(new AttemptDeadline(Instant.now().plusSeconds(45)));
         var verifier = mock(CandidateVerifier.class);
-        when(verifier.verify(eq(executionId()), eq("verify"), any(Candidate.class), any(Optional.class)))
+        when(verifier.verify(eq(executionId()), eq("verify"), any(Candidate.class), eq(SOURCE), any(Optional.class)))
                 .thenReturn(failedReceipt());
 
-        var result = new VerifyWorker(verifier, taskAttempts).execute(candidateContext());
+        var result = new VerifyWorker(verifier, REPOSITORIES, taskAttempts).execute(candidateContext());
 
         assertThat(json.readTree(result.outputs().get(VerifyWorker.RESULT)).path("state").asString())
                 .isEqualTo("VERIFICATION_FAILED");
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Optional<AttemptDeadline>> deadline =
                 (ArgumentCaptor<Optional<AttemptDeadline>>) (ArgumentCaptor<?>) ArgumentCaptor.forClass(Optional.class);
-        verify(verifier).verify(eq(executionId()), eq("verify"), any(Candidate.class), deadline.capture());
+        verify(verifier).verify(eq(executionId()), eq("verify"), any(Candidate.class), eq(SOURCE),
+                deadline.capture());
         assertThat(deadline.getValue()).isPresent();
         assertThat(deadline.getValue().get().remaining(java.time.Clock.systemUTC()).toSeconds())
                 .isLessThan(45);

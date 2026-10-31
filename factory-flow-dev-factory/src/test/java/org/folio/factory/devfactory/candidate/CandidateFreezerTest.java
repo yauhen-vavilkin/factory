@@ -27,7 +27,7 @@ class CandidateFreezerTest {
         Files.writeString(source.resolve("target/noise"), "exclude build output");
         Files.writeString(source.resolve("ignored.secret"), "must not be staged");
         var freezer = new CandidateFreezer();
-        Candidate candidate = freezer.freeze("fixture", source.toString(), base, source);
+        Candidate candidate = freezer.freeze("fixture", source.toString(), base, source, false);
         assertThat(candidate.patch()).contains("GIT binary patch", "deleted file mode", "new mode 100755")
                 .doesNotContain("target/noise", "ignored.secret");
         Path reconstructed = freezer.reconstruct(source.toString(), candidate);
@@ -51,7 +51,7 @@ class CandidateFreezerTest {
         String base = CandidateFreezer.git(source, "rev-parse", "HEAD").strip();
         Files.writeString(source.resolve("ignored.txt"), "generated residue");
 
-        assertThatThrownBy(() -> new CandidateFreezer().freeze("fixture", source.toString(), base, source))
+        assertThatThrownBy(() -> new CandidateFreezer().freeze("fixture", source.toString(), base, source, false))
                 .hasMessageContaining("no changes");
     }
 }

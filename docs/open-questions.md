@@ -53,6 +53,15 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
   "Create pull request" as "Waiting", while the engine status is `COMPLETED`.
 - `dev_coding_outcome.json` keeps the CLI's own cost estimate, which prices unknown models
   at Opus rates ($0.84 where the real GLM cost is $0.32). The UI uses Factory's rate card.
+- The legacy `FACTORY_MODEL_*` and `FACTORY_DEV_FACTORY_CODING_IMAGE` settings were removed on
+  2026-10-31 (Developer Flow cleanup, phase 1). An `.env` that still sets them gets no warning. With
+  the Pi runtime and only legacy values, Pi is "not configured" and preflight says so. With a mix
+  of `FACTORY_PI_*` values and a leftover `FACTORY_MODEL_BASE_URL`, the Pi base URL is now empty and
+  Pi uses its provider's built-in endpoint with the configured key. The local `.env` still has
+  `FACTORY_MODEL_*` lines (runtime `claude-code`); delete them.
+- The same cleanup removed `factory.dev-factory.delivery.targets` and the startup check that
+  refused an old `authorized` delivery key. A private catalog that still has either is now ignored
+  without a message: pull requests go to the entry's `delivery.repository`.
 - `docker-compose.yml` passes environment variables by an explicit list, so a new secret
   variable must be added there too. This includes the `secret-env` variable of every new run
   profile.

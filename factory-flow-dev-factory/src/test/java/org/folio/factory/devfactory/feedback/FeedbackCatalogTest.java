@@ -26,6 +26,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
 import static org.mockito.Mockito.*;
+import org.folio.factory.devfactory.runtime.CodingTranscripts;
 
 /** Catalog delivery destinations decide which pull requests PR feedback may follow. */
 class FeedbackCatalogTest {
@@ -101,7 +102,6 @@ class FeedbackCatalogTest {
             verify(gateway, never()).read(anyString(), anyInt());
             verify(gateway, never()).comments(any());
         }
-        verify(coding, never()).code(any(), any(), anyInt());
         verify(coding, never()).code(any(), any(), anyInt(), any(), any());
         verifyNoInteractions(freezer);
     }
@@ -140,7 +140,7 @@ class FeedbackCatalogTest {
                 mock(FeedbackGit.class),
                 executions,
                 audit,
-                model -> Map.of());
+                model -> Map.of(), CodingTranscripts.none());
     }
 
     private AgentContext context(Map<String, String> saved) {

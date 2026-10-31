@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import java.util.Map;
 
 class ProcessesTest {
     @Test
@@ -107,7 +108,7 @@ class ProcessesTest {
     @Test
     void keepsMachineReadableStdoutSeparateFromDiagnostics() {
         var result = Processes.run(null,
-                List.of("/bin/sh", "-c", "printf 'tree-sha'; printf 'diagnostic' >&2"), 10);
+                List.of("/bin/sh", "-c", "printf 'tree-sha'; printf 'diagnostic' >&2"), 10, Map.of(), Processes.OUTPUT_LIMIT, null);
 
         assertThat(result.exitCode()).isZero();
         assertThat(result.output()).isEqualTo("tree-sha");

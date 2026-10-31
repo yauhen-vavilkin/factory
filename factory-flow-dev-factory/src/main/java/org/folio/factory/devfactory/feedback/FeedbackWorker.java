@@ -46,22 +46,6 @@ public class FeedbackWorker implements AgentWorker {
     private final FeedbackCodingAttempt codingAttempt;
     private final VerificationPolicy verificationPolicy;
 
-    public FeedbackWorker(
-            DevFactoryProperties repositories,
-            DevRuntimeProperties runtime,
-            GitHubProperties github,
-            PrFeedbackGateway gateway,
-            CandidateFreezer freezer,
-            CandidateVerifier verifier,
-            CodingRuntime coding,
-            DockerWorkloads docker,
-            FeedbackGit git,
-            StateManager executions,
-            AuditLog audit,
-            AttemptPricing pricing) {
-        this(repositories, runtime, github, gateway, freezer, verifier, coding, docker, git,
-                executions, audit, pricing, CodingTranscripts.none());
-    }
 
     public FeedbackWorker(
             DevFactoryProperties repositories,
@@ -321,9 +305,8 @@ public class FeedbackWorker implements AgentWorker {
             Map<String, String> outputs,
             String operation) {
         requireHead(state);
-        var receipt =
-                verifier.verify(
-                        context.executionId(), operation, candidate(outputs), source(state));
+        var receipt = verifier.verify(
+                context.executionId(), operation, candidate(outputs), source(state), Optional.empty());
         state.verified(receipt);
         outputs.put(VERIFICATION, JSON.writeValueAsString(receipt));
     }

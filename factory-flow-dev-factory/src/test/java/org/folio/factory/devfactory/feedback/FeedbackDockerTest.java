@@ -42,16 +42,17 @@ class FeedbackDockerTest {
         var coded=new java.util.concurrent.atomic.AtomicReference<CodingRequest>();
         var coding=new CodingRuntime() {
             public String id(){return "scripted-test";} public String image(){return "alpine:3.21";} public void requireConfigured(CodingRequest.RunSettings settings){}
-            public CodingOutcome code(DockerWorkloads.Workload workload,CodingRequest request,int timeout) {
+            public CodingOutcome code(DockerWorkloads.Workload workload,CodingRequest request,int timeout,
+                    java.util.function.Consumer<Map<String,Object>> progress,CodingTranscripts.Sink transcript) {
                 coded.set(request);
-                workload.execute(List.of("/bin/sh","-c","test ! -S /var/run/docker.sock && printf 'corrected\\n' > value.txt"),timeout).requireSuccess();
+                workload.execute(List.of("/bin/sh","-c","test ! -S /var/run/docker.sock && printf 'corrected\\n' > value.txt"),timeout, Processes.OUTPUT_LIMIT, null).requireSuccess();
                 return CodingOutcome.completed("Fixture correction",Map.of());
             }
         };
         var state=mock(StateManager.class);when(state.get(id)).thenReturn(new PipelineExecution("dev-factory",VERSION,null));
         var audit=mock(AuditLog.class);when(audit.forExecution(id)).thenReturn(List.of());
         var worker=new FeedbackWorker(repositories,runtime,new GitHubProperties("",""),gateway,freezer,
-                new CandidateVerifier(repositories,runtime,freezer,docker),coding,docker,new FeedbackGit(freezer),state,audit,model->Map.of());
+                new CandidateVerifier(repositories,runtime,freezer,docker),coding,docker,new FeedbackGit(freezer),state,audit,model->Map.of(), CodingTranscripts.none());
         var settings=new CodingRequest.RunSettings("glm-5.3","max",80,"Keep the public API.");
         var request=new CodingRequest("TEST-1","Correct value","Original task",List.of(),List.of(),List.of(),List.of(),new CodingRequest.RepositoryTarget("fixture","upstream/repo","main",base),null,settings);
         var saved=new LinkedHashMap<>(initial());
@@ -73,10 +74,10 @@ class FeedbackDockerTest {
             // The feedback round runs with the profile, effort, turns and instructions of the task's run.
             assertThat(coded.get().runSettings()).isEqualTo(settings);
             assertThat(CandidateFreezer.git(bare,"rev-parse","feedback").strip()).isEqualTo(result.commitSha).isNotEqualTo(base);
-            assertThat(Processes.run(null,List.of("docker","ps","-aq","--filter","label=factory.dev-execution="+id),30).requireSuccess().output()).isBlank();
+            assertThat(Processes.run(null,List.of("docker","ps","-aq","--filter","label=factory.dev-execution="+id),30, Map.of(), Processes.OUTPUT_LIMIT, null).requireSuccess().output()).isBlank();
         } finally {
             // Explicit test-owned volume; never touches the configured application cache.
-            Processes.run(null,List.of("docker","volume","rm",volume),30);
+            Processes.run(null,List.of("docker","volume","rm",volume),30, Map.of(), Processes.OUTPUT_LIMIT, null);
         }
     }
     AgentContext context(UUID id,Map<String,String> saved) {

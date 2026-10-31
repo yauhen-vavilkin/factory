@@ -53,7 +53,7 @@ class PiCodingHttpContractTest {
                     "a".repeat(40)), CodingRequest.Constraints.defaults(), null);
             try (var scope = new DockerWorkloads().beginStep(java.util.UUID.randomUUID(), "coding-contract");
                  var workload = scope.createSeeded(image, workspace, "factory-dev-m2-cache", "coding")) {
-                assertThat(new PiCodingRuntime(config).code(workload, request, 90).status())
+                assertThat(new PiCodingRuntime(config).code(workload, request, 90, event -> {}, CodingTranscripts.NONE).status())
                         .isEqualTo(CodingOutcome.Status.COMPLETED);
             }
             assertThat(captured.get()).isNotNull();

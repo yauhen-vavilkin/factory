@@ -123,6 +123,6 @@ public class FeedbackGit {
     }
 
     private static Processes.Result command(Path path, Map<String, String> env, String... args) {
-        return PublicationGit.run(path, env, args);
+        return PublicationGit.run(path, env, PublicationGit.DEFAULT_TIMEOUT_SECONDS, args);
     }
 }

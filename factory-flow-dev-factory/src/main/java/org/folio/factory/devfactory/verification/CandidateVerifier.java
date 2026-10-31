@@ -25,25 +25,12 @@ public class CandidateVerifier {
     private final CandidateFreezer candidates;
     private final DockerWorkloads docker;
 
-    public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate) {
-        return verify(executionId, stepId, candidate, Optional.empty());
-    }
-
-    /** Verification bounded by the task attempt's remaining whole-attempt budget. */
+    /**
+     * The source comes from Factory configuration or its authorized PR adapter, never from model output. A
+     * task attempt's deadline bounds the run by its remaining whole-attempt budget.
+     */
     public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate,
-                                      Optional<AttemptDeadline> deadline) {
-        var repository = requireRepository(candidate);
-        return verify(executionId, stepId, candidate,
-                repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git", deadline);
-    }
-
-    /** Source is supplied by Factory's authorized PR adapter, never by model output. */
-    public VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate, String sourceUrl) {
-        return verify(executionId, stepId, candidate, sourceUrl, Optional.empty());
-    }
-
-    private VerificationReceipt verify(UUID executionId, String stepId, Candidate candidate,
-                                       String sourceUrl, Optional<AttemptDeadline> deadline) {
+                                      String sourceUrl, Optional<AttemptDeadline> deadline) {
         var plan = plan(requireRepository(candidate));
         int timeoutSeconds = stageTimeoutSeconds(deadline);
         // reconstruct checks the Git tree before any command can execute.
@@ -84,7 +71,7 @@ public class CandidateVerifier {
         var started = Instant.now();
         Processes.Result observation;
         try {
-            observation = workload.execute(command, timeoutSeconds);
+            observation = workload.execute(command, timeoutSeconds, Processes.OUTPUT_LIMIT, null);
         } catch (IllegalStateException e) {
             // Transport failure has no process exit status. Still preserve available reports.
             observation = new Processes.Result(-1,

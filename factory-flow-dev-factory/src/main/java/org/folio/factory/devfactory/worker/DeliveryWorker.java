@@ -50,18 +50,6 @@ public class DeliveryWorker implements AgentWorker {
     private final TaskAttemptPolicy taskPolicy;
     private final JsonMapper json = JsonMapper.builder().build();
 
-    public DeliveryWorker(
-            DevFactoryProperties repositories,
-            DevRuntimeProperties runtime,
-            CandidateDelivery delivery,
-            GitHubProperties githubProperties,
-            JiraProperties jiraProperties,
-            GitHubConnector github,
-            FrontmatterCodec frontmatter,
-            StateManager executionState) {
-        this(repositories, runtime, delivery, githubProperties, jiraProperties, github,
-                frontmatter, executionState, TaskAttemptPolicy.none());
-    }
 
     public DeliveryWorker(
             DevFactoryProperties repositories,
@@ -96,20 +84,20 @@ public class DeliveryWorker implements AgentWorker {
             return notVerified(context);
         }
         var inputs = readInputs(context, previous);
-        var sourceUrl = sourceUrl(inputs.candidate());
+        var sourceUrl = repositories.sourceUrl(inputs.candidate().repository());
         var stop = taskStop(context);
         if (stop != null) {
-            return blocked(inputs, stop);
+            return blocked(inputs, stop, null);
         }
         var gitTimeoutSeconds = stageTimeoutSeconds(context);
         try {
             return deliver(context, inputs, sourceUrl, gitTimeoutSeconds);
         } catch (DeliveryBlockedException e) {
-            return blocked(inputs, e.getMessage());
+            return blocked(inputs, e.getMessage(), null);
         } catch (HttpClientErrorException e) {
             rethrowIfRetryable(e);
             return blocked(inputs, "GitHub rejected delivery configuration or destination (HTTP "
-                    + e.getStatusCode().value() + ")");
+                    + e.getStatusCode().value() + ")", null);
         }
     }
 
@@ -132,22 +120,14 @@ public class DeliveryWorker implements AgentWorker {
                 issue.path("key").asString(""), issue.path("summary").asString(""));
     }
 
-    private String sourceUrl(Candidate candidate) {
-        var repository = repositories.repositories().get(candidate.repository());
-        if (repository == null) {
-            throw new IllegalStateException("Missing trusted repository: " + candidate.repository());
-        }
-        return repositories.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
-    }
-
     private AgentResult deliver(AgentContext context, Inputs inputs, String sourceUrl, int gitTimeoutSeconds) {
         var candidate = inputs.candidate();
         var target = repositories.requireDelivery(candidate.repository());
         if (!verificationPolicy.matches(candidate, inputs.verification())) {
-            return blocked(inputs, PLAN_CHANGED);
+            return blocked(inputs, PLAN_CHANGED, null);
         }
         if (!githubProperties.isConfigured()) {
-            return blocked(inputs, "FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
+            return blocked(inputs, "FACTORY_CONNECTORS_GITHUB_TOKEN is missing", null);
         }
         var consumedRequest = consumedRequest(context);
         taskPolicy.beforePublication(context.executionId(), consumedRequest, target);
@@ -246,10 +226,6 @@ public class DeliveryWorker implements AgentWorker {
         var result = identity("DELIVERED", inputs.candidate());
         deliveredIdentity(result, receipt);
         return result;
-    }
-
-    private AgentResult blocked(Inputs inputs, String reason) {
-        return blocked(inputs, reason, null);
     }
 
     private AgentResult blocked(Inputs inputs, String reason, DeliveryReceipt receipt) {

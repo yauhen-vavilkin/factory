@@ -29,6 +29,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.isNull;
 
 class ClaudeCodeCodingRuntimeTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
@@ -46,7 +47,7 @@ class ClaudeCodeCodingRuntimeTest {
     @ParameterizedTest
     @ValueSource(strings = {"api-key", "bearer-token"})
     void attemptUsesPrivateCredentialsExactModelAndConfirmedContext(String authentication) throws Exception {
-        var runtime = new ClaudeCodeCodingRuntime(config(authentication));
+        var runtime = runtime(config(authentication));
         var workload = workload();
         var temporary = new AtomicReference<Path>();
         doAnswer(call -> {
@@ -101,7 +102,7 @@ class ClaudeCodeCodingRuntimeTest {
         assertThat(events.toString() + runtime.identity(null) + config(authentication))
                 .doesNotContain("secret-key", "secret-token", "gateway.example");
         assertThat(Files.exists(temporary.get())).isFalse();
-        verify(workload).execute(List.of("rm", "-rf", "/tmp/factory-claude"), 30);
+        verify(workload).execute(List.of("rm", "-rf", "/tmp/factory-claude"), 30, Processes.OUTPUT_LIMIT, null);
         verify(workload, never()).stop(); // Orchestrator must still export partial edits before close.
         verify(workload, never()).close();
     }
@@ -132,7 +133,7 @@ class ClaudeCodeCodingRuntimeTest {
                 base.linkedIssues(), base.acceptanceCriteria(), base.confirmedDecisions(), base.repository(),
                 base.constraints(), settings);
 
-        var outcome = runtime.code(workload, request, 60);
+        var outcome = runtime.code(workload, request, 60, event -> {}, CodingTranscripts.NONE);
 
         assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
         assertThat(runtime.identity(settings)).containsEntry("profile", "glm-5.3")
@@ -164,7 +165,7 @@ class ClaudeCodeCodingRuntimeTest {
     void aBlankDefaultEffortSendsNoEffortAndShowsTheCliDefault() {
         var blank = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway.example/anthropic",
                 "custom/Model-1", "api-key", "secret-key", null, 10, 4096, " ");
-        var runtime = new ClaudeCodeCodingRuntime(blank);
+        var runtime = runtime(blank);
         var workload = workload();
         when(workload.stream(anyList(), eq(60), any(), any())).thenAnswer(call -> {
             List<String> argv = call.getArgument(0);
@@ -172,7 +173,7 @@ class ClaudeCodeCodingRuntimeTest {
             return feed(call.getArgument(3), INIT + RESULT, 0, "");
         });
 
-        assertThat(runtime.code(workload, request(), 60).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(runtime.code(workload, request(), 60, event -> {}, CodingTranscripts.NONE).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
         assertThat(runtime.identity(null)).containsEntry("profile", RunProfiles.ENV_DEFAULT)
                 .containsEntry("effort", "high (CLI default)").containsEntry("maxTurns", 10);
     }
@@ -186,12 +187,12 @@ class ClaudeCodeCodingRuntimeTest {
                     lines.test(assistant("a", 5));
                     throw new IllegalStateException("private request secret-key secret-token");
                 });
-        var outcome = new ClaudeCodeCodingRuntime(config("api-key")).code(workload, request(), 60);
+        var outcome = runtime(config("api-key")).code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
         assertThat(outcome.failure().code()).isEqualTo("RUNTIME_ERROR");
         assertThat(outcome.failure().message()).contains("Check that Docker is running");
         assertThat(outcome.toString()).doesNotContain("secret-key", "secret-token", "private request");
         assertThat(outcome.metrics()).containsEntry("inputTokens", 5L).containsEntry("usageIncomplete", true);
-        verify(workload).execute(List.of("rm", "-rf", "/tmp/factory-claude"), 30);
+        verify(workload).execute(List.of("rm", "-rf", "/tmp/factory-claude"), 30, Processes.OUTPUT_LIMIT, null);
     }
 
     @Test
@@ -200,7 +201,7 @@ class ClaudeCodeCodingRuntimeTest {
         doThrow(new IllegalStateException("Command failed (exit 1): no such container secret-key"))
                 .when(workload).copy(anyString(), eq("/tmp/factory-claude"));
         var transcript = new ArrayList<CodingTranscripts.Entry>();
-        var outcome = new ClaudeCodeCodingRuntime(config("api-key")).code(workload, request(), 60, e -> { },
+        var outcome = runtime(config("api-key")).code(workload, request(), 60, e -> { },
                 transcript::add);
         assertThat(outcome.failure().code()).isEqualTo("RUNTIME_ERROR");
         assertThat(outcome.failure().message()).startsWith("Factory could not prepare or start Claude Code")
@@ -212,8 +213,8 @@ class ClaudeCodeCodingRuntimeTest {
     @Test
     void versionMismatchDoesNotCopyCredentialsOrStartTheCli() {
         var workload = workload();
-        when(workload.execute(List.of("claude", "--version"), 30)).thenReturn(new Processes.Result(0, "other"));
-        var outcome = new ClaudeCodeCodingRuntime(config("api-key")).code(workload, request(), 60);
+        when(workload.execute(List.of("claude", "--version"), 30, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "other"));
+        var outcome = runtime(config("api-key")).code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
         assertThat(outcome.failure().code()).isEqualTo("RUNTIME_VERSION");
         assertThat(outcome.failure().message()).contains("Claude Code " + ClaudeCodeCodingRuntime.VERSION,
                 "Build the coding image again");
@@ -233,7 +234,7 @@ class ClaudeCodeCodingRuntimeTest {
             }
             return new Processes.Streamed(137, false, false, "", false);
         });
-        var outcome = new ClaudeCodeCodingRuntime(config("api-key")).code(workload, request(), 60);
+        var outcome = runtime(config("api-key")).code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
         assertThat(answers).containsExactly(true, false);
         assertThat(outcome.failure().code()).isEqualTo("MALFORMED_FRAME");
         assertThat(outcome.failure().message()).contains("not a valid event", "Retry the task");
@@ -244,7 +245,7 @@ class ClaudeCodeCodingRuntimeTest {
         var workload = workload();
         when(workload.stream(anyList(), eq(60), any(), any()))
                 .thenReturn(new Processes.Streamed(0, false, false, "", true));
-        var outcome = new ClaudeCodeCodingRuntime(config("api-key")).code(workload, request(), 60);
+        var outcome = runtime(config("api-key")).code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
         assertThat(outcome.failure().code()).isEqualTo("OUTPUT_UNREAD");
         assertThat(outcome.failure().message()).contains("could not finish reading its output", "Retry the task");
     }
@@ -257,13 +258,13 @@ class ClaudeCodeCodingRuntimeTest {
                     feed(call.getArgument(3), INIT, -1, "");
                     return new Processes.Streamed(-1, true, false, "", false);
                 });
-        var timedOut = new ClaudeCodeCodingRuntime(config("api-key")).code(workload, request(), 1800);
+        var timedOut = runtime(config("api-key")).code(workload, request(), 1800, event -> {}, CodingTranscripts.NONE);
         assertThat(timedOut.failure().code()).isEqualTo("TIME_LIMIT");
         assertThat(timedOut.failure().message()).contains("time limit of 30 minutes", "Retry with a lower effort");
 
         when(workload.stream(anyList(), eq(60), any(), any()))
                 .thenReturn(new Processes.Streamed(137, false, true, "", false));
-        var oversized = new ClaudeCodeCodingRuntime(config("api-key")).code(workload, request(), 60);
+        var oversized = runtime(config("api-key")).code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
         assertThat(oversized.failure().code()).isEqualTo("FRAME_TOO_LARGE");
         assertThat(oversized.failure().message()).contains("larger than 8 MB", "Retry the task");
     }
@@ -285,7 +286,7 @@ class ClaudeCodeCodingRuntimeTest {
     @Test
     void terminalUsageReplacesIntermediateSnapshotsAndLongRunsKeepEveryActivityEvent() {
         var events = new ArrayList<Map<String, Object>>();
-        var protocol = new ClaudeCodeProtocol("custom/Model-1", s -> s.replace("secret-key", "[REDACTED]"), events::add);
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 0, s -> s.replace("secret-key", "[REDACTED]"), events::add, CodingTranscripts.NONE);
         protocol.accept(INIT);
         protocol.accept(assistant("a", 10));
         protocol.accept(assistant("a", 12));
@@ -367,7 +368,7 @@ class ClaudeCodeCodingRuntimeTest {
         protocol.accept(INIT);
         protocol.accept("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"boom\"}]}}");
         assertThat(protocol.failed()).isTrue();
-        var outcome = protocol.outcome(0);
+        var outcome = finish(protocol);
         assertThat(outcome.failure().code()).isEqualTo("PARSER_ERROR");
         assertThat(outcome.failure().message()).contains("IllegalArgumentException", "Retry the task")
                 .doesNotContain("private");
@@ -379,7 +380,7 @@ class ClaudeCodeCodingRuntimeTest {
                 e -> { throw new IllegalStateException("lease lost"); },
                 entry -> { throw new IllegalStateException("database down"); });
         (INIT + TOOL_USE + TOOL_RESULT + RESULT).lines().forEach(protocol);
-        assertThat(protocol.outcome(0).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(finish(protocol).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
     }
 
     @Test
@@ -388,7 +389,7 @@ class ClaudeCodeCodingRuntimeTest {
         var protocol = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s,
                 e -> { throw new IllegalStateException("database down"); }, transcript::add);
         (INIT + TOOL_USE + TOOL_RESULT + RESULT).lines().forEach(protocol);
-        assertThat(protocol.outcome(0).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(finish(protocol).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
         assertThat(transcript).filteredOn(entry -> entry.kind().equals("note"))
                 .extracting(entry -> entry.detail().get("text"))
                 .containsExactly("Some activity events could not be saved, so the activity log and this"
@@ -409,7 +410,7 @@ class ClaudeCodeCodingRuntimeTest {
                 {"type":"assistant","message":{"id":"m1","content":[{"type":"redacted_thinking","data":"HIDDEN_REASONING_SENTINEL"}]}}
                 {"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"I will run the tests secret-key"}]}}
                 """ + TOOL_USE + TOOL_RESULT + RESULT).lines().forEach(protocol);
-        assertThat(protocol.outcome(0).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(finish(protocol).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
 
         assertThat(transcript).extracting(CodingTranscripts.Entry::kind)
                 .containsExactly("prompt", "text", "tool_call", "tool_result", "result");
@@ -444,7 +445,7 @@ class ClaudeCodeCodingRuntimeTest {
             protocol.accept("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"" + text + "\"}]}}");
         protocol.accept(TOOL_USE);
         protocol.accept(RESULT);
-        assertThat(protocol.outcome(0).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(finish(protocol).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
         assertThat(transcript.getLast().kind()).isEqualTo("note");
         assertThat(transcript.getLast().detail()).containsEntry("text", "Transcript cut at 5 MB; the attempt went on.");
         assertThat(transcript.stream().filter(entry -> entry.kind().equals("note")).count()).isEqualTo(1);
@@ -556,7 +557,7 @@ class ClaudeCodeCodingRuntimeTest {
     @Test
     void cacheTtlCountersSurviveTerminalReplacementWithoutDoubleCounting() {
         ObjectNode terminalResult = resultWithCacheTtl(1L, 1L);
-        var protocol = new ClaudeCodeProtocol("custom/Model-1", text -> text, event -> {});
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 0, text -> text, event -> {}, CodingTranscripts.NONE);
         protocol.accept(INIT);
         protocol.accept("""
                 {"type":"assistant","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":5,
@@ -568,14 +569,14 @@ class ClaudeCodeCodingRuntimeTest {
 
         protocol.accept(terminalResult.toString());
 
-        assertThat(protocol.outcome(0).metrics()).containsEntry("cacheWriteTokens", 2L)
+        assertThat(finish(protocol).metrics()).containsEntry("cacheWriteTokens", 2L)
                 .containsEntry("cacheWrite5mTokens", 1L).containsEntry("cacheWrite1hTokens", 1L)
                 .doesNotContainKey("usageIncomplete");
     }
 
     @Test
     void terminalUsageDoesNotInheritCacheTtlFromIntermediateMessages() {
-        var protocol = new ClaudeCodeProtocol("custom/Model-1", text -> text, event -> {});
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 0, text -> text, event -> {}, CodingTranscripts.NONE);
         protocol.accept(INIT);
         protocol.accept("""
                 {"type":"assistant","message":{"id":"a","usage":{"input_tokens":40,"output_tokens":5,
@@ -584,7 +585,7 @@ class ClaudeCodeCodingRuntimeTest {
 
         protocol.accept(RESULT);
 
-        assertThat(protocol.outcome(0).metrics())
+        assertThat(finish(protocol).metrics())
                 .containsEntry("cacheWriteTokens", 2L)
                 .doesNotContainKeys("cacheWrite5mTokens", "cacheWrite1hTokens");
     }
@@ -624,7 +625,7 @@ class ClaudeCodeCodingRuntimeTest {
         var protocol = new ClaudeCodeProtocol("custom/Model-1", maxTurns, s -> s.replace("secret-key", "[REDACTED]"),
                 e -> {}, CodingTranscripts.NONE);
         text.lines().forEach(protocol);
-        return protocol.outcome(exitCode);
+        return protocol.outcome(new Processes.Streamed(exitCode, false, false, "", false), 60);
     }
 
     private static Processes.Streamed feed(Predicate<String> lines, String text, int exitCode, String stderr) {
@@ -638,10 +639,19 @@ class ClaudeCodeCodingRuntimeTest {
         return "{\"type\":\"assistant\",\"message\":{\"id\":\"" + id + "\",\"usage\":{\"input_tokens\":" + input + ",\"output_tokens\":2}}}";
     }
 
+    /** The outcome of a CLI run that exited with 0 within its time limit. */
+    static CodingOutcome finish(ClaudeCodeProtocol protocol) {
+        return protocol.outcome(new Processes.Streamed(0, false, false, "", false), 60);
+    }
+
+    static ClaudeCodeCodingRuntime runtime(DevRuntimeProperties.ClaudeCode config) {
+        return new ClaudeCodeCodingRuntime(config, RunProfiles.envOnly(config));
+    }
+
     private static DockerWorkloads.Workload workload() {
         var workload = mock(DockerWorkloads.Workload.class);
-        when(workload.execute(anyList(), eq(30))).thenReturn(new Processes.Result(0, ""));
-        when(workload.execute(List.of("claude", "--version"), 30))
+        when(workload.execute(anyList(), eq(30), eq(Processes.OUTPUT_LIMIT), isNull())).thenReturn(new Processes.Result(0, ""));
+        when(workload.execute(List.of("claude", "--version"), 30, Processes.OUTPUT_LIMIT, null))
                 .thenReturn(new Processes.Result(0, ClaudeCodeCodingRuntime.VERSION + " (Claude Code)"));
         return workload;
     }

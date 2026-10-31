@@ -80,7 +80,7 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
 
         public void requireConfigured() {
             // Built-in API types in the pinned Pi 0.85.1 image (pi-ai KnownApi).
-            if (api == null || !List.of("openai-completions", "openai-responses", "anthropic-messages",
+            if (!List.of("openai-completions", "openai-responses", "anthropic-messages",
                     "mistral-conversations", "azure-openai-responses", "openai-codex-responses",
                     "bedrock-converse-stream", "google-generative-ai", "google-vertex", "pi-messages").contains(api)) {
                 throw new IllegalStateException(
@@ -90,7 +90,7 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
                 throw new IllegalStateException("Pi authentication must be api-key");
             }
             required("pi", image, provider, model, apiKey);
-            if (maxOutputTokens == null || maxOutputTokens <= 0) {
+            if (maxOutputTokens <= 0) {
                 throw new IllegalStateException("Pi max-output-tokens must be positive");
             }
         }

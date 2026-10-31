@@ -91,11 +91,13 @@ move to the full forms.
   `ClaudeCodeCodingRuntime:27-34`, `ClaudeCodeProtocol:50-60`. The short form exists for tests only.
   With `@RequiredArgsConstructor` (house style) each class keeps one constructor and tests pass
   `TaskAttemptPolicy.none()` / `CodingTranscripts.none()` themselves.
+  Status (2026-10-31): Done: Give workers one constructor and operations one signature. `DeliveryWorker` and `FeedbackWorker` keep one hand-written constructor (they build `VerificationPolicy` and the feedback helpers); their `ParameterNumber` suppressions go in phase 4.
 - Overload ladders with one real implementation: `CodingRuntime.code` x3 (`runtime/CodingRuntime.java:27-39`,
   both runtimes implement all three), `Processes.run` x4 (`runtime/Processes.java:50-60`),
   `DockerWorkloads.Workload.execute` x3 (`:207-215`), `CandidateVerifier.verify` x3 public + 1 private
   (`:28-45`; callers use the deadline form at `VerifyWorker:59` and the source form at `FeedbackWorker:330`),
   `PublicationGit.run` x2 (`:18-23`).
+  Status (2026-10-31): Done: Give workers one constructor and operations one signature. `DockerWorkloads` routes its twelve fixed-default `docker` calls through one private `runCommand`. `CandidateVerifier.verify` takes the source URL; `DevFactoryProperties.sourceUrl(key)` builds it for `VerifyWorker` and `DeliveryWorker`. The same commit removed three more delegating overloads found by the acceptance check (`CandidateFreezer.freeze`, `ClaudeCodeProtocol.outcome(int)`, `DeliveryWorker.blocked`). `CandidateDelivery` keeps its package-private fixture constructor: the public one pins the push root to github.com.
 
 Estimated delta: about -150 main lines, 6 suppressions. Risk: low (compile-checked).
 

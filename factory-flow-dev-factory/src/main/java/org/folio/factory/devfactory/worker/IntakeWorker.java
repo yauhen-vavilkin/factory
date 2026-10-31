@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.worker;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.jira.JiraIssue;
@@ -35,6 +36,7 @@ import java.util.Optional;
  * against the current mapping — stops instead of seeding a recommendation or
  * continuing on the re-derived mapping.
  */
+@RequiredArgsConstructor
 public class IntakeWorker implements AgentWorker {
 
     public static final String ID = "dev-intake";
@@ -52,21 +54,6 @@ public class IntakeWorker implements AgentWorker {
     private final CodingRuntime runtime;
     private final AuditLog audit;
     private final TaskAttemptPolicy taskPolicy;
-
-    public IntakeWorker(JiraConnector jira, RepositoryPolicy policy, FrontmatterCodec codec,
-                        CodingRuntime runtime, AuditLog audit) {
-        this(jira, policy, codec, runtime, audit, TaskAttemptPolicy.none());
-    }
-
-    public IntakeWorker(JiraConnector jira, RepositoryPolicy policy, FrontmatterCodec codec,
-                        CodingRuntime runtime, AuditLog audit, TaskAttemptPolicy taskPolicy) {
-        this.jira = jira;
-        this.policy = policy;
-        this.codec = codec;
-        this.runtime = runtime;
-        this.audit = audit;
-        this.taskPolicy = taskPolicy;
-    }
 
     @Override
     public String id() {

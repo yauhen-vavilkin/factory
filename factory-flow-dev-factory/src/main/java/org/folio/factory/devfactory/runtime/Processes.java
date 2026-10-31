@@ -47,16 +47,6 @@ public final class Processes {
             return output + System.lineSeparator() + error;
         }
     }
-    public static Result run(Path directory, List<String> argv, int seconds) {
-        return run(directory, argv, seconds, Map.of());
-    }
-    public static Result run(Path directory, List<String> argv, int seconds, Map<String, String> extraEnvironment) {
-        return run(directory, argv, seconds, extraEnvironment, OUTPUT_LIMIT);
-    }
-    public static Result run(Path directory, List<String> argv, int seconds, Map<String, String> extraEnvironment,
-                             int outputLimit) {
-        return run(directory, argv, seconds, extraEnvironment, outputLimit, null);
-    }
     public static Result run(Path directory, List<String> argv, int seconds, Map<String, String> extraEnvironment,
                              int outputLimit, Consumer<String> stdoutLine) {
         if (outputLimit < 1) {

@@ -10,6 +10,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /** Ignores coding Git metadata and derives every hash in a fresh trusted checkout. */
@@ -30,10 +31,6 @@ public class CandidateFreezer {
             return directory;
         } catch (RuntimeException e) { cleanup(directory); throw e; }
     }
-    public Candidate freeze(String repository, String sourceUrl, String baseSha, Path exported) {
-        return freeze(repository, sourceUrl, baseSha, exported, false);
-    }
-
     /** Follow-up snapshots may intentionally preserve an unchanged tree. */
     public Candidate freeze(String repository, String sourceUrl, String baseSha, Path exported,
             boolean allowUnchanged) {
@@ -111,7 +108,7 @@ public class CandidateFreezer {
         var command = new java.util.ArrayList<>(
                 List.of("git", "-c", "core.hooksPath=/dev/null", "-c", "core.autocrlf=false"));
         command.addAll(List.of(args));
-        return Processes.run(directory, command, 180).requireSuccess().output();
+        return Processes.run(directory, command, 180, Map.of(), Processes.OUTPUT_LIMIT, null).requireSuccess().output();
     }
     public static Path temporary(String prefix) {
         try { return Files.createTempDirectory(prefix); }

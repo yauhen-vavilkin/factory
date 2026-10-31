@@ -63,7 +63,7 @@ class DevRuntimePropertiesTest {
         var config = new DevRuntimeProperties.ClaudeCode(null, "openai-completions", "http://gateway",
                 "model", "api-key", "secret", null, null, null, null);
         var workload = org.mockito.Mockito.mock(DockerWorkloads.Workload.class);
-        assertThatThrownBy(() -> new ClaudeCodeCodingRuntime(config).code(workload, ClaudeCodeCodingRuntimeTest.request(), 30))
+        assertThatThrownBy(() -> ClaudeCodeCodingRuntimeTest.runtime(config).code(workload, ClaudeCodeCodingRuntimeTest.request(), 30, event -> {}, CodingTranscripts.NONE))
                 .hasMessageContaining("api=anthropic-messages");
         org.mockito.Mockito.verifyNoInteractions(workload);
     }

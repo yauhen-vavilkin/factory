@@ -90,7 +90,7 @@ class DevelopReadinessTest {
                     "costUsd", new BigDecimal("0.125"));
             when(coding.code(eq(pi), any(CodingRequest.class), eq(60), any(), any()))
                     .thenReturn(CodingOutcome.completed("Done", usage));
-            when(freezer.freeze(eq("repo"), anyString(), anyString(), any()))
+            when(freezer.freeze(eq("repo"), anyString(), anyString(), any(), eq(false)))
                     .thenReturn(new Candidate("repo", "a".repeat(40),
                             "b".repeat(40), Candidate.sha256("patch"), "patch", "CANDIDATE_UNVERIFIED"));
         }
@@ -293,7 +293,7 @@ class DevelopReadinessTest {
         verify(coding, times(1)).code(any(), any(), anyInt(), any(), any());
         verify(docker, times(2)).beginStep(any(), any());
         verify(freezer, times(2)).checkout(anyString(), anyString());
-        verify(freezer, never()).freeze(anyString(), anyString(), anyString(), any());
+        verify(freezer, never()).freeze(anyString(), anyString(), anyString(), any(), eq(false));
         assertThat(taskAttempts.stops).singleElement().satisfies(stop -> {
             assertThat(stop).startsWith("implement: ");
             assertThat(stop).contains("task attempt");
@@ -399,7 +399,6 @@ class DevelopReadinessTest {
         verifyNoInteractions(freezer);
         verify(scope, never()).createTrusted(anyString(), any(), anyString());
         verify(scope, never()).createSeeded(anyString(), any(), anyString(), anyString());
-        verify(coding, never()).code(any(), any(), anyInt());
         verify(coding, never()).code(any(), any(), anyInt(), any(), any());
     }
 

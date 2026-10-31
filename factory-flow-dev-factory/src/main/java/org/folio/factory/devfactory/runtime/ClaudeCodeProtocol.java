@@ -1,5 +1,7 @@
 package org.folio.factory.devfactory.runtime;
 
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
@@ -22,6 +24,7 @@ import java.util.function.UnaryOperator;
  * activity and the transcript; only a single terminal result can complete an attempt.
  */
 @Slf4j
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class ClaudeCodeProtocol implements Consumer<String> {
     static final int TOOL_RESULT_LIMIT = 8 * 1024;
     static final int TRANSCRIPT_LIMIT = 5 * 1024 * 1024;
@@ -46,19 +49,6 @@ final class ClaudeCodeProtocol implements Consumer<String> {
     private long transcriptSize;
     private boolean transcriptCut;
     private boolean activityLost;
-
-    ClaudeCodeProtocol(String model, UnaryOperator<String> redactor, Consumer<Map<String, Object>> progressListener) {
-        this(model, 0, redactor, progressListener, CodingTranscripts.NONE);
-    }
-
-    ClaudeCodeProtocol(String model, int maxTurns, UnaryOperator<String> redactor,
-                       Consumer<Map<String, Object>> progressListener, CodingTranscripts.Sink transcript) {
-        this.model = model;
-        this.maxTurns = maxTurns;
-        this.redactor = redactor;
-        this.progressListener = progressListener;
-        this.transcript = transcript;
-    }
 
     private record ToolCall(String tool, String summaryKey, String summary, long startedNanos) {
     }
@@ -434,10 +424,6 @@ final class ClaudeCodeProtocol implements Consumer<String> {
                     + " if it happens again, look in the transcript for the tool that returned so much output.");
         }
         return outcome(run.exitCode(), run.stderrTail());
-    }
-
-    CodingOutcome outcome(int exitCode) {
-        return outcome(exitCode, "");
     }
 
     private CodingOutcome outcome(int exitCode, String stderrTail) {

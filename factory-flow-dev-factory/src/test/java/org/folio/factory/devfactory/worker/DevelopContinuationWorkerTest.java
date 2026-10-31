@@ -22,6 +22,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 
 class DevelopContinuationWorkerTest {
     private final FrontmatterCodec codec = new FrontmatterCodec();
@@ -35,7 +36,7 @@ class DevelopContinuationWorkerTest {
         when(develop.retry(any(), any(), any())).thenReturn(new InitialCodingAttempt.Attempt(null, secondOutcome,
                 "{\"state\":\"CANDIDATE_UNVERIFIED\"}", "{\"state\":\"BASELINE_PASSED\"}", "", "", Map.of()));
 
-        var worker = new DevelopContinuationWorker(develop, codec);
+        var worker = new DevelopContinuationWorker(develop, codec, TaskAttemptPolicy.none());
         var result = worker.execute(context(requestArtifact, "Use the public API"));
 
         CodingRequest next = json.readValue(result.outputs().get(IntakeResolveWorker.CODING_REQUEST),
@@ -59,7 +60,7 @@ class DevelopContinuationWorkerTest {
                 "Is this the wrong repository?", List.of(), "Expected module is absent");
         var requestArtifact = CodingDecisionArtifacts.Request.from(decision);
 
-        var result = new DevelopContinuationWorker(develop, codec)
+        var result = new DevelopContinuationWorker(develop, codec, TaskAttemptPolicy.none())
                 .execute(context(requestArtifact, decision, "Use owner/other-repo"));
 
         CodingRequest next = json.readValue(result.outputs().get(IntakeResolveWorker.CODING_REQUEST),
@@ -85,7 +86,7 @@ class DevelopContinuationWorkerTest {
         InitialCodingAttempt develop = mock(InitialCodingAttempt.class);
         var requestArtifact = CodingDecisionArtifacts.Request.from(decision());
 
-        var result = new DevelopContinuationWorker(develop, codec)
+        var result = new DevelopContinuationWorker(develop, codec, TaskAttemptPolicy.none())
                 .execute(context(requestArtifact, CodingDecisionArtifacts.UNANSWERED));
 
         assertThat(json.readValue(result.outputs().get(DevelopWorker.OUTCOME), CodingOutcome.class).status())
@@ -102,7 +103,7 @@ class DevelopContinuationWorkerTest {
         when(develop.retry(any(), any(), any())).thenReturn(new InitialCodingAttempt.Attempt(null, second,
                 "{\"state\":\"NEEDS_DECISION\"}", "{}", "", "", Map.of()));
 
-        var result = new DevelopContinuationWorker(develop, codec)
+        var result = new DevelopContinuationWorker(develop, codec, TaskAttemptPolicy.none())
                 .execute(context(requestArtifact, "Use the public API"));
 
         assertThat(json.readValue(result.outputs().get(DevelopWorker.OUTCOME), CodingOutcome.class).status())

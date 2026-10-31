@@ -70,7 +70,8 @@ public class DeveloperPreflightProbe {
         String branchRef = "refs/heads/" + branch;
         List<String> command = List.of("git", "-c", "credential.helper=", "ls-remote", "--exit-code",
                 gitBaseUrl + "/" + sourceRepo + ".git", branchRef);
-        Processes.Result result = Processes.run(null, command, SOURCE_TIMEOUT_SECONDS, Map.of(), COMMAND_OUTPUT_LIMIT);
+        Processes.Result result = Processes.run(null, command, SOURCE_TIMEOUT_SECONDS, Map.of(),
+                COMMAND_OUTPUT_LIMIT, null);
         if (result.exitCode() != 0) {
             throw new IllegalStateException("Public source base is not readable");
         }
@@ -139,7 +140,7 @@ public class DeveloperPreflightProbe {
     private boolean command(List<String> argv) {
         try {
             Processes.Result result = Processes.run(null, argv, COMMAND_TIMEOUT_SECONDS, Map.of(),
-                    COMMAND_OUTPUT_LIMIT);
+                    COMMAND_OUTPUT_LIMIT, null);
             return result.exitCode() == 0;
         } catch (IllegalStateException e) {
             return false;

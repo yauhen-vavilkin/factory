@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.worker;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
@@ -17,6 +18,7 @@ import java.util.Map;
  * Task executions never wait for a review: a required decision records a stop
  * instead, and intake already keeps ambiguous mappings from reaching this gate.
  */
+@RequiredArgsConstructor
 public class DecisionGateWorker implements AgentWorker {
 
     public static final String ID = "dev-decision-gate";
@@ -32,17 +34,6 @@ public class DecisionGateWorker implements AgentWorker {
     private final ConditionalDecisionGate gate;
     private final FrontmatterCodec codec;
     private final TaskAttemptPolicy taskPolicy;
-
-    public DecisionGateWorker(ConditionalDecisionGate gate, FrontmatterCodec codec) {
-        this(gate, codec, TaskAttemptPolicy.none());
-    }
-
-    public DecisionGateWorker(ConditionalDecisionGate gate, FrontmatterCodec codec,
-                              TaskAttemptPolicy taskPolicy) {
-        this.gate = gate;
-        this.codec = codec;
-        this.taskPolicy = taskPolicy;
-    }
 
     @Override
     public String id() {

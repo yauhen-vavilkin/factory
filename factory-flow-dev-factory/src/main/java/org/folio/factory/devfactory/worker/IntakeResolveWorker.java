@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.worker;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
@@ -28,6 +29,7 @@ import java.util.Map;
  * build environment. Task executions never resolve a required repository
  * decision, so the seeded recommendation cannot be accepted without a human.
  */
+@RequiredArgsConstructor
 public class IntakeResolveWorker implements AgentWorker {
 
     public static final String ID = "dev-intake-resolve";
@@ -41,18 +43,6 @@ public class IntakeResolveWorker implements AgentWorker {
     private final FrontmatterCodec codec;
     private final TaskAttemptPolicy taskPolicy;
     private final JsonMapper json = JsonMapper.builder().build();
-
-    public IntakeResolveWorker(RepositoryPolicy policy, BaseRefResolver baseRefResolver, FrontmatterCodec codec) {
-        this(policy, baseRefResolver, codec, TaskAttemptPolicy.none());
-    }
-
-    public IntakeResolveWorker(RepositoryPolicy policy, BaseRefResolver baseRefResolver, FrontmatterCodec codec,
-                               TaskAttemptPolicy taskPolicy) {
-        this.policy = policy;
-        this.baseRefResolver = baseRefResolver;
-        this.codec = codec;
-        this.taskPolicy = taskPolicy;
-    }
 
     @Override
     public String id() {

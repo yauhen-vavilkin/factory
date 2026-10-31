@@ -3,6 +3,7 @@ package org.folio.factory.devfactory.runtime;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -57,17 +58,17 @@ public class DockerWorkloads {
     }
 
     private void requireNoOwnedContainers(UUID executionId, String stepId) {
-        var remaining = Processes.run(null, ownedFilterCommand(executionId, stepId), 30).requireSuccess();
+        var remaining = runCommand(ownedFilterCommand(executionId, stepId), 30).requireSuccess();
         if (!remaining.output().isBlank()) throw new IllegalStateException("Owned containers remain");
     }
 
     private void reconcile(UUID executionId, String stepId) {
-        var result = Processes.run(null, ownedFilterCommand(executionId, stepId), 30).requireSuccess();
+        var result = runCommand(ownedFilterCommand(executionId, stepId), 30).requireSuccess();
         for (String id : result.output().split("\\R")) {
             if (id.isBlank()) continue;
             if (!id.matches("[a-fA-F0-9]{12,64}")) throw new IllegalStateException("Invalid Docker workload identity");
             log.warn("Removing stale Developer workload {} for execution {} step {}", id, executionId, stepId);
-            Processes.run(null, List.of("docker", "rm", "--force", id), 30).requireSuccess();
+            runCommand(List.of("docker", "rm", "--force", id), 30).requireSuccess();
         }
     }
 
@@ -120,17 +121,17 @@ public class DockerWorkloads {
                             UUID executionId, String stepId, String role) {
         String name = "factory-dev-" + UUID.randomUUID();
         String user = workloadUser(source);
-        Processes.run(null, createCommand(image, name, user, cache, mavenCacheVolume,
+        runCommand(createCommand(image, name, user, cache, mavenCacheVolume,
                 executionId, stepId, role), 120).requireSuccess();
         var workload = new Workload(name);
         try {
-            Processes.run(null, List.of("docker", "start", name), 60).requireSuccess();
+            runCommand(List.of("docker", "start", name), 60).requireSuccess();
             if (cache == MavenCache.READ_ONLY_SEED) seedMavenRepository(name);
             workload.copy(source.resolve(".").toString(), "/workspace");
             // Docker creates WORKDIR as root even when the workload runs as the
             // trusted checkout UID/GID. Allow that user to create build output and
             // new source files at the workspace root; the container remains private.
-            Processes.run(null, List.of("docker", "exec", "--user", "0:0", name,
+            runCommand(List.of("docker", "exec", "--user", "0:0", name,
                     "chmod", "0777", "/workspace"), 30).requireSuccess();
             return workload;
         } catch (RuntimeException e) { workload.close(); throw e; }
@@ -142,7 +143,7 @@ public class DockerWorkloads {
         // Factory-owned Maven volume, before a trusted baseline mounts it writable.
         // The root directory alone is insufficient: cached artifacts and nested
         // directories can belong to a previous UID and block the checkout user.
-        Processes.run(null, List.of("docker", "run", "--rm", "--user", "0:0",
+        runCommand(List.of("docker", "run", "--rm", "--user", "0:0",
                 "--label", "factory.dev-owned=true", "--label", "factory.dev-execution=" + executionId,
                 "--label", "factory.dev-step=" + stepId, "--label", "factory.dev-role=baseline-cache",
                 "--entrypoint", "/bin/sh",
@@ -151,7 +152,7 @@ public class DockerWorkloads {
     }
 
     private static void seedMavenRepository(String name) {
-        Processes.run(null, List.of("docker", "exec", name, "/bin/sh", "-c",
+        runCommand(List.of("docker", "exec", name, "/bin/sh", "-c",
                 "mkdir -p /tmp/factory-home/.m2/repository "
                         + "&& cp -a /tmp/factory-m2-seed/. /tmp/factory-home/.m2/repository/"), 120)
                 .requireSuccess();
@@ -186,6 +187,10 @@ public class DockerWorkloads {
         String startupCommand() { return startupCommand; }
     }
 
+    private static Processes.Result runCommand(List<String> argv, int seconds) {
+        return Processes.run(null, argv, seconds, Map.of(), Processes.OUTPUT_LIMIT, null);
+    }
+
     private static String workloadUser(Path source) {
         try {
             Number uid = (Number) java.nio.file.Files.getAttribute(source, "unix:uid");
@@ -201,20 +206,14 @@ public class DockerWorkloads {
         private Workload(String name) { this.name = name; }
         public String name() { return name; }
         public void copy(String local, String destination) {
-            Processes.run(null, List.of("docker", "cp", local, name + ":" + destination), 120).requireSuccess();
-        }
-        public Processes.Result execute(List<String> argv, int timeout) {
-            return execute(argv, timeout, Processes.OUTPUT_LIMIT);
-        }
-        public Processes.Result execute(List<String> argv, int timeout, int outputLimit) {
-            return execute(argv, timeout, outputLimit, null);
+            runCommand(List.of("docker", "cp", local, name + ":" + destination), 120).requireSuccess();
         }
         public Processes.Result execute(List<String> argv, int timeout, int outputLimit,
                                         java.util.function.Consumer<String> stdoutLine) {
             if (stopped) throw new IllegalStateException("Workload is stopped");
             var command = new ArrayList<>(List.of("docker", "exec", "--workdir", "/workspace", name));
             command.addAll(argv);
-            return Processes.run(null, command, timeout, java.util.Map.of(), outputLimit, stdoutLine);
+            return Processes.run(null, command, timeout, Map.of(), outputLimit, stdoutLine);
         }
         public Processes.Streamed stream(List<String> argv, int timeout,
                                          java.util.function.UnaryOperator<String> redactor,
@@ -225,17 +224,17 @@ public class DockerWorkloads {
             return Processes.stream(null, command, timeout, redactor, stdoutLine);
         }
         public void stop() {
-            if (!stopped) Processes.run(null, List.of("docker", "stop", "--time", "2", name), 30).requireSuccess();
+            if (!stopped) runCommand(List.of("docker", "stop", "--time", "2", name), 30).requireSuccess();
             stopped = true;
         }
         public void export(Path destination) {
             if (!stopped) throw new IllegalStateException("Stop workload before export");
-            Processes.run(null, List.of("docker", "cp", name + ":/workspace/.", destination.toString()), 120)
+            runCommand(List.of("docker", "cp", name + ":/workspace/.", destination.toString()), 120)
                     .requireSuccess();
         }
         @Override public void close() {
             try {
-                Processes.run(null, List.of("docker", "rm", "--force", name), 30).requireSuccess();
+                runCommand(List.of("docker", "rm", "--force", name), 30).requireSuccess();
             } catch (RuntimeException e) {
                 log.warn("Could not remove owned workload {}: {}", name, e.getMessage());
             }

@@ -35,7 +35,7 @@ class CandidateDeliveryTest {
         Files.delete(source.resolve("old.txt"));
         Files.write(source.resolve("binary.dat"), new byte[]{0, 1, (byte)255});
         var freezer = new CandidateFreezer();
-        candidate = freezer.freeze("fixture", source.toString(), base, source);
+        candidate = freezer.freeze("fixture", source.toString(), base, source, false);
         delivery = new CandidateDelivery(freezer, root + "/");
     }
 

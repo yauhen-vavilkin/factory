@@ -290,9 +290,8 @@ checks executed-test counts and rejects failures, errors and entirely skipped
 reports in required families. New and renamed test classes need no Factory
 configuration changes. This policy checks executed report families; it does not
 prove that every test in the source was discovered or detect deleted tests.
-Existing operator catalogs with exact report paths remain supported, but the
-bundled catalog does not depend on test class names. An exit code of zero alone
-is insufficient. Commands and required reports are operator policy, never
+Required reports name a family (`surefire` or `failsafe`), never a test class. An
+exit code of zero alone is insufficient. Commands and required reports are operator policy, never
 supplied by Jira or the coding model.
 
 Compose mounts this catalog read-only. To keep a private operator copy, set

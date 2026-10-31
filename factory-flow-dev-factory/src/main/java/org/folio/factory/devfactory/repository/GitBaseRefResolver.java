@@ -5,6 +5,7 @@ import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.devfactory.runtime.Processes;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -47,7 +48,7 @@ public class GitBaseRefResolver implements BaseRefResolver {
 
     private Processes.Result run(List<String> command) {
         try {
-            return Processes.run(null, command, (int) TIMEOUT_SECONDS);
+            return Processes.run(null, command, (int) TIMEOUT_SECONDS, Map.of(), Processes.OUTPUT_LIMIT, null);
         } catch (RuntimeException e) {
             throw new AgentExecutionException("Could not run git: " + e.getMessage(), e);
         }

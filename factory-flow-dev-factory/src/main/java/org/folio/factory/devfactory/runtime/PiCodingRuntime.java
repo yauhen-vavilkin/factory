@@ -60,23 +60,18 @@ public class PiCodingRuntime implements CodingRuntime {
 
     @Override
     public CodingOutcome code(
-            DockerWorkloads.Workload workload, CodingRequest request, int timeoutSeconds) {
-        return code(workload, request, timeoutSeconds, event -> {});
-    }
-
-    @Override
-    public CodingOutcome code(
             DockerWorkloads.Workload workload,
             CodingRequest request,
             int timeoutSeconds,
-            Consumer<Map<String, Object>> progress) {
+            Consumer<Map<String, Object>> progress,
+            CodingTranscripts.Sink transcript) {
         requireConfigured(request.runSettings());
         request.requireReady();
         requirePiVersion(workload);
         var temporary = CandidateFreezer.temporary("factory-dev-pi-");
         try {
             writeInputs(temporary, request);
-            workload.execute(List.of("mkdir", "-p", PI_DIRECTORY), 30).requireSuccess();
+            workload.execute(List.of("mkdir", "-p", PI_DIRECTORY), 30, Processes.OUTPUT_LIMIT, null).requireSuccess();
             workload.copy(temporary.resolve(".").toString(), PI_DIRECTORY);
             return run(workload, timeoutSeconds, new PiProgress(config.apiKey(), progress));
         } catch (IOException e) {
@@ -87,7 +82,8 @@ public class PiCodingRuntime implements CodingRuntime {
     }
 
     private static void requirePiVersion(DockerWorkloads.Workload workload) {
-        var version = workload.execute(List.of("pi", "--version"), 30).requireSuccess().output().strip();
+        var version = workload.execute(List.of("pi", "--version"), 30, Processes.OUTPUT_LIMIT, null)
+                .requireSuccess().output().strip();
         if (!version.equals(PI_VERSION)) {
             throw new IllegalStateException("Coding image must contain Pi " + PI_VERSION);
         }

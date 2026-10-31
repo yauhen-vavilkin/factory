@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.worker;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
@@ -20,6 +21,7 @@ import java.util.Map;
  * outcome. Task attempts never continue automatically: an explicit retry is a
  * new execution.
  */
+@RequiredArgsConstructor
 public class DevelopContinuationWorker implements AgentWorker {
     public static final String ID = "dev-develop-continuation";
 
@@ -27,17 +29,6 @@ public class DevelopContinuationWorker implements AgentWorker {
     private final FrontmatterCodec codec;
     private final TaskAttemptPolicy taskPolicy;
     private final JsonMapper json = JsonMapper.builder().build();
-
-    public DevelopContinuationWorker(InitialCodingAttempt develop, FrontmatterCodec codec) {
-        this(develop, codec, TaskAttemptPolicy.none());
-    }
-
-    public DevelopContinuationWorker(InitialCodingAttempt develop, FrontmatterCodec codec,
-                                     TaskAttemptPolicy taskPolicy) {
-        this.develop = develop;
-        this.codec = codec;
-        this.taskPolicy = taskPolicy;
-    }
 
     @Override
     public String id() {

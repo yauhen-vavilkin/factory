@@ -163,8 +163,10 @@ public class DevFactoryConfiguration {
 
     @Bean
     public VerifyWorker devVerifyWorker(
-            CandidateVerifier verifier, ObjectProvider<TaskAttemptPolicy> taskPolicy) {
-        return new VerifyWorker(verifier, taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
+            CandidateVerifier verifier,
+            DevFactoryProperties repositories,
+            ObjectProvider<TaskAttemptPolicy> taskPolicy) {
+        return new VerifyWorker(verifier, repositories, taskPolicy.getIfAvailable(TaskAttemptPolicy::none));
     }
 
     @Bean

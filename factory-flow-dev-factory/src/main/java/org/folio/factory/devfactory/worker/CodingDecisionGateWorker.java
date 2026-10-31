@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.worker;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
@@ -18,6 +19,7 @@ import java.util.Map;
  * Task executions stop instead: no review is opened and no continuation is
  * authorized.
  */
+@RequiredArgsConstructor
 public class CodingDecisionGateWorker implements AgentWorker {
     public static final String ID = "dev-coding-decision-gate";
     public static final String GATE_ID = "dev-coding-decision";
@@ -32,15 +34,6 @@ public class CodingDecisionGateWorker implements AgentWorker {
     private final ConditionalDecisionGate gate;
     private final TaskAttemptPolicy taskPolicy;
     private final JsonMapper json = JsonMapper.builder().build();
-
-    public CodingDecisionGateWorker(ConditionalDecisionGate gate) {
-        this(gate, TaskAttemptPolicy.none());
-    }
-
-    public CodingDecisionGateWorker(ConditionalDecisionGate gate, TaskAttemptPolicy taskPolicy) {
-        this.gate = gate;
-        this.taskPolicy = taskPolicy;
-    }
 
     @Override public String id() { return ID; }
 

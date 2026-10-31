@@ -41,6 +41,15 @@ public record DevFactoryProperties(String gitBaseUrl, SortedMap<String, Reposito
         repositories = copy;
     }
 
+    /** Clone URL of a configured repository's source. */
+    public String sourceUrl(String repositoryKey) {
+        var repository = repositories.get(repositoryKey);
+        if (repository == null) {
+            throw new IllegalStateException("Missing trusted repository: " + repositoryKey);
+        }
+        return gitBaseUrl + "/" + repository.sourceRepo() + ".git";
+    }
+
     /** The valid delivery destination of a configured repository. */
     public DeliveryTarget requireDelivery(String repositoryKey) {
         var repository = repositories.get(repositoryKey);

@@ -137,8 +137,8 @@ class PiCodingRuntimeTest {
         var modelsJson = new AtomicReference<String>();
         var command = new AtomicReference<List<String>>();
         var events = new java.util.ArrayList<Map<String, Object>>();
-        when(workload.execute(List.of("pi", "--version"), 30)).thenReturn(new Processes.Result(0, "0.85.1"));
-        when(workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30))
+        when(workload.execute(List.of("pi", "--version"), 30, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "0.85.1"));
+        when(workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30, Processes.OUTPUT_LIMIT, null))
                 .thenReturn(new Processes.Result(0, ""));
         doAnswer(invocation -> {
             modelsJson.set(Files.readString(Path.of((String) invocation.getArgument(0)).resolve("models.json")));
@@ -152,7 +152,7 @@ class PiCodingRuntimeTest {
                             + "\"stopReason\":\"stop\",\"content\":[{\"type\":\"text\",\"text\":\"Done\"}]}}\n"
                             + SETTLED);
                 });
-        assertThat(new PiCodingRuntime(coding).code(workload, request(), 60, events::add).status())
+        assertThat(new PiCodingRuntime(coding).code(workload, request(), 60, events::add, CodingTranscripts.NONE).status())
                 .isEqualTo(CodingOutcome.Status.COMPLETED);
         return new CapturedConfiguration(modelsJson.get(), command.get(), events);
     }
@@ -366,8 +366,8 @@ class PiCodingRuntimeTest {
     @ValueSource(strings = {"timeout", "exit", "provider", "success"})
     void emittedUsageSurvivesRuntimeFailureAndSuccessDoesNotAddItAgain(String outcome) {
         var workload = mock(DockerWorkloads.Workload.class);
-        when(workload.execute(List.of("pi", "--version"), 30)).thenReturn(new Processes.Result(0, "0.85.1"));
-        when(workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30)).thenReturn(new Processes.Result(0, ""));
+        when(workload.execute(List.of("pi", "--version"), 30, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "0.85.1"));
+        when(workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, ""));
         when(workload.execute(anyList(), eq(60), eq(PiCodingRuntime.EVENT_STREAM_LIMIT), any()))
                 .thenAnswer(invocation -> {
                     java.util.function.Consumer<String> observer = invocation.getArgument(3);
@@ -383,14 +383,14 @@ class PiCodingRuntimeTest {
         var runtime = new PiCodingRuntime(new DevRuntimeProperties.Pi("pi:image", "p", "m", null, null, "secret-key",
                 null, null, null));
         if (outcome.equals("success")) {
-            var result = runtime.code(workload, request(), 60, events::add);
+            var result = runtime.code(workload, request(), 60, events::add, CodingTranscripts.NONE);
             assertThat(result.summary()).contains("[REDACTED]").doesNotContain("secret-key");
             assertThat(result.metrics())
                     .containsEntry("inputTokens", 20L)
                     .containsEntry("cacheReadTokens", 4L)
                     .containsEntry("cacheWriteTokens", 2L)
                     .containsEntry("outputTokens", 6L);
-        } else assertThat(runtime.code(workload, request(), 60, events::add).status())
+        } else assertThat(runtime.code(workload, request(), 60, events::add, CodingTranscripts.NONE).status())
                 .isEqualTo(CodingOutcome.Status.FAILED);
         assertThat(events).hasSize(outcome.equals("provider") ? 3 : 2);
         assertThat(events.get(1)).containsEntry("inputTokens", 20L)

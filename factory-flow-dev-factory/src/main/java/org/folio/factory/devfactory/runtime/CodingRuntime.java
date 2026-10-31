@@ -24,17 +24,8 @@ public interface CodingRuntime {
     /** Removes adapter-owned credentials from persisted failures and audit activity. */
     default String redact(String value) { return value; }
 
-    CodingOutcome code(DockerWorkloads.Workload workload, CodingRequest request, int timeoutSeconds);
-
-    default CodingOutcome code(DockerWorkloads.Workload workload, CodingRequest request, int timeoutSeconds,
-                               java.util.function.Consumer<java.util.Map<String, Object>> progress) {
-        return code(workload, request, timeoutSeconds);
-    }
-
     /** Only runtimes that read a conversation stream write a transcript; the others ignore the sink. */
-    default CodingOutcome code(DockerWorkloads.Workload workload, CodingRequest request, int timeoutSeconds,
-                               java.util.function.Consumer<java.util.Map<String, Object>> progress,
-                               CodingTranscripts.Sink transcript) {
-        return code(workload, request, timeoutSeconds, progress);
-    }
+    CodingOutcome code(DockerWorkloads.Workload workload, CodingRequest request, int timeoutSeconds,
+                       java.util.function.Consumer<java.util.Map<String, Object>> progress,
+                       CodingTranscripts.Sink transcript);
 }
