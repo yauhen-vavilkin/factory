@@ -8,10 +8,11 @@ import org.folio.factory.app.tasks.execution.PersistedTaskAttemptPolicy;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.app.tasks.execution.TaskPublicationGuard;
-import org.folio.factory.app.tasks.execution.TaskRecoveryService;
+import org.folio.factory.app.tasks.execution.TaskDispatchPoller;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
+import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.TaskPublicationIntentRepository;
 import org.folio.factory.app.tasks.persistence.Task;
@@ -46,6 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
+import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 
 /**
  * Crash/restart semantics for in-flight task work against real PostgreSQL: a
@@ -60,7 +62,6 @@ import static org.mockito.Mockito.doThrow;
         "factory.limits.dedup.window=PT0S",
         "factory.tasks.execution.enabled=true",
         "factory.tasks.execution.deadline=PT30M",
-        "factory.tasks.execution.recovery-poll-interval-ms=3600000",
         "factory.tasks.execution.dispatch-interval-ms=3600000",
         "factory.tasks.source.assignee=Jane Developer",
         "factory.connectors.jira.base-url=https://jira.example.org",
@@ -127,6 +128,7 @@ class TaskRestartIntegrationTest {
         attempts.deleteAll();
         tasks.deleteAll();
         installations.deleteAll();
+        installations.save(TaskInstallations.seeded());
         org.mockito.Mockito.doNothing().when(docker).cleanOwned(any(), anyString());
     }
 
@@ -145,7 +147,7 @@ class TaskRestartIntegrationTest {
         Instant deadlineAt = attempts.findById(attemptId).orElseThrow().getDeadlineAt();
         assertThat(deadlineAt).isEqualTo(startedAt.plus(Duration.ofMinutes(30)));
 
-        new TaskRecoveryService(installations, outcomes).onStartup();
+        new TaskDispatchPoller(dispatcher).onStartup();
         PersistedTaskAttemptPolicy restartedPolicy = restartedPolicy();
 
         assertThat(restartedPolicy.claimPaidStart(executionId))
@@ -164,7 +166,7 @@ class TaskRestartIntegrationTest {
         assertThat(attempts.count()).isEqualTo(attemptsBefore + 2);
 
         doThrow(new IllegalStateException("docker ps failed")).when(docker).cleanOwned(any(), anyString());
-        new TaskRecoveryService(installations, outcomes).reconcileActive();
+        outcomes.refresh(attemptId);
         assertThat(attempts.findById(attemptId).orElseThrow().getState())
                 .as("a live execution stays queued while the outage only blocks resolution")
                 .isEqualTo(TaskAttempt.State.QUEUED);
@@ -179,7 +181,7 @@ class TaskRestartIntegrationTest {
         assertThat(executions.count()).isEqualTo(executionsBefore + 1);
 
         org.mockito.Mockito.doNothing().when(docker).cleanOwned(any(), anyString());
-        new TaskRecoveryService(installations, outcomes).reconcileActive();
+        outcomes.refresh(attemptId);
         TaskAttempt resolved = attempts.findById(attemptId).orElseThrow();
         assertThat(resolved.getState()).isEqualTo(TaskAttempt.State.STOPPED);
         assertThat(resolved.getStartedAt()).isEqualTo(startedAt);
@@ -202,20 +204,20 @@ class TaskRestartIntegrationTest {
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
         assertThat(attempts.count()).isEqualTo(attemptsBefore + 1);
 
-        new TaskRecoveryService(installations, outcomes).onStartup();
+        new TaskDispatchPoller(dispatcher).onStartup();
         Task task = tasks.findById(taskId).orElseThrow();
 
         var repeat = admissions.runSelected(new TaskCommands.RunSelected("run-90021",
                 List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
-                        TaskAdmissionService.inputFingerprint(task),
-                        TaskAdmissionService.destinationFingerprint(task)))));
+                        TaskAdmissionChecks.inputFingerprint(task),
+                        TaskAdmissionChecks.destinationFingerprint(task)))));
         assertThat(repeat.admittedTaskIds()).containsExactly(taskId);
         assertThat(attempts.count()).isEqualTo(1);
 
         var conflicting = admissions.runSelected(new TaskCommands.RunSelected("run-90021-late",
                 List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
-                        TaskAdmissionService.inputFingerprint(task),
-                        TaskAdmissionService.destinationFingerprint(task)))));
+                        TaskAdmissionChecks.inputFingerprint(task),
+                        TaskAdmissionChecks.destinationFingerprint(task)))));
         assertThat(conflicting.admittedTaskIds()).isEmpty();
         assertThat(conflicting.rejectedReasons().get(taskId)).contains("already has a live admission");
         assertThat(attempts.count()).isEqualTo(attemptsBefore + 1);
@@ -239,7 +241,7 @@ class TaskRestartIntegrationTest {
     }
 
     private void syncReady() {
-        TaskInstallation installation = installations.findById(1).orElseGet(TaskInstallation::initial);
+        TaskInstallation installation = installations.findById(1).orElseThrow();
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
         installations.save(installation);
@@ -252,8 +254,8 @@ class TaskRestartIntegrationTest {
         syncReady();
         var result = admissions.runSelected(new TaskCommands.RunSelected("run-" + issueId,
                 List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
-                        TaskAdmissionService.inputFingerprint(task),
-                        TaskAdmissionService.destinationFingerprint(task)))));
+                        TaskAdmissionChecks.inputFingerprint(task),
+                        TaskAdmissionChecks.destinationFingerprint(task)))));
         assertThat(result.rejectedReasons()).as(String.valueOf(result)).isEmpty();
         return task.getId();
     }

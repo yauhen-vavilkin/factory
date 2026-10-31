@@ -10,6 +10,7 @@ import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
+import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
@@ -78,6 +79,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 
 /**
  * Task executions run the existing Developer Flow end to end against the real
@@ -204,6 +206,7 @@ class TaskAutonomousFlowIntegrationTest {
         attempts.deleteAll();
         tasks.deleteAll();
         installations.deleteAll();
+        installations.save(TaskInstallations.seeded());
         jira.resetAll();
         github.resetAll();
         stubWorkloads();
@@ -433,14 +436,14 @@ class TaskAutonomousFlowIntegrationTest {
         Task task = tasks.save(new Task(INSTANCE, issueId, displayKey, "Title of " + displayKey,
                 "MODBAR", snapshotJson(displayKey), "revision-" + issueId,
                 Task.Eligibility.ELIGIBLE, routingReason));
-        TaskInstallation installation = installations.findById(1).orElseGet(TaskInstallation::initial);
+        TaskInstallation installation = installations.findById(1).orElseThrow();
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
         installations.save(installation);
         var result = admissions.runSelected(new TaskCommands.RunSelected("run-" + issueId,
                 List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
-                        TaskAdmissionService.inputFingerprint(task),
-                        TaskAdmissionService.destinationFingerprint(task)))));
+                        TaskAdmissionChecks.inputFingerprint(task),
+                        TaskAdmissionChecks.destinationFingerprint(task)))));
         assertThat(result.rejectedReasons()).isEmpty();
     }
 

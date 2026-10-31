@@ -1,7 +1,7 @@
 package org.folio.factory.app.tasks.execution;
 
 import org.folio.factory.app.developer.DeveloperPreflight;
-import org.folio.factory.app.tasks.admission.TaskAdmissionService;
+import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 import org.folio.factory.app.tasks.admission.TaskRunSettings;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
@@ -104,7 +104,7 @@ public class TaskExecutionLauncher {
     }
 
     private UUID launchLocked(UUID attemptId, PreparedManualTrigger prepared) {
-        TaskInstallation installation = installations.lockById(1).orElseGet(TaskInstallation::initial);
+        TaskInstallation installation = installations.lockById(1).orElseThrow(TaskInstallation::missing);
         if (installation.getActiveAttemptId() != null && !installation.getActiveAttemptId().equals(attemptId)) {
             return attempts.findById(installation.getActiveAttemptId())
                     .map(TaskAttempt::getExecutionId)
@@ -162,7 +162,7 @@ public class TaskExecutionLauncher {
      */
     private String approvedRetryChange(TaskAttempt attempt, Task task) {
         if (!Objects.equals(attempt.getDestinationFingerprint(),
-                TaskAdmissionService.destinationFingerprint(task))) {
+                TaskAdmissionChecks.destinationFingerprint(task))) {
             return "the approved destination changed after the retry was approved; the approved retry"
                     + " no longer matches; run a fresh explicit Retry";
         }

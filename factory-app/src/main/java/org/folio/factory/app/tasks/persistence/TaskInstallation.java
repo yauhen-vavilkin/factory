@@ -56,8 +56,9 @@ public class TaskInstallation {
         this.updatedAt = this.createdAt;
     }
 
-    public static TaskInstallation initial() {
-        return new TaskInstallation();
+    /** Migration V12 seeds the one installation row; its absence is a broken database, not a fresh start. */
+    public static IllegalStateException missing() {
+        return new IllegalStateException("The My tasks installation row (id 1) is missing; migration V12 creates it");
     }
 
     @PreUpdate

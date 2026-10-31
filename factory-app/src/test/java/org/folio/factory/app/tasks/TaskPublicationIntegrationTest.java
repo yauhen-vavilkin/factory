@@ -13,6 +13,7 @@ import org.folio.factory.app.tasks.execution.TaskPublicationGuard;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
+import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.TaskPublicationIntent;
 import org.folio.factory.app.tasks.persistence.Task;
@@ -88,6 +89,7 @@ import org.folio.factory.devfactory.tasks.TaskGuard;
 import java.time.Clock;
 import org.folio.factory.devfactory.DevFlowSettings;
 import org.folio.factory.devfactory.delivery.DeliveryServices;
+import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 
 /**
  * Publication authority against real PostgreSQL and a mocked GitHub HTTP
@@ -185,6 +187,7 @@ class TaskPublicationIntegrationTest {
         attempts.deleteAll();
         tasks.deleteAll();
         installations.deleteAll();
+        installations.save(TaskInstallations.seeded());
         doNothing().when(docker).cleanOwned(any(), anyString());
     }
 
@@ -467,14 +470,14 @@ class TaskPublicationIntegrationTest {
         Task task = tasks.save(new Task(INSTANCE, issueId, displayKey, "Title of " + displayKey,
                 "MODSIDECAR", "{\"key\": \"" + displayKey + "\", \"summary\": \"Task\"}",
                 "revision-" + issueId, Task.Eligibility.ELIGIBLE, "repository sidecar"));
-        TaskInstallation installation = installations.findById(1).orElseGet(TaskInstallation::initial);
+        TaskInstallation installation = installations.findById(1).orElseThrow();
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
         installations.save(installation);
         var result = admissions.runSelected(new TaskCommands.RunSelected("run-" + issueId,
                 List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
-                        TaskAdmissionService.inputFingerprint(task),
-                        TaskAdmissionService.destinationFingerprint(task)))));
+                        TaskAdmissionChecks.inputFingerprint(task),
+                        TaskAdmissionChecks.destinationFingerprint(task)))));
         assertThat(result.rejectedReasons()).isEmpty();
         return dispatcher.dispatchNext().orElseThrow();
     }

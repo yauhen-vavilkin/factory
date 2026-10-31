@@ -4,6 +4,7 @@ import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
+import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
@@ -183,7 +184,7 @@ class TaskPersistenceIntegrationTest {
             TaskAttempt attempt = attempt(taskId, 1, TaskAttempt.State.QUEUED, "req-rollback");
             attempt.setExecutionId(executionId);
             attempts.save(attempt);
-            TaskInstallation installation = installations.findById(1).orElseGet(TaskInstallation::initial);
+            TaskInstallation installation = installations.findById(1).orElseThrow();
             installation.setActiveAttemptId(attempt.getId());
             installations.save(installation);
             throw new IllegalStateException("simulated crash after binding");
@@ -201,7 +202,7 @@ class TaskPersistenceIntegrationTest {
 
     @Test
     void migrationSeedsTheSingleInstallationAndScanIsAlwaysAvailable() {
-        TaskInstallation initial = TaskInstallation.initial();
+        TaskInstallation initial = TaskInstallations.seeded();
 
         assertThat(installations.findById(1)).isPresent();
         assertThat(initial.getId()).isEqualTo(1);

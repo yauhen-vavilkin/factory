@@ -2,7 +2,7 @@ package org.folio.factory.app.tasks.execution;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.folio.factory.app.tasks.admission.TaskAdmissionService;
+import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskRoutingReason;
@@ -70,7 +70,7 @@ public class TaskPublicationGuard {
         if (task.getEligibility() != Task.Eligibility.ELIGIBLE) {
             throw blocked("the task is no longer eligible");
         }
-        if (!attempt.getDestinationFingerprint().equals(TaskAdmissionService.destinationFingerprint(task))) {
+        if (!attempt.getDestinationFingerprint().equals(TaskAdmissionChecks.destinationFingerprint(task))) {
             throw blocked("the task's destination routing changed after admission");
         }
         if (destination == null) {

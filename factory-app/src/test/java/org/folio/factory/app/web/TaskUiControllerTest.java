@@ -2,13 +2,13 @@ package org.folio.factory.app.web;
 
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
-import org.folio.factory.app.tasks.admission.TaskRetryService;
 import org.folio.factory.app.tasks.admission.TaskRunSettings;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
+import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
 import org.folio.factory.app.tasks.presentation.TaskRows;
@@ -88,8 +88,6 @@ class TaskUiControllerTest {
     @Mock
     private TaskAdmissionService admissions;
 
-    @Mock
-    private TaskRetryService retries;
 
     @Mock
     private TaskDiscoveryService discovery;
@@ -137,7 +135,7 @@ class TaskUiControllerTest {
                 new DevFactoryProperties.Repository("folio-org/mod-bar", "master", "build:image", "unit",
                         List.of("MODBAR"), List.of(), new DeliveryTarget("folio-org/mod-bar", null)))));
         var rows = new TaskRows(new TaskSourceProperties("Jane Developer"), jira, repositories);
-        var controller = new TaskUiController(taskQuery, installations, attempts, admissions, retries,
+        var controller = new TaskUiController(taskQuery, installations, attempts, admissions,
                 discovery, dispatcher, outcomes, rows, flows, runSettings);
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new UiExceptionHandler())
@@ -147,7 +145,7 @@ class TaskUiControllerTest {
                 new FlowDescriptor("dev-factory", "Developer Flow", "1.0.0", null, null, null, null, null)));
         lenient().when(jira.baseUrl()).thenReturn("https://jira.example.org");
         lenient().when(jira.current()).thenReturn("jira.example.org");
-        lenient().when(installations.findById(1)).thenReturn(Optional.of(TaskInstallation.initial()));
+        lenient().when(installations.findById(1)).thenReturn(Optional.of(TaskInstallations.seeded()));
         lenient().when(attempts.findLatestUpdate()).thenReturn(Optional.empty());
     }
 
@@ -197,7 +195,7 @@ class TaskUiControllerTest {
         assertThat(runForm).containsEntry("profile", "env-default").containsEntry("effort", "")
                 .containsEntry("maxTurns", 40).containsEntry("maxTurnsLimit", 500);
         assertThat(rows(runForm, "profiles")).extracting(row -> row.get("id")).containsExactly("env-default", "glm-5.3");
-        verifyNoInteractions(admissions, retries, discovery, outcomes);
+        verifyNoInteractions(admissions, discovery, outcomes);
         verify(dispatcher, never()).dispatchNext();
         verify(dispatcher, never()).dispatchNextQuietly();
     }
@@ -271,7 +269,7 @@ class TaskUiControllerTest {
         TaskView held = taskView(TASK_ID, "MODBAR-921", "Open", TaskView.TaskState.PROCESSING_PAUSED,
                 false, false, attempt("NEEDS_INSPECTION", "BY_KEY"));
         when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), held));
-        TaskInstallation installation = TaskInstallation.initial();
+        TaskInstallation installation = TaskInstallations.seeded();
         installation.setActiveAttemptId(ATTEMPT_ID);
         when(installations.findById(1)).thenReturn(Optional.of(installation));
         TaskAttempt attempt = new TaskAttempt(TASK_ID, 1, TaskAttempt.Kind.INITIAL, "run#1",
@@ -446,7 +444,7 @@ class TaskUiControllerTest {
         assertThat(rows(result.getModelAndView().getModel(), "attempts"))
                 .extracting(row -> row.get("label"))
                 .containsExactly("1 · first run", "2 · first run by key");
-        verifyNoInteractions(admissions, retries, discovery, outcomes);
+        verifyNoInteractions(admissions, discovery, outcomes);
         verify(dispatcher, never()).dispatchNext();
         verify(dispatcher, never()).dispatchNextQuietly();
     }
@@ -489,7 +487,7 @@ class TaskUiControllerTest {
         mvc.perform(get("/tasks/poll"))
                 .andExpect(status().isOk());
 
-        verifyNoInteractions(admissions, retries, discovery, outcomes);
+        verifyNoInteractions(admissions, discovery, outcomes);
         verify(dispatcher, never()).dispatchNext();
         verify(dispatcher, never()).dispatchNextQuietly();
     }
@@ -685,8 +683,7 @@ class TaskUiControllerTest {
 
     @Test
     void retry_fromTheFlowPageReturnsThere() throws Exception {
-        when(retries.retry(any())).thenReturn(new TaskRetryService.RetryResult(
-                ATTEMPT_ID, null, "RESERVED", "the retry joined the queue"));
+        when(admissions.retry(any())).thenReturn(new TaskAdmissionService.RetryResult(ATTEMPT_ID, null, TaskAttempt.State.RESERVED, "the retry joined the queue", false));
 
         mvc.perform(post("/tasks/{taskId}/retry", TASK_ID)
                         .param("expectedVersion", "3")
@@ -697,7 +694,7 @@ class TaskUiControllerTest {
                 .andExpect(redirectedUrl(FLOW_PAGE))
                 .andExpect(flash().attribute("message", "Retry queued: the retry joined the queue"));
 
-        verify(retries).retry(retryCaptor.capture());
+        verify(admissions).retry(retryCaptor.capture());
         TaskCommands.Retry command = retryCaptor.getValue();
         assertThat(command.taskId()).isEqualTo(TASK_ID);
         assertThat(command.expectedVersion()).isEqualTo(3L);
@@ -708,8 +705,7 @@ class TaskUiControllerTest {
 
     @Test
     void retry_carriesProfileEffortTurnsAndInstructions() throws Exception {
-        when(retries.retry(any())).thenReturn(new TaskRetryService.RetryResult(
-                ATTEMPT_ID, null, "RESERVED", "the retry joined the queue"));
+        when(admissions.retry(any())).thenReturn(new TaskAdmissionService.RetryResult(ATTEMPT_ID, null, TaskAttempt.State.RESERVED, "the retry joined the queue", false));
 
         mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "3")
                         .param("profileId", "glm-5.3").param("effort", "max").param("maxTurns", "150")
@@ -717,7 +713,7 @@ class TaskUiControllerTest {
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/tasks/" + TASK_ID));
 
-        verify(retries).retry(retryCaptor.capture());
+        verify(admissions).retry(retryCaptor.capture());
         assertThat(TaskRunSettings.settings(retryCaptor.getValue().runSettings())).isEqualTo(
                 new CodingRequest.RunSettings("glm-5.3", "max", 150, "Read the ADR through the wiki REST URL."));
     }
@@ -733,13 +729,12 @@ class TaskUiControllerTest {
                 java.nio.charset.StandardCharsets.UTF_8))
                 .startsWith("/tasks/" + TASK_ID + "?error=")
                 .contains("at most 8000 characters; this text has 8001");
-        verifyNoInteractions(retries);
+        verify(admissions, never()).retry(any());
     }
 
     @Test
     void retry_refusalReturnsToTheTaskSummary() throws Exception {
-        when(retries.retry(any())).thenReturn(new TaskRetryService.RetryResult(
-                null, null, "STOPPED", "Your GitHub token cannot push to folio-org/mod-bar"));
+        when(admissions.retry(any())).thenReturn(new TaskAdmissionService.RetryResult(null, null, TaskAttempt.State.STOPPED, "Your GitHub token cannot push to folio-org/mod-bar", false));
 
         MvcResult result = mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "1"))
                 .andExpect(status().is3xxRedirection())
@@ -752,8 +747,7 @@ class TaskUiControllerTest {
 
     @Test
     void retry_refusedWhileTheTaskIsQueuedIsNotShownAsQueued() throws Exception {
-        when(retries.retry(any())).thenReturn(new TaskRetryService.RetryResult(
-                ATTEMPT_ID, null, "RESERVED", "task already has a live attempt", true));
+        when(admissions.retry(any())).thenReturn(new TaskAdmissionService.RetryResult(ATTEMPT_ID, null, TaskAttempt.State.RESERVED, "task already has a live attempt", true));
 
         mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "1").param("returnTo", "flow"))
                 .andExpect(status().is3xxRedirection())

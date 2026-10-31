@@ -11,6 +11,7 @@ import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
+import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
@@ -51,6 +52,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 
 /**
  * Serial dispatch against real PostgreSQL: one queued attempt at a time gets one
@@ -130,6 +132,7 @@ class TaskDispatchIntegrationTest {
         attempts.deleteAll();
         tasks.deleteAll();
         installations.deleteAll();
+        installations.save(TaskInstallations.seeded());
         executions.deleteAll();
     }
 
@@ -298,7 +301,7 @@ class TaskDispatchIntegrationTest {
 
     private TaskDispatcher dispatcherWithRouter(PipelineRouter crashingRouter) {
         var launcher = new TaskExecutionLauncher(crashingRouter, tasks, attempts, installations,
-                new TaskExecutionProperties(null), new RetentionProperties(null, null, null, null),
+                new TaskExecutionProperties(null, false), new RetentionProperties(null, null, null, null),
                 transactionManager);
         return new TaskDispatcher(attempts, installations, launcher,
                 new TaskExecutionProperties(null, false), outcomesProvider());
@@ -326,7 +329,7 @@ class TaskDispatchIntegrationTest {
         Task task = tasks.save(new Task(INSTANCE, issueId, displayKey, "Title of " + displayKey, "MODBAR",
                 "{\"key\": \"" + displayKey + "\"}", "revision-" + issueId,
                 Task.Eligibility.ELIGIBLE, "repository mod-bar"));
-        TaskInstallation installation = installations.findById(1).orElseGet(TaskInstallation::initial);
+        TaskInstallation installation = installations.findById(1).orElseThrow();
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
         installations.save(installation);
@@ -342,6 +345,6 @@ class TaskDispatchIntegrationTest {
 
     private TaskCommands.Selection selectionFor(Task task) {
         return new TaskCommands.Selection(task.getId(), task.getVersion(),
-                TaskAdmissionService.inputFingerprint(task), TaskAdmissionService.destinationFingerprint(task));
+                TaskAdmissionChecks.inputFingerprint(task), TaskAdmissionChecks.destinationFingerprint(task));
     }
 }

@@ -140,17 +140,16 @@ factory:
   tasks:
     execution:
       # Task queue processing: opt-in; new launches are refused while retention is enabled.
-      # Gates the outcome/recovery wiring; the engine itself knows nothing about tasks.
+      # Gates the outcome and dispatch wiring; the engine itself knows nothing about tasks.
       enabled: ${FACTORY_TASKS_EXECUTION_ENABLED:false}
       # Whole-attempt budget from preparation through delivery (forty coding turns
       # and sixty minutes are the M1 defaults; queue and review waiting excluded).
       # The coding-turn cap stays the runtime default of 40
       # (factory.dev-factory.runtime.coding.claude-code.max-turns).
       deadline: ${FACTORY_TASKS_EXECUTION_DEADLINE:60m}
-      recovery-poll-interval-ms: ${FACTORY_TASKS_EXECUTION_RECOVERY_POLL_INTERVAL_MS:60000}
-      # Dispatch poller: retries queued attempts after a refused or failed
-      # dispatch and advances the queue when a terminal outcome frees the slot.
-      # Admission itself also dispatches best-effort; this is the safety net.
+      # Dispatch poller, also run once at startup: re-examines the active attempt, retries
+      # queued attempts after a refused or failed dispatch and advances the queue when a
+      # terminal outcome frees the slot. Admission itself also dispatches best-effort.
       dispatch-interval-ms: ${FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS:30000}
     source:
       # Whose open Jira tasks Scan Jira finds: the name as Jira shows it, or an accountId.

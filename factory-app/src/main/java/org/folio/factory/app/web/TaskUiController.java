@@ -4,7 +4,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
-import org.folio.factory.app.tasks.admission.TaskRetryService;
 import org.folio.factory.app.tasks.admission.TaskRunSettings;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
@@ -60,7 +59,6 @@ public class TaskUiController {
     private final TaskInstallationRepository installations;
     private final TaskAttemptRepository attempts;
     private final TaskAdmissionService admissions;
-    private final TaskRetryService retries;
     private final TaskDiscoveryService discovery;
     private final TaskDispatcher dispatcher;
     private final ObjectProvider<TaskOutcomeService> outcomes;
@@ -199,9 +197,9 @@ public class TaskUiController {
         } catch (IllegalArgumentException e) {
             return UiFormat.errorRedirect(back, e.getMessage());
         }
-        var result = retries.retry(new TaskCommands.Retry("ui-" + UUID.randomUUID(), taskId, expectedVersion,
+        var result = admissions.retry(new TaskCommands.Retry("ui-" + UUID.randomUUID(), taskId, expectedVersion,
                 form.get("inputFingerprint"), form.get("destinationFingerprint"), settings));
-        if (!result.refused() && isLive(result.state())) {
+        if (!result.refused() && result.state() != null && result.state().isInFlight()) {
             redirect.addFlashAttribute("message", "Retry queued: " + result.explanation());
             return "redirect:" + back;
         }
@@ -298,10 +296,6 @@ public class TaskUiController {
         return "redirect:" + FLOW_PAGE;
     }
 
-    private static boolean isLive(String state) {
-        return "RESERVED".equals(state) || "QUEUED".equals(state) || "RUNNING".equals(state);
-    }
-
     private static List<TaskCommands.Selection> selections(List<String> taskIds, Map<String, String> allParams) {
         if (taskIds == null) {
             return List.of();
@@ -331,7 +325,7 @@ public class TaskUiController {
     }
 
     private TaskInstallation installation() {
-        return installations.findById(1).orElseGet(TaskInstallation::initial);
+        return installations.findById(1).orElseThrow(TaskInstallation::missing);
     }
 
     private Map<String, Object> queueWaiting(TaskInstallation installation, List<TaskView> triggered) {

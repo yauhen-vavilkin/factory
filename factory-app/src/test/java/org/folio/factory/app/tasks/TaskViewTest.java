@@ -4,12 +4,12 @@ import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
-import org.folio.factory.app.tasks.admission.TaskRetryService;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
+import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
@@ -51,6 +51,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 
 /**
  * Logical-task projection against real PostgreSQL: every distinct outcome has
@@ -95,8 +96,6 @@ class TaskViewTest {
     @Autowired
     TaskAdmissionService admissions;
 
-    @Autowired
-    TaskRetryService retries;
 
     @Autowired
     TaskDispatcher dispatcher;
@@ -124,8 +123,8 @@ class TaskViewTest {
         attempts.deleteAll();
         tasks.deleteAll();
         installations.deleteAll();
+        installations.save(TaskInstallations.seeded());
         // The migration seeds the single installation row; restore it as installed.
-        installations.save(TaskInstallation.initial());
         doNothing().when(docker).cleanOwned(any(), anyString());
     }
 
@@ -344,9 +343,9 @@ class TaskViewTest {
         outcomes.refresh(first.getId());
 
         Task current = tasks.findById(retried.getId()).orElseThrow();
-        var click = retries.retry(new TaskCommands.Retry("retry-951", current.getId(), current.getVersion(),
-                TaskAdmissionService.inputFingerprint(current),
-                TaskAdmissionService.destinationFingerprint(current)));
+        var click = admissions.retry(new TaskCommands.Retry("retry-951", current.getId(), current.getVersion(),
+                TaskAdmissionChecks.inputFingerprint(current),
+                TaskAdmissionChecks.destinationFingerprint(current)));
         UUID secondExecution = click.executionId();
         assertThat(secondExecution).isNotNull();
         TaskAttempt second = attempts.findByExecutionId(secondExecution).orElseThrow();
@@ -450,8 +449,8 @@ class TaskViewTest {
     private void admit(Task task, String runId) {
         var result = admissions.runSelected(new TaskCommands.RunSelected(runId,
                 List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
-                        TaskAdmissionService.inputFingerprint(task),
-                        TaskAdmissionService.destinationFingerprint(task)))));
+                        TaskAdmissionChecks.inputFingerprint(task),
+                        TaskAdmissionChecks.destinationFingerprint(task)))));
         assertThat(result.rejectedReasons()).isEmpty();
     }
 

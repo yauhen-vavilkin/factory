@@ -7,6 +7,7 @@ import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
+import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
@@ -30,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 
 /**
  * Manual admission against real PostgreSQL: only the selected eligible rows are
@@ -69,6 +71,7 @@ class TaskAdmissionIntegrationTest {
         attempts.deleteAll();
         tasks.deleteAll();
         installations.deleteAll();
+        installations.save(TaskInstallations.seeded());
         completeSync();
     }
 
@@ -91,10 +94,10 @@ class TaskAdmissionIntegrationTest {
                     assertThat(admitted.getState()).isEqualTo(TaskAttempt.State.RESERVED);
                     assertThat(admitted.getKind()).isEqualTo(TaskAttempt.Kind.INITIAL);
                     assertThat(admitted.getRequestId()).isEqualTo("run-1#" + selected.getId());
-                    assertThat(admitted.getInputFingerprint()).isEqualTo(TaskAdmissionService.inputFingerprint(selected));
+                    assertThat(admitted.getInputFingerprint()).isEqualTo(TaskAdmissionChecks.inputFingerprint(selected));
                     assertThat(admitted.getAdmittedVia()).isEqualTo(TaskAttempt.AdmittedVia.MANUAL);
                     assertThat(admitted.getDestinationFingerprint())
-                            .isEqualTo(TaskAdmissionService.destinationFingerprint(selected));
+                            .isEqualTo(TaskAdmissionChecks.destinationFingerprint(selected));
                     assertThat(admitted.getApprovedSnapshot()).isEqualTo(selected.getIssueSnapshot());
                     assertThat(admitted.getExecutionId()).isNull();
                 });
@@ -108,11 +111,11 @@ class TaskAdmissionIntegrationTest {
         Task changedInput = task("20012", "MODBAR-112");
         Task changedDestination = task("20013", "MODBAR-113");
         var staleSelection = new TaskCommands.Selection(stale.getId(), stale.getVersion() + 5,
-                TaskAdmissionService.inputFingerprint(stale), TaskAdmissionService.destinationFingerprint(stale));
+                TaskAdmissionChecks.inputFingerprint(stale), TaskAdmissionChecks.destinationFingerprint(stale));
         var changedInputSelection = new TaskCommands.Selection(changedInput.getId(), changedInput.getVersion(),
-                "different-input", TaskAdmissionService.destinationFingerprint(changedInput));
+                "different-input", TaskAdmissionChecks.destinationFingerprint(changedInput));
         var changedDestinationSelection = new TaskCommands.Selection(changedDestination.getId(),
-                changedDestination.getVersion(), TaskAdmissionService.inputFingerprint(changedDestination),
+                changedDestination.getVersion(), TaskAdmissionChecks.inputFingerprint(changedDestination),
                 "different-destination");
 
         var result = run("run-2", staleSelection, changedInputSelection, changedDestinationSelection);
@@ -132,7 +135,7 @@ class TaskAdmissionIntegrationTest {
     @Test
     void failedScanDoesNotBlockRunningTheTasksAlreadyShown() {
         Task first = task("20021", "MODBAR-121");
-        TaskInstallation installation = installations.findById(1).orElseGet(TaskInstallation::initial);
+        TaskInstallation installation = installations.findById(1).orElseThrow();
         installation.setSyncComplete(false);
         installation.setSyncProblem("search page 2 failed");
         installations.save(installation);
@@ -261,7 +264,7 @@ class TaskAdmissionIntegrationTest {
     }
 
     private void completeSync() {
-        TaskInstallation installation = installations.findById(1).orElseGet(TaskInstallation::initial);
+        TaskInstallation installation = installations.findById(1).orElseThrow();
         installation.setSyncComplete(true);
         installation.setSyncProblem(null);
         installations.save(installation);
@@ -275,6 +278,6 @@ class TaskAdmissionIntegrationTest {
 
     private TaskCommands.Selection selectionFor(Task task) {
         return new TaskCommands.Selection(task.getId(), task.getVersion(),
-                TaskAdmissionService.inputFingerprint(task), TaskAdmissionService.destinationFingerprint(task));
+                TaskAdmissionChecks.inputFingerprint(task), TaskAdmissionChecks.destinationFingerprint(task));
     }
 }

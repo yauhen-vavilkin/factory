@@ -4,11 +4,11 @@ import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
-import org.folio.factory.app.tasks.admission.TaskRetryService;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
+import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
@@ -47,6 +47,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
+import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 
 /**
  * Explicit fresh Retry against real PostgreSQL: a STOPPED latest attempt can
@@ -100,8 +101,6 @@ class TaskRetryIntegrationTest {
     @Autowired
     TaskAdmissionService admissions;
 
-    @Autowired
-    TaskRetryService retries;
 
     @Autowired
     TaskDispatcher dispatcher;
@@ -129,6 +128,7 @@ class TaskRetryIntegrationTest {
         attempts.deleteAll();
         tasks.deleteAll();
         installations.deleteAll();
+        installations.save(TaskInstallations.seeded());
         executions.deleteAll();
         source.reset();
         discovery = discovery(devFactory);
@@ -139,14 +139,14 @@ class TaskRetryIntegrationTest {
     @Test
     void retryOfATaskAddedByKeyRunsOnWhatJiraSaysAtTheClick() {
         source.issues = List.of(issueWithSummary("50091", "MODBAR-591", EARLIER, "Which limit applies?"));
-        var added = admissions.runByKey("by-key-591", "MODBAR-591");
+        var added = admissions.runByKey("by-key-591", "MODBAR-591", null);
         assertThat(added.problem()).isNull();
         Task task = tasks.findById(added.taskId()).orElseThrow();
         forceState(task, TaskAttempt.State.STOPPED, "coding: the limit is not specified");
         source.issues = List.of(issueWithSummary("50091", "MODBAR-591", EARLIER, "The limit is 100 per page"));
 
-        var click = retries.retry(new TaskCommands.Retry("retry-591", task.getId(), task.getVersion(),
-                TaskAdmissionService.inputFingerprint(task), TaskAdmissionService.destinationFingerprint(task)));
+        var click = admissions.retry(new TaskCommands.Retry("retry-591", task.getId(), task.getVersion(),
+                TaskAdmissionChecks.inputFingerprint(task), TaskAdmissionChecks.destinationFingerprint(task)));
 
         TaskAttempt retry = attempts.findById(click.attemptId()).orElseThrow();
         assertThat(retry.getKind()).isEqualTo(TaskAttempt.Kind.RETRY);
@@ -164,14 +164,14 @@ class TaskRetryIntegrationTest {
         stopWithFailedInitialAttempt(task, "run-501");
         UUID previousAttemptId = attempts.findByTaskIdOrderByOrdinalAsc(task.getId()).getFirst().getId();
 
-        var click = retries.retry(new TaskCommands.Retry("retry-501", task.getId(), task.getVersion(),
-                TaskAdmissionService.inputFingerprint(task),
-                TaskAdmissionService.destinationFingerprint(task)));
+        var click = admissions.retry(new TaskCommands.Retry("retry-501", task.getId(), task.getVersion(),
+                TaskAdmissionChecks.inputFingerprint(task),
+                TaskAdmissionChecks.destinationFingerprint(task)));
         UUID newAttemptId = click.attemptId();
 
         assertThat(newAttemptId).isNotEqualTo(previousAttemptId);
         // Task execution is off in this context, so the click only queues the retry.
-        assertThat(click.state()).isEqualTo("RESERVED");
+        assertThat(click.state()).isEqualTo(TaskAttempt.State.RESERVED);
         assertThat(click.executionId()).isNull();
         assertThat(executions.count()).isZero();
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
@@ -188,9 +188,9 @@ class TaskRetryIntegrationTest {
         assertThat(retry.getKind()).isEqualTo(TaskAttempt.Kind.RETRY);
         assertThat(retry.getOrdinal()).isEqualTo(2);
         assertThat(retry.getAdmittedVia()).isEqualTo(TaskAttempt.AdmittedVia.MANUAL);
-        assertThat(retry.getInputFingerprint()).isEqualTo(TaskAdmissionService.inputFingerprint(task));
+        assertThat(retry.getInputFingerprint()).isEqualTo(TaskAdmissionChecks.inputFingerprint(task));
         assertThat(retry.getDestinationFingerprint())
-                .isEqualTo(TaskAdmissionService.destinationFingerprint(task));
+                .isEqualTo(TaskAdmissionChecks.destinationFingerprint(task));
         assertThat(retry.getApprovedSnapshot()).isEqualTo(task.getIssueSnapshot());
         assertThat(retry.getStartedAt()).isNotNull();
         assertThat(retry.getDeadlineAt()).isEqualTo(retry.getStartedAt().plus(Duration.ofMinutes(30)));
@@ -208,16 +208,16 @@ class TaskRetryIntegrationTest {
         Task task = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50011").orElseThrow();
         stopWithFailedInitialAttempt(task, "run-511");
 
-        var firstClick = retries.retry(new TaskCommands.Retry("retry-511", task.getId(), task.getVersion(),
-                TaskAdmissionService.inputFingerprint(task),
-                TaskAdmissionService.destinationFingerprint(task)));
-        var secondClick = retries.retry(new TaskCommands.Retry("retry-511", task.getId(), task.getVersion(),
-                TaskAdmissionService.inputFingerprint(task),
-                TaskAdmissionService.destinationFingerprint(task)));
+        var firstClick = admissions.retry(new TaskCommands.Retry("retry-511", task.getId(), task.getVersion(),
+                TaskAdmissionChecks.inputFingerprint(task),
+                TaskAdmissionChecks.destinationFingerprint(task)));
+        var secondClick = admissions.retry(new TaskCommands.Retry("retry-511", task.getId(), task.getVersion(),
+                TaskAdmissionChecks.inputFingerprint(task),
+                TaskAdmissionChecks.destinationFingerprint(task)));
 
         assertThat(secondClick.attemptId()).isEqualTo(firstClick.attemptId());
         assertThat(secondClick.executionId()).isEqualTo(firstClick.executionId());
-        assertThat(secondClick.state()).isEqualTo("RESERVED");
+        assertThat(secondClick.state()).isEqualTo(TaskAttempt.State.RESERVED);
         assertThat(executions.count()).isZero();
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(task.getId())).hasSize(2);
     }
@@ -249,18 +249,18 @@ class TaskRetryIntegrationTest {
         routed.setEligibility(Task.Eligibility.INELIGIBLE);
         unsupported = tasks.save(routed);
 
-        assertThat(retryRejected(queued, "live attempt")).isEqualTo("RESERVED");
-        assertThat(retryRejected(running, "live attempt")).isEqualTo("RUNNING");
-        assertThat(retryRejected(inspecting, "needs inspection")).isEqualTo("NEEDS_INSPECTION");
-        assertThat(retryRejected(delivered, "delivered a pull request")).isEqualTo("PR_READY");
-        assertThat(retryRejected(withdrawn, "select the task again")).isEqualTo("WITHDRAWN");
+        assertThat(retryRejected(queued, "live attempt")).isEqualTo(TaskAttempt.State.RESERVED);
+        assertThat(retryRejected(running, "live attempt")).isEqualTo(TaskAttempt.State.RUNNING);
+        assertThat(retryRejected(inspecting, "needs inspection")).isEqualTo(TaskAttempt.State.NEEDS_INSPECTION);
+        assertThat(retryRejected(delivered, "delivered a pull request")).isEqualTo(TaskAttempt.State.PR_READY);
+        assertThat(retryRejected(withdrawn, "select the task again")).isEqualTo(TaskAttempt.State.WITHDRAWN);
         assertThat(retryRejected(neverAttempted, "never been attempted")).isNull();
-        assertThat(retryRejected(unsupported, "not eligible")).isEqualTo("STOPPED");
+        assertThat(retryRejected(unsupported, "not eligible")).isEqualTo(TaskAttempt.State.STOPPED);
 
         Task stale = directTask("50030", "MODBAR-530");
         stopWithFailedInitialAttempt(stale, "run-530");
-        var staleClick = retries.retry(new TaskCommands.Retry("retry-530", stale.getId(), stale.getVersion(),
-                "stale-input-fingerprint", TaskAdmissionService.destinationFingerprint(stale)));
+        var staleClick = admissions.retry(new TaskCommands.Retry("retry-530", stale.getId(), stale.getVersion(),
+                "stale-input-fingerprint", TaskAdmissionChecks.destinationFingerprint(stale)));
         assertThat(staleClick.explanation()).contains("changed since the retry was requested");
         assertThat(staleClick.attemptId())
                 .isEqualTo(attempts.findByTaskIdOrderByOrdinalAsc(stale.getId()).getFirst().getId());
@@ -286,10 +286,10 @@ class TaskRetryIntegrationTest {
         installation.setSyncProblem("search page 2 failed");
         installations.save(installation);
 
-        var click = retries.retry(new TaskCommands.Retry("retry-541", unassigned.getId(), unassigned.getVersion(),
-                TaskAdmissionService.inputFingerprint(unassigned),
-                TaskAdmissionService.destinationFingerprint(unassigned)));
-        assertThat(click.state()).isEqualTo("RESERVED");
+        var click = admissions.retry(new TaskCommands.Retry("retry-541", unassigned.getId(), unassigned.getVersion(),
+                TaskAdmissionChecks.inputFingerprint(unassigned),
+                TaskAdmissionChecks.destinationFingerprint(unassigned)));
+        assertThat(click.state()).isEqualTo(TaskAttempt.State.RESERVED);
 
         releaseSlot();
         assertThat(dispatcher.dispatchNext()).isPresent();
@@ -308,9 +308,9 @@ class TaskRetryIntegrationTest {
         admitAndDispatch(holder, "run-552");
         String approvedSnapshot = target.getIssueSnapshot();
 
-        var click = retries.retry(new TaskCommands.Retry("retry-551", target.getId(), target.getVersion(),
-                TaskAdmissionService.inputFingerprint(target), TaskAdmissionService.destinationFingerprint(target)));
-        assertThat(click.state()).isEqualTo("RESERVED");
+        var click = admissions.retry(new TaskCommands.Retry("retry-551", target.getId(), target.getVersion(),
+                TaskAdmissionChecks.inputFingerprint(target), TaskAdmissionChecks.destinationFingerprint(target)));
+        assertThat(click.state()).isEqualTo(TaskAttempt.State.RESERVED);
 
         source.issues = List.of(issueWithSummary("50051", "MODBAR-551", EARLIER, "Revised summary of 551"),
                 issue("50052", "MODBAR-552", LATER));
@@ -333,9 +333,9 @@ class TaskRetryIntegrationTest {
         Task holder = tasks.findByJiraInstanceAndIssueId(INSTANCE, "50062").orElseThrow();
         stopWithFailedInitialAttempt(target, "run-561");
         admitAndDispatch(holder, "run-562");
-        var click = retries.retry(new TaskCommands.Retry("retry-561", target.getId(), target.getVersion(),
-                TaskAdmissionService.inputFingerprint(target), TaskAdmissionService.destinationFingerprint(target)));
-        assertThat(click.state()).isEqualTo("RESERVED");
+        var click = admissions.retry(new TaskCommands.Retry("retry-561", target.getId(), target.getVersion(),
+                TaskAdmissionChecks.inputFingerprint(target), TaskAdmissionChecks.destinationFingerprint(target)));
+        assertThat(click.state()).isEqualTo(TaskAttempt.State.RESERVED);
 
         Task rerouted = tasks.findById(target.getId()).orElseThrow();
         rerouted.setRoutingReason("repository mod-baz");
@@ -357,8 +357,8 @@ class TaskRetryIntegrationTest {
         doThrow(new IllegalStateException("Your GitHub token cannot push to folio-org/mod-bar"))
                 .when(preflight).requirePushAccess("mod-bar");
 
-        var click = retries.retry(new TaskCommands.Retry("retry-571", task.getId(), task.getVersion(),
-                TaskAdmissionService.inputFingerprint(task), TaskAdmissionService.destinationFingerprint(task)));
+        var click = admissions.retry(new TaskCommands.Retry("retry-571", task.getId(), task.getVersion(),
+                TaskAdmissionChecks.inputFingerprint(task), TaskAdmissionChecks.destinationFingerprint(task)));
 
         assertThat(click.explanation()).isEqualTo("Your GitHub token cannot push to folio-org/mod-bar");
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(task.getId())).hasSize(1);
@@ -367,11 +367,11 @@ class TaskRetryIntegrationTest {
 
     @Test
     void invalidRequestIdIsRejectedWithoutCreatingAttempts() {
-        assertThatThrownBy(() -> retries.retry(new TaskCommands.Retry(" ", UUID.randomUUID(), 0, "input",
+        assertThatThrownBy(() -> admissions.retry(new TaskCommands.Retry(" ", UUID.randomUUID(), 0, "input",
                 "destination")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("request id is required");
-        assertThatThrownBy(() -> retries.retry(new TaskCommands.Retry("r".repeat(64), UUID.randomUUID(), 0,
+        assertThatThrownBy(() -> admissions.retry(new TaskCommands.Retry("r".repeat(64), UUID.randomUUID(), 0,
                 "input", "destination")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must not exceed 63 characters");
@@ -379,10 +379,10 @@ class TaskRetryIntegrationTest {
         assertThat(attempts.count()).isZero();
     }
 
-    private String retryRejected(Task task, String expectedReasonPart) {
-        var click = retries.retry(new TaskCommands.Retry("retry-reject-" + task.getIssueId(), task.getId(),
-                task.getVersion(), TaskAdmissionService.inputFingerprint(task),
-                TaskAdmissionService.destinationFingerprint(task)));
+    private TaskAttempt.State retryRejected(Task task, String expectedReasonPart) {
+        var click = admissions.retry(new TaskCommands.Retry("retry-reject-" + task.getIssueId(), task.getId(),
+                task.getVersion(), TaskAdmissionChecks.inputFingerprint(task),
+                TaskAdmissionChecks.destinationFingerprint(task)));
         assertThat(click.explanation()).contains(expectedReasonPart);
         assertThat(click.executionId()).isNull();
         return click.state();
@@ -402,8 +402,8 @@ class TaskRetryIntegrationTest {
     private void admit(Task task, String runId) {
         var result = admissions.runSelected(new TaskCommands.RunSelected(runId,
                 List.of(new TaskCommands.Selection(task.getId(), task.getVersion(),
-                        TaskAdmissionService.inputFingerprint(task),
-                        TaskAdmissionService.destinationFingerprint(task)))));
+                        TaskAdmissionChecks.inputFingerprint(task),
+                        TaskAdmissionChecks.destinationFingerprint(task)))));
         assertThat(result.rejectedReasons()).as(String.valueOf(result)).isEmpty();
         assertThat(result.admittedTaskIds()).containsExactly(task.getId());
     }

@@ -237,9 +237,9 @@ public final class InitialCodingAttempt {
     }
 
     private Optional<String> findEnvironmentProblem(
-            String repositoryKey, String frozenBaseSha, CodingRequest.RunSettings settings) {
+            String repositoryKey, String frozenBaseSha, CodingRequest.RunSettings runSettings) {
         try {
-            services.coding().requireConfigured(settings);
+            services.coding().requireConfigured(runSettings);
         } catch (RunProfiles.ProfileException exception) {
             // Written to be shown: it names the profile and the fix.
             return Optional.of(safeRedact(exception.getMessage()));

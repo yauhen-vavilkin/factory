@@ -1,23 +1,18 @@
 package org.folio.factory.app.tasks.admission;
 
-import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
+import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
-import org.folio.factory.app.tasks.persistence.TaskRoutingReason;
-import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
 import org.folio.factory.app.tasks.source.TaskDiscoveryService;
 import org.folio.factory.app.tasks.source.TaskJiraInstance;
 import org.folio.factory.connectors.jira.JiraSourceModels.DiscoveredIssue;
-import org.folio.factory.devfactory.candidate.Candidate;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.RestClientResponseException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -25,16 +20,18 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
- * Admission into the durable task queue: tasks selected in My tasks, or one task
- * added by its Jira key. Before anything is reserved, the GitHub token's push
- * access to the task's delivery repository is checked. Each admission then runs
- * in its own short transaction that locks the task, revalidates what the
- * developer saw and reserves one live attempt; a repeated request id resolves to
- * the existing admission instead of creating anything. After admitting work it
- * asks the dispatcher to start the queue head — best-effort, so a refused
- * dispatch only leaves the attempts queued for the scheduled poller.
+ * Admission into the durable task queue: tasks selected in My tasks, one task added by its Jira key, and an
+ * explicit Retry of a terminal unsuccessful attempt. Before anything is reserved, the GitHub token's push
+ * access to the task's delivery repository is checked. Each admission then runs in its own short transaction
+ * that locks the task, revalidates what the developer saw ({@link TaskAdmissionChecks}) and reserves one live
+ * attempt; a repeated request id resolves to the existing admission instead of creating anything. A retry
+ * re-reads the task from Jira when it can, so it runs on what Jira says now, and keeps the earlier attempts'
+ * history and costs. After admitting work the dispatcher is asked to start the queue head — best-effort for
+ * a selection, so a refused dispatch only leaves the attempts queued for the scheduled poller.
  */
 @Service
 public class TaskAdmissionService {
@@ -50,19 +47,19 @@ public class TaskAdmissionService {
     private final TaskDispatcher dispatcher;
     private final TaskDiscoveryService discovery;
     private final TaskJiraInstance jiraInstance;
-    private final DeveloperPreflight preflight;
+    private final TaskAdmissionChecks checks;
     private final TransactionTemplate transactions;
 
     public TaskAdmissionService(TaskRepository tasks, TaskAttemptRepository attempts,
-                                 TaskDispatcher dispatcher, TaskDiscoveryService discovery,
-                                 TaskJiraInstance jiraInstance, DeveloperPreflight preflight,
-                                 PlatformTransactionManager transactionManager) {
+                                TaskDispatcher dispatcher, TaskDiscoveryService discovery,
+                                TaskJiraInstance jiraInstance, TaskAdmissionChecks checks,
+                                PlatformTransactionManager transactionManager) {
         this.tasks = tasks;
         this.attempts = attempts;
         this.dispatcher = dispatcher;
         this.discovery = discovery;
         this.jiraInstance = jiraInstance;
-        this.preflight = preflight;
+        this.checks = checks;
         this.transactions = new TransactionTemplate(transactionManager);
     }
 
@@ -75,6 +72,14 @@ public class TaskAdmissionService {
 
     /** The task a run by key queued, or the reason nothing was queued. */
     public record KeyResult(String issueKey, UUID taskId, String problem) {
+    }
+
+    /**
+     * @param state    the state of this click's attempt or, when refused, of the task's latest attempt
+     * @param refused  true when this click queued nothing, whatever state the task is in
+     */
+    public record RetryResult(UUID attemptId, UUID executionId, TaskAttempt.State state, String explanation,
+                              boolean refused) {
     }
 
     public AdmissionResult runSelected(TaskCommands.RunSelected run) {
@@ -101,13 +106,37 @@ public class TaskAdmissionService {
     /** Null when the task is admitted, now or by an earlier request with the same id; the refusal otherwise. */
     private String admitSelected(String requestId, TaskCommands.Selection selection, String runSettings,
                                  Map<String, String> pushProblems) {
-        if (attempts.findByRequestId(attemptRequestId(requestId, selection.taskId())).isPresent()) {
+        String attemptRequestId = attemptRequestId(requestId, selection.taskId());
+        if (attempts.findByRequestId(attemptRequestId).isPresent()) {
             return null;
         }
         String pushProblem = tasks.findById(selection.taskId())
-                .map(task -> pushProblem(task.getRoutingReason(), pushProblems))
+                .map(task -> checks.pushProblem(task.getRoutingReason(), pushProblems))
                 .orElse(null);
-        return pushProblem != null ? pushProblem : admitSelection(requestId, selection, runSettings);
+        if (pushProblem != null) {
+            return pushProblem;
+        }
+        // A concurrent admission or scan may win the row. When it holds our request
+        // id, resolve to that stored admission; otherwise this click is stale.
+        return inTransaction(() -> admitOnce(attemptRequestId, selection, runSettings),
+                conflict -> attempts.findByRequestId(attemptRequestId).isPresent() ? null
+                        : "task changed at the same moment; review and select again");
+    }
+
+    /** Null when the attempt was reserved, otherwise the rejection reason. */
+    private String admitOnce(String attemptRequestId, TaskCommands.Selection selection, String runSettings) {
+        Task task = tasks.lockById(selection.taskId()).orElse(null);
+        if (task == null) {
+            return "task " + selection.taskId() + " no longer exists";
+        }
+        String refusal = TaskAdmissionChecks.selectionProblem(task, selection,
+                !attempts.findLiveByTaskId(task.getId()).isEmpty(),
+                attempts.findByTaskIdOrderByOrdinalAsc(task.getId()));
+        if (refusal != null) {
+            return refusal;
+        }
+        reserve(task, TaskAttempt.Kind.INITIAL, attemptRequestId, TaskAttempt.AdmittedVia.MANUAL, runSettings);
+        return null;
     }
 
     /**
@@ -116,10 +145,6 @@ public class TaskAdmissionService {
      * that cannot run; a task that is already queued or running is refused
      * before its row is touched.
      */
-    public KeyResult runByKey(String requestId, String input) {
-        return runByKey(requestId, input, null);
-    }
-
     public KeyResult runByKey(String requestId, String input, String runSettings) {
         String run = requireRequestId(requestId);
         String issueKey;
@@ -128,52 +153,17 @@ public class TaskAdmissionService {
         } catch (IllegalArgumentException e) {
             return new KeyResult(null, null, e.getMessage());
         }
-        var fetched = fetch(issueKey);
-        var problem = fetched.problem() != null ? fetched.problem() : routingProblem(fetched.issue());
+        var fetched = checks.fetch(issueKey);
+        var problem = fetched.problem() != null ? fetched.problem() : checks.routingProblem(fetched.issue());
         if (problem != null) {
             return new KeyResult(issueKey, null, problem);
         }
-        var result = admitByKey(run, issueKey, fetched.issue(), runSettings);
+        var result = inTransaction(() -> admitKey(run, fetched.issue(), runSettings), conflict -> new KeyResult(
+                issueKey, null, "Jira was being scanned at the same moment; add " + issueKey + " again"));
         if (result.problem() == null) {
             dispatcher.dispatchNextQuietly();
         }
         return result;
-    }
-
-    private FetchedIssue fetch(String issueKey) {
-        DiscoveredIssue issue;
-        try {
-            issue = discovery.fetch(issueKey);
-        } catch (HttpClientErrorException e) {
-            issue = null;
-        } catch (RestClientResponseException e) {
-            // The response body may be a whole HTML error page; the status says enough.
-            return FetchedIssue.refused("Jira could not be read: HTTP " + e.getStatusCode().value());
-        } catch (RuntimeException e) {
-            return FetchedIssue.refused("Jira could not be read: " + e.getMessage());
-        }
-        if (issue == null) {
-            return FetchedIssue.refused("Jira has no task " + issueKey + " that Factory can read");
-        }
-        return new FetchedIssue(issue, null);
-    }
-
-    /** Null when the issue routes to a repository the token can push to; the refusal otherwise. */
-    private String routingProblem(DiscoveredIssue issue) {
-        TaskDiscoveryService.Routing routing = discovery.routing(issue);
-        if (routing.eligibility() != Task.Eligibility.ELIGIBLE) {
-            return routing.reason();
-        }
-        return pushProblem(routing.reason(), new HashMap<>());
-    }
-
-    private KeyResult admitByKey(String requestId, String issueKey, DiscoveredIssue issue, String runSettings) {
-        try {
-            return transactions.execute(status -> admitKey(requestId, issue, runSettings));
-        } catch (DataIntegrityViolationException | OptimisticLockingFailureException e) {
-            return new KeyResult(issueKey, null,
-                    "Jira was being scanned at the same moment; add " + issueKey + " again");
-        }
     }
 
     private KeyResult admitKey(String requestId, DiscoveredIssue issue, String runSettings) {
@@ -192,96 +182,145 @@ public class TaskAdmissionService {
         Task task = discovery.upsert(issue, false);
         TaskAttempt.Kind kind = attempts.findByTaskIdOrderByOrdinalAsc(task.getId()).isEmpty()
                 ? TaskAttempt.Kind.INITIAL : TaskAttempt.Kind.RETRY;
-        reserve(task, kind, attemptRequestId(requestId, task.getId()), TaskAttempt.AdmittedVia.BY_KEY,
-                inputFingerprint(task), destinationFingerprint(task), runSettings);
+        reserve(task, kind, attemptRequestId(requestId, task.getId()), TaskAttempt.AdmittedVia.BY_KEY, runSettings);
         return new KeyResult(issue.key(), task.getId(), null);
     }
 
-    private String admitSelection(String requestId, TaskCommands.Selection selection, String runSettings) {
-        try {
-            return transactions.execute(status -> admitOnce(requestId, selection, runSettings));
-        } catch (DataIntegrityViolationException | OptimisticLockingFailureException e) {
-            // A concurrent admission or scan won the row. When it holds our request
-            // id, resolve to that stored admission; otherwise this click is stale.
-            if (attempts.findByRequestId(attemptRequestId(requestId, selection.taskId())).isPresent()) {
-                return null;
-            }
-            return "task changed at the same moment; review and select again";
-        }
-    }
-
     /**
-     * @return null when the attempt was reserved, otherwise the rejection reason
+     * An explicit fresh Retry. Eligibility keys off the task's attempt history; queued, running, held and
+     * PR-ready work never restarts from here and nothing retries automatically. A retry does not depend on
+     * whether the task is still assigned to the developer in Jira, and it is refused up front when the GitHub
+     * token cannot push to the delivery repository.
      */
-    private String admitOnce(String requestId, TaskCommands.Selection selection, String runSettings) {
-        Task task = tasks.lockById(selection.taskId()).orElse(null);
+    public RetryResult retry(TaskCommands.Retry command) {
+        String attemptRequestId = attemptRequestId(requireRequestId(command.requestId()), command.taskId());
+        RetryResult stored = storedRetry(attemptRequestId);
+        if (stored != null) {
+            return stored;
+        }
+        Task current = tasks.findById(command.taskId()).orElse(null);
+        String pushProblem = current == null ? null
+                : checks.pushProblem(current.getRoutingReason(), new HashMap<>());
+        if (pushProblem != null) {
+            return rejection(command.taskId(), pushProblem);
+        }
+        DiscoveredIssue fresh = current == null ? null : checks.freshIssue(current);
+        var reservation = inTransaction(() -> reserveRetry(attemptRequestId, command, fresh), conflict ->
+                new Reservation(null, resolveConcurrentRetry(attemptRequestId, command.taskId(), conflict)));
+        return reservation.outcome() != null ? reservation.outcome() : dispatch(reservation.attemptId());
+    }
+
+    /** The reserved retry attempt, or the answer that ends the click without one. */
+    private record Reservation(UUID attemptId, RetryResult outcome) {
+    }
+
+    private Reservation reserveRetry(String attemptRequestId, TaskCommands.Retry command, DiscoveredIssue fresh) {
+        Task task = tasks.lockById(command.taskId()).orElse(null);
         if (task == null) {
-            return "task " + selection.taskId() + " no longer exists";
+            return new Reservation(null, rejection(command.taskId(), "task " + command.taskId() + " no longer exists"));
         }
-        String refusal = selectionRefusal(task, selection);
-        if (refusal != null) {
-            return refusal;
+        String problem = TaskAdmissionChecks.retryProblem(task, command,
+                attempts.findByTaskIdOrderByOrdinalAsc(task.getId()));
+        if (problem == null && fresh != null) {
+            String checkedDestination = TaskAdmissionChecks.destinationFingerprint(task);
+            task = discovery.upsert(fresh, false);
+            problem = TaskAdmissionChecks.freshTaskProblem(task, checkedDestination);
         }
-        reserve(task, TaskAttempt.Kind.INITIAL, attemptRequestId(requestId, task.getId()),
-                TaskAttempt.AdmittedVia.MANUAL, selection.inputFingerprint(), selection.destinationFingerprint(),
-                runSettings);
-        return null;
+        if (problem != null) {
+            return new Reservation(null, rejection(command.taskId(), problem));
+        }
+        var attempt = reserve(task, TaskAttempt.Kind.RETRY, attemptRequestId, TaskAttempt.AdmittedVia.MANUAL,
+                command.runSettings());
+        return new Reservation(attempt.getId(), null);
     }
 
-    /** Null when the locked task still matches the selection and can get a first attempt; the reason otherwise. */
-    private String selectionRefusal(Task task, TaskCommands.Selection selection) {
-        if (task.getVersion() != selection.expectedVersion()
-                || !matches(selection.inputFingerprint(), inputFingerprint(task))
-                || !matches(selection.destinationFingerprint(), destinationFingerprint(task))) {
-            return "task changed since selection; review and select again";
+    private RetryResult dispatch(UUID attemptId) {
+        if (!dispatcher.executionEnabled()) {
+            // Nothing could reconcile a run launched now, so the retry waits like any queued task.
+            return queuedRetry(attemptId, "the retry attempt is queued; task execution is off");
         }
-        if (task.getEligibility() != Task.Eligibility.ELIGIBLE) {
-            return "task is not eligible: " + task.getRoutingReason();
+        try {
+            dispatcher.dispatchNext();
+        } catch (RuntimeException e) {
+            return queuedRetry(attemptId, "the retry attempt is queued; dispatch could not start it: " + cause(e));
         }
-        if (!task.isInScope()) {
-            return "task is no longer assigned to you in Jira; scan again";
+        TaskAttempt attempt = attempts.findById(attemptId).orElseThrow();
+        if (attempt.getExecutionId() != null) {
+            return new RetryResult(attemptId, attempt.getExecutionId(), attempt.getState(),
+                    "the retry attempt launched a new execution", false);
         }
-        if (!attempts.findLiveByTaskId(task.getId()).isEmpty()) {
-            return "task already has a live admission";
+        if (attempt.getState() == TaskAttempt.State.RESERVED) {
+            return queuedRetry(attemptId, "the retry attempt is queued behind the active attempt");
         }
-        if (attempts.findByTaskIdOrderByOrdinalAsc(task.getId()).stream()
-                .anyMatch(attempt -> attempt.getState() != TaskAttempt.State.WITHDRAWN)) {
-            return "task already has an attempt; use Retry";
-        }
-        return null;
+        return new RetryResult(attemptId, null, attempt.getState(), attempt.getResultReason(), false);
     }
 
-    private void reserve(Task task, TaskAttempt.Kind kind, String attemptRequestId,
-                         TaskAttempt.AdmittedVia admittedVia, String input, String destination,
-                         String runSettings) {
-        TaskAttempt attempt = new TaskAttempt(task.getId(), nextOrdinal(attempts, task.getId()),
-                kind, attemptRequestId, TaskAttempt.State.RESERVED);
-        attempt.setInputFingerprint(input);
-        attempt.setDestinationFingerprint(destination);
+    private static RetryResult queuedRetry(UUID attemptId, String explanation) {
+        return new RetryResult(attemptId, null, TaskAttempt.State.RESERVED, explanation, false);
+    }
+
+    private static String cause(RuntimeException e) {
+        return e.getMessage() == null || e.getMessage().isBlank()
+                ? e.getClass().getSimpleName()
+                : e.getMessage();
+    }
+
+    private RetryResult resolveConcurrentRetry(String attemptRequestId, UUID taskId, RuntimeException conflict) {
+        RetryResult stored = storedRetry(attemptRequestId);
+        if (stored != null) {
+            return stored;
+        }
+        // A unique constraint means a concurrent retry took the live slot; an optimistic lock
+        // failure means a scan saved the task concurrently, so this retry is stale, not lost.
+        return rejection(taskId, conflict instanceof DataIntegrityViolationException
+                ? "task already has a live attempt"
+                : "task changed at the same moment; review the task and retry again");
+    }
+
+    private RetryResult storedRetry(String attemptRequestId) {
+        return attempts.findByRequestId(attemptRequestId)
+                .map(attempt -> new RetryResult(attempt.getId(), attempt.getExecutionId(), attempt.getState(),
+                        duplicateExplanation(attempt), false))
+                .orElse(null);
+    }
+
+    private static String duplicateExplanation(TaskAttempt attempt) {
+        String reason = attempt.getResultReason();
+        return "a retry request for this task was already recorded; the stored attempt is "
+                + attempt.getState() + (reason == null || reason.isBlank() ? "" : ": " + reason);
+    }
+
+    private RetryResult rejection(UUID taskId, String reason) {
+        List<TaskAttempt> history = attempts.findByTaskIdOrderByOrdinalAsc(taskId);
+        if (history.isEmpty()) {
+            return new RetryResult(null, null, null, reason, true);
+        }
+        TaskAttempt latest = history.getLast();
+        return new RetryResult(latest.getId(), latest.getExecutionId(), latest.getState(), reason, true);
+    }
+
+    private TaskAttempt reserve(Task task, TaskAttempt.Kind kind, String attemptRequestId,
+                                TaskAttempt.AdmittedVia admittedVia, String runSettings) {
+        TaskAttempt attempt = new TaskAttempt(task.getId(), nextOrdinal(task.getId()), kind, attemptRequestId,
+                TaskAttempt.State.RESERVED);
+        attempt.setInputFingerprint(TaskAdmissionChecks.inputFingerprint(task));
+        attempt.setDestinationFingerprint(TaskAdmissionChecks.destinationFingerprint(task));
         attempt.setApprovedSnapshot(task.getIssueSnapshot());
         attempt.setAdmittedVia(admittedVia);
         attempt.setRunSettings(runSettings);
-        attempts.save(attempt);
+        return attempts.save(attempt);
     }
 
-    /** Null when the token can push to the routed repository; the refusal otherwise (cached per repository). */
-    String pushProblem(String routingReason, Map<String, String> checked) {
-        String repositoryKey = TaskRoutingReason.eligibleRepositoryKey(routingReason);
-        if (repositoryKey == null) {
-            return null;
+    /** Runs one reservation in its own transaction; a concurrent writer that won the row decides the answer. */
+    private <T> T inTransaction(Supplier<T> reservation, Function<RuntimeException, T> onConflict) {
+        try {
+            return transactions.execute(status -> reservation.get());
+        } catch (DataIntegrityViolationException | OptimisticLockingFailureException e) {
+            return onConflict.apply(e);
         }
-        String problem = checked.computeIfAbsent(repositoryKey, key -> {
-            try {
-                preflight.requirePushAccess(key);
-                return "";
-            } catch (RuntimeException e) {
-                return e.getMessage() == null ? "GitHub push access could not be checked" : e.getMessage();
-            }
-        });
-        return problem.isEmpty() ? null : problem;
     }
 
-    static int nextOrdinal(TaskAttemptRepository attempts, UUID taskId) {
+    private int nextOrdinal(UUID taskId) {
         return attempts.findByTaskIdOrderByOrdinalAsc(taskId).stream()
                 .mapToInt(TaskAttempt::getOrdinal)
                 .max()
@@ -302,26 +341,5 @@ public class TaskAdmissionService {
                     "Request id must not exceed " + MAX_REQUEST_ID_LENGTH + " characters");
         }
         return trimmed;
-    }
-
-    static boolean matches(String expected, String current) {
-        return expected != null && expected.equals(current);
-    }
-
-    /** Identity of the task's bounded intake view; source revision is the snapshot hash. */
-    public static String inputFingerprint(Task task) {
-        return task.getSourceRevision();
-    }
-
-    /** Identity of the task's routing decision; a re-mapped project yields a different value. */
-    public static String destinationFingerprint(Task task) {
-        return Candidate.sha256(task.getRoutingReason());
-    }
-
-    /** The issue Jira returned for a run by key, or why it could not be read. */
-    private record FetchedIssue(DiscoveredIssue issue, String problem) {
-        static FetchedIssue refused(String problem) {
-            return new FetchedIssue(null, problem);
-        }
     }
 }

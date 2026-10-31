@@ -5,7 +5,6 @@ import org.folio.factory.app.StubLlmConfiguration;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
-import org.folio.factory.app.tasks.admission.TaskRetryService;
 import org.folio.factory.app.tasks.execution.PersistedTaskAttemptPolicy;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
@@ -95,6 +94,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.isNull;
+import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 
 /**
  * The full deterministic M1 scenario in one Spring context against real
@@ -116,7 +116,6 @@ import static org.mockito.ArgumentMatchers.isNull;
         "factory.limits.dedup.window=PT0S",
         "factory.tasks.execution.enabled=true",
         "factory.tasks.execution.deadline=PT30M",
-        "factory.tasks.execution.recovery-poll-interval-ms=3600000",
         "factory.tasks.execution.dispatch-interval-ms=3600000",
         "factory.tasks.source.assignee=Jane Developer",
         "factory.connectors.github.token=fixture-github-token",
@@ -205,8 +204,6 @@ class TaskEndToEndTest {
     @Autowired
     PersistedTaskAttemptPolicy attemptPolicy;
 
-    @Autowired
-    TaskRetryService retries;
 
     @Autowired
     TaskDispatcher dispatcher;
@@ -409,15 +406,15 @@ class TaskEndToEndTest {
         String runSettings = "{\"profileId\":\"glm-5.3\",\"profileLabel\":\"GLM-5.3 (Z.ai)\","
                 + "\"model\":\"glm-5.3\",\"endpointOrigin\":\"https://api.z.ai\",\"effort\":\"low\","
                 + "\"maxTurns\":33,\"instructions\":\"Use the wiki REST URL.\"}";
-        var firstClick = retries.retry(new TaskCommands.Retry("e2e-retry-103", failedTask.getId(),
-                failedTask.getVersion(), TaskAdmissionService.inputFingerprint(failedTask),
-                TaskAdmissionService.destinationFingerprint(failedTask), runSettings));
-        var duplicateClick = retries.retry(new TaskCommands.Retry("e2e-retry-103", failedTask.getId(),
-                failedTask.getVersion(), TaskAdmissionService.inputFingerprint(failedTask),
-                TaskAdmissionService.destinationFingerprint(failedTask)));
+        var firstClick = admissions.retry(new TaskCommands.Retry("e2e-retry-103", failedTask.getId(),
+                failedTask.getVersion(), TaskAdmissionChecks.inputFingerprint(failedTask),
+                TaskAdmissionChecks.destinationFingerprint(failedTask), runSettings));
+        var duplicateClick = admissions.retry(new TaskCommands.Retry("e2e-retry-103", failedTask.getId(),
+                failedTask.getVersion(), TaskAdmissionChecks.inputFingerprint(failedTask),
+                TaskAdmissionChecks.destinationFingerprint(failedTask)));
 
         assertThat(firstClick.attemptId()).isNotEqualTo(heldAttemptId);
-        assertThat(firstClick.state()).isEqualTo("RESERVED");
+        assertThat(firstClick.state()).isEqualTo(TaskAttempt.State.RESERVED);
         assertThat(firstClick.executionId()).isNull();
         assertThat(duplicateClick.attemptId()).isEqualTo(firstClick.attemptId());
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(taskId("8103"))).hasSize(2);
@@ -468,7 +465,7 @@ class TaskEndToEndTest {
                 .when(preflight).requireReady(eq("dev-factory"), any());
         stubSearch(issue("8106", "MODBAR-106", "MODBAR", "Expose the new endpoint", "2026-10-01T10:00:00.000+0000", ""));
 
-        var added = admissions.runByKey("e2e-key-106", jira.baseUrl() + "/browse/MODBAR-106");
+        var added = admissions.runByKey("e2e-key-106", jira.baseUrl() + "/browse/MODBAR-106", null);
 
         assertThat(added.problem()).isNull();
         assertThat(added.issueKey()).isEqualTo("MODBAR-106");
@@ -481,14 +478,14 @@ class TaskEndToEndTest {
                     assertThat(attempt.getKind()).isEqualTo(TaskAttempt.Kind.INITIAL);
                     assertThat(attempt.getAdmittedVia()).isEqualTo(TaskAttempt.AdmittedVia.BY_KEY);
                 });
-        var again = admissions.runByKey("e2e-key-106-again", "modbar-106");
+        var again = admissions.runByKey("e2e-key-106-again", "modbar-106", null);
         assertThat(again.problem()).isEqualTo("MODBAR-106 is already queued or running");
-        assertThat(admissions.runByKey("e2e-key-bad", "not a key").problem()).startsWith("Enter a Jira key");
+        assertThat(admissions.runByKey("e2e-key-bad", "not a key", null).problem()).startsWith("Enter a Jira key");
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(task.getId())).hasSize(1);
 
         jira.stubFor(post(urlEqualTo("/rest/api/2/search/jql"))
                 .willReturn(aResponse().withStatus(503).withBody("<html>" + "maintenance ".repeat(500) + "</html>")));
-        assertThat(admissions.runByKey("e2e-key-107", "MODBAR-107").problem())
+        assertThat(admissions.runByKey("e2e-key-107", "MODBAR-107", null).problem())
                 .isEqualTo("Jira could not be read: HTTP 503");
         stubSearch(issue("8106", "MODBAR-106", "MODBAR", "Expose the new endpoint", "2026-10-01T10:00:00.000+0000", ""));
         assertThat(jiraStayedReadOnly()).isTrue();
@@ -503,10 +500,10 @@ class TaskEndToEndTest {
         Task retryTarget = tasks.findById(taskId("8102")).orElseThrow();
         String approvedSnapshot = retryTarget.getIssueSnapshot();
 
-        var queuedRetry = retries.retry(new TaskCommands.Retry("e2e-retry-102", retryTarget.getId(),
-                retryTarget.getVersion(), TaskAdmissionService.inputFingerprint(retryTarget),
-                TaskAdmissionService.destinationFingerprint(retryTarget)));
-        assertThat(queuedRetry.state()).isEqualTo("RESERVED");
+        var queuedRetry = admissions.retry(new TaskCommands.Retry("e2e-retry-102", retryTarget.getId(),
+                retryTarget.getVersion(), TaskAdmissionChecks.inputFingerprint(retryTarget),
+                TaskAdmissionChecks.destinationFingerprint(retryTarget)));
+        assertThat(queuedRetry.state()).isEqualTo(TaskAttempt.State.RESERVED);
         assertThat(queuedRetry.executionId()).isNull();
 
         stubSearch(
@@ -544,9 +541,9 @@ class TaskEndToEndTest {
         GITHUB.stubFor(post(urlPathEqualTo("/repos/" + BAR + "/pulls")).willReturn(okJson("{}")));
         Task uncertainTask = tasks.findById(taskId("8106")).orElseThrow();
 
-        var retry = retries.retry(new TaskCommands.Retry("e2e-retry-106", uncertainTask.getId(),
-                uncertainTask.getVersion(), TaskAdmissionService.inputFingerprint(uncertainTask),
-                TaskAdmissionService.destinationFingerprint(uncertainTask)));
+        var retry = admissions.retry(new TaskCommands.Retry("e2e-retry-106", uncertainTask.getId(),
+                uncertainTask.getVersion(), TaskAdmissionChecks.inputFingerprint(uncertainTask),
+                TaskAdmissionChecks.destinationFingerprint(uncertainTask)));
         assertThat(retry.executionId()).isNotNull();
         UUID executionId = retry.executionId();
 
@@ -564,11 +561,11 @@ class TaskEndToEndTest {
                 .isEqualTo(TaskAttempt.State.NEEDS_INSPECTION);
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isEqualTo(retry.attemptId());
         assertThat(dispatcher.dispatchNext()).contains(executionId);
-        var refused = retries.retry(new TaskCommands.Retry("e2e-retry-106-late", uncertainTask.getId(),
-                uncertainTask.getVersion(), TaskAdmissionService.inputFingerprint(uncertainTask),
-                TaskAdmissionService.destinationFingerprint(uncertainTask)));
+        var refused = admissions.retry(new TaskCommands.Retry("e2e-retry-106-late", uncertainTask.getId(),
+                uncertainTask.getVersion(), TaskAdmissionChecks.inputFingerprint(uncertainTask),
+                TaskAdmissionChecks.destinationFingerprint(uncertainTask)));
         assertThat(refused.attemptId()).isEqualTo(retry.attemptId());
-        assertThat(refused.state()).isEqualTo("NEEDS_INSPECTION");
+        assertThat(refused.state()).isEqualTo(TaskAttempt.State.NEEDS_INSPECTION);
         assertThat(GITHUB.findAll(postRequestedFor(urlPathEqualTo("/repos/" + BAR + "/pulls"))))
                 .as("one create request per delivered attempt, never a duplicate pull request")
                 .hasSize(2);
@@ -794,8 +791,8 @@ class TaskEndToEndTest {
     private TaskCommands.Selection selectionFor(String issueId) {
         Task task = tasks.findById(taskId(issueId)).orElseThrow();
         return new TaskCommands.Selection(task.getId(), task.getVersion(),
-                TaskAdmissionService.inputFingerprint(task),
-                TaskAdmissionService.destinationFingerprint(task));
+                TaskAdmissionChecks.inputFingerprint(task),
+                TaskAdmissionChecks.destinationFingerprint(task));
     }
 
     private static String issue(String id, String key, String project, String summary, String created,

@@ -1,7 +1,7 @@
 package org.folio.factory.app.tasks.presentation;
 
 import lombok.RequiredArgsConstructor;
-import org.folio.factory.app.tasks.admission.TaskAdmissionService;
+import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
@@ -78,13 +78,14 @@ public class TaskQuery {
         return new MyTasks(available, triggeredIds.map(id -> project(byId.get(id), queue)));
     }
 
-    @Transactional(readOnly = true)
     /** The task row context of an execution that a task attempt started; empty for any other run. */
+    @Transactional(readOnly = true)
     public Optional<Map<String, Object>> runContext(UUID executionId) {
         return attempts.findByExecutionId(executionId)
                 .map(attempt -> TaskRows.runContext(detail(attempt.getTaskId()), executionId));
     }
 
+    @Transactional(readOnly = true)
     public TaskView detail(UUID taskId) {
         return project(tasks.findById(taskId)
                 .orElseThrow(() -> new NoSuchElementException("No task " + taskId)), queuePositions());
@@ -208,7 +209,7 @@ public class TaskQuery {
                 prReady ? latest.getPublicationIdentity() : null,
                 prReady ? draftReasons(latest) : null,
                 task.isInScope(), task.getEligibility().name(), task.getRoutingReason(), task.getVersion(),
-                TaskAdmissionService.inputFingerprint(task), TaskAdmissionService.destinationFingerprint(task),
+                TaskAdmissionChecks.inputFingerprint(task), TaskAdmissionChecks.destinationFingerprint(task),
                 task.getJiraCreatedAt(), task.getUpdatedAt(), progress.entries(), progress.usage(),
                 outcome.allowedActions());
     }

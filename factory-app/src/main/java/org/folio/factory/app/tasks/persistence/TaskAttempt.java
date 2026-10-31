@@ -162,5 +162,10 @@ public class TaskAttempt {
         public boolean isLive() {
             return LIVE_STATES.contains(this);
         }
+
+        /** Live and not held for inspection: queued or running work. */
+        public boolean isInFlight() {
+            return isLive() && this != NEEDS_INSPECTION;
+        }
     }
 }

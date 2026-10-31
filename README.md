@@ -563,7 +563,9 @@ fork when you set both `<REPO>_SOURCE_REPO` and `<REPO>_DELIVERY_REPO`.
 One task runs at a time, in the order you clicked; Retry joins the same queue. A
 failed task releases the queue. A task in **Needs inspection** holds it: Factory
 could not confirm how the run ended (for example, workload cleanup or a lost
-publication response) and rechecks every minute. If the run is really over, use
+publication response) and rechecks at startup and on every dispatch poll
+(`FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS`, default 30 seconds; the separate
+`FACTORY_TASKS_EXECUTION_RECOVERY_POLL_INTERVAL_MS` is gone). If the run is really over, use
 **Mark as stopped…**: the task becomes Could not complete and the queue moves on.
 Destructive retention must stay disabled: while `FACTORY_RETENTION_ENABLED` is
 true, task execution refuses to start tasks (see `docker compose logs factory`).

@@ -218,8 +218,7 @@ public class TaskOutcomeService {
             // A concurrent scheduler or dispatcher refresh saved the attempt first:
             // re-read and release only while the outcome is still applicable.
             transactions.executeWithoutResult(status -> attempts.findById(attempt.getId())
-                    .filter(current -> current.getState().isLive()
-                            && current.getState() != TaskAttempt.State.NEEDS_INSPECTION)
+                    .filter(current -> current.getState().isInFlight())
                     .ifPresent(current -> releaseLocked(attempt.getId(), classification)));
         }
         return new AttemptOutcome(classification.state(), classification.stage(),
@@ -305,8 +304,7 @@ public class TaskOutcomeService {
 
     private void markNeedsInspection(TaskAttempt attempt, String cause) {
         transactions.executeWithoutResult(status -> attempts.findById(attempt.getId())
-                .filter(current -> current.getState().isLive()
-                        && current.getState() != TaskAttempt.State.NEEDS_INSPECTION)
+                .filter(current -> current.getState().isInFlight())
                 .ifPresent(current -> {
                     current.setState(TaskAttempt.State.NEEDS_INSPECTION);
                     if ((current.getResultReason() == null || current.getResultReason().isBlank())

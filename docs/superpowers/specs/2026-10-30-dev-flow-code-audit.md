@@ -175,10 +175,13 @@ From the package audit; the sample claims below were re-checked by hand.
    re-fetch are restated (`selectionRefusal:232-252` vs `retryProblem:171-183`; `admitSelection:200-211`,
    `admitByKey:170-177` vs `reserveAndDispatch:102-111`; `fetch:143-159` vs `freshIssue:115-125`). Keep
    `historyProblem` (`TaskRetryService:186-208`) as the only retry-specific rule. About -140 lines.
+   Status (2026-10-31): Done: Merge task admission and retry, fold startup recovery into dispatch. `TaskAdmissionService` runs selection, by-key and retry with one `reserve`, one Jira read, one conflict handler; `TaskAdmissionChecks` holds the checks (fingerprints, eligibility, history, push access). Refusal texts unchanged. `RetryResult.state` is typed; "in flight" is `TaskAttempt.State.isInFlight()`, derived from `LIVE_STATES` (the controller and the outcome service excluded `NEEDS_INSPECTION`, so `LIVE_STATES` itself would have changed what the Retry button reports).
 2. `TaskRecoveryService` (58) duplicates `TaskDispatcher.dispatchNextOrThrow` (`:71-77`), which already
    refreshes the active attempt; one scheduled class with an `ApplicationReadyEvent` hook. About -45.
+   Status (2026-10-31): Done: Merge task admission and retry, fold startup recovery into dispatch. `FACTORY_TASKS_EXECUTION_RECOVERY_POLL_INTERVAL_MS` is removed (README says so); the startup run also starts the next queued attempt when the slot is free, which the 30-second poll did anyway.
 3. `TaskInstallation.initial()` and its four `orElseGet` fallbacks (`TaskExecutionLauncher:107`,
    `TaskDiscoveryService:186, 208`, `TaskUiController:334`) never run: `V12__pilot_my_tasks.sql:29` seeds row 1.
+   Status (2026-10-31): Done: Merge task admission and retry, fold startup recovery into dispatch. They did run in ten test classes that delete the row; those now re-seed it with the test fixture `TaskInstallations.seeded()`. Production fails with a message naming V12.
 4. `TaskOutcomeService.classify` (`:199-200`) repeats what `deliveredOutcome` (`:138-153`) already decided;
    `AttemptOutcome.State.PROCESSING_PAUSED` is never produced; `AttemptOutcome.stage/publicationIdentity/
    workloadInactive` are never read; `markNeedsInspection` always gets `cause == null` (`:301, 313-316`).

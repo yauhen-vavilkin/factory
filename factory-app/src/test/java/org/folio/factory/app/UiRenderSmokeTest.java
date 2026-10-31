@@ -57,6 +57,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
+import org.folio.factory.app.tasks.persistence.TaskInstallations;
 
 /**
  * The only test that actually renders the Thymeleaf templates end to end;
@@ -827,7 +828,7 @@ class UiRenderSmokeTest {
         taskAttempts.deleteAll();
         taskTasks.deleteAll();
         taskInstallations.deleteAll();
-        taskInstallations.save(TaskInstallation.initial());
+        taskInstallations.save(TaskInstallations.seeded());
     }
 
     private Task seedTask(String issueId, String key, String title,
