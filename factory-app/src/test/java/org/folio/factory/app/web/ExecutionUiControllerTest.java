@@ -86,7 +86,7 @@ class ExecutionUiControllerTest {
     void setUp() {
         var rate = new DeveloperPricingProperties.Rate("glm-5.3-flash", "USD",
                 LocalDate.parse("2026-09-19"), URI.create("https://example.test/pricing"),
-                new BigDecimal("0.15"), new BigDecimal("0.03"), null, new BigDecimal("0.50"));
+                new BigDecimal("0.15"), new BigDecimal("0.03"), null, new BigDecimal("0.50"), null, null);
         var estimator = new DeveloperCostEstimator(new DeveloperPricingProperties(Map.of("flash", rate)));
         var taskQuery = mock(org.folio.factory.app.tasks.presentation.TaskQuery.class);
         mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(
@@ -411,7 +411,8 @@ class ExecutionUiControllerTest {
                         "present", true, "coding", true, "total", "120", "cacheRead", "40")))
                 .andReturn();
 
-        assertThat(steps(result).get(3)).containsEntry("tokens", "120 tokens (100 in / 20 out)");
+        // The Developer Flow page has no stepper, so its engine steps carry no token label.
+        assertThat(steps(result).get(3)).doesNotContainKey("tokens");
     }
 
     @Test

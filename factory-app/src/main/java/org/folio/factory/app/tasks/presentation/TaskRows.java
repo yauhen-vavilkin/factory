@@ -24,7 +24,6 @@ import java.util.stream.Collectors;
 
 import static org.folio.factory.app.tasks.presentation.TaskLabels.ago;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.attemptResult;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.categoryLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costNoteTitle;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.incompleteCostNote;
@@ -266,7 +265,7 @@ public class TaskRows {
         row.put("usagePresent", usage.tokens() > 0 || !usage.estimatesByCurrency().isEmpty());
         row.put("usageTokens", UiFormat.count(usage.tokens()));
         row.put("usageCategories", usage.tokensByCategory().entrySet().stream()
-                .map(entry -> Map.of("label", categoryLabel(entry.getKey()),
+                .map(entry -> Map.of("label", entry.getKey().label(),
                         "value", UiFormat.count(entry.getValue())))
                 .toList());
         row.put("usageCost", costLabel(usage));

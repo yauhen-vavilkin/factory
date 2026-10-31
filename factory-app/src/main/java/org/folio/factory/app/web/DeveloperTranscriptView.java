@@ -88,13 +88,15 @@ final class DeveloperTranscriptView {
         row.put("result", detail.path("text").asString(""));
         row.put("error", detail.path("error").asBoolean(false));
         row.put("duration", detail.path("durationMs").isIntegralNumber()
-                ? milliseconds(detail.path("durationMs").asLong()) : null);
+                ? UiFormat.milliseconds(detail.path("durationMs").asLong()) : null);
     }
 
     private static String resultFacts(JsonNode detail) {
         List<String> facts = new ArrayList<>();
         if (detail.path("turns").isIntegralNumber()) facts.add(detail.path("turns").asLong() + " turns");
-        if (detail.path("durationMs").isIntegralNumber()) facts.add(milliseconds(detail.path("durationMs").asLong()));
+        if (detail.path("durationMs").isIntegralNumber()) {
+            facts.add(UiFormat.milliseconds(detail.path("durationMs").asLong()));
+        }
         var usage = TokenUsage.from(detail.path("usage"));
         addTokens(facts, usage.inputTokens(), "input");
         addTokens(facts, usage.cacheReadTokens(), "cache read");
@@ -107,9 +109,5 @@ final class DeveloperTranscriptView {
         if (count != null) {
             facts.add(UiFormat.count(count) + " " + category + " tokens");
         }
-    }
-
-    private static String milliseconds(long value) {
-        return value < 1000 ? value + " ms" : UiFormat.duration(value / 1000);
     }
 }

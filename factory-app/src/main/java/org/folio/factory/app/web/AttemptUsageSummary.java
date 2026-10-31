@@ -33,14 +33,6 @@ public final class AttemptUsageSummary {
         boolean complete;
     }
 
-    static Map<String, Object> build(List<AuditEvent> events, Integer round) {
-        return build(events, round, false);
-    }
-
-    static Map<String, Object> build(List<AuditEvent> events, Integer round, boolean live) {
-        return new Projection(events).summary(round, live);
-    }
-
     /** Typed per-currency totals of one usage interpretation, before any display formatting. */
     public record Totals(
             boolean present,
@@ -166,9 +158,7 @@ public final class AttemptUsageSummary {
                     "present", t.present(),
                     "cost", costDisplay(t),
                     "partial", t.partial(),
-                    "tokens", t.tokens(),
                     "tokensDisplay", tokensDisplay,
-                    "provisional", t.provisional(),
                     "models", String.join(", ", t.models()),
                     "attempts", t.attempts(),
                     "sources", t.rateSources(),
@@ -187,11 +177,11 @@ public final class AttemptUsageSummary {
         }
 
         private static Map<String, Long> breakdownCounts(Map<AttemptCharge.Category, Long> breakdown) {
-            return Map.of(
-                    "input", breakdown.getOrDefault(AttemptCharge.Category.INPUT, 0L),
-                    "cacheRead", breakdown.getOrDefault(AttemptCharge.Category.CACHE_READ, 0L),
-                    "cacheWrite", breakdown.getOrDefault(AttemptCharge.Category.CACHE_WRITE, 0L),
-                    "output", breakdown.getOrDefault(AttemptCharge.Category.OUTPUT, 0L));
+            Map<String, Long> counts = new LinkedHashMap<>();
+            for (var category : AttemptCharge.Category.values()) {
+                counts.put(category.key, breakdown.getOrDefault(category, 0L));
+            }
+            return counts;
         }
     }
 

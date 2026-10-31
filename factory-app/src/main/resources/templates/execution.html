@@ -114,10 +114,8 @@
                     <p class="muted" th:unless="${tokenTotals['present']}">No token usage reported yet.</p>
                     <dl class="usage-figures" th:if="${tokenTotals['present'] or initialUsage != null or estimatedCost != null}">
                         <th:block th:if="${tokenTotals['present'] and tokenTotals['coding'] == true}">
-                            <th:block th:if="${tokenTotals['input'] != null}"><dt>Input (uncached)</dt><dd th:text="${tokenTotals['input']}"></dd></th:block>
-                            <th:block th:if="${tokenTotals['cacheRead'] != null}"><dt>Cache read</dt><dd th:text="${tokenTotals['cacheRead']}"></dd></th:block>
-                            <th:block th:if="${tokenTotals['cacheWrite'] != null}"><dt>Cache write</dt><dd th:text="${tokenTotals['cacheWrite']}"></dd></th:block>
-                            <th:block th:if="${tokenTotals['output'] != null}"><dt>Output</dt><dd th:text="${tokenTotals['output']}"></dd></th:block>
+                            <th:block th:each="category : ${tokenCategories}" th:if="${tokenTotals[category.key] != null}"><dt
+                                    th:text="${category.value}">Input</dt><dd th:text="${tokenTotals[category.key]}"></dd></th:block>
                         </th:block>
                         <th:block th:if="${tokenTotals['present'] and tokenTotals['coding'] != true}">
                             <dt>Prompt</dt><dd th:text="${tokenTotals['prompt']}"></dd>

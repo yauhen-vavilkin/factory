@@ -1,7 +1,6 @@
 package org.folio.factory.app.web;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
 import java.math.BigDecimal;
 import java.net.URI;
@@ -47,24 +46,6 @@ public record DeveloperPricingProperties(Map<String, Rate> rates) {
             BigDecimal outputPerMillion,
             BigDecimal cacheWrite5mPerMillion,
             BigDecimal cacheWrite1hPerMillion) {
-        @ConstructorBinding
-        public Rate {
-        }
-
-        public Rate(
-                String model,
-                String currency,
-                LocalDate asOf,
-                URI source,
-                BigDecimal inputPerMillion,
-                BigDecimal cacheReadPerMillion,
-                BigDecimal cacheWritePerMillion,
-                BigDecimal outputPerMillion) {
-            this(
-                    model, currency, asOf, source, inputPerMillion, cacheReadPerMillion,
-                    cacheWritePerMillion, outputPerMillion, null, null);
-        }
-
         private void validate(String id) {
             if (model == null || model.isBlank()) {
                 throw new IllegalArgumentException("Pricing rate " + id + " requires model");

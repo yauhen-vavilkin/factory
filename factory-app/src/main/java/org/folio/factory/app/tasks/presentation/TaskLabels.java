@@ -224,16 +224,6 @@ final class TaskLabels {
         return notes.isEmpty() ? null : String.join(" ", notes);
     }
 
-    static String categoryLabel(Object category) {
-        return switch (category.toString()) {
-            case "INPUT" -> "Input (uncached)";
-            case "CACHE_READ" -> "Cache read";
-            case "CACHE_WRITE" -> "Cache write";
-            case "OUTPUT" -> "Output";
-            default -> category.toString();
-        };
-    }
-
     static String minutes(long seconds) {
         long minutes = Math.max(0, seconds) / 60;
         if (minutes < 1) {

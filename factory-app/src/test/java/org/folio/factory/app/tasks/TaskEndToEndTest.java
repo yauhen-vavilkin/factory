@@ -671,7 +671,7 @@ class TaskEndToEndTest {
         when(pricing.rateFor(any())).thenReturn(Optional.of(new DeveloperPricingProperties.Rate(
                 "claude-sonnet-5-5", "USD", LocalDate.of(2026, 10, 22),
                 URI.create("https://pricing.fixture.invalid"), BigDecimal.valueOf(2),
-                BigDecimal.valueOf(0.1), BigDecimal.ONE, BigDecimal.TEN)));
+                BigDecimal.valueOf(0.1), BigDecimal.ONE, BigDecimal.TEN, null, null)));
         when(coding.code(any(), any(), anyInt(), any(), any())).thenAnswer(invocation -> {
             CodingRequest request = invocation.getArgument(1);
             codingCalls.merge(request.issueKey(), 1, Integer::sum);

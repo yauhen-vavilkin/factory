@@ -21,8 +21,6 @@
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DevArtifactAmendmentValidator']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='validate']]"/>
   <suppress-xpath files="DeveloperCostEstimator\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DeveloperCostEstimator']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='estimate']]"/>
-  <suppress-xpath files="DeveloperPricingProperties\.java" checks="ParameterNumber"
-      query="/COMPILATION_UNIT/RECORD_DEF[./IDENT[@text='DeveloperPricingProperties']]/OBJBLOCK/RECORD_DEF[./IDENT[@text='Rate']]/OBJBLOCK/CTOR_DEF/IDENT[@text='Rate']"/>
   <suppress-xpath files="DeveloperPricingProperties\.java" checks="MethodLength"
       query="/COMPILATION_UNIT/RECORD_DEF[./IDENT[@text='DeveloperPricingProperties']]/OBJBLOCK/RECORD_DEF[./IDENT[@text='Rate']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='validate']]"/>
   <suppress-xpath files="DeveloperRuntimeActivity\.java" checks="MethodLength"

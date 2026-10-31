@@ -64,6 +64,20 @@ public final class UiFormat {
         return hours + "h" + (remainingMinutes == 0 ? "" : " " + remainingMinutes + "m");
     }
 
+    /** Milliseconds under one second, the compact duration from one second up. */
+    static String milliseconds(long value) {
+        return value < 1000 ? value + " ms" : duration(value / 1000);
+    }
+
+    /** Lenient read of stored JSON text: null or unreadable text yields an empty object. */
+    static JsonNode parse(String value, JsonMapper jsonMapper) {
+        try {
+            return value == null ? jsonMapper.createObjectNode() : jsonMapper.readTree(value);
+        } catch (RuntimeException ignored) {
+            return jsonMapper.createObjectNode();
+        }
+    }
+
     static String stepLabel(StepDescriptor step) {
         return switch (step.type()) {
             case AGENT -> step.workerId();

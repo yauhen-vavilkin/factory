@@ -23,7 +23,6 @@ import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -272,27 +271,16 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     }
 
     private URI endpoint() {
-        String baseUrl;
-        if (usesClaudeCode()) {
-            baseUrl = runProfile().baseUrl();
-        } else {
-            baseUrl = settings.coding().pi().baseUrl();
-        }
-        return endpoint(baseUrl);
+        return endpoint(usesClaudeCode() ? runProfile().baseUrl() : settings.coding().pi().baseUrl());
     }
 
+    /** Null when no base URL is set: the runtime then uses its provider's own endpoint. */
     private static URI endpoint(String baseUrl) {
         if (baseUrl == null || baseUrl.isBlank()) {
             return null;
         }
-
-        URI endpoint = URI.create(baseUrl);
-        boolean supportedScheme = "http".equals(endpoint.getScheme()) || "https".equals(endpoint.getScheme());
-        if (!supportedScheme || endpoint.getHost() == null || endpoint.getUserInfo() != null
-                || endpoint.getRawQuery() != null || endpoint.getFragment() != null) {
-            throw new IllegalArgumentException("Gateway must be an HTTP(S) URL without embedded credentials");
-        }
-        return endpoint;
+        RunProfiles.origin(baseUrl);
+        return URI.create(baseUrl);
     }
 
     private boolean usesClaudeCode() {
@@ -467,15 +455,13 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     }
 
     private void addEndpointOrigin(Map<String, Object> identity) {
+        String baseUrl = usesClaudeCode() ? profiles.defaultProfile().baseUrl() : settings.coding().pi().baseUrl();
+        if (baseUrl == null || baseUrl.isBlank()) {
+            return;
+        }
         try {
-            URI endpoint = endpoint(usesClaudeCode()
-                    ? profiles.defaultProfile().baseUrl() : settings.coding().pi().baseUrl());
-            if (endpoint != null) {
-                URI origin = new URI(endpoint.getScheme(), null, endpoint.getHost(), endpoint.getPort(),
-                        null, null, null);
-                identity.put("endpointOrigin", origin.toString());
-            }
-        } catch (IllegalArgumentException | URISyntaxException e) {
+            identity.put("endpointOrigin", RunProfiles.origin(baseUrl));
+        } catch (IllegalArgumentException e) {
             identity.put("endpointOrigin", "unset or invalid");
         }
     }
@@ -502,7 +488,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         var endpoint = checkEndpoint(profile, reachable);
         checks.add(endpoint.check());
         checks.add(checkRateCard(profile));
-        checks.add(checkEfforts(profile));
+        checks.add(effortsCheck(profile));
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", profile.id());
         row.put("label", profile.label());
@@ -549,12 +535,10 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
                         + " in config/developer-pricing.yaml; runs work, but cost is not estimated.");
     }
 
-    private static Check checkEfforts(RunProfiles.Profile profile) {
-        boolean effortsValid = RunProfiles.EFFORTS.containsAll(profile.efforts())
-                && (profile.defaultEffort() == null || profile.efforts().contains(profile.defaultEffort()));
-        return new Check("efforts", effortsValid ? Status.PASS : Status.FAIL, effortsValid
-                ? String.join(", ", profile.efforts()) + "; default " + RunProfiles.effortLabel(profile.defaultEffort())
-                : "The default effort is not in the effort list.");
+    /** RunProfiles builds every profile with a valid effort list, so this line always passes; the page lists it. */
+    private static Check effortsCheck(RunProfiles.Profile profile) {
+        return new Check("efforts", Status.PASS,
+                String.join(", ", profile.efforts()) + "; default " + RunProfiles.effortLabel(profile.defaultEffort()));
     }
 
     private List<Map<String, Object>> effectiveRepositories() {

@@ -102,27 +102,22 @@ public class ExecutionUiController {
         return "executions";
     }
 
+    /** The template renders a Developer Flow run and any other run on two branches; each gets only its data. */
     @GetMapping("/executions/{id}")
     public String execution(@PathVariable("id") UUID id, Model model) {
         var execution = findExecution(id);
-        var terminal = execution.getStatus().isTerminal();
         var events = auditLog.forExecution(id);
-        var developerFlow = DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId());
-        var usage = StepUsageSummary.from(events, developerFlow, jsonMapper);
         var detail = new ExecutionDetail(id, execution, artifactStore.allForExecution(id), events);
-        model.addAttribute("displayStatus",
-                developerFlow ? developerView.productStatus(execution, detail.artifacts()) : execution.getStatus());
-        var steps = stepStates(execution, usage);
-        if (developerFlow) {
-            populateDeveloperProgress(model, detail, steps);
+        var steps = stepStates(execution);
+        if (DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId())) {
+            populateDeveloperRun(model, detail, steps);
         } else {
-            model.addAttribute("progressSteps", steps);
+            populateEngineRun(model, detail, steps);
         }
-        populateUsage(model, detail, usage, developerFlow);
         model.addAttribute("auditCount", events.size());
         model.addAttribute("artifactCount", detail.artifacts().size());
         populateDetail(model, detail, steps);
-        model.addAttribute("pollUrl", terminal ? null : "/api/executions/" + id);
+        model.addAttribute("pollUrl", execution.getStatus().isTerminal() ? null : "/api/executions/" + id);
         return "execution";
     }
 
@@ -130,16 +125,30 @@ public class ExecutionUiController {
         return executions.findById(id).orElseThrow(() -> new NoSuchElementException("No execution " + id));
     }
 
-    private void populateDeveloperProgress(Model model, ExecutionDetail detail, List<Map<String, Object>> steps) {
+    private void populateDeveloperRun(Model model, ExecutionDetail detail, List<Map<String, Object>> steps) {
         var execution = detail.execution();
         var now = Instant.now();
         populateFactoryTime(model, detail, now);
         var developer = developerView.build(execution, detail.artifacts(), detail.events(), now);
         model.addAttribute("developer", developer);
+        model.addAttribute("displayStatus", developer.get("productStatus"));
         model.addAttribute("taskRun", taskQuery.runContext(detail.id()).orElse(null));
-        model.addAttribute("progressSteps", developer.get("phases"));
+        model.addAttribute("artifactGroups", artifactLinks(detail.artifacts()));
+        model.addAttribute("tokenCategories", AttemptCharge.Category.LABELS);
         flowRegistry.find(execution.getFlowId())
                 .ifPresent(flow -> labelTechnicalSteps(steps, flow, detail, now));
+        populateDeveloperUsage(model, detail);
+    }
+
+    private void populateEngineRun(Model model, ExecutionDetail detail, List<Map<String, Object>> steps) {
+        var usage = StepUsageSummary.from(detail.events(), false, jsonMapper);
+        addStepTokens(steps, detail.execution(), usage);
+        model.addAttribute("displayStatus", detail.execution().getStatus());
+        model.addAttribute("progressSteps", steps);
+        populateLegacyUsage(model, usage, false);
+        model.addAttribute("artifactGroups", artifactGroups(detail.artifacts()));
+        model.addAttribute("events",
+                detail.events().stream().map(event -> UiFormat.auditRow(event, jsonMapper)).toList());
     }
 
     private static void populateFactoryTime(Model model, ExecutionDetail detail, Instant now) {
@@ -171,12 +180,12 @@ public class ExecutionUiController {
         }
     }
 
-    private void populateUsage(Model model, ExecutionDetail detail, StepUsageSummary usage, boolean developerFlow) {
+    private void populateDeveloperUsage(Model model, ExecutionDetail detail) {
         var execution = detail.execution();
-        if (developerFlow && FeedbackArtifacts.VERSION.equals(execution.getFlowVersion())) {
+        if (FeedbackArtifacts.VERSION.equals(execution.getFlowVersion())) {
             feedbackUi.populate(execution, detail.artifacts(), detail.events(), model);
         } else {
-            populateLegacyUsage(model, usage, developerFlow);
+            populateLegacyUsage(model, StepUsageSummary.from(detail.events(), true, jsonMapper), true);
         }
     }
 
@@ -184,11 +193,8 @@ public class ExecutionUiController {
         var execution = detail.execution();
         model.addAttribute("execution", execution);
         model.addAttribute("steps", steps);
-        model.addAttribute("artifactGroups", artifactGroups(detail.artifacts()));
         model.addAttribute("children", childRows(execution, detail.id()));
         model.addAttribute("pendingReview", pendingReview(execution, detail.id()));
-        model.addAttribute("events",
-                detail.events().stream().map(event -> UiFormat.auditRow(event, jsonMapper)).toList());
     }
 
     /** Compatibility for Test Factory and Developer Flow artifacts without attempt identities. */
@@ -200,7 +206,7 @@ public class ExecutionUiController {
 
     private ExecutionRow executionRow(PipelineExecution execution) {
         var status = DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId())
-                ? developerView.productStatus(execution, artifactStore.allForExecution(execution.getId()))
+                ? developerView.productStatus(execution, name -> artifactStore.getLatest(execution.getId(), name))
                 : execution.getStatus().name();
         var parentId = execution.getParentExecutionId();
         return new ExecutionRow(execution.getId(), UiFormat.abbreviate(execution.getId().toString()),
@@ -209,8 +215,7 @@ public class ExecutionUiController {
                 parentId, parentId == null ? null : UiFormat.abbreviate(parentId.toString()));
     }
 
-    private List<Map<String, Object>> stepStates(
-            PipelineExecution execution, StepUsageSummary usage) {
+    private List<Map<String, Object>> stepStates(PipelineExecution execution) {
         FlowDescriptor flow = flowRegistry.find(execution.getFlowId()).orElse(null);
         if (flow == null) {
             return List.of();
@@ -226,10 +231,18 @@ public class ExecutionUiController {
             row.put("sublabel", step.stepId() + " · " + step.type());
             row.put("state", stepState(i, execution));
             row.put("attempts", retryCounts.path(step.stepId()).asInt(0));
-            row.put("tokens", usage.stepTokens(step.stepId()));
             steps.add(row);
         }
         return steps;
+    }
+
+    private void addStepTokens(List<Map<String, Object>> steps, PipelineExecution execution,
+                               StepUsageSummary usage) {
+        flowRegistry.find(execution.getFlowId()).ifPresent(flow -> {
+            for (int i = 0; i < steps.size(); i++) {
+                steps.get(i).put("tokens", usage.stepTokens(flow.agentChain().get(i).stepId()));
+            }
+        });
     }
 
     private static String stepState(int index, PipelineExecution execution) {
@@ -262,12 +275,23 @@ public class ExecutionUiController {
         return groups;
     }
 
+    /** A Developer Flow run page links each artifact version and shows no content. */
+    private static List<Map<String, Object>> artifactLinks(List<Artifact> artifacts) {
+        Map<String, List<Map<String, Object>>> byName = new LinkedHashMap<>();
+        for (var artifact : artifacts) {
+            byName.computeIfAbsent(artifact.getName(), name -> new ArrayList<>())
+                    .add(Map.of("id", artifact.getId(), "version", artifact.getVersion()));
+        }
+        List<Map<String, Object>> groups = new ArrayList<>(byName.size());
+        byName.forEach((name, versions) -> groups.add(Map.of("name", name, "versions", versions)));
+        return groups;
+    }
+
     private static Map<String, Object> artifactVersion(Artifact artifact, String panelId) {
         Map<String, Object> version = new LinkedHashMap<>();
         version.put("id", artifact.getId());
         version.put("version", artifact.getVersion());
         version.put("content", artifact.getContent());
-        version.put("createdBy", artifact.getCreatedBy());
         version.put("label", "v" + artifact.getVersion() + " · " + artifact.getCreatedBy()
                 + " · " + UiFormat.format(artifact.getCreatedAt()));
         version.put("panelId", panelId);

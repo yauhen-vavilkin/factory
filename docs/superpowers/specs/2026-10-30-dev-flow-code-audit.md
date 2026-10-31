@@ -238,11 +238,13 @@ low elsewhere.
    seven artifacts per request (`ExecutionUiController:123, 161`); `productStatus` also runs per row of
    `/executions` with all artifact content loaded (`:226-228`). The audit event list is walked five times
    per page load. Guarding these with the branch the template already has removes the largest per-load cost.
+   Status (2026-10-31): Done: Build only what the run page shows and remove dead presentation code. A Developer Flow run no longer builds `events`, `progressSteps`, step `tokens` or artifact `content/createdBy/label/panelId/latest` (`createdBy` was not rendered on either branch). `StepUsageSummary.from` still runs for Developer Flow runs before 0.9.0: their usage panel reads `tokenTotals`, `estimatedCost` and `usageIncomplete` from it. `build` parses each latest artifact at most once and returns `productStatus` with the view; `/executions` rows ask `ArtifactStore.getLatest` only for the artifacts their status needs. Two of the audit-event walks are gone; the others feed parts of the page. The rendered text of all 74 pages that `UiRenderSmokeTest` requests was compared before and after: identical.
 3. **Dead members**: `AttemptUsageSummary.build` x2 (`:35-41`), summary keys `tokens` / `provisional`;
    `DeveloperExecutionView.technicalStepDuration` (`:327-330`), view keys `outcome`, `elapsed`, `elapsedStart`,
    phase row keys `type/attempts/tokens`; `FeedbackUi.duration` (`:189-191`), round card key `round`;
    `DeveloperPricingProperties.Rate` 8-arg constructor; `CodingTranscriptStore.Entry.seq` unread by
    presentation. About -45 lines and one suppression.
+   Status (2026-10-31): Done: Build only what the run page shows and remove dead presentation code, except `CodingTranscriptStore.Entry.seq`: `CodingTranscriptStoreIntegrationTest:58` reads it to prove that the batches number entries 0 to 20. The `Rate` `ParameterNumber` suppression went with the constructor; `FeedbackUi.roundCards` is still 26 lines, so its suppression stays. Tests now assert rendered or typed values instead: `tokensDisplay` for the summary `tokens`, `Totals.provisional()`, `technicalStepDurationSeconds`, and `productStatus` for the view `outcome`.
 4. **`DeveloperPreflight`** (612 lines, 10 dependencies): `checkEfforts` (`:561-567`) can never fail
    (profiles are validated at startup in `RunProfiles:278-282`); `checkPricing` (`:250-258`) and
    `checkRateCard` (`:553-559`) are the same check; `endpoint(String)` (`:286-298`) is the third copy of
@@ -253,9 +255,11 @@ low elsewhere.
    repository, on every GET of `/developer/configuration`, on every trigger and again at selection; push
    permission is probed up to three times per task run. About -30 lines plus a short-lived cache for
    the probe results.
+   Status (2026-10-31): Done in part: Build only what the run page shows and remove dead presentation code. `checkEfforts` cannot fail, but its PASS line is on the configuration page and in the README, so `effortsCheck` keeps that line and drops only the FAIL branch. `endpoint(String)` validates with `RunProfiles.origin`, and `addEndpointOrigin` shows `RunProfiles.origin`; a blank base URL still means the provider's own endpoint, and the TCP probe still gets the base URL. Skipped: merging `checkPricing` and `checkRateCard` (`DeveloperPreflight.java:247, 530`): they are rows of two tables with different names and texts, so a merge changes page words. Skipped: `safeAuthentication` (`:447`): the `env-default` and Pi authentication values are not checked at startup, so it keeps a wrong value (possibly a pasted secret) off the page (`DeveloperPreflightTest#invalidAuthenticationIsRedactedFromEffectiveConfiguration`). The delivery base mismatch check was already removed in phase 1 (Remove legacy Pi, delivery and pilot configuration layers). No probe cache, as the cleanup prompt says.
 5. **Pricing file gap**: `config/developer-pricing.yaml` is imported only through `docker-compose.yml:154`;
    `application.yaml:3-7` imports repositories and run profiles but not pricing, so `mvn spring-boot:run`
    prices nothing. One line: `optional:file:./config/developer-pricing.yaml`.
+   Status (2026-10-31): Done: Build only what the run page shows and remove dead presentation code. The README pricing paragraph says the file is also loaded when Spring runs from the repository root.
 6. **Row shapes and label tables**: 1 public record row (`ExecutionRow`) against about 23 `Map` row shapes
    and about 21 label/tone tables across `DeveloperExecutionView`, `DeveloperRuntimeActivity`,
    `DeveloperTranscriptView`, `FeedbackUi`, `TaskRows`, `TaskLabels`, `UiFormat`. Restated relations: step
@@ -265,6 +269,7 @@ low elsewhere.
    (`UiFormat.duration`, `TaskLabels.minutes`, `FeedbackUi.duration`), `parse`/`milliseconds` helpers
    (`DeveloperRuntimeActivity:108-114, 214-216` vs `DeveloperExecutionView:509-515`,
    `DeveloperTranscriptView:106-108`). AGENTS.md asks for records; convert when a page is touched.
+   Status (2026-10-31): Done in part: Build only what the run page shows and remove dead presentation code. `UiFormat.parse` and `UiFormat.milliseconds` replace the copies. The category labels live on `AttemptCharge.Category` (`TaskLabels.categoryLabel` is gone) and feed the `<dt>`s of the run page through `tokenCategories`, same words; the progress line for other flows keeps its own words ("Input", "Cached read"). Not done: row records and the other restated relations; the cleanup prompt lists only the helpers and the category table.
 7. `ExecutionUiController` (345 lines, suppressed constructor): the transcript route (`:138-155`) and its
    three dependencies belong in their own controller.
    Status (2026-10-31): Done: Group the Developer Flow wiring into hooks and parameter records. The execution page also shows the task context, so the controller keeps `TaskQuery` (now `TaskQuery.runContext`) and `TranscriptUiController` takes the transcript route with the store.

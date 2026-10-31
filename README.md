@@ -251,7 +251,8 @@ Execution pages estimate API cost from the operator-owned
 `config/developer-pricing.yaml` rate card. The YAML records public list prices
 linked to their official sources — update it when pricing changes; Factory does
 not fetch prices from the model API. An estimate is shown only when every positive
-token category has a configured rate.
+token category has a configured rate. Compose mounts the file read-only; like the
+repository catalog, it is also loaded when Spring runs from the repository root.
 
 Compose publishes Factory and PostgreSQL on `127.0.0.1` by default. The MVP still
 runs the trusted Factory container as root with the Docker socket and a 7200-second

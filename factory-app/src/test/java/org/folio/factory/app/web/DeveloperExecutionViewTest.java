@@ -117,22 +117,22 @@ class DeveloperExecutionViewTest {
         for (String state : List.of("DEVELOPMENT_FAILED", "VERIFICATION_FAILED", "DELIVERY_BLOCKED",
                 "UNSUPPORTED", "BLOCKED", "BLOCKED_ENVIRONMENT", "REPOSITORY_MISMATCH",
                 "DELIVERED", "VERIFIED")) {
-            assertThat(view.productStatus(execution, List.of(
+            assertThat(productStatus(execution, List.of(
                     artifact("dev_result.json", 2, "{\"state\":\"" + state + "\"}"),
                     artifact("dev_result.json", 1, "{\"state\":\"VERIFIED\"}"),
                     artifact("dev_delivery.json", 1, "{\"state\":\"NOT_RUN\"}")))).isEqualTo(state);
         }
-        assertThat(view.productStatus(execution, List.of())).isEqualTo("OUTCOME_UNAVAILABLE");
-        assertThat(view.productStatus(execution, List.of(artifact("dev_result.json", 1, "not json"))))
+        assertThat(productStatus(execution, List.of())).isEqualTo("OUTCOME_UNAVAILABLE");
+        assertThat(productStatus(execution, List.of(artifact("dev_result.json", 1, "not json"))))
                 .isEqualTo("OUTCOME_UNAVAILABLE");
-        assertThat(view.productStatus(execution, List.of(
+        assertThat(productStatus(execution, List.of(
                 artifact("dev_result.json", 1, "{\"state\":\"secret message\"}"))))
                 .isEqualTo("OUTCOME_UNAVAILABLE");
         execution.setStatus(ExecutionStatus.RUNNING);
-        assertThat(view.productStatus(execution, List.of(artifact("dev_result.json", 1,
+        assertThat(productStatus(execution, List.of(artifact("dev_result.json", 1,
                 "{\"state\":\"DEVELOPMENT_FAILED\"}")))).isEqualTo("RUNNING");
         execution.setStatus(ExecutionStatus.FAILED_ESCALATED);
-        assertThat(view.productStatus(execution, List.of(artifact("dev_result.json", 1,
+        assertThat(productStatus(execution, List.of(artifact("dev_result.json", 1,
                 "{\"state\":\"VERIFIED\"}")))).isEqualTo("FAILED_ESCALATED");
     }
 
@@ -141,28 +141,28 @@ class DeveloperExecutionViewTest {
         var waiting = artifact("dev_pr_state.json", 1,
                 "{\"phase\":\"READY\",\"pr\":{\"repository\":\"fork/repo\"}}");
         execution.setStatus(ExecutionStatus.AWAITING_HITL);
-        assertThat(view.productStatus(execution, List.of(waiting))).isEqualTo("AWAITING_PR");
+        assertThat(productStatus(execution, List.of(waiting))).isEqualTo("AWAITING_PR");
         execution.setStatus(ExecutionStatus.COMPLETED);
-        assertThat(view.productStatus(execution, List.of(waiting,
+        assertThat(productStatus(execution, List.of(waiting,
                 artifact("dev_delivery.json", 1, "{\"state\":\"DELIVERED\"}")))).isEqualTo("DELIVERED");
-        assertThat(view.productStatus(execution, List.of(artifact("dev_pr_state.json", 2,
+        assertThat(productStatus(execution, List.of(artifact("dev_pr_state.json", 2,
                 "{\"phase\":\"FINISHED\",\"completionReason\":\"MERGED\"}")))).isEqualTo("COMPLETED");
         execution.setStatus(ExecutionStatus.CANCELLED);
-        assertThat(view.productStatus(execution, List.of(artifact("dev_pr_state.json", 3,
+        assertThat(productStatus(execution, List.of(artifact("dev_pr_state.json", 3,
                 "{\"phase\":\"STOPPED\",\"completionReason\":\"CLOSED_WITHOUT_MERGE\"}")))).isEqualTo("CANCELLED");
     }
 
     @Test void productStatusUsesDeliveryAndFailureEvidenceWhenFinalResultIsMissing() {
         var execution = new PipelineExecution("dev-factory", "1", "{}");
         execution.setStatus(ExecutionStatus.COMPLETED);
-        assertThat(view.productStatus(execution, List.of(
+        assertThat(productStatus(execution, List.of(
                 artifact("dev_result.json", 1, "{\"state\":\"VERIFIED\"}"),
                 artifact("dev_delivery.json", 1, "{\"state\":\"DELIVERY_BLOCKED\"}"))))
                 .isEqualTo("DELIVERY_BLOCKED");
-        assertThat(view.productStatus(execution, List.of(
+        assertThat(productStatus(execution, List.of(
                 artifact("dev_verification.json", 1, "{\"result\":\"FAIL\"}"))))
                 .isEqualTo("VERIFICATION_FAILED");
-        assertThat(view.productStatus(execution, List.of(
+        assertThat(productStatus(execution, List.of(
                 artifact("dev_candidate.json", 1, "{\"state\":\"DEVELOPMENT_FAILED\"}"))))
                 .isEqualTo("DEVELOPMENT_FAILED");
     }
@@ -174,7 +174,7 @@ class DeveloperExecutionViewTest {
         var outcome = artifact("dev_coding_outcome.json", 1,
                 "{\"status\":\"NEEDS_DECISION\",\"decision\":{\"question\":\"Which API?\"}}");
 
-        assertThat(view.productStatus(execution, List.of(outcome))).isEqualTo("NEEDS_DECISION");
+        assertThat(productStatus(execution, List.of(outcome))).isEqualTo("NEEDS_DECISION");
         var paused = view.build(execution, List.of(outcome), List.of(), Instant.now());
         assertThat(paused).containsEntry("currentPhase", "Implement changes")
                 .containsEntry("reasonLabel", "Decision required")
@@ -182,12 +182,12 @@ class DeveloperExecutionViewTest {
 
         execution.setCurrentStepIndex(8);
         execution.setStatus(ExecutionStatus.COMPLETED);
-        assertThat(view.productStatus(execution, List.of(outcome))).isEqualTo("NEEDS_DECISION");
+        assertThat(productStatus(execution, List.of(outcome))).isEqualTo("NEEDS_DECISION");
         assertThat(phases(view.build(execution, List.of(outcome), List.of(), Instant.now())))
                 .extracting(phase -> phase.get("state")).containsExactly("done", "done", "done", "done");
 
         execution.setStatus(ExecutionStatus.REJECTED);
-        assertThat(view.productStatus(execution, List.of(outcome))).isEqualTo("REJECTED");
+        assertThat(productStatus(execution, List.of(outcome))).isEqualTo("REJECTED");
     }
 
     @Test void pendingRetryAndExhaustedRetryHaveDistinctReasons() {
@@ -449,8 +449,8 @@ class DeveloperExecutionViewTest {
         var old = artifact("dev_result.json", 1, "{\"state\":\"VERIFIED\"}");
         var failed = artifact("dev_result.json", 2, "{\"state\":\"DELIVERY_BLOCKED\",\"reason\":\"Destination unavailable\"}");
         var model = view.build(execution, List.of(failed, old), List.of(), Instant.now());
-        assertThat(model).containsEntry("reason", "Destination unavailable").containsEntry("elapsedStart", null);
-        assertThat(model).containsEntry("taskKey", "TASK-1").containsEntry("outcome", "DELIVERY_BLOCKED");
+        assertThat(model).containsEntry("reason", "Destination unavailable");
+        assertThat(model).containsEntry("taskKey", "TASK-1").containsEntry("productStatus", "DELIVERY_BLOCKED");
     }
 
     @Test void mapsPinnedBriefVerificationAndDeliveryAndRejectsUnsafeLinks() {
@@ -494,9 +494,9 @@ class DeveloperExecutionViewTest {
         var began = event(AuditEventType.STEP_STARTED, "implement", start);
         var ended = event(AuditEventType.STEP_COMPLETED, "implement", start.plusSeconds(12));
         var executionEvent = event(AuditEventType.EXECUTION_STARTED, null, start);
-        assertThat(DeveloperExecutionView.technicalStepDuration("implement", List.of(executionEvent, began, ended), execution, start.plusSeconds(90))).isEqualTo("12s");
-        assertThat(DeveloperExecutionView.technicalStepDuration("implement", List.of(began), execution, start.plusSeconds(30))).isEqualTo("30s");
-        assertThat(DeveloperExecutionView.technicalStepDuration("verify", List.of(began), execution, start.plusSeconds(30))).isEqualTo("Not started");
+        assertThat(DeveloperExecutionView.technicalStepDurationSeconds("implement", List.of(executionEvent, began, ended), execution, start.plusSeconds(90))).isEqualTo(12L);
+        assertThat(DeveloperExecutionView.technicalStepDurationSeconds("implement", List.of(began), execution, start.plusSeconds(30))).isEqualTo(30L);
+        assertThat(DeveloperExecutionView.technicalStepDurationSeconds("verify", List.of(began), execution, start.plusSeconds(30))).isNull();
     }
 
     @Test void durationsUseCompactHumanUnits() {
@@ -606,7 +606,12 @@ class DeveloperExecutionViewTest {
         var model = view.build(execution, List.of(), events, start.plusSeconds(50));
 
         assertThat(phases(model).get(1)).containsEntry("state", "current").containsEntry("sublabel", "40s");
-        assertThat(model).containsEntry("elapsed", "50s");
+    }
+    /** The run list reads each latest artifact on its own; the run page must show the same status. */
+    private String productStatus(PipelineExecution execution, List<Artifact> artifacts) {
+        var status = view.productStatus(execution, DeveloperExecutionView.latest(artifacts));
+        assertThat(view.build(execution, artifacts, List.of(), Instant.now())).containsEntry("productStatus", status);
+        return status;
     }
     private static Artifact artifact(String name, int version, String content) {
         return new Artifact(java.util.UUID.randomUUID(), name, version, "text/markdown", content, "hash", "worker");

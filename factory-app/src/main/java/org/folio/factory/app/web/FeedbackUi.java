@@ -117,7 +117,6 @@ public class FeedbackUi {
         for (var entry : rounds.entrySet()) {
             var state = entry.getValue();
             var card = new LinkedHashMap<String, Object>();
-            card.put("round", entry.getKey());
             card.put("open", entry.getKey().equals(rounds.lastKey()));
             card.put("title", state.manual()
                     ? "Manual verification " + (++manual) : "Round " + (++correction));
@@ -184,10 +183,6 @@ public class FeedbackUi {
                     && state.verification() != null
                     && "PASS".equals(state.verification().result());
         }
-    }
-
-    static String duration(long s) {
-        return s / 3600 + "h " + s % 3600 / 60 + "m " + s % 60 + "s";
     }
 
     static String label(FeedbackState.Phase p) {

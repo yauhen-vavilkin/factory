@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class DeveloperExecutionView {
@@ -57,16 +58,30 @@ final class DeveloperExecutionView {
             new Phase("Create pull request", 7, 7, List.of("publish")));
     private final JsonMapper json;
 
-    String productStatus(PipelineExecution execution, List<Artifact> artifacts) {
-        var latest = latestArtifacts(artifacts);
-        return feedbackStatus(execution, latest).orElseGet(() -> runStatus(execution, latest));
+    /** Asks only for the artifacts the status depends on, so a run list row does not load every version. */
+    String productStatus(PipelineExecution execution, Function<String, Optional<Artifact>> latest) {
+        return status(execution, parsed(latest));
     }
 
-    private Optional<String> feedbackStatus(PipelineExecution execution, Map<String, Artifact> latest) {
+    /** The latest version of each artifact by name, as {@code ArtifactStore.getLatest} returns it. */
+    static Function<String, Optional<Artifact>> latest(List<Artifact> artifacts) {
+        Map<String, Artifact> latest = new HashMap<>();
+        for (var artifact : artifacts) {
+            latest.merge(artifact.getName(), artifact,
+                    (old, fresh) -> old.getVersion() > fresh.getVersion() ? old : fresh);
+        }
+        return name -> Optional.ofNullable(latest.get(name));
+    }
+
+    private String status(PipelineExecution execution, Function<String, JsonNode> artifacts) {
+        return feedbackStatus(execution, artifacts).orElseGet(() -> runStatus(execution, artifacts));
+    }
+
+    private Optional<String> feedbackStatus(PipelineExecution execution, Function<String, JsonNode> artifacts) {
         if (!FeedbackArtifacts.VERSION.equals(execution.getFlowVersion())) {
             return Optional.empty();
         }
-        var feedback = artifact(latest, FeedbackArtifacts.STATE);
+        var feedback = artifacts.apply(FeedbackArtifacts.STATE);
         var reason = feedback.path("completionReason").asString("");
         var status = execution.getStatus();
         if (status == ExecutionStatus.COMPLETED && "MERGED".equals(reason)) {
@@ -81,9 +96,9 @@ final class DeveloperExecutionView {
         return Optional.empty();
     }
 
-    private String runStatus(PipelineExecution execution, Map<String, Artifact> latest) {
+    private static String runStatus(PipelineExecution execution, Function<String, JsonNode> artifacts) {
         var status = execution.getStatus();
-        var codingStatus = artifact(latest, "dev_coding_outcome.json").path("status").asString("");
+        var codingStatus = artifacts.apply("dev_coding_outcome.json").path("status").asString("");
         if ("NEEDS_DECISION".equals(codingStatus)
                 && status != ExecutionStatus.REJECTED && status != ExecutionStatus.FAILED_ESCALATED) {
             return "NEEDS_DECISION";
@@ -91,34 +106,37 @@ final class DeveloperExecutionView {
         if (status != ExecutionStatus.COMPLETED) {
             return status.name();
         }
-        return completedStatus(latest);
+        return completedStatus(artifacts);
     }
 
-    private String completedStatus(Map<String, Artifact> latest) {
+    private static String completedStatus(Function<String, JsonNode> artifacts) {
         for (var name : OUTCOME_ARTIFACTS) {
-            var state = artifact(latest, name).path("state").asString("");
+            var state = artifacts.apply(name).path("state").asString("");
             if (OUTCOME_STATES.contains(state)) {
                 return state;
             }
         }
-        if ("FAIL".equals(artifact(latest, "dev_verification.json").path("result").asString(""))) {
+        if ("FAIL".equals(artifacts.apply("dev_verification.json").path("result").asString(""))) {
             return "VERIFICATION_FAILED";
         }
-        if ("BASELINE_FAILED".equals(artifact(latest, "dev_readiness.json").path("state").asString(""))) {
+        if ("BASELINE_FAILED".equals(artifacts.apply("dev_readiness.json").path("state").asString(""))) {
             return "BLOCKED_ENVIRONMENT";
         }
         return "OUTCOME_UNAVAILABLE";
     }
 
+    /** The run page view; {@code productStatus} comes from the same parse of the artifacts. */
     Map<String, Object> build(PipelineExecution execution, List<Artifact> artifacts, List<AuditEvent> events,
             Instant now) {
-        var evidence = evidence(latestArtifacts(artifacts));
+        var parsed = parsed(latest(artifacts));
+        var evidence = evidence(parsed);
         var activity = DeveloperRuntimeActivity.from(
                 events, json, FeedbackArtifacts.VERSION.equals(execution.getFlowVersion()));
         var retryErrorSuperseded = retryErrorSuperseded(execution, evidence.readiness(), activity);
         var reason = reason(execution, evidence, retryErrorSuperseded);
         var phases = phases(execution, events, now, evidence);
         Map<String, Object> view = new LinkedHashMap<>();
+        view.put("productStatus", status(execution, parsed));
         putTask(view, execution, evidence);
         putFields(view, technicalFields(evidence), runtimeFields(activity.configuration()));
         view.put("reason", reason);
@@ -126,15 +144,14 @@ final class DeveloperExecutionView {
         putPullRequest(view, evidence.delivery());
         putActivity(view, activity, executionHistory(events));
         putProgress(view, evidence, phases);
-        putElapsed(view, execution, now);
         return view;
     }
 
-    private Evidence evidence(Map<String, Artifact> latest) {
-        return new Evidence(artifact(latest, "dev_task_brief.md"), artifact(latest, "dev_readiness.json"),
-                artifact(latest, "dev_candidate.json"), artifact(latest, "dev_coding_outcome.json"),
-                artifact(latest, "dev_verification.json"), artifact(latest, "dev_result.json"),
-                artifact(latest, "dev_delivery.json"));
+    private static Evidence evidence(Function<String, JsonNode> artifacts) {
+        return new Evidence(artifacts.apply("dev_task_brief.md"), artifacts.apply("dev_readiness.json"),
+                artifacts.apply("dev_candidate.json"), artifacts.apply("dev_coding_outcome.json"),
+                artifacts.apply("dev_verification.json"), artifacts.apply("dev_result.json"),
+                artifacts.apply("dev_delivery.json"));
     }
 
     private static List<Map<String, String>> technicalFields(Evidence evidence) {
@@ -224,7 +241,8 @@ final class DeveloperExecutionView {
     private void putTask(Map<String, Object> view, PipelineExecution execution, Evidence evidence) {
         var brief = evidence.brief();
         var repo = brief.path("repository");
-        view.put("taskKey", first(brief.path("issue_key"), parse(execution.getTriggerPayload()).path("issueKey")));
+        view.put("taskKey",
+                first(brief.path("issue_key"), UiFormat.parse(execution.getTriggerPayload(), json).path("issueKey")));
         view.put("summary", brief.path("issue").path("summary").asString("Developer Flow execution"));
         view.put("repository",
                 first(repo.path("source_repo"), repo.path("key"), evidence.candidate().path("repository")));
@@ -275,14 +293,6 @@ final class DeveloperExecutionView {
         view.put("deliveryRepository", delivery.path("deliveryRepository").asString(""));
         view.put("deliveryBranch", delivery.path("deliveryBranch").asString(""));
         view.put("deliveryCommit", delivery.path("deliveryCommitSha").asString(""));
-        view.put("outcome", evidence.result().path("state").asString(""));
-    }
-
-    private static void putElapsed(Map<String, Object> view, PipelineExecution execution, Instant now) {
-        var terminal = execution.getStatus().isTerminal();
-        var end = terminal && execution.getCompletedAt() != null ? execution.getCompletedAt() : now;
-        view.put("elapsed", duration(execution.getCreatedAt(), end));
-        view.put("elapsedStart", terminal ? null : execution.getCreatedAt());
     }
 
     private static String reasonLabel(
@@ -324,11 +334,6 @@ final class DeveloperExecutionView {
         return TECHNICAL_STEPS.getOrDefault(id, id);
     }
 
-    static String technicalStepDuration(String id, List<AuditEvent> events, PipelineExecution execution, Instant now) {
-        Long seconds = technicalStepDurationSeconds(id, events, execution, now);
-        return seconds == null ? "Not started" : UiFormat.duration(seconds);
-    }
-
     static Long technicalStepDurationSeconds(String id, List<AuditEvent> events,
                                              PipelineExecution execution, Instant now) {
         var timing = timing(Set.of(id), events, execution, now);
@@ -356,13 +361,10 @@ final class DeveloperExecutionView {
     private static Map<String, Object> phaseRow(String label, String duration, String state, String stateLabel,
                                                 Instant elapsedStart) {
         Map<String, Object> row = new LinkedHashMap<>();
-        row.put("type", "PHASE");
         row.put("label", label);
         row.put("sublabel", duration);
         row.put("state", state);
         row.put("stateLabel", stateLabel);
-        row.put("attempts", null);
-        row.put("tokens", null);
         if (elapsedStart != null) {
             row.put("elapsedStart", elapsedStart);
         }
@@ -485,30 +487,18 @@ final class DeveloperExecutionView {
         };
     }
 
-    private static Map<String, Artifact> latestArtifacts(List<Artifact> artifacts) {
-        Map<String, Artifact> latest = new LinkedHashMap<>();
-        for (var artifact : artifacts) {
-            latest.merge(artifact.getName(), artifact,
-                    (old, fresh) -> old.getVersion() > fresh.getVersion() ? old : fresh);
-        }
-        return latest;
+    /** Parses each artifact at most once, and only when it is asked for. */
+    private Function<String, JsonNode> parsed(Function<String, Optional<Artifact>> latest) {
+        Map<String, JsonNode> parsed = new HashMap<>();
+        return name -> parsed.computeIfAbsent(name,
+                key -> latest.apply(key).map(this::content).orElseGet(json::createObjectNode));
     }
 
-    private JsonNode artifact(Map<String, Artifact> artifacts, String name) {
-        var artifact = artifacts.get(name);
-        if (artifact == null) return json.createObjectNode();
+    private JsonNode content(Artifact artifact) {
         try {
-            return name.endsWith(".md")
+            return artifact.getName().endsWith(".md")
                     ? new FrontmatterCodec().parse(artifact.getContent()).metadata()
-                    : parse(artifact.getContent());
-        } catch (RuntimeException ignored) {
-            return json.createObjectNode();
-        }
-    }
-
-    private JsonNode parse(String value) {
-        try {
-            return value == null ? json.createObjectNode() : json.readTree(value);
+                    : UiFormat.parse(artifact.getContent(), json);
         } catch (RuntimeException ignored) {
             return json.createObjectNode();
         }
@@ -532,9 +522,6 @@ final class DeveloperExecutionView {
     }
     private static void add(List<Map<String, String>> fields, String label, String value) {
         if (!value.isBlank()) fields.add(Map.of("label", label, "value", value));
-    }
-    private static String duration(Instant start, Instant end) {
-        return start == null ? "—" : UiFormat.duration(Duration.between(start, end).toSeconds());
     }
 
     private record Phase(String label, int firstStep, int lastStep, List<String> stepIds) { }

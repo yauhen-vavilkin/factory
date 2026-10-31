@@ -83,7 +83,7 @@ class DeveloperPreflightTest {
         repositories = catalog(Map.of("fixture", repository("source/module", true)));
         pricing = new DeveloperPricingProperties(Map.of("fixture", new DeveloperPricingProperties.Rate(
                 "exact-model", "USD", LocalDate.of(2026, 10, 22), URI.create("https://pricing.fixture.invalid"),
-                BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE)));
+                BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, null, null)));
         when(coding.id()).thenReturn("claude-code");
         when(coding.image()).thenReturn("coding:image");
         when(coding.identity(any())).thenReturn(Map.of("runtime", "claude-code", "image", "coding:image", "model", "exact-model"));

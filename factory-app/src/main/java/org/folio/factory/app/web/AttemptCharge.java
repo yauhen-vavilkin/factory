@@ -4,7 +4,9 @@ import org.folio.factory.devfactory.runtime.TokenUsage;
 import tools.jackson.databind.JsonNode;
 
 import java.math.BigDecimal;
+import java.util.Collections;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Function;
 
@@ -19,17 +21,36 @@ public record AttemptCharge(
     private static final BigDecimal TOKENS_PER_MILLION = BigDecimal.valueOf(1_000_000);
 
     public enum Category {
-        INPUT(TokenUsage::inputTokens, "inputPerMillion"),
-        CACHE_READ(TokenUsage::cacheReadTokens, "cacheReadPerMillion"),
-        CACHE_WRITE(TokenUsage::cacheWriteTokens, "cacheWritePerMillion"),
-        OUTPUT(TokenUsage::outputTokens, "outputPerMillion");
+        INPUT(TokenUsage::inputTokens, "inputPerMillion", "input", "Input (uncached)"),
+        CACHE_READ(TokenUsage::cacheReadTokens, "cacheReadPerMillion", "cacheRead", "Cache read"),
+        CACHE_WRITE(TokenUsage::cacheWriteTokens, "cacheWritePerMillion", "cacheWrite", "Cache write"),
+        OUTPUT(TokenUsage::outputTokens, "outputPerMillion", "output", "Output");
+
+        /** Key of each category in the run page's token totals, mapped to its label, in display order. */
+        static final Map<String, String> LABELS = labels();
 
         final Function<TokenUsage, Long> tokens;
         final String rateField;
+        final String key;
+        private final String label;
 
-        Category(Function<TokenUsage, Long> tokens, String rateField) {
+        Category(Function<TokenUsage, Long> tokens, String rateField, String key, String label) {
             this.tokens = tokens;
             this.rateField = rateField;
+            this.key = key;
+            this.label = label;
+        }
+
+        public String label() {
+            return label;
+        }
+
+        private static Map<String, String> labels() {
+            Map<String, String> labels = new LinkedHashMap<>();
+            for (var category : values()) {
+                labels.put(category.key, category.label);
+            }
+            return Collections.unmodifiableMap(labels);
         }
     }
 

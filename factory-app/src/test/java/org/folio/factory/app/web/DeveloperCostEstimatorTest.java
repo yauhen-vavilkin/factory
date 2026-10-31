@@ -30,7 +30,7 @@ class DeveloperCostEstimatorTest {
     private final DeveloperCostEstimator estimator = new DeveloperCostEstimator(new DeveloperPricingProperties(Map.of(
             "haiku", new DeveloperPricingProperties.Rate("claude-haiku-5-5", "USD",
                     LocalDate.parse("2026-09-19"), URI.create("https://www.anthropic.com/pricing"),
-                    new BigDecimal("0.15"), new BigDecimal("0.03"), null, new BigDecimal("0.50")))));
+                    new BigDecimal("0.15"), new BigDecimal("0.03"), null, new BigDecimal("0.50"), null, null))));
 
     @Test
     void estimatesFromModelAndAvailableCategories() {
@@ -56,7 +56,7 @@ class DeveloperCostEstimatorTest {
     void rejectsAmbiguousOfficialRatesForTheSameModel() {
         var configured = new DeveloperPricingProperties.Rate("claude-haiku-5-5", "USD",
                 LocalDate.parse("2026-09-19"), URI.create("https://www.anthropic.com/pricing"),
-                new BigDecimal("0.15"), new BigDecimal("0.03"), null, new BigDecimal("0.50"));
+                new BigDecimal("0.15"), new BigDecimal("0.03"), null, new BigDecimal("0.50"), null, null);
 
         assertThatThrownBy(() -> new DeveloperPricingProperties(Map.of("first", configured, "second", configured)))
                 .isInstanceOf(IllegalArgumentException.class)

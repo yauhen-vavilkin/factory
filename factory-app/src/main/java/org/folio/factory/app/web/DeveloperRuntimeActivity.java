@@ -64,7 +64,7 @@ final class DeveloperRuntimeActivity {
     }
 
     private void record(AuditEvent event) {
-        var detail = parse(event.getDetail());
+        var detail = UiFormat.parse(event.getDetail(), json);
         String action = detail.path("activity").asString("");
         boolean initialRuntime = !feedbackFlow || detail.path("round").asInt(-1) < 0;
         switch (action) {
@@ -103,14 +103,6 @@ final class DeveloperRuntimeActivity {
             activity.add(row);
         }
         previousHeartbeat = heartbeat ? text : null;
-    }
-
-    private JsonNode parse(String value) {
-        try {
-            return value == null ? json.createObjectNode() : json.readTree(value);
-        } catch (RuntimeException ignored) {
-            return json.createObjectNode();
-        }
     }
 
     private static String activityLabel(String action) {
@@ -189,7 +181,7 @@ final class DeveloperRuntimeActivity {
         boolean failed = detail.path("error").asBoolean(false);
         String text = toolEndSubject(detail, bashActivity) + (failed ? " failed" : " completed");
         if (detail.path("durationMs").isIntegralNumber()) {
-            text += " in " + milliseconds(detail.path("durationMs").asLong());
+            text += " in " + UiFormat.milliseconds(detail.path("durationMs").asLong());
         }
         String errorText = detail.path("errorText").asString("").strip();
         return failed && !errorText.isBlank() ? text + " · " + errorText : text;
@@ -209,10 +201,6 @@ final class DeveloperRuntimeActivity {
             if (!subject.isBlank()) return tool + " " + subject;
         }
         return tool.isBlank() ? "Tool" : tool;
-    }
-
-    private static String milliseconds(long value) {
-        return value < 1000 ? value + " ms" : UiFormat.duration(value / 1000);
     }
 
     private static String genericActivityText(JsonNode detail, String action) {
