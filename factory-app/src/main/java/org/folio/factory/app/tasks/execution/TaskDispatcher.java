@@ -94,8 +94,9 @@ public class TaskDispatcher {
             return false;
         }
         var outcome = outcomeService.refresh(attemptId);
-        // The page shows no cause for a held attempt, so the log is where it can be found.
-        if (outcome.state() == TaskOutcomeService.AttemptOutcome.State.NEEDS_INSPECTION) {
+        // Every settled outcome is logged: the page shows no cause for a held attempt, and a released
+        // slot is logged once because the next pass finds no active attempt.
+        if (outcome.state() != TaskOutcomeService.AttemptOutcome.State.PROCESSING) {
             log.info("Reconciled active task attempt {} to {}{}", attemptId, outcome.state(),
                     outcome.uncertainty() == null ? "" : ": " + outcome.uncertainty());
         }

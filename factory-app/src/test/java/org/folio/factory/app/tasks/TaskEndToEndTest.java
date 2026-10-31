@@ -83,6 +83,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -725,7 +726,7 @@ class TaskEndToEndTest {
     }
 
     private void stubDelivery() {
-        when(delivery.deliver(any()))
+        when(delivery.deliver(argThat(TaskEndToEndTest::isComplete)))
                 .thenAnswer(invocation -> {
                     CandidateDelivery.Request request = invocation.getArgument(0);
                     Candidate candidate = request.candidate();
@@ -893,5 +894,11 @@ class TaskEndToEndTest {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(e);
         }
+    }
+
+    /** The worker fills every request field; a stub that accepted null would hide a regression. */
+    private static boolean isComplete(CandidateDelivery.Request request) {
+        return request != null && request.executionId() != null && request.issueKey() != null
+                && request.summary() != null && request.sourceUrl() != null && request.githubToken() != null;
     }
 }
