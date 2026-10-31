@@ -18,6 +18,9 @@ import java.util.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
+import org.folio.factory.devfactory.feedback.FeedbackServices;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 
 @EnabledIfEnvironmentVariable(named="FACTORY_DOCKER_TEST",matches="true")
 class FeedbackDockerTest {
@@ -51,8 +54,9 @@ class FeedbackDockerTest {
         };
         var state=mock(StateManager.class);when(state.get(id)).thenReturn(new PipelineExecution("dev-factory",VERSION,null));
         var audit=mock(AuditLog.class);when(audit.forExecution(id)).thenReturn(List.of());
-        var worker=new FeedbackWorker(repositories,runtime,new GitHubProperties("",""),gateway,freezer,
-                new CandidateVerifier(repositories,runtime,freezer,docker),coding,docker,new FeedbackGit(freezer),state,audit,model->Map.of(), CodingTranscripts.none());
+        var worker=new FeedbackWorker(new DevFlowSettings(repositories, runtime), new CodingServices(coding, docker, freezer),
+                new FeedbackServices(gateway, new FeedbackGit(freezer), new GitHubProperties("","")), new CandidateVerifier(repositories,runtime,freezer,docker), state, audit,
+                new DevFactoryHooks(TaskAttemptPolicy.none(), model->Map.of(), CodingTranscripts.none(), SelectedRepositoryPreflight.none()));
         var settings=new CodingRequest.RunSettings("glm-5.3","max",80,"Keep the public API.");
         var request=new CodingRequest("TEST-1","Correct value","Original task",List.of(),List.of(),List.of(),List.of(),new CodingRequest.RepositoryTarget("fixture","upstream/repo","main",base),null,settings);
         var saved=new LinkedHashMap<>(initial());

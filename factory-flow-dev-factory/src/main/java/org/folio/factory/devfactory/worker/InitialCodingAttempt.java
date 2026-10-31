@@ -7,19 +7,17 @@ import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.service.AuditLog;
+import org.folio.factory.devfactory.CodingServices;
+import org.folio.factory.devfactory.DevFactoryHooks;
 import org.folio.factory.devfactory.DevFactoryProperties;
+import org.folio.factory.devfactory.DevFlowSettings;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
-import org.folio.factory.devfactory.feedback.AttemptPricing;
 import org.folio.factory.devfactory.tasks.Stop;
 import org.folio.factory.devfactory.tasks.TaskExecutionContext;
 import org.folio.factory.devfactory.tasks.TaskGuard;
-import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
-import org.folio.factory.devfactory.runtime.CodingRuntime;
-import org.folio.factory.devfactory.runtime.CodingTranscripts;
-import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.runtime.RunProfiles;
@@ -42,17 +40,12 @@ import java.util.UUID;
 @Slf4j
 @RequiredArgsConstructor
 public final class InitialCodingAttempt {
-    private final DevFactoryProperties properties;
-    private final DevRuntimeProperties runtime;
-    private final DockerWorkloads docker;
-    private final CandidateFreezer freezer;
-    private final CodingRuntime coding;
+    private final DevFlowSettings settings;
+    private final CodingServices services;
     private final FrontmatterCodec codec;
     private final AuditLog audit;
-    private final AttemptPricing pricing;
-    private final SelectedRepositoryPreflight repositoryPreflight;
+    private final DevFactoryHooks hooks;
     private final TaskGuard taskGuard;
-    private final CodingTranscripts transcripts;
     private final JsonMapper json = JsonMapper.builder().build();
 
     public Attempt start(AgentContext context, CodingRequest request) {
@@ -66,12 +59,12 @@ public final class InitialCodingAttempt {
     private Attempt runAttempt(AgentContext context, CodingRequest request, Mode mode, JsonNode existingReadiness) {
         request.requireReady();
         var state = new RunState(nodeMap(existingReadiness));
-        var repository = properties.repositories().get(request.repository().key());
+        var repository = settings.repositories().repositories().get(request.repository().key());
         var repositoryProblem = findRepositoryProblem(request, repository);
         if (repositoryProblem.isPresent()) {
             return failedAttempt(new Stop("DEVELOPMENT_FAILED", repositoryProblem.get()), state);
         }
-        try (var scope = docker.beginStep(context.executionId(), context.stepId())) {
+        try (var scope = services.docker().beginStep(context.executionId(), context.stepId())) {
             // beginStep reconciles stale workloads before preflight on a replay.
             return develop(newRun(context, request, repository, scope), mode, state);
         } catch (StartingBuildNetworkException | DockerWorkloads.ActiveStepException e) {
@@ -99,7 +92,7 @@ public final class InitialCodingAttempt {
 
     private Run newRun(AgentContext context, CodingRequest request, DevFactoryProperties.Repository repository,
                        DockerWorkloads.StepScope scope) {
-        var url = properties.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
+        var url = settings.repositories().gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
         return new Run(context, request, repository, url, scope, taskGuard.policy().find(context.executionId()));
     }
 
@@ -123,7 +116,7 @@ public final class InitialCodingAttempt {
         if (environmentProblem.isPresent()) {
             return Optional.of(new Stop("BLOCKED_ENVIRONMENT", environmentProblem.get()));
         }
-        state.pristine = freezer.checkout(run.url(), run.baseSha());
+        state.pristine = services.freezer().checkout(run.url(), run.baseSha());
         if (mode == Mode.CONTINUATION) {
             return Optional.empty();
         }
@@ -134,11 +127,11 @@ public final class InitialCodingAttempt {
         var repository = run.repository();
         progress(run.context(), Map.of(
                 "activity", "baseline_started",
-                "command", String.join(" ", runtime.command(repository.verificationPlan())),
+                "command", String.join(" ", settings.runtime().command(repository.verificationPlan())),
                 "image", repository.buildImage()));
         try (var workload = run.scope().createTrusted(repository.buildImage(), state.pristine,
-                runtime.mavenCacheVolume())) {
-            var baseline = new BaselineBuild(runtime).run(workload, run.baseSha(), repository,
+                settings.runtime().mavenCacheVolume())) {
+            var baseline = new BaselineBuild(settings.runtime()).run(workload, run.baseSha(), repository,
                     stageTimeoutSeconds(run), event -> progress(run.context(), event));
             state.readiness = baseline.readiness();
             progress(run.context(), Map.of(
@@ -180,11 +173,11 @@ public final class InitialCodingAttempt {
     }
 
     private CodingOutcome code(Run run, RunState state) {
-        try (var workload = run.scope().createSeeded(coding.image(), state.pristine, runtime.mavenCacheVolume(),
-                "coding")) {
-            var identity = new LinkedHashMap<>(coding.identity(run.request().runSettings()));
+        try (var workload = run.scope().createSeeded(services.coding().image(), state.pristine,
+                settings.runtime().mavenCacheVolume(), "coding")) {
+            var identity = new LinkedHashMap<>(services.coding().identity(run.request().runSettings()));
             var attemptId = UUID.randomUUID().toString();
-            var rate = pricing.snapshot(Objects.toString(identity.get("model"), ""));
+            var rate = hooks.pricing().snapshot(Objects.toString(identity.get("model"), ""));
             identity.put("activity", "coding_starting");
             identity.put("attemptId", attemptId);
             identity.put("rate", rate);
@@ -201,8 +194,9 @@ public final class InitialCodingAttempt {
 
     private CodingOutcome callRuntime(Run run, DockerWorkloads.Workload workload, String attemptId) {
         var context = run.context();
-        try (var transcript = transcripts.open(context.executionId(), UUID.fromString(attemptId), context.stepId())) {
-            return coding.code(workload, run.request(), stageTimeoutSeconds(run), event -> {
+        var attempt = UUID.fromString(attemptId);
+        try (var transcript = hooks.transcripts().open(context.executionId(), attempt, context.stepId())) {
+            return services.coding().code(workload, run.request(), stageTimeoutSeconds(run), event -> {
                 var detail = new LinkedHashMap<String, Object>(event);
                 detail.put("attemptId", attemptId);
                 // A failed write reaches the runtime, which logs it once and notes it in the transcript.
@@ -228,7 +222,7 @@ public final class InitialCodingAttempt {
         if (stop.isPresent()) {
             return failedAttempt(stop.get(), state);
         }
-        var candidate = freezer.freeze(run.repositoryKey(), run.url(), run.baseSha(), state.exported, false);
+        var candidate = services.freezer().freeze(run.repositoryKey(), run.url(), run.baseSha(), state.exported, false);
         return attempt(run.request(), outcome, json.writeValueAsString(candidate), state,
                 CodingDecisionArtifacts.Request.none());
     }
@@ -239,13 +233,13 @@ public final class InitialCodingAttempt {
     }
 
     private int stageTimeoutSeconds(Run run) {
-        return taskGuard.capTimeout(run.executionId(), runtime.timeoutSeconds());
+        return taskGuard.capTimeout(run.executionId(), settings.runtime().timeoutSeconds());
     }
 
     private Optional<String> findEnvironmentProblem(
             String repositoryKey, String frozenBaseSha, CodingRequest.RunSettings settings) {
         try {
-            coding.requireConfigured(settings);
+            services.coding().requireConfigured(settings);
         } catch (RunProfiles.ProfileException exception) {
             // Written to be shown: it names the profile and the fix.
             return Optional.of(safeRedact(exception.getMessage()));
@@ -255,7 +249,7 @@ public final class InitialCodingAttempt {
                     "Coding runtime configuration is incomplete or unsupported; check Developer Flow configuration.");
         }
         try {
-            repositoryPreflight.requireRepositoryReady(repositoryKey, frozenBaseSha);
+            hooks.repositoryPreflight().requireRepositoryReady(repositoryKey, frozenBaseSha);
         } catch (RuntimeException exception) {
             return Optional.of(
                     "Selected repository configuration or access is not ready; check Developer Flow configuration.");
@@ -312,7 +306,7 @@ public final class InitialCodingAttempt {
     }
 
     private String safeRedact(String text) {
-        String redacted = coding.redact(text);
+        String redacted = services.coding().redact(text);
         return redacted == null ? text : redacted;
     }
 

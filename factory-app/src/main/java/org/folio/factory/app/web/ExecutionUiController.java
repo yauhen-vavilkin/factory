@@ -1,9 +1,7 @@
 package org.folio.factory.app.web;
 
-import org.folio.factory.app.developer.CodingTranscriptStore;
-import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
+import org.folio.factory.app.EngineRecords;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
-import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -56,34 +54,26 @@ public class ExecutionUiController {
     private final DeveloperCostEstimator costEstimator;
     private final FeedbackUi feedbackUi;
     private final DeveloperExecutionView developerView;
-    private final TaskAttemptRepository taskAttempts;
-    private final TaskQuery taskTasks;
-    private final CodingTranscriptStore transcripts;
+    private final TaskQuery taskQuery;
 
     public ExecutionUiController(
-            PipelineExecutionRepository executions,
-            ArtifactStore artifactStore,
+            EngineRecords engine,
             AuditLog auditLog,
-            FlowRegistry flowRegistry,
             HitlReviewRepository reviews,
             JsonMapper jsonMapper,
             DeveloperCostEstimator costEstimator,
             FeedbackUi feedbackUi,
-            TaskAttemptRepository taskAttempts,
-            TaskQuery taskTasks,
-            CodingTranscriptStore transcripts) {
-        this.executions = executions;
-        this.artifactStore = artifactStore;
+            TaskQuery taskQuery) {
+        this.executions = engine.executions();
+        this.artifactStore = engine.artifacts();
         this.auditLog = auditLog;
-        this.flowRegistry = flowRegistry;
+        this.flowRegistry = engine.flows();
         this.reviews = reviews;
         this.jsonMapper = jsonMapper;
         this.costEstimator = costEstimator;
         this.feedbackUi = feedbackUi;
         this.developerView = new DeveloperExecutionView(jsonMapper);
-        this.taskAttempts = taskAttempts;
-        this.taskTasks = taskTasks;
-        this.transcripts = transcripts;
+        this.taskQuery = taskQuery;
     }
 
     @GetMapping("/executions")
@@ -135,23 +125,8 @@ public class ExecutionUiController {
         return "execution";
     }
 
-    @GetMapping("/executions/{id}/transcript")
-    public String transcript(@PathVariable("id") UUID id, Model model) {
-        var execution = findExecution(id);
-        model.addAttribute("execution", execution);
-        model.addAttribute("taskRun", taskRun(id));
-        model.addAttribute("runs", DeveloperTranscriptView.runs(transcripts.read(id)));
-        return "transcript";
-    }
-
     private PipelineExecution findExecution(UUID id) {
         return executions.findById(id).orElseThrow(() -> new NoSuchElementException("No execution " + id));
-    }
-
-    private Map<String, Object> taskRun(UUID id) {
-        return taskAttempts.findByExecutionId(id)
-                .map(attempt -> TaskRows.runContext(taskTasks.detail(attempt.getTaskId()), id))
-                .orElse(null);
     }
 
     private void populateDeveloperProgress(Model model, ExecutionDetail detail, List<Map<String, Object>> steps) {
@@ -160,7 +135,7 @@ public class ExecutionUiController {
         populateFactoryTime(model, detail, now);
         var developer = developerView.build(execution, detail.artifacts(), detail.events(), now);
         model.addAttribute("developer", developer);
-        model.addAttribute("taskRun", taskRun(detail.id()));
+        model.addAttribute("taskRun", taskQuery.runContext(detail.id()).orElse(null));
         model.addAttribute("progressSteps", developer.get("phases"));
         flowRegistry.find(execution.getFlowId())
                 .ifPresent(flow -> labelTechnicalSteps(steps, flow, detail, now));

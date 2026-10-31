@@ -86,6 +86,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import org.folio.factory.devfactory.tasks.TaskGuard;
 import java.time.Clock;
+import org.folio.factory.devfactory.DevFlowSettings;
+import org.folio.factory.devfactory.delivery.DeliveryServices;
 
 /**
  * Publication authority against real PostgreSQL and a mocked GitHub HTTP
@@ -407,11 +409,8 @@ class TaskPublicationIntegrationTest {
     }
 
     private DeliveryWorker worker(DevFactoryProperties repositoriesProperties, TaskAttemptPolicy policy) {
-        return new DeliveryWorker(repositoriesProperties, runtime, delivery,
-                new GitHubProperties(null, "fixture-github-token"),
-                new JiraProperties("https://jira.example.org", null, null),
-                new GitHubRestConnector(new GitHubProperties(GITHUB.baseUrl(), "fixture-github-token"),
-                        RestClient.builder()),
+        return new DeliveryWorker(new DevFlowSettings(repositoriesProperties, runtime), new DeliveryServices(delivery, new GitHubRestConnector(new GitHubProperties(GITHUB.baseUrl(), "fixture-github-token"),
+                        RestClient.builder()), new GitHubProperties(null, "fixture-github-token")), new JiraProperties("https://jira.example.org", null, null),
                 new FrontmatterCodec(), stateManager, new TaskGuard(policy, Clock.systemUTC()));
     }
 

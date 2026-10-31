@@ -14,6 +14,7 @@ import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
 import org.folio.factory.app.tasks.source.TaskDiscoveryService;
 import org.folio.factory.app.tasks.source.TaskJiraInstance;
+import org.folio.factory.app.tasks.source.TaskSource;
 import org.folio.factory.app.tasks.source.TaskSourceProperties;
 import org.folio.factory.connectors.jira.JiraIssue;
 import org.folio.factory.connectors.jira.JiraSourceConnector;
@@ -436,8 +437,8 @@ class TaskRetryIntegrationTest {
     }
 
     private TaskDiscoveryService discovery(DevFactoryProperties repositories) {
-        return new TaskDiscoveryService(source, new TaskSourceProperties("Jane Developer"),
-                new RepositoryPolicy(repositories), tasks, installations, attempts, transactionManager, jiraInstance);
+        return new TaskDiscoveryService(new TaskSource(source, new TaskSourceProperties("Jane Developer"), jiraInstance),
+                new RepositoryPolicy(repositories), tasks, installations, attempts, transactionManager);
     }
 
     private static DiscoveredIssue issue(String id, String key, Instant createdAt) {

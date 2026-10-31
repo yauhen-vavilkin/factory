@@ -51,22 +51,20 @@ public class TaskDiscoveryService {
     private final TaskJiraInstance jiraInstance;
     private final JsonMapper json = JsonMapper.builder().build();
 
-    public TaskDiscoveryService(JiraSourceConnector jiraSourceConnector,
-                                 TaskSourceProperties properties,
+    public TaskDiscoveryService(TaskSource source,
                                  RepositoryPolicy repositoryPolicy,
                                  TaskRepository tasks,
                                  TaskInstallationRepository installations,
                                  TaskAttemptRepository attempts,
-                                 PlatformTransactionManager transactionManager,
-                                 TaskJiraInstance jiraInstance) {
-        this.connector = jiraSourceConnector;
-        this.properties = properties;
+                                 PlatformTransactionManager transactionManager) {
+        this.connector = source.connector();
+        this.properties = source.properties();
         this.repositoryPolicy = repositoryPolicy;
         this.tasks = tasks;
         this.installations = installations;
         this.attempts = attempts;
         this.transactions = new TransactionTemplate(transactionManager);
-        this.jiraInstance = jiraInstance;
+        this.jiraInstance = source.jira();
     }
 
     public record SyncResult(boolean complete, int discoveredCount, Instant lastSuccessfulSync, String problem) {

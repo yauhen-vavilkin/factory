@@ -41,6 +41,9 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 import org.mockito.ArgumentCaptor;
+import org.folio.factory.devfactory.DevFlowSettings;
+import org.folio.factory.devfactory.CodingServices;
+import org.folio.factory.devfactory.DevFactoryHooks;
 
 class DevelopReadinessTest {
     @TempDir Path workspace;
@@ -98,9 +101,8 @@ class DevelopReadinessTest {
         var request = request();
         var context = context(codec, request);
         var audit = mock(AuditLog.class);
-        var attempt = new InitialCodingAttempt(
-                properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of(),
-                selectedRepository, RecordingTaskAttempts.none().guard(), CodingTranscripts.none());
+        var attempt = new InitialCodingAttempt(new DevFlowSettings(properties, runtime), new CodingServices(coding, docker, freezer), codec,
+                audit, new DevFactoryHooks(TaskAttemptPolicy.none(), model -> Map.of(), CodingTranscripts.none(), selectedRepository), RecordingTaskAttempts.none().guard());
         var worker = new DevelopWorker(attempt, codec);
 
         assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class);
@@ -190,9 +192,8 @@ class DevelopReadinessTest {
         var codec = new FrontmatterCodec();
         var context = context(codec, request());
         var audit = mock(AuditLog.class);
-        var initialAttempt = new InitialCodingAttempt(
-                properties, runtime, docker, freezer, coding, codec, audit, model -> Map.of(),
-                SelectedRepositoryPreflight.none(), RecordingTaskAttempts.none().guard(), CodingTranscripts.none());
+        var initialAttempt = new InitialCodingAttempt(new DevFlowSettings(properties, runtime), new CodingServices(coding, docker, freezer), codec,
+                audit, new DevFactoryHooks(TaskAttemptPolicy.none(), model -> Map.of(), CodingTranscripts.none(), SelectedRepositoryPreflight.none()), RecordingTaskAttempts.none().guard());
         var worker = new DevelopWorker(initialAttempt, codec);
         if (retryable) {
             // Repeated worker attempts retain the configured repository and do not add a global -U.
@@ -230,10 +231,8 @@ class DevelopReadinessTest {
                 UUID.randomUUID(), "implement", Map.of(), null, Map.of(), List.of());
         when(docker.beginStep(context.executionId(), "implement")).thenReturn(scope);
         doThrow(new IllegalStateException("secret must not persist")).when(coding).requireConfigured(any());
-        var attempt = new InitialCodingAttempt(
-                properties, settings, docker, freezer, coding, new FrontmatterCodec(),
-                mock(AuditLog.class), model -> Map.of(),
-                SelectedRepositoryPreflight.none(), RecordingTaskAttempts.none().guard(), CodingTranscripts.none());
+        var attempt = new InitialCodingAttempt(new DevFlowSettings(properties, settings), new CodingServices(coding, docker, freezer), new FrontmatterCodec(),
+                mock(AuditLog.class), new DevFactoryHooks(TaskAttemptPolicy.none(), model -> Map.of(), CodingTranscripts.none(), SelectedRepositoryPreflight.none()), RecordingTaskAttempts.none().guard());
 
         var result = attempt.start(context, request());
 
@@ -276,10 +275,8 @@ class DevelopReadinessTest {
                 .thenReturn(CodingOutcome.needsDecision(new CodingOutcome.Decision(
                         CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"),
                         Map.of()));
-        var attempt = new InitialCodingAttempt(
-                properties, settings, docker, freezer, coding, codec,
-                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), taskAttempts.guard(),
-                CodingTranscripts.none());
+        var attempt = new InitialCodingAttempt(new DevFlowSettings(properties, settings), new CodingServices(coding, docker, freezer), codec,
+                mock(AuditLog.class), new DevFactoryHooks(TaskAttemptPolicy.none(), model -> Map.of(), CodingTranscripts.none(), SelectedRepositoryPreflight.none()), taskAttempts.guard());
         var worker = new DevelopWorker(attempt, codec);
 
         var first = worker.execute(context);
@@ -331,10 +328,8 @@ class DevelopReadinessTest {
                 .thenReturn(CodingOutcome.needsDecision(new CodingOutcome.Decision(
                         CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"),
                         Map.of()));
-        var attempt = new InitialCodingAttempt(
-                properties, settings, docker, freezer, coding, codec,
-                mock(AuditLog.class), model -> Map.of(), SelectedRepositoryPreflight.none(), taskAttempts.guard(),
-                CodingTranscripts.none());
+        var attempt = new InitialCodingAttempt(new DevFlowSettings(properties, settings), new CodingServices(coding, docker, freezer), codec,
+                mock(AuditLog.class), new DevFactoryHooks(TaskAttemptPolicy.none(), model -> Map.of(), CodingTranscripts.none(), SelectedRepositoryPreflight.none()), taskAttempts.guard());
         var worker = new DevelopWorker(attempt, codec);
 
         assertThatThrownBy(() -> worker.execute(context)).isInstanceOf(AgentExecutionException.class)
@@ -371,10 +366,8 @@ class DevelopReadinessTest {
         doThrow(new IllegalStateException("credential-secret must not persist"))
                 .when(selectedRepository)
                 .requireRepositoryReady("repo", request.repository().baseSha());
-        var attempt = new InitialCodingAttempt(
-                properties, settings, docker, freezer, coding, new FrontmatterCodec(),
-                mock(AuditLog.class), model -> Map.of(), selectedRepository, RecordingTaskAttempts.none().guard(),
-                CodingTranscripts.none());
+        var attempt = new InitialCodingAttempt(new DevFlowSettings(properties, settings), new CodingServices(coding, docker, freezer), new FrontmatterCodec(),
+                mock(AuditLog.class), new DevFactoryHooks(TaskAttemptPolicy.none(), model -> Map.of(), CodingTranscripts.none(), selectedRepository), RecordingTaskAttempts.none().guard());
         var readiness = JsonMapper.builder().build().readTree("{\"state\":\"BASELINE_PASSED\"}");
 
         InitialCodingAttempt.Attempt result;
@@ -587,9 +580,8 @@ class DevelopReadinessTest {
                 .thenReturn(CodingOutcome.needsDecision(new CodingOutcome.Decision(
                         CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"),
                         Map.of()));
-        var attempt = new InitialCodingAttempt(
-                properties, settings, docker, freezer, coding, codec,
-                audit, model -> Map.of(), SelectedRepositoryPreflight.none(), taskAttempts.guard(), transcripts);
+        var attempt = new InitialCodingAttempt(new DevFlowSettings(properties, settings), new CodingServices(coding, docker, freezer), codec,
+                audit, new DevFactoryHooks(TaskAttemptPolicy.none(), model -> Map.of(), transcripts, SelectedRepositoryPreflight.none()), taskAttempts.guard());
         return new TaskHarness(docker, scope, baseline, codingWorkload, freezer, coding,
                 new DevelopWorker(attempt, codec), context);
     }

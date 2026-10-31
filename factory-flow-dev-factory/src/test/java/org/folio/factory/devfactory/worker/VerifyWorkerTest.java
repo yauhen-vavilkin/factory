@@ -31,6 +31,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import static org.mockito.ArgumentMatchers.anyInt;
+import org.folio.factory.devfactory.DevFlowSettings;
+import org.folio.factory.devfactory.delivery.DeliveryServices;
 
 class VerifyWorkerTest {
     private static final DevFactoryProperties REPOSITORIES = new DevFactoryProperties("https://github.com",
@@ -57,7 +59,7 @@ class VerifyWorkerTest {
                 new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json", json.writeValueAsString(candidate))),
                 null, Map.of(), List.of());
 
-        var verification = new VerifyWorker(verifier, REPOSITORIES, RUNTIME, RecordingTaskAttempts.none().guard()).execute(context);
+        var verification = new VerifyWorker(verifier, new DevFlowSettings(REPOSITORIES, RUNTIME), RecordingTaskAttempts.none().guard()).execute(context);
 
         assertThat(receipt.failureKind().repairable()).isTrue();
         assertThat(json.readValue(verification.outputs().get(VerifyWorker.RECEIPT), VerificationReceipt.class))
@@ -73,8 +75,8 @@ class VerifyWorkerTest {
         var publishContext = new AgentContext(execution, "publish", Map.of(VerifyWorker.RESULT,
                 new ArtifactContent(VerifyWorker.RESULT, 1, "application/json",
                         verification.outputs().get(VerifyWorker.RESULT))), null, Map.of(), List.of());
-        var published = new DeliveryWorker(null, null, delivery, null, null, github, null,
-                null, RecordingTaskAttempts.none().guard()).execute(publishContext);
+        var published = new DeliveryWorker(new DevFlowSettings(null, null), new DeliveryServices(delivery, github, null), null,
+                null, null, RecordingTaskAttempts.none().guard()).execute(publishContext);
 
         assertThat(json.readTree(published.outputs().get(DeliveryWorker.DELIVERY)).path("state").asString())
                 .isEqualTo("NOT_RUN");
@@ -99,7 +101,7 @@ class VerifyWorkerTest {
         var context = new AgentContext(execution, "verify", Map.of(DevelopWorker.CANDIDATE, input),
                 null, Map.of(), List.of());
 
-        var result = new VerifyWorker(verifier, REPOSITORIES, RUNTIME, RecordingTaskAttempts.none().guard()).execute(context);
+        var result = new VerifyWorker(verifier, new DevFlowSettings(REPOSITORIES, RUNTIME), RecordingTaskAttempts.none().guard()).execute(context);
 
         assertThat(json.readValue(result.outputs().get(VerifyWorker.RECEIPT), VerificationReceipt.class)).isEqualTo(receipt);
         var outcome = json.readTree(result.outputs().get(VerifyWorker.RESULT));
@@ -120,7 +122,7 @@ class VerifyWorkerTest {
         var context = new AgentContext(UUID.randomUUID(), "verify", Map.of(DevelopWorker.CANDIDATE, candidate),
                 null, Map.of(), List.of());
 
-        var result = new VerifyWorker(verifier, REPOSITORIES, RUNTIME, RecordingTaskAttempts.none().guard()).execute(context);
+        var result = new VerifyWorker(verifier, new DevFlowSettings(REPOSITORIES, RUNTIME), RecordingTaskAttempts.none().guard()).execute(context);
 
         assertThat(result.outputs().get(VerifyWorker.RECEIPT)).contains("NOT_RUN");
         assertThat(result.outputs().get(VerifyWorker.RESULT)).contains("DEVELOPMENT_FAILED", "provider unavailable");
@@ -135,7 +137,7 @@ class VerifyWorkerTest {
         var context = new AgentContext(UUID.randomUUID(), "verify", Map.of(DevelopWorker.CANDIDATE, candidate),
                 null, Map.of(), List.of());
 
-        var result = new VerifyWorker(verifier, REPOSITORIES, RUNTIME, RecordingTaskAttempts.none().guard()).execute(context);
+        var result = new VerifyWorker(verifier, new DevFlowSettings(REPOSITORIES, RUNTIME), RecordingTaskAttempts.none().guard()).execute(context);
 
         assertThat(result.outputs().get(VerifyWorker.RECEIPT)).contains("NOT_RUN");
         assertThat(result.outputs().get(VerifyWorker.RESULT))
@@ -149,7 +151,7 @@ class VerifyWorkerTest {
         taskAttempts.ownsSlot = false;
         var verifier = mock(CandidateVerifier.class);
 
-        var result = new VerifyWorker(verifier, REPOSITORIES, RUNTIME, taskAttempts.guard()).execute(candidateContext());
+        var result = new VerifyWorker(verifier, new DevFlowSettings(REPOSITORIES, RUNTIME), taskAttempts.guard()).execute(candidateContext());
 
         var outcome = json.readTree(result.outputs().get(VerifyWorker.RESULT));
         assertThat(outcome.path("state").asString()).isEqualTo(TaskStops.INSPECTION_STATE);
@@ -166,7 +168,7 @@ class VerifyWorkerTest {
                 .withDeadline(new AttemptDeadline(Instant.now().minusSeconds(1)));
         var verifier = mock(CandidateVerifier.class);
 
-        var result = new VerifyWorker(verifier, REPOSITORIES, RUNTIME, taskAttempts.guard()).execute(candidateContext());
+        var result = new VerifyWorker(verifier, new DevFlowSettings(REPOSITORIES, RUNTIME), taskAttempts.guard()).execute(candidateContext());
 
         var outcome = json.readTree(result.outputs().get(VerifyWorker.RESULT));
         assertThat(outcome.path("state").asString()).isEqualTo(TaskStops.DEADLINE_STATE);
@@ -182,7 +184,7 @@ class VerifyWorkerTest {
         when(verifier.verify(eq(executionId()), eq("verify"), any(Candidate.class), eq(SOURCE), anyInt()))
                 .thenReturn(failedReceipt());
 
-        var result = new VerifyWorker(verifier, REPOSITORIES, RUNTIME, taskAttempts.guard()).execute(candidateContext());
+        var result = new VerifyWorker(verifier, new DevFlowSettings(REPOSITORIES, RUNTIME), taskAttempts.guard()).execute(candidateContext());
 
         assertThat(json.readTree(result.outputs().get(VerifyWorker.RESULT)).path("state").asString())
                 .isEqualTo("VERIFICATION_FAILED");

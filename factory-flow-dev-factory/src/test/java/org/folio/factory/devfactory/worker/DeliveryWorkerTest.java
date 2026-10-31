@@ -30,6 +30,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import org.folio.factory.devfactory.DevFlowSettings;
+import org.folio.factory.devfactory.delivery.DeliveryServices;
 
 class DeliveryWorkerTest {
     private final JsonMapper json = JsonMapper.builder().build();
@@ -790,9 +792,8 @@ class DeliveryWorkerTest {
                 new TreeMap<>(Map.of("sidecar", repository)));
         var state = mock(org.folio.factory.core.service.StateManager.class);
         when(state.get(any())).thenReturn(new org.folio.factory.core.domain.PipelineExecution("dev-factory", "0.8.0", null));
-        return new DeliveryWorker(repositories, runtime, delivery, githubProperties,
-                new org.folio.factory.connectors.jira.JiraProperties("https://jira.example.org", null, null),
-                github, new FrontmatterCodec(), state, taskPolicy.guard());
+        return new DeliveryWorker(new DevFlowSettings(repositories, runtime), new DeliveryServices(delivery, github, githubProperties), new org.folio.factory.connectors.jira.JiraProperties("https://jira.example.org", null, null),
+                new FrontmatterCodec(), state, taskPolicy.guard());
     }
 
     private static GitHubConnector.PullRequest pr(String url, String headSha, String state) {

@@ -20,12 +20,14 @@ import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.decision.ConditionalDecisionGate;
 import org.folio.factory.devfactory.decision.DevArtifactAmendmentValidator;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
+import org.folio.factory.devfactory.delivery.DeliveryServices;
 import org.folio.factory.devfactory.feedback.AttemptPricing;
 import org.folio.factory.devfactory.feedback.FeedbackActions;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
 import org.folio.factory.devfactory.feedback.FeedbackDecisionPolicy;
 import org.folio.factory.devfactory.feedback.FeedbackGit;
 import org.folio.factory.devfactory.feedback.FeedbackPrMonitor;
+import org.folio.factory.devfactory.feedback.FeedbackServices;
 import org.folio.factory.devfactory.feedback.FeedbackWorker;
 import org.folio.factory.devfactory.feedback.GitHubPrFeedbackGateway;
 import org.folio.factory.devfactory.feedback.PrFeedbackGateway;
@@ -71,16 +73,32 @@ import java.util.Map;
  * class only assembles the worker beans the descriptor references.
  */
 @Configuration
-@EnableConfigurationProperties({
-    DevFactoryProperties.class,
-    DevRuntimeProperties.class,
-    RunProfiles.Properties.class
-})
+@EnableConfigurationProperties({DevFactoryProperties.class, DevRuntimeProperties.class, RunProfiles.Properties.class})
 public class DevFactoryConfiguration {
 
+    /** The application's hooks, or the no-op defaults when the module runs without the application. */
     @Bean
-    public TaskGuard devTaskGuard(ObjectProvider<TaskAttemptPolicy> taskPolicy) {
-        return new TaskGuard(taskPolicy.getIfAvailable(TaskAttemptPolicy::none), Clock.systemUTC());
+    public DevFactoryHooks devFactoryHooks(ObjectProvider<TaskAttemptPolicy> taskPolicy,
+            ObjectProvider<AttemptPricing> pricing, ObjectProvider<CodingTranscripts> transcripts,
+            ObjectProvider<SelectedRepositoryPreflight> repositoryPreflight) {
+        return new DevFactoryHooks(taskPolicy.getIfAvailable(TaskAttemptPolicy::none),
+                pricing.getIfAvailable(() -> model -> Map.of()), transcripts.getIfAvailable(CodingTranscripts::none),
+                repositoryPreflight.getIfAvailable(SelectedRepositoryPreflight::none));
+    }
+
+    @Bean
+    public TaskGuard devTaskGuard(DevFactoryHooks hooks) {
+        return new TaskGuard(hooks.taskPolicy(), Clock.systemUTC());
+    }
+
+    @Bean
+    public DevFlowSettings devFlowSettings(DevFactoryProperties repositories, DevRuntimeProperties runtime) {
+        return new DevFlowSettings(repositories, runtime);
+    }
+
+    @Bean
+    public CodingServices devCodingServices(CodingRuntime coding, DockerWorkloads docker, CandidateFreezer freezer) {
+        return new CodingServices(coding, docker, freezer);
     }
 
     @Bean
@@ -96,7 +114,7 @@ public class DevFactoryConfiguration {
     /** Secrets are read through the Environment by the variable name a profile gives; the file holds none. */
     @Bean
     public RunProfiles devRunProfiles(DevRuntimeProperties runtime, RunProfiles.Properties profiles,
-                                      Environment environment) {
+            Environment environment) {
         return new RunProfiles(runtime.coding().claudeCode(), profiles, environment::getProperty);
     }
 
@@ -105,37 +123,15 @@ public class DevFactoryConfiguration {
         return switch (runtime.coding().runtime()) {
             case "pi" -> new PiCodingRuntime(runtime.coding().pi());
             case "claude-code" -> new ClaudeCodeCodingRuntime(runtime.coding().claudeCode(), profiles);
-            default ->
-                    throw new IllegalStateException(
-                            "Unsupported coding runtime '" + runtime.coding().runtime() + "'");
+            default -> throw new IllegalStateException(
+                    "Unsupported coding runtime '" + runtime.coding().runtime() + "'");
         };
     }
 
     @Bean
-    public InitialCodingAttempt initialCodingAttempt(
-            DevFactoryProperties properties,
-            DevRuntimeProperties runtime,
-            DockerWorkloads docker,
-            CandidateFreezer freezer,
-            CodingRuntime coding,
-            FrontmatterCodec codec,
-            AuditLog audit,
-            ObjectProvider<AttemptPricing> pricing,
-            ObjectProvider<SelectedRepositoryPreflight> repositoryPreflight,
-            TaskGuard taskGuard,
-            ObjectProvider<CodingTranscripts> transcripts) {
-        return new InitialCodingAttempt(
-                properties,
-                runtime,
-                docker,
-                freezer,
-                coding,
-                codec,
-                audit,
-                pricing.getIfAvailable(() -> model -> Map.of()),
-                repositoryPreflight.getIfAvailable(SelectedRepositoryPreflight::none),
-                taskGuard,
-                transcripts.getIfAvailable(CodingTranscripts::none));
+    public InitialCodingAttempt initialCodingAttempt(DevFlowSettings settings, CodingServices services,
+            FrontmatterCodec codec, AuditLog audit, DevFactoryHooks hooks, TaskGuard taskGuard) {
+        return new InitialCodingAttempt(settings, services, codec, audit, hooks, taskGuard);
     }
 
     @Bean
@@ -144,36 +140,25 @@ public class DevFactoryConfiguration {
     }
 
     @Bean
-    public CodingDecisionGateWorker devCodingDecisionGateWorker(
-            ConditionalDecisionGate gate, TaskGuard taskGuard) {
+    public CodingDecisionGateWorker devCodingDecisionGateWorker(ConditionalDecisionGate gate, TaskGuard taskGuard) {
         return new CodingDecisionGateWorker(gate, taskGuard);
     }
 
     @Bean
-    public DevelopContinuationWorker devDevelopContinuationWorker(
-            InitialCodingAttempt develop,
-            FrontmatterCodec codec,
+    public DevelopContinuationWorker devDevelopContinuationWorker(InitialCodingAttempt develop, FrontmatterCodec codec,
             TaskGuard taskGuard) {
-        return new DevelopContinuationWorker(develop, codec,
-                taskGuard);
+        return new DevelopContinuationWorker(develop, codec, taskGuard);
     }
 
     @Bean
-    public CandidateVerifier devCandidateVerifier(
-            DevFactoryProperties properties,
-            DevRuntimeProperties runtime,
-            CandidateFreezer freezer,
-            DockerWorkloads docker) {
+    public CandidateVerifier devCandidateVerifier(DevFactoryProperties properties, DevRuntimeProperties runtime,
+            CandidateFreezer freezer, DockerWorkloads docker) {
         return new CandidateVerifier(properties, runtime, freezer, docker);
     }
 
     @Bean
-    public VerifyWorker devVerifyWorker(
-            CandidateVerifier verifier,
-            DevFactoryProperties repositories,
-            DevRuntimeProperties runtime,
-            TaskGuard taskGuard) {
-        return new VerifyWorker(verifier, repositories, runtime, taskGuard);
+    public VerifyWorker devVerifyWorker(CandidateVerifier verifier, DevFlowSettings settings, TaskGuard taskGuard) {
+        return new VerifyWorker(verifier, settings, taskGuard);
     }
 
     @Bean
@@ -182,26 +167,15 @@ public class DevFactoryConfiguration {
     }
 
     @Bean
-    public DeliveryWorker devDeliveryWorker(
-            DevFactoryProperties repositories,
-            DevRuntimeProperties runtime,
-            CandidateDelivery delivery,
-            GitHubProperties githubProperties,
-            JiraProperties jiraProperties,
-            @Qualifier("gitHubConnector") GitHubConnector github,
-            FrontmatterCodec frontmatter,
-            StateManager state,
-            TaskGuard taskGuard) {
-        return new DeliveryWorker(
-                repositories,
-                runtime,
-                delivery,
-                githubProperties,
-                jiraProperties,
-                github,
-                frontmatter,
-                state,
-                taskGuard);
+    public DeliveryServices devDeliveryServices(CandidateDelivery delivery,
+            @Qualifier("gitHubConnector") GitHubConnector github, GitHubProperties githubProperties) {
+        return new DeliveryServices(delivery, github, githubProperties);
+    }
+
+    @Bean
+    public DeliveryWorker devDeliveryWorker(DevFlowSettings settings, DeliveryServices publication,
+            JiraProperties jiraProperties, FrontmatterCodec frontmatter, StateManager state, TaskGuard taskGuard) {
+        return new DeliveryWorker(settings, publication, jiraProperties, frontmatter, state, taskGuard);
     }
 
     @Bean
@@ -215,53 +189,37 @@ public class DevFactoryConfiguration {
     }
 
     @Bean
-    public ConditionalDecisionGate devConditionalDecisionGate(
-            StateManager stateManager,
-            FlowRegistry flowRegistry,
-            HitlGateOpener gateOpener,
-            HitlReviewRepository reviews) {
+    public ConditionalDecisionGate devConditionalDecisionGate(StateManager stateManager, FlowRegistry flowRegistry,
+            HitlGateOpener gateOpener, HitlReviewRepository reviews) {
         return new ConditionalDecisionGate(stateManager, flowRegistry, gateOpener, reviews);
     }
 
     @Bean
-    public DevArtifactAmendmentValidator devArtifactAmendmentValidator(
-            FrontmatterCodec codec, RepositoryPolicy policy) {
+    public DevArtifactAmendmentValidator devArtifactAmendmentValidator(FrontmatterCodec codec,
+            RepositoryPolicy policy) {
         return new DevArtifactAmendmentValidator(codec, policy);
     }
 
     @Bean
-    public IntakeWorker devIntakeWorker(
-            JiraConnector jiraConnector,
-            RepositoryPolicy policy,
-            FrontmatterCodec codec,
-            CodingRuntime runtime,
-            AuditLog audit,
-            TaskGuard taskGuard) {
-        return new IntakeWorker(jiraConnector, policy, codec, runtime, audit,
-                taskGuard);
+    public IntakeWorker devIntakeWorker(JiraConnector jiraConnector, RepositoryPolicy policy, FrontmatterCodec codec,
+            CodingRuntime runtime, AuditLog audit, TaskGuard taskGuard) {
+        return new IntakeWorker(jiraConnector, policy, codec, runtime, audit, taskGuard);
     }
 
     @Bean
-    public DecisionGateWorker devDecisionGateWorker(
-            ConditionalDecisionGate gate,
-            FrontmatterCodec codec,
+    public DecisionGateWorker devDecisionGateWorker(ConditionalDecisionGate gate, FrontmatterCodec codec,
             TaskGuard taskGuard) {
         return new DecisionGateWorker(gate, codec, taskGuard);
     }
 
     @Bean
-    public IntakeResolveWorker devIntakeResolveWorker(
-            RepositoryPolicy policy,
-            BaseRefResolver baseRefResolver,
-            FrontmatterCodec codec,
-            TaskGuard taskGuard) {
-        return new IntakeResolveWorker(policy, baseRefResolver, codec,
-                taskGuard);
+    public IntakeResolveWorker devIntakeResolveWorker(RepositoryPolicy policy, BaseRefResolver baseRefResolver,
+            FrontmatterCodec codec, TaskGuard taskGuard) {
+        return new IntakeResolveWorker(policy, baseRefResolver, codec, taskGuard);
     }
 
     @Bean
-    public PrFeedbackGateway prFeedbackGateway(
-            GitHubProperties properties, RestClient.Builder builder) {
+    public PrFeedbackGateway prFeedbackGateway(GitHubProperties properties, RestClient.Builder builder) {
         return new GitHubPrFeedbackGateway(properties, builder);
     }
 
@@ -276,16 +234,10 @@ public class DevFactoryConfiguration {
     }
 
     @Bean
-    public FeedbackActions feedbackActions(
-            ArtifactStore artifacts,
-            PipelineExecutionRepository executions,
-            HitlReviewRepository reviews,
-            HitlDecisionService decisions,
-            FeedbackDecisionPolicy policy,
-            PrFeedbackGateway gateway,
-            PlatformTransactionManager transactions) {
-        return new FeedbackActions(
-                artifacts, executions, reviews, decisions, policy, gateway, transactions);
+    public FeedbackActions feedbackActions(ArtifactStore artifacts, PipelineExecutionRepository executions,
+            HitlReviewRepository reviews, HitlDecisionService decisions, FeedbackDecisionPolicy policy,
+            PrFeedbackGateway gateway, PlatformTransactionManager transactions) {
+        return new FeedbackActions(artifacts, executions, reviews, decisions, policy, gateway, transactions);
     }
 
     @Bean
@@ -301,16 +253,9 @@ public class DevFactoryConfiguration {
     }
 
     @Bean
-    @ConditionalOnProperty(
-            prefix = "factory.engine",
-            name = "enabled",
-            havingValue = "true",
-            matchIfMissing = true)
-    public FeedbackPrMonitor feedbackPrMonitor(
-            PipelineExecutionRepository executions,
-            FlowRegistry flows,
-            FeedbackActions actions,
-            @Qualifier("feedbackPrExecutor") ThreadPoolTaskExecutor executor) {
+    @ConditionalOnProperty(prefix = "factory.engine", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public FeedbackPrMonitor feedbackPrMonitor(PipelineExecutionRepository executions, FlowRegistry flows,
+            FeedbackActions actions, @Qualifier("feedbackPrExecutor") ThreadPoolTaskExecutor executor) {
         return new FeedbackPrMonitor(executions, flows, actions, executor, Clock.systemUTC());
     }
 
@@ -328,33 +273,13 @@ public class DevFactoryConfiguration {
     }
 
     @Bean
-    public FeedbackWorker feedbackWorker(
-            DevFactoryProperties repositories,
-            DevRuntimeProperties runtime,
-            GitHubProperties github,
-            PrFeedbackGateway gateway,
-            CandidateFreezer freezer,
-            CandidateVerifier verifier,
-            CodingRuntime coding,
-            DockerWorkloads docker,
-            FeedbackGit git,
-            StateManager state,
-            AuditLog audit,
-            ObjectProvider<AttemptPricing> pricing,
-            ObjectProvider<CodingTranscripts> transcripts) {
-        return new FeedbackWorker(
-                repositories,
-                runtime,
-                github,
-                gateway,
-                freezer,
-                verifier,
-                coding,
-                docker,
-                git,
-                state,
-                audit,
-                pricing.getIfAvailable(() -> model -> Map.of()),
-                transcripts.getIfAvailable(CodingTranscripts::none));
+    public FeedbackServices feedbackServices(PrFeedbackGateway gateway, FeedbackGit git, GitHubProperties github) {
+        return new FeedbackServices(gateway, git, github);
+    }
+
+    @Bean
+    public FeedbackWorker feedbackWorker(DevFlowSettings settings, CodingServices services, FeedbackServices feedback,
+            CandidateVerifier verifier, StateManager state, AuditLog audit, DevFactoryHooks hooks) {
+        return new FeedbackWorker(settings, services, feedback, verifier, state, audit, hooks);
     }
 }

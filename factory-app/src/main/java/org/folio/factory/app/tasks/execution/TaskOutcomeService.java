@@ -1,5 +1,6 @@
 package org.folio.factory.app.tasks.execution;
 
+import org.folio.factory.app.EngineRecords;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
@@ -59,18 +60,16 @@ public class TaskOutcomeService {
     public TaskOutcomeService(TaskAttemptRepository attempts,
                                TaskInstallationRepository installations,
                                TaskPublicationIntentRepository intents,
-                               PipelineExecutionRepository executions,
-                               ArtifactStore artifacts,
+                               EngineRecords engine,
                                DockerWorkloads docker,
-                               FlowRegistry flows,
                                PlatformTransactionManager transactionManager) {
         this.attempts = attempts;
         this.installations = installations;
         this.intents = intents;
-        this.executions = executions;
-        this.artifacts = artifacts;
+        this.executions = engine.executions();
+        this.artifacts = engine.artifacts();
         this.docker = docker;
-        this.flows = flows;
+        this.flows = engine.flows();
         this.transactions = new TransactionTemplate(transactionManager);
     }
 

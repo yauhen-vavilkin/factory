@@ -27,6 +27,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
 import static org.mockito.Mockito.*;
 import org.folio.factory.devfactory.runtime.CodingTranscripts;
+import org.folio.factory.devfactory.DevFlowSettings;
+import org.folio.factory.devfactory.CodingServices;
+import org.folio.factory.devfactory.DevFactoryHooks;
+import org.folio.factory.devfactory.feedback.FeedbackServices;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 
 /** Catalog delivery destinations decide which pull requests PR feedback may follow. */
 class FeedbackCatalogTest {
@@ -128,19 +134,9 @@ class FeedbackCatalogTest {
                 .thenReturn(new PipelineExecution("dev-factory", VERSION, null));
         var audit = mock(AuditLog.class);
         when(audit.forExecution(executionId)).thenReturn(List.of());
-        return new FeedbackWorker(
-                repositories,
-                runtime,
-                new GitHubProperties(null, "fixture-token"),
-                gateway,
-                freezer,
-                mock(CandidateVerifier.class),
-                coding,
-                docker,
-                mock(FeedbackGit.class),
-                executions,
-                audit,
-                model -> Map.of(), CodingTranscripts.none());
+        return new FeedbackWorker(new DevFlowSettings(repositories, runtime), new CodingServices(coding, docker, freezer),
+                new FeedbackServices(gateway, mock(FeedbackGit.class), new GitHubProperties(null, "fixture-token")), mock(CandidateVerifier.class), executions, audit,
+                new DevFactoryHooks(TaskAttemptPolicy.none(), model -> Map.of(), CodingTranscripts.none(), SelectedRepositoryPreflight.none()));
     }
 
     private AgentContext context(Map<String, String> saved) {

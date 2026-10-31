@@ -156,11 +156,13 @@ found. Two options, from smaller to larger:
   logic (`devCodingRuntime` switch, `feedbackPrExecutor`, the conditional `feedbackPrMonitor`,
   `feedbackInitializer`). The class shrinks to about 100 lines. This does not break the plugin rule in
   AGENTS.md: the descriptor still names worker ids and core still resolves them by id.
+- Status (2026-10-31): Done: Group the Developer Flow wiring into hooks and parameter records (first option without `@ConditionalOnMissingBean`: one `DevFactoryHooks` bean holds the four `getIfAvailable` lookups). `DevFactoryConfiguration` went from 357 to 285 lines, not under 250: 66 of them are imports, and a second configuration class would break "the single wiring class".
 
 Constructors with 10 to 14 dependencies (`FeedbackWorker` 14, `InitialCodingAttempt` 11, `DeliveryWorker` 10,
 `DeveloperPreflight` 10, `TaskUiController` 11, `TaskOutcomeService` 8) are the remaining suppressions;
 AGENTS.md's own rule applies: parameters that travel together become a record (for example
 `DevFlowSettings(repositories, runtime, delivery)` and `CodingServices(coding, docker, freezer)`).
+Status (2026-10-31): Done: Group the Developer Flow wiring into hooks and parameter records. Records: `DevFlowSettings`, `CodingServices`, `DeliveryServices`, `FeedbackServices` (flow module), `EngineRecords`, `TaskSource` (app). `DeveloperPreflight` (9) and `TaskUiController` (11) use Lombok constructors, which Checkstyle does not count; they were not in the phase list and stay.
 
 Estimated delta: about -150 to -250 lines. Risk: low (Spring context tests in factory-app fail fast).
 
@@ -254,6 +256,7 @@ low elsewhere.
    `DeveloperTranscriptView:106-108`). AGENTS.md asks for records; convert when a page is touched.
 7. `ExecutionUiController` (345 lines, suppressed constructor): the transcript route (`:138-155`) and its
    three dependencies belong in their own controller.
+   Status (2026-10-31): Done: Group the Developer Flow wiring into hooks and parameter records. The execution page also shows the task context, so the controller keeps `TaskQuery` (now `TaskQuery.runContext`) and `TranscriptUiController` takes the transcript route with the store.
 
 Estimated delta: about -450 lines. Risk: low; `UiRenderSmokeTest` covers page text.
 

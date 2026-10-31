@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -78,6 +79,12 @@ public class TaskQuery {
     }
 
     @Transactional(readOnly = true)
+    /** The task row context of an execution that a task attempt started; empty for any other run. */
+    public Optional<Map<String, Object>> runContext(UUID executionId) {
+        return attempts.findByExecutionId(executionId)
+                .map(attempt -> TaskRows.runContext(detail(attempt.getTaskId()), executionId));
+    }
+
     public TaskView detail(UUID taskId) {
         return project(tasks.findById(taskId)
                 .orElseThrow(() -> new NoSuchElementException("No task " + taskId)), queuePositions());

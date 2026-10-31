@@ -9,10 +9,12 @@ import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.devfactory.DevFactoryProperties;
+import org.folio.factory.devfactory.DevFlowSettings;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryReceipt;
+import org.folio.factory.devfactory.delivery.DeliveryServices;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.delivery.PullRequestRenderer;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
@@ -20,7 +22,6 @@ import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 import org.folio.factory.devfactory.tasks.TaskGuard;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.Git;
-import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.verification.VerificationPolicy;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
 import org.springframework.web.client.HttpClientErrorException;
@@ -50,24 +51,16 @@ public class DeliveryWorker implements AgentWorker {
     private final TaskGuard taskGuard;
     private final JsonMapper json = JsonMapper.builder().build();
 
-    public DeliveryWorker(
-            DevFactoryProperties repositories,
-            DevRuntimeProperties runtime,
-            CandidateDelivery delivery,
-            GitHubProperties githubProperties,
-            JiraProperties jiraProperties,
-            GitHubConnector github,
-            FrontmatterCodec frontmatter,
-            StateManager executionState,
-            TaskGuard taskGuard) {
-        this.repositories = repositories;
-        this.verificationPolicy = new VerificationPolicy(repositories, runtime);
-        this.executionState = executionState;
-        this.delivery = delivery;
-        this.githubProperties = githubProperties;
+    public DeliveryWorker(DevFlowSettings settings, DeliveryServices publication, JiraProperties jiraProperties,
+                          FrontmatterCodec frontmatter, StateManager executionState, TaskGuard taskGuard) {
+        this.repositories = settings.repositories();
+        this.verificationPolicy = new VerificationPolicy(settings.repositories(), settings.runtime());
+        this.delivery = publication.delivery();
+        this.githubProperties = publication.githubProperties();
         this.jiraProperties = jiraProperties;
-        this.github = github;
+        this.github = publication.github();
         this.frontmatter = frontmatter;
+        this.executionState = executionState;
         this.taskGuard = taskGuard;
     }
 

@@ -10,15 +10,16 @@ import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.registry.model.HitlGateSpec;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
+import org.folio.factory.devfactory.CodingServices;
+import org.folio.factory.devfactory.DevFactoryHooks;
 import org.folio.factory.devfactory.DevFactoryProperties;
+import org.folio.factory.devfactory.DevFlowSettings;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
-import org.folio.factory.devfactory.runtime.CodingTranscripts;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
-import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
 import org.folio.factory.devfactory.verification.VerificationPolicy;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
@@ -47,32 +48,21 @@ public class FeedbackWorker implements AgentWorker {
     private final FeedbackCodingAttempt codingAttempt;
     private final VerificationPolicy verificationPolicy;
 
-    public FeedbackWorker(
-            DevFactoryProperties repositories,
-            DevRuntimeProperties runtime,
-            GitHubProperties github,
-            PrFeedbackGateway gateway,
-            CandidateFreezer freezer,
-            CandidateVerifier verifier,
-            CodingRuntime coding,
-            DockerWorkloads docker,
-            FeedbackGit git,
-            StateManager executions,
-            AuditLog audit,
-            AttemptPricing pricing,
-            CodingTranscripts transcripts) {
-        this.repositories = repositories;
-        this.runtime = runtime;
-        this.github = github;
-        this.gateway = gateway;
-        this.freezer = freezer;
+    public FeedbackWorker(DevFlowSettings settings, CodingServices services, FeedbackServices feedback,
+                          CandidateVerifier verifier, StateManager executions, AuditLog audit, DevFactoryHooks hooks) {
+        this.repositories = settings.repositories();
+        this.runtime = settings.runtime();
+        this.github = feedback.github();
+        this.gateway = feedback.gateway();
+        this.freezer = services.freezer();
         this.verifier = verifier;
-        this.coding = coding;
-        this.resources = new FeedbackResources(audit, docker);
-        this.git = git;
+        this.coding = services.coding();
+        this.resources = new FeedbackResources(audit, services.docker());
+        this.git = feedback.git();
         this.executions = executions;
-        this.codingAttempt = new FeedbackCodingAttempt(freezer, coding, docker, runtime, pricing, transcripts);
-        this.verificationPolicy = new VerificationPolicy(repositories, runtime);
+        this.codingAttempt = new FeedbackCodingAttempt(services.freezer(), services.coding(), services.docker(),
+                settings.runtime(), hooks.pricing(), hooks.transcripts());
+        this.verificationPolicy = new VerificationPolicy(settings.repositories(), settings.runtime());
     }
 
     public String id() {

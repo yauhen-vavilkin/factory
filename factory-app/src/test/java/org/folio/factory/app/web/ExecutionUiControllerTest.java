@@ -50,6 +50,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
+import org.folio.factory.app.EngineRecords;
 
 @ExtendWith(MockitoExtension.class)
 class ExecutionUiControllerTest {
@@ -87,11 +88,11 @@ class ExecutionUiControllerTest {
                 LocalDate.parse("2026-09-19"), URI.create("https://example.test/pricing"),
                 new BigDecimal("0.15"), new BigDecimal("0.03"), null, new BigDecimal("0.50"));
         var estimator = new DeveloperCostEstimator(new DeveloperPricingProperties(Map.of("flash", rate)));
-        mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(executions, artifactStore, auditLog,
-                flowRegistry, reviews, json, estimator,
-                new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class)),
-                mock(org.folio.factory.app.tasks.persistence.TaskAttemptRepository.class),
-                mock(org.folio.factory.app.tasks.presentation.TaskQuery.class), transcripts))
+        var taskQuery = mock(org.folio.factory.app.tasks.presentation.TaskQuery.class);
+        mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(
+                        new EngineRecords(executions, artifactStore, flowRegistry), auditLog, reviews, json, estimator,
+                        new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class)), taskQuery),
+                        new TranscriptUiController(executions, taskQuery, transcripts))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
