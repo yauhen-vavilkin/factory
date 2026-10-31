@@ -344,6 +344,55 @@ and `CandidateVerifierTest`; (6) replace the two real sleeps with an injected cl
 (7) one `TaskFixture` and one `DevFlowHarness` test helper. Expected: factory-app roughly halves, core
 drops to about a third, dev-factory to about half. Measure before and after with the Surefire reports.
 
+Status of the plan items after the test-suite speed pass (`2026-10-30-test-suite-speed-prompt.md`):
+
+1. Leaks behind `reuseForks=false`.
+   Status (2026-10-31): Done: Run factory-app tests in one reused JVM after stopping leaked WireMock servers (109db66). Two runs in one reused JVM were green before the fix and three after it, but a thread snapshot after each class showed the count rising from 9 to 36: `TaskEndToEndTest` and `TaskPublicationIntegrationTest` never stopped their static WireMock servers. The engine pollers, the PR monitor executor and the `RestClient` pools already stopped with their context; no main code changed. The override is gone from `factory-app/pom.xml`; `factory-core/pom.xml` keeps its own (out of scope).
+2. One PostgreSQL container.
+   Status (2026-10-31): Done: Share one PostgreSQL container across the factory-app test JVM (548f8f1). `SharedDatabase` hands one container to every context through a `DynamicPropertyRegistrar` (it is not a bean, so closing a context cannot stop it); `SharedDatabaseCleanup` truncates every table except the Flyway history and the flow registry mirror before and after each Spring class. `MyTasksMigrationTest` migrates its own schemas on the same container. 21 containers per factory-app run became 1.
+3. `@FactoryIntegrationTest` and the test defaults.
+   Status (2026-10-31): Done in part: Collapse the Spring test header into @FactoryIntegrationTest and share two contexts (550f3ba). The defaults live in `src/test/resources/config/application.yaml`, because a test `application.yaml` at the classpath root would replace the main one; two profiles, `engine` and `task-execution`, carry the repeated differences. Contexts started went from 20 to 16; the target was five and is not met. 14 classes keep their own context, each with a one-line reason: they differ in the Jira instance that admission checks against (unconfigured, `jira.example.org` or WireMock), in the repository catalog they assert on, or in the beans they mock. Merging them would change fixtures or replace real beans with mocks.
+4. A property for the PR monitor delay.
+   Status (2026-10-31): Skipped: the monitor was not the cause. The audit trail of `TaskEndToEndTest`'s first task shows the 31 s wait is the flow's 30 s retry backoff: the pull request read was stubbed only after delivery, so the first `pr-follow-up` run failed and was retried. Remove the 30 s retry wait from TaskEndToEndTest and build the PR fork once (02ccbab) stubs the read while the scripted delivery answers; no configuration key and no main code change.
+5. Repositories built once per class.
+   Status (2026-10-31): Done: 02ccbab for `PrFeedbackIntegrationTest` (fork in a static `@TempDir`, reset per test with git) and Replace the dev-factory test sleeps with a clock and latches and build git fixtures once (48f761d) for `CandidateVerifierTest` (built once) and `CandidateDeliveryTest` and `FeedbackGitTest` (a template copied per test). `PrFeedbackIntegrationTest` gained nothing measurable: its setup cost about 0.1 s per test, and profiling the 12-round test found no waiting (every `drive()` iteration claims work; each round's 1.5 s is engine and git work). Its rounds are unchanged.
+6. The two real sleeps.
+   Status (2026-10-31): Done: 48f761d. `ProcessesTest` blocks its slow reader on a latch, checks with Awaitility that `stream()` keeps waiting after the command ended, and asserts that the drain bound exceeds 6 s; `DevelopReadinessTest` moves an injected clock. No `Thread.sleep` is left in the factory-app and dev-factory tests.
+7. One `TaskFixture` and one `DevFlowHarness`.
+   Status (2026-10-31): Done in part: Share one TaskFixture and one DevFlowHarness instead of copied test helpers (e6cc2e7). Stayed per class: `stubWorkloads` (one shared workload in `TaskAutonomousFlowIntegrationTest`, separate baseline, coding and verification workloads with exported fixtures in `TaskEndToEndTest`), `writeArtifact` (one line each, with a class-specific author) and `UiRenderSmokeTest.seedAttempt` (its own request ids and kinds).
+
+The duplication paragraph: the six-line Spring header is gone (550f3ba); the static WireMock servers were in six classes, not four, and are now one server per connector per JVM (Share one WireMock server per connector across the test JVM, 975cbf9). The 11 behaviours asserted both standalone and in `UiRenderSmokeTest` stay, by design. factory-core (14 Spring classes, about 48 s of startup, its own `reuseForks=false`) was out of scope and is unchanged.
+
+### Result of the test-suite speed pass
+
+Before: `mvn -B -ntp clean verify` at 74d329a, the second of two baseline runs. After: three consecutive green
+runs at e6cc2e7. Module times are the reactor wall-clock. In one reused JVM, Surefire no longer counts Spring
+context startup in any class, so the Surefire sums before and after are not comparable; the wall-clock is.
+
+| Measure | Before | After (runs 1 / 2 / 3) |
+|---|---|---|
+| factory-app wall-clock | 230 s (first baseline run: 202 s) | 70 / 71 / 71 s |
+| factory-flow-dev-factory wall-clock | 31.1 s (first run: 32.0 s) | 17.1 / 17.3 / 17.3 s |
+| Both modules | 261 s | 87 / 88 / 88 s (34 %; 38 % of the faster first baseline) |
+| Whole `clean verify` | 337 s | 162 / 164 / 164 s |
+| Surefire sum, factory-app / dev-factory | 208.5 s / 28.9 s | 64.5 s / 15.1 s (run 3) |
+| Spring contexts started in factory-app | 20 | 16 |
+| PostgreSQL containers in factory-app | 21 | 1 |
+| Tests, factory-app | 513 | 513 |
+| Tests, factory-flow-dev-factory | 350 (18 skipped) | 350 (18 skipped) |
+| factory-core | 70 s, 14 contexts, 14 containers, 126 tests | unchanged |
+
+Per class (Surefire `time=`, run 3): `TaskEndToEndTest` 41.9 -> 6.6 s, `PrFeedbackIntegrationTest` 38.2 -> 31.7 s,
+`ProcessesTest` 11.5 -> 5.2 s, `DevelopReadinessTest` 4.2 -> 0.2 s, `CandidateVerifierTest` 4.2 -> 2.6 s,
+`CandidateDeliveryTest` 4.1 -> 2.3 s, `FeedbackGitTest` 2.9 -> 2.8 s; each other Spring class lost its 4 to 5 s
+of JVM and context start, which now happens once per shared context.
+
+Acceptance: both modules at or under half the baseline: met (88 s of 261 s). Spring contexts at or under five:
+not met (16, see item 3). One PostgreSQL container per module run: met. Same test counts: met. Three consecutive
+green `clean verify` runs: met. No `Thread.sleep` in the two modules' tests: met. `reuseForks` override gone
+from `factory-app/pom.xml`: met. Checkstyle clean, no new suppression, no new configuration key, no main code
+change: met (the only non-test changes are the factory-app pom and these docs).
+
 ## 10. Operator decisions
 
 1. **Pi runtime.** `PiProtocol` 246, `PiCodingRuntime` 199, `PiProgress` 171, `PiUsage` 119 (735 main

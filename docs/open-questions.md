@@ -97,6 +97,21 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
   `FeedbackState.failureKind` and the `VerifyWorker` outcome map are still strings. Each change
   needs a round-trip test that keeps today's persisted JSON byte for byte.
 
+## Left after the test-suite speed pass
+
+Source: test-suite speed pass, 2026-10-31 (audit section 9 in
+`docs/superpowers/specs/2026-10-30-dev-flow-code-audit.md`).
+
+- When the pull request read fails (GitHub has no such PR), the first `pr-follow-up` run fails
+  with `Cannot invoke "String.length()" because "text" is null` instead of a plain reason, and
+  the step waits for the 30 s retry backoff. `TaskEndToEndTest` hit it until its stub moved;
+  the cause in main code is not investigated.
+- factory-app starts 16 Spring contexts, not the five the speed prompt aimed for: 14 classes need
+  their own Jira instance, repository catalog or mocked beans. Sharing more would mean new
+  fixture values or mocks in tests that use the real beans.
+- factory-core was out of scope: 14 Spring classes, about 48 s of context startup and its own
+  `reuseForks=false`.
+
 ## Left after the Developer Flow fixes
 
 Source: reviews of the developer flow fixes (spec in commit 82e0d0d), 2026-10-28.
