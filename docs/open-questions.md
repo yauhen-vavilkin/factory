@@ -128,3 +128,25 @@ Source: reviews of the developer flow fixes (spec in commit 82e0d0d), 2026-10-28
   stall the pipe; after 2 minutes the attempt fails as `OUTPUT_UNREAD`. Up to 19 transcript
   entries wait in memory and are lost if Factory stops.
 - The transcript page renders every entry of every run in one response.
+
+## Left after the models file and run form (2026-11-03)
+
+Spec: `docs/superpowers/specs/2026-11-03-models-config-and-run-form.md`.
+
+- **Model per task.** Effort is chosen per task; the model is one per run. A model on each
+  row was discussed and left out to keep the table readable.
+- **Pi with a model choice.** Pi still takes its model and reasoning level from
+  `FACTORY_PI_*`. The models file already accepts the Pi API types; Pi uses it only for
+  prices and redaction.
+- **Budget hard stop.** Max turns is now a hidden gate (200). A stop by spent money would
+  protect better against a run that goes wrong. Needs a live cost from the stream.
+- **Context from other repositories.** The agent sees only the task's repository. Some tasks
+  need code from other modules.
+- **Gemini through Claude Code.** CodeMie's LiteLLM gateway documents `/v1/messages` for
+  non-Anthropic models, so a Gemini entry with `api: anthropic-messages` may work with
+  Claude Code. Not tested: it needs the proxy up and a paid run with a tool call.
+- **Re-run by key after a pull request.** "Add to run" by key could re-run a task that
+  already had a pull request. Adding by key now puts the task in Available, and a task that
+  already ran is sent to Retry, which refuses a task whose pull request is open.
+- **Haiku 5.5 long prompts.** Anthropic prices Haiku 5.5 prompts over 100K tokens higher. An
+  entry has one price, so such runs are estimated too low.
