@@ -29,6 +29,14 @@ layer needs a stated reason in the plan or the commit message. "Minimal" never
 excuses dropping input validation at trust boundaries, error handling, security
 or accessibility.
 
+Factory competes with plain Claude Code, so a change must get a better result out of
+the model with the least machinery: deterministic Factory-side logic before new model
+behaviour, and short prompt additions.
+
+One persona: the developer who runs Factory locally also configures it. Config files
+define what is available and the UI lets that person choose from it. Designs and UI
+text do not invent a separate operator or admin who decides for "users".
+
 ## Commands
 
 ```bash
@@ -239,6 +247,10 @@ the side.
   model shape) and `UiRenderSmokeTest` — the only tier that resolves the
   layout/component fragments. Anything content-bearing must assert real page
   text there; standalone tests cannot catch fragment-scope bugs.
+- Shared test support lives in factory-app `support/` (`FactoryIntegrationTest`,
+  `SharedDatabase`, `SharedDatabaseCleanup`, `SharedWireMock`, `DevFlowHarness`) and
+  `tasks/TaskFixture`; test defaults are in `src/test/resources/config/application.yaml`.
+  Build new test classes on them so they reuse the existing Spring contexts.
 - A test is right when it checks the required, observable behavior. When one fails,
   first decide whether the code, the expectation, the fixture or the environment is
   wrong, and fix that. When behavior changes on purpose, update the tests that assert
@@ -290,6 +302,10 @@ was added. Never add an entry there; delete the entry when you bring its method 
 
 - Touch only what the task needs; don't refactor unrelated code.
 - UI text, code comments and commit messages: plain English, B2 level.
+- The working branch is `m1-sprint-pilot`, far ahead of `main`. A new session or a
+  worktree agent starts from `main` by default: give it `m1-sprint-pilot` as the base, or
+  make `git reset --hard <branch commit>` its first step. Parallel agents get disjoint
+  files and never run `mvn install`: they share the snapshot jars in `~/.m2`.
 
 ## Communication
 

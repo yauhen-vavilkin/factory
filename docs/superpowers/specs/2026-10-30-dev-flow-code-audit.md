@@ -414,6 +414,10 @@ Status (2026-10-31): Review follow-up in Start the preflight probe test's WireMo
 3. **Pre-0.9.0 history** (section 2, item 7) and the unread `task_publication_intent` columns
    (section 6, item 6): keep if old runs or the promised reconciliation still matter.
 
+Status (2026-10-30): all three are kept. Pi stays a feature (only its legacy `FACTORY_MODEL_*` settings
+went), the REST read API stays under `/api/**`, and the pre-0.9.0 history and the `task_publication_intent`
+columns stay. Do not propose removing them again without a new reason.
+
 ## 11. Housekeeping
 
 - Comment tags `OPS-2`, `PERF-1`, `REL-1`, `OBS-1`, `COST-1`, `DATA-1`, `DEP-1` in `application.yaml` and

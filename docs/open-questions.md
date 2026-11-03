@@ -59,10 +59,9 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
   of `FACTORY_PI_*` values and a leftover `FACTORY_MODEL_BASE_URL`, the Pi base URL is now empty and
   Pi uses its provider's built-in endpoint with the configured key. The local `.env` still has
   `FACTORY_MODEL_*` and `FACTORY_DEV_FACTORY_DELIVERY_*` lines (runtime `claude-code`); delete them.
-  It also still uses the old names `FACTORY_PILOT_ASSIGNEE` and `FACTORY_PILOT_EXECUTION_ENABLED`,
-  which this branch no longer reads: rename them to `FACTORY_TASKS_ASSIGNEE` and
-  `FACTORY_TASKS_EXECUTION_ENABLED` before running it, or My tasks stays off and Scan Jira finds
-  nobody. The README "Configuration" section lists every rename.
+  Its `FACTORY_PILOT_*` names were renamed to `FACTORY_TASKS_*` on 2026-11-03. An `.env` that still
+  uses the old names gets no warning either: My tasks stays off and Scan Jira finds nobody. The
+  README "Configuration" section lists every rename.
 - The same cleanup removed `factory.dev-factory.delivery.targets` and the startup check that
   refused an old `authorized` delivery key. A private catalog that still has either is now ignored
   without a message: pull requests go to the entry's `delivery.repository`.
@@ -72,8 +71,8 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
   (`DeveloperExecutionView.runStatus`). Found in the cleanup (phase 6); a new rule is a visible
   change, so it was left.
 - `docker-compose.yml` passes environment variables by an explicit list, so a new secret
-  variable must be added there too. This includes the `secret-env` variable of every new run
-  profile.
+  variable must be added there too. This includes the `secret-env` variable of every new model
+  in `config/developer-models.yaml`.
 - When Factory cannot prove that an attempt's containers are gone, `TaskOutcomeService.hold`
   holds the attempt for inspection but stores no reason. The dispatcher logs the cause ("Reconciled
   active task attempt <id> to NEEDS_INSPECTION: workload inactivity could not be confirmed: docker
@@ -114,8 +113,8 @@ Source: reviews of the developer flow fixes (spec in commit 82e0d0d), 2026-10-28
 
 - An empty Acceptance criteria section, or one that says only "None", opens a ready PR. A
   possible draft reason: "The agent listed no acceptance criteria."
-- `FACTORY_CLAUDE_CODE_MAX_TURNS` above 500 now stops `env-default` runs with a plain reason.
-  Before the fixes there was no upper limit.
+- `FACTORY_CLAUDE_CODE_MAX_TURNS` outside 1 to 500 now stops Factory at startup with a plain
+  message. Before the fixes there was no upper limit.
 - GitHub answers HTTP 422 when a draft PR is asked for in a repository without draft support.
   The delivery then ends as blocked, with no fallback to a ready PR.
 - Factory never reads the draft state back from GitHub. After "Ready for review" on GitHub
@@ -150,3 +149,17 @@ Spec: `docs/superpowers/specs/2026-11-03-models-config-and-run-form.md`.
   already ran is sent to Retry, which refuses a task whose pull request is open.
 - **Haiku 5.5 long prompts.** Anthropic prices Haiku 5.5 prompts over 100K tokens higher. An
   entry has one price, so such runs are estimated too low.
+- **Entries that never ran.** CodeMie Opus 5.5, CodeMie Haiku 5.5 and the Anthropic-direct
+  Sonnet 5.5 entry have not run a task yet (no paid runs). "Ready" on the run form only means
+  that the secret is set.
+- **Coding timeout.** The GLM-5.3 run of MGRAPPS-21 on 2026-11-03 (effort high) opened its draft
+  PR after 29 minutes, one minute before the 30-minute coding timeout
+  (`FACTORY_DEV_FACTORY_TIMEOUT_SECONDS`).
+- **Review findings left.** From the review of af08eb6 on 2026-11-03:
+  - Claude Code always gets `--effort`, also for a gateway model whose provider may ignore or
+    refuse it. Check with a real CodeMie run before changing it.
+  - `flow-my-tasks.html` compares `row.problem().name()` with the string `'NO_REPOSITORY'`; a
+    boolean on the row would keep enum names out of the template.
+  - Check configuration probes the endpoint of every model over TCP, also of models that the
+    installed harness cannot run.
+  - `TaskUiController` and `TaskListController` both define `FLOW_PAGE`.
