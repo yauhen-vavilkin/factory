@@ -1,5 +1,7 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEvent;
@@ -13,17 +15,27 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class DeveloperExecutionView {
     private static final String STARTING_BUILD_NETWORK_FAILURE =
             "Starting build hit a network/download failure";
+    private static final List<String> OUTCOME_ARTIFACTS =
+            List.of("dev_delivery.json", "dev_result.json", "dev_candidate.json", "dev_task_brief.md");
+    private static final Set<String> OUTCOME_STATES = Set.of("DELIVERED", "VERIFIED", "DEVELOPMENT_FAILED",
+            "VERIFICATION_FAILED", "DELIVERY_BLOCKED", "UNSUPPORTED", "BLOCKED", "BLOCKED_ENVIRONMENT",
+            "NEEDS_DECISION", "REPOSITORY_MISMATCH");
+    private static final Set<String> PREPARED_CANDIDATE_STATES = Set.of("CANDIDATE_UNVERIFIED", "NEEDS_DECISION");
     private static final Map<String, String> TECHNICAL_STEPS = Map.of(
             "read-task", "Read Jira task",
             "select-repository", "Select repository",
@@ -40,139 +52,254 @@ final class DeveloperExecutionView {
             new Phase("Create pull request", 5, 5, List.of("publish")));
     private static final List<Phase> CURRENT_PHASES = List.of(
             new Phase("Prepare task", 0, 2, List.of("read-task", "select-repository", "prepare-task")),
-            new Phase("Implement changes", 3, 5, List.of("implement", "clarify-implementation", "continue-implementation")),
+            new Phase("Implement changes", 3, 5,
+                    List.of("implement", "clarify-implementation", "continue-implementation")),
             new Phase("Verify changes", 6, 6, List.of("verify")),
             new Phase("Create pull request", 7, 7, List.of("publish")));
     private final JsonMapper json;
 
-    DeveloperExecutionView(JsonMapper json) {
-        this.json = json;
+    /** Asks only for the artifacts the status depends on, so a run list row does not load every version. */
+    String productStatus(PipelineExecution execution, Function<String, Optional<Artifact>> latest) {
+        return status(execution, parsed(latest));
     }
 
-    String productStatus(PipelineExecution execution, List<Artifact> artifacts) {
-        var latest = latestArtifacts(artifacts);
-        if (FeedbackArtifacts.VERSION.equals(execution.getFlowVersion())) {
-            var feedback = artifact(latest, FeedbackArtifacts.STATE);
-            String reason = feedback.path("completionReason").asString("");
-            if (execution.getStatus() == ExecutionStatus.COMPLETED
-                    && "MERGED".equals(reason)) return "COMPLETED";
-            if (execution.getStatus() == ExecutionStatus.CANCELLED
-                    && "CLOSED_WITHOUT_MERGE".equals(reason)) return "CANCELLED";
-            if (execution.getStatus() == ExecutionStatus.AWAITING_HITL
-                    && feedback.has("pr") && !feedback.path("pr").isNull()) return "AWAITING_PR";
+    /** The latest version of each artifact by name, as {@code ArtifactStore.getLatest} returns it. */
+    static Function<String, Optional<Artifact>> latest(List<Artifact> artifacts) {
+        Map<String, Artifact> latest = new HashMap<>();
+        for (var artifact : artifacts) {
+            latest.merge(artifact.getName(), artifact,
+                    (old, fresh) -> old.getVersion() > fresh.getVersion() ? old : fresh);
         }
-        String codingStatus = artifact(latest, "dev_coding_outcome.json").path("status").asString("");
+        return name -> Optional.ofNullable(latest.get(name));
+    }
+
+    private String status(PipelineExecution execution, Function<String, JsonNode> artifacts) {
+        return feedbackStatus(execution, artifacts).orElseGet(() -> runStatus(execution, artifacts));
+    }
+
+    private Optional<String> feedbackStatus(PipelineExecution execution, Function<String, JsonNode> artifacts) {
+        if (!FeedbackArtifacts.VERSION.equals(execution.getFlowVersion())) {
+            return Optional.empty();
+        }
+        var feedback = artifacts.apply(FeedbackArtifacts.STATE);
+        var reason = feedback.path("completionReason").asString("");
+        var status = execution.getStatus();
+        if (status == ExecutionStatus.COMPLETED && "MERGED".equals(reason)) {
+            return Optional.of("COMPLETED");
+        }
+        if (status == ExecutionStatus.CANCELLED && "CLOSED_WITHOUT_MERGE".equals(reason)) {
+            return Optional.of("CANCELLED");
+        }
+        if (status == ExecutionStatus.AWAITING_HITL && feedback.has("pr") && !feedback.path("pr").isNull()) {
+            return Optional.of("AWAITING_PR");
+        }
+        return Optional.empty();
+    }
+
+    private static String runStatus(PipelineExecution execution, Function<String, JsonNode> artifacts) {
+        var status = execution.getStatus();
+        var codingStatus = artifacts.apply("dev_coding_outcome.json").path("status").asString("");
         if ("NEEDS_DECISION".equals(codingStatus)
-                && execution.getStatus() != ExecutionStatus.REJECTED
-                && execution.getStatus() != ExecutionStatus.FAILED_ESCALATED)
+                && status != ExecutionStatus.REJECTED && status != ExecutionStatus.FAILED_ESCALATED) {
             return "NEEDS_DECISION";
-        if (execution.getStatus() != ExecutionStatus.COMPLETED)
-            return execution.getStatus().name();
-        for (String name : List.of("dev_delivery.json", "dev_result.json", "dev_candidate.json", "dev_task_brief.md")) {
-            String state = artifact(latest, name).path("state").asString("");
-            if (Set.of("DELIVERED", "VERIFIED", "DEVELOPMENT_FAILED", "VERIFICATION_FAILED",
-                    "DELIVERY_BLOCKED", "UNSUPPORTED", "BLOCKED", "BLOCKED_ENVIRONMENT", "NEEDS_DECISION",
-                    "REPOSITORY_MISMATCH").contains(state))
-                return state;
         }
-        if ("FAIL".equals(artifact(latest, "dev_verification.json").path("result").asString("")))
+        if (status != ExecutionStatus.COMPLETED) {
+            return status.name();
+        }
+        return completedStatus(artifacts);
+    }
+
+    private static String completedStatus(Function<String, JsonNode> artifacts) {
+        for (var name : OUTCOME_ARTIFACTS) {
+            var state = artifacts.apply(name).path("state").asString("");
+            if (OUTCOME_STATES.contains(state)) {
+                return state;
+            }
+        }
+        if ("FAIL".equals(artifacts.apply("dev_verification.json").path("result").asString(""))) {
             return "VERIFICATION_FAILED";
-        if ("BASELINE_FAILED".equals(artifact(latest, "dev_readiness.json").path("state").asString("")))
+        }
+        if ("BASELINE_FAILED".equals(artifacts.apply("dev_readiness.json").path("state").asString(""))) {
             return "BLOCKED_ENVIRONMENT";
+        }
         return "OUTCOME_UNAVAILABLE";
     }
 
-    Map<String, Object> build(PipelineExecution execution, List<Artifact> artifacts, List<AuditEvent> events, Instant now) {
-        var latest = latestArtifacts(artifacts);
-        var brief = artifact(latest, "dev_task_brief.md");
-        var readiness = artifact(latest, "dev_readiness.json");
-        var candidate = artifact(latest, "dev_candidate.json");
-        var codingOutcome = artifact(latest, "dev_coding_outcome.json");
-        var verification = artifact(latest, "dev_verification.json");
-        var result = artifact(latest, "dev_result.json");
-        var delivery = artifact(latest, "dev_delivery.json");
-        var repo = brief.path("repository");
-        List<Map<String, String>> technicalFields = new ArrayList<>();
-        add(technicalFields, "Repository key", first(repo.path("key"), candidate.path("repository")));
-        add(technicalFields, "Starting commit", first(repo.path("base_sha"), candidate.path("baseSha")));
-        add(technicalFields, "Expected verification plan", repo.path("verification_plan"));
-        add(technicalFields, "Starting build command", readiness.path("command"));
-        add(technicalFields, "Verification plan", verification.path("planId"));
-        add(technicalFields, "Verification command", verification.path("argv"));
-        add(technicalFields, "Verification exit code", verification.path("exitCode"));
-        add(technicalFields, "Verification failure category", verification.path("failureKind"));
-        add(technicalFields, "Required suites without executed evidence", verification.path("missingRequiredReports"));
-        add(technicalFields, "Automatic repair", result.path("repair"));
-        add(technicalFields, "Repair decision", result.path("repairReason"));
-        add(technicalFields, "Final candidate tree", candidate.path("treeSha"));
-        add(technicalFields, "Final candidate patch SHA-256", candidate.path("patchSha256"));
-
+    /** The run page view; {@code productStatus} comes from the same parse of the artifacts. */
+    Map<String, Object> build(PipelineExecution execution, List<Artifact> artifacts, List<AuditEvent> events,
+            Instant now) {
+        var parsed = parsed(latest(artifacts));
+        var evidence = evidence(parsed);
         var activity = DeveloperRuntimeActivity.from(
                 events, json, FeedbackArtifacts.VERSION.equals(execution.getFlowVersion()));
-        var config = activity.configuration();
-        String executionError = execution.getErrorMessage();
-        boolean retryErrorSuperseded = executionError != null
-                && executionError.startsWith(STARTING_BUILD_NETWORK_FAILURE)
+        var retryErrorSuperseded = retryErrorSuperseded(execution, evidence.readiness(), activity);
+        var reason = reason(execution, evidence, retryErrorSuperseded);
+        var phases = phases(execution, events, now, evidence);
+        Map<String, Object> view = new LinkedHashMap<>();
+        view.put("productStatus", status(execution, parsed));
+        putTask(view, execution, evidence);
+        putFields(view, technicalFields(evidence), runtimeFields(activity.configuration()));
+        view.put("reason", reason);
+        view.put("reasonLabel", reasonLabel(execution, evidence.codingOutcome(), reason, retryErrorSuperseded));
+        putPullRequest(view, evidence.delivery());
+        putActivity(view, activity, executionHistory(events));
+        putProgress(view, evidence, phases);
+        return view;
+    }
+
+    private static Evidence evidence(Function<String, JsonNode> artifacts) {
+        return new Evidence(artifacts.apply("dev_task_brief.md"), artifacts.apply("dev_readiness.json"),
+                artifacts.apply("dev_candidate.json"), artifacts.apply("dev_coding_outcome.json"),
+                artifacts.apply("dev_verification.json"), artifacts.apply("dev_result.json"),
+                artifacts.apply("dev_delivery.json"));
+    }
+
+    private static List<Map<String, String>> technicalFields(Evidence evidence) {
+        var repo = evidence.brief().path("repository");
+        var candidate = evidence.candidate();
+        var verification = evidence.verification();
+        var result = evidence.result();
+        List<Map<String, String>> fields = new ArrayList<>();
+        add(fields, "Repository key", first(repo.path("key"), candidate.path("repository")));
+        add(fields, "Starting commit", first(repo.path("base_sha"), candidate.path("baseSha")));
+        add(fields, "Expected verification plan", repo.path("verification_plan"));
+        add(fields, "Starting build command", evidence.readiness().path("command"));
+        add(fields, "Verification plan", verification.path("planId"));
+        add(fields, "Verification command", verification.path("argv"));
+        add(fields, "Verification exit code", verification.path("exitCode"));
+        add(fields, "Verification failure category", verification.path("failureKind"));
+        add(fields, "Required suites without executed evidence", verification.path("missingRequiredReports"));
+        add(fields, "Automatic repair", result.path("repair"));
+        add(fields, "Repair decision", result.path("repairReason"));
+        add(fields, "Final candidate tree", candidate.path("treeSha"));
+        add(fields, "Final candidate patch SHA-256", candidate.path("patchSha256"));
+        return fields;
+    }
+
+    private static List<Map<String, String>> runtimeFields(JsonNode config) {
+        List<Map<String, String>> fields = new ArrayList<>();
+        // The model as chosen in the run form; runs started before 2026-11-03 named a run profile instead, and
+        // Pi names only the model ID. The model ID shows on its own line when it differs from the choice.
+        String model = first(config.path("model"));
+        String chosen = first(config.path("modelId"), config.path("profileLabel"), config.path("profile"),
+                config.path("model"));
+        add(fields, "Model", chosen);
+        if (!chosen.equals(model)) {
+            add(fields, "Model ID", model);
+        }
+        add(fields, "Effort", config.path("effort"));
+        add(fields, "Max turns", config.path("maxTurns"));
+        add(fields, "Provider", config.path("provider"));
+        add(fields, "Runtime", config.path("runtime"));
+        add(fields, "Image", config.path("image"));
+        return fields;
+    }
+
+    private static boolean retryErrorSuperseded(PipelineExecution execution, JsonNode readiness,
+                                                DeveloperRuntimeActivity activity) {
+        var error = execution.getErrorMessage();
+        return error != null
+                && error.startsWith(STARTING_BUILD_NETWORK_FAILURE)
                 && ("BASELINE_PASSED".equals(readiness.path("state").asString(""))
                     || activity.runtimeObserved() || execution.getCurrentStepIndex() > 3);
-        String reason = first(result.path("reason"), brief.path("reason"), candidate.path("reason"));
-        if (reason.isBlank()) {
-            reason = switch (codingOutcome.path("status").asString("")) {
-                case "NEEDS_DECISION" -> codingOutcome.path("decision").path("question").asString("");
-                case "FAILED" -> codingOutcome.path("failure").path("message").asString("");
-                default -> reason;
-            };
+    }
+
+    private static String reason(PipelineExecution execution, Evidence evidence, boolean retryErrorSuperseded) {
+        var verification = evidence.verification();
+        var reason = recordedReason(evidence);
+        if (reason.isBlank() && "FAIL".equals(verification.path("result").asString(""))) {
+            reason = verificationFailure(verification);
         }
-        if (reason.equals("Intake is not ready")) reason = first(brief.path("reason"), result.path("reason"));
-        if (reason.isBlank() && "FAIL".equals(verification.path("result").asString("")))
-            reason = "Independent verification failed: exit " + verification.path("exitCode").asString("")
-                    + ", tests " + counter(verification, "testCount")
-                    + ", failures " + counter(verification, "failureCount")
-                    + ", errors " + counter(verification, "errorCount");
-        if (reason.isBlank()) reason = first(delivery.path("reason"), verification.path("reason"));
-        if (reason.isBlank() && executionError != null && !retryErrorSuperseded) reason = executionError;
-        String pr = delivery.path("pullRequestUrl").asString("");
-        if (!pr.matches("https://[^\\s]+")) pr = "";
-        var phases = phases(execution, events, now, brief, readiness, candidate, verification, result, delivery);
-        Map<String, Object> view = new LinkedHashMap<>();
-        view.put("taskKey", first(brief.path("issue_key"), parse(execution.getTriggerPayload()).path("issueKey")));
+        if (reason.isBlank()) {
+            reason = first(evidence.delivery().path("reason"), verification.path("reason"));
+        }
+        var error = execution.getErrorMessage();
+        if (reason.isBlank() && error != null && !retryErrorSuperseded) {
+            reason = error;
+        }
+        return reason;
+    }
+
+    private static String recordedReason(Evidence evidence) {
+        var brief = evidence.brief();
+        var result = evidence.result();
+        var reason = first(result.path("reason"), brief.path("reason"), evidence.candidate().path("reason"));
+        if (reason.isBlank()) {
+            reason = codingOutcomeReason(evidence.codingOutcome());
+        }
+        return reason.equals("Intake is not ready") ? first(brief.path("reason"), result.path("reason")) : reason;
+    }
+
+    private static String codingOutcomeReason(JsonNode codingOutcome) {
+        return switch (codingOutcome.path("status").asString("")) {
+            case "NEEDS_DECISION" -> codingOutcome.path("decision").path("question").asString("");
+            case "FAILED" -> codingOutcome.path("failure").path("message").asString("");
+            default -> "";
+        };
+    }
+
+    private static String verificationFailure(JsonNode verification) {
+        return "Independent verification failed: exit " + verification.path("exitCode").asString("")
+                + ", tests " + counter(verification, "testCount")
+                + ", failures " + counter(verification, "failureCount")
+                + ", errors " + counter(verification, "errorCount");
+    }
+
+    private void putTask(Map<String, Object> view, PipelineExecution execution, Evidence evidence) {
+        var brief = evidence.brief();
+        var repo = brief.path("repository");
+        view.put("taskKey",
+                first(brief.path("issue_key"), UiFormat.parse(execution.getTriggerPayload(), json).path("issueKey")));
         view.put("summary", brief.path("issue").path("summary").asString("Developer Flow execution"));
-        view.put("repository", first(repo.path("source_repo"), repo.path("key"), candidate.path("repository")));
+        view.put("repository",
+                first(repo.path("source_repo"), repo.path("key"), evidence.candidate().path("repository")));
         view.put("branch", repo.path("base_branch").asString(""));
+    }
+
+    private static void putFields(Map<String, Object> view, List<Map<String, String>> technicalFields,
+                                  List<Map<String, String>> runtimeFields) {
         view.put("technicalFields", technicalFields);
-        List<Map<String, String>> runtimeFields = new ArrayList<>();
-        add(runtimeFields, "Model", config.path("model"));
-        add(runtimeFields, "Provider", config.path("provider"));
-        add(runtimeFields, "Runtime", config.path("runtime"));
-        add(runtimeFields, "Image", config.path("image"));
+        Map<String, String> techFacts = new LinkedHashMap<>();
+        technicalFields.forEach(field -> techFacts.putIfAbsent(field.get("label"), field.get("value")));
+        view.put("techFacts", techFacts);
         view.put("runtimeFields", runtimeFields);
-        view.put("reason", reason);
-        view.put("reasonLabel", reasonLabel(execution, codingOutcome, reason, retryErrorSuperseded));
-        view.put("pullRequestUrl", pr);
-        String prTitle = delivery.path("pullRequestTitle").asString("");
-        view.put("pullRequestLabel", prTitle.isBlank() ? pr : prTitle);
+    }
+
+    private static void putPullRequest(Map<String, Object> view, JsonNode delivery) {
+        var recordedUrl = delivery.path("pullRequestUrl").asString("");
+        var url = recordedUrl.matches("https://[^\\s]+") ? recordedUrl : "";
+        view.put("pullRequestUrl", url);
+        view.put("pullRequestDraft", !url.isBlank() && delivery.path("pullRequestDraft").asBoolean(false));
+        var title = delivery.path("pullRequestTitle").asString("");
+        view.put("pullRequestLabel", title.isBlank() ? url : title);
+    }
+
+    private static void putActivity(Map<String, Object> view, DeveloperRuntimeActivity activity,
+                                    List<Map<String, String>> history) {
         view.put("activityNotice", activity.notice());
         view.put("activity", activity.recent());
         view.put("providerDiagnostics", activity.diagnostics());
-        var history = executionHistory(events);
         view.put("history", history);
         view.put("historyCount", history.size());
+    }
+
+    private static void putProgress(Map<String, Object> view, Evidence evidence, List<Map<String, Object>> phases) {
+        var readiness = evidence.readiness();
+        var verification = evidence.verification();
+        var delivery = evidence.delivery();
         view.put("startingBuildOutput", readiness.path("output").asString(""));
         view.put("phases", phases);
         view.put("currentPhase", currentPhase(phases));
+        view.put("livePhase", phases.stream().filter(phase -> "current".equals(phase.get("state")))
+                .findFirst().orElse(null));
         view.put("startingBuild", outcomeState(startingBuildState(readiness.path("state").asString("")), phases, 1));
-        view.put("verification", outcomeState(first(verification.path("result"), verification.path("state")), phases, 2));
+        view.put("verification",
+                outcomeState(first(verification.path("result"), verification.path("state")), phases, 2));
         view.put("testCount", verification.isEmpty() ? "" : counter(verification, "testCount"));
         view.put("delivery", outcomeState(delivery.path("state").asString(""), phases, 3));
         view.put("deliveryRepository", delivery.path("deliveryRepository").asString(""));
         view.put("deliveryBranch", delivery.path("deliveryBranch").asString(""));
         view.put("deliveryCommit", delivery.path("deliveryCommitSha").asString(""));
-        view.put("outcome", result.path("state").asString(""));
-        Instant elapsedEnd = execution.getStatus().isTerminal() && execution.getCompletedAt() != null
-                ? execution.getCompletedAt() : now;
-        view.put("elapsed", duration(execution.getCreatedAt(), elapsedEnd));
-        view.put("elapsedStart", execution.getStatus().isTerminal() ? null : execution.getCreatedAt());
-        return view;
     }
 
     private static String reasonLabel(
@@ -214,62 +341,65 @@ final class DeveloperExecutionView {
         return TECHNICAL_STEPS.getOrDefault(id, id);
     }
 
-    static String technicalStepDuration(String id, List<AuditEvent> events, PipelineExecution execution, Instant now) {
-        Long seconds = technicalStepDurationSeconds(id, events, execution, now);
-        return seconds == null ? "Not started" : UiFormat.duration(seconds);
-    }
-
     static Long technicalStepDurationSeconds(String id, List<AuditEvent> events,
                                              PipelineExecution execution, Instant now) {
         var timing = timing(Set.of(id), events, execution, now);
         return timing.seen() ? timing.seconds() : null;
     }
 
-    private List<Map<String, Object>> phases(PipelineExecution execution, List<AuditEvent> events, Instant now,
-                                              JsonNode brief, JsonNode readiness, JsonNode candidate,
-                                              JsonNode verification, JsonNode result, JsonNode delivery) {
-        int failedPhase = failedPhase(brief, readiness, candidate, verification, result, delivery);
-        List<Phase> definitions = execution.getFlowVersion().startsWith("0.6.")
-                ? LEGACY_PHASES : CURRENT_PHASES;
+    private static List<Map<String, Object>> phases(PipelineExecution execution, List<AuditEvent> events,
+                                                     Instant now, Evidence evidence) {
+        var failedPhase = failedPhase(evidence);
+        var definitions = execution.getFlowVersion().startsWith("0.6.") ? LEGACY_PHASES : CURRENT_PHASES;
         List<Map<String, Object>> rows = new ArrayList<>(definitions.size());
         for (int i = 0; i < definitions.size(); i++) {
             var phase = definitions.get(i);
             var timing = timing(new HashSet<>(phase.stepIds()), events, execution, now);
-            String state = phaseState(phase, execution, timing.seen());
-            if (failedPhase >= 0) {
-                if (i == failedPhase) state = "failed";
-                else if (i > failedPhase) state = "pending";
-                else state = "done";
-            }
-            boolean blockedByFailure = failedPhase >= 0 && i > failedPhase;
-            String duration = !timing.seen() || blockedByFailure
-                    ? "Not started" : UiFormat.duration(timing.seconds());
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("type", "PHASE");
-            row.put("label", phase.label());
-            row.put("sublabel", duration);
-            row.put("state", state);
-            row.put("stateLabel", phaseStateLabel(state, execution));
-            row.put("attempts", null);
-            row.put("tokens", null);
-            if ("current".equals(state) && timing.running())
-                row.put("elapsedStart", now.minusSeconds(timing.seconds()));
-            rows.add(row);
+            var state = failedPhase >= 0
+                    ? stateAroundFailure(i, failedPhase) : phaseState(phase, execution, timing.seen());
+            var blockedByFailure = failedPhase >= 0 && i > failedPhase;
+            var duration = !timing.seen() || blockedByFailure ? "Not started" : UiFormat.duration(timing.seconds());
+            var elapsedStart = "current".equals(state) && timing.running() ? now.minusSeconds(timing.seconds()) : null;
+            rows.add(phaseRow(phase.label(), duration, state, phaseStateLabel(state, execution), elapsedStart));
         }
         return rows;
     }
 
-    private static int failedPhase(JsonNode brief, JsonNode readiness, JsonNode candidate,
-                                   JsonNode verification, JsonNode result, JsonNode delivery) {
-        String preparation = brief.path("state").asString("");
-        if (!preparation.isBlank() && !"INTAKE_READY".equals(preparation)) return 0;
-        String candidateState = candidate.path("state").asString("");
-        if ("BASELINE_FAILED".equals(readiness.path("state").asString(""))
-                || (!candidateState.isBlank() && !Set.of("CANDIDATE_UNVERIFIED", "NEEDS_DECISION").contains(candidateState))) return 1;
-        if ("FAIL".equals(verification.path("result").asString(""))
-                || "VERIFICATION_FAILED".equals(result.path("state").asString(""))) return 2;
-        if ("DELIVERY_BLOCKED".equals(delivery.path("state").asString(""))) return 3;
-        return -1;
+    private static Map<String, Object> phaseRow(String label, String duration, String state, String stateLabel,
+                                                Instant elapsedStart) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("label", label);
+        row.put("sublabel", duration);
+        row.put("state", state);
+        row.put("stateLabel", stateLabel);
+        if (elapsedStart != null) {
+            row.put("elapsedStart", elapsedStart);
+        }
+        return row;
+    }
+
+    private static int failedPhase(Evidence evidence) {
+        var preparation = evidence.brief().path("state").asString("");
+        if (!preparation.isBlank() && !"INTAKE_READY".equals(preparation)) {
+            return 0;
+        }
+        var candidateState = evidence.candidate().path("state").asString("");
+        if ("BASELINE_FAILED".equals(evidence.readiness().path("state").asString(""))
+                || (!candidateState.isBlank() && !PREPARED_CANDIDATE_STATES.contains(candidateState))) {
+            return 1;
+        }
+        if ("FAIL".equals(evidence.verification().path("result").asString(""))
+                || "VERIFICATION_FAILED".equals(evidence.result().path("state").asString(""))) {
+            return 2;
+        }
+        return "DELIVERY_BLOCKED".equals(evidence.delivery().path("state").asString("")) ? 3 : -1;
+    }
+
+    private static String stateAroundFailure(int index, int failedPhase) {
+        if (index == failedPhase) {
+            return "failed";
+        }
+        return index > failedPhase ? "pending" : "done";
     }
 
     private static String phaseState(Phase phase, PipelineExecution execution, boolean phaseStarted) {
@@ -286,36 +416,46 @@ final class DeveloperExecutionView {
     private static Timing timing(Set<String> stepIds, List<AuditEvent> events,
                                  PipelineExecution execution, Instant now) {
         Map<String, Instant> starts = new HashMap<>();
-        Duration total = Duration.ZERO;
-        boolean seen = false;
+        var total = Duration.ZERO;
+        var seen = false;
         for (var event : events) {
-            if (event.getStepId() == null || !stepIds.contains(event.getStepId())) continue;
+            if (event.getStepId() == null || !stepIds.contains(event.getStepId())) {
+                continue;
+            }
             switch (event.getEventType()) {
                 case STEP_STARTED -> {
                     starts.put(event.getStepId(), event.getOccurredAt());
                     seen = true;
                 }
-                case STEP_COMPLETED, STEP_FAILED -> {
-                    Instant start = starts.remove(event.getStepId());
-                    if (start != null && !event.getOccurredAt().isBefore(start)) {
-                        total = total.plus(Duration.between(start, event.getOccurredAt()));
-                    }
-                }
-                default -> {}
+                case STEP_COMPLETED, STEP_FAILED ->
+                        total = total.plus(closedTime(starts.remove(event.getStepId()), event.getOccurredAt()));
+                default -> { }
             }
         }
-        boolean running = !starts.isEmpty() && !execution.getStatus().isTerminal();
-        Instant end = now;
-        if (execution.getStatus().isTerminal()) {
-            end = execution.getCompletedAt() != null
-                    ? execution.getCompletedAt() : execution.getUpdatedAt();
-        }
-        for (Instant start : starts.values()) {
+        var running = !starts.isEmpty() && !execution.getStatus().isTerminal();
+        total = total.plus(openTime(starts.values(), timingEnd(execution, now)));
+        return new Timing(Math.max(0, total.toSeconds()), seen, running);
+    }
+
+    private static Duration closedTime(Instant start, Instant end) {
+        return start != null && !end.isBefore(start) ? Duration.between(start, end) : Duration.ZERO;
+    }
+
+    private static Duration openTime(Collection<Instant> starts, Instant end) {
+        var total = Duration.ZERO;
+        for (var start : starts) {
             if (end != null && !end.isBefore(start)) {
                 total = total.plus(Duration.between(start, end));
             }
         }
-        return new Timing(Math.max(0, total.toSeconds()), seen, running);
+        return total;
+    }
+
+    private static Instant timingEnd(PipelineExecution execution, Instant now) {
+        if (!execution.getStatus().isTerminal()) {
+            return now;
+        }
+        return execution.getCompletedAt() != null ? execution.getCompletedAt() : execution.getUpdatedAt();
     }
 
     private static String currentPhase(List<Map<String, Object>> phases) {
@@ -329,11 +469,11 @@ final class DeveloperExecutionView {
 
     private static String phaseStateLabel(String state, PipelineExecution execution) {
         return switch (state) {
-            case "done" -> "Done";
+            case "done" -> "Passed";
             case "failed" -> "Failed";
-            case "pending" -> "Pending";
+            case "pending" -> "Waiting";
             case "current" -> switch (execution.getStatus()) {
-                case RUNNING -> "Running";
+                case RUNNING -> "Working";
                 case PENDING -> "Retry pending";
                 case AWAITING_HITL -> "Awaiting decision";
                 default -> "Current";
@@ -354,30 +494,18 @@ final class DeveloperExecutionView {
         };
     }
 
-    private static Map<String, Artifact> latestArtifacts(List<Artifact> artifacts) {
-        Map<String, Artifact> latest = new LinkedHashMap<>();
-        for (var artifact : artifacts) {
-            latest.merge(artifact.getName(), artifact,
-                    (old, fresh) -> old.getVersion() > fresh.getVersion() ? old : fresh);
-        }
-        return latest;
+    /** Parses each artifact at most once, and only when it is asked for. */
+    private Function<String, JsonNode> parsed(Function<String, Optional<Artifact>> latest) {
+        Map<String, JsonNode> parsed = new HashMap<>();
+        return name -> parsed.computeIfAbsent(name,
+                key -> latest.apply(key).map(this::content).orElseGet(json::createObjectNode));
     }
 
-    private JsonNode artifact(Map<String, Artifact> artifacts, String name) {
-        var artifact = artifacts.get(name);
-        if (artifact == null) return json.createObjectNode();
+    private JsonNode content(Artifact artifact) {
         try {
-            return name.endsWith(".md")
+            return artifact.getName().endsWith(".md")
                     ? new FrontmatterCodec().parse(artifact.getContent()).metadata()
-                    : parse(artifact.getContent());
-        } catch (RuntimeException ignored) {
-            return json.createObjectNode();
-        }
-    }
-
-    private JsonNode parse(String value) {
-        try {
-            return value == null ? json.createObjectNode() : json.readTree(value);
+                    : UiFormat.parse(artifact.getContent(), json);
         } catch (RuntimeException ignored) {
             return json.createObjectNode();
         }
@@ -402,10 +530,9 @@ final class DeveloperExecutionView {
     private static void add(List<Map<String, String>> fields, String label, String value) {
         if (!value.isBlank()) fields.add(Map.of("label", label, "value", value));
     }
-    private static String duration(Instant start, Instant end) {
-        return start == null ? "—" : UiFormat.duration(Duration.between(start, end).toSeconds());
-    }
 
     private record Phase(String label, int firstStep, int lastStep, List<String> stepIds) { }
     private record Timing(long seconds, boolean seen, boolean running) { }
+    private record Evidence(JsonNode brief, JsonNode readiness, JsonNode candidate, JsonNode codingOutcome,
+                            JsonNode verification, JsonNode result, JsonNode delivery) { }
 }

@@ -45,15 +45,15 @@ class PiCodingHttpContractTest {
         });
         server.start();
         try {
-            var config = new DevRuntimeProperties.Coding(image, "codemie", "gemini-3.8-flash",
-                    "http://host.docker.internal:" + server.getAddress().getPort() + "/v1",
-                    "openai-completions", "contract-test-key", "pi", "high", 65536);
+            var config = new DevRuntimeProperties.Pi(image, "codemie", "gemini-3.8-flash",
+                    "http://host.docker.internal:" + server.getAddress().getPort() + "/v1", "openai-completions",
+                    "contract-test-key", null, "high", 65536);
             var request = new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(),
                     List.of(), List.of(), new CodingRequest.RepositoryTarget("repo", "owner/repo", "main",
-                    "a".repeat(40)), CodingRequest.Constraints.defaults());
+                    "a".repeat(40)), CodingRequest.Constraints.defaults(), null);
             try (var scope = new DockerWorkloads().beginStep(java.util.UUID.randomUUID(), "coding-contract");
                  var workload = scope.createSeeded(image, workspace, "factory-dev-m2-cache", "coding")) {
-                assertThat(new PiCodingRuntime(config).code(workload, request, 90).status())
+                assertThat(new PiCodingRuntime(config).code(workload, request, 90, event -> {}, CodingTranscripts.NONE).status())
                         .isEqualTo(CodingOutcome.Status.COMPLETED);
             }
             assertThat(captured.get()).isNotNull();

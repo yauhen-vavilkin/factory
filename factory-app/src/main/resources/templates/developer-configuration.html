@@ -22,6 +22,30 @@
                 <p th:unless="${report.ready}" th:text="${report.issueKey.isEmpty()} ? 'Configuration overview. Enter an issue key for task readiness.' : 'Resolve failed checks before triggering this task.'"></p>
             </div>
         </section>
+        <section class="card" th:if="${source != null}">
+            <div class="card-header"><h2 class="card-title">My tasks source</h2></div>
+            <div class="card-content">
+                <dl class="def-list">
+                    <dt>Assignee</dt>
+                    <dd th:text="${source.assignee() != null} ? ${source.assignee()}
+                            : 'Not set: set FACTORY_TASKS_ASSIGNEE in .env to your name as shown in Jira.'">Jane</dd>
+                    <dt>Jira</dt>
+                    <dd th:text="${source.jiraHost() != null} ? ${source.jiraHost()}
+                            : 'Not set: set FACTORY_CONNECTORS_JIRA_BASE_URL in .env.'">jira.example</dd>
+                    <dt>Query</dt>
+                    <dd><code th:text="${source.query() != null} ? ${source.query()}
+                            : 'Set the assignee and Jira first'">query</code>
+                        <a class="dev-link" th:if="${source.searchUrl() != null}" th:href="${source.searchUrl()}">Open
+                            this search in Jira</a></dd>
+                    <dt>Repositories</dt>
+                    <dd th:text="${repositoryMap}">Projects</dd>
+                    <dt>Change it</dt>
+                    <dd><code>FACTORY_TASKS_ASSIGNEE</code> in <code>.env</code>, then
+                        <code>docker compose up -d</code>. Projects: <code>config/developer-repositories.yaml</code>,
+                        then <code>docker compose restart factory</code>.</dd>
+                </dl>
+            </div>
+        </section>
         <section class="card">
             <div class="card-header"><h2 class="card-title">Selected runtime</h2></div>
             <div class="card-content">
@@ -31,6 +55,25 @@
                     </th:block>
                 </dl>
             </div>
+        </section>
+        <section th:unless="${#lists.isEmpty(report.models)}">
+            <h2>Models</h2>
+            <p class="muted">From config/developer-models.yaml. The run forms offer the models that are ready; the
+                checks say what each of the others needs.</p>
+            <div class="table-wrap"><table>
+                <thead><tr><th>Model</th><th>Provider model / endpoint</th><th>Effort</th><th>Checks</th></tr></thead>
+                <tbody><tr th:each="model : ${report.models}">
+                    <td><div th:text="${model.id()}"></div>
+                        <small th:text="(${model.ready()} ? 'ready' : 'not ready')
+                                + (${model.defaultModel()} ? ' · default for runs' : '')"></small></td>
+                    <td><div th:text="${model.model()}"></div>
+                        <small th:text="${model.api()} + ' · ' + ${model.endpointOrigin()} + ' · '
+                                + ${model.authentication()}"></small></td>
+                    <td th:text="${model.efforts()}"></td>
+                    <td><div th:each="check : ${model.checks()}"
+                             th:text="${check.status} + ' · ' + ${check.name} + ': ' + ${check.message}"></div></td>
+                </tr></tbody>
+            </table></div>
         </section>
         <section>
             <h2>Checks</h2>
@@ -44,12 +87,12 @@
         <section>
             <h2>Effective repositories</h2>
             <div class="table-wrap"><table>
-                <thead><tr><th>Key / Jira projects</th><th>Source / base</th><th>Build / verification</th><th>Delivery</th><th>Authorized</th></tr></thead>
+                <thead><tr><th>Key / Jira projects</th><th>Source / base</th><th>Build / verification</th><th>Delivery</th></tr></thead>
                 <tbody><tr th:each="repo : ${report.repositories}">
                     <td><div th:text="${repo['key']}"></div><small th:text="${repo['jiraProjects']}"></small></td>
                     <td><div th:text="${repo['source']}"></div><small th:text="${repo['baseBranch']}"></small></td>
                     <td><div th:text="${repo['buildImage']}"></div><small th:text="${repo['verificationPlan']}"></small></td>
-                    <td th:text="${repo['delivery']}"></td><td th:text="${repo['authorized']}"></td>
+                    <td th:text="${repo['delivery']}"></td>
                 </tr></tbody>
             </table></div>
         </section>

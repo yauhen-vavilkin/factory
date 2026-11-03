@@ -4,6 +4,7 @@ import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.ArtifactContent;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
+import org.folio.factory.devfactory.tasks.RecordingTaskAttempts;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.junit.jupiter.api.Test;
@@ -34,7 +35,7 @@ class DevelopContinuationWorkerTest {
         when(develop.retry(any(), any(), any())).thenReturn(new InitialCodingAttempt.Attempt(null, secondOutcome,
                 "{\"state\":\"CANDIDATE_UNVERIFIED\"}", "{\"state\":\"BASELINE_PASSED\"}", "", "", Map.of()));
 
-        var worker = new DevelopContinuationWorker(develop, codec);
+        var worker = new DevelopContinuationWorker(develop, codec, RecordingTaskAttempts.none().guard());
         var result = worker.execute(context(requestArtifact, "Use the public API"));
 
         CodingRequest next = json.readValue(result.outputs().get(IntakeResolveWorker.CODING_REQUEST),
@@ -58,7 +59,7 @@ class DevelopContinuationWorkerTest {
                 "Is this the wrong repository?", List.of(), "Expected module is absent");
         var requestArtifact = CodingDecisionArtifacts.Request.from(decision);
 
-        var result = new DevelopContinuationWorker(develop, codec)
+        var result = new DevelopContinuationWorker(develop, codec, RecordingTaskAttempts.none().guard())
                 .execute(context(requestArtifact, decision, "Use owner/other-repo"));
 
         CodingRequest next = json.readValue(result.outputs().get(IntakeResolveWorker.CODING_REQUEST),
@@ -84,7 +85,7 @@ class DevelopContinuationWorkerTest {
         InitialCodingAttempt develop = mock(InitialCodingAttempt.class);
         var requestArtifact = CodingDecisionArtifacts.Request.from(decision());
 
-        var result = new DevelopContinuationWorker(develop, codec)
+        var result = new DevelopContinuationWorker(develop, codec, RecordingTaskAttempts.none().guard())
                 .execute(context(requestArtifact, CodingDecisionArtifacts.UNANSWERED));
 
         assertThat(json.readValue(result.outputs().get(DevelopWorker.OUTCOME), CodingOutcome.class).status())
@@ -101,12 +102,30 @@ class DevelopContinuationWorkerTest {
         when(develop.retry(any(), any(), any())).thenReturn(new InitialCodingAttempt.Attempt(null, second,
                 "{\"state\":\"NEEDS_DECISION\"}", "{}", "", "", Map.of()));
 
-        var result = new DevelopContinuationWorker(develop, codec)
+        var result = new DevelopContinuationWorker(develop, codec, RecordingTaskAttempts.none().guard())
                 .execute(context(requestArtifact, "Use the public API"));
 
         assertThat(json.readValue(result.outputs().get(DevelopWorker.OUTCOME), CodingOutcome.class).status())
                 .isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
         verify(develop).retry(any(), any(), any());
+    }
+
+    @Test void aTaskAttemptNeverContinuesWithAnotherPaidAttempt() {
+        InitialCodingAttempt develop = mock(InitialCodingAttempt.class);
+        var taskAttempts = RecordingTaskAttempts.taskRun();
+        var requestArtifact = CodingDecisionArtifacts.Request.from(decision());
+
+        var result = new DevelopContinuationWorker(develop, codec, taskAttempts.guard())
+                .execute(context(requestArtifact, "Use the public API"));
+
+        assertThat(json.readValue(result.outputs().get(DevelopWorker.OUTCOME), CodingOutcome.class).status())
+                .isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
+        assertThat(json.readValue(result.outputs().get(IntakeResolveWorker.CODING_REQUEST), CodingRequest.class))
+                .isEqualTo(request());
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).isEqualTo("{\"state\":\"NEEDS_DECISION\"}");
+        assertThat(taskAttempts.stops).singleElement().satisfies(stop ->
+                assertThat(stop).contains("cannot continue a task attempt automatically"));
+        verifyNoInteractions(develop);
     }
 
     private AgentContext context(CodingDecisionArtifacts.Request decisionRequest, String answer) {
@@ -142,6 +161,6 @@ class DevelopContinuationWorkerTest {
     private static CodingRequest request() {
         return new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(), List.of(),
                 List.of(), new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)),
-                CodingRequest.Constraints.defaults());
+                CodingRequest.Constraints.defaults(), null);
     }
 }

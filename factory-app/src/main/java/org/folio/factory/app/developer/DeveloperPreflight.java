@@ -1,6 +1,6 @@
 package org.folio.factory.app.developer;
 
-import org.folio.factory.app.web.DeveloperPricingProperties;
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.connectors.github.GitHubProperties;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.jira.JiraIssue;
@@ -8,32 +8,48 @@ import org.folio.factory.connectors.jira.JiraProperties;
 import org.folio.factory.core.trigger.TriggerPreflight;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.DevFactoryProperties.Repository;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.intake.IssueSnapshot;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
+import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.Model;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import static org.folio.factory.devfactory.DevFactoryConfiguration.FLOW_ID;
 
 /** Safe effective configuration and task admission, independent of application health. */
 @Component
+@RequiredArgsConstructor
 public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryPreflight {
 
-    private static final String FLOW_ID = "dev-factory";
+    private static final String ISSUE_MISSING = "Jira did not return the requested issue.";
+    private static final String ISSUE_UNREADABLE =
+            "Cannot read the requested Jira issue; check URL, credentials and issue access.";
     private static final Pattern COMMIT_SHA = Pattern.compile("[0-9a-f]{40}|[0-9a-f]{64}");
+    /**
+     * Checks that fail because of the task itself or the model it chose, not because of Factory,
+     * Docker, Jira or GitHub.
+     */
+    private static final Set<String> TASK_CHECKS = Set.of("task", "issue", "mapping", "model");
+    /** The settings of the task run being launched on this thread; see {@link #forRun}. */
+    private static final ThreadLocal<CodingRequest.RunSettings> LAUNCHING = new ThreadLocal<>();
 
     public enum Status {
         PASS, FAIL, WARN, NOT_RUN
@@ -43,32 +59,50 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     }
 
     public record Report(boolean ready, String issueKey, Map<String, Object> runtime,
-                         List<Map<String, Object>> repositories, List<Check> checks) {
+                         List<Map<String, Object>> repositories, List<Check> checks,
+                         List<ModelChecks.ModelRow> models) {
+    }
+
+    /**
+     * The preflight failed only because of the task itself: Jira no longer returns
+     * the issue under its key, or no configured repository matches it. Waiting does
+     * not help, unlike a failure of Docker, the runtime, Jira or GitHub.
+     */
+    public static final class TaskNotRunnableException extends IllegalArgumentException {
+        private final String reason;
+
+        public TaskNotRunnableException(String reason) {
+            super("Developer Flow preflight failed: " + reason);
+            this.reason = reason;
+        }
+
+        public String reason() {
+            return reason;
+        }
     }
 
     private final DevFactoryProperties repositories;
-    private final DevDeliveryProperties delivery;
     private final DevRuntimeProperties settings;
     private final CodingRuntime coding;
     private final JiraProperties jiraProperties;
     private final JiraConnector jira;
     private final GitHubProperties github;
-    private final DeveloperPricingProperties pricing;
     private final DeveloperPreflightProbe probe;
+    private final ModelCatalog models;
+    private final ModelChecks modelChecks;
 
-    public DeveloperPreflight(DevFactoryProperties repositories, DevDeliveryProperties delivery,
-                              DevRuntimeProperties settings, CodingRuntime coding, JiraProperties jiraProperties,
-                              JiraConnector jira, GitHubProperties github, DeveloperPricingProperties pricing,
-                              DeveloperPreflightProbe probe) {
-        this.repositories = repositories;
-        this.delivery = delivery;
-        this.settings = settings;
-        this.coding = coding;
-        this.jiraProperties = jiraProperties;
-        this.jira = jira;
-        this.github = github;
-        this.pricing = pricing;
-        this.probe = probe;
+    /**
+     * Runs a trigger (and with it this preflight) for a task run that uses these settings. The trigger
+     * payload cannot carry them, so the launcher hands them over here: a broken default model then does
+     * not block a run with another model, and a run whose own model cannot be used stops alone.
+     */
+    public static <T> T forRun(CodingRequest.RunSettings settings, Supplier<T> trigger) {
+        LAUNCHING.set(settings);
+        try {
+            return trigger.get();
+        } finally {
+            LAUNCHING.remove();
+        }
     }
 
     @Override
@@ -82,9 +116,31 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
             throw new IllegalArgumentException("Developer Flow preflight failed: a valid Jira issueKey is required.");
         }
 
-        Report report = check(issueKey);
+        Report report = report(issueKey, false);
         if (!report.ready()) {
+            if (report.checks().stream().filter(check -> check.status() == Status.FAIL)
+                    .allMatch(check -> TASK_CHECKS.contains(check.name()))) {
+                throw new TaskNotRunnableException(failureMessages(report.checks()));
+            }
             throw new IllegalArgumentException("Developer Flow preflight failed: " + failureMessages(report.checks()));
+        }
+    }
+
+    /**
+     * Refuses a My tasks run before it is queued when the GitHub token cannot push
+     * to the repository's effective delivery destination, so no paid work starts
+     * that could only fail at the pull request.
+     */
+    public void requirePushAccess(String repositoryKey) {
+        DeliveryTarget target = repositories.requireDelivery(repositoryKey);
+        if (!github.isConfigured()) {
+            throw new IllegalStateException("Set FACTORY_CONNECTORS_GITHUB_TOKEN to a token that can push to "
+                    + target.repository());
+        }
+        try {
+            probe.requirePushAccess(target);
+        } catch (RestClientException | IllegalStateException e) {
+            throw new IllegalStateException("Your GitHub token cannot push to " + target.repository());
         }
     }
 
@@ -105,6 +161,11 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     }
 
     public Report check(String requestedIssue) {
+        return report(requestedIssue, true);
+    }
+
+    /** A trigger needs only the checks of its own run; the page also lists every model. */
+    private Report report(String requestedIssue, boolean listModels) {
         String issueKey = requestedIssue == null ? "" : requestedIssue;
         List<Check> checks = new ArrayList<>();
         checkRuntime(checks);
@@ -117,10 +178,12 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
             checkTask(issueKey, checks);
         }
         add(checks, "inference", Status.NOT_RUN,
-                "No model call made. Provider authentication, model availability, streaming and tools are not verified.");
+                "No model call made. Provider authentication, model availability, streaming and tools "
+                        + "are not verified.");
 
         boolean ready = !issueKey.isEmpty() && !hasFailures(checks);
-        return new Report(ready, issueKey, effectiveRuntime(), effectiveRepositories(), List.copyOf(checks));
+        return new Report(ready, issueKey, effectiveRuntime(), effectiveRepositories(), List.copyOf(checks),
+                listModels ? modelChecks.rows(usesClaudeCode()) : List.of());
     }
 
     private void checkRuntime(List<Check> checks) {
@@ -135,9 +198,14 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
 
     private Check checkCodingConfiguration() {
         try {
-            coding.requireConfigured();
+            coding.requireConfigured(LAUNCHING.get());
             endpoint();
-            return new Check("runtime", Status.PASS, "Selected coding profile is configured.");
+            return new Check("runtime", Status.PASS, usesClaudeCode()
+                    ? "Model " + runModel().id() + " is configured."
+                    : "Selected coding profile is configured.");
+        } catch (ModelCatalog.ModelException e) {
+            // Written to be shown; a run that cannot use its own model stops alone instead of the whole queue.
+            return new Check("model", Status.FAIL, coding.redact(e.getMessage()));
         } catch (IllegalStateException | IllegalArgumentException e) {
             // Configuration exceptions can contain credentials. Report a safe instruction instead.
             return new Check("runtime", Status.FAIL,
@@ -153,10 +221,12 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         }
         if (probe.gatewayReachable(endpoint)) {
             return new Check("gateway", Status.PASS,
-                    "Gateway TCP is reachable from Factory; coding-container routing and API compatibility are not tested.");
+                    "Gateway TCP is reachable from Factory; coding-container routing and API compatibility "
+                            + "are not tested.");
         }
         return new Check("gateway", Status.WARN,
-                "Gateway TCP is not reachable from Factory; coding-container routing and API compatibility are not tested.");
+                "Gateway TCP is not reachable from Factory; coding-container routing and API compatibility "
+                        + "are not tested.");
     }
 
     private void checkDocker(List<Check> checks) {
@@ -174,40 +244,42 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     }
 
     private Check checkPricing() {
-        String model = selectedModel();
-        if (pricing.rateFor(model).isPresent()) {
+        if (pricedEntry().isPresent()) {
             return new Check("pricing", Status.PASS,
-                    "A rate card exists for the literal model ID; estimate still depends on observed usage.");
+                    "The model has a price; the estimate still depends on observed usage.");
         }
         return new Check("pricing", Status.WARN,
-                "No matching rate card. Coding is allowed, but a complete cost estimate may be unavailable.");
+                "The model has no price. Coding is allowed, but a complete cost estimate may be unavailable.");
     }
 
-    private String selectedModel() {
-        if (usesClaudeCode()) {
-            return settings.coding().claudeCode().model();
+    private Optional<Model> pricedEntry() {
+        if (!usesClaudeCode()) {
+            return models.pricedEntry(null, settings.coding().pi().model());
         }
-        return settings.coding().piProfile().model();
+        try {
+            Model model = runModel();
+            return models.pricedEntry(model.id(), model.model());
+        } catch (ModelCatalog.ModelException e) {
+            return Optional.empty(); // The model check already fails with the reason.
+        }
+    }
+
+    /** The model of the run being checked: the launching task run's, or the default. */
+    private Model runModel() {
+        return models.resolve(LAUNCHING.get()).model();
     }
 
     private URI endpoint() {
-        String baseUrl;
-        if (usesClaudeCode()) {
-            baseUrl = settings.coding().claudeCode().baseUrl();
-        } else {
-            baseUrl = settings.coding().piProfile().baseUrl();
-        }
+        return endpoint(usesClaudeCode() ? runModel().baseUrl() : settings.coding().pi().baseUrl());
+    }
+
+    /** Null when no base URL is set: the runtime then uses its provider's own endpoint. */
+    private static URI endpoint(String baseUrl) {
         if (baseUrl == null || baseUrl.isBlank()) {
             return null;
         }
-
-        URI endpoint = URI.create(baseUrl);
-        boolean supportedScheme = "http".equals(endpoint.getScheme()) || "https".equals(endpoint.getScheme());
-        if (!supportedScheme || endpoint.getHost() == null || endpoint.getUserInfo() != null
-                || endpoint.getRawQuery() != null || endpoint.getFragment() != null) {
-            throw new IllegalArgumentException("Gateway must be an HTTP(S) URL without embedded credentials");
-        }
-        return endpoint;
+        Model.origin(baseUrl);
+        return URI.create(baseUrl);
     }
 
     private boolean usesClaudeCode() {
@@ -219,30 +291,47 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
             return;
         }
         if (!jiraProperties.isReadable()) {
-            add(checks, "jira", Status.FAIL, "Configure the Jira base URL and any credentials needed to read the issue.");
+            add(checks, "jira", Status.FAIL,
+                    "Configure the Jira base URL and any credentials needed to read the issue.");
             return;
         }
-
-        List<String> candidates;
-        try {
-            JiraIssue issue = jira.getIssue(issueKey);
-            if (issue == null || !issueKey.equals(issue.key())) {
-                add(checks, "jira", Status.FAIL, "Jira did not return the requested issue.");
-                return;
-            }
-            RepositoryPolicy policy = new RepositoryPolicy(repositories);
-            candidates = policy.candidates(IssueSnapshot.projectKey(issueKey),
-                    IssueSnapshot.components(IssueSnapshot.of(issue)));
-        } catch (RestClientException | IllegalStateException | IllegalArgumentException e) {
-            add(checks, "jira", Status.FAIL, "Cannot read the requested Jira issue; check URL, credentials and issue access.");
+        var candidates = repositoryCandidates(issueKey, checks);
+        if (candidates.isEmpty()) {
             return;
         }
         add(checks, "jira", Status.PASS, "Requested issue is readable.");
-        if (candidates.isEmpty()) {
+        if (candidates.get().isEmpty()) {
             add(checks, "mapping", Status.FAIL, "No configured repository matches the issue project and components.");
             return;
         }
-        checkCandidates(candidates, checks);
+        checkCandidates(candidates.get(), checks);
+    }
+
+    /** The repositories that match the issue; empty when Jira cannot give the issue, with the failed check added. */
+    private Optional<List<String>> repositoryCandidates(String issueKey, List<Check> checks) {
+        try {
+            JiraIssue issue = jira.getIssue(issueKey);
+            if (issue == null || !issueKey.equals(issue.key())) {
+                add(checks, "issue", Status.FAIL, ISSUE_MISSING);
+                return Optional.empty();
+            }
+            RepositoryPolicy policy = new RepositoryPolicy(repositories);
+            return Optional.of(policy.candidates(IssueSnapshot.projectKey(issueKey),
+                    IssueSnapshot.components(IssueSnapshot.of(issue))));
+        } catch (HttpClientErrorException.NotFound e) {
+            // Jira itself answers 404 with its errorMessages JSON for a deleted issue or one the
+            // reader may not see. Any other 404 (a wrong base URL, a proxy page) is Jira being
+            // unreachable, which must keep the queue waiting instead of stopping every task.
+            if (e.getResponseBodyAsString().contains("\"errorMessages\"")) {
+                add(checks, "issue", Status.FAIL, ISSUE_MISSING);
+            } else {
+                add(checks, "jira", Status.FAIL, ISSUE_UNREADABLE);
+            }
+            return Optional.empty();
+        } catch (RestClientException | IllegalStateException | IllegalArgumentException e) {
+            add(checks, "jira", Status.FAIL, ISSUE_UNREADABLE);
+            return Optional.empty();
+        }
     }
 
     private void checkCandidates(List<String> candidates, List<Check> checks) {
@@ -267,7 +356,8 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         }
         if (choiceAvailable) {
             add(checks, "repository-choice", Status.NOT_RUN,
-                    "Multiple repositories match. Confirm one in review; it is checked again before checkout and build.");
+                    "Multiple repositories match. Confirm one in review; it is checked again before checkout "
+                            + "and build.");
         }
     }
 
@@ -275,7 +365,8 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         String baseUrl = github.effectiveBaseUrl().replaceAll("/+$", "");
         if (!"https://api.github.com".equals(baseUrl)) {
             add(checks, "delivery-api", Status.FAIL,
-                    "Developer Flow delivery supports GitHub.com only; GitHub Enterprise and GitLab require a delivery adapter.");
+                    "Developer Flow delivery supports GitHub.com only; GitHub Enterprise and GitLab require "
+                            + "a delivery adapter.");
             return false;
         }
         return true;
@@ -292,14 +383,15 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         String sourceSha = frozenBaseSha;
         if (sourceSha == null) {
             try {
-                sourceSha = probe.sourceBase(repositories.gitBaseUrl(), repository.sourceRepo(), repository.baseBranch());
+                sourceSha = probe.sourceBase(repositories.gitBaseUrl(), repository.sourceRepo(),
+                        repository.baseBranch());
             } catch (IllegalStateException | IllegalArgumentException e) {
                 add(checks, "source:" + key, Status.FAIL, "Cannot read the public source base for " + key + ".");
                 return;
             }
             add(checks, "source:" + key, Status.PASS, "Public source base is readable for " + key + ".");
         }
-        checks.add(checkDelivery(key, repository, sourceSha));
+        checks.add(checkDelivery(key, sourceSha));
     }
 
     private Check checkVerificationPlan(String key, Repository repository) {
@@ -313,44 +405,39 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         }
     }
 
-    private Check checkDelivery(String key, Repository repository, String sourceSha) {
+    private Check checkDelivery(String key, String sourceSha) {
         String checkName = "delivery:" + key;
         try {
-            DeliveryTarget target = delivery.requireTarget(key, repositories);
-            if (!repository.baseBranch().equals(target.baseBranch())) {
-                return new Check(checkName, Status.FAIL, "Delivery base must match the source base for " + key + ".");
-            }
+            DeliveryTarget target = repositories.requireDelivery(key);
             if (!github.isConfigured()) {
-                return new Check(checkName, Status.FAIL, "Configure a GitHub token with push permission for " + key + ".");
+                return new Check(checkName, Status.FAIL,
+                        "Configure a GitHub token with push permission for " + key + ".");
             }
             probe.requireDeliveryAccess(target, sourceSha);
             return new Check(checkName, Status.PASS,
                     "Token reports push permission and destination contains the source base for " + key + ".");
         } catch (RestClientException | IllegalStateException | IllegalArgumentException e) {
             return new Check(checkName, Status.FAIL,
-                    "Check delivery authorization, GitHub token push permission and matching base for " + key + ".");
+                    "Check the delivery destination, GitHub token push permission and matching base for " + key + ".");
         }
     }
 
     private Map<String, Object> effectiveRuntime() {
-        Map<String, Object> identity = new LinkedHashMap<>(coding.identity());
+        Map<String, Object> identity = new LinkedHashMap<>(coding.identity(null));
         identity.put("timeoutSeconds", settings.timeoutSeconds());
         identity.put("mavenCacheVolume", settings.mavenCacheVolume());
         if (usesClaudeCode()) {
-            DevRuntimeProperties.ClaudeCode profile = settings.coding().claudeCode();
-            identity.put("api", profile.api());
-            identity.put("authentication", safeAuthentication(profile.authentication(), true));
-            identity.put("maxTurns", profile.maxTurns());
-            identity.put("maxOutputTokens", profile.maxOutputTokens());
+            // The default model; every model is listed with its checks under Models.
+            models.defaultModel().ifPresent(model -> {
+                identity.put("api", model.api());
+                identity.put("authentication", safeAuthentication(model.authentication(), true));
+                identity.put("maxOutputTokens", model.maxOutputTokens());
+            });
         } else {
-            DevRuntimeProperties.Pi profile = settings.coding().piProfile();
+            DevRuntimeProperties.Pi profile = settings.coding().pi();
             identity.put("authentication", safeAuthentication(profile.authentication(), false));
-            if (profile.api() != null) {
-                identity.put("api", profile.api());
-            }
-            if (profile.maxOutputTokens() != null) {
-                identity.put("maxOutputTokens", profile.maxOutputTokens());
-            }
+            identity.put("api", profile.api());
+            identity.put("maxOutputTokens", profile.maxOutputTokens());
         }
         addEndpointOrigin(identity);
         return Map.copyOf(identity);
@@ -367,13 +454,14 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     }
 
     private void addEndpointOrigin(Map<String, Object> identity) {
+        String baseUrl = usesClaudeCode() ? models.defaultModel().map(Model::baseUrl).orElse(null)
+                : settings.coding().pi().baseUrl();
+        if (baseUrl == null || baseUrl.isBlank()) {
+            return;
+        }
         try {
-            URI endpoint = endpoint();
-            if (endpoint != null) {
-                URI origin = new URI(endpoint.getScheme(), null, endpoint.getHost(), endpoint.getPort(), null, null, null);
-                identity.put("endpointOrigin", origin.toString());
-            }
-        } catch (IllegalArgumentException | URISyntaxException e) {
+            identity.put("endpointOrigin", Model.origin(baseUrl));
+        } catch (IllegalArgumentException e) {
             identity.put("endpointOrigin", "unset or invalid");
         }
     }
@@ -382,7 +470,6 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         List<Map<String, Object>> rows = new ArrayList<>();
         for (Map.Entry<String, Repository> entry : repositories.repositories().entrySet()) {
             Repository repository = entry.getValue();
-            DeliveryTarget target = delivery.target(entry.getKey(), repositories);
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("key", entry.getKey());
             row.put("source", repository.sourceRepo());
@@ -390,8 +477,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
             row.put("buildImage", repository.buildImage());
             row.put("verificationPlan", repository.verificationPlan());
             row.put("jiraProjects", repository.jiraProjects());
-            row.put("delivery", deliveryRepository(target));
-            row.put("authorized", target != null && target.authorized());
+            row.put("delivery", deliveryRepository(repository.delivery()));
             rows.add(Map.copyOf(row));
         }
         return List.copyOf(rows);

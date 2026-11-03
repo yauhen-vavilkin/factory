@@ -1,13 +1,10 @@
 package org.folio.factory.devfactory.decision;
 
 import org.folio.factory.agents.artifact.FrontmatterCodec;
+import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import tools.jackson.databind.JsonNode;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,11 +22,11 @@ public final class CodingDecisionArtifacts {
 
     public record Request(boolean required, String requestId, String kind, String question,
                           List<String> options, String evidence) {
-        public static Request none() { return new Request(false, hash("none"), "", "", List.of(), ""); }
+        public static Request none() { return new Request(false, Candidate.sha256("none"), "", "", List.of(), ""); }
         public static Request from(CodingOutcome.Decision decision) {
             String identity = decision.kind() + "\n" + decision.question() + "\n"
                     + String.join("\n", decision.options()) + "\n" + decision.evidence();
-            return new Request(true, hash(identity), decision.kind().name(), decision.question(),
+            return new Request(true, Candidate.sha256(identity), decision.kind().name(), decision.question(),
                     decision.options(), decision.evidence());
         }
     }
@@ -83,14 +80,5 @@ public final class CodingDecisionArtifacts {
         if (answer.isBlank() || answer.length() > 4000)
             throw new IllegalArgumentException("Coding decision answer must contain 1-4000 characters");
         return new Answer(requestId, answer);
-    }
-
-    private static String hash(String value) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException(e);
-        }
     }
 }

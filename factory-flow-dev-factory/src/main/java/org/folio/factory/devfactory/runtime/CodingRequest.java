@@ -1,5 +1,8 @@
 package org.folio.factory.devfactory.runtime;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.List;
 
 /** Factory-owned, runtime-neutral description of one authorized coding attempt. */
@@ -12,7 +15,8 @@ public record CodingRequest(
         List<String> acceptanceCriteria,
         List<ConfirmedDecision> confirmedDecisions,
         RepositoryTarget repository,
-        Constraints constraints) {
+        Constraints constraints,
+        RunSettings runSettings) {
 
     public CodingRequest {
         issueKey = text(issueKey);
@@ -30,7 +34,7 @@ public record CodingRequest(
         var decisions = new java.util.ArrayList<>(confirmedDecisions);
         decisions.add(decision);
         return new CodingRequest(issueKey, summary, description, comments, linkedIssues,
-                acceptanceCriteria, decisions, repository, constraints);
+                acceptanceCriteria, decisions, repository, constraints, runSettings);
     }
 
     public void requireReady() {
@@ -66,6 +70,16 @@ public record CodingRequest(
         public RepositoryTarget {
             key = text(key); sourceRepo = text(sourceRepo); baseBranch = text(baseBranch); baseSha = text(baseSha);
         }
+    }
+
+    /**
+     * What the person chose for this run: the model from config/developer-models.yaml, its effort and extra
+     * instructions. A null field means the default; a request without settings uses the default model. It never
+     * holds a secret. Requests stored before 2026-11-03 name the model "profileId" and also hold maxTurns, which
+     * is now a limit in .env; the JSON name stays so that open pull requests still get their feedback runs.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RunSettings(@JsonProperty("profileId") String modelId, String effort, String instructions) {
     }
 
     public record Constraints(String workingDirectory, boolean allowRepositorySwitch, boolean allowPush,

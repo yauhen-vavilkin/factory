@@ -6,6 +6,7 @@ import static org.folio.factory.devfactory.feedback.FeedbackState.Phase.*;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
+import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.hitl.HitlDecision;
 import org.folio.factory.core.hitl.HitlDecisionService;
 import org.folio.factory.core.repository.HitlReviewRepository;
@@ -17,8 +18,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.folio.factory.devfactory.DevFactoryConfiguration;
 
 /** Network reads happen before short, version-checked command transactions. */
 public class FeedbackActions {
@@ -74,33 +77,16 @@ public class FeedbackActions {
     }
 
     public View view(UUID id) {
-        var e = executions.findById(id).orElseThrow();
-        if (!e.getFlowId().equals("dev-factory"))
+        var execution = executions.findById(id).orElseThrow();
+        if (!execution.getFlowId().equals(DevFactoryConfiguration.FLOW_ID)) {
             throw new IllegalArgumentException("Not a Developer Flow");
+        }
         var artifact = artifacts.getLatest(id, STATE).orElseThrow();
         var state = JSON.readValue(artifact.getContent(), FeedbackState.class);
-        var pending =
-                reviews.findByExecutionIdOrderByCreatedAtAsc(id).stream()
-                        .filter(
-                                r ->
-                                        r.getStatus() == HitlReviewStatus.PENDING
-                                                && r.getStepIndex() == e.getCurrentStepIndex())
-                        .findFirst();
-        boolean ready =
-                e.getStatus() == ExecutionStatus.AWAITING_HITL
-                        || e.getStatus() == ExecutionStatus.FAILED_ESCALATED;
-        var snapshot =
-                artifacts
-                        .getLatest(id, SNAPSHOT)
-                        .map(a -> JSON.readValue(a.getContent(), PrFeedbackGateway.Snapshot.class))
-                        .orElse(null);
-        List<Action> availableActions = List.of();
-        if (ready && pending.isPresent()) {
-            availableActions = e.getStatus() == ExecutionStatus.FAILED_ESCALATED
-                    ? List.of(Action.RETRY_CLEANUP) : allowed(state);
-        }
+        var pending = findPendingReview(id, execution);
+        var snapshot = findSnapshot(id).orElse(null);
         return new View(state, artifact.getVersion(), pending.map(HitlReview::getId).orElse(null),
-                availableActions, snapshot);
+                availableActions(execution, pending.isPresent(), state), snapshot);
     }
 
     public View refresh(UUID id, int expectedVersion) {
@@ -128,104 +114,29 @@ public class FeedbackActions {
     }
 
     public void command(UUID id, Command command, String reviewer) {
-        if (command.action() == Action.FINISH)
-            throw new IllegalArgumentException(
-                    "An open PR cannot be finished; Factory completes after merge");
-        if (requiresOpenPr(command.action())) {
-            var before = view(id);
-            if (before.state().pr == null
-                    || github.status(before.state().pr) != PrFeedbackGateway.Status.OPEN)
-                throw new IllegalStateException("PR is no longer open; reload the execution");
+        if (command.action() == Action.FINISH) {
+            throw new IllegalArgumentException("An open PR cannot be finished; Factory completes after merge");
         }
-        transactions.executeWithoutResult(
-                status -> {
-                    lock(id);
-                    var current = view(id);
-                    if (command.action() == null
-                            || current.version() != command.stateVersion()
-                            || !Objects.equals(current.reviewId(), command.reviewId())
-                            || current.reviewId() == null)
-                        throw new IllegalStateException(
-                                "Feedback action is stale; reload the execution");
-                    if (!current.actions().contains(command.action()))
-                        throw new IllegalArgumentException("Action is not available in this state");
-                    var state = current.state();
-                    state.apply(
-                            command.action(),
-                            current.snapshot(),
-                            command.snapshotId(),
-                            command.selectedIds(),
-                            command.answer());
-                    policy.authorize(
-                            current.reviewId(),
-                            () ->
-                                    decisions.decide(
-                                            current.reviewId(),
-                                            HitlDecision.APPROVE,
-                                            reviewer,
-                                            command.action().name(),
-                                            null));
-                    artifacts.putMarkdown(
-                            id,
-                            STATE,
-                            JSON.writeValueAsString(state),
-                            "pr-feedback:" + command.action().name());
-                });
+        if (requiresOpenPr(command.action())) {
+            requireOpenPr(id);
+        }
+        transactions.executeWithoutResult(status -> applyCommand(id, command, reviewer));
     }
 
     /** Called by the bounded PR monitor after a trusted GitHub status read. */
     public void reconcilePr(UUID id) {
-        var execution = executions.findById(id).orElseThrow();
-        if (execution.getStatus() != ExecutionStatus.AWAITING_HITL
-                || !VERSION.equals(execution.getFlowVersion())) return;
-        var before = view(id);
-        if (before.reviewId() == null
-                || before.state().pr == null
-                || before.state().phase() == CLEANUP_BLOCKED) return;
-        var review = reviews.findById(before.reviewId()).orElseThrow();
-        if (!"pr-feedback".equals(review.getGateId())) return;
-        var observed = github.status(before.state().pr);
-        if (observed == null)
+        var before = findWatchedView(id);
+        if (before.isEmpty()) {
+            return;
+        }
+        var observed = github.status(before.get().state().pr);
+        if (observed == null) {
             throw new IllegalStateException("GitHub returned an unknown PR status");
-        if (observed == PrFeedbackGateway.Status.OPEN) return;
-        transactions.executeWithoutResult(
-                tx -> {
-                    lock(id);
-                    var current = view(id);
-                    if (executions.findById(id).orElseThrow().getStatus()
-                                    != ExecutionStatus.AWAITING_HITL
-                            || current.version() != before.version()
-                            || !Objects.equals(current.reviewId(), before.reviewId())
-                            || current.state().phase() == CLEANUP_BLOCKED) return;
-                    var state = current.state();
-                    if (observed == PrFeedbackGateway.Status.MERGED) {
-                        state.merged();
-                        policy.authorize(
-                                current.reviewId(),
-                                HitlDecision.APPROVE,
-                                () ->
-                                        decisions.decide(
-                                                current.reviewId(),
-                                                HitlDecision.APPROVE,
-                                                "factory-pr-monitor",
-                                                "PR merged",
-                                                null));
-                    } else {
-                        state.closed();
-                        policy.authorize(
-                                current.reviewId(),
-                                HitlDecision.REJECT,
-                                () ->
-                                        decisions.decide(
-                                                current.reviewId(),
-                                                HitlDecision.REJECT,
-                                                "factory-pr-monitor",
-                                                state.taskSummary,
-                                                null));
-                    }
-                    artifacts.putMarkdown(
-                            id, STATE, JSON.writeValueAsString(state), "pr-feedback:reconcile-pr");
-                });
+        }
+        if (observed == PrFeedbackGateway.Status.OPEN) {
+            return;
+        }
+        transactions.executeWithoutResult(tx -> recordPrOutcome(id, before.get(), observed));
     }
 
     public String patch(UUID id) {
@@ -246,6 +157,96 @@ public class FeedbackActions {
                         .orElse("");
     }
 
+    private Optional<HitlReview> findPendingReview(UUID id, PipelineExecution execution) {
+        return reviews.findByExecutionIdOrderByCreatedAtAsc(id).stream()
+                .filter(review -> review.getStatus() == HitlReviewStatus.PENDING
+                        && review.getStepIndex() == execution.getCurrentStepIndex())
+                .findFirst();
+    }
+
+    private Optional<PrFeedbackGateway.Snapshot> findSnapshot(UUID id) {
+        return artifacts.getLatest(id, SNAPSHOT)
+                .map(artifact -> JSON.readValue(artifact.getContent(), PrFeedbackGateway.Snapshot.class));
+    }
+
+    private static List<Action> availableActions(PipelineExecution execution, boolean pending, FeedbackState state) {
+        var ready = execution.getStatus() == ExecutionStatus.AWAITING_HITL
+                || execution.getStatus() == ExecutionStatus.FAILED_ESCALATED;
+        if (!ready || !pending) {
+            return List.of();
+        }
+        return execution.getStatus() == ExecutionStatus.FAILED_ESCALATED
+                ? List.of(Action.RETRY_CLEANUP)
+                : allowed(state);
+    }
+
+    private void requireOpenPr(UUID id) {
+        var before = view(id);
+        if (before.state().pr == null || github.status(before.state().pr) != PrFeedbackGateway.Status.OPEN) {
+            throw new IllegalStateException("PR is no longer open; reload the execution");
+        }
+    }
+
+    private void applyCommand(UUID id, Command command, String reviewer) {
+        lock(id);
+        var current = view(id);
+        if (command.action() == null
+                || current.version() != command.stateVersion()
+                || !Objects.equals(current.reviewId(), command.reviewId())
+                || current.reviewId() == null) {
+            throw new IllegalStateException("Feedback action is stale; reload the execution");
+        }
+        if (!current.actions().contains(command.action())) {
+            throw new IllegalArgumentException("Action is not available in this state");
+        }
+        var state = current.state();
+        state.apply(command.action(), current.snapshot(), command.snapshotId(), command.selectedIds(),
+                command.answer());
+        policy.authorize(current.reviewId(), HitlDecision.APPROVE, () -> decisions.decide(
+                current.reviewId(), HitlDecision.APPROVE, reviewer, command.action().name(), null));
+        artifacts.putMarkdown(id, STATE, JSON.writeValueAsString(state), "pr-feedback:" + command.action().name());
+    }
+
+    /** The view of an execution that waits at the PR feedback gate with a PR to watch. */
+    private Optional<View> findWatchedView(UUID id) {
+        var execution = executions.findById(id).orElseThrow();
+        if (execution.getStatus() != ExecutionStatus.AWAITING_HITL || !VERSION.equals(execution.getFlowVersion())) {
+            return Optional.empty();
+        }
+        var before = view(id);
+        if (before.reviewId() == null || before.state().pr == null || before.state().phase() == CLEANUP_BLOCKED) {
+            return Optional.empty();
+        }
+        var review = reviews.findById(before.reviewId()).orElseThrow();
+        return "pr-feedback".equals(review.getGateId()) ? Optional.of(before) : Optional.empty();
+    }
+
+    private void recordPrOutcome(UUID id, View before, PrFeedbackGateway.Status observed) {
+        lock(id);
+        var current = view(id);
+        if (isChangedSince(id, before, current)) {
+            return;
+        }
+        var state = current.state();
+        if (observed == PrFeedbackGateway.Status.MERGED) {
+            state.merged();
+            policy.authorize(current.reviewId(), HitlDecision.APPROVE, () -> decisions.decide(
+                    current.reviewId(), HitlDecision.APPROVE, "factory-pr-monitor", "PR merged", null));
+        } else {
+            state.closed();
+            policy.authorize(current.reviewId(), HitlDecision.REJECT, () -> decisions.decide(
+                    current.reviewId(), HitlDecision.REJECT, "factory-pr-monitor", state.taskSummary, null));
+        }
+        artifacts.putMarkdown(id, STATE, JSON.writeValueAsString(state), "pr-feedback:reconcile-pr");
+    }
+
+    private boolean isChangedSince(UUID id, View before, View current) {
+        return executions.findById(id).orElseThrow().getStatus() != ExecutionStatus.AWAITING_HITL
+                || current.version() != before.version()
+                || !Objects.equals(current.reviewId(), before.reviewId())
+                || current.state().phase() == CLEANUP_BLOCKED;
+    }
+
     private void lock(UUID id) {
         executions.lockById(id).orElseThrow();
     }
@@ -255,8 +256,12 @@ public class FeedbackActions {
     }
 
     public static List<Action> allowed(FeedbackState state) {
-        if (state.phase() == CLEANUP_BLOCKED) return List.of(Action.RETRY_CLEANUP);
-        if (!state.waiting()) return List.of();
+        if (state.phase() == CLEANUP_BLOCKED) {
+            return List.of(Action.RETRY_CLEANUP);
+        }
+        if (!state.waiting()) {
+            return List.of();
+        }
         var actions = new ArrayList<Action>();
         if (state.pr != null) {
             actions.add(Action.FIX);
@@ -264,22 +269,26 @@ public class FeedbackActions {
         }
         switch (state.phase()) {
             case QUESTION -> {
-                if (!"REPOSITORY_MISMATCH".equals(state.failureKind)) actions.add(Action.ANSWER);
+                if (!"REPOSITORY_MISMATCH".equals(state.failureKind)) {
+                    actions.add(Action.ANSWER);
+                }
             }
             case INTERRUPTED -> actions.add(Action.RETRY_CODE);
-            case FAILURE -> {
-                if (Set.of("CODING", "CANDIDATE", "CANDIDATE_COMPILE").contains(state.failureKind)) {
-                    actions.add(Action.RETRY_CODE);
-                }
-                if (!Set.of("CODING", "OPERATION").contains(state.failureKind)) {
-                    actions.add(Action.RETRY_CHECKS);
-                }
-                if (state.resumePhase != null && state.resumePhase != CODE && state.resumePhase != FINISH) {
-                    actions.add(Action.RETRY_OPERATION);
-                }
-            }
+            case FAILURE -> addFailureActions(state, actions);
             default -> {}
         }
         return List.copyOf(actions);
+    }
+
+    private static void addFailureActions(FeedbackState state, List<Action> actions) {
+        if (Set.of("CODING", "CANDIDATE", "CANDIDATE_COMPILE").contains(state.failureKind)) {
+            actions.add(Action.RETRY_CODE);
+        }
+        if (!Set.of("CODING", "OPERATION").contains(state.failureKind)) {
+            actions.add(Action.RETRY_CHECKS);
+        }
+        if (state.resumePhase != null && state.resumePhase != CODE && state.resumePhase != FINISH) {
+            actions.add(Action.RETRY_OPERATION);
+        }
     }
 }

@@ -1,10 +1,9 @@
 package org.folio.factory.devfactory.feedback;
 
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.registry.FlowRegistry;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -16,10 +15,11 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
+import org.folio.factory.devfactory.DevFactoryConfiguration;
 
 /** Pages through waiting PR steps; GitHub calls run only on the dedicated executor. */
+@Slf4j
 public class FeedbackPrMonitor {
-    private static final Logger LOG = LoggerFactory.getLogger(FeedbackPrMonitor.class);
     private static final int PAGE_SIZE = 20;
     private final PipelineExecutionRepository executions;
     private final FlowRegistry flows;
@@ -60,13 +60,13 @@ public class FeedbackPrMonitor {
                 executor.execute(() -> check(id));
             } catch (RejectedExecutionException rejected) {
                 inFlight.remove(id);
-                LOG.debug("PR monitor executor full; will retry {}", id);
+                log.debug("PR monitor executor full; will retry {}", id);
             }
         }
     }
 
     private org.springframework.data.domain.Page<org.folio.factory.core.domain.PipelineExecution> page(int number) {
-        return executions.findByStatusAndFlowId(ExecutionStatus.AWAITING_HITL, "dev-factory",
+        return executions.findByStatusAndFlowId(ExecutionStatus.AWAITING_HITL, DevFactoryConfiguration.FLOW_ID,
                 PageRequest.of(number, PAGE_SIZE, Sort.by("createdAt", "id")));
     }
 
@@ -80,7 +80,7 @@ public class FeedbackPrMonitor {
                 long delay = Math.min(300, 30L << Math.min(4, count - 1));
                 return new Failure(count, clock.instant().plusSeconds(delay));
             });
-            LOG.warn("PR monitor will retry execution {}: {}", id, error.toString());
+            log.warn("PR monitor will retry execution {}: {}", id, error.toString());
         } finally {
             inFlight.remove(id);
         }

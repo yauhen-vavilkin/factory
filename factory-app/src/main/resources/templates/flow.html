@@ -3,13 +3,14 @@
       xmlns:th="http://www.thymeleaf.org" lang="en">
 <body>
 <section class="page-body">
-    <div class="page-header">
+    <div class="dev-page dev-page-head" th:if="${myTasksTab}">
+        <th:block th:replace="~{fragments/developer-flow :: header(${flow}, 'definition')}"></th:block>
+    </div>
+    <div class="page-header" th:unless="${myTasksTab}">
         <h1 th:text="${flow['name']}">Flow</h1>
         <div class="page-header-meta">
             <span th:text="${flow['id']}">flow-id</span>
             <span class="badge badge-outline" th:text="'v' + ${flow['version']}">v1</span>
-            <a th:if="${flow['id'] == 'dev-factory'}" th:href="@{/developer/configuration}"
-               class="btn btn-outline btn-sm">Check configuration</a>
             <button type="button" class="btn btn-primary btn-sm" data-dialog-open="trigger-dialog">Trigger flow</button>
         </div>
     </div>
@@ -163,7 +164,7 @@
         </section>
     </div>
 
-    <dialog id="trigger-dialog" class="dialog" aria-labelledby="trigger-dialog-title">
+    <dialog id="trigger-dialog" class="dialog" aria-labelledby="trigger-dialog-title" th:unless="${myTasksTab}">
         <form method="post" th:action="@{'/flows/' + ${flow['id']} + '/trigger'}">
             <div class="dialog-header">
                 <h2 class="dialog-title" id="trigger-dialog-title">Trigger flow</h2>

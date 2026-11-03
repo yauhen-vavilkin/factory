@@ -4,9 +4,26 @@
     var supported = !!dialog && typeof dialog.showModal === 'function';
     var pending = null;
 
-    function confirmThen(message, action) {
+    var title = dialog && dialog.querySelector('.dialog-title');
+    var okButton = dialog && dialog.querySelector('[data-confirm-ok]');
+    var defaults = dialog && {
+      title: title ? title.textContent : '',
+      ok: okButton ? okButton.textContent : '',
+      okClass: okButton ? okButton.className : ''
+    };
+
+    // A trigger may name the question, the confirming button and the compact style;
+    // closing the dialog restores the shared defaults for the next trigger.
+    function confirmThen(message, action, trigger) {
       var msg = dialog.querySelector('[data-confirm-message]');
       if (msg) msg.textContent = message;
+      var compact = trigger.getAttribute('data-confirm-style') === 'compact';
+      if (title) title.textContent = trigger.getAttribute('data-confirm-title') || defaults.title;
+      if (okButton) {
+        okButton.textContent = trigger.getAttribute('data-confirm-ok') || defaults.ok;
+        okButton.className = compact ? 'btn btn-primary' : defaults.okClass;
+      }
+      dialog.classList.toggle('dialog-compact', compact);
       pending = action;
       dialog.showModal();
     }
@@ -20,7 +37,7 @@
           return;
         }
         e.preventDefault();
-        confirmThen(message, function () { form.submit(); });
+        confirmThen(message, function () { form.submit(); }, form);
       });
     });
 
@@ -52,7 +69,7 @@
               }
               form.submit();
             }
-          });
+          }, btn);
         });
       });
 

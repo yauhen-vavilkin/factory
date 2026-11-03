@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.repository.AuditEventRepository;
@@ -17,15 +18,11 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/audit")
+@RequiredArgsConstructor
 public class AuditController {
 
     private final AuditEventRepository audit;
     private final JsonMapper jsonMapper;
-
-    public AuditController(AuditEventRepository audit, JsonMapper jsonMapper) {
-        this.audit = audit;
-        this.jsonMapper = jsonMapper;
-    }
 
     public record AuditFeedEntry(long id, UUID executionId, String eventType, String stepId,
                                  String actor, JsonNode detail, Instant occurredAt) {

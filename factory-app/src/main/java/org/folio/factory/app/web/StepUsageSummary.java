@@ -1,23 +1,25 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.devfactory.runtime.TokenUsage;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /** Step metrics for technical rows and totals from flows without attempt-level accounting. */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 final class StepUsageSummary {
     private final Map<String, ReportedUsage> usageByStep;
-
-    private StepUsageSummary(Map<String, ReportedUsage> usageByStep) {
-        this.usageByStep = usageByStep;
-    }
 
     boolean incomplete() {
         return usageByStep.values().stream().anyMatch(ReportedUsage::usageIncomplete);
@@ -29,8 +31,8 @@ final class StepUsageSummary {
         if (legacyOnly || incomplete()) return null;
         return estimator.estimate(usageByStep.values().stream()
                 .filter(ReportedUsage::codingTokensPresent)
-                .map(usage -> new DeveloperCostEstimator.Usage(
-                        usage.model(), usage.input(), usage.cacheRead(), usage.cacheWrite(), usage.output()))
+                .map(usage -> new DeveloperCostEstimator.Usage(usage.model().id(), usage.model().model(),
+                        usage.input(), usage.cacheRead(), usage.cacheWrite(), usage.output()))
                 .toList());
     }
 
@@ -54,56 +56,53 @@ final class StepUsageSummary {
             List<AuditEvent> events, boolean includeCodingProgress, JsonMapper jsonMapper) {
         Map<String, ReportedUsage> completed = new LinkedHashMap<>();
         Map<String, ReportedUsage> progress = new LinkedHashMap<>();
-        Map<String, String> runtimeModels = new LinkedHashMap<>();
-        for (AuditEvent event : events) {
+        Map<String, ModelRef> runtimeModels = new LinkedHashMap<>();
+        for (var event : events) {
             if (event.getStepId() == null) continue;
-            JsonNode detail =
-                    jsonMapper.readTree(event.getDetail() == null ? "{}" : event.getDetail());
-            boolean completedEvent = event.getEventType() == AuditEventType.STEP_COMPLETED;
-            String activity = detail.path("activity").asString("");
-            if (includeCodingProgress
-                    && event.getEventType() == AuditEventType.RUNTIME_PROGRESS
-                    && ("pi_starting".equals(activity) || "coding_starting".equals(activity))) {
-                runtimeModels.put(event.getStepId(), text(detail, "model"));
-                continue;
+            var stepId = event.getStepId();
+            var detail = jsonMapper.readTree(event.getDetail() == null ? "{}" : event.getDetail());
+            switch (usageEvent(event, detail, includeCodingProgress)) {
+                case RUNTIME_STARTING -> runtimeModels.put(stepId, ModelRef.of(detail));
+                case CODING_USAGE -> reportedUsage(detail, runtimeModels.getOrDefault(stepId, ModelRef.NONE))
+                        .ifPresent(usage -> progress.put(stepId, usage));
+                case STEP_COMPLETED -> reportedUsage(detail, ModelRef.NONE)
+                        .ifPresent(usage -> completed.put(stepId, usage));
+                case OTHER -> { }
             }
-            boolean codingProgress =
-                    includeCodingProgress
-                            && event.getEventType() == AuditEventType.RUNTIME_PROGRESS
-                            && ("pi_usage".equals(activity) || "coding_usage".equals(activity));
-            if (!completedEvent && !codingProgress) continue;
-            Long prompt = token(detail, "promptTokens");
-            Long completion = token(detail, "completionTokens");
-            Long input = token(detail, "inputTokens");
-            Long cacheRead = token(detail, "cacheReadTokens");
-            Long cacheWrite = token(detail, "cacheWriteTokens");
-            Long output = token(detail, "outputTokens");
-            if (prompt == null
-                    && completion == null
-                    && input == null
-                    && cacheRead == null
-                    && cacheWrite == null
-                    && output == null) continue;
-            String model = text(detail, "model");
-            if (model == null && codingProgress) model = runtimeModels.get(event.getStepId());
-            var usage =
-                    new ReportedUsage(
-                            prompt,
-                            completion,
-                            input,
-                            cacheRead,
-                            cacheWrite,
-                            output,
-                            model,
-                            detail.path("usageIncomplete").asBoolean(false));
-            (codingProgress ? progress : completed).put(event.getStepId(), usage);
         }
         progress.forEach(completed::putIfAbsent);
         return new StepUsageSummary(completed);
     }
 
-    private static Long token(JsonNode detail, String key) {
-        return detail.path(key).isNumber() ? Math.max(0, detail.path(key).asLong(0)) : null;
+    private static UsageEvent usageEvent(AuditEvent event, JsonNode detail, boolean includeCodingProgress) {
+        if (event.getEventType() == AuditEventType.STEP_COMPLETED) {
+            return UsageEvent.STEP_COMPLETED;
+        }
+        if (!includeCodingProgress || event.getEventType() != AuditEventType.RUNTIME_PROGRESS) {
+            return UsageEvent.OTHER;
+        }
+        return switch (detail.path("activity").asString("")) {
+            case "pi_starting", "coding_starting" -> UsageEvent.RUNTIME_STARTING;
+            case "pi_usage", "coding_usage" -> UsageEvent.CODING_USAGE;
+            default -> UsageEvent.OTHER;
+        };
+    }
+
+    /** Empty when the event reports no token counts at all. */
+    private static Optional<ReportedUsage> reportedUsage(JsonNode detail, ModelRef runtimeModel) {
+        var usage = TokenUsage.from(detail);
+        if (!usage.hasCounts()) {
+            return Optional.empty();
+        }
+        var model = ModelRef.of(detail);
+        return Optional.of(new ReportedUsage(atLeastZero(usage.promptTokens()), atLeastZero(usage.completionTokens()),
+                atLeastZero(usage.inputTokens()), atLeastZero(usage.cacheReadTokens()),
+                atLeastZero(usage.cacheWriteTokens()), atLeastZero(usage.outputTokens()),
+                model.model() == null ? runtimeModel : model, usage.usageIncomplete()));
+    }
+
+    private static Long atLeastZero(Long count) {
+        return count == null ? null : Math.max(0, count);
     }
 
     private static String text(JsonNode detail, String key) {
@@ -128,28 +127,24 @@ final class StepUsageSummary {
     }
 
     private Map<String, Object> codingTokenTotals() {
-        var breakdown = new LinkedHashMap<String, Long>();
+        var breakdown = new EnumMap<AttemptCharge.Category, Long>(AttemptCharge.Category.class);
         long total = 0;
         for (var usage : usageByStep.values()) {
-            mergeReported(breakdown, "input", usage.input());
-            mergeReported(breakdown, "cacheRead", usage.cacheRead());
-            mergeReported(breakdown, "cacheWrite", usage.cacheWrite());
-            mergeReported(breakdown, "output", usage.output());
+            for (var category : AttemptCharge.Category.values()) {
+                mergeReported(breakdown, category, usage.count(category));
+            }
             total += usage.inputTotal() + usage.outputTotal();
         }
         Map<String, Object> totals = new LinkedHashMap<>();
         totals.put("present", total > 0);
         totals.put("coding", true);
         totals.put("total", compactTokenCount(total));
-        for (String category : List.of("input", "cacheRead", "cacheWrite", "output")) {
-            if (breakdown.containsKey(category)) {
-                totals.put(category, compactTokenCount(breakdown.get(category)));
-            }
-        }
+        breakdown.forEach((category, count) -> totals.put(category.key(), compactTokenCount(count)));
         return totals;
     }
 
-    private static void mergeReported(Map<String, Long> totals, String category, Long count) {
+    private static void mergeReported(Map<AttemptCharge.Category, Long> totals, AttemptCharge.Category category,
+                                      Long count) {
         if (count != null) totals.merge(category, count, Long::sum);
     }
 
@@ -168,6 +163,21 @@ final class StepUsageSummary {
                 + suffix;
     }
 
+    private enum UsageEvent { RUNTIME_STARTING, CODING_USAGE, STEP_COMPLETED, OTHER }
+
+    /**
+     * The model entry id and model string of a step. Runs record the id in their identity and in the rate they
+     * stored; Pi runs and runs started before 2026-11-03 have no id.
+     */
+    private record ModelRef(String id, String model) {
+        static final ModelRef NONE = new ModelRef(null, null);
+
+        static ModelRef of(JsonNode detail) {
+            String id = text(detail, "modelId");
+            return new ModelRef(id == null ? text(detail.path("rate"), "modelId") : id, text(detail, "model"));
+        }
+    }
+
     private record ReportedUsage(
             Long prompt,
             Long completion,
@@ -175,7 +185,7 @@ final class StepUsageSummary {
             Long cacheRead,
             Long cacheWrite,
             Long output,
-            String model,
+            ModelRef model,
             boolean usageIncomplete) {
         boolean factoryTokensPresent() {
             return prompt != null || completion != null;
@@ -183,6 +193,15 @@ final class StepUsageSummary {
 
         boolean codingTokensPresent() {
             return input != null || cacheRead != null || cacheWrite != null || output != null;
+        }
+
+        Long count(AttemptCharge.Category category) {
+            return switch (category) {
+                case INPUT -> input;
+                case CACHE_READ -> cacheRead;
+                case CACHE_WRITE -> cacheWrite;
+                case OUTPUT -> output;
+            };
         }
 
         long inputTotal() {

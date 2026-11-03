@@ -7,16 +7,22 @@ import java.nio.file.*;
 import static org.assertj.core.api.Assertions.*;
 
 class FeedbackGitTest {
+    /** Fork and working copy are built once; each test changes its own copy. */
+    @TempDir static Path template;
+    static String base;
     @TempDir Path root;
     CandidateFreezer freezer=new CandidateFreezer();
     FeedbackGit publisher=new FeedbackGit(freezer);
     Path bare, work;
-    String base;
-    @BeforeEach void setup() throws Exception {
-        bare=root.resolve("fork.git"); work=root.resolve("work");
-        git(root,"init","--bare",bare.toString()); git(root,"init","-b","feedback",work.toString());
-        Files.writeString(work.resolve("value.txt"),"initial\n"); commit("initial");
+    @BeforeAll static void createFork() throws Exception {
+        Path bare=template.resolve("fork.git"), work=template.resolve("work");
+        git(template,"init","--bare",bare.toString()); git(template,"init","-b","feedback",work.toString());
+        Files.writeString(work.resolve("value.txt"),"initial\n"); commit(work,"initial");
         git(work,"push",bare.toString(),"feedback"); base=git(work,"rev-parse","HEAD").strip();
+    }
+    @BeforeEach void setup() throws Exception {
+        FixtureDirectories.copy(template,root);
+        bare=root.resolve("fork.git"); work=root.resolve("work");
     }
     Candidate candidate() throws Exception {
         Files.writeString(work.resolve("value.txt"),"corrected\n");
@@ -54,6 +60,7 @@ class FeedbackGitTest {
                 .hasMessage("lost lease");
         assertThat(git(bare,"rev-parse","feedback").strip()).isEqualTo(base);
     }
-    void commit(String message) { git(work,"add","."); git(work,"-c","user.name=Fixture","-c","user.email=fixture@example.org","commit","-m",message); }
+    void commit(String message) { commit(work,message); }
+    static void commit(Path work,String message) { git(work,"add","."); git(work,"-c","user.name=Fixture","-c","user.email=fixture@example.org","commit","-m",message); }
     static String git(Path p,String...args) { return CandidateFreezer.git(p,args); }
 }

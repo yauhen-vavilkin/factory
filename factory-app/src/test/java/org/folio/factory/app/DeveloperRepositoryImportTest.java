@@ -1,7 +1,6 @@
 package org.folio.factory.app;
 
 import org.folio.factory.devfactory.DevFactoryProperties;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,7 +35,6 @@ class DeveloperRepositoryImportTest {
                         base-branch: ${FACTORY_SIDECAR_BASE_BRANCH:catalog-base}
                         delivery:
                           repository: ${FACTORY_SIDECAR_DELIVERY_REPO:catalog-delivery/sidecar}
-                          authorized: ${FACTORY_SIDECAR_DELIVERY_AUTHORIZED:true}
                       another-module:
                         source-repo: fifth-owner/module
                         base-branch: main
@@ -45,7 +43,6 @@ class DeveloperRepositoryImportTest {
                         jira-projects: [ANOTHER]
                         delivery:
                           repository: fifth-delivery/module
-                          authorized: true
                 """);
 
         var runner = contextWithCatalog(catalog);
@@ -53,14 +50,12 @@ class DeveloperRepositoryImportTest {
             runner = runner.withPropertyValues(
                     "FACTORY_SIDECAR_SOURCE_REPO=environment-owner/sidecar",
                     "FACTORY_SIDECAR_BASE_BRANCH=environment-base",
-                    "FACTORY_SIDECAR_DELIVERY_REPO=environment-delivery/sidecar",
-                    "FACTORY_SIDECAR_DELIVERY_AUTHORIZED=false");
+                    "FACTORY_SIDECAR_DELIVERY_REPO=environment-delivery/sidecar");
         }
 
         runner.run(context -> {
             assertThat(context).hasNotFailed();
             var repositories = context.getBean(DevFactoryProperties.class);
-            var delivery = context.getBean(DevDeliveryProperties.class);
             var runtime = context.getBean(DevRuntimeProperties.class);
             assertThat(repositories.repositories()).containsOnlyKeys(
                     "sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "another-module");
@@ -68,17 +63,16 @@ class DeveloperRepositoryImportTest {
             String expectedBase = override ? "environment-base" : "catalog-base";
             String expectedSource = override ? "environment-owner/sidecar" : "catalog-owner/sidecar";
             String expectedDestination = override ? "environment-delivery/sidecar" : "catalog-delivery/sidecar";
-            var expectedTarget = new DeliveryTarget(expectedDestination, expectedBase, !override);
+            var expectedTarget = new DeliveryTarget(expectedDestination, expectedBase);
             assertThat(sidecar.sourceRepo()).isEqualTo(expectedSource);
             assertThat(sidecar.baseBranch()).isEqualTo(expectedBase);
-            assertThat(delivery.target("sidecar", repositories)).isEqualTo(expectedTarget);
+            assertThat(sidecar.delivery()).isEqualTo(expectedTarget);
             assertThat(sidecar.jiraProjects()).containsExactly("MODSIDECAR");
             assertThat(sidecar.verificationPlan()).isEqualTo("java21-unit");
             assertThat(repositories.repositories().get("mgr-applications").sourceRepo())
                     .isEqualTo("folio-org/mgr-applications");
-            assertThat(delivery.targets()).isEmpty();
-            assertThat(delivery.requireTarget("another-module", repositories))
-                    .isEqualTo(new DeliveryTarget("fifth-delivery/module", "main", true));
+            assertThat(repositories.requireDelivery("another-module"))
+                    .isEqualTo(new DeliveryTarget("fifth-delivery/module", "main"));
             assertThat(runtime.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
             assertThat(runtime.requiredReports("java21-roles-verify"))
                     .containsExactly("surefire", "failsafe");
@@ -101,6 +95,6 @@ class DeveloperRepositoryImportTest {
     }
 
     @Configuration(proxyBeanMethods = false)
-    @EnableConfigurationProperties({DevFactoryProperties.class, DevDeliveryProperties.class, DevRuntimeProperties.class})
+    @EnableConfigurationProperties({DevFactoryProperties.class, DevRuntimeProperties.class})
     static class PropertiesConfiguration { }
 }

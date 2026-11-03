@@ -1,39 +1,40 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.devfactory.feedback.AttemptPricing;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Component
+@RequiredArgsConstructor
 public class AttemptRateSnapshot implements AttemptPricing {
-    private final DeveloperPricingProperties prices;
-
-    public AttemptRateSnapshot(DeveloperPricingProperties prices) {
-        this.prices = prices;
-    }
+    private final ModelCatalog models;
 
     @Override
-    public Map<String, Object> snapshot(String model) {
-        var rate = prices.rateFor(model).orElse(null);
-        if (rate == null) {
+    public Map<String, Object> snapshot(String modelId, String model) {
+        var entry = models.pricedEntry(modelId, model).orElse(null);
+        if (entry == null) {
             return Map.of();
         }
+        var price = entry.price();
         var result = new LinkedHashMap<String, Object>();
-        result.put("model", rate.model());
-        result.put("currency", rate.currency());
-        result.put("asOf", rate.asOf().toString());
-        result.put("source", rate.source().toString());
-        result.put("inputPerMillion", rate.inputPerMillion());
-        result.put("cacheReadPerMillion", rate.cacheReadPerMillion());
-        result.put("cacheWritePerMillion", rate.cacheWritePerMillion());
-        result.put("outputPerMillion", rate.outputPerMillion());
-        if (rate.cacheWrite5mPerMillion() != null) {
-            result.put("cacheWrite5mPerMillion", rate.cacheWrite5mPerMillion());
+        result.put("modelId", entry.id());
+        result.put("model", entry.model());
+        result.put("currency", price.currency());
+        result.put("asOf", price.asOf().toString());
+        result.put("source", price.source().toString());
+        result.put("inputPerMillion", price.inputPerMillion());
+        result.put("cacheReadPerMillion", price.cacheReadPerMillion());
+        result.put("cacheWritePerMillion", price.cacheWritePerMillion());
+        result.put("outputPerMillion", price.outputPerMillion());
+        if (price.cacheWrite5mPerMillion() != null) {
+            result.put("cacheWrite5mPerMillion", price.cacheWrite5mPerMillion());
         }
-        if (rate.cacheWrite1hPerMillion() != null) {
-            result.put("cacheWrite1hPerMillion", rate.cacheWrite1hPerMillion());
+        if (price.cacheWrite1hPerMillion() != null) {
+            result.put("cacheWrite1hPerMillion", price.cacheWrite1hPerMillion());
         }
         return result;
     }

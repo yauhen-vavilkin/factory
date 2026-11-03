@@ -1,14 +1,13 @@
 package org.folio.factory.core.registry;
 
 import jakarta.annotation.PostConstruct;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.domain.FlowRegistryEntry;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.StepDescriptor;
 import org.folio.factory.core.registry.model.StepType;
 import org.folio.factory.core.repository.FlowRegistryEntryRepository;
 import org.folio.factory.core.service.ArtifactStore;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
@@ -35,9 +34,8 @@ import java.util.Set;
  * descriptor under {@code flows/} — no control plane changes.
  */
 @Component
+@Slf4j
 public class FlowRegistry {
-
-    private static final Logger log = LoggerFactory.getLogger(FlowRegistry.class);
 
     private final FlowDescriptorParser parser;
     private final FlowRegistryEntryRepository mirror;
@@ -59,7 +57,8 @@ public class FlowRegistry {
             String yaml = read(resource);
             FlowDescriptor descriptor = parser.parse(yaml, resource.getFilename());
             if (flows.containsKey(descriptor.id())) {
-                throw new FlowValidationException("Duplicate flow id '" + descriptor.id() + "' in " + resource.getFilename());
+                throw new FlowValidationException(
+                        "Duplicate flow id '" + descriptor.id() + "' in " + resource.getFilename());
             }
             flows.put(descriptor.id(), descriptor);
             loaded.add(new LoadedFlow(descriptor, yaml));

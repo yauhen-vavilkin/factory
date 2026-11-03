@@ -1,7 +1,6 @@
 package org.folio.factory.core.engine;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.EventListener;
@@ -18,9 +17,8 @@ import java.util.UUID;
  */
 @Component
 @ConditionalOnProperty(prefix = "factory.engine", name = "enabled", havingValue = "true", matchIfMissing = true)
+@Slf4j
 public class ExecutionPoller {
-
-    private static final Logger log = LoggerFactory.getLogger(ExecutionPoller.class);
 
     private final ExecutionClaimService claimService;
     private final ExecutionEngine engine;
@@ -71,7 +69,8 @@ public class ExecutionPoller {
             if (properties.reclaimRunningOnStartup()) {
                 int reclaimed = claimService.reclaimOrphanedRunning();
                 if (reclaimed > 0) {
-                    log.warn("Startup reclaim: requeued {} orphaned RUNNING execution(s) from a prior process", reclaimed);
+                    log.warn("Startup reclaim: requeued {} orphaned RUNNING execution(s) from a prior process",
+                            reclaimed);
                 }
             }
             startupReclaimDone = true;

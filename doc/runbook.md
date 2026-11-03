@@ -46,7 +46,7 @@ are starting points — tune to your traffic.
 | `factory_steps_escalations_total` | Steps exhausting the retry budget | rate > 0 sustained 15m → page (systemic failure, e.g. a down dependency or bad prompt) |
 | Unresolved escalations piling up | `factory_steps_escalations_total` rising while `factory_executions_terminal_total` stays flat | sustained divergence → escalated runs are not being worked; check `/reviews`. (`FAILED_ESCALATED` is deliberately **not** an outcome tag — it is resumable, so counting it would double-count runs that later resolve.) |
 | `factory_connector_actions_total{outcome="failed"}` | Jira/GitHub/TestRail sync failures | rate > 0 sustained → check the connector/credentials |
-| `factory_agent_step_duration_seconds` (p99) | Slow workers (LLM latency, Karate) | p99 approaching `lease-timeout-seconds` → lease at risk |
+| `factory_agent_step_duration_seconds` (p99) | Slow workers (LLM latency, Karate) | p99 approaching a step's own time limit (Karate stops at 15 min) → steps about to fail on timeout |
 | `hikaricp_connections_pending` / `_timeout_total` | DB pool saturation | pending > 0 sustained, or any timeout increase → raise `FACTORY_DB_POOL_MAX` (see performance.md) |
 | Executions stuck in `RUNNING` beyond the lease | Crashed workers not being reaped | count(status=RUNNING, updated_at < now − lease) > 0 for > 2× reap interval → investigate the reaper |
 | Pending-review age | HITL backlog | oldest `PENDING` `hitl_review` older than your SLA → notify reviewers |
@@ -59,15 +59,16 @@ Also alert on the standard actuator readiness probe flipping (DB unreachable) an
 **Symptom: an execution sits in `RUNNING` and its audit timeline shows no recent step.**
 The worker likely died. The **lease reaper** (`ExecutionClaimService.reapStale`, every
 `factory.engine.reap-interval-ms`, default 30s) returns any `RUNNING` row whose
-`updated_at` is older than `factory.engine.lease-timeout-seconds` (default **1800s / 30
-min**) back to `PENDING`, and a poller re-runs the step. Re-running a step is safe —
+`updated_at` is older than `factory.engine.lease-timeout-seconds` (default **7200s / 2
+h**) back to `PENDING`, and a poller re-runs the step. Re-running a step is safe —
 workers write new immutable artifact versions, never overwrite.
 
-- **Expected recovery time:** up to the lease timeout. If you cannot wait 30 min and are
-  certain the worker is dead, manually requeue (see below).
-- **A step that legitimately runs longer than the lease** (a Karate run > 30 min) will be
-  reaped while still alive and re-run, wasting work. If your steps are that long, raise
-  `FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS` above the longest step.
+- **Expected recovery time:** up to the lease timeout. If you cannot wait that long and
+  are certain the worker is dead, manually requeue (see below).
+- **A long step is not reaped while its worker is alive.** `AgentLeaseHeartbeat` renews
+  the lease every min(30s, lease/3) while the worker runs, so only a dead worker's lease
+  expires. If a renewal fails (for example the DB is unreachable), the worker's result is
+  discarded and the step re-runs once the lease expires.
 
 **Manual requeue (last resort, requires DB access):**
 

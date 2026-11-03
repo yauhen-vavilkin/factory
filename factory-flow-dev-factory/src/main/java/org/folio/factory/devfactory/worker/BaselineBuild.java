@@ -1,5 +1,7 @@
 package org.folio.factory.devfactory.worker;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
@@ -7,23 +9,22 @@ import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.runtime.Processes;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /** Executes the trusted starting build and reports its diagnostic evidence. */
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class BaselineBuild {
     private final DevRuntimeProperties runtime;
-
-    BaselineBuild(DevRuntimeProperties runtime) {
-        this.runtime = runtime;
-    }
 
     Result run(
             DockerWorkloads.Workload baseline,
             String base,
             DevFactoryProperties.Repository repository,
+            int timeoutSeconds,
             Consumer<Map<String, Object>> progress) {
         var command = runtime.command(repository.verificationPlan());
         var observer =
@@ -39,12 +40,18 @@ final class BaselineBuild {
             heartbeat.scheduleAtFixedRate(observer::heartbeat, 15, 30, TimeUnit.SECONDS);
             result =
                     baseline.execute(
-                            command, runtime.timeoutSeconds(), Processes.OUTPUT_LIMIT, observer);
+                            command, timeoutSeconds, Processes.OUTPUT_LIMIT, observer);
         } finally {
             observer.close();
             heartbeat.shutdownNow();
         }
         String summary = MavenBaselineOutput.failureSummary(result.diagnostics()).orElse("");
+        return new Result(result, readiness(result, base, repository, command, summary), summary);
+    }
+
+    private static Map<String, Object> readiness(Processes.Result result, String base,
+                                                 DevFactoryProperties.Repository repository, List<String> command,
+                                                 String summary) {
         var details = new LinkedHashMap<String, Object>();
         details.put("state", result.exitCode() == 0 ? "BASELINE_PASSED" : "BASELINE_FAILED");
         details.put("baseSha", base);
@@ -54,8 +61,7 @@ final class BaselineBuild {
         details.put("exitCode", result.exitCode());
         if (!summary.isBlank()) details.put("summary", summary);
         details.put("output", tail(MavenBaselineOutput.sanitize(result.output())));
-
-        return new Result(result, Map.copyOf(details), summary);
+        return Map.copyOf(details);
     }
 
     record Result(Processes.Result process, Map<String, Object> readiness, String summary) {}

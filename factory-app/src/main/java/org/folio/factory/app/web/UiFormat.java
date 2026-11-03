@@ -1,5 +1,7 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.registry.model.StepDescriptor;
@@ -20,17 +22,25 @@ import java.util.Map;
  * Shared formatting and request-parsing helpers for the server-rendered views.
  * All methods are pure so the controllers stay thin and consistent.
  */
-final class UiFormat {
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
+public final class UiFormat {
+
+    /** Longest message carried in a redirect; a remote error body could otherwise overflow the headers. */
+    static final int MAX_REDIRECT_MESSAGE = 300;
 
     private static final DateTimeFormatter TIMESTAMP =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC);
-
-    private UiFormat() {
-    }
+    private static final DateTimeFormatter CLOCK =
+            DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneOffset.UTC);
 
     /** Formats an instant as {@code yyyy-MM-dd HH:mm:ss} UTC, or {@code null} when the instant is null. */
-    static String format(Instant instant) {
+    public static String format(Instant instant) {
         return instant == null ? null : TIMESTAMP.format(instant);
+    }
+
+    /** Formats an instant as {@code HH:mm:ss} UTC for dense logs; the full value goes in a title attribute. */
+    static String clock(Instant instant) {
+        return instant == null ? null : CLOCK.format(instant);
     }
 
     static String abbreviate(String value) {
@@ -38,7 +48,7 @@ final class UiFormat {
     }
 
     /** Groups a count with thousands separators — token totals reach seven figures. */
-    static String count(long value) {
+    public static String count(long value) {
         return NumberFormat.getIntegerInstance(Locale.US).format(value);
     }
 
@@ -52,6 +62,20 @@ final class UiFormat {
         long hours = minutes / 60;
         long remainingMinutes = minutes % 60;
         return hours + "h" + (remainingMinutes == 0 ? "" : " " + remainingMinutes + "m");
+    }
+
+    /** Milliseconds under one second, the compact duration from one second up. */
+    static String milliseconds(long value) {
+        return value < 1000 ? value + " ms" : duration(value / 1000);
+    }
+
+    /** Lenient read of stored JSON text: null or unreadable text yields an empty object. */
+    static JsonNode parse(String value, JsonMapper jsonMapper) {
+        try {
+            return value == null ? jsonMapper.createObjectNode() : jsonMapper.readTree(value);
+        } catch (RuntimeException ignored) {
+            return jsonMapper.createObjectNode();
+        }
     }
 
     static String stepLabel(StepDescriptor step) {
@@ -79,7 +103,11 @@ final class UiFormat {
     }
 
     static String errorRedirect(String path, String message) {
-        return "redirect:" + path + "?error=" + encode(message == null ? "Request failed" : message);
+        String text = message == null ? "Request failed" : message.strip();
+        if (text.length() > MAX_REDIRECT_MESSAGE) {
+            text = text.substring(0, MAX_REDIRECT_MESSAGE - 1) + "…";
+        }
+        return "redirect:" + path + "?error=" + encode(text);
     }
 
     /** The one row shape the {@code auditTable} fragment renders, wherever it appears. */

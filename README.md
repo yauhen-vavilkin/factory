@@ -121,7 +121,10 @@ docker build -t folio-factory-app:local .
 # needs a reachable PostgreSQL — start one with `docker compose up -d postgres`
 # (on Linux add: --add-host=host.docker.internal:host-gateway — the name is
 #  only auto-provided by Docker Desktop)
-docker run --rm -p 8080:8080 \
+# FACTORY_SERVER_ADDRESS=0.0.0.0: the app binds to 127.0.0.1 by default, which the
+# published port cannot reach inside a container
+docker run --rm -p 127.0.0.1:8080:8080 \
+  -e FACTORY_SERVER_ADDRESS=0.0.0.0 \
   -e FACTORY_DB_URL=jdbc:postgresql://host.docker.internal:5432/factory \
   -e ANTHROPIC_API_KEY=sk-ant-... \
   folio-factory-app:local
@@ -158,24 +161,22 @@ container and has no `/v1` suffix: the CLI appends `/v1/messages`.
 
 Fill in the empty access values before triggering a task:
 
-- Jira base URL, email and API token for reading the requested issue.
-- A GitHub token with write access to the personal delivery repository. Source
-  repositories must be public; source checkout does not use this token.
-- Source/delivery repositories and an existing shared base branch. The bundled
-  targets have delivery disabled; choose your own fork and authorize it explicitly.
-  Verification is followed by automatic push/PR publication to the authorized
-  target. `create-pull-request=false` does not disable git push.
+- Jira base URL for reading the requested issue (public Jira needs no email or
+  API token).
+- A GitHub token that can push to the delivery repository. Source repositories
+  must be public; source checkout does not use this token.
+- Source/delivery repositories and an existing shared base branch. The delivery
+  repository decides where the pull request goes: each bundled entry delivers to
+  its official folio-org repository unless you point it at your fork.
+  Verification is followed by automatic push/PR publication to that repository.
 
-For example, enable only your sidecar target (replace `your-github-user`):
+For example, send the sidecar's pull requests to your fork (replace
+`your-github-user`):
 
 ```dotenv
 FACTORY_SIDECAR_SOURCE_REPO=your-github-user/folio-module-sidecar
 FACTORY_SIDECAR_DELIVERY_REPO=your-github-user/folio-module-sidecar
 FACTORY_SIDECAR_BASE_BRANCH=master
-FACTORY_SIDECAR_DELIVERY_AUTHORIZED=true
-FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_AUTHORIZED=false
-FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_AUTHORIZED=false
-FACTORY_MGR_APPLICATIONS_DELIVERY_AUTHORIZED=false
 ```
 
 Repository policy lives in [`config/developer-repositories.yaml`](config/developer-repositories.yaml):
@@ -246,11 +247,13 @@ trusted build reuses the configured Maven cache Docker volume, repairing cache
 entry ownership before each build. Keep this volume when stopping or rebuilding
 the stack.
 
-Execution pages estimate API cost from the operator-owned
-`config/developer-pricing.yaml` rate card. The YAML records public list prices
-linked to their official sources — update it when pricing changes; Factory does
-not fetch prices from the model API. An estimate is shown only when every positive
-token category has a configured rate.
+Execution pages and My tasks estimate API cost from the `price` of each model in
+`config/developer-models.yaml` (see [Models](#models-claude-code)). A price records the
+public list price linked to its official source; update it when pricing changes. Factory
+does not fetch prices from the model API. An estimate is shown only when every positive
+token category has a price. Compose mounts the file read-only. Like the repository
+catalog, the application also packages the checked-in file as its fallback, and Spring
+started from the repository root also loads `config/developer-models.yaml`.
 
 Compose publishes Factory and PostgreSQL on `127.0.0.1` by default. The MVP still
 runs the trusted Factory container as root with the Docker socket and a 7200-second
@@ -271,14 +274,14 @@ my-module:
   # jira-components: [Backend]  # optional: restrict the Jira component mapping
   delivery:
     repository: your-github-user/my-module
-    authorized: false
 ```
 
 Use the actual Jira project key and a branch that exists in the source and
 delivery repositories. The delivery base comes from this entry's `base-branch`;
-there is no second branch to keep in sync. Set `authorized: true` only when the
-destination is ready for automatic push and PR creation. Source and delivery may
-be different repositories, but the delivery branch must contain the source base.
+there is no second branch to keep in sync. Pull requests go to
+`delivery.repository` under your GitHub token; before a task is queued, Factory
+checks that the token can push there. Source and delivery may be different
+repositories, but the delivery branch must contain the source base.
 
 `verification-plan` names a trusted command in `factory.dev-factory.runtime.plans`
 in the same file. The bundled `java21-unit` runs `mvn -B -ntp test`; add a separate
@@ -289,9 +292,8 @@ checks executed-test counts and rejects failures, errors and entirely skipped
 reports in required families. New and renamed test classes need no Factory
 configuration changes. This policy checks executed report families; it does not
 prove that every test in the source was discovered or detect deleted tests.
-Existing operator catalogs with exact report paths remain supported, but the
-bundled catalog does not depend on test class names. An exit code of zero alone
-is insufficient. Commands and required reports are operator policy, never
+Required reports name a family (`surefire` or `failsafe`), never a test class. An
+exit code of zero alone is insufficient. Commands and required reports are operator policy, never
 supplied by Jira or the coding model.
 
 Compose mounts this catalog read-only. To keep a private operator copy, set
@@ -318,13 +320,9 @@ Test Factory, but Developer Flow preflight rejects it because Developer Flow's
 Git publication targets GitHub.com. Private source authentication, GitLab
 delivery, submodules and other build/report formats require implementation changes.
 
-Older deployments may still supply `factory.dev-factory.delivery.targets.<key>`.
-An explicit legacy target takes precedence over that entry's nested `delivery`
-settings; missing repository/base fields inherit the catalog values. Legacy
-authorization remains authoritative, including `false`; set it explicitly to
-`true` to enable delivery. Remove legacy settings when migrating to the unified catalog. A different legacy
-delivery branch name is rejected by preflight; a conflicting nested delivery base
-is rejected while loading the catalog.
+Delivery has no `authorized` switch: pull requests always go to the entry's
+`delivery.repository`. A conflicting nested delivery base is rejected while loading
+the catalog.
 
 ### Checking configuration before a task
 
@@ -382,48 +380,41 @@ Feedback retains partial edits on questions and failures; initial coding keeps
 its existing completed-candidate policy. Factory still owns repository checks,
 candidate export, independent verification, workload ownership and cleanup.
 
-Default Claude Code configuration for the local CodeMie proxy:
+With Claude Code, the model, its endpoint and secret come from
+[`config/developer-models.yaml`](config/developer-models.yaml). The first models there
+use the local CodeMie proxy, which `.env` only needs the token for:
 
 ```dotenv
 FACTORY_DEV_FACTORY_CODING_RUNTIME=claude-code
-FACTORY_CLAUDE_CODE_API=anthropic-messages
-FACTORY_CLAUDE_CODE_BASE_URL=http://host.docker.internal:4001
-FACTORY_CLAUDE_CODE_MODEL=claude-sonnet-5-5
-FACTORY_CLAUDE_CODE_AUTHENTICATION=bearer-token
-FACTORY_CLAUDE_CODE_AUTH_TOKEN=codemie-proxy
+FACTORY_CODEMIE_PROXY_TOKEN=codemie-proxy
 ```
 
 The example assumes an already running local CodeMie proxy on port 4001; Compose
 does not start it. The standard token authenticates Factory to the local proxy;
 CodeMie manages upstream SSO/provider authentication. If your proxy uses a custom
-gateway key, set `FACTORY_CLAUDE_CODE_AUTH_TOKEN` to that value. For another
-gateway, supply the prefix before `/v1/messages` reachable from the coding
-container. Do not append `/v1`: the CLI adds
-`/v1/messages`. Confirm that your gateway supports the default literal model ID
-`claude-sonnet-5-5`; override `FACTORY_CLAUDE_CODE_MODEL` if it uses another
-deployment ID. Leave optional effort unset for the first connection check.
-A Chat Completions or Responses endpoint
-cannot be used with Claude Code: an incompatible API type fails before the
-coding container starts. Factory does not translate API protocols, rename model
-IDs, or restrict models to an allowlist. Endpoint/model capabilities, streaming
-and tool support remain the operator's responsibility. Live CodeMie integration
-requires a separately authorized test; the local contract tests make no paid calls.
-Model IDs are literal, including names such as `sonnet` and `default`: the adapter
-pins CLI alias defaults, disables legacy remapping and uses the documented
-[`CLAUDE_CODE_EXTRA_BODY`](https://code.claude.com/docs/en/env-vars) setting to keep
-the request's `model` unchanged. A suffix such as `[1m]` is part of the endpoint's
-model ID, not a Factory context-window option.
+gateway key, set `FACTORY_CODEMIE_PROXY_TOKEN` to that value. For another gateway,
+add a model whose `base-url` is the prefix before `/v1/messages` reachable from the
+coding container. Do not append `/v1`: the CLI adds `/v1/messages`. Confirm that your
+gateway supports the literal `model` of the entry. A Chat Completions or Responses
+endpoint cannot be used with Claude Code: such a model is not offered in the run forms,
+and Check configuration says why. Factory does not translate API protocols or rename
+model IDs. Endpoint/model capabilities, streaming and tool support remain your
+responsibility. Live CodeMie integration requires a separately authorized test; the
+local contract tests make no paid calls. Model IDs are literal, including names such as
+`sonnet` and `default`: the adapter pins CLI alias defaults, disables legacy remapping
+and uses the documented [`CLAUDE_CODE_EXTRA_BODY`](https://code.claude.com/docs/en/env-vars)
+setting to keep the request's `model` unchanged. A suffix such as `[1m]` is part of the
+endpoint's model ID, not a Factory context-window option.
 
-Claude Code defaults to `bearer-token` (`FACTORY_CLAUDE_CODE_AUTH_TOKEN` →
-`Authorization: Bearer ...`). For another endpoint, explicitly select `api-key`
-(`FACTORY_CLAUDE_CODE_API_KEY` → `x-api-key`) if required. Only the selected credential is sent. No host Claude credentials or
-configuration are mounted. Runtime secrets are copied into a private temporary
-file only during coding, outside `/workspace`, and removed afterwards. They are
-not build arguments or Docker image environment values. Raw CLI/provider output
-is not logged or saved by Factory; progress contains bounded tool names and token
-counts. Claude's cost estimate is separate from Factory's operator rate card.
-Missing or zero-filled provider usage stays marked incomplete, including when
-other turns in the same attempt reported valid counts.
+A model with `authentication: bearer-token` sends its secret as `Authorization: Bearer ...`;
+`api-key` sends it as `x-api-key`. Only the model's own secret is sent. No host Claude
+credentials or configuration are mounted. Runtime secrets are copied into a private
+temporary file only during coding, outside `/workspace`, and removed afterwards. They are
+not build arguments or Docker image environment values. Raw CLI/provider output is not
+logged or saved by Factory; progress contains bounded tool names and token counts.
+Claude's cost estimate is separate from Factory's price in the models file. Missing or
+zero-filled provider usage stays marked incomplete, including when other turns in the
+same attempt reported valid counts.
 
 To use Pi instead, explicitly select it and configure its independent profile
 (OpenAI Chat Completions example):
@@ -438,24 +429,68 @@ FACTORY_PI_AUTHENTICATION=api-key
 FACTORY_PI_API_KEY=replace-with-your-key
 ```
 
-Pi precedence is field-by-field: nonblank `FACTORY_PI_*` > legacy
-`FACTORY_MODEL_*` > defaults. `FACTORY_PI_MODEL` falls back to `FACTORY_MODEL_ID`;
-`FACTORY_PI_IMAGE` falls back to `FACTORY_DEV_FACTORY_CODING_IMAGE`. New empty values
-keep the legacy behavior; remove an old value to clear it. Legacy variables never
-configure Claude Code. Pi authentication is `api-key`; the Pi provider controls
-its wire format. Optional harness settings are Pi `REASONING_EFFORT` and
-`MAX_OUTPUT_TOKENS`, and Claude Code `EFFORT`, `MAX_TURNS` (40), and
-`MAX_OUTPUT_TOKENS` (16384). Use the `FACTORY_PI_` or `FACTORY_CLAUDE_CODE_`
-prefix respectively. Leave `FACTORY_CLAUDE_CODE_EFFORT` unset initially.
-The common attempt timeout remains `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` (1800).
+Pi authentication is `api-key`; the Pi provider controls its wire format. Optional
+Pi settings are `FACTORY_PI_REASONING_EFFORT` and `FACTORY_PI_MAX_OUTPUT_TOKENS` (16384).
+An empty `FACTORY_PI_IMAGE` uses `factory-dev-pi:0.85.1-java21`. Pi does not offer a model
+choice yet; it uses the models file only for the price of its model. Claude Code has one
+setting of its own, `FACTORY_CLAUDE_CODE_MAX_TURNS` (200, from 1 to 500): a safety limit,
+not a tuning knob. The common attempt timeout `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` (1800,
+about 180 turns) usually ends a run first. A run that hits either limit loses its work.
+
+#### Models (Claude Code)
+
+With the Claude Code harness, you choose the **model** for a run in the run form, and the
+**effort** for each task: above the task list on My tasks, with an Effort choice on each
+task row, and in the **Retry** form on the task page, which also has an optional
+**Instructions for the agent** field. Retry fills the form from the previous attempt, and
+PR feedback rounds keep the settings of the run they belong to.
+
+[`config/developer-models.yaml`](config/developer-models.yaml) is a flat list: one entry
+is one model at one provider, so the same model at another provider is another entry with
+its own price. An entry has `id` (the name in the form), `api`, `base-url`,
+`authentication` (`bearer-token` or `api-key`), `secret-env` (the name of the variable
+that holds the secret; never the secret itself), `model`, `efforts`, `default-effort`,
+optional `max-output-tokens` (16384) and an optional `price` block. The file ships the
+CodeMie Sonnet, Opus and Haiku 5.5, Sonnet straight from the Anthropic API
+(`FACTORY_ANTHROPIC_API_KEY`), Z.ai `glm-5.3` and `glm-5.3-flash` (`FACTORY_ZAI_API_KEY`)
+and the prices of two Pi models.
+
+- The run forms offer the models that Claude Code can run (`api: anthropic-messages`,
+  efforts from `low`, `medium`, `high`, `xhigh`, `max`) and whose secret is set. With one
+  such model the list is hidden. **Check configuration** lists every model with its own
+  checks and the reason a model is not offered.
+- Compose passes only the variables it lists to Factory, so a model with a new
+  `secret-env` variable also needs that variable in the `environment` of the `factory`
+  service in `docker-compose.yml`, next to `FACTORY_ZAI_API_KEY`.
+- `FACTORY_DEV_FACTORY_DEFAULT_MODEL` picks the model the forms preselect and that runs
+  without a choice use (the manual API trigger, runs started before the models file).
+  Empty means the first model in the file that Claude Code can run.
+- To use your own copy, set `FACTORY_DEV_FACTORY_MODELS_FILE=./config/my-models.yaml`; it
+  is mounted read-only like the repository catalog. An invalid file stops Factory at
+  startup with a message that names the model and the field.
+
+The attempt stores the chosen model id, the effort and the instructions (no credentials).
+The run then uses the model it names; if that model was removed or lost its secret, the
+run stops with a reason that names the model. Runs started before the models file named a
+run profile: `env-default` now means the default model. Cost uses the price of the chosen
+entry. With the Pi harness there is no model choice and Pi works as before.
 
 Claude Code is pinned to **2.1.287**, resolved from the official stable channel on
 2026-10-14; both supported Linux architectures have pinned manifest checksums.
 The [official setup guide](https://code.claude.com/docs/en/setup) documents the
 stable channel and version management. Auto-updates are disabled. The adapter
 uses [programmatic print mode](https://code.claude.com/docs/en/headless), NDJSON
-output, bare mode, no session persistence and explicitly allowed local coding
-tools. Permission mode is explicitly `dontAsk` with `--permission-prompts none`;
+output, no session persistence and explicitly allowed tools: the local coding tools
+and `WebFetch`. Bare mode is off, so `WebFetch` is available, but the CLI loads no
+settings, hooks, plugins or MCP servers (`--setting-sources ""`, an empty strict MCP
+config); auto-memory, background traffic and updates are switched off by
+environment. `--settings '{"skipWebFetchPreflight":true}'` stops WebFetch from first
+sending each domain to `api.anthropic.com` for a check, so WebFetch also works on a
+network that cannot reach that host, and fetched domain names do not go to a host
+the run's profile does not use. Without the project setting source the CLI does not
+load the repository's `CLAUDE.md` or `AGENTS.md` by itself, so the prompt tells the
+agent to read and follow them. Factory's rules still win: the agent does not commit, branch,
+push, open pull requests or change git configuration. Permission mode is explicitly `dontAsk` with `--permission-prompts none`;
 allowed tools run without a separate model-based permission classifier, and any
 remaining permission request is denied without waiting. It works under the
 workload's UID (including the Compose root UID), private `HOME=/tmp/factory-home`,
@@ -492,6 +527,50 @@ Spring Boot does not load `.env` automatically. The coding container still uses
 `host.docker.internal` to reach the host proxy. No Java edits are needed to switch
 runtimes or endpoints.
 
+### My tasks quick start
+
+Developer Flow turns the Jira tasks assigned to you into pull requests under your
+name. Factory reads Jira anonymously and never writes to it.
+
+Prerequisites: Docker Desktop with Compose 2.20+, a local CodeMie proxy on port
+4001, and a GitHub token that can push to the delivery repositories.
+
+```bash
+cp .env.tasks.example .env
+# Set FACTORY_TASKS_ASSIGNEE (your name as Jira shows it) and FACTORY_CONNECTORS_GITHUB_TOKEN.
+docker compose up -d
+```
+
+Open <http://localhost:8080/flows/dev-factory> and press **Scan Jira** to load your
+open tasks; the status chips filter them on the page (Open and In Progress by
+default). A task that is not assigned to you can join the list too: put its key or link
+in **Not in your list?** and press **Add to list**; **Remove** takes it out again. Choose
+the model above the list and the effort on each task row, select tasks and press **Run**;
+see [Models](#models-claude-code). A failed task's **Retry** opens the form on its task
+page, where you can also add instructions for the agent.
+A task can run when its Jira project maps to exactly one repository in
+`config/developer-repositories.yaml`; otherwise a red chip on its row opens the steps to
+fix it. **Check configuration** shows the Jira query, the assignee and which repository
+each Jira project goes to. Before a task is queued, Factory checks that
+your token can push to its delivery repository: folio-org by default, or your
+fork when you set both `<REPO>_SOURCE_REPO` and `<REPO>_DELIVERY_REPO`.
+
+One task runs at a time, in the order you clicked; Retry joins the same queue. A
+failed task releases the queue. A task in **Needs inspection** holds it: Factory
+could not confirm how the run ended (for example, workload cleanup or a lost
+publication response) and rechecks at startup and on every dispatch poll
+(`FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS`, default 30 seconds). If the run is really over, use
+**Mark as stopped…**: the task becomes Could not complete and the queue moves on.
+Destructive retention must stay disabled: while `FACTORY_RETENTION_ENABLED` is
+true, task execution refuses to start tasks (see `docker compose logs factory`).
+
+The agent ends each run with a short report under four headings: Changes,
+Acceptance criteria (met, not met or not checked), Assumptions and Could not read.
+It becomes the pull request description. Factory opens the pull request as a
+**Draft PR** when a criterion is not met or not checked, when the agent made
+assumptions or could not read a source, or when the report does not use the four
+headings; the task page lists the reasons.
+
 ## Operations
 
 Production procedures live under `doc/`:
@@ -509,21 +588,39 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 
 ## Configuration
 
+Settings renamed or removed by the Developer Flow cleanup of 2026-10-31. Old names are ignored
+without a warning, so rename them in `.env`: `FACTORY_PILOT_ASSIGNEE`, `FACTORY_PILOT_EXECUTION_ENABLED`,
+`FACTORY_PILOT_EXECUTION_DEADLINE` and `FACTORY_PILOT_EXECUTION_DISPATCH_INTERVAL_MS` are now
+`FACTORY_TASKS_...` with the same ending; the Pi settings `FACTORY_MODEL_PROVIDER`, `_ID`, `_BASE_URL`,
+`_API`, `_API_KEY`, `_REASONING_EFFORT`, `_MAX_OUTPUT_TOKENS` and `FACTORY_DEV_FACTORY_CODING_IMAGE` are now
+`FACTORY_PI_PROVIDER`, `_MODEL`, `_BASE_URL`, `_API`, `_API_KEY`, `_REASONING_EFFORT`, `_MAX_OUTPUT_TOKENS`
+and `_IMAGE`. `FACTORY_DEV_FACTORY_DELIVERY_*`, `FACTORY_TASKS_EXECUTION_RECOVERY_POLL_INTERVAL_MS`,
+`factory.dev-factory.delivery.targets.*` and the delivery `authorized` key are no longer read.
+
 | Environment variable | Purpose |
 |---|---|
 | `ANTHROPIC_API_KEY` | LLM provider key (Spring AI Anthropic starter) |
-| `FACTORY_LLM_MODEL` | Chat model id (default `claude-sonnet-4-5`, or `llama-3.3-70b-versatile` with the `openai` provider) |
+| `FACTORY_LLM_MODEL` | Chat model id (default `claude-sonnet-5-5`, or `llama-3.3-70b-versatile` with the `openai` provider) |
 | `FACTORY_LLM_PROVIDER` | `anthropic` (default) or `openai` for any OpenAI-compatible endpoint (Groq, Gemini, OpenRouter, local Ollama) |
 | `FACTORY_LLM_API_KEY` | API key for the OpenAI-compatible provider |
 | `FACTORY_LLM_BASE_URL` / `_COMPLETIONS_PATH` | OpenAI-compatible endpoint (defaults target Groq: `https://api.groq.com/openai/v1` + `/chat/completions`) |
 | `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (default `jdbc:postgresql://localhost:5432/factory`) |
+| `FACTORY_SERVER_ADDRESS` | Address the app listens on (default `127.0.0.1`); Compose sets the container's own listener |
+| `FACTORY_APP_IMAGE` | Compose image name of the Factory app (default `folio-factory-app:local`) |
+| `FACTORY_APP_PORT` / `FACTORY_DB_PORT` / `FACTORY_BIND_ADDRESS` | Compose host ports of Factory and PostgreSQL and the host address they are published on (defaults `8080` / `5432` / `127.0.0.1`) |
 | `FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME` | Persistent trusted Developer Flow Maven cache volume (default `factory-dev-m2-cache`) |
 | `FACTORY_DEV_FACTORY_REPOSITORIES_FILE` | Compose host path of the repository catalog (default `./config/developer-repositories.yaml`); mounted read-only |
+| `FACTORY_<REPO>_SOURCE_REPO` / `_DELIVERY_REPO` / `_BASE_BRANCH` | Overrides for the bundled catalog entries, `<REPO>` being `SIDECAR`, `MOD_ROLES_KEYCLOAK`, `MGR_TENANT_ENTITLEMENTS` or `MGR_APPLICATIONS`; see [Developer Flow with Docker Compose](#developer-flow-with-docker-compose) |
+| `FACTORY_DEV_FACTORY_GIT_BASE_URL` | Git host the source repositories are read from (default `https://github.com`) |
+| `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` | Time limit of one coding, build or verification run (default `1800`) |
 | `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `claude-code`) |
-| `FACTORY_MODEL_PROVIDER` / `_ID` / `_BASE_URL` / `_API` / `_API_KEY` | Legacy Pi profile settings; nonblank `FACTORY_PI_*` values override them |
-| `FACTORY_PI_*` / `FACTORY_CLAUDE_CODE_*` | Independent image, API, model, endpoint, authentication and harness profiles; see [Coding runtime profiles](#coding-runtime-profiles) |
-| `FACTORY_MODEL_REASONING_EFFORT` | Optional Pi thinking level; `max` for the CodeMie GPT-5.6 Luna profile, empty for the current GLM behavior |
-| `FACTORY_MODEL_MAX_OUTPUT_TOKENS` | Pi model output limit (default `16384`; CodeMie profile `65536`) |
+| `FACTORY_PI_IMAGE` / `_PROVIDER` / `_MODEL` / `_BASE_URL` / `_API` / `_AUTHENTICATION` / `_API_KEY` / `_REASONING_EFFORT` / `_MAX_OUTPUT_TOKENS` | Pi runtime profile; see [Coding runtime profiles](#coding-runtime-profiles) |
+| `FACTORY_CLAUDE_CODE_IMAGE` / `FACTORY_CLAUDE_CODE_MAX_TURNS` | Claude Code coding image, and the safety limit of turns in one attempt (200, from 1 to 500); see [Coding runtime profiles](#coding-runtime-profiles) |
+| `FACTORY_DEV_FACTORY_DEFAULT_MODEL` | Model preselected in the run forms and used by runs without a choice; empty means the first model Claude Code can run. See [Models](#models-claude-code) |
+| `FACTORY_DEV_FACTORY_MODELS_FILE` | Compose host path of the models file (default `./config/developer-models.yaml`); mounted read-only |
+| `FACTORY_CODEMIE_PROXY_TOKEN` | Token of the local CodeMie proxy for the `codemie-*` models (default `codemie-proxy`, also without Compose) |
+| `FACTORY_ANTHROPIC_API_KEY` | Anthropic API key for the `anthropic-sonnet-5.5` model; empty leaves it not offered |
+| `FACTORY_ZAI_API_KEY` | Z.ai key for the `glm-5.3` and `glm-5.3-flash` models; empty leaves them not offered |
 | `FACTORY_DB_POOL_MAX` / `_MIN_IDLE` | HikariCP pool sizing (defaults `16` / `4`; see `doc/performance.md`) |
 | `FACTORY_DB_POOL_CONNECTION_TIMEOUT_MS` / `_MAX_LIFETIME_MS` / `_IDLE_TIMEOUT_MS` / `_LEAK_DETECTION_MS` | HikariCP tuning (defaults `30000` / `1800000` / `600000` / `60000`) |
 | `FACTORY_HTTP_CONNECT_TIMEOUT` / `_READ_TIMEOUT` | Connector HTTP timeouts (Duration; defaults `5s` / `30s`) |
@@ -535,6 +632,10 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_TEST_FACTORY_JIRA_TRANSITION` | Optional Jira transition on completion |
 | `FACTORY_TEST_FACTORY_EXECUTION_BASE_URL` + `_KARATE_JAR` | Enable real Karate execution (otherwise advisory mode) |
 | `FACTORY_LIMITS_MAX_CONCURRENT_EXECUTIONS` / `_MAX_EXECUTIONS_PER_DAY` | Concurrency cap / daily budget (`0` disables; defaults `8` / `200`, 429 on budget) |
+| `FACTORY_TASKS_ASSIGNEE` | Whose open Jira tasks **Scan Jira** finds: the name as Jira shows it, or an accountId; see [My tasks quick start](#my-tasks-quick-start) |
+| `FACTORY_TASKS_EXECUTION_ENABLED` | Runs the My tasks queue (opt-in, default off) |
+| `FACTORY_TASKS_EXECUTION_DEADLINE` | Time budget of one task attempt from preparation through delivery, queue and review waiting excluded (Duration; default `60m`) |
+| `FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS` | How often the My tasks queue rechecks the active attempt and starts the next one (default `30000`; it also runs at startup) |
 | `FACTORY_LIMITS_DEDUP_ENABLED` / `_DEDUP_WINDOW` / `_DEDUP_ID_POINTERS` | Trigger dedup (default on, `10m`, `/issueKey`) |
 | `FACTORY_LIMITS_MAX_ARTIFACT_BYTES` / `_MAX_TRIGGER_PAYLOAD_BYTES` | Write-time size caps (defaults `5000000` / `262144`) |
 | `FACTORY_RETENTION_ENABLED` / `_TTL_DAYS` / `_RUN_CRON` | Purge of old terminal runs (**off** by default; audit is never purged) |

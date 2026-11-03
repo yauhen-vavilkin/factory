@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -35,8 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.math.BigDecimal;
-import java.net.URI;
 import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -49,6 +48,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.model;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.view;
+import org.folio.factory.app.EngineRecords;
 
 @ExtendWith(MockitoExtension.class)
 class ExecutionUiControllerTest {
@@ -72,6 +72,9 @@ class ExecutionUiControllerTest {
     @Mock
     private HitlReviewRepository reviews;
 
+    @Mock
+    private CodingTranscriptStore transcripts;
+
     @Captor
     private ArgumentCaptor<Pageable> pageableCaptor;
 
@@ -79,13 +82,13 @@ class ExecutionUiControllerTest {
 
     @BeforeEach
     void setUp() {
-        var rate = new DeveloperPricingProperties.Rate("glm-5.3-flash", "USD",
-                LocalDate.parse("2026-09-19"), URI.create("https://example.test/pricing"),
-                new BigDecimal("0.15"), new BigDecimal("0.03"), null, new BigDecimal("0.50"));
-        var estimator = new DeveloperCostEstimator(new DeveloperPricingProperties(Map.of("flash", rate)));
-        mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(executions, artifactStore, auditLog,
-                flowRegistry, reviews, json, estimator,
-                new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class))))
+        var estimator = DeveloperCostEstimatorTest.estimatorFor("glm-5.3-flash", "https://example.test/pricing",
+                "0.15", "0.03", "0.50");
+        var taskQuery = mock(org.folio.factory.app.tasks.presentation.TaskQuery.class);
+        mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(
+                        new EngineRecords(executions, artifactStore, flowRegistry), auditLog, reviews, json, estimator,
+                        new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class)), taskQuery),
+                        new TranscriptUiController(executions, taskQuery, transcripts))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
@@ -281,6 +284,49 @@ class ExecutionUiControllerTest {
     }
 
     @Test
+    void transcript_groupsEntriesByRunAndPairsEachToolCallWithItsResult() throws Exception {
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(developerExecution()));
+        UUID first = UUID.fromString("00000000-0000-0000-0000-00000000000a");
+        UUID second = UUID.fromString("00000000-0000-0000-0000-00000000000b");
+        var at = java.time.Instant.parse("2026-10-27T09:15:30Z");
+        when(transcripts.read(EXECUTION_ID)).thenReturn(List.of(
+                transcriptEntry(first, 0, "implement", "prompt", at, "{\"text\":\"Implement TASK-1\"}"),
+                transcriptEntry(first, 1, "implement", "tool_call", at.plusSeconds(1),
+                        "{\"id\":\"t1\",\"tool\":\"Bash\",\"input\":\"{ \\\"command\\\" : \\\"mvn test\\\" }\"}"),
+                transcriptEntry(first, 2, "implement", "tool_result", at.plusSeconds(4),
+                        "{\"id\":\"t1\",\"tool\":\"Bash\",\"error\":true,\"durationMs\":3000,\"text\":\"BUILD FAILURE\"}"),
+                transcriptEntry(first, 3, "implement", "result", at.plusSeconds(5),
+                        "{\"subtype\":\"success\",\"error\":false,\"text\":\"Done\",\"turns\":3,"
+                                + "\"usage\":{\"inputTokens\":40,\"outputTokens\":5}}"),
+                transcriptEntry(second, 0, "pr-follow-up", "note", at.plusSeconds(60),
+                        "{\"text\":\"Transcript cut at 5 MB; the attempt went on.\"}")));
+
+        var result = mvc.perform(get("/executions/{id}/transcript", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(view().name("transcript"))
+                .andExpect(model().attributeExists("execution"))
+                .andReturn();
+
+        @SuppressWarnings("unchecked")
+        var runs = (List<Map<String, Object>>) result.getModelAndView().getModel().get("runs");
+        assertThat(runs).extracting(run -> run.get("label"))
+                .containsExactly("Run 1 · Implementation", "Run 2 · PR feedback");
+        @SuppressWarnings("unchecked")
+        var entries = (List<Map<String, Object>>) runs.getFirst().get("entries");
+        assertThat(entries).extracting(entry -> entry.get("kind")).containsExactly("prompt", "tool", "result");
+        assertThat(entries.get(0)).containsEntry("time", "09:15:30").containsEntry("timeTitle", "2026-10-27 09:15:30");
+        assertThat(entries.get(1)).containsEntry("tool", "Bash").containsEntry("input", "{ \"command\" : \"mvn test\" }")
+                .containsEntry("result", "BUILD FAILURE").containsEntry("error", true).containsEntry("duration", "3s")
+                .containsEntry("hasResult", true);
+        assertThat(entries.get(2)).containsEntry("facts", "3 turns · 40 input tokens · 5 output tokens");
+    }
+
+    private CodingTranscriptStore.Entry transcriptEntry(UUID run, int seq, String step, String kind,
+                                                       java.time.Instant at, String detail) {
+        return new CodingTranscriptStore.Entry(run, seq, step, kind, at, json.readTree(detail));
+    }
+
+    @Test
     void execution_detail_newRunShowsFullRetryUsageAndSafeFailureReason() throws Exception {
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(developerExecution()));
         when(artifactStore.allForExecution(EXECUTION_ID)).thenReturn(List.of(artifact(
@@ -361,7 +407,8 @@ class ExecutionUiControllerTest {
                         "present", true, "coding", true, "total", "120", "cacheRead", "40")))
                 .andReturn();
 
-        assertThat(steps(result).get(3)).containsEntry("tokens", "120 tokens (100 in / 20 out)");
+        // The Developer Flow page has no stepper, so its engine steps carry no token label.
+        assertThat(steps(result).get(3)).doesNotContainKey("tokens");
     }
 
     @Test

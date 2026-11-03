@@ -1,15 +1,15 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 final class PageValidation {
 
     private static final int MAX_SIZE = 200;
-
-    private PageValidation() {
-    }
 
     static Pageable pageable(int page, int size, Sort sort) {
         if (page < 0) {

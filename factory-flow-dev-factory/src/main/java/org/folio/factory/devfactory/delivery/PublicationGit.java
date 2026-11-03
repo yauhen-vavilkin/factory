@@ -1,31 +1,14 @@
 package org.folio.factory.devfactory.delivery;
 
-import org.folio.factory.devfactory.runtime.Processes;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Base64;
-import java.util.List;
 import java.util.Map;
 
-/** Trusted Git process mechanics only; callers retain branch and replay policy. */
+/** Git environment for publication: commit identity and a push credential that never reaches argv. */
 public final class PublicationGit {
-    private PublicationGit() {}
 
-    public static Processes.Result run(
-            Path workspace, Map<String, String> environment, String... args) {
-        var command =
-                new ArrayList<>(
-                        List.of(
-                                "git",
-                                "-c",
-                                "core.hooksPath=/dev/null",
-                                "-c",
-                                "credential.helper="));
-        command.addAll(List.of(args));
-        return Processes.run(workspace, command, 180, environment);
-    }
+    private PublicationGit() {}
 
     public static Map<String, String> identity(String date, String name, String email) {
         return Map.of(

@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.worker;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
@@ -13,6 +14,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.util.Map;
 
 /** Baseline, one portable coding attempt, and trusted freeze only on COMPLETED. */
+@RequiredArgsConstructor
 public class DevelopWorker implements AgentWorker {
     public static final String ID = "dev-develop";
     public static final String CANDIDATE = "dev_candidate.json";
@@ -22,11 +24,6 @@ public class DevelopWorker implements AgentWorker {
     private final InitialCodingAttempt codingAttempt;
     private final FrontmatterCodec codec;
     private final JsonMapper json = JsonMapper.builder().build();
-
-    public DevelopWorker(InitialCodingAttempt codingAttempt, FrontmatterCodec codec) {
-        this.codingAttempt = codingAttempt;
-        this.codec = codec;
-    }
 
     @Override
     public String id() {

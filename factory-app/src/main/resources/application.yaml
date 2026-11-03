@@ -3,10 +3,12 @@ spring:
     import:
       - classpath:developer-repositories.yaml
       - optional:file:./config/developer-repositories.yaml
+      - classpath:developer-models.yaml
+      - optional:file:./config/developer-models.yaml
   application:
     name: ai-factory
   lifecycle:
-    # OPS-2: grace-period budget for each SmartLifecycle shutdown phase — chiefly the
+    # Grace-period budget for each SmartLifecycle shutdown phase — chiefly the
     # web server draining in-flight HTTP (HITL console, REST, webhooks) before exit.
     # Bounded well under the engine lease so a rollout never hangs.
     timeout-per-shutdown-phase: ${FACTORY_SHUTDOWN_PHASE_TIMEOUT:60s}
@@ -15,7 +17,7 @@ spring:
     username: ${FACTORY_DB_USER:factory}
     password: ${FACTORY_DB_PASSWORD:factory}
     hikari:
-      # PERF-1: sized to concurrency, not request volume — the LLM/Karate work runs
+      # Sized to concurrency, not request volume — the LLM/Karate work runs
       # outside any transaction, so connections are borrowed only for sub-second
       # bursts. maximum-pool-size = worker-threads(4) + scheduler(2) + web headroom(8)
       # + flyway/misc(2) = 16. Raise FACTORY_DB_POOL_MAX in lockstep with worker-threads.
@@ -33,9 +35,19 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
-  # REL-1: outbound HTTP client timeouts for the auto-configured RestClient.Builder
-  # the Jira/GitHub/TestRail connectors clone (Spring Boot 4 plural `clients`
-  # namespace). The Anthropic LLM client uses its own transport and is unaffected.
+  # Every @{/css/...}, @{/js/...} and @{/webjars/...} link in a page gets a content hash, so a
+  # browser never mixes an old cached file with new HTML. Long caching of /css and /js:
+  # StaticResourceConfiguration.
+  web:
+    resources:
+      chain:
+        strategy:
+          content:
+            enabled: true
+  # Outbound HTTP client timeouts, so a hung Jira, GitHub or TestRail call fails instead of
+  # blocking its thread. They apply to the auto-configured RestClient.Builder the connectors
+  # clone (Spring Boot 4 plural `clients` namespace). The Anthropic LLM client uses its own
+  # transport and is unaffected.
   # Values are Durations; env overrides must also be Durations (e.g. 10s, 500ms).
   http:
     clients:
@@ -48,8 +60,8 @@ spring:
       api-key: ${ANTHROPIC_API_KEY:}
       chat:
         options:
-          model: ${FACTORY_LLM_MODEL:claude-sonnet-4-5}
-          max-tokens: 8192
+          model: ${FACTORY_LLM_MODEL:claude-sonnet-5-5}
+          max-tokens: 16384
     # Any OpenAI-compatible endpoint (Groq, Gemini, OpenRouter, local Ollama).
     # Active only when FACTORY_LLM_PROVIDER=openai.
     openai:
@@ -65,7 +77,7 @@ server:
   # Safe local default. Compose overrides the container listener while publishing
   # its host port on loopback only.
   address: ${FACTORY_SERVER_ADDRESS:127.0.0.1}
-  # OPS-2: finish in-flight HTTP requests before exit instead of dropping them on
+  # Finish in-flight HTTP requests before exit instead of dropping them on
   # SIGTERM. Runs in the SmartLifecycle stop phase, bounded by timeout-per-shutdown-phase.
   shutdown: graceful
 
@@ -81,7 +93,7 @@ factory:
     # Cadence of the lease reaper + sub-flow reconciliation sweep. Read by the
     # @Scheduled placeholder in ExecutionPoller, not by EngineProperties.
     reap-interval-ms: ${FACTORY_ENGINE_REAP_INTERVAL_MS:30000}
-    # OPS-2: max seconds shutdown blocks draining in-flight engine steps before the
+    # Max seconds shutdown blocks draining in-flight engine steps before the
     # JVM exits; a longer step is abandoned and re-queued by the reaper after
     # lease-timeout-seconds. Keep <= the container termination grace period.
     shutdown-await-seconds: ${FACTORY_ENGINE_SHUTDOWN_AWAIT_SECONDS:30}
@@ -91,10 +103,12 @@ factory:
     # peer instance's live work.
     reclaim-running-on-startup: ${FACTORY_ENGINE_RECLAIM_RUNNING_ON_STARTUP:true}
   limits:
-    # COST-1: 0 disables the guard.
+    # Caps on runs at once and runs per day keep LLM spend bounded; a trigger over the daily
+    # budget gets HTTP 429. 0 disables a cap.
     max-concurrent-executions: ${FACTORY_LIMITS_MAX_CONCURRENT_EXECUTIONS:8}
     max-executions-per-day: ${FACTORY_LIMITS_MAX_EXECUTIONS_PER_DAY:200}
-    # DATA-1: write-time size caps (bytes). Non-destructive; generous defaults.
+    # Write-time size caps (bytes), so one artifact or trigger payload cannot fill the
+    # database. Non-destructive; generous defaults.
     max-artifact-bytes: ${FACTORY_LIMITS_MAX_ARTIFACT_BYTES:5000000}
     max-trigger-payload-bytes: ${FACTORY_LIMITS_MAX_TRIGGER_PAYLOAD_BYTES:262144}
     dedup:
@@ -105,7 +119,7 @@ factory:
       # payload. Comma-separated. Explicit placeholder so the underscored env var binds.
       id-pointers: ${FACTORY_LIMITS_DEDUP_ID_POINTERS:/issueKey}
   retention:
-    # DATA-1: destructive, so opt-in. Purges terminal execution trees older than the
+    # Destructive, so opt-in. Purges terminal execution trees older than the
     # TTL (COMPLETED/REJECTED/CANCELLED and descendants); audit_event is never purged.
     enabled: ${FACTORY_RETENTION_ENABLED:false}
     ttl-days: ${FACTORY_RETENTION_TTL_DAYS:90}
@@ -125,21 +139,34 @@ factory:
       username: ${FACTORY_CONNECTORS_TESTRAIL_USERNAME:}
       api-key: ${FACTORY_CONNECTORS_TESTRAIL_API_KEY:}
       project-id: ${FACTORY_CONNECTORS_TESTRAIL_PROJECT_ID:0}
+  # My tasks. These settings had the old pilot names until the rename on 2026-10-30.
+  tasks:
+    execution:
+      # Task queue processing: opt-in; new launches are refused while retention is enabled.
+      # Gates the outcome and dispatch wiring; the engine itself knows nothing about tasks.
+      enabled: ${FACTORY_TASKS_EXECUTION_ENABLED:false}
+      # Whole-attempt budget from preparation through delivery (queue and review waiting
+      # excluded). The coding turns have their own safety limit, 200 by default
+      # (factory.dev-factory.runtime.coding.claude-code.max-turns).
+      deadline: ${FACTORY_TASKS_EXECUTION_DEADLINE:60m}
+      # Dispatch poller, also run once at startup: re-examines the active attempt, retries
+      # queued attempts after a refused or failed dispatch and advances the queue when a
+      # terminal outcome frees the slot. Admission itself also dispatches best-effort.
+      dispatch-interval-ms: ${FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS:30000}
+    source:
+      # Whose open Jira tasks Scan Jira finds: the name as Jira shows it, or an accountId.
+      assignee: ${FACTORY_TASKS_ASSIGNEE:}
   dev-factory:
     git-base-url: ${FACTORY_DEV_FACTORY_GIT_BASE_URL:https://github.com}
+    # Model used when a run names none (manual API trigger, runs from before the models file) and
+    # preselected in the run forms: an id from config/developer-models.yaml. Empty: the first model
+    # in that file that the coding harness can run.
+    default-model: ${FACTORY_DEV_FACTORY_DEFAULT_MODEL:}
     runtime:
       timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
       coding:
         runtime: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:claude-code}
-        image: ${FACTORY_DEV_FACTORY_CODING_IMAGE:factory-dev-pi:0.85.1-java21}
-        provider: ${FACTORY_MODEL_PROVIDER:}
-        model: ${FACTORY_MODEL_ID:}
-        base-url: ${FACTORY_MODEL_BASE_URL:}
-        api: ${FACTORY_MODEL_API:openai-completions}
-        api-key: ${FACTORY_MODEL_API_KEY:}
-        reasoning-effort: ${FACTORY_MODEL_REASONING_EFFORT:}
-        max-output-tokens: ${FACTORY_MODEL_MAX_OUTPUT_TOKENS:16384}
         pi:
           image: ${FACTORY_PI_IMAGE:}
           provider: ${FACTORY_PI_PROVIDER:}
@@ -150,19 +177,12 @@ factory:
           api-key: ${FACTORY_PI_API_KEY:}
           reasoning-effort: ${FACTORY_PI_REASONING_EFFORT:}
           max-output-tokens: ${FACTORY_PI_MAX_OUTPUT_TOKENS:}
+        # The model, endpoint, secret and effort of a Claude Code run come from config/developer-models.yaml.
         claude-code:
           image: ${FACTORY_CLAUDE_CODE_IMAGE:factory-dev-claude-code:2.1.287-java21}
-          api: ${FACTORY_CLAUDE_CODE_API:anthropic-messages}
-          base-url: ${FACTORY_CLAUDE_CODE_BASE_URL:http://host.docker.internal:4001}
-          model: ${FACTORY_CLAUDE_CODE_MODEL:claude-sonnet-5-5}
-          authentication: ${FACTORY_CLAUDE_CODE_AUTHENTICATION:bearer-token}
-          api-key: ${FACTORY_CLAUDE_CODE_API_KEY:}
-          auth-token: ${FACTORY_CLAUDE_CODE_AUTH_TOKEN:codemie-proxy}
-          max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:40}
-          max-output-tokens: ${FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS:16384}
-          effort: ${FACTORY_CLAUDE_CODE_EFFORT:}
-    delivery:
-      create-pull-request: true
+          # A safety limit from 1 to 500, not a tuning knob: the coding timeout above usually ends a
+          # run first (about 180 turns in 30 minutes). A run that hits it loses its work.
+          max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:200}
   test-factory:
     execution:
       base-url: ${FACTORY_TEST_FACTORY_EXECUTION_BASE_URL:}
@@ -175,7 +195,7 @@ factory:
     testrail-section-id: ${FACTORY_TEST_FACTORY_TESTRAIL_SECTION_ID:}
 
 logging:
-  # OBS-1: JSON logging is opt-in via env so local `mvn spring-boot:run` stays
+  # JSON logging is opt-in via env so local `mvn spring-boot:run` stays
   # human-readable. Set FACTORY_LOG_FORMAT=ecs (or logstash / gelf) in containers.
   # An empty value keeps the standard pattern; under ecs/logstash every MDC entry
   # (executionId, stepId) is auto-included in the JSON.
@@ -190,11 +210,11 @@ management:
   endpoints:
     web:
       exposure:
-        # OBS-1: prometheus scrape at /actuator/prometheus, metrics browse at /actuator/metrics.
+        # Metrics for monitoring: Prometheus scrape at /actuator/prometheus, browsing at /actuator/metrics.
         include: health,info,metrics,prometheus
   endpoint:
     health:
-      # OBS-1: registers /actuator/health/liveness and /actuator/health/readiness probes.
+      # Container health checks: registers /actuator/health/liveness and /actuator/health/readiness.
       probes:
         enabled: true
       # Security-adjacent: exposes db + connector details to unauthenticated callers.
@@ -206,3 +226,8 @@ management:
           include: livenessState
         readiness:
           include: readinessState,db
+
+# Each model in config/developer-models.yaml reads its secret by variable name from this environment.
+# The local CodeMie proxy accepts this public token, so the CodeMie models also work under
+# mvn spring-boot:run without .env; the shell, .env and Compose override it.
+FACTORY_CODEMIE_PROXY_TOKEN: codemie-proxy

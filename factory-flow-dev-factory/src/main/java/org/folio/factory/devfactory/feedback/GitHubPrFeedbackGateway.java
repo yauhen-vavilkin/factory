@@ -56,7 +56,8 @@ public class GitHubPrFeedbackGateway implements PrFeedbackGateway {
         collect("/repos/" + pr.repository() + "/pulls/" + pr.number() + "/reviews", "review", comments);
         collect("/repos/" + pr.repository() + "/pulls/" + pr.number() + "/comments", "inline", comments);
         comments.sort(Comparator.comparing(Comment::id));
-        return new Snapshot(ArtifactStore.sha256(json.writeValueAsString(List.of(pr, comments))), pr, List.copyOf(comments));
+        return new Snapshot(ArtifactStore.sha256(json.writeValueAsString(List.of(pr, comments))), pr,
+                List.copyOf(comments));
     }
     private void collect(String path, String kind, List<Comment> result) {
         for (int page = 1; ; page++) {
@@ -66,10 +67,12 @@ public class GitHubPrFeedbackGateway implements PrFeedbackGateway {
             for (var n : nodes) {
                 String body = n.path("body").asString("");
                 if (body.isBlank()) continue;
-                result.add(new Comment(kind + ":" + n.path("id").asString(""), n.path("user").path("login").asString(""),
+                result.add(new Comment(kind + ":" + n.path("id").asString(""),
+                        n.path("user").path("login").asString(""),
                         body, n.path("path").asString(""), n.path("line").isNumber() ? n.path("line").asInt() : null,
                         kind.equals("inline") && n.path("position").isNull(),
-                        n.path("updated_at").asString(n.path("submitted_at").asString("")), n.path("html_url").asString("")));
+                        n.path("updated_at").asString(n.path("submitted_at").asString("")),
+                        n.path("html_url").asString("")));
             }
             if (nodes.size() < 100) return;
         }

@@ -25,12 +25,13 @@ class ComposeConfigurationTest {
     private static final Set<String> REPOSITORY_PREFIXES = Set.of(
             "SIDECAR", "MOD_ROLES_KEYCLOAK", "MGR_TENANT_ENTITLEMENTS", "MGR_APPLICATIONS");
     private static final Set<String> REPOSITORY_FIELDS = Set.of(
-            "SOURCE_REPO", "DELIVERY_REPO", "BASE_BRANCH", "DELIVERY_AUTHORIZED");
+            "SOURCE_REPO", "DELIVERY_REPO", "BASE_BRANCH");
     private static final Set<String> COMPOSE_ONLY = Set.of(
             "COMPOSE_PROJECT_NAME", "FACTORY_APP_IMAGE", "FACTORY_APP_PORT", "FACTORY_DB_PORT",
-            "FACTORY_BIND_ADDRESS", "FACTORY_DEV_FACTORY_REPOSITORIES_FILE");
+            "FACTORY_BIND_ADDRESS", "FACTORY_DEV_FACTORY_REPOSITORIES_FILE", "FACTORY_DEV_FACTORY_MODELS_FILE");
     private static final Path ROOT = repositoryRoot();
     private static final String CATALOG_MOUNT = "/application/config/developer-repositories.yaml";
+    private static final String MODELS_MOUNT = "/application/config/developer-models.yaml";
     private static final Set<String> INHERITED_PROCESS_VARIABLES =
             Set.of("PATH", "HOME", "TMPDIR", "SystemRoot");
 
@@ -40,10 +41,15 @@ class ComposeConfigurationTest {
     void everyDocumentedApplicationSettingAndSpringPlaceholderHasAComposeEntry() throws IOException {
         var documented = names(Files.readString(ROOT.resolve(".env.example")),
                 "(?m)^\\s*(?:#\\s*)?([A-Z][A-Z0-9_]+)=");
+        documented.addAll(names(Files.readString(ROOT.resolve(".env.tasks.example")),
+                "(?m)^\\s*(?:#\\s*)?([A-Z][A-Z0-9_]+)="));
         for (String path : new String[]{"factory-app/src/main/resources/application.yaml",
                 "config/developer-repositories.yaml"}) {
             documented.addAll(names(Files.readString(ROOT.resolve(path)), "\\$\\{([A-Z][A-Z0-9_]+)[:}]"));
         }
+        // Factory reads each model's secret by the variable the models file names.
+        documented.addAll(names(Files.readString(ROOT.resolve("config/developer-models.yaml")),
+                "(?m)^\\s*secret-env:\\s*([A-Z][A-Z0-9_]+)"));
         documented.removeAll(COMPOSE_ONLY);
         var forwarded = names(Files.readString(ROOT.resolve("docker-compose.yml")),
                 "(?m)^      ([A-Z][A-Z0-9_]+):");
@@ -68,12 +74,11 @@ class ComposeConfigurationTest {
                 Map.entry("FACTORY_HTTP_READ_TIMEOUT", "17s"),
                 Map.entry("FACTORY_RETENTION_RUN_CRON", "0 15 4 * * *"),
                 Map.entry("FACTORY_LOG_FORMAT", "ecs"),
-                Map.entry("FACTORY_CLAUDE_CODE_MODEL", "coding-model-from-dotenv"),
-                Map.entry("FACTORY_CLAUDE_CODE_BASE_URL", "https://fixture.invalid/anthropic"),
-                Map.entry("FACTORY_CLAUDE_CODE_AUTHENTICATION", "api-key"),
-                Map.entry("FACTORY_CLAUDE_CODE_API_KEY", "fixture-coding-key"),
-                Map.entry("FACTORY_CLAUDE_CODE_AUTH_TOKEN", "fixture-custom-proxy-token"),
-                Map.entry("FACTORY_SIDECAR_DELIVERY_AUTHORIZED", "false"));
+                Map.entry("FACTORY_CLAUDE_CODE_MAX_TURNS", "120"),
+                Map.entry("FACTORY_DEV_FACTORY_DEFAULT_MODEL", "anthropic-sonnet-5.5"),
+                Map.entry("FACTORY_ANTHROPIC_API_KEY", "fixture-coding-key"),
+                Map.entry("FACTORY_CODEMIE_PROXY_TOKEN", "fixture-custom-proxy-token"),
+                Map.entry("FACTORY_SIDECAR_DELIVERY_REPO", "fork/folio-module-sidecar"));
         Map<String, String> shell = Map.of("FACTORY_LLM_MODEL", "model-from-shell");
         var config = render(dotenv, shell);
         var environment = config.path("services").path("factory").path("environment");
@@ -91,25 +96,100 @@ class ComposeConfigurationTest {
         var environment = config.path("services").path("factory").path("environment");
 
         assertLocalCodeMieProfile(environment);
-        assertThat(environment.path("FACTORY_CLAUDE_CODE_AUTH_TOKEN").asString()).isEqualTo("codemie-proxy");
         assertThat(config.path("services").path("coding-runtime").path("image").asString())
                 .startsWith("factory-dev-claude-code:");
+        // Unset values arrive empty, which Factory treats as unset: the first model and "not configured".
+        assertThat(environment.path("FACTORY_ZAI_API_KEY").asString()).isEmpty();
+        assertThat(environment.path("FACTORY_ANTHROPIC_API_KEY").asString()).isEmpty();
+        assertThat(environment.path("FACTORY_DEV_FACTORY_DEFAULT_MODEL").asString()).isEmpty();
     }
 
     @Test
-    void copiedExampleUsesLocalProxyAndDoesNotOverrideCatalogAuthorization() throws Exception {
-        Map<String, String> example = exampleEnvironment();
+    void copiedExampleUsesLocalProxyAndDoesNotOverrideTheCatalog() throws Exception {
+        Map<String, String> example = exampleEnvironment(".env.example");
         var config = render(example, Map.of());
         var environment = config.path("services").path("factory").path("environment");
 
         assertLocalCodeMieProfile(environment);
-        assertThat(environment.path("FACTORY_CLAUDE_CODE_AUTH_TOKEN").asString())
-                .isEqualTo("codemie-proxy");
         for (String prefix : REPOSITORY_PREFIXES) {
-            assertThat(isUnset(environment.path("FACTORY_" + prefix + "_DELIVERY_AUTHORIZED")))
-                    .as("The example must retain catalog authorization for %s", prefix)
-                    .isTrue();
+            for (String field : REPOSITORY_FIELDS) {
+                assertThat(isUnset(environment.path("FACTORY_" + prefix + "_" + field)))
+                        .as("The example must keep the catalog %s for %s", field, prefix)
+                        .isTrue();
+            }
         }
+    }
+
+    @Test
+    void taskExampleAsksOnlyForTheAssigneeAndTokenAndStaysOnTheSupportedLocalProfile() throws Exception {
+        Map<String, String> taskRun = exampleEnvironment(".env.tasks.example");
+        var config = render(taskRun, Map.of());
+        var environment = config.path("services").path("factory").path("environment");
+
+        assertThat(taskRun).containsOnlyKeys("FACTORY_CONNECTORS_JIRA_BASE_URL", "FACTORY_TASKS_ASSIGNEE",
+                "FACTORY_CONNECTORS_GITHUB_TOKEN", "FACTORY_TASKS_EXECUTION_ENABLED");
+        assertLocalCodeMieProfile(environment);
+        assertEnvironmentContains(environment, Map.of(
+                "FACTORY_CONNECTORS_JIRA_BASE_URL", "https://folio-org.atlassian.net",
+                "FACTORY_TASKS_EXECUTION_ENABLED", "true"));
+        // Retention keeps its off default; task execution refuses to start tasks while it is on.
+        assertThat(isUnset(environment.path("FACTORY_RETENTION_ENABLED"))).isTrue();
+        assertThat(isUnset(environment.path("FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS"))).isTrue();
+    }
+
+    @Test
+    void publishedPortsStayLoopbackOnlyAndTheCodingRuntimeExposesNothing() throws Exception {
+        var config = render(Map.of(), Map.of());
+        var factory = config.path("services").path("factory");
+        var coding = config.path("services").path("coding-runtime");
+
+        assertThat(coding.path("ports").isMissingNode()
+                || coding.path("ports").isEmpty()).isTrue();
+        for (JsonNode port : factory.path("ports")) {
+            assertThat(port.path("host_ip").asString()).isEqualTo("127.0.0.1");
+        }
+    }
+
+    @Test
+    void catalogAndModelsMountsAreReadOnlyAndPersistentStorageUsesNamedVolumes() throws Exception {
+        var services = render(Map.of(), Map.of()).path("services");
+        var factory = services.path("factory");
+
+        JsonNode catalog = requireVolume(factory, CATALOG_MOUNT);
+        assertThat(catalog.path("read_only").asBoolean()).isTrue();
+        JsonNode models = requireVolume(factory, MODELS_MOUNT);
+        assertThat(models.path("read_only").asBoolean()).isTrue();
+        assertThat(models.path("source").asString()).endsWith("config/developer-models.yaml");
+        assertThat(requireVolume(services.path("postgres"), "/var/lib/postgresql/data")
+                .path("source").asString()).endsWith("factory-pgdata");
+        JsonNode m2 = requireVolume(factory, "/var/lib/factory-dev-m2-cache");
+        assertThat(m2.path("read_only").asBoolean()).isTrue();
+    }
+
+    @Test
+    void modelsFileSecretAndDefaultModelReachTheApp() throws Exception {
+        Path models = fixture.resolve("my-models.yaml");
+        Files.writeString(models, "factory: {}\n");
+        var factory = render(Map.of("FACTORY_DEV_FACTORY_MODELS_FILE", models.toString(),
+                "FACTORY_ZAI_API_KEY", "fixture-zai-key", "FACTORY_DEV_FACTORY_DEFAULT_MODEL", "glm-5.3"),
+                Map.of()).path("services").path("factory");
+        var environment = factory.path("environment");
+
+        assertEnvironmentContains(environment, Map.of("FACTORY_ZAI_API_KEY", "fixture-zai-key",
+                "FACTORY_DEV_FACTORY_DEFAULT_MODEL", "glm-5.3"));
+        assertThat(environment.path("SPRING_CONFIG_IMPORT").asString())
+                .contains("classpath:developer-models.yaml,file:" + MODELS_MOUNT)
+                .doesNotContain("run-profiles", "pricing");
+        assertThat(requireVolume(factory, MODELS_MOUNT).path("source").asString()).isEqualTo(models.toString());
+    }
+
+    @Test
+    void theCodingRuntimeCommandStaysThePinnedVersionGateNotInferenceEvidence() throws Exception {
+        var coding = render(Map.of(), Map.of()).path("services").path("coding-runtime");
+
+        var command = new StringBuilder();
+        coding.path("command").forEach(part -> command.append(part.asString()).append(' '));
+        assertThat(command.toString()).contains("claude --version").contains("2.1.287 (Claude Code)");
     }
 
     @ParameterizedTest
@@ -150,8 +230,7 @@ class ComposeConfigurationTest {
         var overrides = Map.of(
                 key + "SOURCE_REPO", "source/custom-module",
                 key + "DELIVERY_REPO", "fork/custom-module",
-                key + "BASE_BRANCH", "campaign/custom-base",
-                key + "DELIVERY_AUTHORIZED", "true");
+                key + "BASE_BRANCH", "campaign/custom-base");
         var environment = render(overrides, Map.of()).path("services").path("factory").path("environment");
         assertEnvironmentContains(environment, overrides);
         for (String other : REPOSITORY_PREFIXES) {
@@ -167,20 +246,17 @@ class ComposeConfigurationTest {
     }
 
     private static void assertLocalCodeMieProfile(JsonNode environment) {
+        // The CodeMie models come first in config/developer-models.yaml; compose gives them the public token.
         assertEnvironmentContains(environment, Map.of(
                 "FACTORY_DEV_FACTORY_CODING_RUNTIME", "claude-code",
-                "FACTORY_CLAUDE_CODE_API", "anthropic-messages",
-                "FACTORY_CLAUDE_CODE_BASE_URL", "http://host.docker.internal:4001",
-                "FACTORY_CLAUDE_CODE_MODEL", "claude-sonnet-5-5",
-                "FACTORY_CLAUDE_CODE_AUTHENTICATION", "bearer-token",
-                "FACTORY_CLAUDE_CODE_MAX_TURNS", "40",
+                "FACTORY_CODEMIE_PROXY_TOKEN", "codemie-proxy",
+                "FACTORY_CLAUDE_CODE_MAX_TURNS", "200",
                 "FACTORY_DEV_FACTORY_TIMEOUT_SECONDS", "1800"));
-        assertThat(environment.path("FACTORY_CLAUDE_CODE_EFFORT").asString()).isEmpty();
     }
 
-    private static Map<String, String> exampleEnvironment() throws IOException {
+    private static Map<String, String> exampleEnvironment(String fileName) throws IOException {
         Map<String, String> variables = new HashMap<>();
-        for (String line : Files.readAllLines(ROOT.resolve(".env.example"))) {
+        for (String line : Files.readAllLines(ROOT.resolve(fileName))) {
             if (line.isBlank() || line.startsWith("#")) {
                 continue;
             }

@@ -2,6 +2,8 @@ package org.folio.factory.app;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.stubbing.ServeEvent;
+import org.folio.factory.app.support.FactoryIntegrationTest;
+import org.folio.factory.app.support.SharedWireMock;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReviewStatus;
@@ -9,25 +11,20 @@ import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.core.env.Environment;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.web.client.RestClient;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -54,47 +51,28 @@ import static org.awaitility.Awaitility.await;
  * plan → QA amend at gate 1 → script generation → advisory execution → QA
  * approve at gate 2 → finalizer syncs all three connectors.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "spring.ai.model.chat=none",
-        "factory.engine.poll-interval-ms=250"
-})
-@Import(StubLlmConfiguration.class)
-@Testcontainers
+@FactoryIntegrationTest
+@Import({SharedWireMock.Jira.class, SharedWireMock.GitHub.class, SharedWireMock.TestRail.class})
+@ActiveProfiles("engine")
+// Own context: running engine against WireMock Jira, GitHub and TestRail; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class TestFactoryEndToEndTest {
 
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
-
-    static WireMockServer jira = new WireMockServer(0);
-    static WireMockServer gitHub = new WireMockServer(0);
-    static WireMockServer testRail = new WireMockServer(0);
+    static final WireMockServer jira = SharedWireMock.JIRA;
+    static final WireMockServer gitHub = SharedWireMock.GITHUB;
+    static final WireMockServer testRail = SharedWireMock.TESTRAIL;
 
     @DynamicPropertySource
     static void connectorProperties(DynamicPropertyRegistry registry) {
-        jira.start();
-        gitHub.start();
-        testRail.start();
-        registry.add("factory.connectors.jira.base-url", jira::baseUrl);
         registry.add("factory.connectors.jira.email", () -> "bot@example.org");
         registry.add("factory.connectors.jira.api-token", () -> "token");
-        registry.add("factory.connectors.github.base-url", gitHub::baseUrl);
         registry.add("factory.connectors.github.token", () -> "ghp_test");
-        registry.add("factory.connectors.testrail.base-url", testRail::baseUrl);
         registry.add("factory.connectors.testrail.username", () -> "bot");
         registry.add("factory.connectors.testrail.api-key", () -> "key");
         registry.add("factory.connectors.testrail.project-id", () -> "12");
         registry.add("factory.test-factory.target-repo", () -> "folio-org/mod-agreements");
         registry.add("factory.test-factory.jira-transition", () -> "QA Complete");
         registry.add("factory.test-factory.testrail-section-id", () -> "55");
-    }
-
-    @AfterAll
-    static void stopWireMock() {
-        jira.stop();
-        gitHub.stop();
-        testRail.stop();
     }
 
     @LocalServerPort

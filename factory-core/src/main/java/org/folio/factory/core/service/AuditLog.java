@@ -1,5 +1,6 @@
 package org.folio.factory.core.service;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.repository.AuditEventRepository;
@@ -11,17 +12,13 @@ import java.util.Map;
 import java.util.UUID;
 
 @Service
+@RequiredArgsConstructor
 public class AuditLog {
 
     public static final String SYSTEM_ACTOR = "system";
 
     private final AuditEventRepository repository;
     private final JsonMapper jsonMapper;
-
-    public AuditLog(AuditEventRepository repository, JsonMapper jsonMapper) {
-        this.repository = repository;
-        this.jsonMapper = jsonMapper;
-    }
 
     public void record(UUID executionId, AuditEventType type, String stepId, String actor, Map<String, ?> detail) {
         String detailJson = detail == null ? null : jsonMapper.writeValueAsString(detail);

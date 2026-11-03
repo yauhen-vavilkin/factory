@@ -2,6 +2,7 @@ package org.folio.factory.app.developer;
 
 import org.folio.factory.connectors.github.GitHubProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
+import org.folio.factory.devfactory.runtime.Git;
 import org.folio.factory.devfactory.runtime.Processes;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -68,9 +69,8 @@ public class DeveloperPreflightProbe {
 
     public String sourceBase(String gitBaseUrl, String sourceRepo, String branch) {
         String branchRef = "refs/heads/" + branch;
-        List<String> command = List.of("git", "-c", "credential.helper=", "ls-remote", "--exit-code",
+        Processes.Result result = Git.run(null, Map.of(), SOURCE_TIMEOUT_SECONDS, "ls-remote", "--exit-code",
                 gitBaseUrl + "/" + sourceRepo + ".git", branchRef);
-        Processes.Result result = Processes.run(null, command, SOURCE_TIMEOUT_SECONDS, Map.of(), COMMAND_OUTPUT_LIMIT);
         if (result.exitCode() != 0) {
             throw new IllegalStateException("Public source base is not readable");
         }
@@ -84,15 +84,22 @@ public class DeveloperPreflightProbe {
     }
 
     public void requireDeliveryAccess(DeliveryTarget target, String sourceSha) {
+        requirePushAccess(target);
         String[] repository = target.repository().split("/");
         String owner = repository[0];
         String name = repository[1];
-        requirePushPermission(owner, name);
 
         String destinationSha = destinationBase(owner, name, target.baseBranch());
         if (!sourceSha.equals(destinationSha)) {
             requireSourceAncestor(owner, name, sourceSha, destinationSha);
         }
+    }
+
+    /** The configured token can push to the delivery repository. */
+    public void requirePushAccess(DeliveryTarget target) {
+        target.requireValid();
+        String[] repository = target.repository().split("/");
+        requirePushPermission(repository[0], repository[1]);
     }
 
     private void requirePushPermission(String owner, String repository) {
@@ -131,7 +138,8 @@ public class DeveloperPreflightProbe {
 
     private boolean command(List<String> argv) {
         try {
-            Processes.Result result = Processes.run(null, argv, COMMAND_TIMEOUT_SECONDS, Map.of(), COMMAND_OUTPUT_LIMIT);
+            Processes.Result result = Processes.run(null, argv, COMMAND_TIMEOUT_SECONDS, Map.of(),
+                    COMMAND_OUTPUT_LIMIT, null);
             return result.exitCode() == 0;
         } catch (IllegalStateException e) {
             return false;

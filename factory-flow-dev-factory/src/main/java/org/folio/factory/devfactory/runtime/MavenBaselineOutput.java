@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.runtime;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -16,7 +17,8 @@ public final class MavenBaselineOutput implements Consumer<String> {
             "(?i)Could not transfer artifact (?:[^:\\s]+:)?([^:\\s]+):[^:\\s]+:([^:\\s]+) from/to ([^ (:\\s]+)");
     private static final Pattern NETWORK_FAILURE = Pattern.compile(
             "connect timed out|connection timed out|connection timeout|read timed out|read timeout|connection reset"
-                    + "|unknownhostexception|unknown host|temporary failure in name resolution|name or service not known"
+                    + "|unknownhostexception|unknown host|temporary failure in name resolution"
+                    + "|name or service not known"
                     + "|premature end of content-length|unexpected end of stream|incomplete http body");
     private static final Pattern EXCEPTION_CONTINUATION = Pattern.compile(
             "(?:[a-z0-9_$]+\\.)+[a-z0-9_$]*exception:.*");
@@ -77,22 +79,29 @@ public final class MavenBaselineOutput implements Consumer<String> {
         for (int i = 0; i < lines.size(); i++) {
             String line = lines.get(i);
             if (!line.contains("[error]") || !(line.contains("could not transfer artifact")
-                    || line.contains("could not transfer metadata") || line.contains("failed to transfer artifact"))) continue;
-            if (NETWORK_FAILURE.matcher(line).find()) return true;
-            // Maven can wrap a transfer exception onto adjacent diagnostic lines. Only
-            // recognizable exception continuations qualify, not arbitrary later test output.
-            for (int next = i + 1; next < Math.min(lines.size(), i + 4); next++) {
-                String continuation = lines.get(next).strip();
-                if (continuation.startsWith("[error]")) continuation = continuation.substring(7).strip();
-                boolean cause = continuation.startsWith("caused by:") || continuation.startsWith("connect to ")
-                        || EXCEPTION_CONTINUATION.matcher(continuation).matches()
-                        || NETWORK_FAILURE.matcher(continuation).matches()
-                        || continuation.startsWith("premature end of content-length")
-                        || continuation.startsWith("unexpected end of stream")
-                        || continuation.startsWith("incomplete http body");
-                if (!cause) break;
-                if (NETWORK_FAILURE.matcher(continuation).find()) return true;
-            }
+                    || line.contains("could not transfer metadata")
+                    || line.contains("failed to transfer artifact"))) continue;
+            if (NETWORK_FAILURE.matcher(line).find() || continuesWithNetworkFailure(lines, i)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Maven can wrap a transfer exception onto adjacent diagnostic lines. Only
+     * recognizable exception continuations qualify, not arbitrary later test output.
+     */
+    private static boolean continuesWithNetworkFailure(List<String> lines, int transferLine) {
+        for (int next = transferLine + 1; next < Math.min(lines.size(), transferLine + 4); next++) {
+            String continuation = lines.get(next).strip();
+            if (continuation.startsWith("[error]")) continuation = continuation.substring(7).strip();
+            boolean cause = continuation.startsWith("caused by:") || continuation.startsWith("connect to ")
+                    || EXCEPTION_CONTINUATION.matcher(continuation).matches()
+                    || NETWORK_FAILURE.matcher(continuation).matches()
+                    || continuation.startsWith("premature end of content-length")
+                    || continuation.startsWith("unexpected end of stream")
+                    || continuation.startsWith("incomplete http body");
+            if (!cause) return false;
+            if (NETWORK_FAILURE.matcher(continuation).find()) return true;
         }
         return false;
     }

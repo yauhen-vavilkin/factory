@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.TokenUsage;
 import org.folio.factory.app.web.dashboard.DashboardStatsService;
@@ -44,6 +45,7 @@ import java.util.UUID;
  * the same beans as their REST counterparts.
  */
 @Controller
+@RequiredArgsConstructor
 public class DashboardUiController {
 
     private static final int DEFAULT_DAYS = 14;
@@ -60,40 +62,12 @@ public class DashboardUiController {
     private final JsonMapper jsonMapper;
     private final DashboardStatsService dashboardStats;
 
-    public DashboardUiController(List<ConnectorHealth> connectors, FlowRegistry flowRegistry,
-                                 EngineProperties engineProperties,
-                                 FlowRegistryEntryRepository flowRegistryEntries,
-                                 PipelineExecutionRepository executions, HitlReviewRepository reviews,
-                                 AuditEventRepository audit, JsonMapper jsonMapper,
-                                 DashboardStatsService dashboardStats) {
-        this.connectors = connectors;
-        this.flowRegistry = flowRegistry;
-        this.engineProperties = engineProperties;
-        this.flowRegistryEntries = flowRegistryEntries;
-        this.executions = executions;
-        this.reviews = reviews;
-        this.audit = audit;
-        this.jsonMapper = jsonMapper;
-        this.dashboardStats = dashboardStats;
-    }
-
     @GetMapping("/")
     public String dashboard(@RequestParam(name = "days", defaultValue = "14") int days, Model model) {
         int window = ALLOWED_DAYS.contains(days) ? days : DEFAULT_DAYS;
         model.addAttribute("days", window);
 
-        Map<ExecutionStatus, Long> byStatus = new EnumMap<>(ExecutionStatus.class);
-        for (Object[] row : executions.countGroupedByStatus()) {
-            byStatus.put((ExecutionStatus) row[0], (Long) row[1]);
-        }
-        long total = byStatus.values().stream().mapToLong(Long::longValue).sum();
-        model.addAttribute("totalExecutions", total);
-        model.addAttribute("completedCount", byStatus.getOrDefault(ExecutionStatus.COMPLETED, 0L));
-        model.addAttribute("awaitingHitlCount", byStatus.getOrDefault(ExecutionStatus.AWAITING_HITL, 0L));
-        model.addAttribute("failedCount", byStatus.getOrDefault(ExecutionStatus.FAILED_ESCALATED, 0L));
-        model.addAttribute("cancelledCount", byStatus.getOrDefault(ExecutionStatus.CANCELLED, 0L));
-        model.addAttribute("rejectedCount", byStatus.getOrDefault(ExecutionStatus.REJECTED, 0L));
-
+        addExecutionCounts(model);
         model.addAttribute("pendingReviews", reviews.countByStatus(HitlReviewStatus.PENDING));
 
         model.addAttribute("engineEnabled", engineProperties.enabled());
@@ -110,6 +84,21 @@ public class DashboardUiController {
         model.addAttribute("stepTokens", dashboardStats.stepTokens(window).stream()
                 .map(DashboardUiController::stepTokenRow).toList());
         return "dashboard";
+    }
+
+    /** All-time execution counts: the total and one count per status the dashboard shows. */
+    private void addExecutionCounts(Model model) {
+        Map<ExecutionStatus, Long> byStatus = new EnumMap<>(ExecutionStatus.class);
+        for (Object[] row : executions.countGroupedByStatus()) {
+            byStatus.put((ExecutionStatus) row[0], (Long) row[1]);
+        }
+        long total = byStatus.values().stream().mapToLong(Long::longValue).sum();
+        model.addAttribute("totalExecutions", total);
+        model.addAttribute("completedCount", byStatus.getOrDefault(ExecutionStatus.COMPLETED, 0L));
+        model.addAttribute("awaitingHitlCount", byStatus.getOrDefault(ExecutionStatus.AWAITING_HITL, 0L));
+        model.addAttribute("failedCount", byStatus.getOrDefault(ExecutionStatus.FAILED_ESCALATED, 0L));
+        model.addAttribute("cancelledCount", byStatus.getOrDefault(ExecutionStatus.CANCELLED, 0L));
+        model.addAttribute("rejectedCount", byStatus.getOrDefault(ExecutionStatus.REJECTED, 0L));
     }
 
     private static Map<String, Object> stepTokenRow(StepTokenCount step) {
@@ -155,21 +144,7 @@ public class DashboardUiController {
         Pageable pageable = PageRequest.of(Math.max(page, 0), clampedSize);
         AuditEventType type = UiFormat.enumOrNull(AuditEventType.class, eventType);
 
-        // Slice, not Page: the audit table is append-only and unbounded, so a total
-        // count(*) per page view would degrade without limit.
-        Slice<AuditEvent> result;
-        if (executionId == null) result = type == null
-                ? audit.findAllByOrderByIdDesc(pageable)
-                : audit.findByEventTypeOrderByIdDesc(type, pageable);
-        else {
-            List<AuditEvent> filtered = new ArrayList<>(audit.findByExecutionIdOrderByIdAsc(executionId));
-            Collections.reverse(filtered);
-            if (type != null) filtered.removeIf(event -> event.getEventType() != type);
-            int start = (int) Math.min(pageable.getOffset(), filtered.size());
-            int end = Math.min(start + pageable.getPageSize(), filtered.size());
-            result = new SliceImpl<>(filtered.subList(start, end), pageable, end < filtered.size());
-        }
-
+        Slice<AuditEvent> result = auditSlice(type, executionId, pageable);
         model.addAttribute("events", result.getContent().stream()
                 .map(event -> UiFormat.auditRow(event, jsonMapper)).toList());
         model.addAttribute("page", result);
@@ -181,6 +156,24 @@ public class DashboardUiController {
                 + (type == null ? "" : type.name()) + "&executionId="
                 + (executionId == null ? "" : executionId) + "&size=" + clampedSize);
         return "audit";
+    }
+
+    /**
+     * Newest first. Slice, not Page: the audit table is append-only and unbounded, so a total
+     * count(*) per page view would degrade without limit.
+     */
+    private Slice<AuditEvent> auditSlice(AuditEventType type, UUID executionId, Pageable pageable) {
+        if (executionId == null) {
+            return type == null
+                    ? audit.findAllByOrderByIdDesc(pageable)
+                    : audit.findByEventTypeOrderByIdDesc(type, pageable);
+        }
+        List<AuditEvent> filtered = new ArrayList<>(audit.findByExecutionIdOrderByIdAsc(executionId));
+        Collections.reverse(filtered);
+        if (type != null) filtered.removeIf(event -> event.getEventType() != type);
+        int start = (int) Math.min(pageable.getOffset(), filtered.size());
+        int end = Math.min(start + pageable.getPageSize(), filtered.size());
+        return new SliceImpl<>(filtered.subList(start, end), pageable, end < filtered.size());
     }
 
     private Map<String, Boolean> connectorConfiguration() {

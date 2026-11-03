@@ -1,0 +1,332 @@
+package org.folio.factory.app.tasks.execution;
+
+import org.folio.factory.app.EngineRecords;
+import org.folio.factory.app.tasks.persistence.TaskAttempt;
+import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
+import org.folio.factory.app.tasks.persistence.TaskInstallation;
+import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
+import org.folio.factory.app.tasks.persistence.TaskPublicationIntentRepository;
+import org.folio.factory.core.domain.ExecutionStatus;
+import org.folio.factory.core.domain.PipelineExecution;
+import org.folio.factory.core.registry.FlowRegistry;
+import org.folio.factory.core.service.ArtifactStore;
+import org.folio.factory.core.repository.PipelineExecutionRepository;
+import org.folio.factory.devfactory.DevFactoryConfiguration;
+import org.folio.factory.devfactory.tasks.TaskStops;
+import org.folio.factory.devfactory.runtime.DockerWorkloads;
+import org.folio.factory.devfactory.worker.DevelopWorker;
+import org.folio.factory.devfactory.worker.DeliveryWorker;
+import org.folio.factory.devfactory.worker.VerifyWorker;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+import java.util.NoSuchElementException;
+import java.util.Optional;
+import java.util.UUID;
+
+/**
+ * Resolves one task attempt into an understandable outcome and decides the
+ * installation's active slot: a terminal outcome with proven workload
+ * inactivity releases the slot — a task-specific failure and a shared
+ * provider/auth/environment failure alike stop as readable results (the shared
+ * cause keeps its "shared" marker) — while any unproven cleanup or unresolved
+ * publication identity holds the attempt for inspection. Engine COMPLETED
+ * alone is never PR_READY — the delivered pull-request identity is the
+ * evidence. Only this service releases installation.activeAttemptId.
+ */
+@Component
+@ConditionalOnProperty(prefix = "factory.tasks.execution", name = "enabled", havingValue = "true")
+public class TaskOutcomeService {
+
+    /** The reason prefix of an attempt the developer marked as stopped. */
+    public static final String MARKED_STOPPED = "Marked as stopped by the operator";
+
+    /** Part of the reason when the stopped run may already have opened a pull request. */
+    public static final String PULL_REQUEST_MAY_EXIST = "a pull request may already exist";
+
+    private final TaskAttemptRepository attempts;
+    private final TaskInstallationRepository installations;
+    private final TaskPublicationIntentRepository intents;
+    private final PipelineExecutionRepository executions;
+    private final ArtifactStore artifacts;
+    private final DockerWorkloads docker;
+    private final FlowRegistry flows;
+    private final TransactionTemplate transactions;
+    private final JsonMapper json = JsonMapper.builder().build();
+
+    public TaskOutcomeService(TaskAttemptRepository attempts,
+                               TaskInstallationRepository installations,
+                               TaskPublicationIntentRepository intents,
+                               EngineRecords engine,
+                               DockerWorkloads docker,
+                               PlatformTransactionManager transactionManager) {
+        this.attempts = attempts;
+        this.installations = installations;
+        this.intents = intents;
+        this.executions = engine.executions();
+        this.artifacts = engine.artifacts();
+        this.docker = docker;
+        this.flows = engine.flows();
+        this.transactions = new TransactionTemplate(transactionManager);
+    }
+
+    /** What a refresh decided for the slot, and why an attempt is held for inspection. */
+    public record AttemptOutcome(State state, String reason, String uncertainty) {
+
+        public enum State { PROCESSING, PR_READY, STOPPED, NEEDS_INSPECTION }
+
+        /** Only released outcomes let the dispatcher start the next task. */
+        public boolean released() {
+            return state == State.PR_READY || state == State.STOPPED;
+        }
+    }
+
+    /** What a release writes onto the attempt. */
+    private record Classification(AttemptOutcome.State state, String reason, String publicationIdentity,
+                                  String draftReasons) {
+    }
+
+    public AttemptOutcome refresh(UUID attemptId) {
+        TaskAttempt attempt = attempts.findById(attemptId)
+                .orElseThrow(() -> new NoSuchElementException("No task attempt " + attemptId));
+        if (isSettled(attempt)) {
+            return settledOutcome(attempt);
+        }
+        UUID executionId = attempt.getExecutionId();
+        if (executionId == null) {
+            return processing(attempt);
+        }
+        Optional<PipelineExecution> execution = executions.findById(executionId);
+        if (execution.isEmpty()) {
+            return hold(attempt, "the bound engine execution record is missing");
+        }
+        AttemptOutcome delivered = deliveredOutcome(attempt, executionId);
+        if (delivered != null) {
+            return delivered;
+        }
+        if (!execution.get().getStatus().isTerminal()) {
+            return processing(attempt);
+        }
+        return resolveTerminal(attempt, executionId, execution.get().getStatus());
+    }
+
+    private static boolean isSettled(TaskAttempt attempt) {
+        return attempt.getState() == TaskAttempt.State.WITHDRAWN
+                || attempt.getState() == TaskAttempt.State.PR_READY
+                || attempt.getState() == TaskAttempt.State.STOPPED;
+    }
+
+    private static AttemptOutcome settledOutcome(TaskAttempt attempt) {
+        return new AttemptOutcome(attempt.getState() == TaskAttempt.State.PR_READY
+                ? AttemptOutcome.State.PR_READY : AttemptOutcome.State.STOPPED,
+                attempt.getResultReason(), null);
+    }
+
+    /**
+     * A delivered pull request is the one outcome that releases the slot before
+     * the execution finishes: PR feedback and merge never hold the slot. Nothing
+     * else short-circuits a still-running execution.
+     */
+    private AttemptOutcome deliveredOutcome(TaskAttempt attempt, UUID executionId) {
+        JsonNode delivery = readArtifact(executionId, DeliveryWorker.DELIVERY);
+        if (!"DELIVERED".equals(delivery.path("state").asString(""))) {
+            return null;
+        }
+        String pullRequestUrl = delivery.path("pullRequestUrl").asString("");
+        if (pullRequestUrl.isBlank()) {
+            return null;
+        }
+        String uncertainty = proveInactive(executionId);
+        if (uncertainty != null) {
+            return hold(attempt, uncertainty);
+        }
+        return release(attempt, new Classification(AttemptOutcome.State.PR_READY,
+                attempt.getResultReason(), pullRequestUrl, draftReasons(delivery)));
+    }
+
+    private AttemptOutcome resolveTerminal(TaskAttempt attempt, UUID executionId,
+                                           ExecutionStatus status) {
+        String uncertainty = proveInactive(executionId);
+        Classification classification = classify(attempt, executionId, status);
+        if (uncertainty != null) {
+            return hold(attempt, uncertainty);
+        }
+        if (classification.state() == AttemptOutcome.State.NEEDS_INSPECTION) {
+            return hold(attempt, classification.reason());
+        }
+        return release(attempt, classification);
+    }
+
+    /** Strict owned-cleanup evidence; null only when every owned workload is gone. */
+    private String proveInactive(UUID executionId) {
+        try {
+            for (var step : flows.require(DevFactoryConfiguration.FLOW_ID).agentChain()) {
+                docker.cleanOwned(executionId, step.stepId());
+            }
+            docker.cleanOwnedExecution(executionId);
+            return null;
+        } catch (RuntimeException e) {
+            return "workload inactivity could not be confirmed: " + e.getMessage();
+        }
+    }
+
+    /** A delivery with a pull-request identity never gets here: deliveredOutcome released it first. */
+    private Classification classify(TaskAttempt attempt, UUID executionId, ExecutionStatus status) {
+        JsonNode delivery = readArtifact(executionId, DeliveryWorker.DELIVERY);
+        if ("DELIVERED".equals(delivery.path("state").asString(""))) {
+            return new Classification(AttemptOutcome.State.NEEDS_INSPECTION,
+                    "the candidate was delivered without a known pull-request identity", null, null);
+        }
+        JsonNode result = readArtifact(executionId, VerifyWorker.RESULT);
+        String resultState = result.path("state").asString("");
+        String resultReason = result.path("reason").asString("");
+        String codingFailureCode = readArtifact(executionId, DevelopWorker.OUTCOME)
+                .path("failure").path("code").asString(null);
+        String reason = firstNonBlank(attempt.getResultReason(),
+                resultReason.isBlank() ? "" : resultState + ": " + resultReason,
+                "engine execution ended in status " + status);
+        // Design 5.3: once inactivity is proven, a shared outage stops this attempt with its
+        // persisted cause while the queue continues; startup rechecks the provider for the next ones.
+        return new Classification(AttemptOutcome.State.STOPPED,
+                TaskStops.sharedFailure(reason, codingFailureCode) ? "shared: " + reason : reason, null, null);
+    }
+
+    private AttemptOutcome release(TaskAttempt attempt, Classification classification) {
+        try {
+            transactions.executeWithoutResult(status -> releaseLocked(attempt.getId(), classification));
+        } catch (OptimisticLockingFailureException e) {
+            // A concurrent scheduler or dispatcher refresh saved the attempt first:
+            // re-read and release only while the outcome is still applicable.
+            transactions.executeWithoutResult(status -> attempts.findById(attempt.getId())
+                    .filter(current -> current.getState().isInFlight())
+                    .ifPresent(current -> releaseLocked(attempt.getId(), classification)));
+        }
+        return new AttemptOutcome(classification.state(), classification.reason(), null);
+    }
+
+    private void releaseLocked(UUID attemptId, Classification classification) {
+        // Installation first, then the attempt: the same order as markStopped, launch and
+        // admission, so a release and a concurrent mark-as-stopped cannot deadlock.
+        var installation = installations.lockById(1);
+        TaskAttempt current = attempts.findById(attemptId).orElseThrow();
+        current.setState(TaskAttempt.State.valueOf(classification.state().name()));
+        if (classification.publicationIdentity() != null) {
+            current.setPublicationIdentity(classification.publicationIdentity());
+        }
+        if (classification.draftReasons() != null) {
+            current.setDraftReasons(classification.draftReasons());
+        }
+        if (current.getResultReason() == null && classification.reason() != null
+                && !classification.reason().isBlank()) {
+            current.setResultReason(PersistedTaskAttemptPolicy.capReason(classification.reason()));
+        }
+        attempts.save(current);
+        installation.ifPresent(locked -> releaseSlot(locked, attemptId));
+    }
+
+    /** Frees the installation's active slot when this attempt holds it. */
+    private void releaseSlot(TaskInstallation installation, UUID attemptId) {
+        if (attemptId.equals(installation.getActiveAttemptId())) {
+            installation.setActiveAttemptId(null);
+            installations.save(installation);
+        }
+    }
+
+    /**
+     * The developer's explicit stop of an attempt held for inspection: it becomes
+     * STOPPED with the operator's note and frees the slot only when it holds it,
+     * so the queue continues and the old run can no longer publish. Any other
+     * state is refused, so a stale page never stops newer work.
+     *
+     * @return null when the attempt was stopped, otherwise the refusal
+     */
+    public String markStopped(UUID attemptId) {
+        return transactions.execute(status -> {
+            var installation = installations.lockById(1);
+            TaskAttempt attempt = attempts.findById(attemptId).orElse(null);
+            if (attempt == null || attempt.getState() != TaskAttempt.State.NEEDS_INSPECTION) {
+                return "Only a task that needs inspection can be marked as stopped";
+            }
+            String previous = attempt.getResultReason();
+            String publication = publicationNote(attempt);
+            attempt.setState(TaskAttempt.State.STOPPED);
+            attempt.setResultReason(PersistedTaskAttemptPolicy.capReason(MARKED_STOPPED
+                    + (publication == null ? "" : publication)
+                    + (previous == null || previous.isBlank() ? "" : ": " + previous)));
+            attempts.save(attempt);
+            installation.ifPresent(locked -> releaseSlot(locked, attemptId));
+            return null;
+        });
+    }
+
+    /**
+     * A held run that reached publication may have opened a pull request whose
+     * response was lost; the reason names the branch so nobody assumes there is none.
+     */
+    private String publicationNote(TaskAttempt attempt) {
+        if (attempt.getExecutionId() == null) {
+            return null;
+        }
+        return intents.findByExecutionId(attempt.getExecutionId())
+                .map(intent -> "; " + PULL_REQUEST_MAY_EXIST + " from " + intent.getHeadBranch()
+                        + " to " + intent.getRepository())
+                .orElse(null);
+    }
+
+    private AttemptOutcome hold(TaskAttempt attempt, String uncertainty) {
+        markNeedsInspection(attempt);
+        return new AttemptOutcome(AttemptOutcome.State.NEEDS_INSPECTION,
+                attempts.findById(attempt.getId()).map(TaskAttempt::getResultReason).orElse(null), uncertainty);
+    }
+
+    private void markNeedsInspection(TaskAttempt attempt) {
+        transactions.executeWithoutResult(status -> attempts.findById(attempt.getId())
+                .filter(current -> current.getState().isInFlight())
+                .ifPresent(current -> {
+                    current.setState(TaskAttempt.State.NEEDS_INSPECTION);
+                    attempts.save(current);
+                }));
+    }
+
+    private AttemptOutcome processing(TaskAttempt attempt) {
+        return new AttemptOutcome(AttemptOutcome.State.PROCESSING, attempt.getResultReason(), null);
+    }
+
+    /** The draft reasons DeliveryWorker wrote, as stored on the attempt; null for a pull request ready for review. */
+    private String draftReasons(JsonNode delivery) {
+        if (!delivery.path("pullRequestDraft").asBoolean(false)) {
+            return null;
+        }
+        JsonNode reasons = delivery.path("draftReasons");
+        return json.writeValueAsString(reasons.isArray() ? reasons : json.createArrayNode());
+    }
+
+    private JsonNode readArtifact(UUID executionId, String name) {
+        return artifacts.getLatest(executionId, name)
+                .map(artifact -> json.readTree(artifact.getContent()))
+                .orElseGet(json::createObjectNode);
+    }
+
+    /** The leading {@code stage: reason} label of a persisted reason, when present. */
+    public static String stageOf(String resultReason) {
+        if (resultReason == null) {
+            return null;
+        }
+        int boundary = resultReason.indexOf(": ");
+        return boundary > 0 ? resultReason.substring(0, boundary) : null;
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+}

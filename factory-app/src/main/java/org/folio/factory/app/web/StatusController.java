@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.connectors.ConnectorHealth;
 import org.folio.factory.core.engine.EngineProperties;
 import org.folio.factory.core.registry.FlowRegistry;
@@ -11,18 +12,12 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
+@RequiredArgsConstructor
 public class StatusController {
 
     private final List<ConnectorHealth> connectors;
     private final FlowRegistry flowRegistry;
     private final EngineProperties engineProperties;
-
-    public StatusController(List<ConnectorHealth> connectors, FlowRegistry flowRegistry,
-                            EngineProperties engineProperties) {
-        this.connectors = connectors;
-        this.flowRegistry = flowRegistry;
-        this.engineProperties = engineProperties;
-    }
 
     @GetMapping("/api/status")
     public Map<String, Object> status() {

@@ -1,0 +1,96 @@
+<!doctype html>
+<!-- Reference render of the Claude Design canvas settled with the operator on 2026-10-26.
+     Pixel reference for the implementation; generated from the canvas board QueueWaiting.dc.html, do not edit by hand. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Triggered: queue waits on a task that needs inspection</title>
+<style>
+body{margin:0;background:#ffffff;color:#09090b;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.5}
+a{color:#09090b}a:hover{color:#3f3f46}
+a:focus-visible,button:focus-visible{outline:2px solid #09090b;outline-offset:2px}
+</style>
+</head>
+<body>
+<div style="width: 1120px; box-sizing: border-box; padding: 32px 40px; display: flex; flex-direction: column; gap: 12px; background: #ffffff">
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px">
+<h3 style="margin: 0; font-size: 15px; font-weight: 600">Triggered <span style="margin-left: 4px; color: #71717a; font-weight: 500">3</span></h3>
+<span style="font-size: 13px; color: #71717a">0 working · 2 queued</span>
+</div>
+
+<div role="status" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 16px; border: 1px solid #f5d0a9; border-radius: 8px; background: #fff7ed; font-size: 13px; color: #7c2d12">
+<strong style="font-weight: 600">Queue is waiting.</strong>
+<span>MGRENTITLE-171 needs inspection: Factory could not confirm that its run stopped. It rechecks every minute.</span>
+<button type="button" style="margin-left: auto; min-height: 32px; padding: 0 12px; border: 1px solid #c2410c; border-radius: 6px; background: #ffffff; color: #7c2d12; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer">Mark as stopped…</button>
+</div>
+
+<div style="border: 1px solid #e4e4e7; border-radius: 8px; overflow-x: auto">
+<div style="min-width: 640px">
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 220px 90px 110px; gap: 12px; align-items: center; padding: 10px 16px; background: #fafafa; border-bottom: 1px solid #e4e4e7; font-size: 12px; font-weight: 500; color: #71717a">
+<span>Task</span><span>Status</span><span>Cost</span><span>When</span>
+</div>
+
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 220px 90px 110px; gap: 12px; align-items: start; padding: 12px 16px; border-bottom: 1px solid #e4e4e7">
+<div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<a href="#" style="display: inline-flex; padding: 0 6px; border: 1px solid #e4e4e7; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; font-weight: 600; text-decoration: none">MGRENTITLE-171</a>
+<a href="#" style="font-weight: 500; text-decoration: none">Validate module descriptor against schema</a>
+</div>
+<span style="font-size: 12px; color: #71717a">→ mgr-tenant-entitlements</span>
+</div>
+<div style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px">
+<span style="display: inline-flex; padding: 0 8px; border-radius: 6px; background: #fff7ed; border: 1px solid #f5d0a9; color: #7c2d12; font-size: 12px; font-weight: 600">Needs inspection</span>
+<span style="font-size: 12px; color: #52525b">run cleanup not confirmed · <button type="button" style="display: inline; margin: 0; padding: 0 6px; border: 1px solid #d4d4d8; border-radius: 4px; background: #ffffff; color: #09090b; font: inherit; font-size: 12px; line-height: 16px; font-weight: 500; vertical-align: baseline; cursor: pointer">Mark as stopped…</button></span>
+</div>
+<div style="display: flex; flex-direction: column; font-size: 13px"><span>$0.92</span><span style="font-size: 12px; color: #71717a">so far</span></div>
+<div style="display: flex; flex-direction: column; font-size: 13px"><span>1 h ago</span><span style="font-size: 12px; color: #71717a">started</span></div>
+</div>
+
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 220px 90px 110px; gap: 12px; align-items: start; padding: 12px 16px; border-bottom: 1px solid #e4e4e7">
+<div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<a href="#" style="display: inline-flex; padding: 0 6px; border: 1px solid #e4e4e7; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; font-weight: 600; text-decoration: none">MGRENTITLE-190</a>
+<a href="#" style="font-weight: 500; text-decoration: none">Cache entitlement lookups per tenant</a>
+</div>
+<span style="font-size: 12px; color: #71717a">→ mgr-tenant-entitlements</span>
+</div>
+<div style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px">
+<span style="display: inline-flex; padding: 0 8px; border: 1px solid #e4e4e7; border-radius: 6px; font-size: 12px; font-weight: 600">Queued</span>
+<span style="font-size: 12px; color: #71717a">next in line</span>
+</div>
+<div style="display: flex; flex-direction: column; font-size: 13px; color: #71717a"><span>—</span><span style="font-size: 12px">not started</span></div>
+<div style="display: flex; flex-direction: column; font-size: 13px"><span>40 min ago</span><span style="font-size: 12px; color: #71717a">triggered</span></div>
+</div>
+
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 220px 90px 110px; gap: 12px; align-items: start; padding: 12px 16px">
+<div style="min-width: 0; display: flex; flex-direction: column; gap: 2px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<a href="#" style="display: inline-flex; padding: 0 6px; border: 1px solid #e4e4e7; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; font-weight: 600; text-decoration: none">MGRAPPS-97</a>
+<a href="#" style="font-weight: 500; text-decoration: none">Return 409 on duplicate application id</a>
+</div>
+<span style="font-size: 12px; color: #71717a">→ mgr-applications</span>
+</div>
+<div style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px">
+<span style="display: inline-flex; padding: 0 8px; border: 1px solid #e4e4e7; border-radius: 6px; font-size: 12px; font-weight: 600">Queued</span>
+<span style="font-size: 12px; color: #71717a">2nd in line</span>
+</div>
+<div style="display: flex; flex-direction: column; font-size: 13px; color: #71717a"><span>—</span><span style="font-size: 12px">not started</span></div>
+<div style="display: flex; flex-direction: column; font-size: 13px"><span>35 min ago</span><span style="font-size: 12px; color: #71717a">triggered</span></div>
+</div>
+</div>
+</div>
+
+<div style="margin-top: 12px; padding: 16px; border: 1px solid #e4e4e7; border-radius: 8px; max-width: 520px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 8px 24px rgba(9, 9, 11, 0.08)">
+<strong style="font-size: 15px">Mark MGRENTITLE-171 as stopped?</strong>
+<span style="font-size: 13px; color: #3f3f46">Do this only if its run is really over: no factory container is running for it. The task becomes Could not complete, its cost so far stays, and the queue starts the next task.</span>
+<div style="display: flex; gap: 8px">
+<button type="button" style="min-height: 36px; padding: 0 14px; border: 1px solid #18181b; border-radius: 6px; background: #18181b; color: #fafafa; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer">Mark as stopped</button>
+<button type="button" style="min-height: 36px; padding: 0 14px; border: 1px solid #e4e4e7; border-radius: 6px; background: #ffffff; color: #09090b; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer">Cancel</button>
+</div>
+</div>
+
+</div>
+</body>
+</html>

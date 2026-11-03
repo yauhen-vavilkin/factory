@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
+import java.util.Map;
 
 class ProcessesTest {
     @Test
@@ -27,13 +29,110 @@ class ProcessesTest {
                 List.of("/bin/sh", "-c", "printf '123456789'"), 10, java.util.Map.of(), 4, line -> { }))
                 .hasMessageContaining("output limit");
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> Processes.run(null,
-                List.of("/bin/sh", "-c", "exec sleep 3"), 1, java.util.Map.of(), 100, line -> { }))
+                List.of("/bin/sh", "-c", "exec sleep 2"), 1, java.util.Map.of(), 100, line -> { }))
                 .hasMessageContaining("exceeded 1 seconds");
     }
     @Test
+    void streamGivesLinesAsTheyArriveWithoutATotalOutputLimit() throws Exception {
+        var first = new java.util.concurrent.CountDownLatch(1);
+        var lines = new java.util.concurrent.atomic.AtomicInteger();
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            // About 3 MB, more than the 2 MB total limit of run().
+            var streamed = executor.submit(() -> Processes.stream(null, List.of("/bin/sh", "-c",
+                    "printf 'first\\n'; sleep 1; i=0; while [ $i -lt 30000 ]; do printf '%0100d\\n' $i; i=$((i+1)); done;"
+                            + " printf 'last'"), 30, s -> s, line -> {
+                        first.countDown();
+                        lines.incrementAndGet();
+                        return true;
+                    }));
+            assertThat(first.await(1, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(streamed.isDone()).isFalse();
+            var result = streamed.get();
+            assertThat(result.exitCode()).isZero();
+            assertThat(result.timedOut()).isFalse();
+            assertThat(result.lineTooLarge()).isFalse();
+            assertThat(lines.get()).isEqualTo(30002);
+        } finally { executor.shutdownNow(); }
+    }
+
+    @Test
+    void streamStopsOnALineOverTheLimitOrWhenTheReaderSaysStop() {
+        var seen = new java.util.ArrayList<String>();
+        var tooLarge = Processes.stream(null, List.of("/bin/sh", "-c",
+                "printf 'before\\n'; head -c " + (Processes.STREAM_LINE_LIMIT + 1)
+                        + " /dev/zero | tr '\\0' x; printf '\\nafter\\n'; exec sleep 20"), 30, s -> s, line -> {
+                    seen.add(line);
+                    return true;
+                });
+        assertThat(tooLarge.lineTooLarge()).isTrue();
+        assertThat(tooLarge.timedOut()).isFalse();
+        assertThat(seen).containsExactly("before");
+
+        long started = System.nanoTime();
+        var stopped = Processes.stream(null, List.of("/bin/sh", "-c", "printf 'one\\ntwo\\n'; exec sleep 20"),
+                30, s -> s, line -> !line.equals("two"));
+        assertThat(stopped.exitCode()).isNotZero();
+        assertThat(java.time.Duration.ofNanos(System.nanoTime() - started)).isLessThan(java.time.Duration.ofSeconds(10));
+    }
+
+    @Test
+    void streamWaitsForASlowReaderBeforeItReturns() throws Exception {
+        var seen = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        var readingLast = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var streamed = executor.submit(() -> Processes.stream(null,
+                    List.of("/bin/sh", "-c", "printf 'first\\nlast\\n'"), 30, s -> s, line -> {
+                        if (line.equals("last")) {
+                            readingLast.countDown();
+                            awaitRelease(release);
+                        }
+                        seen.add(line);
+                        return true;
+                    }));
+            assertThat(readingLast.await(1, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            await("stream keeps waiting while the reader is busy after the command ended")
+                    .during(java.time.Duration.ofMillis(500)).atMost(java.time.Duration.ofSeconds(2))
+                    .until(() -> !streamed.isDone());
+            release.countDown();
+            var result = streamed.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertThat(result.outputUnread()).isFalse();
+            assertThat(seen).containsExactly("first", "last");
+        } finally { executor.shutdownNow(); }
+        assertThat(Processes.READER_DRAIN)
+                .as("stream() waits for a busy reader up to this bound, longer than the 5 s join it replaced")
+                .isGreaterThan(java.time.Duration.ofSeconds(6));
+    }
+
+    private static void awaitRelease(java.util.concurrent.CountDownLatch release) {
+        try {
+            release.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    @Test
+    void streamReportsTheTimeLimitAndKeepsOnlyARedactedStderrTail() {
+        var timedOut = Processes.stream(null, List.of("/bin/sh", "-c", "exec sleep 2"), 1, s -> s, line -> true);
+        assertThat(timedOut.timedOut()).isTrue();
+
+        var result = Processes.stream(null, List.of("/bin/sh", "-c",
+                "i=0; while [ $i -lt 2000 ]; do printf 'noise %0100d\\n' $i >&2; i=$((i+1)); done;"
+                        + " printf 'fatal: secret-key rejected' >&2; exit 3"), 30,
+                s -> s.replace("secret-key", "[REDACTED]"), line -> true);
+        assertThat(result.exitCode()).isEqualTo(3);
+        assertThat(result.stderrTail()).endsWith("fatal: [REDACTED] rejected").doesNotContain("secret-key")
+                .doesNotContain("noise " + "0".repeat(100));
+        assertThat(result.stderrTail().length()).isLessThanOrEqualTo(Processes.STDERR_TAIL);
+    }
+
+    @Test
     void keepsMachineReadableStdoutSeparateFromDiagnostics() {
         var result = Processes.run(null,
-                List.of("/bin/sh", "-c", "printf 'tree-sha'; printf 'diagnostic' >&2"), 10);
+                List.of("/bin/sh", "-c", "printf 'tree-sha'; printf 'diagnostic' >&2"), 10, Map.of(), Processes.OUTPUT_LIMIT, null);
 
         assertThat(result.exitCode()).isZero();
         assertThat(result.output()).isEqualTo("tree-sha");

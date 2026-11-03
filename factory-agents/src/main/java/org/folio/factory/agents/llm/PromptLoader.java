@@ -1,5 +1,7 @@
 package org.folio.factory.agents.llm;
 
+import lombok.RequiredArgsConstructor;
+import lombok.AccessLevel;
 import org.springframework.core.io.ClassPathResource;
 
 import java.io.IOException;
@@ -14,10 +16,10 @@ import java.util.regex.Pattern;
  * {@code {{placeholder}}} variables. Deliberately avoids template engines whose
  * syntax collides with the braces that appear in Markdown/JSON prompt bodies.
  */
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class PromptLoader {
 
-    private PromptLoader() {
-    }
+    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{(.+?)}}");
 
     public static String load(String workerId, String promptName) {
         String location = "prompts/" + workerId + "/" + promptName + ".md";
@@ -27,8 +29,6 @@ public final class PromptLoader {
             throw new UncheckedIOException("Cannot load prompt template classpath:" + location, e);
         }
     }
-
-    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{(.+?)}}");
 
     /**
      * Single-pass substitution: placeholders inside substituted values are never

@@ -1,6 +1,9 @@
 # Operator-owned repository catalog. Add repositories here without rebuilding Factory.
 # Each entry owns its source, Jira routing, verification policy and delivery destination.
-# Delivery inherits the entry's base-branch and requires explicit authorization.
+# Delivery inherits the entry's base-branch. The delivery repository decides where the pull
+# request goes: the official folio-org repository by default, or your fork when you set
+# both <REPO>_SOURCE_REPO and <REPO>_DELIVERY_REPO (for example FACTORY_SIDECAR_SOURCE_REPO
+# and FACTORY_SIDECAR_DELIVERY_REPO).
 factory:
   dev-factory:
     repositories:
@@ -12,7 +15,6 @@ factory:
         jira-projects: [MODSIDECAR]
         delivery:
           repository: ${FACTORY_SIDECAR_DELIVERY_REPO:folio-org/folio-module-sidecar}
-          authorized: ${FACTORY_SIDECAR_DELIVERY_AUTHORIZED:false}
       mod-roles-keycloak:
         source-repo: ${FACTORY_MOD_ROLES_KEYCLOAK_SOURCE_REPO:folio-org/mod-roles-keycloak}
         base-branch: ${FACTORY_MOD_ROLES_KEYCLOAK_BASE_BRANCH:master}
@@ -21,7 +23,6 @@ factory:
         jira-projects: [MODROLESKC]
         delivery:
           repository: ${FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_REPO:folio-org/mod-roles-keycloak}
-          authorized: ${FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_AUTHORIZED:false}
       mgr-tenant-entitlements:
         source-repo: ${FACTORY_MGR_TENANT_ENTITLEMENTS_SOURCE_REPO:folio-org/mgr-tenant-entitlements}
         base-branch: ${FACTORY_MGR_TENANT_ENTITLEMENTS_BASE_BRANCH:master}
@@ -30,7 +31,6 @@ factory:
         jira-projects: [MGRENTITLE]
         delivery:
           repository: ${FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_REPO:folio-org/mgr-tenant-entitlements}
-          authorized: ${FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_AUTHORIZED:false}
       mgr-applications:
         source-repo: ${FACTORY_MGR_APPLICATIONS_SOURCE_REPO:folio-org/mgr-applications}
         base-branch: ${FACTORY_MGR_APPLICATIONS_BASE_BRANCH:master}
@@ -39,7 +39,6 @@ factory:
         jira-projects: [MGRAPPS]
         delivery:
           repository: ${FACTORY_MGR_APPLICATIONS_DELIVERY_REPO:folio-org/mgr-applications}
-          authorized: ${FACTORY_MGR_APPLICATIONS_DELIVERY_AUTHORIZED:false}
     runtime:
       plans:
         java21-unit: [mvn, -B, -ntp, test]

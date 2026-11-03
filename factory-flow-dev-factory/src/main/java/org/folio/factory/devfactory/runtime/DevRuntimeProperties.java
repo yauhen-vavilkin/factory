@@ -2,33 +2,22 @@ package org.folio.factory.devfactory.runtime;
 
 import org.folio.factory.devfactory.verification.MavenTestSuite;
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.context.properties.bind.ConstructorBinding;
 
-import java.net.URI;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 /** Operator-owned commands; task text never supplies executable configuration. */
 @ConfigurationProperties(prefix = "factory.dev-factory.runtime")
 public record DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
                                    String mavenCacheVolume, Map<String, List<String>> requiredReports) {
     public static final String DEFAULT_MAVEN_CACHE_VOLUME = "factory-dev-m2-cache";
-    private static final Pattern MAVEN_REPORT_PATH = Pattern.compile(
-            "(?:[A-Za-z0-9_.-]+/)*target/(?:surefire|failsafe)-reports/TEST-[A-Za-z0-9_.$-]+\\.xml");
 
-    public DevRuntimeProperties(Map<String, List<String>> plans, Coding coding, int timeoutSeconds,
-                                String mavenCacheVolume) {
-        this(plans, coding, timeoutSeconds, mavenCacheVolume, Map.of());
-    }
-    @ConstructorBinding
     public DevRuntimeProperties {
         plans = plans == null ? Map.of() : Map.copyOf(plans);
         requiredReports = validatedReportRequirements(requiredReports);
-        coding = coding == null ? new Coding(null, null, null, null, null, null, null, null, null) : coding;
+        coding = coding == null ? new Coding(null, null, null) : coding;
         timeoutSeconds = timeoutSeconds <= 0 ? 1800 : timeoutSeconds;
         mavenCacheVolume = mavenCacheVolume == null || mavenCacheVolume.isBlank()
                 ? DEFAULT_MAVEN_CACHE_VOLUME : mavenCacheVolume;
@@ -64,68 +53,39 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
     }
 
     private static void validateReportRequirement(String requirement) {
-        if (MavenTestSuite.isSuiteRequirement(requirement)) {
-            return;
-        }
-        boolean validLegacyPath = MAVEN_REPORT_PATH.matcher(requirement).matches()
-                && !Arrays.asList(requirement.split("/")).contains("..");
-        if (!validLegacyPath) {
-            throw new IllegalArgumentException("Required Maven reports must name surefire, failsafe or a valid report path");
+        if (!MavenTestSuite.isSuiteRequirement(requirement)) {
+            throw new IllegalArgumentException("Required Maven reports must name surefire or failsafe");
         }
     }
 
-    public record Coding(String image, String provider, String model, String baseUrl, String api, String apiKey,
-                         String runtime, String reasoningEffort, Integer maxOutputTokens,
-                         Pi pi, ClaudeCode claudeCode) {
-        public Coding(String image, String provider, String model, String baseUrl, String api, String apiKey,
-                      String runtime, String reasoningEffort, Integer maxOutputTokens) {
-            this(image, provider, model, baseUrl, api, apiKey, runtime, reasoningEffort, maxOutputTokens, null, null);
-        }
-        @ConstructorBinding
+    public record Coding(String runtime, Pi pi, ClaudeCode claudeCode) {
         public Coding {
-            api = api == null ? "openai-completions" : api;
             runtime = normalized(first(runtime, "claude-code"));
-            reasoningEffort = normalized(reasoningEffort);
-            maxOutputTokens = maxOutputTokens == null ? 16384 : maxOutputTokens;
-            claudeCode = claudeCode == null
-                    ? new ClaudeCode(null, null, null, null, null, null, null, null, null, null) : claudeCode;
-        }
-        @Override
-        public String toString() {
-            return "Coding[runtime=" + runtime + ", image=" + image + ", provider=" + provider + ", model=" + model + "]";
-        }
-        public void requireConfigured() {
-            piProfile().requireConfigured();
-        }
-        /** Nonblank profile values override legacy Pi settings, field by field. */
-        public Pi piProfile() {
-            var profile = pi == null ? new Pi(null, null, null, null, null, null, null, null, null) : pi;
-            Integer effectiveMaxOutputTokens = profile.maxOutputTokens();
-            if (effectiveMaxOutputTokens == null) {
-                effectiveMaxOutputTokens = maxOutputTokens;
-            }
-            return new Pi(first(profile.image(), image), first(profile.provider(), provider),
-                    first(profile.model(), model), first(profile.baseUrl(), baseUrl), first(profile.api(), api),
-                    first(profile.apiKey(), apiKey), first(profile.authentication(), "api-key"),
-                    first(profile.reasoningEffort(), reasoningEffort),
-                    effectiveMaxOutputTokens);
+            pi = pi == null ? new Pi(null, null, null, null, null, null, null, null, null) : pi;
+            claudeCode = claudeCode == null ? new ClaudeCode(null, null) : claudeCode;
         }
     }
 
     public record Pi(String image, String provider, String model, String baseUrl, String api, String apiKey,
                      String authentication, String reasoningEffort, Integer maxOutputTokens) {
+        public Pi {
+            image = first(image, "factory-dev-pi:0.85.1-java21");
+            api = first(api, "openai-completions");
+            authentication = first(authentication, "api-key");
+            reasoningEffort = first(reasoningEffort, null);
+            maxOutputTokens = maxOutputTokens == null ? 16384 : maxOutputTokens;
+        }
+
         public void requireConfigured() {
-            // Built-in API types in the pinned Pi 0.85.1 image (pi-ai KnownApi).
-            if (api == null || !List.of("openai-completions", "openai-responses", "anthropic-messages",
-                    "mistral-conversations", "azure-openai-responses", "openai-codex-responses",
-                    "bedrock-converse-stream", "google-generative-ai", "google-vertex", "pi-messages").contains(api)) {
-                throw new IllegalStateException("Unsupported Pi API type; configure a built-in API supported by Pi 0.85.1");
+            if (!PiCodingRuntime.APIS.contains(api)) {
+                throw new IllegalStateException(
+                        "Unsupported Pi API type; configure a built-in API supported by Pi 0.85.1");
             }
             if (!"api-key".equals(authentication)) {
                 throw new IllegalStateException("Pi authentication must be api-key");
             }
             required("pi", image, provider, model, apiKey);
-            if (maxOutputTokens == null || maxOutputTokens <= 0) {
+            if (maxOutputTokens <= 0) {
                 throw new IllegalStateException("Pi max-output-tokens must be positive");
             }
         }
@@ -136,57 +96,23 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         }
     }
 
-    public record ClaudeCode(String image, String api, String baseUrl, String model, String authentication,
-                             String apiKey, String authToken, Integer maxTurns, Integer maxOutputTokens,
-                             String effort) {
+    /**
+     * The model, endpoint and secret of a Claude Code run come from config/developer-models.yaml. maxTurns is a
+     * safety limit, not a tuning knob: the 30-minute coding timeout usually ends a run first.
+     */
+    public record ClaudeCode(String image, Integer maxTurns) {
+        public static final int MAX_TURNS_LIMIT = 500;
+
         public ClaudeCode {
             image = first(image, "factory-dev-claude-code:2.1.287-java21");
-            api = first(api, "anthropic-messages");
-            baseUrl = first(baseUrl, "http://host.docker.internal:4001");
-            model = first(model, "claude-sonnet-5-5");
-            authentication = first(authentication, "bearer-token");
-            authToken = first(authToken, "codemie-proxy");
-            maxTurns = maxTurns == null ? 40 : maxTurns;
-            maxOutputTokens = maxOutputTokens == null ? 16384 : maxOutputTokens;
+            maxTurns = maxTurns == null ? 200 : maxTurns;
         }
+
         public void requireConfigured() {
-            if (!"anthropic-messages".equals(api)) {
-                throw new IllegalStateException("Claude Code requires api=anthropic-messages; OpenAI API endpoints need a different runtime");
+            if (maxTurns < 1 || maxTurns > MAX_TURNS_LIMIT) {
+                throw new IllegalStateException("FACTORY_CLAUDE_CODE_MAX_TURNS is " + maxTurns
+                        + ", but it must be from 1 to " + MAX_TURNS_LIMIT);
             }
-            if (!"api-key".equals(authentication) && !"bearer-token".equals(authentication)) {
-                throw new IllegalStateException("Claude Code authentication must be api-key or bearer-token");
-            }
-            required("claude-code", image, baseUrl, model, secret());
-            requireValidEndpoint();
-            if (maxTurns <= 0 || maxOutputTokens <= 0) {
-                throw new IllegalStateException("Claude Code max-turns and max-output-tokens must be positive");
-            }
-            if (effort != null && !effort.isBlank() && !List.of("low", "medium", "high", "max").contains(effort)) {
-                throw new IllegalStateException("Claude Code effort must be low, medium, high or max");
-            }
-        }
-
-        private void requireValidEndpoint() {
-            URI endpoint;
-            try {
-                endpoint = URI.create(baseUrl);
-            } catch (IllegalArgumentException e) {
-                throw new IllegalStateException("Claude Code base-url must be an HTTP(S) endpoint");
-            }
-            boolean http = "http".equals(endpoint.getScheme()) || "https".equals(endpoint.getScheme());
-            if (!http || endpoint.getHost() == null || endpoint.getUserInfo() != null
-                    || endpoint.getRawQuery() != null || endpoint.getFragment() != null) {
-                throw new IllegalStateException("Claude Code base-url must be HTTP(S), without credentials, query or fragment");
-            }
-        }
-
-        public String secret() {
-            return "bearer-token".equals(authentication) ? authToken : apiKey;
-        }
-
-        @Override
-        public String toString() {
-            return "ClaudeCode[image=" + image + ", model=" + model + "]";
         }
     }
 

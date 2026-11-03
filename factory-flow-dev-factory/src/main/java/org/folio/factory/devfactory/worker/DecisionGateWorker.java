@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.worker;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
@@ -7,13 +8,16 @@ import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.registry.model.HitlGateSpec;
 import org.folio.factory.devfactory.decision.ConditionalDecisionGate;
 import org.folio.factory.devfactory.decision.DecisionArtifacts;
+import org.folio.factory.devfactory.tasks.TaskGuard;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Pauses the execution for review only when intake recorded a required decision.
+ * Task executions never wait for a review: a required decision records a stop
+ * instead, and intake already keeps ambiguous mappings from reaching this gate.
  */
+@RequiredArgsConstructor
 public class DecisionGateWorker implements AgentWorker {
 
     public static final String ID = "dev-decision-gate";
@@ -28,11 +32,7 @@ public class DecisionGateWorker implements AgentWorker {
 
     private final ConditionalDecisionGate gate;
     private final FrontmatterCodec codec;
-
-    public DecisionGateWorker(ConditionalDecisionGate gate, FrontmatterCodec codec) {
-        this.gate = gate;
-        this.codec = codec;
-    }
+    private final TaskGuard taskGuard;
 
     @Override
     public String id() {
@@ -42,7 +42,8 @@ public class DecisionGateWorker implements AgentWorker {
     @Override
     public AgentResult execute(AgentContext context) {
         var request = DecisionArtifacts.parseRequest(codec, context.requireInput(DecisionArtifacts.REQUEST).content());
-        boolean opened = request.required() && gate.open(context, GATE);
-        return new AgentResult(Map.of(), Map.of("decisionRequired", request.required(), "reviewOpened", opened));
+        return DecisionGates.openOrStop(context, gate, GATE, request.required(),
+                () -> "repository selection requires a human choice; a task attempt stops instead of waiting"
+                        + " for review", taskGuard);
     }
 }

@@ -74,26 +74,15 @@ services:
       FACTORY_SIDECAR_SOURCE_REPO:
       FACTORY_SIDECAR_DELIVERY_REPO:
       FACTORY_SIDECAR_BASE_BRANCH:
-      FACTORY_SIDECAR_DELIVERY_AUTHORIZED:
       FACTORY_MOD_ROLES_KEYCLOAK_SOURCE_REPO:
       FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_REPO:
       FACTORY_MOD_ROLES_KEYCLOAK_BASE_BRANCH:
-      FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_AUTHORIZED:
       FACTORY_MGR_TENANT_ENTITLEMENTS_SOURCE_REPO:
       FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_REPO:
       FACTORY_MGR_TENANT_ENTITLEMENTS_BASE_BRANCH:
-      FACTORY_MGR_TENANT_ENTITLEMENTS_DELIVERY_AUTHORIZED:
       FACTORY_MGR_APPLICATIONS_SOURCE_REPO:
       FACTORY_MGR_APPLICATIONS_DELIVERY_REPO:
       FACTORY_MGR_APPLICATIONS_BASE_BRANCH:
-      FACTORY_MGR_APPLICATIONS_DELIVERY_AUTHORIZED:
-      FACTORY_MODEL_API_KEY: ${FACTORY_MODEL_API_KEY:-}
-      FACTORY_MODEL_BASE_URL: ${FACTORY_MODEL_BASE_URL:-}
-      FACTORY_MODEL_PROVIDER: ${FACTORY_MODEL_PROVIDER:-}
-      FACTORY_MODEL_ID: ${FACTORY_MODEL_ID:-}
-      FACTORY_MODEL_API: ${FACTORY_MODEL_API:-openai-completions}
-      FACTORY_MODEL_REASONING_EFFORT: ${FACTORY_MODEL_REASONING_EFFORT:-}
-      FACTORY_MODEL_MAX_OUTPUT_TOKENS: ${FACTORY_MODEL_MAX_OUTPUT_TOKENS:-16384}
       FACTORY_PI_IMAGE: ${FACTORY_PI_IMAGE:-}
       FACTORY_PI_PROVIDER: ${FACTORY_PI_PROVIDER:-}
       FACTORY_PI_MODEL: ${FACTORY_PI_MODEL:-}
@@ -104,16 +93,15 @@ services:
       FACTORY_PI_REASONING_EFFORT: ${FACTORY_PI_REASONING_EFFORT:-}
       FACTORY_PI_MAX_OUTPUT_TOKENS: ${FACTORY_PI_MAX_OUTPUT_TOKENS:-}
       FACTORY_CLAUDE_CODE_IMAGE: ${FACTORY_CLAUDE_CODE_IMAGE:-factory-dev-claude-code:2.1.287-java21}
-      FACTORY_CLAUDE_CODE_API: ${FACTORY_CLAUDE_CODE_API:-anthropic-messages}
-      FACTORY_CLAUDE_CODE_BASE_URL: ${FACTORY_CLAUDE_CODE_BASE_URL:-http://host.docker.internal:4001}
-      FACTORY_CLAUDE_CODE_MODEL: ${FACTORY_CLAUDE_CODE_MODEL:-claude-sonnet-5-5}
-      FACTORY_CLAUDE_CODE_AUTHENTICATION: ${FACTORY_CLAUDE_CODE_AUTHENTICATION:-bearer-token}
-      FACTORY_CLAUDE_CODE_API_KEY: ${FACTORY_CLAUDE_CODE_API_KEY:-}
-      FACTORY_CLAUDE_CODE_AUTH_TOKEN: ${FACTORY_CLAUDE_CODE_AUTH_TOKEN:-codemie-proxy}
-      FACTORY_CLAUDE_CODE_MAX_TURNS: ${FACTORY_CLAUDE_CODE_MAX_TURNS:-40}
-      FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS: ${FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS:-16384}
-      FACTORY_CLAUDE_CODE_EFFORT: ${FACTORY_CLAUDE_CODE_EFFORT:-}
-      FACTORY_DEV_FACTORY_CODING_IMAGE: ${FACTORY_DEV_FACTORY_CODING_IMAGE:-factory-dev-pi:0.85.1-java21}
+      FACTORY_CLAUDE_CODE_MAX_TURNS: ${FACTORY_CLAUDE_CODE_MAX_TURNS:-200}
+      # Models: config/developer-models.yaml. Each model names the variable with its secret; an
+      # empty value means "not configured". Compose passes only the variables listed here: add
+      # the secret-env variable of every new model below. The local CodeMie proxy accepts the
+      # public token codemie-proxy.
+      FACTORY_DEV_FACTORY_DEFAULT_MODEL: ${FACTORY_DEV_FACTORY_DEFAULT_MODEL:-}
+      FACTORY_CODEMIE_PROXY_TOKEN: ${FACTORY_CODEMIE_PROXY_TOKEN:-codemie-proxy}
+      FACTORY_ANTHROPIC_API_KEY: ${FACTORY_ANTHROPIC_API_KEY:-}
+      FACTORY_ZAI_API_KEY: ${FACTORY_ZAI_API_KEY:-}
       FACTORY_DEV_FACTORY_CODING_RUNTIME: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:-claude-code}
       FACTORY_DEV_FACTORY_TIMEOUT_SECONDS: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:-1800}
       FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:-factory-dev-m2-cache}
@@ -136,15 +124,21 @@ services:
       FACTORY_RETENTION_TTL_DAYS:
       FACTORY_RETENTION_BATCH_SIZE:
       FACTORY_RETENTION_RUN_CRON:
+      # My tasks settings stay disabled by default: an unset null is omitted from the
+      # container, so Compose forwards them without starting any task processing.
+      FACTORY_TASKS_EXECUTION_ENABLED:
+      FACTORY_TASKS_EXECUTION_DEADLINE:
+      FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS:
+      FACTORY_TASKS_ASSIGNEE:
       FACTORY_LOG_FORMAT:
-      SPRING_CONFIG_IMPORT: classpath:developer-repositories.yaml,file:/application/config/developer-repositories.yaml,optional:file:/application/config/developer-pricing.yaml
+      SPRING_CONFIG_IMPORT: classpath:developer-repositories.yaml,file:/application/config/developer-repositories.yaml,classpath:developer-models.yaml,file:/application/config/developer-models.yaml
     ports:
       - "${FACTORY_BIND_ADDRESS:-127.0.0.1}:${FACTORY_APP_PORT:-8080}:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - factory-dev-m2-cache:/var/lib/factory-dev-m2-cache:ro
-      - ./config/developer-pricing.yaml:/application/config/developer-pricing.yaml:ro
       - ${FACTORY_DEV_FACTORY_REPOSITORIES_FILE:-./config/developer-repositories.yaml}:/application/config/developer-repositories.yaml:ro
+      - ${FACTORY_DEV_FACTORY_MODELS_FILE:-./config/developer-models.yaml}:/application/config/developer-models.yaml:ro
 
 volumes:
   factory-pgdata:

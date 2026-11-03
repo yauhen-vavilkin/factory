@@ -5,4 +5,8 @@ public class DeliveryBlockedException extends IllegalStateException {
     public DeliveryBlockedException(String message) {
         super(message);
     }
+
+    public DeliveryBlockedException(String message, Throwable cause) {
+        super(message, cause);
+    }
 }

@@ -1,5 +1,7 @@
 package org.folio.factory.core.engine;
 
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
@@ -16,8 +18,6 @@ import org.folio.factory.core.registry.model.StepDescriptor;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -44,9 +44,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * writes new artifact versions rather than corrupting old ones.</p>
  */
 @Component
+@RequiredArgsConstructor
+@Slf4j
 public class ExecutionEngine {
-
-    private static final Logger log = LoggerFactory.getLogger(ExecutionEngine.class);
 
     private final FlowRegistry flowRegistry;
     private final AgentWorkerRegistry workerRegistry;
@@ -62,32 +62,6 @@ public class ExecutionEngine {
     private final ResumableAgentDriver resumableDriver;
 
     private final Set<UUID> activeExecutions = ConcurrentHashMap.newKeySet();
-
-    public ExecutionEngine(FlowRegistry flowRegistry,
-                           AgentWorkerRegistry workerRegistry,
-                           StateManager stateManager,
-                           ArtifactStore artifactStore,
-                           AuditLog auditLog,
-                           HitlGateOpener hitlGateOpener,
-                           SubFlowInvoker subFlowInvoker,
-                           List<StepPostProcessor> postProcessors,
-                           JsonMapper jsonMapper,
-                           EngineMetrics engineMetrics,
-                           AgentLeaseHeartbeat leaseHeartbeat,
-                           ResumableAgentDriver resumableDriver) {
-        this.flowRegistry = flowRegistry;
-        this.workerRegistry = workerRegistry;
-        this.stateManager = stateManager;
-        this.artifactStore = artifactStore;
-        this.auditLog = auditLog;
-        this.hitlGateOpener = hitlGateOpener;
-        this.subFlowInvoker = subFlowInvoker;
-        this.postProcessors = postProcessors;
-        this.jsonMapper = jsonMapper;
-        this.engineMetrics = engineMetrics;
-        this.leaseHeartbeat = leaseHeartbeat;
-        this.resumableDriver = resumableDriver;
-    }
 
     /**
      * Advances the execution until it pauses (HITL gate, sub-flow, retry backoff),
@@ -105,31 +79,9 @@ public class ExecutionEngine {
         // are reused across executions, so the key must not leak to the next task.
         MDC.put("executionId", executionId.toString());
         try {
-            while (true) {
-                PipelineExecution execution = stateManager.get(executionId);
-                if (execution.getStatus() != ExecutionStatus.RUNNING) {
-                    return;
-                }
-                FlowDescriptor flow = flowRegistry.require(execution.getFlowId());
-                if (!flow.hasStep(execution.getCurrentStepIndex())) {
-                    complete(execution);
-                    return;
-                }
-                StepDescriptor step = flow.step(execution.getCurrentStepIndex());
-                boolean advanced = switch (step.type()) {
-                    case AGENT -> runAgentStep(execution, flow, step);
-                    case HITL_GATE -> {
-                        hitlGateOpener.openGate(execution, step);
-                        yield false;
-                    }
-                    case SUB_FLOW -> {
-                        subFlowInvoker.invoke(execution, step);
-                        yield false;
-                    }
-                };
-                if (!advanced) {
-                    return;
-                }
+            boolean advanced = true;
+            while (advanced) {
+                advanced = runCurrentStep(executionId);
             }
         } catch (Exception e) {
             // Defensive net for engine bugs and unknown flows — never leave an
@@ -142,71 +94,114 @@ public class ExecutionEngine {
         }
     }
 
+    /** Runs the current step; false once the execution paused, completed or is no longer RUNNING. */
+    private boolean runCurrentStep(UUID executionId) {
+        PipelineExecution execution = stateManager.get(executionId);
+        if (execution.getStatus() != ExecutionStatus.RUNNING) {
+            return false;
+        }
+        FlowDescriptor flow = flowRegistry.require(execution.getFlowId());
+        if (!flow.hasStep(execution.getCurrentStepIndex())) {
+            complete(execution);
+            return false;
+        }
+        StepDescriptor step = flow.step(execution.getCurrentStepIndex());
+        return switch (step.type()) {
+            case AGENT -> runAgentStep(execution, flow, step);
+            case HITL_GATE -> {
+                hitlGateOpener.openGate(execution, step);
+                yield false;
+            }
+            case SUB_FLOW -> {
+                subFlowInvoker.invoke(execution, step);
+                yield false;
+            }
+        };
+    }
+
     private boolean runAgentStep(PipelineExecution execution, FlowDescriptor flow, StepDescriptor step) {
-        if (Boolean.TRUE.equals(step.config().get("resumable")))
+        if (Boolean.TRUE.equals(step.config().get("resumable"))) {
             return resumableDriver.run(execution, flow, step, () -> buildContext(execution, step));
-        UUID executionId = execution.getId();
+        }
         MDC.put("stepId", step.stepId());
         try {
-            auditLog.record(executionId, AuditEventType.STEP_STARTED, step.stepId(),
-                    Map.of("workerId", step.workerId(), "attempt", stateManager.retryCount(executionId, step.stepId()) + 1));
-            long startNanos = System.nanoTime();
-            // Recorded exactly once in finally, classified by whether the step reached
-            // success — so a fault in advanceStep is not counted as both success and failure.
-            boolean success = false;
-            AgentResult result = null;
-            try {
-                AgentWorker worker = workerRegistry.require(step.workerId());
-                AgentContext context = buildContext(execution, step);
-                var lease = leaseHeartbeat.start(execution);
-                try (lease) {
-                    result = worker.execute(context);
-                }
-                if (result.disposition() != AgentResult.Disposition.ADVANCE)
-                    throw new AgentExecutionException("Step is not opted into resumable invocation results");
-                requireDeclaredOutputs(step, result);
-                for (StepPostProcessor postProcessor : postProcessors) {
-                    postProcessor.process(flow, step, result.outputs());
-                }
-                for (Map.Entry<String, String> output : result.outputs().entrySet()) {
-                    artifactStore.putMarkdown(executionId, output.getKey(), output.getValue(), step.stepId());
-                }
-                // Guarded advance: if a duplicate driver (lease-reaped run) moved the
-                // execution meanwhile, stop instead of double-advancing past a step.
-                boolean advanced = stateManager.advanceStep(executionId, execution.getCurrentStepIndex(),
-                        ExecutionStatus.RUNNING, lease.version());
-                if (advanced) {
-                    auditLog.record(executionId, AuditEventType.STEP_COMPLETED, step.stepId(), result.metrics());
-                    engineMetrics.recordLlmTokens(step.workerId(), result.metrics());
-                }
-                success = advanced;
-                return advanced;
-            } catch (Exception e) {
-                // Conditional HITL gate workers intentionally park their own AGENT
-                // step with no outputs. Their guarded advance would refuse AWAITING_HITL,
-                // but the completed gate still needs its normal audit event.
-                if (result != null && step.outputs().isEmpty() && leaseLost(e)
-                        && parkedAtReview(executionId, execution.getCurrentStepIndex())) {
-                    auditLog.record(executionId, AuditEventType.STEP_COMPLETED, step.stepId(), result.metrics());
-                    success = true;
-                    return false;
-                }
-                // A failed renewal means ownership is lost or unknown. Leave the
-                // current owner/reaper in charge; stale workers must not retry or
-                // escalate a run that may already have been claimed elsewhere.
-                if (leaseLost(e)) {
-                    log.error("Discarding result of step '{}' for execution {} after lease renewal failure",
-                            step.stepId(), executionId, e);
-                    return false;
-                }
-                handleStepFailure(execution, flow, step, e);
-                return false;
-            } finally {
-                engineMetrics.recordAgentStep(step.workerId(), success, Duration.ofNanos(System.nanoTime() - startNanos));
-            }
+            auditLog.record(execution.getId(), AuditEventType.STEP_STARTED, step.stepId(),
+                    Map.of("workerId", step.workerId(),
+                            "attempt", stateManager.retryCount(execution.getId(), step.stepId()) + 1));
+            return runMeasuredAgentStep(execution, flow, step);
         } finally {
             MDC.remove("stepId");
         }
+    }
+
+    private boolean runMeasuredAgentStep(PipelineExecution execution, FlowDescriptor flow, StepDescriptor step) {
+        long startNanos = System.nanoTime();
+        // Recorded exactly once in finally, classified by whether the step reached
+        // success — so a fault in advanceStep is not counted as both success and failure.
+        boolean success = false;
+        AgentResult result = null;
+        try {
+            AgentWorker worker = workerRegistry.require(step.workerId());
+            AgentContext context = buildContext(execution, step);
+            var lease = leaseHeartbeat.start(execution);
+            try (lease) {
+                result = worker.execute(context);
+            }
+            success = storeOutputsAndAdvance(execution, flow, step, result, lease.version());
+            return success;
+        } catch (Exception e) {
+            success = recoverFromStepFailure(execution, flow, step, result, e);
+            return false;
+        } finally {
+            engineMetrics.recordAgentStep(step.workerId(), success,
+                    Duration.ofNanos(System.nanoTime() - startNanos));
+        }
+    }
+
+    private boolean storeOutputsAndAdvance(PipelineExecution execution, FlowDescriptor flow, StepDescriptor step,
+                                           AgentResult result, long leaseVersion) {
+        if (result.disposition() != AgentResult.Disposition.ADVANCE) {
+            throw new AgentExecutionException("Step is not opted into resumable invocation results");
+        }
+        requireDeclaredOutputs(step, result);
+        for (StepPostProcessor postProcessor : postProcessors) {
+            postProcessor.process(flow, step, result.outputs());
+        }
+        for (Map.Entry<String, String> output : result.outputs().entrySet()) {
+            artifactStore.putMarkdown(execution.getId(), output.getKey(), output.getValue(), step.stepId());
+        }
+        // Guarded advance: if a duplicate driver (lease-reaped run) moved the
+        // execution meanwhile, stop instead of double-advancing past a step.
+        boolean advanced = stateManager.advanceStep(execution.getId(), execution.getCurrentStepIndex(),
+                ExecutionStatus.RUNNING, leaseVersion);
+        if (advanced) {
+            auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, step.stepId(), result.metrics());
+            engineMetrics.recordLlmTokens(step.workerId(), result.metrics());
+        }
+        return advanced;
+    }
+
+    /** Handles a failed agent step; true when the step still counts as a success for the metrics. */
+    private boolean recoverFromStepFailure(PipelineExecution execution, FlowDescriptor flow, StepDescriptor step,
+                                           AgentResult result, Exception e) {
+        // Conditional HITL gate workers intentionally park their own AGENT
+        // step with no outputs. Their guarded advance would refuse AWAITING_HITL,
+        // but the completed gate still needs its normal audit event.
+        if (result != null && step.outputs().isEmpty() && leaseLost(e)
+                && parkedAtReview(execution.getId(), execution.getCurrentStepIndex())) {
+            auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, step.stepId(), result.metrics());
+            return true;
+        }
+        // A failed renewal means ownership is lost or unknown. Leave the
+        // current owner/reaper in charge; stale workers must not retry or
+        // escalate a run that may already have been claimed elsewhere.
+        if (leaseLost(e)) {
+            log.error("Discarding result of step '{}' for execution {} after lease renewal failure",
+                    step.stepId(), execution.getId(), e);
+            return false;
+        }
+        handleStepFailure(execution, flow, step, e);
+        return false;
     }
 
     private boolean parkedAtReview(UUID executionId, int expectedStepIndex) {
@@ -273,31 +268,41 @@ public class ExecutionEngine {
         auditLog.record(executionId, AuditEventType.STEP_FAILED, step.stepId(), Map.of("error", error));
         int attempts = stateManager.incrementRetry(executionId, step.stepId());
         if (attempts < flow.retryPolicy().maxAttempts()) {
-            long backoff = flow.retryPolicy().backoffFor(attempts);
-            // Skip the retry bookkeeping when the guard refused the state change —
-            // e.g. the run was cancelled while this step was still in flight.
-            if (stateManager.scheduleRetry(executionId, backoff, error)) {
-                auditLog.record(executionId, AuditEventType.RETRY_SCHEDULED, step.stepId(),
-                        Map.of("attempt", attempts, "backoffSeconds", backoff));
-                engineMetrics.stepRetryScheduled();
-                log.warn("Step '{}' of execution {} failed (attempt {}); retrying in {}s: {}",
-                        step.stepId(), executionId, attempts, backoff, error);
-            } else {
-                log.warn("Step '{}' of execution {} failed but the run is already resolved; skipping retry",
-                        step.stepId(), executionId);
-            }
-        } else if (hitlGateOpener.openEscalationReview(execution, step, error, attempts) != null) {
-            // openEscalationReview transitions to FAILED_ESCALATED and inserts the
-            // review atomically; a null return means the guard refused the
-            // transition (a concurrent resolution), so no review exists to attribute.
-            auditLog.record(executionId, AuditEventType.ESCALATED, step.stepId(),
+            scheduleRetry(executionId, step, attempts, flow.retryPolicy().backoffFor(attempts), error);
+        } else {
+            escalate(execution, step, attempts, error);
+        }
+    }
+
+    private void scheduleRetry(UUID executionId, StepDescriptor step, int attempts, long backoff, String error) {
+        // Skip the retry bookkeeping when the guard refused the state change —
+        // e.g. the run was cancelled while this step was still in flight.
+        if (stateManager.scheduleRetry(executionId, backoff, error)) {
+            auditLog.record(executionId, AuditEventType.RETRY_SCHEDULED, step.stepId(),
+                    Map.of("attempt", attempts, "backoffSeconds", backoff));
+            engineMetrics.stepRetryScheduled();
+            log.warn("Step '{}' of execution {} failed (attempt {}); retrying in {}s: {}",
+                    step.stepId(), executionId, attempts, backoff, error);
+        } else {
+            log.warn("Step '{}' of execution {} failed but the run is already resolved; skipping retry",
+                    step.stepId(), executionId);
+        }
+    }
+
+    private void escalate(PipelineExecution execution, StepDescriptor step, int attempts, String error) {
+        // openEscalationReview transitions to FAILED_ESCALATED and inserts the
+        // review atomically; a null return means the guard refused the
+        // transition (a concurrent resolution), so no review exists to attribute.
+        if (hitlGateOpener.openEscalationReview(execution, step, error, attempts) != null) {
+            auditLog.record(execution.getId(), AuditEventType.ESCALATED, step.stepId(),
                     Map.of("attempts", attempts, "error", error));
             engineMetrics.stepEscalated();
-            log.error("Step '{}' of execution {} exhausted its retry budget after {} attempts; escalated to human review",
-                    step.stepId(), executionId, attempts);
+            log.error("Step '{}' of execution {} exhausted its retry budget after {} attempts; "
+                            + "escalated to human review",
+                    step.stepId(), execution.getId(), attempts);
         } else {
             log.warn("Step '{}' of execution {} exhausted retries but the run is already resolved; skipping escalation",
-                    step.stepId(), executionId);
+                    step.stepId(), execution.getId());
         }
     }
 

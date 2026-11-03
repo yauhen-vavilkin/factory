@@ -20,9 +20,9 @@ class PiCodingRuntimeTest {
     private static final String OVERSIZED_CONTENT = "private secret-key " + "x".repeat(512 * 1024);
 
     @Test void identityContainsOnlyDisplayFields() {
-        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding("pi:image", "provider", "model",
-                "https://private.example", "openai-completions", "secret-key", "pi", "high", 4096));
-        assertThat(runtime.identity()).containsExactlyInAnyOrderEntriesOf(Map.of(
+        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Pi("pi:image", "provider", "model",
+                "https://private.example", "openai-completions", "secret-key", null, "high", 4096));
+        assertThat(runtime.identity(null)).containsExactlyInAnyOrderEntriesOf(Map.of(
                 "runtime", "pi", "image", "pi:image", "provider", "provider", "model", "model"));
     }
 
@@ -30,15 +30,16 @@ class PiCodingRuntimeTest {
     @NullAndEmptySource
     @ValueSource(strings = {" "})
     void identityIsAvailableWithMissingConfiguration(String missing) {
-        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding(missing, missing, missing,
-                null, null, null, "pi", null, null));
-        assertThat(runtime.identity()).containsExactlyInAnyOrderEntriesOf(Map.of("runtime", "pi"));
+        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Pi(missing, missing, missing, null, null, null,
+                null, null, null));
+        assertThat(runtime.identity(null)).containsExactlyInAnyOrderEntriesOf(Map.of(
+                "runtime", "pi", "image", "factory-dev-pi:0.85.1-java21"));
 
         var base = mock(CodingRuntime.class, CALLS_REAL_METHODS);
         when(base.id()).thenReturn(missing);
         when(base.image()).thenReturn(missing);
-        assertThat(base.identity()).isEmpty();
-        verify(base, never()).requireConfigured();
+        assertThat(base.identity(null)).isEmpty();
+        verify(base, never()).requireConfigured(any());
     }
 
     private static String oversizedAgentEnd() {
@@ -97,8 +98,8 @@ class PiCodingRuntimeTest {
     }
 
     @Test void codemieProfileProducesPiReasoningAndChatCompletionsSettings() throws Exception {
-        var coding = new DevRuntimeProperties.Coding("pi:image", "codemie", "gemini-3.8-flash",
-                "http://host.docker.internal:4001/v1", "openai-completions", "codemie-proxy", "pi", "high", 65536);
+        var coding = new DevRuntimeProperties.Pi("pi:image", "codemie", "gemini-3.8-flash",
+                "http://host.docker.internal:4001/v1", "openai-completions", "codemie-proxy", null, "high", 65536);
         var captured = captureConfiguration(coding);
         var provider = tools.jackson.databind.json.JsonMapper.builder().build().readTree(captured.modelsJson())
                 .path("providers").path("codemie");
@@ -118,8 +119,8 @@ class PiCodingRuntimeTest {
     }
 
     @Test void plainProfileKeepsExistingPiDefaults() throws Exception {
-        var coding = new DevRuntimeProperties.Coding("pi:image", "openai-compatible", "test-model",
-                "https://api.example.com/v1", null, "test-key", "pi", null, null);
+        var coding = new DevRuntimeProperties.Pi("pi:image", "openai-compatible", "test-model",
+                "https://api.example.com/v1", null, "test-key", null, null, null);
         var captured = captureConfiguration(coding);
         var provider = tools.jackson.databind.json.JsonMapper.builder().build().readTree(captured.modelsJson())
                 .path("providers").path("openai-compatible");
@@ -131,13 +132,13 @@ class PiCodingRuntimeTest {
         assertThat(captured.command()).doesNotContain("--thinking");
     }
 
-    private static CapturedConfiguration captureConfiguration(DevRuntimeProperties.Coding coding) {
+    private static CapturedConfiguration captureConfiguration(DevRuntimeProperties.Pi coding) {
         var workload = mock(DockerWorkloads.Workload.class);
         var modelsJson = new AtomicReference<String>();
         var command = new AtomicReference<List<String>>();
         var events = new java.util.ArrayList<Map<String, Object>>();
-        when(workload.execute(List.of("pi", "--version"), 30)).thenReturn(new Processes.Result(0, "0.85.1"));
-        when(workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30))
+        when(workload.execute(List.of("pi", "--version"), 30, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "0.85.1"));
+        when(workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30, Processes.OUTPUT_LIMIT, null))
                 .thenReturn(new Processes.Result(0, ""));
         doAnswer(invocation -> {
             modelsJson.set(Files.readString(Path.of((String) invocation.getArgument(0)).resolve("models.json")));
@@ -151,7 +152,7 @@ class PiCodingRuntimeTest {
                             + "\"stopReason\":\"stop\",\"content\":[{\"type\":\"text\",\"text\":\"Done\"}]}}\n"
                             + SETTLED);
                 });
-        assertThat(new PiCodingRuntime(coding).code(workload, request(), 60, events::add).status())
+        assertThat(new PiCodingRuntime(coding).code(workload, request(), 60, events::add, CodingTranscripts.NONE).status())
                 .isEqualTo(CodingOutcome.Status.COMPLETED);
         return new CapturedConfiguration(modelsJson.get(), command.get(), events);
     }
@@ -359,14 +360,16 @@ class PiCodingRuntimeTest {
                 .containsEntry("outputTokens", 3L)
                 .containsEntry("usageIncomplete", true);
         assertThat((java.math.BigDecimal) events.getLast().get("costUsd")).isEqualByComparingTo("0.125");
+        assertThat(List.copyOf(events.getLast().keySet())).containsSubsequence("inputTokens", "cacheReadTokens",
+                "cacheWriteTokens", "outputTokens", "costUsd", "usageIncomplete");
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"timeout", "exit", "provider", "success"})
     void emittedUsageSurvivesRuntimeFailureAndSuccessDoesNotAddItAgain(String outcome) {
         var workload = mock(DockerWorkloads.Workload.class);
-        when(workload.execute(List.of("pi", "--version"), 30)).thenReturn(new Processes.Result(0, "0.85.1"));
-        when(workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30)).thenReturn(new Processes.Result(0, ""));
+        when(workload.execute(List.of("pi", "--version"), 30, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "0.85.1"));
+        when(workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, ""));
         when(workload.execute(anyList(), eq(60), eq(PiCodingRuntime.EVENT_STREAM_LIMIT), any()))
                 .thenAnswer(invocation -> {
                     java.util.function.Consumer<String> observer = invocation.getArgument(3);
@@ -379,16 +382,17 @@ class PiCodingRuntimeTest {
                             USAGE_FRAME + frame + SETTLED);
                 });
         var events = new java.util.ArrayList<Map<String, Object>>();
-        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Coding("pi:image", "p", "m", null, null, "secret-key", "pi", null, null));
+        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Pi("pi:image", "p", "m", null, null, "secret-key",
+                null, null, null));
         if (outcome.equals("success")) {
-            var result = runtime.code(workload, request(), 60, events::add);
+            var result = runtime.code(workload, request(), 60, events::add, CodingTranscripts.NONE);
             assertThat(result.summary()).contains("[REDACTED]").doesNotContain("secret-key");
             assertThat(result.metrics())
                     .containsEntry("inputTokens", 20L)
                     .containsEntry("cacheReadTokens", 4L)
                     .containsEntry("cacheWriteTokens", 2L)
                     .containsEntry("outputTokens", 6L);
-        } else assertThat(runtime.code(workload, request(), 60, events::add).status())
+        } else assertThat(runtime.code(workload, request(), 60, events::add, CodingTranscripts.NONE).status())
                 .isEqualTo(CodingOutcome.Status.FAILED);
         assertThat(events).hasSize(outcome.equals("provider") ? 3 : 2);
         assertThat(events.get(1)).containsEntry("inputTokens", 20L)
@@ -480,6 +484,6 @@ class PiCodingRuntimeTest {
     private static CodingRequest request() {
         return new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(), List.of(),
                 List.of(), new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)),
-                CodingRequest.Constraints.defaults());
+                CodingRequest.Constraints.defaults(), null);
     }
 }

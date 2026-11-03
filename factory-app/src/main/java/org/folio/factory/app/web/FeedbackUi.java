@@ -2,6 +2,7 @@ package org.folio.factory.app.web;
 
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -23,12 +24,9 @@ import java.util.Set;
 import java.util.TreeMap;
 
 @Component
+@RequiredArgsConstructor
 public class FeedbackUi {
     private final FeedbackActions actions;
-
-    public FeedbackUi(FeedbackActions actions) {
-        this.actions = actions;
-    }
 
     public void populate(
             PipelineExecution execution,
@@ -119,7 +117,6 @@ public class FeedbackUi {
         for (var entry : rounds.entrySet()) {
             var state = entry.getValue();
             var card = new LinkedHashMap<String, Object>();
-            card.put("round", entry.getKey());
             card.put("open", entry.getKey().equals(rounds.lastKey()));
             card.put("title", state.manual()
                     ? "Manual verification " + (++manual) : "Round " + (++correction));
@@ -128,9 +125,7 @@ public class FeedbackUi {
             card.put("summary", state.summary());
             card.put("reason", state.reason());
             card.put("commit", state.commitSha());
-            card.put("selected", state.selected().stream()
-                    .map(comment -> Map.of("author", comment.author(), "body", comment.body()))
-                    .toList());
+            card.put("selected", selectedComments(state));
             card.put("usage", projection.summary(entry.getKey(), live));
             card.put("runtime", state.runtimeName());
             card.put("verification", state.verification());
@@ -138,6 +133,12 @@ public class FeedbackUi {
             cards.add(card);
         }
         return cards;
+    }
+
+    private static List<Map<String, String>> selectedComments(FeedbackState state) {
+        return state.selected().stream()
+                .map(comment -> Map.of("author", comment.author(), "body", comment.body()))
+                .toList();
     }
 
     private static String roundPhase(FeedbackState state) {
@@ -186,10 +187,6 @@ public class FeedbackUi {
                     && state.verification() != null
                     && "PASS".equals(state.verification().result());
         }
-    }
-
-    static String duration(long s) {
-        return s / 3600 + "h " + s % 3600 / 60 + "m " + s % 60 + "s";
     }
 
     static String label(FeedbackState.Phase p) {

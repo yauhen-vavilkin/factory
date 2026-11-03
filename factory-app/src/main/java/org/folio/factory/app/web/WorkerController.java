@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.llm.AbstractLlmAgentWorker;
 import org.folio.factory.agents.prompt.PromptCatalog;
 import org.folio.factory.core.agent.AgentWorker;
@@ -18,17 +19,12 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/workers")
+@RequiredArgsConstructor
 public class WorkerController {
 
     private final AgentWorkerRegistry registry;
     private final PromptCatalog catalog;
     private final FlowRegistry flowRegistry;
-
-    public WorkerController(AgentWorkerRegistry registry, PromptCatalog catalog, FlowRegistry flowRegistry) {
-        this.registry = registry;
-        this.catalog = catalog;
-        this.flowRegistry = flowRegistry;
-    }
 
     public record WorkerStepRef(String flowId, String stepId) {
     }

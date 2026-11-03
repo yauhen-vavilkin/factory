@@ -59,6 +59,8 @@ public interface PipelineExecutionRepository extends JpaRepository<PipelineExecu
 
     List<PipelineExecution> findByStatus(ExecutionStatus status);
 
+    Page<PipelineExecution> findByStatus(ExecutionStatus status, Pageable pageable);
+
     List<PipelineExecution> findByParentExecutionId(UUID parentExecutionId);
 
     /**
@@ -76,8 +78,6 @@ public interface PipelineExecutionRepository extends JpaRepository<PipelineExecu
     List<PipelineExecution> findChildrenWithWaitingParent(
             @Param("statuses") List<ExecutionStatus> statuses,
             @Param("parentStatus") ExecutionStatus parentStatus);
-
-    Page<PipelineExecution> findByStatus(ExecutionStatus status, Pageable pageable);
 
     Page<PipelineExecution> findByFlowId(String flowId, Pageable pageable);
 

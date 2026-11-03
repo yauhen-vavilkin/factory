@@ -1,5 +1,6 @@
 package org.folio.factory.core.service;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.limits.LimitsProperties;
@@ -21,17 +22,12 @@ import java.util.UUID;
  * creates the next version; existing rows are never modified.
  */
 @Service
+@RequiredArgsConstructor
 public class ArtifactStore {
 
     private final ArtifactRepository repository;
     private final AuditLog auditLog;
     private final LimitsProperties limits;
-
-    public ArtifactStore(ArtifactRepository repository, AuditLog auditLog, LimitsProperties limits) {
-        this.repository = repository;
-        this.auditLog = auditLog;
-        this.limits = limits;
-    }
 
     @Transactional
     public Artifact put(UUID executionId, String name, String content, String contentType, String createdBy) {

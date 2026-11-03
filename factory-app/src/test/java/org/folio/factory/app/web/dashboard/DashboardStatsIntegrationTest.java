@@ -1,6 +1,6 @@
 package org.folio.factory.app.web.dashboard;
 
-import org.folio.factory.app.StubLlmConfiguration;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
@@ -12,16 +12,9 @@ import org.folio.factory.core.service.StateManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.client.RestClient;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
 
 import java.time.LocalDate;
@@ -37,19 +30,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code date_trunc}, {@code FILTER (WHERE ...)} and {@code detail->>'connector'}
  * that no unit test with a mocked repository can validate.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false"})
-@Import(StubLlmConfiguration.class)
-@Testcontainers
-@DirtiesContext
+@FactoryIntegrationTest
 class DashboardStatsIntegrationTest {
 
     private static final String FLOW_A = "test-factory";
     private static final String FLOW_B = "release-pipeline";
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     @LocalServerPort
     int port;
@@ -206,12 +191,14 @@ class DashboardStatsIntegrationTest {
         // A 10-day-old execution and audit row: excluded from a 7-day window but
         // counted all-time. The audit_event table is append-only (UPDATE/DELETE are
         // blocked by a trigger), so the row is inserted already-backdated.
+        // '240 hours', not '10 days': Postgres counts days in the session time zone, so across a DST change
+        // '10 days' moves the row by one hour more or less, and near midnight UTC it lands on another day.
         PipelineExecution old = stateManager.createExecution(FLOW_B, "1", "{}");
-        jdbc.sql("UPDATE pipeline_execution SET created_at = now() - interval '10 days' WHERE id = :id")
+        jdbc.sql("UPDATE pipeline_execution SET created_at = now() - interval '240 hours' WHERE id = :id")
                 .param("id", old.getId()).update();
         jdbc.sql("""
                         INSERT INTO audit_event (execution_id, event_type, step_id, actor, detail, occurred_at)
-                        VALUES (:id, 'STEP_FAILED', 'legacy-step', 'system', '{}'::jsonb, now() - interval '10 days')
+                        VALUES (:id, 'STEP_FAILED', 'legacy-step', 'system', '{}'::jsonb, now() - interval '240 hours')
                         """)
                 .param("id", old.getId()).update();
         return old.getId();

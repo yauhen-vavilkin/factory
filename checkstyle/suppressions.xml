@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suppressions PUBLIC
+    "-//Checkstyle//DTD SuppressionXpathFilter Configuration 1.2//EN"
+    "https://checkstyle.org/dtds/suppressions_1_2_xpath.dtd">
+<!-- Methods that were longer than 25 lines or had more than 7 parameters when the check was
+     added. Never add an entry; delete one when its method is brought under the limit. -->
+<suppressions>
+  <suppress-xpath files="DeveloperCostEstimator\.java" checks="MethodLength"
+      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='DeveloperCostEstimator']]/OBJBLOCK/METHOD_DEF[./IDENT[@text='estimate']]"/>
+  <suppress-xpath files="FeedbackUiController\.java" checks="ParameterNumber"
+      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='FeedbackUiController']]/OBJBLOCK/METHOD_DEF/IDENT[@text='command']"/>
+  <suppress-xpath files="Task\.java" checks="ParameterNumber"
+      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='Task']]/OBJBLOCK/CTOR_DEF/IDENT[@text='Task']"/>
+  <suppress-xpath files="TestFactoryConfiguration\.java" checks="ParameterNumber"
+      query="/COMPILATION_UNIT/CLASS_DEF[./IDENT[@text='TestFactoryConfiguration']]/OBJBLOCK/METHOD_DEF/IDENT[@text='testFactoryFinalizerWorker']"/>
+</suppressions>

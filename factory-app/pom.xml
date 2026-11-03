@@ -98,18 +98,8 @@
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-testcontainers</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-postgresql</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.testcontainers</groupId>
-      <artifactId>testcontainers-junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -133,6 +123,7 @@
         <directory>${project.basedir}/../config</directory>
         <includes>
           <include>developer-repositories.yaml</include>
+          <include>developer-models.yaml</include>
         </includes>
       </resource>
     </resources>
@@ -140,6 +131,14 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <excludes>
+            <exclude>
+              <groupId>org.projectlombok</groupId>
+              <artifactId>lombok</artifactId>
+            </exclude>
+          </excludes>
+        </configuration>
       </plugin>
       <!-- CycloneDX SBOM (DEP-1). Version + execution (makeAggregateBom @
            generate-resources, output META-INF/sbom/application.cdx.json) are

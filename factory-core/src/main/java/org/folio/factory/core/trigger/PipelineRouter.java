@@ -1,5 +1,6 @@
 package org.folio.factory.core.trigger;
 
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.limits.DailyBudgetExceededException;
@@ -10,8 +11,6 @@ import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.TriggerContract;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
@@ -40,9 +39,8 @@ import java.util.UUID;
  * rejects oversize webhook bodies before any execution is persisted.</p>
  */
 @Component
+@Slf4j
 public class PipelineRouter {
-
-    private static final Logger log = LoggerFactory.getLogger(PipelineRouter.class);
 
     private final FlowRegistry flowRegistry;
     private final StateManager stateManager;
@@ -84,27 +82,30 @@ public class PipelineRouter {
         List<FlowDescriptor> toCreate = new ArrayList<>();
         for (FlowDescriptor flow : flowRegistry.all()) {
             if (matches(flow, event) && hasRequiredInputs(flow, event.payload())) {
-                Optional<PipelineExecution> existing = recentDuplicate(flow, event, dedupKey);
-                if (existing.isPresent()) {
-                    created.add(existing.get().getId());
-                } else {
-                    toCreate.add(flow);
-                }
+                recentDuplicate(flow, event, dedupKey).ifPresentOrElse(
+                        existing -> created.add(existing.getId()), () -> toCreate.add(flow));
             }
         }
         if (!toCreate.isEmpty()) {
-            enforceDailyBudget(toCreate);
-            for (FlowDescriptor flow : toCreate) {
-                requireReady(flow.id(), event.payload());
-            }
-            for (FlowDescriptor flow : toCreate) {
-                created.add(create(flow, event, dedupKey).getId());
-            }
+            created.addAll(createAll(toCreate, event, dedupKey));
         }
         if (created.isEmpty()) {
             log.debug("No flow matched trigger event type '{}' from {}", event.type(), event.source());
         }
         return created;
+    }
+
+    /** The budget and every flow's readiness are checked before the first execution is created. */
+    private List<UUID> createAll(List<FlowDescriptor> flows, TriggerEvent event, String dedupKey) {
+        enforceDailyBudget(flows);
+        for (FlowDescriptor flow : flows) {
+            requireReady(flow.id(), event.payload());
+        }
+        List<UUID> ids = new ArrayList<>();
+        for (FlowDescriptor flow : flows) {
+            ids.add(create(flow, event, dedupKey).getId());
+        }
+        return ids;
     }
 
     /**
@@ -127,6 +128,36 @@ public class PipelineRouter {
         enforceDailyBudget(List.of(flow));
         requireReady(flowId, payload);
         return create(flow, event, dedupKey).getId();
+    }
+
+    /**
+     * Validates a manual trigger without creating anything: flow identity, input
+     * schema, payload size and plugin preflights all run here, before the caller's
+     * own transaction. Pair with {@link #routePrepared(PreparedManualTrigger)},
+     * which re-checks flow identity, dedup and the database budget at creation time.
+     */
+    public PreparedManualTrigger prepareManual(String flowId, JsonNode payload, String dedupKey) {
+        FlowDescriptor flow = flowRegistry.require(flowId);
+        requireInputs(flow, payload);
+        serializedWithinLimit(payload);
+        requireReady(flow.id(), payload);
+        return new PreparedManualTrigger(flow.id(), payload, dedupKey);
+    }
+
+    /**
+     * Creates an execution for a trigger prepared by {@link #prepareManual(String,
+     * JsonNode, String)}. Accepts only the prepared type, never a raw request, and
+     * repeats the creation-time guards: flow identity, dedup and daily budget.
+     */
+    public UUID routePrepared(PreparedManualTrigger prepared) {
+        FlowDescriptor flow = flowRegistry.require(prepared.flowId());
+        TriggerEvent event = TriggerEvent.of("manual", "api", prepared.payload());
+        Optional<PipelineExecution> existing = recentDuplicate(flow, event, prepared.dedupKey());
+        if (existing.isPresent()) {
+            return existing.get().getId();
+        }
+        enforceDailyBudget(List.of(flow));
+        return create(flow, event, prepared.dedupKey()).getId();
     }
 
     private void requireReady(String flowId, JsonNode payload) {
@@ -210,14 +241,7 @@ public class PipelineRouter {
     }
 
     private PipelineExecution create(FlowDescriptor flow, TriggerEvent event, String dedupKey) {
-        String payloadJson = event.payload() == null ? null : jsonMapper.writeValueAsString(event.payload());
-        if (payloadJson != null) {
-            int size = payloadJson.getBytes(StandardCharsets.UTF_8).length;
-            if (size > limits.maxTriggerPayloadBytes()) {
-                throw new IllegalArgumentException("Trigger payload is " + size
-                        + " bytes, exceeding the " + limits.maxTriggerPayloadBytes() + "-byte limit");
-            }
-        }
+        String payloadJson = serializedWithinLimit(event.payload());
         try {
             PipelineExecution execution =
                     stateManager.createExecution(flow.id(), flow.version(), payloadJson, dedupKey);
@@ -229,6 +253,19 @@ public class PipelineRouter {
             return stateManager.findRecentDuplicate(flow.id(), dedupKey, limits.dedup().window())
                     .orElseThrow(() -> race);
         }
+    }
+
+    private String serializedWithinLimit(JsonNode payload) {
+        if (payload == null) {
+            return null;
+        }
+        String payloadJson = jsonMapper.writeValueAsString(payload);
+        int size = payloadJson.getBytes(StandardCharsets.UTF_8).length;
+        if (size > limits.maxTriggerPayloadBytes()) {
+            throw new IllegalArgumentException("Trigger payload is " + size
+                    + " bytes, exceeding the " + limits.maxTriggerPayloadBytes() + "-byte limit");
+        }
+        return payloadJson;
     }
 
     /**

@@ -1,27 +1,31 @@
 package org.folio.factory.devfactory.worker;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
+import org.folio.factory.devfactory.DevFlowSettings;
 import org.folio.factory.devfactory.candidate.Candidate;
+import org.folio.factory.devfactory.tasks.Stop;
+import org.folio.factory.devfactory.tasks.TaskGuard;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
+import org.folio.factory.devfactory.verification.VerificationReceipt;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** Persists Factory's independent observation of the exact frozen candidate. */
+@RequiredArgsConstructor
 public class VerifyWorker implements AgentWorker {
     public static final String ID = "dev-verify";
     public static final String RECEIPT = "dev_verification.json";
     public static final String RESULT = "dev_result.json";
 
     private final CandidateVerifier verifier;
+    private final DevFlowSettings settings;
+    private final TaskGuard taskGuard;
     private final JsonMapper json = JsonMapper.builder().build();
-
-    public VerifyWorker(CandidateVerifier verifier) {
-        this.verifier = verifier;
-    }
 
     @Override
     public String id() {
@@ -33,17 +37,24 @@ public class VerifyWorker implements AgentWorker {
         String content = context.requireInput(DevelopWorker.CANDIDATE).content();
         var node = json.readTree(content);
         if (!"CANDIDATE_UNVERIFIED".equals(node.path("state").asString(""))) {
-            Map<String, Object> skipped = new LinkedHashMap<>();
-            skipped.put("state", "NOT_RUN");
-            skipped.put("reason", "No frozen candidate was available for independent verification");
-            Map<String, Object> outcome = new LinkedHashMap<>();
-            outcome.put("state", node.path("state").asString("DEVELOPMENT_FAILED"));
-            outcome.put("reason", node.path("reason").asString("Development did not produce a candidate"));
-            return new AgentResult(Map.of(RECEIPT, json.writeValueAsString(skipped),
-                    RESULT, json.writeValueAsString(outcome)), Map.of());
+            return notRun("No frozen candidate was available for independent verification",
+                    new Stop(node.path("state").asString("DEVELOPMENT_FAILED"),
+                            node.path("reason").asString("Development did not produce a candidate")));
         }
         Candidate candidate = json.readValue(content, Candidate.class);
-        var receipt = verifier.verify(context.executionId(), context.stepId(), candidate);
+        var stop = taskGuard.stop(context.executionId(), context.stepId(), "verification");
+        if (stop.isPresent()) {
+            return notRun(stop.get().reason(), stop.get());
+        }
+        var receipt = verifier.verify(context.executionId(), context.stepId(), candidate,
+                settings.repositories().sourceUrl(candidate.repository()),
+                taskGuard.capTimeout(context.executionId(), settings.runtime().timeoutSeconds()));
+        return new AgentResult(Map.of(
+                RECEIPT, json.writeValueAsString(receipt),
+                RESULT, json.writeValueAsString(outcome(candidate, receipt))), Map.of());
+    }
+
+    private static Map<String, Object> outcome(Candidate candidate, VerificationReceipt receipt) {
         Map<String, Object> outcome = new LinkedHashMap<>();
         outcome.put("state", receipt.result().equals("PASS") ? "VERIFIED" : "VERIFICATION_FAILED");
         outcome.put("repository", candidate.repository());
@@ -65,8 +76,19 @@ public class VerifyWorker implements AgentWorker {
         }
         outcome.put("failureCount", receipt.failureCount());
         outcome.put("errorCount", receipt.errorCount());
-        return new AgentResult(Map.of(
-                RECEIPT, json.writeValueAsString(receipt),
+        return outcome;
+    }
+
+    /** No verification ran: the receipt says why, and the result carries the stop. */
+    private AgentResult notRun(String receiptReason, Stop stop) {
+        Map<String, Object> skipped = new LinkedHashMap<>();
+        skipped.put("state", "NOT_RUN");
+        skipped.put("reason", receiptReason);
+        Map<String, Object> outcome = new LinkedHashMap<>();
+        outcome.put("state", stop.state());
+        outcome.put("reason", stop.reason());
+        return new AgentResult(Map.of(RECEIPT, json.writeValueAsString(skipped),
                 RESULT, json.writeValueAsString(outcome)), Map.of());
     }
+
 }

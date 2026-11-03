@@ -1,7 +1,6 @@
 package org.folio.factory.app.developer;
 
 import org.folio.factory.agents.artifact.FrontmatterCodec;
-import org.folio.factory.app.web.DeveloperPricingProperties;
 import org.folio.factory.connectors.github.GitHubProperties;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.jira.JiraIssue;
@@ -10,22 +9,31 @@ import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.decision.DecisionArtifacts;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
+import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
+import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
+import org.folio.factory.devfactory.runtime.ModelEntry;
+import org.folio.factory.devfactory.runtime.ModelPrice;
 import org.folio.factory.devfactory.worker.IntakeWorker;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.HttpServerErrorException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.net.URI;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -48,11 +56,20 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.tasks.TaskGuard;
+import java.time.Clock;
 
 class DeveloperPreflightTest {
 
     private static final String SHA = "a".repeat(40);
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final ModelPrice PRICE = new ModelPrice("USD", LocalDate.of(2026, 10, 22),
+            URI.create("https://pricing.fixture.invalid"), BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, null, null,
+            BigDecimal.ONE);
+    private static final ModelEntry GLM = new ModelEntry("glm-5.3", "anthropic-messages",
+            "https://api.z.ai/api/anthropic", "bearer-token", "FACTORY_ZAI_API_KEY", "glm-5.3",
+            List.of("low", "high", "max"), "max", null, null);
 
     private final CodingRuntime coding = mock(CodingRuntime.class);
     private final JiraConnector jira = mock(JiraConnector.class);
@@ -62,25 +79,21 @@ class DeveloperPreflightTest {
     private final GitHubProperties github = new GitHubProperties("", "github-fixture-secret");
     private DevRuntimeProperties settings;
     private DevFactoryProperties repositories;
-    private DevDeliveryProperties delivery;
-    private DeveloperPricingProperties pricing;
+    /** The default model; the other model of the file is {@link #GLM}. */
+    private ModelEntry defaultModel;
+    private Map<String, String> secrets;
 
     @BeforeEach
     void configuredFixture() {
-        var profile = new DevRuntimeProperties.ClaudeCode("coding:image", "anthropic-messages",
-                "http://gateway.fixture.invalid:4001", "exact-model", "bearer-token", null,
-                "coding-fixture-secret", 40, 16384, null);
-        var runtime = new DevRuntimeProperties.Coding(null, null, null, null, null, null,
-                "claude-code", null, null, null, profile);
-        settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "-B", "test")), runtime, 1800, null);
+        var runtime = new DevRuntimeProperties.Coding("claude-code", null,
+                new DevRuntimeProperties.ClaudeCode("coding:image", 40));
+        settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "-B", "test")), runtime, 1800, null, null);
         repositories = catalog(Map.of("fixture", repository("source/module", true)));
-        delivery = new DevDeliveryProperties(Map.of(), true);
-        pricing = new DeveloperPricingProperties(Map.of("fixture", new DeveloperPricingProperties.Rate(
-                "exact-model", "USD", LocalDate.of(2026, 10, 22), URI.create("https://pricing.fixture.invalid"),
-                BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE)));
+        defaultModel = model("http://gateway.fixture.invalid:4001", PRICE);
+        secrets = new HashMap<>(Map.of("CODING_SECRET", "coding-fixture-secret"));
         when(coding.id()).thenReturn("claude-code");
         when(coding.image()).thenReturn("coding:image");
-        when(coding.identity()).thenReturn(Map.of("runtime", "claude-code", "image", "coding:image", "model", "exact-model"));
+        when(coding.identity(any())).thenReturn(Map.of("runtime", "claude-code", "image", "coding:image", "model", "exact-model"));
         when(probe.gatewayReachable(any())).thenReturn(true);
         when(probe.dockerAvailable()).thenReturn(true);
         when(probe.imageAvailable(anyString())).thenReturn(true);
@@ -90,12 +103,11 @@ class DeveloperPreflightTest {
 
     @AfterEach
     void neverInvokesCoding() {
-        verify(coding, never()).code(any(), any(), anyInt());
-        verify(coding, never()).code(any(), any(), anyInt(), any());
+        verify(coding, never()).code(any(), any(), anyInt(), any(), any());
     }
 
     @Test
-    void readyTaskChecksSourceAndAuthorizedDestinationWithoutClaimingInferenceCoverage() {
+    void readyTaskChecksSourceAndDestinationWithoutClaimingInferenceCoverage() {
         var report = service().check("TASK-1");
 
         assertThat(report.ready()).isTrue();
@@ -105,25 +117,87 @@ class DeveloperPreflightTest {
         assertThat(report.runtime()).containsEntry("model", "exact-model");
         assertThat(report.repositories()).singleElement().satisfies(row -> assertThat(row)
                 .containsEntry("source", "source/module").containsEntry("baseBranch", "campaign/base")
-                .containsEntry("delivery", "fork/module").containsEntry("authorized", true));
-        verify(probe).requireDeliveryAccess(new DeliveryTarget("fork/module", "campaign/base", true), SHA);
+                .containsEntry("delivery", "fork/module"));
+        verify(probe).requireDeliveryAccess(new DeliveryTarget("fork/module", "campaign/base"), SHA);
         assertThatCode(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
                 .doesNotThrowAnyException();
     }
 
     @Test
-    void invalidSelectedProfileBlocksAdmissionWithoutProbingItsGatewayOrExposingCredential() {
-        doThrow(new IllegalStateException("invalid coding-fixture-secret")).when(coding).requireConfigured();
+    void invalidSelectedModelBlocksAdmissionWithoutProbingItsGatewayOrExposingCredential() {
+        doThrow(new IllegalStateException("invalid coding-fixture-secret")).when(coding).requireConfigured(any());
 
         var report = service().check("TASK-1");
 
         assertThat(report.ready()).isFalse();
         assertThat(check(report, "runtime").status()).isEqualTo(FAIL);
-        verify(probe, never()).gatewayReachable(any());
+        // Only the overview of every model probes endpoints; admission never probes this gateway.
+        assertThat(report.checks()).noneMatch(check -> check.name().equals("gateway"));
         assertSafe(report);
+        org.mockito.Mockito.clearInvocations(probe);
         assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("preflight failed")
+                .isNotInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
                 .hasMessageNotContaining("coding-fixture-secret");
+        verify(probe, never()).gatewayReachable(any());
+    }
+
+    @Test
+    void aTaskRunIsCheckedWithItsOwnModelSoABrokenDefaultDoesNotBlockIt() throws Exception {
+        secrets = Map.of("FACTORY_ZAI_API_KEY", "zai-fixture-secret");
+        var service = serviceWithClaudeCode();
+        var payload = JSON.readTree("{\"issueKey\":\"TASK-1\"}");
+
+        assertThatCode(() -> DeveloperPreflight.forRun(new CodingRequest.RunSettings("glm-5.3", "max", null),
+                () -> {
+                    service.requireReady("dev-factory", payload);
+                    return null;
+                })).doesNotThrowAnyException();
+        verify(probe).gatewayReachable(URI.create("https://api.z.ai/api/anthropic"));
+        // A run that uses the broken default, or a model that is gone, stops alone with a plain reason.
+        assertThatThrownBy(() -> service.requireReady("dev-factory", payload))
+                .isInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
+                .hasMessageContaining("set CODING_SECRET in .env");
+        assertThatThrownBy(() -> DeveloperPreflight.forRun(new CodingRequest.RunSettings("gone", null, null),
+                () -> {
+                    service.requireReady("dev-factory", payload);
+                    return null;
+                }))
+                .isInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
+                .hasMessageContaining("model gone").hasMessageContaining("config/developer-models.yaml");
+    }
+
+    @Test
+    void theConfigurationPageListsEveryModelWithItsOwnChecks() {
+        var report = serviceWithClaudeCode().check(null);
+
+        assertThat(report.models()).extracting(ModelChecks.ModelRow::id).containsExactly("fixture", "glm-5.3");
+        var fixture = report.models().getFirst();
+        assertThat(fixture.defaultModel()).isTrue();
+        assertThat(fixture.ready()).isTrue();
+        assertThat(fixture.model()).isEqualTo("exact-model");
+        assertThat(fixture.endpointOrigin()).isEqualTo("http://gateway.fixture.invalid:4001");
+        assertThat(checks(fixture)).containsEntry("api", PASS).containsEntry("efforts", PASS)
+                .containsEntry("secret", PASS).containsEntry("endpoint", PASS).containsEntry("price", PASS);
+        var glm = report.models().get(1);
+        assertThat(glm.defaultModel()).isFalse();
+        assertThat(glm.ready()).isFalse();
+        assertThat(glm.efforts()).isEqualTo("low, high, max; default max");
+        assertThat(glm.endpointOrigin()).isEqualTo("https://api.z.ai");
+        assertThat(checks(glm)).containsEntry("secret", FAIL).containsEntry("endpoint", PASS)
+                .containsEntry("price", WARN).containsEntry("efforts", PASS);
+        assertThat(JSON.writeValueAsString(report)).doesNotContain("coding-fixture-secret");
+    }
+
+    private static Map<String, DeveloperPreflight.Status> checks(ModelChecks.ModelRow row) {
+        var checks = new java.util.LinkedHashMap<String, DeveloperPreflight.Status>();
+        row.checks().forEach(check -> checks.put(check.name(), check.status()));
+        return checks;
+    }
+
+    /** The preflight with the real Claude Code runtime over the fixture models, not the mocked runtime. */
+    private DeveloperPreflight serviceWithClaudeCode() {
+        return service(new ClaudeCodeCodingRuntime(settings.coding().claudeCode(), models()), github);
     }
 
     @ParameterizedTest
@@ -156,7 +230,7 @@ class DeveloperPreflightTest {
 
     @Test
     void pricingUsesTheConfiguredModelInsteadOfTheDisplayIdentity() {
-        when(coding.identity()).thenReturn(Map.of("runtime", "claude-code", "model", "display-only-model"));
+        when(coding.identity(any())).thenReturn(Map.of("runtime", "claude-code", "model", "display-only-model"));
 
         var report = service().check("TASK-1");
 
@@ -196,7 +270,7 @@ class DeveloperPreflightTest {
 
     @Test
     void missingRateCardWarnsWithoutBlockingOtherwiseReadyTask() {
-        pricing = new DeveloperPricingProperties(Map.of());
+        defaultModel = model("http://gateway.fixture.invalid:4001", null);
 
         var report = service().check("TASK-1");
 
@@ -206,11 +280,7 @@ class DeveloperPreflightTest {
 
     @Test
     void controlPlaneCannotReachCodingEndpointButDoesNotVetoTheCodingNetwork() {
-        var profile = new DevRuntimeProperties.ClaudeCode("coding:image", "anthropic-messages",
-                "http://host.docker.internal:4001", "exact-model", "bearer-token", null,
-                "coding-fixture-secret", 40, 16384, null);
-        settings = new DevRuntimeProperties(settings.plans(), new DevRuntimeProperties.Coding(
-                null, null, null, null, null, null, "claude-code", null, null, null, profile), 1800, null);
+        defaultModel = model("http://host.docker.internal:4001", PRICE);
         when(probe.gatewayReachable(any())).thenReturn(false);
 
         var report = service().check("TASK-1");
@@ -256,8 +326,63 @@ class DeveloperPreflightTest {
         var report = service().check("TASK-1");
 
         assertThat(report.ready()).isFalse();
-        assertThat(check(report, "jira").status()).isEqualTo(FAIL);
+        assertThat(check(report, "issue").status()).isEqualTo(FAIL);
         verify(probe, never()).sourceBase(anyString(), anyString(), anyString());
+        assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
+                .isInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
+                .hasMessageContaining("Jira did not return the requested issue.");
+    }
+
+    @Test
+    void anIssueJiraNoLongerHasCannotRunWhileFactoryItselfIsReady() {
+        when(jira.getIssue("TASK-1")).thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                HttpHeaders.EMPTY, ("{\"errorMessages\":[\"Issue does not exist or you do not have permission to see"
+                        + " it.\"],\"errors\":{}}").getBytes(), null));
+
+        assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
+                .isInstanceOfSatisfying(DeveloperPreflight.TaskNotRunnableException.class, e ->
+                        assertThat(e.reason()).isEqualTo("Jira did not return the requested issue."));
+    }
+
+    @Test
+    void anIssueNoRepositoryMatchesCannotRun() {
+        when(jira.getIssue("OTHER-1")).thenReturn(issue("OTHER-1"));
+
+        assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"OTHER-1\"}")))
+                .isInstanceOfSatisfying(DeveloperPreflight.TaskNotRunnableException.class, e ->
+                        assertThat(e.reason()).startsWith("No configured repository matches"));
+    }
+
+    @Test
+    void aFactoryFailureKeepsTheTaskWaitingEvenWhenTheTaskFailsToo() {
+        when(probe.dockerAvailable()).thenReturn(false);
+        when(jira.getIssue("TASK-1")).thenReturn(issue("TASK-2"));
+
+        assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .isNotInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
+                .hasMessageContaining("Docker daemon is unavailable.");
+    }
+
+    @Test
+    void aNotFoundPageThatIsNotJiraKeepsTheTaskWaiting() {
+        when(jira.getIssue("TASK-1")).thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
+                HttpHeaders.EMPTY, "<html><body>404 Not Found</body></html>".getBytes(), null));
+
+        assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .isNotInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
+                .hasMessageContaining("Cannot read the requested Jira issue");
+    }
+
+    @Test
+    void anUnreadableJiraKeepsTheTaskWaiting() {
+        when(jira.getIssue("TASK-1")).thenThrow(HttpServerErrorException.create(
+                HttpStatus.SERVICE_UNAVAILABLE, "Unavailable", HttpHeaders.EMPTY, new byte[0], null));
+
+        assertThatThrownBy(() -> service().requireReady("dev-factory", JSON.readTree("{\"issueKey\":\"TASK-1\"}")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .isNotInstanceOf(DeveloperPreflight.TaskNotRunnableException.class);
     }
 
     @Test
@@ -270,7 +395,7 @@ class DeveloperPreflightTest {
     @Test
     void incompleteDestinationCanStillBeInspectedSafely() {
         var repository = new DevFactoryProperties.Repository("source/module", "campaign/base", "build:image", "unit",
-                List.of("TASK"), List.of(), new DeliveryTarget(null, null, false));
+                List.of("TASK"), List.of(), new DeliveryTarget(null, null));
         repositories = catalog(Map.of("fixture", repository));
 
         var report = service().check("TASK-1");
@@ -284,8 +409,7 @@ class DeveloperPreflightTest {
     @Test
     void unsupportedEnterpriseApiIsBlockedBeforeRepositoryAccess() {
         var enterprise = new GitHubProperties("https://github.enterprise.invalid/api/v3", "github-fixture-secret");
-        var service = new DeveloperPreflight(repositories, delivery, settings, coding, jiraProperties, jira,
-                enterprise, pricing, probe);
+        var service = service(coding, enterprise);
 
         var report = service.check("TASK-1");
 
@@ -296,51 +420,23 @@ class DeveloperPreflightTest {
     }
 
     @Test
-    void defaultProxyProfileHasASafeEffectiveConfiguration() {
-        settings = new DevRuntimeProperties(Map.of(), null, 1800, null);
+    void theDefaultModelHasASafeEffectiveConfiguration() {
+        settings = new DevRuntimeProperties(Map.of(), null, 1800, null, null);
 
         var report = service().check(null);
 
         assertThat(report.ready()).isFalse();
         assertThat(report.runtime())
+                .containsEntry("api", "anthropic-messages")
                 .containsEntry("authentication", "bearer-token")
-                .containsEntry("endpointOrigin", "http://host.docker.internal:4001");
+                .containsEntry("endpointOrigin", "http://gateway.fixture.invalid:4001");
         assertThat(check(report, "runtime").status()).isEqualTo(PASS);
-        assertThat(JSON.writeValueAsString(report)).doesNotContain("codemie-proxy");
         assertSafe(report);
     }
 
     @Test
-    void invalidAuthenticationIsRedactedFromEffectiveConfiguration() {
-        var profile = new DevRuntimeProperties.ClaudeCode(null, null, null, null,
-                "coding-fixture-secret", null, null, null, null, null);
-        var runtime = new DevRuntimeProperties.Coding(null, null, null, null, null, null,
-                "claude-code", null, null, null, profile);
-        settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null);
-        doThrow(new IllegalStateException("invalid coding-fixture-secret")).when(coding).requireConfigured();
-
-        var report = service().check(null);
-
-        assertThat(report.ready()).isFalse();
-        assertThat(report.runtime()).containsEntry("authentication", "unset or invalid");
-        assertThat(check(report, "runtime").status()).isEqualTo(FAIL);
-        assertSafe(report);
-    }
-
-    @Test
-    void disabledAuthorizationCannotReachDeliveryProbe() {
+    void invalidDestinationCannotReachDeliveryProbe() {
         repositories = catalog(Map.of("fixture", repository("source/module", false)));
-
-        var report = service().check("TASK-1");
-
-        assertThat(report.ready()).isFalse();
-        assertThat(check(report, "delivery:fixture").status()).isEqualTo(FAIL);
-        verify(probe, never()).requireDeliveryAccess(any(), anyString());
-    }
-
-    @Test
-    void legacyTargetWithDifferentBaseCannotReachDeliveryProbe() {
-        delivery = new DevDeliveryProperties(Map.of("fixture", new DeliveryTarget("fork/module", "other-base", true)), true);
 
         var report = service().check("TASK-1");
 
@@ -368,7 +464,8 @@ class DeveloperPreflightTest {
         var payload = JSON.readTree("{\"issueKey\":\"TASK-1\"}");
         assertThatCode(() -> service().requireReady("dev-factory", payload)).doesNotThrowAnyException();
         var codec = new FrontmatterCodec();
-        var intake = new IntakeWorker(jira, new RepositoryPolicy(repositories), codec, coding, mock(AuditLog.class));
+        var intake = new IntakeWorker(jira, new RepositoryPolicy(repositories), codec, coding, mock(AuditLog.class),
+                new TaskGuard(TaskAttemptPolicy.none(), Clock.systemUTC()));
         var result = intake.execute(new AgentContext(UUID.randomUUID(),
                 "read-task", Map.of(), payload, Map.of(), List.of()));
         var decision = DecisionArtifacts.parseRequest(codec, result.outputs().get(DecisionArtifacts.REQUEST));
@@ -406,7 +503,7 @@ class DeveloperPreflightTest {
 
         service().requireRepositoryReady("fixture", frozenBase);
 
-        verify(probe).requireDeliveryAccess(new DeliveryTarget("fork/module", "campaign/base", true), frozenBase);
+        verify(probe).requireDeliveryAccess(new DeliveryTarget("fork/module", "campaign/base"), frozenBase);
         verify(probe, never()).sourceBase(anyString(), anyString(), anyString());
         verifyNoInteractions(jira);
     }
@@ -431,17 +528,32 @@ class DeveloperPreflightTest {
     }
 
     private DeveloperPreflight service() {
-        return new DeveloperPreflight(repositories, delivery, settings, coding, jiraProperties, jira, github, pricing, probe);
+        return service(coding, github);
+    }
+
+    private DeveloperPreflight service(CodingRuntime runtime, GitHubProperties gitHub) {
+        var models = models();
+        return new DeveloperPreflight(repositories, settings, runtime, jiraProperties, jira, gitHub, probe, models,
+                new ModelChecks(models, probe));
+    }
+
+    private ModelCatalog models() {
+        return new ModelCatalog(new ModelCatalog.Properties(List.of(defaultModel, GLM), null),
+                settings.coding().runtime(), secrets::get);
+    }
+
+    private static ModelEntry model(String baseUrl, ModelPrice price) {
+        return new ModelEntry("fixture", "anthropic-messages", baseUrl, "bearer-token", "CODING_SECRET", "exact-model",
+                List.of("low", "medium", "high", "xhigh", "max"), "high", null, price);
     }
 
     private void usePiProfile(String baseUrl) {
         var pi = new DevRuntimeProperties.Pi("coding:image", "fixture-provider", "exact-model", baseUrl,
                 "openai-completions", "coding-fixture-secret", "api-key", null, 16384);
-        var runtime = new DevRuntimeProperties.Coding(null, null, null, null, null, null,
-                "pi", null, null, pi, null);
-        settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null);
+        var runtime = new DevRuntimeProperties.Coding("pi", pi, null);
+        settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null, null);
         when(coding.id()).thenReturn("pi");
-        when(coding.identity()).thenReturn(Map.of("runtime", "pi", "model", "exact-model"));
+        when(coding.identity(any())).thenReturn(Map.of("runtime", "pi", "model", "exact-model"));
     }
 
     private static DeveloperPreflight.Check check(DeveloperPreflight.Report report, String name) {
@@ -460,9 +572,9 @@ class DeveloperPreflightTest {
         return new DevFactoryProperties("https://github.com", new TreeMap<>(entries));
     }
 
-    private static DevFactoryProperties.Repository repository(String source, boolean authorized) {
+    private static DevFactoryProperties.Repository repository(String source, boolean deliverable) {
         return new DevFactoryProperties.Repository(source, "campaign/base", "build:image", "unit", List.of("TASK"),
-                List.of(), new DeliveryTarget("fork/module", null, authorized));
+                List.of(), new DeliveryTarget(deliverable ? "fork/module" : "not-a-repository", null));
     }
 
     private static JiraIssue issue(String key) {

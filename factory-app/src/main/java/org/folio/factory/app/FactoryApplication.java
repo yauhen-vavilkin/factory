@@ -6,13 +6,14 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.persistence.autoconfigure.EntityScan;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.scheduling.annotation.EnableScheduling;
-import org.folio.factory.app.web.DeveloperPricingProperties;
+import org.folio.factory.app.tasks.execution.TaskExecutionProperties;
+import org.folio.factory.app.tasks.source.TaskSourceProperties;
 
 @SpringBootApplication(scanBasePackages = "org.folio.factory")
-@EntityScan(basePackages = "org.folio.factory.core.domain")
-@EnableJpaRepositories(basePackages = "org.folio.factory.core")
+@EntityScan(basePackages = {"org.folio.factory.core.domain", "org.folio.factory.app.tasks.persistence"})
+@EnableJpaRepositories(basePackages = {"org.folio.factory.core", "org.folio.factory.app.tasks.persistence"})
 @EnableScheduling
-@EnableConfigurationProperties(DeveloperPricingProperties.class)
+@EnableConfigurationProperties({TaskSourceProperties.class, TaskExecutionProperties.class})
 public class FactoryApplication {
 
     public static void main(String[] args) {

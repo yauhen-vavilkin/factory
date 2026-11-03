@@ -2,7 +2,9 @@ package org.folio.factory.devfactory.delivery;
 
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
+import org.folio.factory.devfactory.candidate.FixtureDirectories;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -13,41 +15,51 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.*;
+import org.folio.factory.devfactory.runtime.Git;
 
 class CandidateDeliveryTest {
+    /** Source and remote are built once; each test delivers into its own copy, because delivery changes the remote. */
+    @TempDir static Path template;
+    static Candidate frozen;
     @TempDir Path root;
     Path source;
     Path remote;
     Candidate candidate;
     CandidateDelivery delivery;
-    DeliveryTarget target = new DeliveryTarget("fixture/fork", "master", true);
+    DeliveryTarget target = new DeliveryTarget("fixture/fork", "master");
 
-    @BeforeEach void setup() throws Exception {
-        source = Files.createDirectory(root.resolve("source"));
-        remote = root.resolve("fixture/fork.git");
+    @BeforeAll static void createRepositories() throws Exception {
+        Path source = Files.createDirectory(template.resolve("source"));
+        Path remote = template.resolve("fixture/fork.git");
         Files.createDirectories(remote.getParent());
         CandidateFreezer.git(source, "init", "--quiet", "--initial-branch=master");
         Files.writeString(source.resolve("old.txt"), "before\n");
         CandidateFreezer.git(source, "add", ".");
         CandidateFreezer.git(source, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.org", "commit", "-qm", "base");
         String base = CandidateFreezer.git(source, "rev-parse", "HEAD").strip();
-        CandidateFreezer.git(root, "clone", "--quiet", "--bare", source.toString(), remote.toString());
+        CandidateFreezer.git(template, "clone", "--quiet", "--bare", source.toString(), remote.toString());
         Files.delete(source.resolve("old.txt"));
         Files.write(source.resolve("binary.dat"), new byte[]{0, 1, (byte)255});
-        var freezer = new CandidateFreezer();
-        candidate = freezer.freeze("fixture", source.toString(), base, source);
-        delivery = new CandidateDelivery(freezer, root + "/");
+        frozen = new CandidateFreezer().freeze("fixture", source.toString(), base, source, false);
+    }
+
+    @BeforeEach void setup() throws Exception {
+        FixtureDirectories.copy(template, root);
+        source = root.resolve("source");
+        remote = root.resolve("fixture/fork.git");
+        candidate = frozen;
+        delivery = new CandidateDelivery(new CandidateFreezer(), root + "/");
     }
 
     private VerificationReceipt receipt(String execution, int exit) {
         return new VerificationReceipt(execution, candidate.repository(), candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(),
                 "focused", "fixture", List.of("true"), "fixture", Instant.EPOCH, Instant.EPOCH, exit,
                 exit == 0 ? 1 : 0, exit == 0 ? 1 : null, exit == 0 ? 0 : null, exit == 0 ? 0 : null,
-                exit == 0 ? "PASS" : "FAIL", "");
+                exit == 0 ? "PASS" : "FAIL", "", null, 0, List.of(), List.of());
     }
 
     private DeliveryReceipt deliver(VerificationReceipt receipt, DeliveryTarget destination, String token) {
-        return delivery.deliver("execution", "MODSIDECAR-196", "Fixture", source.toString(), candidate, receipt, destination, token);
+        return delivery.deliver(new CandidateDelivery.Request("execution", "MODSIDECAR-196", "Fixture", source.toString(), candidate, receipt, destination, token, false, Git.TIMEOUT_SECONDS));
     }
 
     @Test void preservesExactTreeParentAndReusesDeterministicCommit() {
@@ -60,9 +72,9 @@ class CandidateDeliveryTest {
 
     @Test void newExecutionsUseStableExecutionIdentityInFirstBranch() {
         String id=java.util.UUID.randomUUID().toString();
-        var receipt=delivery.deliver(id,"MODSIDECAR-196","Fixture",source.toString(),candidate,receipt(id,0),target,"fixture-token",true);
+        var receipt=delivery.deliver(new CandidateDelivery.Request(id,"MODSIDECAR-196","Fixture",source.toString(),candidate,receipt(id,0),target,"fixture-token",true, Git.TIMEOUT_SECONDS));
         assertThat(receipt.branch()).isEqualTo("factory/modsidecar-196-"+id);
-        assertThat(delivery.deliver(id,"MODSIDECAR-196","Fixture",source.toString(),candidate,receipt(id,0),target,"fixture-token",true))
+        assertThat(delivery.deliver(new CandidateDelivery.Request(id,"MODSIDECAR-196","Fixture",source.toString(),candidate,receipt(id,0),target,"fixture-token",true, Git.TIMEOUT_SECONDS)))
                 .isEqualTo(receipt);
     }
 
@@ -74,13 +86,36 @@ class CandidateDeliveryTest {
         assertThat(CandidateFreezer.git(remote, "branch", "--list", "factory/*")).isBlank();
     }
 
-    @Test void refusesUpstreamUnauthorizedAndInvalidBranch() {
-        assertThatThrownBy(() -> deliver(receipt("execution", 0), new DeliveryTarget("folio-org/module", "master", true), "token"))
-                .hasMessageContaining("user-owned");
-        assertThatThrownBy(() -> deliver(receipt("execution", 0), new DeliveryTarget("fixture/fork", "master", false), "token"))
-                .hasMessageContaining("authorization");
-        assertThatThrownBy(() -> deliver(receipt("execution", 0), new DeliveryTarget("fixture/fork", "bad..branch", true), "token"))
+    @Test void officialDestinationPublishesThere() throws Exception {
+        java.nio.file.Files.createDirectories(root.resolve("folio-org"));
+        CandidateFreezer.git(root, "clone", "--quiet", "--bare", source.toString(),
+                root.resolve("folio-org/module.git").toString());
+        var official = new DeliveryTarget("folio-org/module", "master");
+
+        var receipt = deliver(receipt("execution", 0), official, "token");
+
+        assertThat(CandidateFreezer.git(root.resolve("folio-org/module.git"), "rev-parse",
+                receipt.branch() + "^{tree}").strip()).isEqualTo(candidate.treeSha());
+        assertThat(CandidateFreezer.git(remote, "branch", "--list", "factory/*")).isBlank();
+    }
+
+    @Test void refusesInvalidOrUnreachableDestinationsWithoutRemoteWrites() {
+        assertThatThrownBy(() -> deliver(receipt("execution", 0), new DeliveryTarget("not-a-repository", "master"), "token"))
+                .hasMessageContaining("GitHub owner/repository destination");
+        assertThatThrownBy(() -> deliver(receipt("execution", 0), new DeliveryTarget("fixture/fork", "bad..branch"), "token"))
                 .isInstanceOf(IllegalStateException.class);
+        assertThat(CandidateFreezer.git(remote, "branch", "--list", "factory/*")).isBlank();
+    }
+
+    @Test void missingDestinationNeverFallsBackToAnotherRepository() throws Exception {
+        java.nio.file.Files.createDirectories(root.resolve("folio-org"));
+        CandidateFreezer.git(root, "clone", "--quiet", "--bare", source.toString(),
+                root.resolve("folio-org/module.git").toString());
+
+        assertThatThrownBy(() -> deliver(receipt("execution", 0),
+                new DeliveryTarget("fixture/other-fork", "master"), "token"))
+                .hasMessageContaining("missing or unauthorized");
+        assertThat(CandidateFreezer.git(root.resolve("folio-org/module.git"), "branch", "--list", "factory/*")).isBlank();
         assertThat(CandidateFreezer.git(remote, "branch", "--list", "factory/*")).isBlank();
     }
 

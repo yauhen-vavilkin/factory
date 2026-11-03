@@ -8,12 +8,15 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
+import lombok.Getter;
+import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.UUID;
 
+@Getter
 @Entity
 @Table(name = "pipeline_execution")
 public class PipelineExecution {
@@ -32,12 +35,15 @@ public class PipelineExecution {
     private ExecutionStatus status;
 
     @Column(name = "current_step_index", nullable = false)
+    @Setter
     private int currentStepIndex;
 
     @Column(name = "parent_execution_id")
+    @Setter
     private UUID parentExecutionId;
 
     @Column(name = "parent_step_index")
+    @Setter
     private Integer parentStepIndex;
 
     @JdbcTypeCode(SqlTypes.JSON)
@@ -46,15 +52,19 @@ public class PipelineExecution {
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "retry_counts", nullable = false)
+    @Setter
     private String retryCounts = "{}";
 
     @Column(name = "dedup_key")
+    @Setter
     private String dedupKey;
 
     @Column(name = "error_message", columnDefinition = "text")
+    @Setter
     private String errorMessage;
 
     @Column(name = "next_run_at", nullable = false)
+    @Setter
     private Instant nextRunAt;
 
     @Version
@@ -90,22 +100,6 @@ public class PipelineExecution {
         this.updatedAt = Instant.now();
     }
 
-    public UUID getId() {
-        return id;
-    }
-
-    public String getFlowId() {
-        return flowId;
-    }
-
-    public String getFlowVersion() {
-        return flowVersion;
-    }
-
-    public ExecutionStatus getStatus() {
-        return status;
-    }
-
     public void setStatus(ExecutionStatus status) {
         this.status = status;
         if (status.isTerminal()) {
@@ -113,83 +107,8 @@ public class PipelineExecution {
         }
     }
 
-    public int getCurrentStepIndex() {
-        return currentStepIndex;
-    }
-
-    public void setCurrentStepIndex(int currentStepIndex) {
-        this.currentStepIndex = currentStepIndex;
-    }
-
-    public UUID getParentExecutionId() {
-        return parentExecutionId;
-    }
-
-    public void setParentExecutionId(UUID parentExecutionId) {
-        this.parentExecutionId = parentExecutionId;
-    }
-
-    public Integer getParentStepIndex() {
-        return parentStepIndex;
-    }
-
-    public void setParentStepIndex(Integer parentStepIndex) {
-        this.parentStepIndex = parentStepIndex;
-    }
-
-    public String getTriggerPayload() {
-        return triggerPayload;
-    }
-
-    public String getRetryCounts() {
-        return retryCounts;
-    }
-
-    public void setRetryCounts(String retryCounts) {
-        this.retryCounts = retryCounts;
-    }
-
-    public String getDedupKey() {
-        return dedupKey;
-    }
-
-    public void setDedupKey(String dedupKey) {
-        this.dedupKey = dedupKey;
-    }
-
-    public String getErrorMessage() {
-        return errorMessage;
-    }
-
-    public void setErrorMessage(String errorMessage) {
-        this.errorMessage = errorMessage;
-    }
-
-    public Instant getNextRunAt() {
-        return nextRunAt;
-    }
-
-    public void setNextRunAt(Instant nextRunAt) {
-        this.nextRunAt = nextRunAt;
-    }
-
-    public long getVersion() {
-        return version;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-
-    public Instant getUpdatedAt() {
-        return updatedAt;
-    }
-
     public void touchUpdatedAt() {
         this.updatedAt = Instant.now();
     }
 
-    public Instant getCompletedAt() {
-        return completedAt;
-    }
 }

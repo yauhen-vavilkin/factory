@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.llm.AbstractLlmAgentWorker;
 import org.folio.factory.agents.prompt.PromptCatalog;
 import org.folio.factory.core.agent.AgentWorker;
@@ -37,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import org.folio.factory.devfactory.DevFactoryConfiguration;
 
 /**
  * Server-rendered flow catalog and worker library. The flow list/detail views and
@@ -46,6 +48,7 @@ import java.util.UUID;
  * {@link PipelineRouter} the REST trigger API uses.
  */
 @Controller
+@RequiredArgsConstructor
 public class FlowUiController {
 
     private static final String SAMPLES_PATTERN = "classpath:samples/*.json";
@@ -58,16 +61,6 @@ public class FlowUiController {
     private final JsonMapper jsonMapper;
     private final PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
     private volatile Map<String, List<Map<String, Object>>> samplesByFlow;
-
-    public FlowUiController(FlowRegistry flowRegistry, FlowRegistryEntryRepository mirror, PipelineRouter router,
-                            AgentWorkerRegistry workers, PromptCatalog promptCatalog, JsonMapper jsonMapper) {
-        this.flowRegistry = flowRegistry;
-        this.mirror = mirror;
-        this.router = router;
-        this.workers = workers;
-        this.promptCatalog = promptCatalog;
-        this.jsonMapper = jsonMapper;
-    }
 
     @GetMapping("/flows")
     public String flows(Model model) {
@@ -94,6 +87,7 @@ public class FlowUiController {
         model.addAttribute("rawYaml", rawYaml(descriptor));
         model.addAttribute("samples", samples);
         model.addAttribute("defaultPayload", samples.isEmpty() ? "{}" : samples.get(0).get("prettyJson"));
+        model.addAttribute("myTasksTab", DevFactoryConfiguration.FLOW_ID.equals(descriptor.id()));
         model.addAttribute("error", error);
         return "flow";
     }
@@ -103,6 +97,10 @@ public class FlowUiController {
                           @RequestParam(name = "payload", required = false) String payload,
                           @RequestParam(name = "dedupKey", required = false) String dedupKey,
                           RedirectAttributes redirect) {
+        if (DevFactoryConfiguration.FLOW_ID.equals(id)) {
+            return UiFormat.errorRedirect("/flows/" + id,
+                    "Developer Flow runs start from My tasks: select your tasks or add one by key.");
+        }
         JsonNode payloadNode;
         try {
             String body = payload == null || payload.isBlank() ? "{}" : payload;
@@ -146,27 +144,30 @@ public class FlowUiController {
         List<StepDescriptor> chain = descriptor.agentChain();
         List<Map<String, Object>> rows = new ArrayList<>(chain.size());
         for (int i = 0; i < chain.size(); i++) {
-            StepDescriptor step = chain.get(i);
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("index", i);
-            row.put("stepId", step.stepId());
-            row.put("type", step.type().name());
-            row.put("label", UiFormat.stepLabel(step));
-            row.put("sublabel", step.stepId() + " · " + step.type());
-            row.put("state", "pending");
-            switch (step.type()) {
-                case AGENT -> {
-                    row.put("workerId", step.workerId());
-                    row.put("inputs", step.inputs());
-                    row.put("outputs", step.outputs());
-                    row.put("config", step.config());
-                }
-                case HITL_GATE -> row.put("gate", gateRow(step.gate()));
-                case SUB_FLOW -> row.put("subFlow", subFlowRow(step.subFlow()));
-            }
-            rows.add(row);
+            rows.add(stepRow(i, chain.get(i)));
         }
         return rows;
+    }
+
+    private static Map<String, Object> stepRow(int index, StepDescriptor step) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("index", index);
+        row.put("stepId", step.stepId());
+        row.put("type", step.type().name());
+        row.put("label", UiFormat.stepLabel(step));
+        row.put("sublabel", step.stepId() + " · " + step.type());
+        row.put("state", "pending");
+        switch (step.type()) {
+            case AGENT -> {
+                row.put("workerId", step.workerId());
+                row.put("inputs", step.inputs());
+                row.put("outputs", step.outputs());
+                row.put("config", step.config());
+            }
+            case HITL_GATE -> row.put("gate", gateRow(step.gate()));
+            case SUB_FLOW -> row.put("subFlow", subFlowRow(step.subFlow()));
+        }
+        return row;
     }
 
     private static Map<String, Object> gateRow(HitlGateSpec gate) {
@@ -234,17 +235,22 @@ public class FlowUiController {
             } catch (IOException | JacksonException unreadable) {
                 continue;
             }
-            JsonNode payload = root.path("payload");
-            JsonNode content = payload.isMissingNode() ? jsonMapper.createObjectNode() : payload;
-            Map<String, Object> sample = new LinkedHashMap<>();
-            sample.put("name", sampleName(resource.getFilename()));
-            sample.put("prettyJson", escapeScriptClosers(
-                    jsonMapper.writerWithDefaultPrettyPrinter().writeValueAsString(content)));
+            Map<String, Object> sample = sample(resource, root);
             byFlow.computeIfAbsent(root.path("flowId").asString(""), k -> new ArrayList<>()).add(sample);
         }
         byFlow.values().forEach(samples ->
                 samples.sort(Comparator.comparing(sample -> String.valueOf(sample.get("name")))));
         return byFlow;
+    }
+
+    private Map<String, Object> sample(Resource resource, JsonNode root) {
+        JsonNode payload = root.path("payload");
+        JsonNode content = payload.isMissingNode() ? jsonMapper.createObjectNode() : payload;
+        Map<String, Object> sample = new LinkedHashMap<>();
+        sample.put("name", sampleName(resource.getFilename()));
+        sample.put("prettyJson", escapeScriptClosers(
+                jsonMapper.writerWithDefaultPrettyPrinter().writeValueAsString(content)));
+        return sample;
     }
 
     /**

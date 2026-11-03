@@ -8,7 +8,6 @@ import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
@@ -27,8 +26,15 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
 import static org.mockito.Mockito.*;
+import org.folio.factory.devfactory.runtime.CodingTranscripts;
+import org.folio.factory.devfactory.DevFlowSettings;
+import org.folio.factory.devfactory.CodingServices;
+import org.folio.factory.devfactory.DevFactoryHooks;
+import org.folio.factory.devfactory.feedback.FeedbackServices;
+import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
+import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 
-/** Canonical catalog destinations must authorize the same feedback paths as legacy targets. */
+/** Catalog delivery destinations decide which pull requests PR feedback may follow. */
 class FeedbackCatalogTest {
     private final UUID executionId = UUID.randomUUID();
     private final PrFeedbackGateway gateway = mock(PrFeedbackGateway.class);
@@ -67,8 +73,8 @@ class FeedbackCatalogTest {
 
     @ParameterizedTest
     @CsvSource({"true, false", "false, false", "true, true", "false, true"})
-    void followsCurrentCatalogAuthorizationDespiteAnUnrelatedIncompleteDestination(
-            boolean authorized, boolean incompleteOtherTarget) {
+    void followsCurrentCatalogDestinationDespiteAnUnrelatedIncompleteDestination(
+            boolean configured, boolean incompleteOtherTarget) {
         var comment = new PrFeedbackGateway.Comment(
                 "inline:1", "reviewer", "Correct value", "value.txt", 1, false, "now", "url");
         var state = new FeedbackState();
@@ -90,10 +96,10 @@ class FeedbackCatalogTest {
                 .thenReturn(new PrFeedbackGateway.Snapshot("changed", pullRequest, List.of(comment)));
         when(coding.redact(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        var result = worker(authorized, incompleteOtherTarget).execute(context(saved));
+        var result = worker(configured, incompleteOtherTarget).execute(context(saved));
         var observed = JSON.readValue(result.outputs().get(STATE), FeedbackState.class);
 
-        if (authorized) {
+        if (configured) {
             assertThat(observed.phase()).isEqualTo(FeedbackState.Phase.REFRESH_REQUIRED);
             verify(gateway).comments(pullRequest);
         } else {
@@ -102,48 +108,35 @@ class FeedbackCatalogTest {
             verify(gateway, never()).read(anyString(), anyInt());
             verify(gateway, never()).comments(any());
         }
-        verify(coding, never()).code(any(), any(), anyInt());
-        verify(coding, never()).code(any(), any(), anyInt(), any());
+        verify(coding, never()).code(any(), any(), anyInt(), any(), any());
         verifyNoInteractions(freezer);
     }
 
-    private FeedbackWorker worker(boolean authorized) {
-        return worker(authorized, false);
+    private FeedbackWorker worker(boolean configured) {
+        return worker(configured, false);
     }
 
-    private FeedbackWorker worker(boolean authorized, boolean incompleteOtherTarget) {
+    private FeedbackWorker worker(boolean configured, boolean incompleteOtherTarget) {
         var repository = new DevFactoryProperties.Repository(
                 "source/repo", "main", "build:image", "unit", List.of("TASK"), List.of(),
-                new DeliveryTarget(pullRequest.repository(), "main", authorized));
+                new DeliveryTarget(configured ? pullRequest.repository() : "other/repository", "main"));
         var catalog = new TreeMap<>(Map.of("fixture", repository));
         if (incompleteOtherTarget) {
             var unrelatedRepository = new DevFactoryProperties.Repository(
                     "source/other", "main", "build:image", "unit", List.of("OTHER"), List.of(),
-                    new DeliveryTarget(null, null, true));
+                    new DeliveryTarget(null, null));
             catalog.put("unrelated", unrelatedRepository);
         }
         var repositories = new DevFactoryProperties(null, catalog);
-        var delivery = new DevDeliveryProperties(Map.of(), true);
-        var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null);
+        var runtime = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "test")), null, 60, null, null);
         var executions = mock(StateManager.class);
         when(executions.get(executionId))
                 .thenReturn(new PipelineExecution("dev-factory", VERSION, null));
         var audit = mock(AuditLog.class);
         when(audit.forExecution(executionId)).thenReturn(List.of());
-        return new FeedbackWorker(
-                repositories,
-                delivery,
-                runtime,
-                new GitHubProperties(null, "fixture-token"),
-                gateway,
-                freezer,
-                mock(CandidateVerifier.class),
-                coding,
-                docker,
-                mock(FeedbackGit.class),
-                executions,
-                audit,
-                model -> Map.of());
+        return new FeedbackWorker(new DevFlowSettings(repositories, runtime), new CodingServices(coding, docker, freezer),
+                new FeedbackServices(gateway, mock(FeedbackGit.class), new GitHubProperties(null, "fixture-token")), mock(CandidateVerifier.class), executions, audit,
+                new DevFactoryHooks(TaskAttemptPolicy.none(), (modelId, model) -> Map.of(), CodingTranscripts.none(), SelectedRepositoryPreflight.none()));
     }
 
     private AgentContext context(Map<String, String> saved) {

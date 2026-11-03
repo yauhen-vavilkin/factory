@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.registry.FlowRegistry;
@@ -30,6 +31,7 @@ import java.util.UUID;
  * the owning execution's flow id, batch-loaded per page.
  */
 @Controller
+@RequiredArgsConstructor
 public class ArtifactUiController {
 
     private static final int DEFAULT_SIZE = 50;
@@ -37,13 +39,6 @@ public class ArtifactUiController {
     private final ArtifactRepository artifacts;
     private final PipelineExecutionRepository executions;
     private final FlowRegistry flowRegistry;
-
-    public ArtifactUiController(ArtifactRepository artifacts, PipelineExecutionRepository executions,
-                                FlowRegistry flowRegistry) {
-        this.artifacts = artifacts;
-        this.executions = executions;
-        this.flowRegistry = flowRegistry;
-    }
 
     @GetMapping("/artifacts")
     public String artifacts(@RequestParam(name = "name", required = false) String name,

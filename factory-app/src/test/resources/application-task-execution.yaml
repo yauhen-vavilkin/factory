@@ -1,0 +1,10 @@
+# Every class with this profile keeps @DirtiesContext: a cached dispatcher would keep polling the shared
+# database and start the next class's queued attempts with the wrong mocks and catalog.
+# The task queue runs; its poller dispatches once at startup and then waits an hour, so tests
+# dispatch explicitly.
+factory:
+  tasks:
+    execution:
+      enabled: true
+      deadline: PT30M
+      dispatch-interval-ms: 3600000

@@ -3,6 +3,7 @@ package org.folio.factory.devfactory.worker;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.ArtifactContent;
 import org.folio.factory.devfactory.decision.ConditionalDecisionGate;
+import org.folio.factory.devfactory.tasks.RecordingTaskAttempts;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
@@ -27,7 +28,7 @@ class CodingDecisionGateWorkerTest {
                 Map.of()));
         when(gate.open(context, CodingDecisionGateWorker.GATE)).thenReturn(true);
 
-        assertThat(new CodingDecisionGateWorker(gate).execute(context).metrics())
+        assertThat(new CodingDecisionGateWorker(gate, RecordingTaskAttempts.none().guard()).execute(context).metrics())
                 .containsEntry("decisionRequired", true).containsEntry("reviewOpened", true);
         verify(gate).open(context, CodingDecisionGateWorker.GATE);
     }
@@ -36,9 +37,26 @@ class CodingDecisionGateWorkerTest {
         ConditionalDecisionGate gate = mock(ConditionalDecisionGate.class);
         var context = context(CodingOutcome.completed("Done", Map.of()));
 
-        assertThat(new CodingDecisionGateWorker(gate).execute(context).metrics())
+        assertThat(new CodingDecisionGateWorker(gate, RecordingTaskAttempts.none().guard()).execute(context).metrics())
                 .containsEntry("decisionRequired", false).containsEntry("reviewOpened", false);
         verify(gate, never()).open(context, CodingDecisionGateWorker.GATE);
+    }
+
+    @Test void taskNeedsDecisionRecordsAStopInsteadOfOpeningReview() {
+        ConditionalDecisionGate gate = mock(ConditionalDecisionGate.class);
+        var taskAttempts = RecordingTaskAttempts.taskRun();
+        var context = context(CodingOutcome.needsDecision(new CodingOutcome.Decision(
+                CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which length limit applies?",
+                List.of(), "No limit is specified"), Map.of()));
+
+        assertThat(new CodingDecisionGateWorker(gate, taskAttempts.guard()).execute(context).metrics())
+                .containsEntry("decisionRequired", true).containsEntry("reviewOpened", false);
+
+        verify(gate, never()).open(context, CodingDecisionGateWorker.GATE);
+        assertThat(taskAttempts.stops).singleElement().satisfies(stop -> {
+            assertThat(stop).startsWith("clarify-implementation: ");
+            assertThat(stop).contains("Which length limit applies?");
+        });
     }
 
     private AgentContext context(CodingOutcome outcome) {

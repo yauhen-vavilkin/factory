@@ -1,25 +1,20 @@
 package org.folio.factory.app;
 
 import org.folio.factory.app.developer.DeveloperPreflightProbe;
+import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.devfactory.DevFactoryProperties;
-import org.folio.factory.devfactory.delivery.DevDeliveryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.context.annotation.Import;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.client.RestClient;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
@@ -35,7 +30,6 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
@@ -44,23 +38,15 @@ import static org.mockito.Mockito.verify;
  * through the existing flow API/UI. Execution is covered by
  * {@link DeveloperIntakeDecisionTest}.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
-        "spring.ai.model.chat=none",
-        "factory.engine.enabled=false",
+@FactoryIntegrationTest
+@TestPropertySource(properties = {
         "factory.connectors.jira.base-url=",
         "factory.dev-factory.runtime.coding.runtime=claude-code",
-        // A missing API key must block admission even when local proxy defaults are available.
-        "factory.dev-factory.runtime.coding.claude-code.authentication=api-key",
-        "factory.dev-factory.runtime.coding.claude-code.api-key="
-})
-@Import(StubLlmConfiguration.class)
-@Testcontainers
+        // The default model without its secret must block admission.
+        "FACTORY_CODEMIE_PROXY_TOKEN="})
+// Own context: the default repository catalog with a real preflight; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class DeveloperFlowRegistrationTest {
-
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     @LocalServerPort
     int port;
@@ -73,9 +59,6 @@ class DeveloperFlowRegistrationTest {
 
     @Autowired
     DevRuntimeProperties devRuntimeProperties;
-
-    @Autowired
-    DevDeliveryProperties devDeliveryProperties;
 
     @Autowired
     StateManager state;
@@ -112,6 +95,8 @@ class DeveloperFlowRegistrationTest {
         assertThat(rest.get().uri("/flows").retrieve().body(String.class))
                 .contains("Developer Flow").contains("Test Factory");
         assertThat(rest.get().uri("/flows/dev-factory").retrieve().body(String.class))
+                .contains("Developer Flow").contains("My Jira tasks");
+        assertThat(rest.get().uri("/flows/dev-factory?view=definition").retrieve().body(String.class))
                 .contains("Developer Flow").contains("dev-intake");
     }
 
@@ -123,40 +108,30 @@ class DeveloperFlowRegistrationTest {
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "folio-org/folio-module-sidecar", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-unit", List.of("MODSIDECAR"), List.of(),
-                        new DeliveryTarget("folio-org/folio-module-sidecar", "master", false)));
+                        new DeliveryTarget("folio-org/folio-module-sidecar", "master")));
         assertThat(devFactoryProperties.repositories().get("mod-roles-keycloak"))
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "folio-org/mod-roles-keycloak", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-roles-verify", List.of("MODROLESKC"), List.of(),
-                        new DeliveryTarget("folio-org/mod-roles-keycloak", "master", false)));
+                        new DeliveryTarget("folio-org/mod-roles-keycloak", "master")));
         assertThat(devFactoryProperties.repositories().get("mgr-tenant-entitlements"))
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "folio-org/mgr-tenant-entitlements", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-unit", List.of("MGRENTITLE"), List.of(),
-                        new DeliveryTarget("folio-org/mgr-tenant-entitlements", "master", false)));
+                        new DeliveryTarget("folio-org/mgr-tenant-entitlements", "master")));
         assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
         assertThat(devFactoryProperties.repositories().get("mgr-applications"))
                 .isEqualTo(new DevFactoryProperties.Repository(
                         "folio-org/mgr-applications", "master", "maven:3.9-eclipse-temurin-21",
                         "java21-unit", List.of("MGRAPPS"), List.of(),
-                        new DeliveryTarget("folio-org/mgr-applications", "master", false)));
+                        new DeliveryTarget("folio-org/mgr-applications", "master")));
         assertThat(devRuntimeProperties.command("java21-roles-verify"))
                 .containsExactly("mvn", "-B", "-ntp", "verify");
         assertThat(devRuntimeProperties.requiredReports("java21-roles-verify")).containsExactly("surefire", "failsafe");
-        assertThat(devDeliveryProperties.createPullRequest()).isTrue();
-        assertThat(devDeliveryProperties.targets()).isEmpty();
-        assertThat(devDeliveryProperties.effectiveTargets(devFactoryProperties)).containsOnly(
-                entry("sidecar", new DeliveryTarget("folio-org/folio-module-sidecar", "master", false)),
-                entry("mod-roles-keycloak", new DeliveryTarget(
-                        "folio-org/mod-roles-keycloak", "master", false)),
-                entry("mgr-tenant-entitlements", new DeliveryTarget(
-                        "folio-org/mgr-tenant-entitlements", "master", false)),
-                entry("mgr-applications", new DeliveryTarget(
-                        "folio-org/mgr-applications", "master", false)));
     }
 
     @Test
-    void realPreflightBlocksApiAndUiAdmissionBeforeCreatingExecutions() throws Exception {
+    void realPreflightBlocksApiAdmissionAndTheUiHasNoJsonTrigger() throws Exception {
         long before = state.countCreatedSince(Instant.EPOCH);
         var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
                 .followRedirects(HttpClient.Redirect.NEVER).build();
@@ -171,7 +146,9 @@ class DeveloperFlowRegistrationTest {
         var apiResponse = client.send(apiRequest, HttpResponse.BodyHandlers.ofString());
 
         assertThat(apiResponse.statusCode()).isEqualTo(422);
-        assertThat(apiResponse.body()).contains("Developer Flow preflight failed", "Configure the selected coding profile");
+        // The reason names the model and the variable to set.
+        assertThat(apiResponse.body()).contains("Developer Flow preflight failed",
+                "Model codemie-sonnet-5.5 is not configured: set FACTORY_CODEMIE_PROXY_TOKEN in .env");
         assertThat(state.countCreatedSince(Instant.EPOCH)).isEqualTo(before);
 
         String form = "payload=" + URLEncoder.encode("{\"issueKey\":\"MODSIDECAR-196\"}", StandardCharsets.UTF_8)
@@ -187,9 +164,10 @@ class DeveloperFlowRegistrationTest {
         assertThat(uiResponse.statusCode()).isEqualTo(302);
         var location = URI.create(uiResponse.headers().firstValue("Location").orElseThrow());
         assertThat(location.getPath()).isEqualTo("/flows/dev-factory");
+        // Developer Flow runs start from My tasks only; the JSON trigger form is refused.
         assertThat(URLDecoder.decode(location.getRawQuery(), StandardCharsets.UTF_8))
-                .contains("Developer Flow preflight failed", "Configure the selected coding profile");
+                .contains("Developer Flow runs start from My tasks");
         assertThat(state.countCreatedSince(Instant.EPOCH)).isEqualTo(before);
-        verify(preflightProbe, times(2)).dockerAvailable();
+        verify(preflightProbe, times(1)).dockerAvailable();
     }
 }

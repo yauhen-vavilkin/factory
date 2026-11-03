@@ -1,11 +1,13 @@
 package org.folio.factory.devfactory.worker;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentExecutionException;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
+import org.folio.factory.devfactory.tasks.TaskGuard;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 
@@ -16,19 +18,17 @@ import java.util.Map;
 
 /**
  * Retries a product clarification once; repository mismatches stop with an explicit non-candidate
- * outcome.
+ * outcome. Task attempts never continue automatically: an explicit retry is a
+ * new execution.
  */
+@RequiredArgsConstructor
 public class DevelopContinuationWorker implements AgentWorker {
     public static final String ID = "dev-develop-continuation";
 
     private final InitialCodingAttempt develop;
     private final FrontmatterCodec codec;
+    private final TaskGuard taskGuard;
     private final JsonMapper json = JsonMapper.builder().build();
-
-    public DevelopContinuationWorker(InitialCodingAttempt develop, FrontmatterCodec codec) {
-        this.develop = develop;
-        this.codec = codec;
-    }
 
     @Override
     public String id() {
@@ -37,41 +37,53 @@ public class DevelopContinuationWorker implements AgentWorker {
 
     @Override
     public AgentResult execute(AgentContext context) {
-        CodingRequest request =
-                json.readValue(
-                        context.requireInput(IntakeResolveWorker.CODING_REQUEST).content(),
-                        CodingRequest.class);
-        CodingOutcome outcome =
-                json.readValue(
-                        context.requireInput(DevelopWorker.OUTCOME).content(), CodingOutcome.class);
-        if (outcome.status() != CodingOutcome.Status.NEEDS_DECISION)
+        var request = json.readValue(
+                context.requireInput(IntakeResolveWorker.CODING_REQUEST).content(), CodingRequest.class);
+        var outcome = json.readValue(context.requireInput(DevelopWorker.OUTCOME).content(), CodingOutcome.class);
+        if (outcome.status() != CodingOutcome.Status.NEEDS_DECISION) {
             return passThrough(context, request, outcome);
+        }
+        var clarification = readClarification(context);
+        if (taskGuard.isTaskRun(context.executionId())) {
+            stopAnsweredTask(context, clarification);
+            return passThrough(context, request, outcome);
+        }
+        if (clarification.isUnanswered()) {
+            return passThrough(context, request, outcome);
+        }
+        return continueWithAnswer(context, request, outcome, clarification);
+    }
 
-        var decisionRequest =
-                CodingDecisionArtifacts.parseRequest(
-                        codec, context.requireInput(CodingDecisionArtifacts.REQUEST).content());
-        var answer =
-                CodingDecisionArtifacts.parseAnswer(
-                        codec, context.requireInput(CodingDecisionArtifacts.ANSWER).content());
-        if (!answer.requestId().equals(decisionRequest.requestId()))
+    private Clarification readClarification(AgentContext context) {
+        var decisionRequest = CodingDecisionArtifacts.parseRequest(
+                codec, context.requireInput(CodingDecisionArtifacts.REQUEST).content());
+        var answer = CodingDecisionArtifacts.parseAnswer(
+                codec, context.requireInput(CodingDecisionArtifacts.ANSWER).content());
+        if (!answer.requestId().equals(decisionRequest.requestId())) {
             throw new AgentExecutionException("Coding decision answer is stale");
-        if (CodingDecisionArtifacts.UNANSWERED.equals(answer.answer()))
-            return passThrough(context, request, outcome);
+        }
+        return new Clarification(decisionRequest, answer);
+    }
 
-        CodingRequest next =
-                request.withDecision(
-                        new CodingRequest.ConfirmedDecision(
-                                decisionRequest.requestId(),
-                                decisionRequest.kind(),
-                                decisionRequest.question(),
-                                answer.answer()));
-        if (outcome.decision().kind() == CodingOutcome.DecisionKind.REPOSITORY_MISMATCH)
-            return repositoryMismatch(context, next, outcome, decisionRequest, answer);
-        var attempt =
-                develop.retry(
-                        context,
-                        next,
-                        json.readTree(context.requireInput(DevelopWorker.READINESS).content()));
+    private void stopAnsweredTask(AgentContext context, Clarification clarification) {
+        if (clarification.isUnanswered()) {
+            return;
+        }
+        taskGuard.recordStop(context.executionId(), context.stepId(),
+                "a clarification answer cannot continue a task attempt automatically;"
+                        + " an explicit retry is a new execution");
+    }
+
+    private AgentResult continueWithAnswer(
+            AgentContext context, CodingRequest request, CodingOutcome outcome, Clarification clarification) {
+        var decisionRequest = clarification.request();
+        var next = request.withDecision(new CodingRequest.ConfirmedDecision(decisionRequest.requestId(),
+                decisionRequest.kind(), decisionRequest.question(), clarification.answer().answer()));
+        if (outcome.decision().kind() == CodingOutcome.DecisionKind.REPOSITORY_MISMATCH) {
+            return repositoryMismatch(context, next, outcome, decisionRequest, clarification.answer());
+        }
+        var readiness = json.readTree(context.requireInput(DevelopWorker.READINESS).content());
+        var attempt = develop.retry(context, next, readiness);
         return new AgentResult(
                 Map.of(
                         IntakeResolveWorker.CODING_REQUEST, json.writeValueAsString(next),
@@ -120,5 +132,12 @@ public class DevelopContinuationWorker implements AgentWorker {
                         DevelopWorker.READINESS,
                                 context.requireInput(DevelopWorker.READINESS).content()),
                 Map.of());
+    }
+
+    private record Clarification(CodingDecisionArtifacts.Request request, CodingDecisionArtifacts.Answer answer) {
+
+        boolean isUnanswered() {
+            return CodingDecisionArtifacts.UNANSWERED.equals(answer.answer());
+        }
     }
 }

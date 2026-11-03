@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.llm.PromptLoader;
 import org.folio.factory.agents.prompt.PromptCatalog;
 import org.folio.factory.agents.prompt.PromptCatalog.PromptRef;
@@ -21,15 +22,12 @@ import java.util.Map;
  * are not editable at runtime.
  */
 @Controller
+@RequiredArgsConstructor
 public class PromptUiController {
 
     private static final String DEFAULT_PROMPT = "system";
 
     private final PromptCatalog catalog;
-
-    public PromptUiController(PromptCatalog catalog) {
-        this.catalog = catalog;
-    }
 
     @GetMapping("/prompts")
     public String prompts(@RequestParam(name = "error", required = false) String error, Model model) {

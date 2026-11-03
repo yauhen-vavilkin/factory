@@ -1,6 +1,18 @@
 package org.folio.factory.app;
 
+import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.developer.ModelChecks;
+import org.folio.factory.app.support.FactoryIntegrationTest;
+import org.folio.factory.app.tasks.TaskFixture;
+import org.folio.factory.app.tasks.admission.TaskAdmissionService;
+import org.folio.factory.app.tasks.admission.TaskRunSettings;
+import org.folio.factory.app.tasks.persistence.TaskAttempt;
+import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
+import org.folio.factory.app.tasks.persistence.TaskInstallation;
+import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
+import org.folio.factory.app.tasks.persistence.Task;
+import org.folio.factory.app.tasks.persistence.TaskRepository;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
@@ -10,13 +22,14 @@ import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
+import org.folio.factory.devfactory.runtime.CodingRuntime;
+import org.folio.factory.devfactory.runtime.CodingTranscripts;
+import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
-import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -24,19 +37,24 @@ import org.springframework.data.domain.SliceImpl;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.web.client.RestClient;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 import org.thymeleaf.ITemplateEngine;
 import org.thymeleaf.context.Context;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.when;
 
 /**
@@ -45,23 +63,19 @@ import static org.mockito.Mockito.when;
  * fragments. Boots the app, seeds one execution + review, and asserts every
  * UI page renders through the shared layout.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"spring.ai.model.chat=none", "factory.engine.enabled=false",
-                "factory.developer-pricing.rates.test.model=test-model",
-                "factory.developer-pricing.rates.test.currency=USD",
-                "factory.developer-pricing.rates.test.as-of=2026-09-19",
-                "factory.developer-pricing.rates.test.source=https://example.test/pricing",
-                "factory.developer-pricing.rates.test.input-per-million=0.15",
-                "factory.developer-pricing.rates.test.cache-read-per-million=0.03",
-                "factory.developer-pricing.rates.test.output-per-million=0.50"})
-@Import(StubLlmConfiguration.class)
-@Testcontainers
+@FactoryIntegrationTest
+@TestPropertySource(properties = {
+        "factory.connectors.jira.base-url=https://jira.example.org",
+        "factory.tasks.source.assignee=Jane Developer",
+        "FACTORY_CODEMIE_PROXY_TOKEN=" + UiRenderSmokeTest.PROXY_TOKEN,
+        "FACTORY_ANTHROPIC_API_KEY=",
+        "FACTORY_ZAI_API_KEY=" + UiRenderSmokeTest.ZAI_KEY})
+// Own context: its own Jira, assignee and model secrets for the rendered pages; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class UiRenderSmokeTest {
 
-    @Container
-    @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
+    static final String ZAI_KEY = "smoke-zai-secret-key";
+    static final String PROXY_TOKEN = "smoke-proxy-secret-token";
 
     @LocalServerPort
     int port;
@@ -79,10 +93,38 @@ class UiRenderSmokeTest {
     private AuditLog auditLog;
 
     @Autowired
+    private TaskRepository taskTasks;
+
+    @Autowired
+    private TaskAttemptRepository taskAttempts;
+
+    @Autowired
+    private TaskInstallationRepository taskInstallations;
+
+    @Autowired
+    private TaskAdmissionService taskAdmissions;
+
+    @Autowired
     private ITemplateEngine templateEngine;
+
+    @Autowired
+    private CodingTranscriptStore transcripts;
 
     @MockitoBean
     private DeveloperPreflight developerPreflight;
+
+    /** Real unless a test changes it; Mockito resets it after each test. */
+    @MockitoSpyBean
+    private TaskRunSettings runSettings;
+
+    @Autowired
+    private CodingRuntime codingRuntime;
+
+    @Autowired
+    private DevRuntimeProperties devRuntime;
+
+    @Autowired
+    private ModelCatalog.Properties modelsFile;
 
     private RestClient rest;
 
@@ -95,9 +137,45 @@ class UiRenderSmokeTest {
     void dashboardRenders() {
         String body = assertRendered("/", "Dashboard");
         assertThat(body)
-                .contains("chart.umd.js")
-                .contains("/js/charts.js")
+                .containsPattern("src=\"/js/charts-[0-9a-f]{32}\\.js\"")
                 .contains("class=\"charts-grid\"");
+        Matcher chart = Pattern.compile("src=\"(/webjars/chart\\.js/[^\"]+/chart\\.umd-[0-9a-f]{32}\\.js)\"")
+                .matcher(body);
+        assertThat(chart.find()).as("hashed chart.js link").isTrue();
+        assertThat(rest.get().uri(chart.group(1)).retrieve().toEntity(String.class).getBody()).contains("Chart");
+    }
+
+    @Test
+    void pageLinksCarryAContentHashAndHashedFilesAreCachedForAYear() {
+        ResponseEntity<String> page = rest.get().uri("/flows/dev-factory").retrieve().toEntity(String.class);
+        String body = page.getBody();
+        assertThat(page.getHeaders().getCacheControl()).as("HTML pages stay uncached").isNull();
+        assertThat(body).doesNotContainPattern("\"/(css|js)/[a-z]+\\.(css|js)\"");
+        for (String file : List.of("css/tokens", "css/app", "js/app", "js/theme", "js/confirm", "js/poll")) {
+            String extension = file.substring(0, file.indexOf('/'));
+            Matcher link = Pattern.compile("\"(/" + file + "-[0-9a-f]{32}\\." + extension + ")\"").matcher(body);
+            assertThat(link.find()).as("hashed link for " + file).isTrue();
+
+            ResponseEntity<String> asset = rest.get().uri(link.group(1)).retrieve().toEntity(String.class);
+            assertThat(asset.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(asset.getHeaders().getCacheControl()).contains("max-age=31536000", "immutable");
+            assertThat(asset.getBody()).isNotBlank();
+        }
+    }
+
+    @Test
+    void unhashedAndUnknownHashUrlsAreNotCachedForAYear() {
+        for (String path : List.of("/css/app.css", "/js/poll.js")) {
+            ResponseEntity<String> asset = rest.get().uri(path).retrieve().toEntity(String.class);
+            assertThat(asset.getStatusCode()).as(path).isEqualTo(HttpStatus.OK);
+            assertThat(asset.getHeaders().getCacheControl()).as(path).isNull();
+        }
+
+        ResponseEntity<String> missing = rest.get().uri("/css/app-" + "0".repeat(32) + ".css").retrieve()
+                .onStatus(status -> true, (request, response) -> { })
+                .toEntity(String.class);
+        assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(missing.getHeaders().getCacheControl()).isNull();
     }
 
     @Test
@@ -137,14 +215,22 @@ class UiRenderSmokeTest {
                 "buildImage", "maven:3.9-eclipse-temurin-21",
                 "verificationPlan", "java21-unit",
                 "jiraProjects", List.of("MODSIDECAR"),
-                "delivery", "owner/folio-module-sidecar",
-                "authorized", true);
+                "delivery", "owner/folio-module-sidecar");
         var deliveryCheck = new DeveloperPreflight.Check("delivery:sidecar", deliveryStatus,
                 "Push permission check <read-only> & base alignment.");
         var inferenceCheck = new DeveloperPreflight.Check("inference", DeveloperPreflight.Status.NOT_RUN,
                 "No model call made.");
+        var sonnet = new ModelChecks.ModelRow("codemie-sonnet-5.5", true, true, "claude-sonnet-5-5",
+                "anthropic-messages", "http://host.docker.internal:4001", "bearer-token",
+                "low, medium, high, xhigh, max; default high", List.of());
+        var glm = new ModelChecks.ModelRow("glm-5.3", false, false, "glm-5.3", "anthropic-messages",
+                "https://api.z.ai", "bearer-token", "low, high, max; default max",
+                List.of(new DeveloperPreflight.Check("secret", DeveloperPreflight.Status.FAIL,
+                        "Set FACTORY_ZAI_API_KEY in .env. If docker-compose.yml does not pass it to the factory"
+                                + " service yet, add it there. Then run docker compose up -d.")));
         var report = new DeveloperPreflight.Report(deliveryStatus == DeveloperPreflight.Status.PASS,
-                issueKey == null ? "" : issueKey, runtime, List.of(repository), List.of(deliveryCheck, inferenceCheck));
+                issueKey == null ? "" : issueKey, runtime, List.of(repository), List.of(deliveryCheck, inferenceCheck),
+                List.of(sonnet, glm));
         when(developerPreflight.check(issueKey)).thenReturn(report);
 
         String path = "/developer/configuration";
@@ -155,6 +241,16 @@ class UiRenderSmokeTest {
         assertThat(body).contains("claude-sonnet-5-5", "sidecar", "java21-unit", "owner/folio-module-sidecar",
                         "NOT_RUN", "No model call made.", "Push permission check &lt;read-only&gt; &amp; base alignment.")
                 .doesNotContain("check <read-only>");
+        assertThat(body).contains("<h2>Models</h2>", "codemie-sonnet-5.5", "ready · default for runs",
+                "low, medium, high, xhigh, max; default high", "not ready",
+                "anthropic-messages · https://api.z.ai · bearer-token", "low, high, max; default max",
+                "FAIL · secret: Set FACTORY_ZAI_API_KEY in .env");
+        // Where My tasks come from: moved here from the My tasks page.
+        assertThat(body).contains("My tasks source", "Jane Developer", "jira.example.org",
+                        "assignee = &quot;Jane Developer&quot; AND statusCategory != Done ORDER BY updated DESC",
+                        "href=\"https://jira.example.org/issues/?jql=", "Jira projects configured:",
+                        "docker compose restart factory")
+                .doesNotContain(ZAI_KEY, PROXY_TOKEN);
         return body;
     }
 
@@ -312,7 +408,7 @@ class UiRenderSmokeTest {
                             + "\",\"pullRequestTitle\":\"" + title + "\"}", "publish");
             String body = assertRendered("/executions/" + execution.getId(), "Pull request");
             String label = title.isEmpty() ? url : "TASK-1: Fix &lt;routing&gt; &amp; permissions";
-            assertThat(body).contains("class=\"developer-pr-link\"", "href=\"" + url + "\">" + label + "</a>")
+            assertThat(body).contains("href=\"" + url + "\">" + label + "</a>", ">Pull request #42</a>")
                     .doesNotContain("Open pull request", "<routing>");
         }
     }
@@ -338,14 +434,23 @@ class UiRenderSmokeTest {
                         "reasoning", "HIDDEN_REASONING_SENTINEL"));
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of("costUsd", 0));
         String body = assertRendered("/executions/" + execution.getId(), "Developer Flow");
+        String activityPanel = body.substring(body.indexOf("<section class=\"run-panel run-activity\""),
+                body.indexOf("<section class=\"run-panel run-usage\""));
+        assertThat(activityPanel)
+                .contains("Runtime log, oldest first · last 20 events",
+                        "href=\"/executions/" + execution.getId() + "/transcript\">Transcript</a>",
+                        "href=\"/audit?executionId=" + execution.getId() + "\">Audit events</a>",
+                        "aria-label=\"Runtime activity, oldest first\"", "Running mvn test")
+                .containsPattern("<time title=\"\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\">\\d{2}:\\d{2}:\\d{2}</time>")
+                .doesNotContain("newest first", ">full log<");
         assertThat(body).contains("MODSIDECAR-196", "17 tests executed", "mvn test", "DELIVERY_BLOCKED",
-                "Safe destination missing", "class=\"badge badge-outline developer-task-key\">MODSIDECAR-196</span>",
+                "Safe destination missing", "class=\"task-key\">MODSIDECAR-196</span>",
                 "auditTrail.length,artifacts.length", "Prepare task", "Implement changes", "Verify changes",
                 "Create pull request", "Technical details", "Prepare task checkout", "Starting build output",
                 "Compiling 42 source files", "transfer failed", "Artifacts", "Execution history",
-                "Open full append-only audit log");
-        assertThat(body).containsOnlyOnce("class=\"developer-stages\"")
-                .contains("aria-label=\"Technical steps\"", "Implementation", "Not started")
+                "Full audit log", "Now · updates live");
+        assertThat(body).containsOnlyOnce("class=\"run-stages\"")
+                .contains("Engine steps", "Implementation", "Waiting")
                 .doesNotContain("class=\"developer-runtime-facts\"", "Coding runtime-reported cost", "Cost evidence", "class=\"stepper\"",
                         "SOURCE_CONTENT_SENTINEL", "HIDDEN_MESSAGE_SENTINEL",
                         "HIDDEN_REASONING_SENTINEL", ">Baseline<",
@@ -353,34 +458,112 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void transcriptPageShowsEachRunWithACollapsedPromptAndToolCallsWithTheirResults() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        Instant at = Instant.parse("2026-10-27T09:15:30Z");
+        try (var sink = transcripts.open(execution.getId(), UUID.randomUUID(), "implement")) {
+            sink.add(new CodingTranscripts.Entry("prompt", at, Map.of("text", "Implement MODBAR-1 <now>")));
+            sink.add(new CodingTranscripts.Entry("text", at.plusSeconds(1),
+                    Map.of("text", "I will run the tests", "thinking", "HIDDEN_REASONING_SENTINEL")));
+            sink.add(new CodingTranscripts.Entry("tool_call", at.plusSeconds(2),
+                    Map.of("id", "t1", "tool", "Bash", "input", "{ \"command\" : \"mvn test\" }")));
+            sink.add(new CodingTranscripts.Entry("tool_result", at.plusSeconds(5),
+                    Map.of("id", "t1", "tool", "Bash", "error", true, "durationMs", 3200,
+                            "text", "BUILD FAILURE\n[cut: 120 more characters]")));
+            sink.add(new CodingTranscripts.Entry("result", at.plusSeconds(6), Map.of("subtype", "success",
+                    "error", false, "text", "Done", "turns", 4, "durationMs", 6000,
+                    "usage", Map.of("inputTokens", 1200, "outputTokens", 80))));
+            sink.add(new CodingTranscripts.Entry("note", at.plusSeconds(7),
+                    Map.of("text", "Transcript cut at 5 MB; the attempt went on.")));
+        }
+
+        String body = assertRendered("/executions/" + execution.getId() + "/transcript", "Transcript");
+        assertThat(body)
+                .contains("Run 1 · Implementation", "Started 2026-10-27 09:15:30 UTC",
+                        "<summary>Prompt sent to the agent</summary>", "Implement MODBAR-1 &lt;now&gt;",
+                        "I will run the tests", "<strong>Bash</strong>", "failed", "3s",
+                        "{ &quot;command&quot; : &quot;mvn test&quot; }", "BUILD FAILURE",
+                        "[cut: 120 more characters]", "<strong>Final result</strong>",
+                        "4 turns · 6s · 1,200 input tokens · 80 output tokens",
+                        "Transcript cut at 5 MB; the attempt went on.",
+                        "<time title=\"2026-10-27 09:15:32\">09:15:32</time>",
+                        "href=\"/executions/" + execution.getId() + "\"")
+                .doesNotContain("<details open", "HIDDEN_REASONING_SENTINEL", "<now>");
+
+        var empty = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        assertThat(assertRendered("/executions/" + empty.getId() + "/transcript", "Transcript"))
+                .contains("No transcript was stored for this run.");
+    }
+
+    @Test
+    void codingFailureReasonsReachTheTaskScreensAndTheRunPage() {
+        resetTaskData();
+        String turnLimit = "Claude Code used all 40 turns before it finished the task."
+                + " Retry with more turns or a different effort.";
+        Task stopped = seedTask("70081", "MODBAR-781", "Turn limit task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution execution = new PipelineExecution("dev-factory", "0.8.0", "{}");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        execution = executions.save(execution);
+        artifactStore.putMarkdown(execution.getId(), "dev_result.json",
+                "{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"" + turnLimit + "\"}", "verify");
+        TaskAttempt attempt = seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
+                "DEVELOPMENT_FAILED: " + turnLimit);
+        attempt.setExecutionId(execution.getId());
+        taskAttempts.save(attempt);
+        Task provider = seedTask("70082", "MODBAR-782", "Provider task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(provider, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
+                "shared: DEVELOPMENT_FAILED: Claude Code stopped with an error (subtype success, API status 429)."
+                        + " Check the provider and the Developer Flow settings, then retry. Error: API Error: 429");
+
+        String expected = "Implementation failed: " + turnLimit.substring(0, turnLimit.length() - 1);
+        String list = assertRendered("/flows/dev-factory", "My Jira tasks");
+        assertThat(list)
+                .contains(expected, "Implementation failed: Claude Code stopped with an error"
+                        + " (subtype success, API status 429). Check the provider and the Developer Flow settings,"
+                        + " then retry. Error: API Error: 429");
+        // The Triggered status cell shows the whole reason, two lines at most, with the full text in the title.
+        assertThat(list).containsPattern("<span class=\"state-detail clamp-2\"\\s+title=\"" + Pattern.quote(expected)
+                + "\">" + Pattern.quote(expected) + "</span>");
+        String task = assertRendered("/tasks/" + stopped.getId(), "Could not complete");
+        assertThat(task).contains(expected + ". No pull request was created.");
+        // The Attempts Result column keeps the reason and what to do.
+        assertThat(task.substring(task.indexOf("id=\"attempts-title\""))).contains("<span>" + expected + "</span>");
+        assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
+                .contains("Stop reason: " + turnLimit);
+    }
+
+    @Test
     void developerExecutionShowsEstimatedCostEvidenceWithoutRuntimeCost() {
         var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
-                Map.of("activity", "coding_starting", "runtime", "pi", "provider", "test-provider", "model", "test-model",
-                        "image", "factory-dev-pi:0.85.1-java21"));
+                Map.of("activity", "coding_starting", "runtime", "pi", "provider", "test-provider",
+                        "model", "glm-5.3-flash", "image", "factory-dev-pi:0.85.1-java21"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "pi_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
                         "cacheWriteTokens", 0, "outputTokens", 10_000, "costUsd", 0));
 
-        String body = assertRendered("/executions/" + execution.getId(), "Cost evidence");
-        String currentPanel = body.substring(body.indexOf("<section class=\"developer-panel developer-current\""),
-                body.indexOf("<section class=\"developer-panel developer-usage\""));
-        String usagePanel = body.substring(body.indexOf("<section class=\"developer-panel developer-usage\""),
-                body.indexOf("<div class=\"developer-debug\""));
-        assertThat(currentPanel).doesNotContain("developer-runtime-facts", "<dt>Model</dt>", "<dt>Provider</dt>",
+        String body = assertRendered("/executions/" + execution.getId(), "<summary>Pricing</summary>");
+        String currentPanel = body.substring(body.indexOf("<section class=\"run-panel run-activity\""),
+                body.indexOf("<section class=\"run-panel run-usage\""));
+        String usagePanel = body.substring(body.indexOf("<section class=\"run-panel run-usage\""),
+                body.indexOf("<details class=\"tech-details\""));
+        assertThat(currentPanel).doesNotContain("run-facts", "<dt>Model</dt>", "<dt>Provider</dt>",
                 "<dt>Runtime</dt>", "<dt>Image</dt>");
-        assertThat(usagePanel).contains("Runtime &amp; usage", "<dt>Model</dt>", ">test-model</dd>",
+        assertThat(usagePanel).contains("Runtime and usage", "<dt>Model</dt>", ">glm-5.3-flash</dd>",
                         "<dt>Provider</dt>", ">test-provider</dd>", "<dt>Runtime</dt>", ">pi</dd>",
-                        "<dt>Image</dt>", ">factory-dev-pi:0.85.1-java21</dd>",
-                        "total usage tokens", "Input tokens (uncached)", "Cache read tokens",
-                        "Cache creation tokens", "Output tokens", "<dt>Estimated cost</dt>", "0.0203 USD")
+                        "<dt>Image</dt>", ">factory-dev-pi:0.85.1-java21</code>",
+                        "tokens so far", "Input (uncached)", "Cache read",
+                        "Cache write", "Output", ">Estimated cost</dt>", "0.0203 USD")
                 .doesNotContain("Configured rate card ·", "Actual provider or proxy charges may differ");
         assertThat(body)
                 .containsOnlyOnce("<dt>Model</dt>").containsOnlyOnce("<dt>Provider</dt>")
                 .containsOnlyOnce("<dt>Runtime</dt>").containsOnlyOnce("<dt>Image</dt>")
-                .contains("Estimated coding API cost", "0.0203 USD", "using rates dated 2026-09-19",
-                        "href=\"https://example.test/pricing\"", ">https://example.test/pricing</a>",
-                        "Rate-card estimate; actual provider or proxy charges may differ")
+                .contains("0.0203 USD so far", "2026-09-19",
+                        "href=\"https://docs.z.ai/guides/overview/pricing\"",
+                        ">https://docs.z.ai/guides/overview/pricing</a>",
+                        "Rate-card estimate;")
                 .doesNotContain("Coding runtime-reported cost", "<dt>Coding runtime</dt>", "<dt>Coding image</dt>");
     }
 
@@ -397,13 +580,40 @@ class UiRenderSmokeTest {
             execution.setStatus(ExecutionStatus.RUNNING);
             execution = executions.save(execution);
             String body = assertRendered("/executions/" + execution.getId(), "planned-model");
-            String currentPanel = body.substring(body.indexOf("<section class=\"developer-panel developer-current\""),
-                    body.indexOf("<section class=\"developer-panel developer-usage\""));
-            assertThat(currentPanel).contains("class=\"developer-recent\"", "Starting build started · mvn test");
-            assertThat(body).containsOnlyOnce("class=\"developer-recent\"")
-                    .contains("No token usage reported yet.", ">coding-image</dd>")
+            String currentPanel = body.substring(body.indexOf("<section class=\"run-panel run-activity\""),
+                    body.indexOf("<section class=\"run-panel run-usage\""));
+            assertThat(currentPanel).contains("class=\"run-log\"", "Starting build started · mvn test");
+            assertThat(body).containsOnlyOnce("class=\"run-log\"")
+                    .contains("No token usage reported yet.", ">coding-image</code>")
                     .doesNotContain("Latest reported activity", "Recent meaningful activity", "coding configured");
         }
+    }
+
+    @Test
+    void developerExecutionShowsTheModelEffortAndMaxTurns() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.9.0", "{}"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "coding_starting", "runtime", "claude-code", "provider", "anthropic-messages",
+                        "modelId", "codemie-sonnet-5.5", "model", "claude-sonnet-5-5", "effort", "high",
+                        "maxTurns", 200));
+        // A run from before the models file named its run profile.
+        var legacy = executions.save(new PipelineExecution("dev-factory", "0.9.0", "{}"));
+        auditLog.record(legacy.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "coding_starting", "runtime", "claude-code", "provider", "anthropic-messages",
+                        "profile", "glm-5.3", "profileLabel", "GLM-5.3 (Z.ai)", "model", "glm-5.3",
+                        "effort", "max", "maxTurns", 100));
+
+        assertThat(usagePanel(assertRendered("/executions/" + execution.getId(), "Runtime and usage")))
+                .containsSubsequence("<dt>Model</dt>", ">codemie-sonnet-5.5<", "<dt>Model ID</dt>",
+                        ">claude-sonnet-5-5<", "<dt>Effort</dt>", ">high<", "<dt>Max turns</dt>", ">200<");
+        assertThat(usagePanel(assertRendered("/executions/" + legacy.getId(), "Runtime and usage")))
+                .containsSubsequence("<dt>Model</dt>", ">GLM-5.3 (Z.ai)<", "<dt>Model ID</dt>", ">glm-5.3<",
+                        "<dt>Effort</dt>", ">max<", "<dt>Max turns</dt>", ">100<");
+    }
+
+    private static String usagePanel(String body) {
+        return body.substring(body.indexOf("<section class=\"run-panel run-usage\""),
+                body.indexOf("<details class=\"tech-details\""));
     }
 
     @Test
@@ -412,12 +622,12 @@ class UiRenderSmokeTest {
         for (String field : List.of("model", "provider", "runtime", "image")) {
             auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                     Map.of("activity", "coding_starting", field, "reported-" + field));
-            String body = assertRendered("/executions/" + execution.getId(), "Runtime &amp; usage");
-            String usagePanel = body.substring(body.indexOf("<section class=\"developer-panel developer-usage\""),
-                    body.indexOf("<div class=\"developer-debug\""));
-            assertThat(usagePanel).contains("class=\"developer-runtime-facts\"", ">reported-" + field + "</dd>",
+            String body = assertRendered("/executions/" + execution.getId(), "Runtime and usage");
+            String usagePanel = body.substring(body.indexOf("<section class=\"run-panel run-usage\""),
+                    body.indexOf("<details class=\"tech-details\""));
+            assertThat(usagePanel).contains("class=\"run-facts\"", ">reported-" + field + "<",
                             "No token usage reported yet.")
-                    .doesNotContain("total usage tokens", "<dt>Estimated cost</dt>");
+                    .doesNotContain("tokens so far", "Estimated cost");
             for (String absent : List.of("model", "provider", "runtime", "image")) {
                 if (!absent.equals(field))
                     assertThat(usagePanel).doesNotContain("<dt>" + Character.toUpperCase(absent.charAt(0))
@@ -435,9 +645,9 @@ class UiRenderSmokeTest {
                 Map.of("activity", "coding_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
                         "cacheWriteTokens", 0, "outputTokens", 10_000, "usageIncomplete", true));
 
-        String body = assertRendered("/executions/" + execution.getId(), "Runtime &amp; usage");
-        assertThat(body).contains("Cost estimate unavailable: Pi did not report enough usage for every response.")
-                .doesNotContain("Cost evidence", "No matching configured rate card.", "<dt>Estimated cost</dt>");
+        String body = assertRendered("/executions/" + execution.getId(), "Runtime and usage");
+        assertThat(body).contains("Cost estimate unavailable: the runtime did not report enough usage for every response.")
+                .doesNotContain("<summary>Pricing</summary>", "No matching configured rate card.", ">Estimated cost</dt>");
     }
 
     @Test
@@ -449,7 +659,7 @@ class UiRenderSmokeTest {
                 "{\"status\":\"FAILED\",\"failure\":{\"code\":\"PROVIDER_RETRIES_EXHAUSTED\","
                         + "\"message\":\"Pi provider request failed: HTTP 429 (rate limited)\"}}", "implement");
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
-                Map.of("activity", "coding_starting", "provider", "test-provider", "model", "test-model"));
+                Map.of("activity", "coding_starting", "provider", "test-provider", "model", "glm-5.3-flash"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "coding_usage", "inputTokens", 40_000, "cacheReadTokens", 100_000,
                         "cacheWriteTokens", 0, "outputTokens", 4_000));
@@ -461,7 +671,7 @@ class UiRenderSmokeTest {
                         "reason", "HTTP 429 (rate limited)"));
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement",
                 Map.of("inputTokens", 100_000, "cacheReadTokens", 200_000, "cacheWriteTokens", 0,
-                        "outputTokens", 10_000, "provider", "test-provider", "model", "test-model"));
+                        "outputTokens", 10_000, "provider", "test-provider", "model", "glm-5.3-flash"));
 
         String body = assertRendered("/executions/" + execution.getId(), "Provider diagnostics");
         assertThat(body).contains("Stop reason: Pi provider request failed: HTTP 429 (rate limited)",
@@ -483,9 +693,9 @@ class UiRenderSmokeTest {
 
         assertThat(body)
                 .containsOnlyOnce("data-developer-history")
-                .containsOnlyOnce("id=\"developer-recent-heading\"")
-                .contains("No activity reported yet.", "Open full append-only audit log")
-                .doesNotContain("Raw audit history", "<details data-developer-history open");
+                .containsOnlyOnce("id=\"activity-title\"")
+                .contains("No activity reported yet.", "Full audit log")
+                .doesNotContain("Raw audit history", "data-developer-history open");
     }
 
     @Test
@@ -506,11 +716,11 @@ class UiRenderSmokeTest {
             }
             String detail = assertRendered("/executions/" + execution.getId(), "Developer Flow");
             assertThat(detail).contains("badge-status-" + outcome, ">" + outcome + "</span>",
-                            "Workflow engine status: COMPLETED")
+                            "<dt>Engine status</dt>", ">COMPLETED</dd>", "id=\"now-title\">Result</h2>")
                     .doesNotContain("badge-status-COMPLETED");
             if (outcome.equals("DEVELOPMENT_FAILED"))
-                assertThat(detail).contains(">16</strong>", "total usage tokens", "Input tokens (uncached)",
-                                "Cache read tokens", "Cache creation tokens", "Output tokens")
+                assertThat(detail).contains(">16</strong>", "<span>tokens</span>", "Input (uncached)",
+                                "Cache read", "Cache write", ">Output</dt>")
                         .doesNotContain("pi usage", "Coding runtime-reported cost");
             String list = assertRendered("/executions?flow=dev-factory", "Executions");
             assertThat(list).contains("badge-status-" + outcome, ">" + outcome + "</span>")
@@ -527,7 +737,7 @@ class UiRenderSmokeTest {
                 "{\"state\":\"DEVELOPMENT_FAILED\"}", "test");
         assertThat(assertRendered("/executions/" + execution.getId(), "Execution"))
                 .contains("badge-status-COMPLETED", ">COMPLETED</span>")
-                .doesNotContain("badge-status-DEVELOPMENT_FAILED", "Workflow engine status:");
+                .doesNotContain("badge-status-DEVELOPMENT_FAILED", "Engine status");
         assertThat(assertRendered("/executions?flow=test-factory", "Executions"))
                 .contains("badge-status-COMPLETED", ">COMPLETED</span>")
                 .doesNotContain("badge-status-DEVELOPMENT_FAILED");
@@ -613,6 +823,545 @@ class UiRenderSmokeTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(response.getHeaders().getContentType().toString()).contains("json");
         assertThat(response.getBody()).contains("\"error\"").contains("No execution");
+    }
+
+    // ----- task screens -----
+
+    private void resetTaskData() {
+        new TaskFixture(taskTasks, taskAttempts, taskInstallations, taskAdmissions).reset();
+    }
+
+    private Task seedTask(String issueId, String key, String title,
+                               Task.Eligibility eligibility, String routingReason) {
+        return seedTask(issueId, key, title, "Open", eligibility, routingReason);
+    }
+
+    private Task seedTask(String issueId, String key, String title, String jiraStatus,
+                               Task.Eligibility eligibility, String routingReason) {
+        return taskTasks.save(TaskFixture.task("MODBAR", issueId, key, title,
+                "{\"key\": \"" + key + "\", \"status\": \"" + jiraStatus + "\"}", eligibility, routingReason));
+    }
+
+    private TaskAttempt seedAttempt(Task task, int ordinal, TaskAttempt.Kind kind,
+                                     TaskAttempt.State state, String reason) {
+        TaskAttempt attempt = new TaskAttempt(task.getId(), ordinal, kind,
+                "smoke-" + task.getId() + "-" + ordinal, state);
+        attempt.setResultReason(reason);
+        return taskAttempts.save(attempt);
+    }
+
+    private void holdTheSlot(TaskAttempt attempt) {
+        TaskInstallation installation = taskInstallations.findById(1).orElseThrow();
+        installation.setActiveAttemptId(attempt.getId());
+        taskInstallations.save(installation);
+    }
+
+    private PipelineExecution runningExecution() {
+        PipelineExecution execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        execution.setStatus(ExecutionStatus.RUNNING);
+        return executions.save(execution);
+    }
+
+    @Test
+    void myTasksRendersAvailableTriggeredAndTheWaitingQueue() {
+        resetTaskData();
+        seedTask("70001", "MODBAR-701", "Awaiting task", Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedTask("70002", "MODBAR-702", "Unsupported task", Task.Eligibility.INELIGIBLE,
+                "Project MODBAR is not configured: no repository for it in config/developer-repositories.yaml");
+        seedTask("70003", "MODBAR-703", "Reviewed task", "In Review", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+        Task queued = seedTask("70004", "MODBAR-704", "Queued task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(queued, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.RESERVED, null);
+        Task stopped = seedTask("70005", "MODBAR-705", "Stopped task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
+                "VERIFICATION_FAILED: 2 tests in error");
+        Task delivered = seedTask("70006", "MODBAR-706", "Delivered task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        TaskAttempt ready = seedAttempt(delivered, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.PR_READY, null);
+        ready.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/7");
+        taskAttempts.save(ready);
+        Task held = seedTask("70007", "MODBAR-707", "Held task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        holdTheSlot(seedAttempt(held, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.NEEDS_INSPECTION, null));
+        Task byKey = seedTask("70008", "MODBAR-708", "Task added by key",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        byKey.setAddedByKey(true);
+        taskTasks.save(byKey);
+        TaskAttempt byKeyAttempt = seedAttempt(byKey, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.RESERVED, null);
+        byKeyAttempt.setAdmittedVia(TaskAttempt.AdmittedVia.BY_KEY);
+        taskAttempts.save(byKeyAttempt);
+        Task live = seedTask("70009", "MODBAR-709", "Live task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution liveExecution = runningExecution();
+        TaskAttempt liveAttempt = seedAttempt(live, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.RUNNING, null);
+        liveAttempt.setExecutionId(liveExecution.getId());
+        taskAttempts.save(liveAttempt);
+        auditLog.record(liveExecution.getId(), AuditEventType.STEP_STARTED, "implement", Map.of());
+        Task draft = seedTask("70010", "MODBAR-710", "Draft task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        TaskAttempt draftAttempt = seedAttempt(draft, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.PR_READY, null);
+        draftAttempt.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/8");
+        draftAttempt.setDraftReasons("[\"1 acceptance criterion is not met.\"]");
+        taskAttempts.save(draftAttempt);
+        Task added = seedTask("70013", "MODBAR-713", "Added and not run yet",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        added.setAddedByKey(true);
+        taskTasks.save(added);
+        Task awaiting = taskTasks.findAll().stream().filter(task -> task.getDisplayKey().equals("MODBAR-701"))
+                .findFirst().orElseThrow();
+        Task unsupported = taskTasks.findAll().stream().filter(task -> task.getDisplayKey().equals("MODBAR-702"))
+                .findFirst().orElseThrow();
+
+        String body = assertRendered("/flows/dev-factory", "My Jira tasks");
+        // A draft pull request is not the green PR ready.
+        assertThat(body).contains("class=\"state-pill state-pill-warning\">Draft PR</span>",
+                        "href=\"https://github.com/folio-org/mod-bar/pull/8\"", "Pull request #8")
+                .containsOnlyOnce("class=\"state-pill state-pill-success\">PR ready</span>");
+        assertThat(body)
+                .contains("aria-current=\"page\">My tasks</a>", "href=\"/flows/dev-factory?view=definition\"")
+                // The query and the assignee moved to Check configuration; the ⓘ says so.
+                .contains("aria-label=\"What is in this list\"",
+                        "Jira issues assigned to you that are not done yet, plus the ones you add by key.",
+                        "href=\"/developer/configuration\"")
+                .doesNotContain("Assigned to", "assignee = &quot;Jane Developer&quot;", "What exactly is scanned")
+                .contains("action=\"/flows/dev-factory/scan\"", "action=\"/tasks/run-selected\"",
+                        "action=\"/flows/dev-factory/add-by-key\"", "Not in your list?", ">Add to list</button>")
+                .doesNotContain("run-by-key", "Add to run", "Max turns", "name=\"maxTurns\"")
+                .contains("data-status-chip=\"Open\"", "data-status-chip=\"In Review\"",
+                        "aria-pressed=\"false\"", "data-status=\"In Review\" hidden=\"hidden\"")
+                .containsPattern("data-available-count>2</span><span class=\"dev-count\"\\s+data-not-eligible>"
+                        + " · <span data-not-eligible-count>1</span> not eligible</span>")
+                .containsPattern("data-run-selected\\s*>Run</button>")
+                .doesNotContainPattern("data-select-all\\s+disabled")
+                .contains("href=\"https://jira.example.org/browse/MODBAR-701\"", "href=\"/tasks/")
+                .contains("Queued", "next in line", "2nd in line", "Could not complete",
+                        "Verification failed: 2 tests in error", "PR ready", "Pull request #7",
+                        "href=\"https://github.com/folio-org/mod-bar/pull/7\"", "Needs inspection",
+                        "outcome not confirmed", "Working", "Implementation", "added by key")
+                .contains("href=\"/executions/" + liveExecution.getId() + "\"")
+                .contains("Queue is waiting.", "MODBAR-707 needs inspection", "/mark-stopped",
+                        "data-confirm-title=\"Mark MODBAR-707 as stopped?\"", "task-grid-wide")
+                // Retry no longer starts a run from the list: it opens the task page form.
+                .containsPattern("<a class=\"btn btn-outline btn-sm\"\\s+href=\"/tasks/" + stopped.getId()
+                        + "#retry\"\\s+aria-label=\"Retry MODBAR-705\">Retry</a>")
+                .contains("name=\"returnTo\" value=\"flow\"")
+                .doesNotContain(">Retry</button>")
+                .contains("Queued tasks are not starting.", "FACTORY_TASKS_EXECUTION_ENABLED=true")
+                .contains("data-task-selection", "data-run-selected", "data-selected-count",
+                        "data-select-all", "data-poll-notice", "data-poll-url=\"/tasks/poll\"",
+                        "data-poll-fields=\"revision\"", "data-poll-baseline=")
+                .doesNotContain("Trigger flow", "Outside current filter", "Enable automatic admission",
+                        "Withdrawn", "Sprint");
+        // Triggered: the key and its repository chip on one line, the title below it clamped to two lines, the
+        // reason under the badge clamped to two lines, and the row's one action (Retry or Mark as stopped…) last.
+        String triggered = body.substring(body.indexOf("id=\"triggered-title\""));
+        assertThat(triggered)
+                .contains("<span><span class=\"sr-only\">Action</span></span>")
+                .containsPattern("<a class=\"task-key\" href=\"https://jira.example.org/browse/MODBAR-705\">MODBAR-705</a>"
+                        + "\\s*<span class=\"repo-chip\"\\s+title=\"Repository mod-bar\">mod-bar</span>"
+                        + "\\s*</div>\\s*<a class=\"task-title clamp-2\"\\s+href=\"/tasks/" + stopped.getId()
+                        + "\"\\s+title=\"Stopped task\">Stopped task</a>")
+                .containsPattern(">MODBAR-708</a>\\s*<span class=\"repo-chip\"[^>]*>mod-bar</span>"
+                        + "\\s*<span class=\"task-tag\">added by key</span>")
+                .containsPattern("<span class=\"state-detail clamp-2\"\\s+title=\"Verification failed: 2 tests in error\">"
+                        + "Verification failed: 2 tests in error</span>")
+                .containsPattern("<div class=\"task-action\">\\s*<form method=\"post\"\\s+action=\"/tasks/" + held.getId()
+                        + "/attempts/[0-9a-f-]+/mark-stopped\">\\s*<input type=\"hidden\" name=\"returnTo\" value=\"flow\">"
+                        + "\\s*<button type=\"submit\" class=\"btn btn-outline btn-sm\"[^>]*aria-label=\"Mark as stopped: MODBAR-707\"")
+                .doesNotContain("btn-inline", "state-detail-action", "state-detail-text", ">incomplete<");
+        // Run: one Model for the run, the ready models only, each with its levels for the page script.
+        String run = body.substring(body.indexOf("action=\"/tasks/run-selected\""), body.indexOf("data-run-selected"));
+        assertThat(run).contains("<span>Model</span>", "name=\"modelId\"", "data-model-select")
+                .containsPattern("<option value=\"codemie-sonnet-5.5\"(?=[^>]*selected=\"selected\")"
+                        + "(?=[^>]*data-efforts=\"low medium high xhigh max\")(?=[^>]*data-default-effort=\"high\")")
+                .containsPattern("<option value=\"glm-5.3\"(?=[^>]*data-efforts=\"low high max\")"
+                        + "(?=[^>]*data-default-effort=\"max\")")
+                .doesNotContain("value=\"anthropic-sonnet-5.5\"", "value=\"codemie-gemini-3.8-flash\"");
+        // Effort on each row that can run: radio buttons of the selected model, its default checked.
+        assertThat(body).contains("task-grid-effort", ">Effort</span>")
+                .containsPattern("role=\"radiogroup\"[^>]*aria-label=\"Effort for MODBAR-701\"")
+                .containsPattern("<input type=\"radio\" name=\"effort-" + awaiting.getId()
+                        + "\" value=\"high\" checked=\"checked\">\\s*<span>high</span>")
+                .containsPattern("<input type=\"radio\" name=\"effort-" + awaiting.getId()
+                        + "\" value=\"xhigh\">\\s*<span>xhigh</span>")
+                .doesNotContain("name=\"effort-" + unsupported.getId() + "\"");
+        // A task that cannot run: a red chip on the key line that opens the dialog with the fix.
+        assertThat(body)
+                .containsPattern("<a class=\"config-chip\" href=\"/tasks/" + unsupported.getId()
+                        + "\" title=\"Why and how to fix\"\\s+data-fix-dialog=\"fix-" + unsupported.getId()
+                        + "\">Not configured</a>")
+                .containsPattern("<dialog class=\"dialog dialog-compact fix-dialog\" id=\"fix-" + unsupported.getId()
+                        + "\"")
+                .contains("Project MODBAR is not configured</h2>",
+                        "Factory does not know which repository holds the code for MODBAR, so it cannot run MODBAR-702.",
+                        "  jira-projects: [<span>MODBAR</span>]", "docker compose restart factory",
+                        "3. Click Scan Jira. The task becomes available.", "<form method=\"dialog\"")
+                .doesNotContain("Not eligible</span>", "Project MODBAR is not configured: no repository");
+        // A task added by key and not run yet can leave the list again.
+        assertThat(body).containsPattern(">MODBAR-713</a>\\s*<span class=\"repo-chip\"[^>]*>mod-bar</span>"
+                + "\\s*<span class=\"task-tag\">added by key</span>\\s*<button type=\"submit\" class=\"row-remove\""
+                + "\\s+formaction=\"/tasks/" + added.getId() + "/remove-from-list\"");
+        assertThat(body).doesNotContain(ZAI_KEY, PROXY_TOKEN, "not configured)");
+        assertThat(rest.get().uri("/tasks").retrieve().toEntity(String.class).getBody()).contains("My Jira tasks");
+    }
+
+    @Test
+    void myTasksDisablesRunWhenNoShownTaskCanRun() {
+        resetTaskData();
+        for (int i = 1; i <= 3; i++) {
+            seedTask("7010" + i, "MODBAR-71" + i, "Unsupported task " + i, Task.Eligibility.INELIGIBLE,
+                    "Project MODBAR is not configured: no repository for it in config/developer-repositories.yaml");
+        }
+        seedTask("70104", "MODBAR-714", "Hidden eligible task", "In Review", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+
+        String body = assertRendered("/flows/dev-factory", "My Jira tasks");
+        assertThat(body)
+                .containsPattern("data-available-count>0</span><span class=\"dev-count\"\\s+data-not-eligible>"
+                        + " · <span data-not-eligible-count>3</span> not eligible</span>")
+                .containsPattern("data-run-selected\\s+disabled=\"disabled\">Run</button>")
+                .containsPattern("data-select-all\\s+disabled=\"disabled\"");
+    }
+
+    @Test
+    void aModelWithoutItsSecretIsNotOfferedAndOneReadyModelHidesTheList() {
+        resetTaskData();
+        Task eligible = seedTask("70201", "MODBAR-761", "Eligible task", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+        // The same models file, but only FACTORY_ZAI_API_KEY is set, and glm-5.3-flash is the only other model.
+        var glmOnly = new ModelCatalog(new ModelCatalog.Properties(modelsFile.models().stream()
+                .filter(model -> model.id().startsWith("glm-5.3")).toList(), "glm-5.3"), "claude-code",
+                name -> "FACTORY_ZAI_API_KEY".equals(name) ? ZAI_KEY : null);
+        var withoutProxy = new TaskRunSettings(codingRuntime, glmOnly);
+        doAnswer(call -> withoutProxy.form(call.getArgument(0))).when(runSettings).form(any());
+
+        String body = assertRendered("/flows/dev-factory", "My Jira tasks");
+        assertThat(body).containsPattern("<option value=\"glm-5.3\"[^>]*selected=\"selected\"")
+                .contains("value=\"glm-5.3-flash\"")
+                .doesNotContain("value=\"codemie-sonnet-5.5\"", "not configured)")
+                .containsPattern("<input type=\"radio\" name=\"effort-" + eligible.getId()
+                        + "\" value=\"max\" checked=\"checked\">");
+
+        var oneModel = new ModelCatalog(new ModelCatalog.Properties(modelsFile.models().stream()
+                .filter(model -> model.id().equals("glm-5.3")).toList(), null), "claude-code",
+                name -> "FACTORY_ZAI_API_KEY".equals(name) ? ZAI_KEY : null);
+        var single = new TaskRunSettings(codingRuntime, oneModel);
+        doAnswer(call -> single.form(call.getArgument(0))).when(runSettings).form(any());
+        assertThat(assertRendered("/flows/dev-factory", "My Jira tasks"))
+                .contains("<input type=\"hidden\" name=\"modelId\" value=\"glm-5.3\">")
+                .doesNotContain("data-model-select", "<span>Model</span>");
+
+        var none = new TaskRunSettings(codingRuntime, new ModelCatalog(modelsFile, "claude-code", name -> null));
+        doAnswer(call -> none.form(call.getArgument(0))).when(runSettings).form(any());
+        assertThat(assertRendered("/flows/dev-factory", "My Jira tasks"))
+                .contains("No model can run now. Check configuration lists the models in config/developer-models.yaml")
+                .doesNotContain("name=\"modelId\"", "name=\"effort-");
+    }
+
+    @Test
+    void piRetryFormHasOnlyTheInstructionsAndNoModelChoice() {
+        resetTaskData();
+        Task stopped = seedTask("70202", "MODBAR-762", "Stopped task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
+                "VERIFICATION_FAILED: 2 tests in error");
+        // With the Pi harness there is no model choice, so the form has no Model and no Effort.
+        doReturn(null).when(runSettings).form(any());
+
+        String body = assertRendered("/tasks/" + stopped.getId(), "Could not complete");
+        assertThat(body).containsPattern("<form class=\"retry-form\" id=\"retry\"")
+                .contains("Instructions for the agent", "name=\"instructions\"", ">Retry</button>")
+                .doesNotContain("name=\"modelId\"", "name=\"effort\"", "data-effort-toggle", "class=\"run-settings\"");
+        assertThat(assertRendered("/flows/dev-factory", "My Jira tasks"))
+                .doesNotContain("name=\"modelId\"", "data-effort-toggle", "task-grid-effort", ">Effort</span>");
+    }
+
+    @Test
+    void myTasksShowsEmptyStatesAndTheLastScanProblem() {
+        resetTaskData();
+
+        String body = assertRendered("/flows/dev-factory", "Press Scan Jira to load the tasks assigned to you.");
+        assertThat(body).contains("Not scanned yet", "Nothing has run yet.");
+
+        TaskInstallation installation = taskInstallations.findById(1).orElseThrow();
+        installation.setSyncProblem("search page 2 failed");
+        taskInstallations.save(installation);
+        assertThat(assertRendered("/flows/dev-factory", "Last scan failed: search page 2 failed"))
+                .contains("My Jira tasks");
+    }
+
+    @Test
+    void developerFlowDefinitionTabHasNoJsonTrigger() {
+        String body = assertRendered("/flows/dev-factory?view=definition", "Retry policy");
+        assertThat(body).contains("aria-current=\"page\">Definition</a>", "Check configuration")
+                .doesNotContain("trigger-dialog", "Trigger flow");
+        assertThat(assertRendered("/flows/test-factory", "Retry policy")).contains("Trigger flow");
+    }
+
+    @Test
+    void taskScreensEscapeIssueText() {
+        resetTaskData();
+        Task hostile = seedTask("70011", "MODBAR-711",
+                "Fix <routing> & permissions <script>alert(1)</script>",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        String longTitle = "Modular routing regression " + "x".repeat(300);
+        Task longTitled = seedTask("70012", "MODBAR-712", longTitle,
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+
+        String list = assertRendered("/flows/dev-factory", "Fix &lt;routing&gt; &amp; permissions");
+        assertThat(list).doesNotContain("<script>alert(1)</script>").contains(longTitle);
+
+        String detail = assertRendered("/tasks/" + hostile.getId(), "Fix &lt;routing&gt; &amp; permissions");
+        assertThat(detail).doesNotContain("<script>alert(1)</script>").contains("MODBAR-711", "Not started");
+
+        assertThat(assertRendered("/tasks/" + longTitled.getId(), longTitle)).contains(longTitle);
+    }
+
+    @Test
+    void taskSummaryShowsResultCostAttemptsAndRetry() {
+        resetTaskData();
+        Task stopped = seedTask("70021", "MODBAR-721", "Stopped task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        TaskAttempt attempt = seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.STOPPED, "VERIFICATION_FAILED: 2 tests in error");
+        attempt.setExecutionId(execution.getId());
+        attempt.setRunSettings("{\"profileId\":\"glm-5.3\",\"profileLabel\":\"GLM-5.3 (Z.ai)\",\"model\":\"glm-5.3\","
+                + "\"endpointOrigin\":\"https://api.z.ai\",\"effort\":\"low\",\"maxTurns\":77,"
+                + "\"instructions\":\"Read the ADR through the wiki <REST> URL.\"}");
+        taskAttempts.save(attempt);
+        auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", "smoke",
+                Map.of("attemptId", "a1", "round", -1, "model", "test-model",
+                        "inputTokens", 100_000, "cacheReadTokens", 10_000, "cacheWriteTokens", 0,
+                        "outputTokens", 10_000,
+                        "rate", Map.of("currency", "USD", "source", "card",
+                                "inputPerMillion", 0.15, "cacheReadPerMillion", 0.03, "outputPerMillion", 0.5)));
+
+        String body = assertRendered("/tasks/" + stopped.getId(), "Could not complete");
+        assertThat(body)
+                .contains("← Developer Flow · My tasks",
+                        "Verification failed: 2 tests in error. No pull request was created.")
+                .contains("$0.02 total", "1 attempt", "Cost and usage", "120,000", "Input (uncached)", "Output",
+                        ">Estimated cost</dt>")
+                .contains(">Retry</button>", "name=\"expectedVersion\"", "name=\"inputFingerprint\"",
+                        "name=\"destinationFingerprint\"", "Retry starts one fresh attempt")
+                // Retry is a form in the Result card, filled from the previous attempt.
+                .containsPattern("<form class=\"retry-form\" id=\"retry\" method=\"post\"\\s+action=\"/tasks/"
+                        + stopped.getId() + "/retry\"")
+                .contains("Instructions for the agent", "name=\"instructions\"", "maxlength=\"8000\"",
+                        ">Read the ADR through the wiki &lt;REST&gt; URL.</textarea>")
+                .doesNotContain("value=\"77\"", "Max turns")
+                // Retry keeps the previous model and effort.
+                .containsPattern("<option value=\"glm-5.3\"[^>]*selected=\"selected\"")
+                .contains("<span>Effort</span>", "<input type=\"radio\" name=\"effort\" value=\"low\" checked=\"checked\">")
+                .contains("<span class=\"attempt-run\">glm-5.3 · low</span>")
+                .doesNotContain(ZAI_KEY)
+                .contains("href=\"/executions/" + execution.getId() + "\">Open last run</a>",
+                        "1 · first run", "Technical details", stopped.getId().toString());
+
+        Task partial = seedTask("70022", "MODBAR-722", "Partial task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution partialExecution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        TaskAttempt partialAttempt = seedAttempt(partial, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.STOPPED, "verification: incomplete");
+        partialAttempt.setExecutionId(partialExecution.getId());
+        taskAttempts.save(partialAttempt);
+        auditLog.record(partialExecution.getId(), AuditEventType.STEP_COMPLETED, "implement", "smoke",
+                Map.of("attemptId", "a1", "round", -1, "model", "test-model",
+                        "inputTokens", 50_000, "cacheReadTokens", 0, "cacheWriteTokens", 0,
+                        "rate", Map.of("currency", "USD", "inputPerMillion", 0.15)));
+
+        String partialBody = assertRendered("/tasks/" + partial.getId(), "total · incomplete");
+        assertThat(partialBody).contains("Incomplete: some usage has no reported tokens or rate yet.", "50,000");
+        String costNote = "<span class=\"dev-note\"\\s+title=\"Some usage was not reported by the runtime or has no"
+                + " price, so the real cost may be higher.\">cost may be higher</span>";
+        assertThat(partialBody.substring(partialBody.indexOf("id=\"attempts-title\"")))
+                .containsPattern(costNote).doesNotContain(">incomplete<");
+        String partialList = assertRendered("/flows/dev-factory", "My Jira tasks");
+        assertThat(partialList.substring(partialList.indexOf("id=\"triggered-title\"")))
+                .containsPattern(costNote).doesNotContain(">incomplete<");
+
+        Task live = seedTask("70023", "MODBAR-723", "Live task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution liveExecution = runningExecution();
+        TaskAttempt liveAttempt = seedAttempt(live, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.RUNNING, null);
+        liveAttempt.setExecutionId(liveExecution.getId());
+        taskAttempts.save(liveAttempt);
+        auditLog.record(liveExecution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement", "smoke",
+                Map.of("attemptId", "a1", "round", -1, "activity", "coding_usage", "model", "test-model",
+                        "inputTokens", 10_000, "cacheReadTokens", 0, "cacheWriteTokens", 0,
+                        "rate", Map.of("currency", "USD", "inputPerMillion", 0.15)));
+        auditLog.record(liveExecution.getId(), AuditEventType.STEP_STARTED, "implement", "smoke", Map.of());
+
+        String liveBody = assertRendered("/tasks/" + live.getId(), "In progress: Implementation.");
+        assertThat(liveBody)
+                .contains("Working", "Open live run", "Includes live usage that can still change.")
+                .doesNotContain("name=\"expectedVersion\"");
+        // A running attempt's cost is "so far", the same as Working in Triggered.
+        assertThat(liveBody.substring(liveBody.indexOf("id=\"attempts-title\"")))
+                .containsPattern("<span class=\"dev-note\"\\s*>so far</span>")
+                .doesNotContain("cost may be higher", "cost unknown");
+
+        // A paid start that stopped before the runtime reported any usage, for example on a Docker error:
+        // there is no cost figure, so the note says the cost is unknown, not that it may be higher.
+        Task unreported = seedTask("70024", "MODBAR-724", "Unreported task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution unreportedExecution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        TaskAttempt unreportedAttempt = seedAttempt(unreported, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.STOPPED, "DEVELOPMENT_FAILED: the coding container did not start");
+        unreportedAttempt.setExecutionId(unreportedExecution.getId());
+        unreportedAttempt.setPaidStartAt(Instant.now());
+        taskAttempts.save(unreportedAttempt);
+
+        String unknownCost = "<span>—</span>\\s*<span class=\"dev-note\"\\s+title=\"The runtime did not report usage,"
+                + " or the usage has no price, so the cost is not known.\">cost unknown</span>";
+        String unreportedBody = assertRendered("/tasks/" + unreported.getId(), "Could not complete");
+        assertThat(unreportedBody.substring(unreportedBody.indexOf("id=\"attempts-title\"")))
+                .containsPattern(unknownCost).doesNotContain("cost may be higher");
+        String unreportedList = assertRendered("/flows/dev-factory", "My Jira tasks");
+        String unreportedRow = unreportedList.substring(unreportedList.indexOf(">MODBAR-724</a>"));
+        assertThat(unreportedRow.substring(0, unreportedRow.indexOf("class=\"task-action\"")))
+                .containsPattern(unknownCost).doesNotContain("cost may be higher");
+    }
+
+    @Test
+    void taskSummaryForPrReadyLinksThePullRequestAndItsFeedback() {
+        resetTaskData();
+        Task delivered = seedTask("70031", "MODBAR-731", "Delivered task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        TaskAttempt attempt = seedAttempt(delivered, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.PR_READY, null);
+        attempt.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/7");
+        attempt.setExecutionId(execution.getId());
+        taskAttempts.save(attempt);
+
+        String body = assertRendered("/tasks/" + delivered.getId(), "Pull request #7 is ready for review.");
+        assertThat(body)
+                .contains("href=\"https://github.com/folio-org/mod-bar/pull/7\">Open pull request #7</a>",
+                        "href=\"/executions/" + execution.getId() + "#pr-feedback\">Work on PR feedback</a>",
+                        "state-pill-success")
+                .doesNotContain("Draft PR", "Factory opened it as a draft because:")
+                .doesNotContain("name=\"expectedVersion\"");
+    }
+
+    @Test
+    void draftPrShowsItsReasonsOnTheTaskPageAndDraftOnTheRunPage() {
+        resetTaskData();
+        Task delivered = seedTask("70032", "MODBAR-732", "Draft task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        // A finished run, so the run page shows its result sentence instead of a live stage.
+        execution.setCurrentStepIndex(6);
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        execution = executions.save(execution);
+        TaskAttempt attempt = seedAttempt(delivered, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.PR_READY, null);
+        attempt.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/8");
+        attempt.setDraftReasons("[\"1 acceptance criterion is not met.\","
+                + "\"The agent made assumptions that a reviewer should confirm.\"]");
+        attempt.setExecutionId(execution.getId());
+        taskAttempts.save(attempt);
+        artifactStore.putMarkdown(execution.getId(), "dev_delivery.json",
+                "{\"state\":\"DELIVERED\",\"pullRequestUrl\":\"https://github.com/folio-org/mod-bar/pull/8\","
+                        + "\"pullRequestDraft\":true,\"draftReasons\":[\"1 acceptance criterion is not met.\"]}",
+                "publish");
+
+        String body = assertRendered("/tasks/" + delivered.getId(), "Pull request #8 is open as a draft.");
+        assertThat(body)
+                .contains("class=\"state-pill state-pill-warning\">Draft PR</span>",
+                        "Factory opened it as a draft because:", "<li>1 acceptance criterion is not met.</li>",
+                        "<li>The agent made assumptions that a reviewer should confirm.</li>",
+                        "Pull request #8 opened as a draft",
+                        "href=\"https://github.com/folio-org/mod-bar/pull/8\">Open pull request #8</a>")
+                .doesNotContain("state-pill-success", "is ready for review");
+        // The Attempts Result column marks the draft with the same Draft PR badge.
+        assertThat(body.substring(body.indexOf("id=\"attempts-title\"")))
+                .containsPattern("<span class=\"state-pill state-pill-warning\">Draft PR</span>\\s*"
+                        + "<span>Pull request #8 opened as a draft</span>")
+                .contains(">Open run</a>");
+
+        String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
+        assertThat(run)
+                .contains("class=\"state-pill state-pill-warning\">Draft PR</span>", ">Draft pull request #8</a>",
+                        "Draft pull request created")
+                .doesNotContain(">PR ready</span>", "Pull request created");
+    }
+
+    @Test
+    void taskSummaryOffersMarkAsStoppedOnlyForAHeldTask() {
+        resetTaskData();
+        Task held = seedTask("70061", "MODBAR-761", "Held task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        TaskAttempt heldAttempt = seedAttempt(held, 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.State.NEEDS_INSPECTION, null);
+        holdTheSlot(heldAttempt);
+
+        assertThat(assertRendered("/tasks/" + held.getId(), "Needs inspection"))
+                .contains("Factory could not confirm how the last run ended.", "Mark as stopped…",
+                        "/attempts/" + heldAttempt.getId() + "/mark-stopped", "data-confirm-style=\"compact\"")
+                .doesNotContain("name=\"expectedVersion\"");
+    }
+
+    @Test
+    void taskSummaryRendersFullAttemptHistoryOldestFirst() {
+        resetTaskData();
+        Task retried = seedTask("70041", "MODBAR-741", "Retried task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution first = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        PipelineExecution second = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        seedAttempt(retried, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.WITHDRAWN,
+                "task left the My tasks scope before start");
+        TaskAttempt retry = seedAttempt(retried, 2, TaskAttempt.Kind.RETRY,
+                TaskAttempt.State.STOPPED, "verification: first failure");
+        retry.setExecutionId(first.getId());
+        taskAttempts.save(retry);
+        TaskAttempt fresh = seedAttempt(retried, 3, TaskAttempt.Kind.RETRY,
+                TaskAttempt.State.STOPPED, "verification: second failure");
+        fresh.setExecutionId(second.getId());
+        taskAttempts.save(fresh);
+
+        String body = assertRendered("/tasks/" + retried.getId(), "Attempts");
+        assertThat(body)
+                .contains("3 · retry", "2 · retry", "1 · first run", "Withdrawn before start",
+                        "Verification failed: first failure", "Verification failed: second failure")
+                .contains("Could not complete");
+        String attemptsTable = body.substring(body.indexOf("id=\"attempts-title\""));
+        // A clear Open run button replaces the small "run 1234…" link.
+        assertThat(attemptsTable)
+                .containsPattern("<a class=\"btn btn-outline btn-sm\"\\s+href=\"/executions/" + first.getId()
+                        + "\"\\s+aria-label=\"Open run for attempt 2\">Open run</a>")
+                .containsPattern("<a class=\"btn btn-outline btn-sm\"\\s+href=\"/executions/" + second.getId()
+                        + "\"\\s+aria-label=\"Open run for attempt 3\">Open run</a>")
+                .doesNotContainPattern(">run [0-9a-f]{4}…</a>");
+        // Oldest first: a new attempt is added at the bottom.
+        assertThat(attemptsTable.indexOf("1 · first run")).isLessThan(attemptsTable.indexOf("2 · retry"));
+        assertThat(attemptsTable.indexOf("2 · retry")).isLessThan(attemptsTable.indexOf("3 · retry"));
+    }
+
+    @Test
+    void runPageLinksBackToItsTaskAndShowsTheAttemptState() {
+        resetTaskData();
+        Task task = seedTask("70071", "MODBAR-771", "Running task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution execution = runningExecution();
+        TaskAttempt attempt = seedAttempt(task, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.RUNNING, null);
+        attempt.setExecutionId(execution.getId());
+        taskAttempts.save(attempt);
+
+        String body = assertRendered("/executions/" + execution.getId(), "Now · updates live");
+        assertThat(body)
+                .contains(">Running task</h1>", "href=\"/flows/dev-factory\">Developer Flow</a>",
+                        "href=\"/tasks/" + task.getId() + "\">MODBAR-771</a>",
+                        "href=\"https://jira.example.org/browse/MODBAR-771\"",
+                        "class=\"state-pill\">Working</span>", "Runtime and usage", "Engine steps")
+                .doesNotContain("badge-status-RUNNING");
     }
 
     private String assertRendered(String path, String marker) {

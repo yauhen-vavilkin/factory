@@ -1,5 +1,6 @@
 package org.folio.factory.app.web.dashboard;
 
+import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.web.dashboard.DashboardStats.ConnectorOutcome;
 import org.folio.factory.app.web.dashboard.DashboardStats.DailyCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.FlowStatusCount;
@@ -25,13 +26,10 @@ import java.util.List;
  * JPQL, and the project is Postgres-only.
  */
 @Service
+@RequiredArgsConstructor
 public class DashboardStatsService {
 
     private final JdbcClient jdbc;
-
-    public DashboardStatsService(JdbcClient jdbc) {
-        this.jdbc = jdbc;
-    }
 
     public DashboardStats compute(int days) {
         OffsetDateTime since = since(days);
@@ -52,15 +50,6 @@ public class DashboardStatsService {
         return tokenUsage(since(days));
     }
 
-    /** Per-flow, per-step token spend, heaviest first. */
-    public List<StepTokenCount> stepTokens(int days) {
-        return stepTokens(since(days));
-    }
-
-    private static OffsetDateTime since(int days) {
-        return Instant.now().minus(days, ChronoUnit.DAYS).atOffset(ZoneOffset.UTC);
-    }
-
     // Steps that report no usage (HITL gates, deterministic workers) store '{}', so
     // detail->>'promptTokens' is SQL NULL there and sum() skips it; coalesce keeps an
     // all-empty window at 0 rather than null.
@@ -74,6 +63,11 @@ public class DashboardStatsService {
                 .param("since", since)
                 .query((rs, n) -> new TokenUsage(rs.getLong("prompt"), rs.getLong("completion")))
                 .single();
+    }
+
+    /** Per-flow, per-step token spend, heaviest first. */
+    public List<StepTokenCount> stepTokens(int days) {
+        return stepTokens(since(days));
     }
 
     private List<StepTokenCount> stepTokens(OffsetDateTime since) {
@@ -95,6 +89,10 @@ public class DashboardStatsService {
                 .query((rs, n) -> new StepTokenCount(rs.getString("flow_id"), rs.getString("step_id"),
                         rs.getLong("prompt"), rs.getLong("completion")))
                 .list();
+    }
+
+    private static OffsetDateTime since(int days) {
+        return Instant.now().minus(days, ChronoUnit.DAYS).atOffset(ZoneOffset.UTC);
     }
 
     private List<StatusCount> executionsByStatus() {

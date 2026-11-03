@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+
+<th:block th:fragment="header(flow, tab)">
+    <header class="dev-header">
+        <h1 class="dev-title" th:text="${flow['name']}">Developer Flow</h1>
+        <div class="dev-header-meta">
+            <span th:text="${flow['id']}">dev-factory</span>
+            <span class="dev-version" th:text="'v' + ${flow['version']}">v1</span>
+            <a class="btn btn-outline btn-md" th:href="@{/developer/configuration}">Check configuration</a>
+        </div>
+    </header>
+    <nav class="dev-tabs" aria-label="Flow views">
+        <a th:href="@{/flows/dev-factory}" th:attrappend="aria-current=${tab == 'tasks'} ? 'page'">My tasks</a>
+        <a th:href="@{/flows/dev-factory(view='definition')}"
+           th:attrappend="aria-current=${tab == 'definition'} ? 'page'">Definition</a>
+    </nav>
+</th:block>
+
+<!-- The Model of a run form: only models that can run now. With one, the list is hidden and the form sends its
+     id; with none, the reason shows instead. Each option carries its efforts for the page script, which rebuilds
+     the Effort choices when the model changes. -->
+<th:block th:fragment="modelChoice(form)">
+    <label class="run-setting" th:if="${form.modelListShown()}">
+        <span>Model</span>
+        <select class="select" name="modelId" data-model-select>
+            <option th:each="model : ${form.models()}" th:value="${model.id()}" th:text="${model.id()}"
+                    th:selected="${model.id() == form.selected().id()}"
+                    th:attr="data-efforts=${model.effortList()}, data-default-effort=${model.defaultEffort()}">
+                model</option>
+        </select>
+    </label>
+    <input type="hidden" name="modelId" th:if="${form.selected() != null and !form.modelListShown()}"
+           th:value="${form.selected().id()}">
+    <span class="run-setting-problem" th:if="${form.problem() != null}" th:text="${form.problem()}">No model.</span>
+</th:block>
+
+<!-- Effort as radio buttons, one per level of the model, so it works without the page script and with the
+     keyboard. -->
+<div th:fragment="effortChoice(model, current, name, label, small)" class="effort-toggle"
+     th:classappend="${small} ? 'effort-toggle-sm'" role="radiogroup" data-effort-toggle
+     th:attr="aria-label=${label}, data-effort-name=${name}">
+    <label th:each="effort : ${model.efforts()}">
+        <input type="radio" th:name="${name}" th:value="${effort}" th:checked="${effort == current}">
+        <span th:text="${effort}">high</span>
+    </label>
+</div>
+
+</body>
+</html>
