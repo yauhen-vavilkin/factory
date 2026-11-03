@@ -185,6 +185,8 @@ class ModelCatalogTest {
         // Two entries run claude-sonnet-5-5 at different providers: without the entry id the price is unknown.
         assertThat(catalog.pricedEntry(null, "claude-sonnet-5-5")).isEmpty();
         assertThat(catalog.pricedEntry("removed", "claude-sonnet-5-5")).isEmpty();
+        // A removed entry is not priced as another entry that happens to have the same model string.
+        assertThat(catalog.pricedEntry("removed", "glm-5.3")).isEmpty();
         var unpriced = new ModelCatalog(file(entry("glm", List.of("max"), "max")), "claude-code", name -> null);
         assertThat(unpriced.pricedEntry("glm", "glm")).isEmpty();
         assertThat(unpriced.pricedEntry(null, "glm")).isEmpty();

@@ -1,6 +1,5 @@
 package org.folio.factory.devfactory.runtime;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import tools.jackson.databind.json.JsonMapper;
@@ -17,7 +16,6 @@ import java.util.function.Consumer;
 
 /** One stateless print-mode session in the existing Factory-owned coding workload. */
 @Slf4j
-@RequiredArgsConstructor
 public final class ClaudeCodeCodingRuntime implements CodingRuntime {
     public static final String ID = "claude-code";
     public static final String VERSION = "2.1.287";
@@ -30,13 +28,17 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
     private final DevRuntimeProperties.ClaudeCode config;
     private final ModelCatalog models;
 
+    /** A turn limit out of range stops startup with a message that names FACTORY_CLAUDE_CODE_MAX_TURNS. */
+    public ClaudeCodeCodingRuntime(DevRuntimeProperties.ClaudeCode config, ModelCatalog models) {
+        config.requireConfigured();
+        this.config = config;
+        this.models = models;
+    }
+
     @Override public String id() { return ID; }
     @Override public String image() { return config.image(); }
 
-    @Override public void requireConfigured(CodingRequest.RunSettings settings) {
-        config.requireConfigured();
-        usableRun(settings);
-    }
+    @Override public void requireConfigured(CodingRequest.RunSettings settings) { usableRun(settings); }
 
     private ModelCatalog.Run usableRun(CodingRequest.RunSettings settings) {
         var run = models.resolve(settings);

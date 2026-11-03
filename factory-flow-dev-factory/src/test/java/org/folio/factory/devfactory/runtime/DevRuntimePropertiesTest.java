@@ -78,6 +78,10 @@ class DevRuntimePropertiesTest {
         new DevRuntimeProperties.ClaudeCode(null, 500).requireConfigured();
         assertThatThrownBy(() -> new DevRuntimeProperties.ClaudeCode(null, 501).requireConfigured())
                 .hasMessage("FACTORY_CLAUDE_CODE_MAX_TURNS is 501, but it must be from 1 to 500");
+        // The selected Claude Code runtime checks it at startup, so the message reaches the log, not a run.
+        var bound = bind(Map.of("factory.dev-factory.runtime.coding.claude-code.max-turns", "0"));
+        assertThatThrownBy(() -> codingRuntime(new DevFactoryConfiguration(), bound))
+                .hasMessage("FACTORY_CLAUDE_CODE_MAX_TURNS is 0, but it must be from 1 to 500");
     }
 
     private static CodingRuntime codingRuntime(DevFactoryConfiguration configuration, DevRuntimeProperties runtime) {

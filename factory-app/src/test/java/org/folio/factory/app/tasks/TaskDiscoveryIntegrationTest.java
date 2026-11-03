@@ -26,6 +26,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -329,37 +330,47 @@ class TaskDiscoveryIntegrationTest {
         Task ran = addedByKey("10005");
         TaskAttempt ranAttempt = attempts.save(new TaskAttempt(ran.getId(), 1, TaskAttempt.Kind.INITIAL,
                 "ran-by-key", TaskAttempt.State.STOPPED));
+        try {
+            jira.resetAll();
+            stubSinglePageSearch(issue("10001", "MODBAR-1", "MODBAR", "Summary of MODBAR-1", ""));
+            assertThat(discovery.sync().complete()).isTrue();
 
-        jira.resetAll();
-        stubSinglePageSearch(issue("10001", "MODBAR-1", "MODBAR", "Summary of MODBAR-1", ""));
-        assertThat(discovery.sync().complete()).isTrue();
+            assertThat(tasks.findById(added.getId()).orElseThrow().isInScope()).isTrue();
+            assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10003").orElseThrow().isInScope()).isFalse();
+            assertThat(discovery.removeFromList(ran.getId()))
+                    .isEqualTo("MODBAR-5 has already run, so it stays under Triggered.");
+            assertThat(discovery.removeFromList(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow()
+                    .getId())).isEqualTo("This task is not one you added by key; reload the page.");
+            assertThat(discovery.removeFromList(added.getId())).isNull();
+            Task removed = tasks.findById(added.getId()).orElseThrow();
+            assertThat(removed.isInScope()).isFalse();
+            assertThat(removed.isAddedByKey()).isFalse();
 
-        assertThat(tasks.findById(added.getId()).orElseThrow().isInScope()).isTrue();
-        assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10003").orElseThrow().isInScope()).isFalse();
-        assertThat(discovery.removeFromList(ran.getId()))
-                .isEqualTo("MODBAR-5 has already run, so it stays under Triggered.");
-        assertThat(discovery.removeFromList(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow()
-                .getId())).isEqualTo("This task is not one you added by key; reload the page.");
-        assertThat(discovery.removeFromList(added.getId())).isNull();
-        Task removed = tasks.findById(added.getId()).orElseThrow();
-        assertThat(removed.isInScope()).isFalse();
-        assertThat(removed.isAddedByKey()).isFalse();
-
-        // Found assigned to the developer, a task added by key becomes one of My tasks.
-        jira.resetAll();
-        stubSinglePageSearch(issue("10005", "MODBAR-5", "MODBAR", "Summary of MODBAR-5", ""));
-        assertThat(discovery.sync().complete()).isTrue();
-        Task assigned = tasks.findById(ran.getId()).orElseThrow();
-        assertThat(assigned.isInScope()).isTrue();
-        assertThat(assigned.isAddedByKey()).isFalse();
-        // The other tests of this class share the tasks and expect them without attempts.
-        attempts.delete(ranAttempt);
+            // Found assigned to the developer, a task added by key becomes one of My tasks.
+            jira.resetAll();
+            stubSinglePageSearch(issue("10005", "MODBAR-5", "MODBAR", "Summary of MODBAR-5", ""));
+            assertThat(discovery.sync().complete()).isTrue();
+            Task assigned = tasks.findById(ran.getId()).orElseThrow();
+            assertThat(assigned.isInScope()).isTrue();
+            assertThat(assigned.isAddedByKey()).isFalse();
+        } finally {
+            // The other tests of this class share these tasks and expect them without attempts or marks.
+            attempts.delete(ranAttempt);
+            clearAddedByKey(added.getId());
+            clearAddedByKey(ran.getId());
+        }
     }
 
     private Task addedByKey(String issueId) {
         Task task = tasks.findByJiraInstanceAndIssueId(INSTANCE, issueId).orElseThrow();
         task.setAddedByKey(true);
         return tasks.save(task);
+    }
+
+    private void clearAddedByKey(UUID taskId) {
+        Task task = tasks.findById(taskId).orElseThrow();
+        task.setAddedByKey(false);
+        tasks.save(task);
     }
 
     @Test

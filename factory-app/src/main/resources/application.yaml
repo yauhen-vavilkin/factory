@@ -226,3 +226,8 @@ management:
           include: livenessState
         readiness:
           include: readinessState,db
+
+# Each model in config/developer-models.yaml reads its secret by variable name from this environment.
+# The local CodeMie proxy accepts this public token, so the CodeMie models also work under
+# mvn spring-boot:run without .env; the shell, .env and Compose override it.
+FACTORY_CODEMIE_PROXY_TOKEN: codemie-proxy

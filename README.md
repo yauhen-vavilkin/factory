@@ -618,7 +618,7 @@ and `_IMAGE`. `FACTORY_DEV_FACTORY_DELIVERY_*`, `FACTORY_TASKS_EXECUTION_RECOVER
 | `FACTORY_CLAUDE_CODE_IMAGE` / `FACTORY_CLAUDE_CODE_MAX_TURNS` | Claude Code coding image, and the safety limit of turns in one attempt (200, from 1 to 500); see [Coding runtime profiles](#coding-runtime-profiles) |
 | `FACTORY_DEV_FACTORY_DEFAULT_MODEL` | Model preselected in the run forms and used by runs without a choice; empty means the first model Claude Code can run. See [Models](#models-claude-code) |
 | `FACTORY_DEV_FACTORY_MODELS_FILE` | Compose host path of the models file (default `./config/developer-models.yaml`); mounted read-only |
-| `FACTORY_CODEMIE_PROXY_TOKEN` | Token of the local CodeMie proxy for the `codemie-*` models (Compose default `codemie-proxy`) |
+| `FACTORY_CODEMIE_PROXY_TOKEN` | Token of the local CodeMie proxy for the `codemie-*` models (default `codemie-proxy`, also without Compose) |
 | `FACTORY_ANTHROPIC_API_KEY` | Anthropic API key for the `anthropic-sonnet-5.5` model; empty leaves it not offered |
 | `FACTORY_ZAI_API_KEY` | Z.ai key for the `glm-5.3` and `glm-5.3-flash` models; empty leaves them not offered |
 | `FACTORY_DB_POOL_MAX` / `_MIN_IDLE` | HikariCP pool sizing (defaults `16` / `4`; see `doc/performance.md`) |

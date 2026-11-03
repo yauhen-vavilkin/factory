@@ -56,8 +56,8 @@ class CodingRuntimeConfigurationTest {
     }
 
     @Test
-    void theLocalCodeMieSonnetIsTheDefaultModelWithTheProxyToken() throws Exception {
-        var setup = setup(Map.of("FACTORY_CODEMIE_PROXY_TOKEN", "codemie-proxy"));
+    void theLocalCodeMieSonnetIsTheDefaultModelAndItsPublicTokenNeedsNoVariable() throws Exception {
+        var setup = setup(Map.of());
 
         assertThat(setup.properties().coding().runtime()).isEqualTo("claude-code");
         assertThat(setup.runtime()).isInstanceOf(ClaudeCodeCodingRuntime.class);
@@ -74,6 +74,7 @@ class CodingRuntimeConfigurationTest {
         var setup = setup(Map.of(
                 "FACTORY_DEV_FACTORY_DEFAULT_MODEL", "glm-5.3",
                 "FACTORY_ZAI_API_KEY", "token",
+                "FACTORY_CODEMIE_PROXY_TOKEN", "",
                 "FACTORY_CLAUDE_CODE_MAX_TURNS", "120"));
 
         setup.runtime().requireConfigured(null);
@@ -86,7 +87,7 @@ class CodingRuntimeConfigurationTest {
 
     @Test
     void aDefaultModelWithoutItsSecretSaysWhichVariableToSet() throws Exception {
-        var setup = setup(Map.of());
+        var setup = setup(Map.of("FACTORY_CODEMIE_PROXY_TOKEN", ""));
 
         assertThatThrownBy(() -> setup.runtime().requireConfigured(null))
                 .isInstanceOf(ModelCatalog.ModelException.class)

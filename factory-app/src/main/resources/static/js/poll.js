@@ -60,11 +60,13 @@
     });
   });
 
-  // A reload must not drop what the developer is doing: a selection or a half-typed key.
+  // A reload must not drop what the developer is doing: a selection, a picked effort or a half-typed key.
   function applyUpdate() {
     var notice = document.querySelector('[data-poll-notice]');
     var typedKey = document.querySelector('input[name="key"]');
-    if (notice && (document.querySelector('input[name="taskId"]:checked') || (typedKey && typedKey.value.trim()))) {
+    var busy = document.querySelector('input[name="taskId"]:checked') || document.querySelector('[data-effort-picked]')
+      || (typedKey && typedKey.value.trim());
+    if (notice && busy) {
       notice.hidden = false;
       return;
     }

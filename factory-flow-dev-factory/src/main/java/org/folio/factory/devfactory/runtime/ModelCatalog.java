@@ -144,12 +144,14 @@ public final class ModelCatalog {
     }
 
     /**
-     * The entry whose price a run pays, when that entry has a price: by entry id, or else by the model string when
-     * exactly one entry has it (Pi runs and runs started before 2026-11-03 record no entry id).
+     * The entry whose price a run pays, when that entry has a price: by entry id, or by the model string when the
+     * run records no entry id (Pi runs and runs started before 2026-11-03) and exactly one entry has that string.
+     * An id that is no longer in the file has no price: another entry with the same model string may be another
+     * provider with another price.
      */
     public Optional<Model> pricedEntry(String modelId, String model) {
-        if (modelId != null && models.containsKey(modelId)) {
-            return Optional.of(models.get(modelId)).filter(entry -> entry.price() != null);
+        if (modelId != null && !modelId.isBlank()) {
+            return find(modelId).filter(entry -> entry.price() != null);
         }
         var matches = models.values().stream().filter(entry -> entry.model().equals(model)).toList();
         return matches.size() == 1 && matches.getFirst().price() != null
