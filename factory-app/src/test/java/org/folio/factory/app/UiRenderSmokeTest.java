@@ -293,7 +293,7 @@ class UiRenderSmokeTest {
         var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "coding_starting", "runtime", "pi", "provider", "test-provider", "model", "test-model",
-                        "image", "factory-dev-pi:0.85.1-java21"));
+                        "image", "factory-dev-pi:0.85.1-java21-node22"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "pi_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
                         "cacheWriteTokens", 0, "outputTokens", 10_000, "costUsd", 0));
@@ -307,7 +307,7 @@ class UiRenderSmokeTest {
                 "<dt>Runtime</dt>", "<dt>Image</dt>");
         assertThat(usagePanel).contains("Runtime &amp; usage", "<dt>Model</dt>", ">test-model</dd>",
                         "<dt>Provider</dt>", ">test-provider</dd>", "<dt>Runtime</dt>", ">pi</dd>",
-                        "<dt>Image</dt>", ">factory-dev-pi:0.85.1-java21</dd>",
+                        "<dt>Image</dt>", ">factory-dev-pi:0.85.1-java21-node22</dd>",
                         "total usage tokens", "Input tokens (uncached)", "Cache read tokens",
                         "Cache creation tokens", "Output tokens", "<dt>Estimated cost</dt>", "0.0203 USD")
                 .doesNotContain("Configured rate card ·", "Actual provider or proxy charges may differ");

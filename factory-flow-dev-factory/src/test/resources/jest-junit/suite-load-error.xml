@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="1" failures="0" errors="1" time="6.111">
+  <testsuite name="src\zz-broken.test.js" errors="1" failures="0" skipped="0" timestamp="1970-01-01T00:00:00" time="0" tests="0">
+    <testcase classname="Test suite failed to run" name="src\zz-broken.test.js" time="0">
+      <error>  ● Test suite failed to run
+
+    Cannot find module &apos;./does-not-exist&apos; from &apos;src/zz-broken.test.js&apos;
+
+    &gt; 1 | import x from &apos;./does-not-exist&apos;;
+        | ^
+      2 | it(&apos;never runs&apos;, () =&gt; expect(x).toBe(1));
+      3 |
+
+      at Resolver._throwModNotFoundError (node_modules/jest-resolve/build/resolver.js:427:11)
+      at Object.require (src/zz-broken.test.js:1:1)
+</error>
+    </testcase>
+    <testcase classname="Test suite failed to run" name="src\zz-broken.test.js" time="0">
+      <failure>&quot;Cannot find module &apos;./does-not-exist&apos; from &apos;src/zz-broken.test.js&apos;&quot;</failure>
+    </testcase>
+  </testsuite>
+  <testsuite name="Given MyProfile" errors="0" failures="0" skipped="0" timestamp="2026-10-23T16:32:21" time="5.228" tests="1">
+    <testcase classname="Given MyProfile should render" name="Given MyProfile should render" time="0.11">
+    </testcase>
+  </testsuite>
+</testsuites>

@@ -18,6 +18,7 @@ import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
 import org.folio.factory.devfactory.verification.VerificationPolicy;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
@@ -27,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /** One finite operation per engine invocation; all durable transitions are engine-owned. */
 public class FeedbackWorker implements AgentWorker {
@@ -67,7 +69,7 @@ public class FeedbackWorker implements AgentWorker {
         this.resources = new FeedbackResources(audit, docker);
         this.git = git;
         this.executions = executions;
-        this.codingAttempt = new FeedbackCodingAttempt(freezer, coding, docker, runtime, pricing);
+        this.codingAttempt = new FeedbackCodingAttempt(repositories, freezer, coding, docker, runtime, pricing);
         this.verificationPolicy = new VerificationPolicy(repositories, runtime);
     }
 
@@ -267,6 +269,7 @@ public class FeedbackWorker implements AgentWorker {
                         state,
                         request,
                         candidate(outputs),
+                        lockfile(context),
                         source(state),
                         operation,
                         outputs,
@@ -283,7 +286,11 @@ public class FeedbackWorker implements AgentWorker {
         requireHead(state);
         var receipt =
                 verifier.verify(
-                        context.executionId(), operation, candidate(outputs), source(state));
+                        context.executionId(),
+                        operation,
+                        candidate(outputs),
+                        source(state),
+                        lockfile(context));
         state.verified(receipt);
         outputs.put(VERIFICATION, JSON.writeValueAsString(receipt));
     }
@@ -365,6 +372,11 @@ public class FeedbackWorker implements AgentWorker {
 
     private String source(FeedbackState state) {
         return repositories.gitBaseUrl() + "/" + state.pr.repository() + ".git";
+    }
+
+    /** The lockfile pinned by this execution's starting build; every round installs from it. */
+    private static Optional<PinnedLockfile> lockfile(AgentContext context) {
+        return PinnedLockfile.parse(context.requireInput("dev_lockfile.json").content());
     }
 
     private Candidate candidate(Map<String, String> outputs) {

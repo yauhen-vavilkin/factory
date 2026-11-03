@@ -40,7 +40,7 @@ class CodingRuntimeConfigurationTest {
         var properties = bind(Map.of("FACTORY_DEV_FACTORY_CODING_RUNTIME", "claude-code",
                 "FACTORY_CLAUDE_CODE_MODEL", "exact/Model", "FACTORY_CLAUDE_CODE_BASE_URL", "https://gateway/anthropic",
                 "FACTORY_CLAUDE_CODE_AUTHENTICATION", "bearer-token", "FACTORY_CLAUDE_CODE_AUTH_TOKEN", "token"));
-        var runtime = new DevFactoryConfiguration().devCodingRuntime(properties);
+        var runtime = new DevFactoryConfiguration().selectCodingRuntime(properties);
         assertThat(runtime).isInstanceOf(ClaudeCodeCodingRuntime.class);
         runtime.requireConfigured();
         assertThat(properties.coding().piProfile().apiKey()).isBlank();

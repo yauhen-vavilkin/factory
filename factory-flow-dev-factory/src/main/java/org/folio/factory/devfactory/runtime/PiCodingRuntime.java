@@ -48,6 +48,11 @@ public class PiCodingRuntime implements CodingRuntime {
     }
 
     @Override
+    public boolean acceptsImages() {
+        return config.images();
+    }
+
+    @Override
     public String redact(String value) {
         return config.apiKey() == null || config.apiKey().isBlank()
                 ? value
@@ -87,6 +92,7 @@ public class PiCodingRuntime implements CodingRuntime {
             model.put("contextWindow", 200000);
             model.put("maxTokens", config.maxOutputTokens());
             if (config.reasoningEffort() != null) model.put("reasoning", true);
+            if (config.images()) model.put("input", List.of("text", "image"));
             if (config.provider().equals("codemie") && config.model().equals("gemini-3.8-flash"))
                 model.put(
                         "compat",
@@ -124,7 +130,11 @@ public class PiCodingRuntime implements CodingRuntime {
                 if (config.reasoningEffort() != null)
                     command.addAll(List.of("--thinking", config.reasoningEffort()));
                 command.add("@/tmp/factory-pi/task.txt");
-                execution = workload.execute(command, timeoutSeconds, EVENT_STREAM_LIMIT, observer);
+                if (config.images())
+                    request.attachments().stream()
+                            .filter(attachment -> !attachment.path().isBlank())
+                            .forEach(attachment -> command.add("@" + attachment.path()));
+                execution = workload.execute(command, timeoutSeconds, eventStreamLimit(request), observer);
             } catch (RuntimeException e) {
                 return CodingOutcome.failed(
                         "RUNTIME_ERROR",
@@ -153,6 +163,10 @@ public class PiCodingRuntime implements CodingRuntime {
         } finally {
             CandidateFreezer.cleanup(temporary);
         }
+    }
+
+    static int eventStreamLimit(CodingRequest request) {
+        return CodingProtocol.eventStreamLimit(EVENT_STREAM_LIMIT, request);
     }
 
     private CodingOutcome sanitize(CodingOutcome outcome) {

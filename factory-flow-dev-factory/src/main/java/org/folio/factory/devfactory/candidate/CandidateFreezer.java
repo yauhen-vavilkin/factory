@@ -1,6 +1,7 @@
 package org.folio.factory.devfactory.candidate;
 
 import org.folio.factory.devfactory.runtime.Processes;
+import org.folio.factory.devfactory.runtime.Toolchain;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.IOException;
@@ -36,13 +37,18 @@ public class CandidateFreezer {
 
     /** Follow-up snapshots may intentionally preserve an unchanged tree. */
     public Candidate freeze(String repository, String sourceUrl, String baseSha, Path exported, boolean allowUnchanged) {
+        return freeze(repository, sourceUrl, baseSha, exported, allowUnchanged, Toolchain.MAVEN);
+    }
+
+    public Candidate freeze(String repository, String sourceUrl, String baseSha, Path exported, boolean allowUnchanged,
+                            Toolchain toolchain) {
         Path trusted = checkout(sourceUrl, baseSha);
         try {
             Set<Path> tracked = trackedPaths(trusted);
             try (var entries = Files.list(trusted)) {
                 entries.filter(path -> !path.getFileName().toString().equals(".git")).forEach(CandidateFreezer::delete);
             }
-            mirror(exported, trusted, tracked);
+            mirror(exported, trusted, tracked, toolchain);
             git(trusted, "add", "--all", "--", ".");
             String tree = git(trusted, "write-tree").strip();
             String baseTree = git(trusted, "rev-parse", baseSha + "^{tree}").strip();
@@ -67,13 +73,13 @@ public class CandidateFreezer {
         } catch (IOException | RuntimeException e) { cleanup(directory); throw new IllegalStateException("Candidate reconstruction failed", e); }
         finally { cleanup(patch.getParent()); }
     }
-    private void mirror(Path source, Path destination, Set<Path> tracked) throws IOException {
+    private void mirror(Path source, Path destination, Set<Path> tracked, Toolchain toolchain) throws IOException {
         try (var paths = Files.walk(source)) {
             for (Path entry : paths.toList()) {
                 Path relative = source.relativize(entry);
                 if (relative.toString().isEmpty()) continue;
                 boolean directory = Files.isDirectory(entry, LinkOption.NOFOLLOW_LINKS);
-                if (excluded(relative, directory, tracked)) continue;
+                if (excluded(relative, directory, tracked, toolchain)) continue;
                 Path target = destination.resolve(relative);
                 if (directory) Files.createDirectories(target);
                 else if (Files.isRegularFile(entry, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(entry)) {
@@ -82,9 +88,16 @@ public class CandidateFreezer {
             }
         }
     }
-    private static boolean excluded(Path relative, boolean directory, Set<Path> tracked) {
+    /** Top-level build output and lockfiles of a toolchain; kept only where the base commit already tracks them. */
+    private static Set<String> rootGenerated(Toolchain toolchain) {
+        return switch (toolchain) {
+            case MAVEN -> Set.of();
+            case YARN -> Set.of("artifacts", "coverage", "junit.xml", "yarn-error.log", "yarn.lock", "package-lock.json");
+        };
+    }
+    private static boolean excluded(Path relative, boolean directory, Set<Path> tracked, Toolchain toolchain) {
         for (Path part : relative) if (part.toString().equals(".git")) return true;
-        boolean generated = false;
+        boolean generated = rootGenerated(toolchain).contains(relative.getName(0).toString());
         for (Path part : relative) if (GENERATED.contains(part.toString())) generated = true;
         if (!generated) return false;
         return directory ? tracked.stream().noneMatch(path -> path.startsWith(relative)) : !tracked.contains(relative);
@@ -98,6 +111,11 @@ public class CandidateFreezer {
             start = end + 1;
         }
         return tracked;
+    }
+    /** Git blob id of a tracked file in the checkout's index, or empty when the file is not tracked. */
+    public static String trackedBlob(Path checkout, String file) {
+        String[] fields = git(checkout, "ls-files", "--stage", "--", file).strip().split("\\s+");
+        return fields.length >= 2 ? fields[1] : "";
     }
     public static String git(Path directory, String... args) {
         var command = new java.util.ArrayList<>(List.of("git", "-c", "core.hooksPath=/dev/null", "-c", "core.autocrlf=false"));

@@ -4,6 +4,7 @@ import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.devfactory.candidate.Candidate;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -43,7 +44,8 @@ public class VerifyWorker implements AgentWorker {
                     RESULT, json.writeValueAsString(outcome)), Map.of());
         }
         Candidate candidate = json.readValue(content, Candidate.class);
-        var receipt = verifier.verify(context.executionId(), context.stepId(), candidate);
+        var receipt = verifier.verify(context.executionId(), context.stepId(), candidate,
+                PinnedLockfile.parse(context.requireInput(DevelopWorker.LOCKFILE).content()));
         Map<String, Object> outcome = new LinkedHashMap<>();
         outcome.put("state", receipt.result().equals("PASS") ? "VERIFIED" : "VERIFICATION_FAILED");
         outcome.put("repository", candidate.repository());

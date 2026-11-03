@@ -6,6 +6,7 @@ import org.folio.factory.core.agent.ArtifactContent;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -25,14 +26,16 @@ import static org.mockito.Mockito.when;
 class DevelopContinuationWorkerTest {
     private final FrontmatterCodec codec = new FrontmatterCodec();
     private final JsonMapper json = JsonMapper.builder().build();
+    private static final String LOCKFILE = PinnedLockfile.of("# yarn lockfile v1\n".getBytes())
+            .forPackageJson("b".repeat(40)).toArtifact();
 
     @Test void amendedAnswerStartsOneFreshAttemptWithTheConfirmedDecision() {
         InitialCodingAttempt develop = mock(InitialCodingAttempt.class);
         var decision = decision();
         var requestArtifact = CodingDecisionArtifacts.Request.from(decision);
         var secondOutcome = CodingOutcome.completed("Implemented after clarification", Map.of());
-        when(develop.retry(any(), any(), any())).thenReturn(new InitialCodingAttempt.Attempt(null, secondOutcome,
-                "{\"state\":\"CANDIDATE_UNVERIFIED\"}", "{\"state\":\"BASELINE_PASSED\"}", "", "", Map.of()));
+        when(develop.retry(any(), any(), any(), any())).thenReturn(new InitialCodingAttempt.Attempt(null, secondOutcome,
+                "{\"state\":\"CANDIDATE_UNVERIFIED\"}", "{\"state\":\"BASELINE_PASSED\"}", "", "", Map.of(), LOCKFILE));
 
         var worker = new DevelopContinuationWorker(develop, codec);
         var result = worker.execute(context(requestArtifact, "Use the public API"));
@@ -49,7 +52,8 @@ class DevelopContinuationWorkerTest {
         assertThat(next.repository().baseSha()).isEqualTo(request().repository().baseSha());
         assertThat(json.readValue(result.outputs().get(DevelopWorker.OUTCOME), CodingOutcome.class).status())
                 .isEqualTo(CodingOutcome.Status.COMPLETED);
-        verify(develop).retry(any(), eq(next), any());
+        verify(develop).retry(any(), eq(next), any(), eq(LOCKFILE));
+        assertThat(result.outputs().get(DevelopWorker.LOCKFILE)).isEqualTo(LOCKFILE);
     }
 
     @Test void repositoryMismatchPreservesReviewAndStopsWithoutAnotherAttempt() {
@@ -89,7 +93,7 @@ class DevelopContinuationWorkerTest {
 
         assertThat(json.readValue(result.outputs().get(DevelopWorker.OUTCOME), CodingOutcome.class).status())
                 .isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
-        verify(develop, never()).retry(any(), any(), any());
+        verify(develop, never()).retry(any(), any(), any(), any());
     }
 
     @Test void aSecondDecisionOutcomeIsTerminalForThisExecution() {
@@ -98,15 +102,15 @@ class DevelopContinuationWorkerTest {
         var second = CodingOutcome.needsDecision(new CodingOutcome.Decision(
                 CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "One more question?", List.of(), "Evidence"),
                 Map.of());
-        when(develop.retry(any(), any(), any())).thenReturn(new InitialCodingAttempt.Attempt(null, second,
-                "{\"state\":\"NEEDS_DECISION\"}", "{}", "", "", Map.of()));
+        when(develop.retry(any(), any(), any(), any())).thenReturn(new InitialCodingAttempt.Attempt(null, second,
+                "{\"state\":\"NEEDS_DECISION\"}", "{}", "", "", Map.of(), LOCKFILE));
 
         var result = new DevelopContinuationWorker(develop, codec)
                 .execute(context(requestArtifact, "Use the public API"));
 
         assertThat(json.readValue(result.outputs().get(DevelopWorker.OUTCOME), CodingOutcome.class).status())
                 .isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
-        verify(develop).retry(any(), any(), any());
+        verify(develop).retry(any(), any(), any(), any());
     }
 
     private AgentContext context(CodingDecisionArtifacts.Request decisionRequest, String answer) {
@@ -122,6 +126,7 @@ class DevelopContinuationWorkerTest {
                 DevelopWorker.OUTCOME, artifact(DevelopWorker.OUTCOME, json.writeValueAsString(outcome)),
                 DevelopWorker.CANDIDATE, artifact(DevelopWorker.CANDIDATE, "{\"state\":\"NEEDS_DECISION\"}"),
                 DevelopWorker.READINESS, artifact(DevelopWorker.READINESS, "{\"state\":\"BASELINE_PASSED\"}"),
+                DevelopWorker.LOCKFILE, artifact(DevelopWorker.LOCKFILE, LOCKFILE),
                 CodingDecisionArtifacts.REQUEST, artifact(CodingDecisionArtifacts.REQUEST,
                         CodingDecisionArtifacts.renderRequest(codec, decisionRequest)),
                 CodingDecisionArtifacts.ANSWER, artifact(CodingDecisionArtifacts.ANSWER,

@@ -6,10 +6,11 @@ import java.util.function.Consumer;
 import java.util.regex.Pattern;
 
 /** Bounded, sanitized Maven activity and one actionable dependency-transfer failure. */
-public final class MavenBaselineOutput implements Consumer<String> {
+public final class MavenBaselineOutput implements BuildOutput {
     static final int EVENT_LIMIT = 120;
     private static final Pattern ANSI = Pattern.compile("\\u001B\\[[;\\d]*m");
     private static final Pattern URI_CREDENTIALS = Pattern.compile("(https?://)[^/@\\s]+@", Pattern.CASE_INSENSITIVE);
+    private static final Pattern AUTH_SCHEME = Pattern.compile("(?i)\\b(Bearer|Basic)\\s+[A-Za-z0-9+/_.=-]+");
     private static final Pattern NAMED_SECRET = Pattern.compile(
             "(?i)(authorization|password|token|api[-_]?key)(\\s*[=:]\\s*)\\S+");
     private static final Pattern TRANSFER = Pattern.compile(
@@ -123,6 +124,7 @@ public final class MavenBaselineOutput implements Consumer<String> {
 
     public static String sanitize(String text) {
         String safe = URI_CREDENTIALS.matcher(text).replaceAll("$1[REDACTED]@");
+        safe = AUTH_SCHEME.matcher(safe).replaceAll("$1 [REDACTED]");
         safe = NAMED_SECRET.matcher(safe).replaceAll("$1$2[REDACTED]");
         return safe;
     }

@@ -14,16 +14,22 @@ import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
-import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
+import org.folio.factory.devfactory.runtime.InstallMode;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
+import org.folio.factory.devfactory.runtime.PreparedWorkspace;
+import org.folio.factory.devfactory.runtime.Toolchain;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -61,58 +67,96 @@ public final class InitialCodingAttempt {
     }
 
     public Attempt start(AgentContext context, CodingRequest request) {
-        return runAttempt(context, request, true, json.createObjectNode());
+        return runAttempt(context, request, true, json.createObjectNode(), null);
     }
 
-    public Attempt retry(AgentContext context, CodingRequest request, JsonNode readiness) {
-        return runAttempt(context, request, false, readiness);
+    /** {@code lockfile} is the {@code dev_lockfile.json} of the starting build that already ran. */
+    public Attempt retry(
+            AgentContext context, CodingRequest request, JsonNode readiness, String lockfile) {
+        return runAttempt(context, request, false, readiness, lockfile);
     }
 
     private Attempt runAttempt(
             AgentContext context,
             CodingRequest request,
             boolean runBaseline,
-            JsonNode existingReadiness) {
+            JsonNode existingReadiness,
+            String existingLockfile) {
         request.requireReady();
+        String lockfileArtifact =
+                existingLockfile != null
+                        ? existingLockfile
+                        : PinnedLockfile.none("NOT_RUN", "The starting build did not complete");
         String key = request.repository().key();
         var repository = properties.repositories().get(key);
         if (repository == null)
-            return failedAttempt("Repository is no longer configured", existingReadiness);
+            return failedAttempt(
+                    "Repository is no longer configured", existingReadiness, lockfileArtifact);
         if (!repository.sourceRepo().equals(request.repository().sourceRepo())
                 || !repository.baseBranch().equals(request.repository().baseBranch()))
             return failedAttempt(
                     "Coding request repository no longer matches Factory configuration",
-                    existingReadiness);
+                    existingReadiness,
+                    lockfileArtifact);
         String base = request.repository().baseSha();
         String url = properties.gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
         Path pristine = null;
         Path exported = null;
         Map<String, Object> readiness = nodeMap(existingReadiness);
         Map<String, Object> metrics = Map.of();
+        Optional<PinnedLockfile> pinned = PinnedLockfile.parse(existingLockfile);
         try (var stepScope = docker.beginStep(context.executionId(), context.stepId())) {
             pristine = freezer.checkout(url, base);
             if (runBaseline) {
+                // A yarn module without a tracked lockfile gets one generated and pinned here.
+                var install =
+                        runtime.toolchain(repository.verificationPlan()) == Toolchain.YARN
+                                        && !Files.exists(
+                                                pristine.resolve(PinnedLockfile.FILE),
+                                                LinkOption.NOFOLLOW_LINKS)
+                                ? InstallMode.RESOLVE
+                                : InstallMode.FROZEN;
                 progress(
                         context,
                         Map.of(
                                 "activity",
                                 "baseline_started",
                                 "command",
-                                String.join(" ", runtime.command(repository.verificationPlan())),
+                                String.join(
+                                        " ",
+                                        runtime.verificationCommand(
+                                                repository.verificationPlan(), install)),
                                 "image",
                                 repository.buildImage()));
                 try (var workload =
                         stepScope.createTrusted(
-                                repository.buildImage(), pristine, runtime.mavenCacheVolume())) {
+                                repository.buildImage(),
+                                pristine,
+                                runtime.environment(repository.verificationPlan()))) {
                     var baseline =
                             new BaselineBuild(runtime)
                                     .run(
                                             workload,
                                             base,
                                             repository,
+                                            install,
                                             event -> progress(context, event));
                     readiness = baseline.readiness();
                     String summary = baseline.summary();
+                    Path checkout = pristine;
+                    pinned =
+                            baseline.lockfile()
+                                    .map(
+                                            lock ->
+                                                    lock.forPackageJson(
+                                                            CandidateFreezer.trackedBlob(
+                                                                    checkout, "package.json")));
+                    lockfileArtifact =
+                            pinned.map(PinnedLockfile::toArtifact)
+                                    .orElseGet(
+                                            () ->
+                                                    PinnedLockfile.none(
+                                                            "NOT_NEEDED", "No lockfile to pin"));
                     progress(
                             context,
                             Map.of(
@@ -123,8 +167,8 @@ public final class InitialCodingAttempt {
                                     "summary",
                                     summary));
                     if (baseline.process().exitCode() != 0
-                            && MavenBaselineOutput.isTransientDownloadFailure(
-                                    baseline.process().diagnostics())) {
+                            && runtime.toolchain(repository.verificationPlan())
+                                    .isTransientDownloadFailure(baseline.process().diagnostics())) {
                         String detail =
                                 summary.isBlank() ? "Maven artifact transfer failed." : summary;
                         String reason =
@@ -146,7 +190,17 @@ public final class InitialCodingAttempt {
                                 summary.isBlank()
                                         ? "Starting build failed before model spend"
                                         : summary,
-                                readiness);
+                                readiness,
+                                Map.of(),
+                                lockfileArtifact);
+                    if (baseline.lockfileError() != null)
+                        return failedAttempt(
+                                "BLOCKED_ENVIRONMENT",
+                                "Starting build could not pin the dependency lockfile: "
+                                        + baseline.lockfileError(),
+                                readiness,
+                                Map.of(),
+                                lockfileArtifact);
                 }
             }
             coding.requireConfigured();
@@ -154,7 +208,38 @@ public final class InitialCodingAttempt {
             CodingOutcome outcome;
             try (var workload =
                     stepScope.createSeeded(
-                            coding.image(), pristine, runtime.mavenCacheVolume(), "coding")) {
+                            coding.image(),
+                            pristine,
+                            runtime.environment(repository.verificationPlan()),
+                            "coding")) {
+                // Before the install, so the prepared workspace is the pinned one.
+                Path checkoutForMode = pristine;
+                pinned.ifPresent(workload::seedLockfile);
+                var prepared =
+                        PreparedWorkspace.prepare(
+                                workload,
+                                runtime,
+                                repository.verificationPlan(),
+                                pinned.map(pin -> pin.installMode(checkoutForMode)).orElse(InstallMode.FROZEN),
+                                event -> progress(context, event));
+                if (prepared.failed()) {
+                    if (prepared.retryable())
+                        throw new StartingBuildNetworkException(
+                                "Workspace dependency install hit a network/download failure;"
+                                        + " coding has not started. "
+                                        + prepared.failure());
+                    return failedAttempt(
+                            "BLOCKED_ENVIRONMENT",
+                            "Workspace dependency install failed before model spend: "
+                                    + prepared.failure(),
+                            readiness,
+                            Map.of(),
+                            lockfileArtifact);
+                }
+                var codingRequest =
+                        request.withVerification(
+                                String.join(" ", runtime.command(repository.verificationPlan())),
+                                prepared.installed());
                 var identity = new LinkedHashMap<>(coding.identity());
                 String attemptId = UUID.randomUUID().toString();
                 var rate = pricing.snapshot(Objects.toString(identity.get("model"), ""));
@@ -165,7 +250,7 @@ public final class InitialCodingAttempt {
                 outcome =
                         coding.code(
                                 workload,
-                                request,
+                                codingRequest,
                                 runtime.timeoutSeconds(),
                                 event -> {
                                     var detail = new LinkedHashMap<String, Object>(event);
@@ -185,7 +270,15 @@ public final class InitialCodingAttempt {
             }
             String candidate;
             if (outcome.status() == CodingOutcome.Status.COMPLETED) {
-                candidate = json.writeValueAsString(freezer.freeze(key, url, base, exported));
+                candidate =
+                        json.writeValueAsString(
+                                freezer.freeze(
+                                        key,
+                                        url,
+                                        base,
+                                        exported,
+                                        false,
+                                        runtime.toolchain(repository.verificationPlan())));
             } else if (outcome.status() == CodingOutcome.Status.NEEDS_DECISION) {
                 candidate = placeholder("NEEDS_DECISION", outcome.decision().question());
             } else {
@@ -205,11 +298,19 @@ public final class InitialCodingAttempt {
                             codec,
                             new CodingDecisionArtifacts.Answer(
                                     decision.requestId(), CodingDecisionArtifacts.UNANSWERED)),
-                    metrics);
+                    metrics,
+                    lockfileArtifact);
         } catch (StartingBuildNetworkException e) {
             throw e;
         } catch (DockerWorkloads.ActiveStepException e) {
             throw e;
+        } catch (DockerWorkloads.CacheSeedException e) {
+            return failedAttempt(
+                    "BLOCKED_ENVIRONMENT",
+                    safeRedact(e.getMessage()),
+                    readiness,
+                    metrics,
+                    lockfileArtifact);
         } catch (RuntimeException e) {
             String reason =
                     safeRedact(
@@ -218,30 +319,24 @@ public final class InitialCodingAttempt {
                     "DEVELOPMENT_FAILED",
                     "Development stopped: " + reason.substring(0, Math.min(2000, reason.length())),
                     readiness,
-                    metrics);
+                    metrics,
+                    lockfileArtifact);
         } finally {
             CandidateFreezer.cleanup(pristine);
             CandidateFreezer.cleanup(exported);
         }
     }
 
-    private Attempt failedAttempt(String reason, JsonNode readiness) {
-        return failedAttempt(reason, nodeMap(readiness));
-    }
-
-    private Attempt failedAttempt(String reason, Map<String, Object> readiness) {
-        return failedAttempt("DEVELOPMENT_FAILED", reason, readiness);
-    }
-
-    private Attempt failedAttempt(String state, String reason, Map<String, Object> readiness) {
-        return failedAttempt(state, reason, readiness, Map.of());
+    private Attempt failedAttempt(String reason, JsonNode readiness, String lockfile) {
+        return failedAttempt("DEVELOPMENT_FAILED", reason, nodeMap(readiness), Map.of(), lockfile);
     }
 
     private Attempt failedAttempt(
             String state,
             String reason,
             Map<String, Object> readiness,
-            Map<String, Object> metrics) {
+            Map<String, Object> metrics,
+            String lockfile) {
         CodingOutcome outcome = CodingOutcome.failed(state, reason, Map.of());
         var decision = CodingDecisionArtifacts.Request.none();
         return new Attempt(
@@ -254,7 +349,8 @@ public final class InitialCodingAttempt {
                         codec,
                         new CodingDecisionArtifacts.Answer(
                                 decision.requestId(), CodingDecisionArtifacts.UNANSWERED)),
-                metrics);
+                metrics,
+                lockfile);
     }
 
     private String placeholder(String state, String reason) {
@@ -318,7 +414,8 @@ public final class InitialCodingAttempt {
             String readiness,
             String decisionRequest,
             String decisionAnswer,
-            Map<String, Object> metrics) {}
+            Map<String, Object> metrics,
+            String lockfile) {}
 
     /** Only a failed pre-runtime build may consume the engine retry budget. */
     private static final class StartingBuildNetworkException extends AgentExecutionException {

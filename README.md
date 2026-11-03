@@ -159,7 +159,11 @@ verification receipt: required Maven suites must produce fresh, executed reports
 cannot approve a plan that requires integration reports. The trusted build reuses
 the `factory-dev-m2-cache` Docker volume, repairing cache entry ownership before
 each build; reset it with `docker volume rm factory-dev-m2-cache` while the stack
-is stopped.
+is stopped. UI (yarn + Jest) plans work the same way with `factory-dev-yarn-cache`.
+Their dependency install is configured once, as `runtime.yarn.install-command`: the
+starting build and independent verification run it before the plan's test command, and
+Factory runs it in each coding container before the agent starts. The coding request
+also tells the agent which command verification runs. See `doc/dev-flow-ui-support.md`.
 
 Execution pages estimate API cost from the operator-owned
 `config/developer-pricing.yaml` rate card. The YAML records public list prices
@@ -253,7 +257,8 @@ workload's UID (including the Compose root UID), private `HOME=/tmp/factory-home
 `/workspace`, and Java/Maven 21 without interactive login or permission approval.
 
 Compose 2.20+ includes only the selected runtime service and checks its exact
-version before starting Factory. Build/check each profile without credentials:
+version (and Node 22.22.0 / yarn 1.22.22, which UI plans need) before starting
+Factory. Build/check each profile without credentials:
 
 ```bash
 FACTORY_DEV_FACTORY_CODING_RUNTIME=pi docker compose build coding-runtime
@@ -264,7 +269,7 @@ FACTORY_DEV_FACTORY_CODING_RUNTIME=claude-code docker compose run --rm --no-deps
 # Real CLI against local mock servers, plus existing workload/feedback tests.
 FACTORY_DOCKER_TEST=true mvn -B -ntp -pl factory-flow-dev-factory -am \
   -Dtest=ClaudeCodeDockerTest,PiCodingHttpContractTest,FeedbackDockerTest,DockerWorkloadsTest \
-  -Dfactory.pi.contract.image=factory-dev-pi:0.85.1-java21 \
+  -Dfactory.pi.contract.image=factory-dev-pi:0.85.1-java21-node22 \
   -Dsurefire.failIfNoSpecifiedTests=false test
 mvn -B -ntp verify
 ```
@@ -300,6 +305,8 @@ Metrics are exposed at `/actuator/prometheus`; Kubernetes probes at
 | `FACTORY_LLM_BASE_URL` / `_COMPLETIONS_PATH` | OpenAI-compatible endpoint (defaults target Groq: `https://api.groq.com/openai/v1` + `/chat/completions`) |
 | `FACTORY_DB_URL` / `_USER` / `_PASSWORD` | PostgreSQL (default `jdbc:postgresql://localhost:5432/factory`) |
 | `FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME` | Persistent trusted Developer Flow Maven cache volume (default `factory-dev-m2-cache`) |
+| `FACTORY_DEV_FACTORY_SEED_TIMEOUT_SECONDS` | Seconds allowed for copying the shared dependency cache into one coding or verification workload (default `300`); a timeout blocks the run with the cache size in the message |
+| `FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME` / `FACTORY_DEV_FACTORY_FOLIO_NPM_REGISTRY` | Trusted yarn cache volume for UI (yarn + Jest) plans (default `factory-dev-yarn-cache`) and the registry serving `@folio/*` packages (default `https://repository.folio.org/repository/npm-folioci/`); see `doc/dev-flow-ui-support.md` |
 | `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `pi`) |
 | `FACTORY_MODEL_PROVIDER` / `_ID` / `_BASE_URL` / `_API` / `_API_KEY` | Legacy Pi profile settings; nonblank `FACTORY_PI_*` values override them |
 | `FACTORY_PI_*` / `FACTORY_CLAUDE_CODE_*` | Independent image, API, model, endpoint, authentication and harness profiles; see [Coding runtime profiles](#coding-runtime-profiles) |
@@ -368,7 +375,7 @@ build the coding image and run the opt-in contract test:
 docker compose build pi-runtime
 mvn -pl factory-flow-dev-factory -am test -Dtest=PiCodingHttpContractTest \
   -Dsurefire.failIfNoSpecifiedTests=false \
-  -Dfactory.pi.contract.image=factory-dev-pi:0.85.1-java21
+  -Dfactory.pi.contract.image=factory-dev-pi:0.85.1-java21-node22
 ```
 
 The suite includes two full Test Factory end-to-end tests (scripted LLM, WireMock'd

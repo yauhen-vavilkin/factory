@@ -148,12 +148,72 @@ factory:
         build-image: maven:3.9-eclipse-temurin-21
         verification-plan: java21-unit
         jira-projects: [MGRAPPS]
+      ui-users:
+        source-repo: ${FACTORY_UI_USERS_SOURCE_REPO:folio-org/ui-users}
+        base-branch: master
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UIU]
+      ui-circulation:
+        source-repo: ${FACTORY_UI_CIRCULATION_SOURCE_REPO:folio-org/ui-circulation}
+        base-branch: master
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UICIRC]
+      ui-inventory:
+        source-repo: ${FACTORY_UI_INVENTORY_SOURCE_REPO:folio-org/ui-inventory}
+        base-branch: master
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UIIN]
+      ui-marc-authorities:
+        source-repo: ${FACTORY_UI_MARC_AUTHORITIES_SOURCE_REPO:folio-org/ui-marc-authorities}
+        base-branch: master
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UIMARCAUTH]
+      ui-checkin:
+        source-repo: ${FACTORY_UI_CHECKIN_SOURCE_REPO:folio-org/ui-checkin}
+        base-branch: master
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UICHKIN]
+      ui-eholdings:
+        source-repo: ${FACTORY_UI_EHOLDINGS_SOURCE_REPO:folio-org/ui-eholdings}
+        base-branch: master
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UIEH]
+      ui-myprofile:
+        source-repo: ${FACTORY_UI_MYPROFILE_SOURCE_REPO:folio-org/ui-myprofile}
+        base-branch: master
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UIMPROF]
+      ui-tags:
+        source-repo: ${FACTORY_UI_TAGS_SOURCE_REPO:folio-org/ui-tags}
+        base-branch: master
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UITAG]
     runtime:
       timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
+      # Copying the shared dependency cache into one new coding or verification workload.
+      seed-timeout-seconds: ${FACTORY_DEV_FACTORY_SEED_TIMEOUT_SECONDS:300}
+      yarn:
+        cache-volume: ${FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME:factory-dev-yarn-cache}
+        folio-registry: ${FACTORY_DEV_FACTORY_FOLIO_NPM_REGISTRY:https://repository.folio.org/repository/npm-folioci/}
+        # Run by the starting build, the coding container and verification, before the plan's test command.
+        # --mutex serializes installs into the shared cache; two at once corrupt each other's entries.
+        install-command: [yarn, install, --frozen-lockfile, --ignore-scripts, --non-interactive, --mutex, "file:/tmp/factory-home/.yarn-cache/.yarn-mutex"]
       plans:
         java21-unit: [mvn, -B, -ntp, test]
         java21-roles-verify: [mvn, -B, -ntp, verify]
+        # --maxWorkers keeps Jest inside the Podman VM's memory (see doc/dev-flow-ui-support.md).
+        node22-jest: [yarn, test, --maxWorkers=2]
+      plan-toolchains:
+        node22-jest: yarn
       required-reports:
         # Integration requires isolated Docker support; unavailable in the current workload topology.
         java21-roles-verify:
@@ -293,7 +353,7 @@ factory:
           - target/failsafe-reports/TEST-org.folio.roles.repository.UserRoleRepositoryIT.xml
       coding:
         runtime: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:pi}
-        image: ${FACTORY_DEV_FACTORY_CODING_IMAGE:factory-dev-pi:0.85.1-java21}
+        image: ${FACTORY_DEV_FACTORY_CODING_IMAGE:factory-dev-pi:0.85.1-java21-node22}
         provider: ${FACTORY_MODEL_PROVIDER:}
         model: ${FACTORY_MODEL_ID:}
         base-url: ${FACTORY_MODEL_BASE_URL:}
@@ -311,8 +371,9 @@ factory:
           api-key: ${FACTORY_PI_API_KEY:}
           reasoning-effort: ${FACTORY_PI_REASONING_EFFORT:}
           max-output-tokens: ${FACTORY_PI_MAX_OUTPUT_TOKENS:}
+          images: ${FACTORY_PI_IMAGES:false}
         claude-code:
-          image: ${FACTORY_CLAUDE_CODE_IMAGE:factory-dev-claude-code:2.1.287-java21}
+          image: ${FACTORY_CLAUDE_CODE_IMAGE:factory-dev-claude-code:2.1.287-java21-node22}
           api: ${FACTORY_CLAUDE_CODE_API:anthropic-messages}
           base-url: ${FACTORY_CLAUDE_CODE_BASE_URL:}
           model: ${FACTORY_CLAUDE_CODE_MODEL:}
@@ -322,6 +383,10 @@ factory:
           max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:40}
           max-output-tokens: ${FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS:16384}
           effort: ${FACTORY_CLAUDE_CODE_EFFORT:}
+          images: ${FACTORY_CLAUDE_CODE_IMAGES:false}
+    attachments:
+      max-images: ${FACTORY_DEV_FACTORY_ATTACHMENT_MAX_IMAGES:10}
+      max-bytes: ${FACTORY_DEV_FACTORY_ATTACHMENT_MAX_BYTES:3145728}
     delivery:
       create-pull-request: true
       targets:
@@ -339,6 +404,38 @@ factory:
           authorized: true
         mgr-applications:
           repository: ${FACTORY_MGR_APPLICATIONS_DELIVERY_REPO:folio-org/mgr-applications}
+          base-branch: master
+          authorized: true
+        ui-users:
+          repository: ${FACTORY_UI_USERS_DELIVERY_REPO:folio-org/ui-users}
+          base-branch: master
+          authorized: true
+        ui-circulation:
+          repository: ${FACTORY_UI_CIRCULATION_DELIVERY_REPO:folio-org/ui-circulation}
+          base-branch: master
+          authorized: true
+        ui-inventory:
+          repository: ${FACTORY_UI_INVENTORY_DELIVERY_REPO:folio-org/ui-inventory}
+          base-branch: master
+          authorized: true
+        ui-marc-authorities:
+          repository: ${FACTORY_UI_MARC_AUTHORITIES_DELIVERY_REPO:folio-org/ui-marc-authorities}
+          base-branch: master
+          authorized: true
+        ui-checkin:
+          repository: ${FACTORY_UI_CHECKIN_DELIVERY_REPO:folio-org/ui-checkin}
+          base-branch: master
+          authorized: true
+        ui-eholdings:
+          repository: ${FACTORY_UI_EHOLDINGS_DELIVERY_REPO:folio-org/ui-eholdings}
+          base-branch: master
+          authorized: true
+        ui-myprofile:
+          repository: ${FACTORY_UI_MYPROFILE_DELIVERY_REPO:folio-org/ui-myprofile}
+          base-branch: master
+          authorized: true
+        ui-tags:
+          repository: ${FACTORY_UI_TAGS_DELIVERY_REPO:folio-org/ui-tags}
           base-branch: master
           authorized: true
   test-factory:

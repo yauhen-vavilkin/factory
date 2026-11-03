@@ -154,6 +154,10 @@ public class IntakeResolveWorker implements AgentWorker {
                     "REPOSITORY_SELECTION", String.valueOf(decision.get("question")),
                     String.valueOf(decision.get("choice"))));
         }
+        List<CodingRequest.Attachment> attachments = new java.util.ArrayList<>();
+        issue.path("attachments").forEach(attachment -> attachments.add(new CodingRequest.Attachment(
+                attachment.path("id").asString(""), attachment.path("filename").asString(""),
+                attachment.path("mimeType").asString(""), attachment.path("size").asLong(0), "", "")));
         CodingRequest.RepositoryTarget target = null;
         if (repositoryKey != null && baseSha != null) {
             Repository repository = policy.find(repositoryKey).orElseThrow();
@@ -162,6 +166,6 @@ public class IntakeResolveWorker implements AgentWorker {
         }
         return new CodingRequest(intake.path("issue_key").asString(""), issue.path("summary").asString(""),
                 issue.path("description").asString(""), comments, links, List.of(), decisions, target,
-                CodingRequest.Constraints.defaults());
+                CodingRequest.Constraints.defaults(), attachments);
     }
 }

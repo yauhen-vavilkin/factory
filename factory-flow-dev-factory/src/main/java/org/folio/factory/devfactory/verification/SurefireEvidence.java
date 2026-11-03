@@ -1,25 +1,20 @@
 package org.folio.factory.devfactory.verification;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Instant;
-import javax.xml.XMLConstants;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
 import org.w3c.dom.Element;
-import org.xml.sax.SAXException;
-import org.xml.sax.helpers.DefaultHandler;
 
 /** Maven proof: only fresh Surefire/Failsafe TEST-*.xml reports count as executed tests. */
-record SurefireEvidence(int reportCount, int testCount, int failureCount, int errorCount,
-                        int failsafeReportCount, java.util.Map<String, Integer> executedByReport) {
+final class SurefireEvidence {
     private static final int MAX_REPORT_BYTES = 2 * 1024 * 1024;
 
-    static SurefireEvidence inspect(Path workspace, Instant verificationStarted) {
+    private SurefireEvidence() {}
+
+    static TestEvidence inspect(Path workspace, Instant verificationStarted) {
         int reports = 0;
         int tests = 0;
         int failures = 0;
@@ -45,10 +40,10 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
                 }
                 if (xml.length > MAX_REPORT_BYTES) throw new IllegalStateException("Surefire report exceeds evidence limit");
                 Element suite = parse(xml);
-                int suiteTests = attribute(suite, "tests");
-                int suiteSkipped = attribute(suite, "skipped");
-                int suiteFailures = attribute(suite, "failures");
-                int suiteErrors = attribute(suite, "errors");
+                int suiteTests = JunitXml.counter(suite, "tests", "Surefire");
+                int suiteSkipped = JunitXml.counter(suite, "skipped", "Surefire");
+                int suiteFailures = JunitXml.counter(suite, "failures", "Surefire");
+                int suiteErrors = JunitXml.counter(suite, "errors", "Surefire");
                 if ((long) suiteSkipped + suiteFailures + suiteErrors > suiteTests) {
                     throw new IllegalStateException("Invalid Surefire counters");
                 }
@@ -59,48 +54,18 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
                 failures = Math.addExact(failures, suiteFailures);
                 errors = Math.addExact(errors, suiteErrors);
             }
-            return new SurefireEvidence(reports, tests, failures, errors, failsafeReports, java.util.Map.copyOf(executedByReport));
+            return new TestEvidence(reports, tests, failures, errors, failsafeReports, java.util.Map.copyOf(executedByReport));
         } catch (IOException | UncheckedIOException | ArithmeticException e) {
             throw new IllegalStateException("Cannot inspect fresh Surefire evidence", e);
         }
     }
 
     private static Element parse(byte[] xml) {
-        try {
-            var factory = DocumentBuilderFactory.newInstance();
-            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-            factory.setXIncludeAware(false);
-            factory.setExpandEntityReferences(false);
-            var builder = factory.newDocumentBuilder();
-            builder.setErrorHandler(new DefaultHandler() {
-                @Override public void error(org.xml.sax.SAXParseException e) throws SAXException { throw e; }
-                @Override public void fatalError(org.xml.sax.SAXParseException e) throws SAXException { throw e; }
-            });
-            builder.setEntityResolver((publicId, systemId) -> { throw new SAXException("External entities forbidden"); });
-            var root = builder.parse(new ByteArrayInputStream(xml)).getDocumentElement();
-            if (!"testsuite".equals(root.getTagName()) || root.getElementsByTagName("testsuite").getLength() != 0) {
-                throw new IllegalStateException("Invalid Surefire report root");
-            }
-            return root;
-        } catch (ParserConfigurationException | SAXException | IOException e) {
-            throw new IllegalStateException("Invalid or unsafe Surefire XML", e);
+        var root = JunitXml.parse(xml, "Surefire");
+        if (!"testsuite".equals(root.getTagName()) || root.getElementsByTagName("testsuite").getLength() != 0) {
+            throw new IllegalStateException("Invalid Surefire report root");
         }
-    }
-
-    private static int attribute(Element suite, String name) {
-        String value = suite.getAttribute(name);
-        if (!value.matches("[0-9]+")) throw new IllegalStateException("Missing or invalid Surefire counter: " + name);
-        try {
-            return Integer.parseInt(value);
-        } catch (NumberFormatException e) {
-            throw new IllegalStateException("Invalid Surefire counter: " + name, e);
-        }
+        return root;
     }
 
     private static boolean isSurefireReport(Path relative) {

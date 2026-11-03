@@ -33,7 +33,9 @@ import org.folio.factory.devfactory.repository.BaseRefResolver;
 import org.folio.factory.devfactory.repository.GitBaseRefResolver;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
+import org.folio.factory.devfactory.runtime.DevAttachmentProperties;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.ImageStagingRuntime;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.PiCodingRuntime;
 import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
@@ -68,13 +70,14 @@ import java.util.Map;
 @EnableConfigurationProperties({
     DevFactoryProperties.class,
     DevRuntimeProperties.class,
+    DevAttachmentProperties.class,
     DevDeliveryProperties.class
 })
 public class DevFactoryConfiguration {
 
     @Bean
-    public DockerWorkloads devDockerWorkloads() {
-        return new DockerWorkloads();
+    public DockerWorkloads devDockerWorkloads(DevRuntimeProperties runtime) {
+        return new DockerWorkloads(runtime.seedTimeoutSeconds());
     }
 
     @Bean
@@ -83,7 +86,12 @@ public class DevFactoryConfiguration {
     }
 
     @Bean
-    public CodingRuntime devCodingRuntime(DevRuntimeProperties runtime) {
+    public CodingRuntime devCodingRuntime(
+            DevRuntimeProperties runtime, JiraConnector jiraConnector, DevAttachmentProperties attachments) {
+        return new ImageStagingRuntime(selectCodingRuntime(runtime), jiraConnector, attachments);
+    }
+
+    public CodingRuntime selectCodingRuntime(DevRuntimeProperties runtime) {
         return switch (runtime.coding().runtime()) {
             case "pi" -> new PiCodingRuntime(runtime.coding());
             case "claude-code" -> new ClaudeCodeCodingRuntime(runtime.coding().claudeCode());

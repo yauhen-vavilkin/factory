@@ -13,6 +13,7 @@ import java.util.function.UnaryOperator;
 final class ClaudeCodeProtocol implements Consumer<String> {
     private static final JsonMapper JSON = JsonMapper.builder()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
+    private static final String USER_ECHO = "{\"type\":\"user\",\"message\":{\"role\":\"user\"";
     private final String model;
     private final UnaryOperator<String> redact;
     private final Consumer<Map<String, Object>> progress;
@@ -31,7 +32,11 @@ final class ClaudeCodeProtocol implements Consumer<String> {
 
     @Override public void accept(String line) {
         if (line.isBlank() || invalid != null) return;
-        if (line.length() > 512 * 1024) { invalid = "FRAME_TOO_LARGE"; return; }
+        if (line.length() > 512 * 1024) {
+            // Claude Code repeats an image its agent opened as a base64 tool result; that echo says nothing about the result.
+            if (!line.startsWith(USER_ECHO)) invalid = "FRAME_TOO_LARGE";
+            return;
+        }
         JsonNode frame;
         try { frame = JSON.readTree(line); }
         catch (RuntimeException e) { invalid = "MALFORMED_FRAME"; return; }

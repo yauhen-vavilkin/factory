@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="15" failures="0" errors="0" time="9.907">
+  <testsuite name="getExportData" errors="0" failures="0" skipped="0" timestamp="2026-10-23T15:46:07" time="2.841" tests="3">
+    <testcase classname="getExportData should get export data" name="getExportData should get export data" time="0.023"></testcase>
+    <testcase classname="getExportData Central ordering enabled should get export data" name="getExportData Central ordering enabled should get export data" time="0.007"></testcase>
+    <testcase classname="getExportData should request fiscal year and expense class ids from payment terms distributions" name="getExportData should request fiscal year and expense class ids from payment terms distributions" time="0.007"></testcase>
+  </testsuite>
+  <testsuite name="useOrderLinesAbandonedHoldingsCheck" errors="0" failures="0" skipped="0" timestamp="2026-10-23T15:46:06" time="3.35" tests="3">
+    <testcase classname="useOrderLinesAbandonedHoldingsCheck should return default type in result if there are no abandoned holdings" name="useOrderLinesAbandonedHoldingsCheck should return default type in result if there are no abandoned holdings" time="0.11"></testcase>
+    <testcase classname="useOrderLinesAbandonedHoldingsCheck should return 'independent' type in result if there is at least one abandoned holding related to independent PO Line and not to synchronized" name="useOrderLinesAbandonedHoldingsCheck should return 'independent' type in result if there is at least one abandoned holding related to independent PO Line and not to synchronized" time="0.092"></testcase>
+    <testcase classname="useOrderLinesAbandonedHoldingsCheck should return 'synchronized' type in result if there is at least one abandoned holding related to synchronized PO Line" name="useOrderLinesAbandonedHoldingsCheck should return 'synchronized' type in result if there is at least one abandoned holding related to synchronized PO Line" time="0.115"></testcase>
+  </testsuite>
+  <testsuite name="ExportSettingsModal" errors="0" failures="0" skipped="8" timestamp="2026-10-23T15:46:10" time="3.716" tests="9">
+    <testcase classname="ExportSettingsModal should render Export Settings Modal" name="ExportSettingsModal should render Export Settings Modal" time="0.489"></testcase>
+    <testcase classname="ExportSettingsModal actions selected fields should select an option item if it was clicked" name="ExportSettingsModal actions selected fields should select an option item if it was clicked" time="0">
+      <skipped />
+    </testcase>
+    <testcase classname="ExportSettingsModal actions all fields should select all PO fields when the corresponding radio button was clicked" name="ExportSettingsModal actions all fields should select all PO fields when the corresponding radio button was clicked" time="0">
+      <skipped />
+    </testcase>
+    <testcase classname="ExportSettingsModal actions all fields should select all POL fields when the corresponding radio button was clicked" name="ExportSettingsModal actions all fields should select all POL fields when the corresponding radio button was clicked" time="0">
+      <skipped />
+    </testcase>
+    <testcase classname="ExportSettingsModal actions export should export all PO and POL fields to CSV when export button clicked" name="ExportSettingsModal actions export should export all PO and POL fields to CSV when export button clicked" time="0">
+      <skipped />
+    </testcase>
+    <testcase classname="ExportSettingsModal actions export should export selected PO fields to CSV when export button clicked" name="ExportSettingsModal actions export should export selected PO fields to CSV when export button clicked" time="0">
+      <skipped />
+    </testcase>
+    <testcase classname="ExportSettingsModal actions export should export selected POL fields to CSV when export button clicked" name="ExportSettingsModal actions export should export selected POL fields to CSV when export button clicked" time="0">
+      <skipped />
+    </testcase>
+    <testcase classname="ExportSettingsModal actions export should prevent export if it is already exporting now" name="ExportSettingsModal actions export should prevent export if it is already exporting now" time="0">
+      <skipped />
+    </testcase>
+    <testcase classname="ExportSettingsModal actions export should close Export Settings Modal when cancel button clicked" name="ExportSettingsModal actions export should close Export Settings Modal when cancel button clicked" time="0">
+      <skipped />
+    </testcase>
+  </testsuite>
+</testsuites>

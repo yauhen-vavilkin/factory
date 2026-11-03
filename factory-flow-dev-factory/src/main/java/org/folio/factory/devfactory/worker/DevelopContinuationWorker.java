@@ -71,13 +71,15 @@ public class DevelopContinuationWorker implements AgentWorker {
                 develop.retry(
                         context,
                         next,
-                        json.readTree(context.requireInput(DevelopWorker.READINESS).content()));
+                        json.readTree(context.requireInput(DevelopWorker.READINESS).content()),
+                        context.requireInput(DevelopWorker.LOCKFILE).content());
         return new AgentResult(
                 Map.of(
                         IntakeResolveWorker.CODING_REQUEST, json.writeValueAsString(next),
                         DevelopWorker.OUTCOME, json.writeValueAsString(attempt.outcome()),
                         DevelopWorker.CANDIDATE, attempt.candidate(),
-                        DevelopWorker.READINESS, attempt.readiness()),
+                        DevelopWorker.READINESS, attempt.readiness(),
+                        DevelopWorker.LOCKFILE, attempt.lockfile()),
                 attempt.metrics());
     }
 
@@ -90,7 +92,9 @@ public class DevelopContinuationWorker implements AgentWorker {
                         DevelopWorker.CANDIDATE,
                                 context.requireInput(DevelopWorker.CANDIDATE).content(),
                         DevelopWorker.READINESS,
-                                context.requireInput(DevelopWorker.READINESS).content()),
+                                context.requireInput(DevelopWorker.READINESS).content(),
+                        DevelopWorker.LOCKFILE,
+                                context.requireInput(DevelopWorker.LOCKFILE).content()),
                 Map.of());
     }
 
@@ -118,7 +122,9 @@ public class DevelopContinuationWorker implements AgentWorker {
                         DevelopWorker.OUTCOME, json.writeValueAsString(terminal),
                         DevelopWorker.CANDIDATE, json.writeValueAsString(candidate),
                         DevelopWorker.READINESS,
-                                context.requireInput(DevelopWorker.READINESS).content()),
+                                context.requireInput(DevelopWorker.READINESS).content(),
+                        DevelopWorker.LOCKFILE,
+                                context.requireInput(DevelopWorker.LOCKFILE).content()),
                 Map.of());
     }
 }

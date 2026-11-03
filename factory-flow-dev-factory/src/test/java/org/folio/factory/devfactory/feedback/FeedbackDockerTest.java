@@ -55,6 +55,7 @@ class FeedbackDockerTest {
         var saved=new LinkedHashMap<>(initial());
         saved.put("dev_coding_request.json",JSON.writeValueAsString(request));
         saved.put("dev_delivery.json",JSON.writeValueAsString(Map.of("state","DELIVERED","repository","fixture","deliveryBranch","feedback","pullRequestUrl","https://github.com/fork/repo/pull/7")));
+        saved.put("dev_lockfile.json",PinnedLockfile.none("NOT_NEEDED","Maven fixture"));
         try {
             var initialized=worker.execute(context(id,saved)); saved.putAll(initialized.outputs());
             assertThat(initialized.disposition()).isEqualTo(AgentResult.Disposition.WAIT);
