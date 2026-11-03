@@ -42,9 +42,8 @@ import static org.mockito.Mockito.verify;
 @TestPropertySource(properties = {
         "factory.connectors.jira.base-url=",
         "factory.dev-factory.runtime.coding.runtime=claude-code",
-        // A missing API key must block admission even when local proxy defaults are available.
-        "factory.dev-factory.runtime.coding.claude-code.authentication=api-key",
-        "factory.dev-factory.runtime.coding.claude-code.api-key="})
+        // The default model without its secret must block admission.
+        "FACTORY_CODEMIE_PROXY_TOKEN="})
 // Own context: the default repository catalog with a real preflight; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class DeveloperFlowRegistrationTest {
@@ -147,9 +146,9 @@ class DeveloperFlowRegistrationTest {
         var apiResponse = client.send(apiRequest, HttpResponse.BodyHandlers.ofString());
 
         assertThat(apiResponse.statusCode()).isEqualTo(422);
-        // The reason names the profile and the variable to set.
+        // The reason names the model and the variable to set.
         assertThat(apiResponse.body()).contains("Developer Flow preflight failed",
-                "Profile env-default is not configured: set FACTORY_CLAUDE_CODE_API_KEY in .env");
+                "Model codemie-sonnet-5.5 is not configured: set FACTORY_CODEMIE_PROXY_TOKEN in .env");
         assertThat(state.countCreatedSince(Instant.EPOCH)).isEqualTo(before);
 
         String form = "payload=" + URLEncoder.encode("{\"issueKey\":\"MODSIDECAR-196\"}", StandardCharsets.UTF_8)

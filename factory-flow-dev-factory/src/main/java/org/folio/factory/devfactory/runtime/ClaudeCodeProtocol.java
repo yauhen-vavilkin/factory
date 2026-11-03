@@ -442,8 +442,8 @@ final class ClaudeCodeProtocol implements Consumer<String> {
         var subtype = clip(result.path("subtype").asString(""), 80);
         var text = String.join("; ", errorsOrResult(result));
         return switch (subtype) {
-            case "error_max_turns" -> fail("TURN_LIMIT", "Claude Code used all " + maxTurns
-                    + " turns before it finished the task. Retry with more turns or a different effort.");
+            case "error_max_turns" -> fail("TURN_LIMIT", "Claude Code reached the " + maxTurns
+                    + "-turn limit before it finished the task. Retry with another model or effort.");
             case "error_max_budget_usd" -> fail("BUDGET_LIMIT", "Claude Code reached its spending limit"
                     + " before it finished the task. Retry with a lower effort or a smaller task."
                     + detail("CLI message", text, false));

@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DevRuntimePropertiesTest {
     @Test
-    void independentProfilesKeepTheirOwnSettingsAndExactClaudeModel() {
+    void piAndClaudeCodeKeepTheirOwnSettings() {
         var values = new HashMap<String, Object>();
         String prefix = "factory.dev-factory.runtime.coding.";
         values.put(prefix + "runtime", "claude-code");
@@ -26,23 +26,21 @@ class DevRuntimePropertiesTest {
         values.put(prefix + "pi.api-key", "new-pi-key");
         values.put(prefix + "pi.base-url", "http://pi-gateway.example/v1");
         values.put(prefix + "pi.max-output-tokens", "8192");
-        values.put(prefix + "claude-code.model", "operator/Custom-Model-2026");
-        values.put(prefix + "claude-code.base-url", "http://gateway.example/anthropic");
-        values.put(prefix + "claude-code.authentication", "bearer-token");
-        values.put(prefix + "claude-code.auth-token", "claude-secret");
+        values.put(prefix + "claude-code.image", "claude:image");
+        values.put(prefix + "claude-code.max-turns", "120");
         var coding = bind(values).coding();
         assertThat(coding.pi().image()).isEqualTo("pi:image");
         assertThat(coding.pi().provider()).isEqualTo("pi-provider");
         assertThat(coding.pi().model()).isEqualTo("new-pi-model");
         assertThat(coding.pi().apiKey()).isEqualTo("new-pi-key");
         assertThat(coding.pi().maxOutputTokens()).isEqualTo(8192);
-        assertThat(coding.claudeCode().model()).isEqualTo("operator/Custom-Model-2026");
+        assertThat(coding.claudeCode().image()).isEqualTo("claude:image");
         coding.claudeCode().requireConfigured();
-        assertThat(coding.toString() + coding.pi() + coding.claudeCode())
-                .doesNotContain("new-pi-key", "claude-secret", "gateway.example");
+        assertThat(coding.toString() + coding.pi()).doesNotContain("new-pi-key");
         var selected = codingRuntime(new DevFactoryConfiguration(), bind(values));
         assertThat(selected).isInstanceOf(ClaudeCodeCodingRuntime.class);
-        assertThat(selected.identity(null)).containsEntry("model", "operator/Custom-Model-2026");
+        assertThat(selected.image()).isEqualTo("claude:image");
+        assertThat(selected.identity(null)).containsEntry("maxTurns", 120);
     }
 
     @Test
@@ -59,38 +57,31 @@ class DevRuntimePropertiesTest {
     }
 
     @Test
-    void claudeRejectsWrongProtocolBeforeExecution() {
-        var config = new DevRuntimeProperties.ClaudeCode(null, "openai-completions", "http://gateway",
-                "model", "api-key", "secret", null, null, null, null);
+    void claudeRejectsAModelWithAnotherApiBeforeExecution() {
+        var gemini = new ModelEntry("gemini", "openai-completions", "http://gateway/v1", "api-key", "GEMINI_KEY",
+                "gemini-3.8-flash", List.of("low", "high"), "high", null, null);
+        var catalog = new ModelCatalog(new ModelCatalog.Properties(List.of(gemini), "gemini"), "claude-code",
+                Map.of("GEMINI_KEY", "secret")::get);
+        var runtime = new ClaudeCodeCodingRuntime(new DevRuntimeProperties.ClaudeCode(null, null), catalog);
         var workload = org.mockito.Mockito.mock(DockerWorkloads.Workload.class);
-        assertThatThrownBy(() -> ClaudeCodeCodingRuntimeTest.runtime(config).code(workload, ClaudeCodeCodingRuntimeTest.request(), 30, event -> {}, CodingTranscripts.NONE))
-                .hasMessageContaining("api=anthropic-messages");
+
+        assertThatThrownBy(() -> runtime.code(workload, ClaudeCodeCodingRuntimeTest.request(), 30, event -> {},
+                CodingTranscripts.NONE))
+                .hasMessage("Model gemini uses api openai-completions, but Claude Code understands only"
+                        + " anthropic-messages.");
         org.mockito.Mockito.verifyNoInteractions(workload);
     }
 
     @Test
-    void claudeRejectsUnsupportedAuthentication() {
-        var profile = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway", "model",
-                "oauth", null, null, null, null, null);
-
-        assertThatThrownBy(profile::requireConfigured)
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("authentication must be api-key or bearer-token");
-    }
-
-    @Test
-    void claudeApiKeyAuthenticationRequiresItsOwnCredential() {
-        var profile = new DevRuntimeProperties.ClaudeCode(null, null, null, null,
-                "api-key", null, null, null, null, null);
-
-        assertThat(profile.authToken()).isEqualTo("codemie-proxy");
-        assertThatThrownBy(profile::requireConfigured)
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("selected authentication credential");
+    void theTurnLimitIsASafetyGateFromOneTo500() {
+        assertThat(new DevRuntimeProperties.ClaudeCode(null, null).maxTurns()).isEqualTo(200);
+        new DevRuntimeProperties.ClaudeCode(null, 500).requireConfigured();
+        assertThatThrownBy(() -> new DevRuntimeProperties.ClaudeCode(null, 501).requireConfigured())
+                .hasMessage("FACTORY_CLAUDE_CODE_MAX_TURNS is 501, but it must be from 1 to 500");
     }
 
     private static CodingRuntime codingRuntime(DevFactoryConfiguration configuration, DevRuntimeProperties runtime) {
-        return configuration.devCodingRuntime(runtime, RunProfiles.envOnly(runtime.coding().claudeCode()));
+        return configuration.devCodingRuntime(runtime, new ModelCatalog(null, runtime.coding().runtime(), name -> null));
     }
 
     private static DevRuntimeProperties bind(Map<String, ?> values) {
@@ -153,36 +144,12 @@ class DevRuntimePropertiesTest {
         var defaults = new DevRuntimeProperties(null, null, 0, null, null);
         assertThat(defaults.mavenCacheVolume()).isEqualTo("factory-dev-m2-cache");
         assertThat(defaults.coding().runtime()).isEqualTo("claude-code");
-        assertThat(defaults.coding().claudeCode().model()).isEqualTo("claude-sonnet-5-5");
-        assertThat(defaults.coding().claudeCode().baseUrl()).isEqualTo("http://host.docker.internal:4001");
-        assertThat(defaults.coding().claudeCode().authentication()).isEqualTo("bearer-token");
-        assertThat(defaults.coding().claudeCode().authToken()).isEqualTo("codemie-proxy");
-        assertThat(defaults.coding().claudeCode().maxTurns()).isEqualTo(40);
-        assertThat(defaults.coding().claudeCode().effort()).isNull();
+        assertThat(defaults.coding().claudeCode().maxTurns()).isEqualTo(200);
         assertThat(defaults.timeoutSeconds()).isEqualTo(1800);
         assertThat(defaults.coding().pi().reasoningEffort()).isNull();
         assertThat(defaults.coding().pi().maxOutputTokens()).isEqualTo(16384);
         assertThat(new DevRuntimeProperties(null, null, 0, "operator-cache", null).mavenCacheVolume())
                 .isEqualTo("operator-cache");
-    }
-
-    @Test
-    void localCodeMieDefaultsUseThePublicBearerTokenInsteadOfAnApiKey() {
-        var profile = new DevRuntimeProperties.ClaudeCode(null, null, null, null, null,
-                "api-key-is-not-a-token", null, null, null, null);
-
-        assertThat(profile.baseUrl()).isEqualTo("http://host.docker.internal:4001");
-        assertThat(profile.authentication()).isEqualTo("bearer-token");
-        assertThat(profile.secret()).isEqualTo("codemie-proxy");
-        profile.requireConfigured();
-    }
-
-    @Test
-    void explicitClaudeBearerTokenOverridesTheLocalCodeMieDefault() {
-        var configured = new DevRuntimeProperties.ClaudeCode(null, null, null, null, null,
-                null, "token", null, null, null);
-        configured.requireConfigured();
-        assertThat(configured.secret()).isEqualTo("token");
     }
 
     @Test

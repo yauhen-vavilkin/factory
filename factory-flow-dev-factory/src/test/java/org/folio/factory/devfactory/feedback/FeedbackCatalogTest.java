@@ -136,7 +136,7 @@ class FeedbackCatalogTest {
         when(audit.forExecution(executionId)).thenReturn(List.of());
         return new FeedbackWorker(new DevFlowSettings(repositories, runtime), new CodingServices(coding, docker, freezer),
                 new FeedbackServices(gateway, mock(FeedbackGit.class), new GitHubProperties(null, "fixture-token")), mock(CandidateVerifier.class), executions, audit,
-                new DevFactoryHooks(TaskAttemptPolicy.none(), model -> Map.of(), CodingTranscripts.none(), SelectedRepositoryPreflight.none()));
+                new DevFactoryHooks(TaskAttemptPolicy.none(), (modelId, model) -> Map.of(), CodingTranscripts.none(), SelectedRepositoryPreflight.none()));
     }
 
     private AgentContext context(Map<String, String> saved) {

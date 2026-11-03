@@ -153,7 +153,8 @@ sync).
 
 - Secrets never reach the database, artifacts, logs, argv or pages. Everything that
   comes from the coding CLI goes through `CodingRuntime.redact` (for Claude Code,
-  `RunProfiles.redact`), which must cover the secret of every configured run profile.
+  `ModelCatalog.redact`), which must cover the secret of every model in
+  `config/developer-models.yaml`.
 - Hidden reasoning (thinking blocks, raw model messages) never reaches the transcript
   or a page. The guarding tests stay and get new cases when you add output: the
   `HIDDEN_*_SENTINEL` checks in `UiRenderSmokeTest` and `ClaudeCodeCodingRuntimeTest`,

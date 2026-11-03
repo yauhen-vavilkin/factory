@@ -48,7 +48,7 @@ class ClaudeCodeDockerTest {
              var scope = new DockerWorkloads().beginStep(executionId, "claude-literal-model");
              var workload = scope.createSeeded(IMAGE, source, volume, "coding")) {
             mock.model = model;
-            var outcome = ClaudeCodeCodingRuntimeTest.runtime(config(mock, "api-key"))
+            var outcome = runtime(mock, "api-key")
                     .code(workload, ClaudeCodeCodingRuntimeTest.request(), 60, event -> {}, CodingTranscripts.NONE);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
             assertThat(outcome.metrics()).containsEntry("model", model).doesNotContainKey("usageIncomplete");
@@ -68,7 +68,7 @@ class ClaudeCodeDockerTest {
              var scope = new DockerWorkloads().beginStep(executionId, "claude-maven-permissions");
              var workload = scope.createSeeded(IMAGE, source, volume, "coding")) {
             mock.command = "mvn -B -ntp -o validate && " + mock.command;
-            var outcome = ClaudeCodeCodingRuntimeTest.runtime(config(mock, "api-key"))
+            var outcome = runtime(mock, "api-key")
                     .code(workload, ClaudeCodeCodingRuntimeTest.request(), 90, event -> {}, CodingTranscripts.NONE);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
             assertThat(outcome.metrics()).containsEntry("inputTokens", 80L).containsEntry("outputTokens", 10L)
@@ -99,7 +99,7 @@ class ClaudeCodeDockerTest {
                 case "last-input" -> Set.of();
                 default -> Set.of(1, 2);
             };
-            var outcome = ClaudeCodeCodingRuntimeTest.runtime(config(mock, "api-key"))
+            var outcome = runtime(mock, "api-key")
                     .code(workload, ClaudeCodeCodingRuntimeTest.request(), 60, event -> {}, CodingTranscripts.NONE);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
             assertThat(outcome.metrics()).containsEntry("usageIncomplete", true)
@@ -114,7 +114,7 @@ class ClaudeCodeDockerTest {
         try (var mock = new MessagesEndpoint(false, false);
              var scope = new DockerWorkloads().beginStep(executionId, "claude-contract");
              var workload = scope.createSeeded(IMAGE, source, volume, "coding")) {
-            var runtime = ClaudeCodeCodingRuntimeTest.runtime(config(mock, authentication));
+            var runtime = runtime(mock, authentication);
             var events = new CopyOnWriteArrayList<Map<String, Object>>();
             assertThat(workload.execute(List.of("sh", "-c", "test \"$HOME\" = /tmp/factory-home && "
                     + "test ! -e /var/run/docker.sock && test -z \"$ANTHROPIC_API_KEY$ANTHROPIC_AUTH_TOKEN\" && "
@@ -133,12 +133,12 @@ class ClaudeCodeDockerTest {
             assertThat(events).anySatisfy(e -> assertThat(e).containsEntry("activity", "tool_execution_end")
                     .containsEntry("tool", "Bash").containsKey("durationMs")
                     .containsEntry("command", "printf 'edited by Claude\\n' > /workspace/changed.txt"));
-            assertThat(transcript.toString()).doesNotContain("mock-key", "mock-token");
+            assertThat(transcript.toString()).doesNotContain("secret-key", "secret-token");
             assertThat(outcome.metrics()).containsEntry("inputTokens", 80L).containsEntry("outputTokens", 10L)
                     .containsEntry("cacheReadTokens", 6L).containsEntry("cacheWriteTokens", 4L)
                     .doesNotContainKey("usageIncomplete");
             assertThat(events).anySatisfy(e -> assertThat(e).containsEntry("activity", "tool_execution_start"));
-            assertThat(events.toString()).doesNotContain("mock-key", "mock-token");
+            assertThat(events.toString()).doesNotContain("secret-key", "secret-token");
             assertThat(workload.execute(List.of("test", "!", "-e", "/tmp/factory-claude"), 30, Processes.OUTPUT_LIMIT, null).exitCode()).isZero();
             workload.stop();
             workload.export(exported);
@@ -152,8 +152,8 @@ class ClaudeCodeDockerTest {
                 assertThat(call.body.path("max_tokens").asInt()).isEqualTo(4096);
                 assertThat(call.body.path("stream").asBoolean()).isTrue();
                 assertThat(call.path).isEqualTo("/gateway/v1/messages");
-                assertThat(call.apiKey).isEqualTo(authentication.equals("api-key") ? "mock-key" : null);
-                assertThat(call.authorization).isEqualTo(authentication.equals("bearer-token") ? "Bearer mock-token" : null);
+                assertThat(call.apiKey).isEqualTo(authentication.equals("api-key") ? "secret-key" : null);
+                assertThat(call.authorization).isEqualTo(authentication.equals("bearer-token") ? "Bearer secret-token" : null);
             }
         }
     }
@@ -162,13 +162,13 @@ class ClaudeCodeDockerTest {
         try (var mock = new MessagesEndpoint(true, false);
              var scope = new DockerWorkloads().beginStep(executionId, "claude-failure");
              var workload = scope.createSeeded(IMAGE, source, volume, "coding")) {
-            var outcome = ClaudeCodeCodingRuntimeTest.runtime(config(mock, "api-key"))
+            var outcome = runtime(mock, "api-key")
                     .code(workload, ClaudeCodeCodingRuntimeTest.request(), 60, event -> {}, CodingTranscripts.NONE);
             assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.FAILED);
             // The CLI subtype and its error text are kept, with the credential redacted.
             assertThat(outcome.failure().message()).contains("(subtype success, API status 400)",
                     "Error: API Error: 400 private provider diagnostic [REDACTED]");
-            assertThat(outcome.toString()).doesNotContain("mock-key");
+            assertThat(outcome.toString()).doesNotContain("secret-key");
             workload.stop();
             workload.export(exported);
             assertThat(Files.readString(exported.resolve("changed.txt"))).isEqualTo("edited by Claude\n");
@@ -177,7 +177,7 @@ class ClaudeCodeDockerTest {
 
     @Test void decisionAndConfirmedContinuationUseFreshSessions() throws Exception {
         try (var mock = new MessagesEndpoint(false, true)) {
-            var runtime = ClaudeCodeCodingRuntimeTest.runtime(config(mock, "bearer-token"));
+            var runtime = runtime(mock, "bearer-token");
             var request = ClaudeCodeCodingRuntimeTest.request();
             try (var scope = new DockerWorkloads().beginStep(executionId, "clarify");
                  var workload = scope.createSeeded(IMAGE, source, volume, "coding")) {
@@ -204,7 +204,7 @@ class ClaudeCodeDockerTest {
                 var command = List.of("docker", "run", "--rm", "--name", name,
                         "--label", "factory.dev-execution=" + executionId,
                         "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "0:0",
-                        "--env", "HOME=/tmp/factory-home", "--env", "ANTHROPIC_AUTH_TOKEN=mock-token",
+                        "--env", "HOME=/tmp/factory-home", "--env", "ANTHROPIC_AUTH_TOKEN=secret-token",
                         "--env", "ANTHROPIC_BASE_URL=" + mock.url(), "--entrypoint", "claude", IMAGE,
                         "--print", "--output-format", "stream-json", "--verbose", "--no-session-persistence",
                         "--setting-sources", "", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
@@ -223,9 +223,8 @@ class ClaudeCodeDockerTest {
         }
     }
 
-    private static DevRuntimeProperties.ClaudeCode config(MessagesEndpoint mock, String authentication) {
-        return new DevRuntimeProperties.ClaudeCode(IMAGE, "anthropic-messages", mock.url(), mock.model,
-                authentication, "mock-key", "mock-token", 4, 4096, null);
+    private static ClaudeCodeCodingRuntime runtime(MessagesEndpoint mock, String authentication) {
+        return ClaudeCodeCodingRuntimeTest.runtime(IMAGE, mock.url(), mock.model, authentication, 4, "zai-secret");
     }
 
     private static final class MessagesEndpoint implements AutoCloseable {
@@ -249,7 +248,7 @@ class ClaudeCodeDockerTest {
                             exchange.getRequestHeaders().getFirst("Authorization"), body));
                     boolean toolResult = body.path("messages").toString().contains("tool_result");
                     if (failAfterEdit && toolResult) {
-                        byte[] error = "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"private provider diagnostic mock-key\"}}".getBytes(StandardCharsets.UTF_8);
+                        byte[] error = "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"private provider diagnostic secret-key\"}}".getBytes(StandardCharsets.UTF_8);
                         exchange.getResponseHeaders().set("Content-Type", "application/json");
                         exchange.sendResponseHeaders(400, error.length);
                         exchange.getResponseBody().write(error);

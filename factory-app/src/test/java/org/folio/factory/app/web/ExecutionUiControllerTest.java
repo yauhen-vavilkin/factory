@@ -36,8 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.math.BigDecimal;
-import java.net.URI;
 import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -84,10 +82,8 @@ class ExecutionUiControllerTest {
 
     @BeforeEach
     void setUp() {
-        var rate = new DeveloperPricingProperties.Rate("glm-5.3-flash", "USD",
-                LocalDate.parse("2026-09-19"), URI.create("https://example.test/pricing"),
-                new BigDecimal("0.15"), new BigDecimal("0.03"), null, new BigDecimal("0.50"), null, null);
-        var estimator = new DeveloperCostEstimator(new DeveloperPricingProperties(Map.of("flash", rate)));
+        var estimator = DeveloperCostEstimatorTest.estimatorFor("glm-5.3-flash", "https://example.test/pricing",
+                "0.15", "0.03", "0.50");
         var taskQuery = mock(org.folio.factory.app.tasks.presentation.TaskQuery.class);
         mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(
                         new EngineRecords(executions, artifactStore, flowRegistry), auditLog, reviews, json, estimator,

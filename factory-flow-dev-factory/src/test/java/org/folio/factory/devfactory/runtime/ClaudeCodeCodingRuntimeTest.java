@@ -47,7 +47,7 @@ class ClaudeCodeCodingRuntimeTest {
     @ParameterizedTest
     @ValueSource(strings = {"api-key", "bearer-token"})
     void attemptUsesPrivateCredentialsExactModelAndConfirmedContext(String authentication) throws Exception {
-        var runtime = runtime(config(authentication));
+        var runtime = runtime(authentication);
         var workload = workload();
         var temporary = new AtomicReference<Path>();
         doAnswer(call -> {
@@ -99,7 +99,7 @@ class ClaudeCodeCodingRuntimeTest {
         assertThat(outcome.summary()).isEqualTo("Done [REDACTED]");
         assertThat(outcome.metrics()).containsEntry("inputTokens", 40L).containsEntry("cacheReadTokens", 3L)
                 .containsEntry("outputTokens", 5L).doesNotContainKey("usageIncomplete").doesNotContainKey("costUsd");
-        assertThat(events.toString() + runtime.identity(null) + config(authentication))
+        assertThat(events.toString() + runtime.identity(null))
                 .doesNotContain("secret-key", "secret-token", "gateway.example");
         assertThat(Files.exists(temporary.get())).isFalse();
         verify(workload).execute(List.of("rm", "-rf", "/tmp/factory-claude"), 30, Processes.OUTPUT_LIMIT, null);
@@ -108,9 +108,9 @@ class ClaudeCodeCodingRuntimeTest {
     }
 
     @Test
-    void aRunUsesTheProfileItsSettingsNameAndEverySecretIsRedacted() throws Exception {
-        var runtime = new ClaudeCodeCodingRuntime(config("bearer-token"), profiles("zai-secret"));
-        var settings = new CodingRequest.RunSettings("glm-5.3", "low", 7, "Use the wiki REST URL.");
+    void aRunUsesTheModelItsSettingsNameAndEverySecretIsRedacted() throws Exception {
+        var runtime = runtime("bearer-token");
+        var settings = new CodingRequest.RunSettings("glm-5.3", "low", "Use the wiki REST URL.");
         var workload = workload();
         doAnswer(call -> {
             String environment = Files.readString(Path.of((String) call.getArgument(0)).resolve("environment"));
@@ -121,7 +121,7 @@ class ClaudeCodeCodingRuntimeTest {
         }).when(workload).copy(anyString(), eq("/tmp/factory-claude"));
         when(workload.stream(anyList(), eq(60), any(), any())).thenAnswer(call -> {
             List<String> argv = call.getArgument(0);
-            assertThat(argv).containsSubsequence("--model", "glm-5.3", "--max-turns", "7", "--effort", "low")
+            assertThat(argv).containsSubsequence("--model", "glm-5.3", "--max-turns", "10", "--effort", "low")
                     .doesNotContain("zai-secret", "custom/Model-1");
             UnaryOperator<String> redactor = call.getArgument(2);
             assertThat(redactor.apply("zai-secret secret-key secret-token"))
@@ -136,46 +136,43 @@ class ClaudeCodeCodingRuntimeTest {
         var outcome = runtime.code(workload, request, 60, event -> {}, CodingTranscripts.NONE);
 
         assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
-        assertThat(runtime.identity(settings)).containsEntry("profile", "glm-5.3")
-                .containsEntry("profileLabel", "GLM 5.3").containsEntry("model", "glm-5.3")
-                .containsEntry("effort", "low").containsEntry("maxTurns", 7)
+        assertThat(runtime.identity(settings)).containsEntry("modelId", "glm-5.3").containsEntry("model", "glm-5.3")
+                .containsEntry("effort", "low").containsEntry("maxTurns", 10)
                 .doesNotContainKey("baseUrl").doesNotContainValue("zai-secret");
     }
 
     @Test
-    void aMissingOrUnconfiguredProfileFailsWithAReasonThatNamesItAndTheFix() {
-        var runtime = new ClaudeCodeCodingRuntime(config("bearer-token"), profiles(""));
+    void aMissingOrUnconfiguredModelFailsWithAReasonThatNamesItAndTheFix() {
+        var runtime = runtime(null, "http://gateway.example/anthropic", "custom/Model-1", "bearer-token", 10, "");
 
-        assertThatThrownBy(() -> runtime.requireConfigured(new CodingRequest.RunSettings("gone", null, null, null)))
-                .isInstanceOf(RunProfiles.ProfileException.class)
-                .hasMessageContaining("profile gone").hasMessageContaining("config/developer-run-profiles.yaml");
-        assertThatThrownBy(() -> runtime.requireConfigured(
-                new CodingRequest.RunSettings("glm-5.3", null, null, null)))
-                .isInstanceOf(RunProfiles.ProfileException.class)
-                .hasMessage("Profile glm-5.3 is not configured: set FACTORY_ZAI_API_KEY in .env. If docker-compose.yml"
+        assertThatThrownBy(() -> runtime.requireConfigured(new CodingRequest.RunSettings("gone", null, null)))
+                .isInstanceOf(ModelCatalog.ModelException.class)
+                .hasMessageContaining("model gone").hasMessageContaining("config/developer-models.yaml");
+        assertThatThrownBy(() -> runtime.requireConfigured(new CodingRequest.RunSettings("glm-5.3", null, null)))
+                .isInstanceOf(ModelCatalog.ModelException.class)
+                .hasMessage("Model glm-5.3 is not configured: set FACTORY_ZAI_API_KEY in .env. If docker-compose.yml"
                         + " does not pass FACTORY_ZAI_API_KEY to the factory service yet, add it there. Then run"
                         + " docker compose up -d again.");
-        // A broken extra profile does not stop runs with the default profile.
+        // A model without its secret does not stop runs with the default model.
         runtime.requireConfigured(null);
-        assertThat(runtime.identity(new CodingRequest.RunSettings("gone", null, null, null)))
-                .containsEntry("profile", "gone").doesNotContainKey("model");
+        assertThat(runtime.identity(new CodingRequest.RunSettings("gone", null, null)))
+                .containsEntry("modelId", "gone").doesNotContainKey("model");
     }
 
     @Test
-    void aBlankDefaultEffortSendsNoEffortAndShowsTheCliDefault() {
-        var blank = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway.example/anthropic",
-                "custom/Model-1", "api-key", "secret-key", null, 10, 4096, " ");
-        var runtime = runtime(blank);
+    void aRunWithoutSettingsUsesTheDefaultModelItsEffortAndTheTurnLimitFromEnv() {
+        var runtime = runtime("api-key");
         var workload = workload();
         when(workload.stream(anyList(), eq(60), any(), any())).thenAnswer(call -> {
             List<String> argv = call.getArgument(0);
-            assertThat(argv).doesNotContain("--effort");
+            assertThat(argv).containsSubsequence("--model", "custom/Model-1", "--max-turns", "10", "--effort", "high");
             return feed(call.getArgument(3), INIT + RESULT, 0, "");
         });
 
-        assertThat(runtime.code(workload, request(), 60, event -> {}, CodingTranscripts.NONE).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
-        assertThat(runtime.identity(null)).containsEntry("profile", RunProfiles.ENV_DEFAULT)
-                .containsEntry("effort", "high (CLI default)").containsEntry("maxTurns", 10);
+        assertThat(runtime.code(workload, request(), 60, event -> {}, CodingTranscripts.NONE).status())
+                .isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(runtime.identity(null)).containsEntry("modelId", "gateway").containsEntry("model", "custom/Model-1")
+                .containsEntry("effort", "high").containsEntry("maxTurns", 10);
     }
 
     @Test
@@ -187,7 +184,7 @@ class ClaudeCodeCodingRuntimeTest {
                     lines.test(assistant("a", 5));
                     throw new IllegalStateException("private request secret-key secret-token");
                 });
-        var outcome = runtime(config("api-key")).code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
+        var outcome = runtime("api-key").code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
         assertThat(outcome.failure().code()).isEqualTo("RUNTIME_ERROR");
         assertThat(outcome.failure().message()).contains("Check that Docker is running");
         assertThat(outcome.toString()).doesNotContain("secret-key", "secret-token", "private request");
@@ -201,7 +198,7 @@ class ClaudeCodeCodingRuntimeTest {
         doThrow(new IllegalStateException("Command failed (exit 1): no such container secret-key"))
                 .when(workload).copy(anyString(), eq("/tmp/factory-claude"));
         var transcript = new ArrayList<CodingTranscripts.Entry>();
-        var outcome = runtime(config("api-key")).code(workload, request(), 60, e -> { },
+        var outcome = runtime("api-key").code(workload, request(), 60, e -> { },
                 transcript::add);
         assertThat(outcome.failure().code()).isEqualTo("RUNTIME_ERROR");
         assertThat(outcome.failure().message()).startsWith("Factory could not prepare or start Claude Code")
@@ -214,7 +211,7 @@ class ClaudeCodeCodingRuntimeTest {
     void versionMismatchDoesNotCopyCredentialsOrStartTheCli() {
         var workload = workload();
         when(workload.execute(List.of("claude", "--version"), 30, Processes.OUTPUT_LIMIT, null)).thenReturn(new Processes.Result(0, "other"));
-        var outcome = runtime(config("api-key")).code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
+        var outcome = runtime("api-key").code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
         assertThat(outcome.failure().code()).isEqualTo("RUNTIME_VERSION");
         assertThat(outcome.failure().message()).contains("Claude Code " + ClaudeCodeCodingRuntime.VERSION,
                 "Build the coding image again");
@@ -234,7 +231,7 @@ class ClaudeCodeCodingRuntimeTest {
             }
             return new Processes.Streamed(137, false, false, "", false);
         });
-        var outcome = runtime(config("api-key")).code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
+        var outcome = runtime("api-key").code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
         assertThat(answers).containsExactly(true, false);
         assertThat(outcome.failure().code()).isEqualTo("MALFORMED_FRAME");
         assertThat(outcome.failure().message()).contains("not a valid event", "Retry the task");
@@ -245,7 +242,7 @@ class ClaudeCodeCodingRuntimeTest {
         var workload = workload();
         when(workload.stream(anyList(), eq(60), any(), any()))
                 .thenReturn(new Processes.Streamed(0, false, false, "", true));
-        var outcome = runtime(config("api-key")).code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
+        var outcome = runtime("api-key").code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
         assertThat(outcome.failure().code()).isEqualTo("OUTPUT_UNREAD");
         assertThat(outcome.failure().message()).contains("could not finish reading its output", "Retry the task");
     }
@@ -258,13 +255,13 @@ class ClaudeCodeCodingRuntimeTest {
                     feed(call.getArgument(3), INIT, -1, "");
                     return new Processes.Streamed(-1, true, false, "", false);
                 });
-        var timedOut = runtime(config("api-key")).code(workload, request(), 1800, event -> {}, CodingTranscripts.NONE);
+        var timedOut = runtime("api-key").code(workload, request(), 1800, event -> {}, CodingTranscripts.NONE);
         assertThat(timedOut.failure().code()).isEqualTo("TIME_LIMIT");
         assertThat(timedOut.failure().message()).contains("time limit of 30 minutes", "Retry with a lower effort");
 
         when(workload.stream(anyList(), eq(60), any(), any()))
                 .thenReturn(new Processes.Streamed(137, false, true, "", false));
-        var oversized = runtime(config("api-key")).code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
+        var oversized = runtime("api-key").code(workload, request(), 60, event -> {}, CodingTranscripts.NONE);
         assertThat(oversized.failure().code()).isEqualTo("FRAME_TOO_LARGE");
         assertThat(oversized.failure().message()).contains("larger than 8 MB", "Retry the task");
     }
@@ -312,8 +309,8 @@ class ClaudeCodeCodingRuntimeTest {
                 """, 1, 10);
         assertThat(turnLimit.failure().code()).isEqualTo("TURN_LIMIT");
         assertThat(turnLimit.failure().message())
-                .isEqualTo("Claude Code used all 10 turns before it finished the task."
-                        + " Retry with more turns or a different effort.");
+                .isEqualTo("Claude Code reached the 10-turn limit before it finished the task."
+                        + " Retry with another model or effort.");
 
         var budget = parse(INIT + """
                 {"type":"result","subtype":"error_max_budget_usd","is_error":true,"errors":["Budget exceeded"]}
@@ -644,8 +641,29 @@ class ClaudeCodeCodingRuntimeTest {
         return protocol.outcome(new Processes.Streamed(0, false, false, "", false), 60);
     }
 
-    static ClaudeCodeCodingRuntime runtime(DevRuntimeProperties.ClaudeCode config) {
-        return new ClaudeCodeCodingRuntime(config, RunProfiles.envOnly(config));
+    static ClaudeCodeCodingRuntime runtime(String authentication) {
+        return runtime(null, "http://gateway.example/anthropic", "custom/Model-1", authentication, 10, "zai-secret");
+    }
+
+    /**
+     * A runtime whose default model "gateway" sits at {@code baseUrl}: its secret is secret-key with api-key
+     * authentication and secret-token with a bearer token. A second gateway model holds the other secret, and
+     * glm-5.3 a third one; every secret in the file is redacted.
+     */
+    static ClaudeCodeCodingRuntime runtime(String image, String baseUrl, String model, String authentication,
+                                           int maxTurns, String zaiSecret) {
+        var apiKey = "api-key".equals(authentication);
+        var gateway = new ModelEntry("gateway", "anthropic-messages", baseUrl, authentication,
+                apiKey ? "GATEWAY_KEY" : "GATEWAY_TOKEN", model, ClaudeCodeCodingRuntime.EFFORTS, "high", 4096, null);
+        var other = new ModelEntry("gateway-other", "anthropic-messages", baseUrl, apiKey ? "bearer-token" : "api-key",
+                apiKey ? "GATEWAY_TOKEN" : "GATEWAY_KEY", model, ClaudeCodeCodingRuntime.EFFORTS, "high", 4096, null);
+        var glm = new ModelEntry("glm-5.3", "anthropic-messages", "https://api.z.ai/api/anthropic", "bearer-token",
+                "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", 8192, null);
+        var secrets = Map.of("GATEWAY_KEY", "secret-key", "GATEWAY_TOKEN", "secret-token",
+                "FACTORY_ZAI_API_KEY", zaiSecret);
+        var catalog = new ModelCatalog(new ModelCatalog.Properties(List.of(gateway, other, glm), null),
+                "claude-code", secrets::get);
+        return new ClaudeCodeCodingRuntime(new DevRuntimeProperties.ClaudeCode(image, maxTurns), catalog);
     }
 
     private static DockerWorkloads.Workload workload() {
@@ -656,17 +674,6 @@ class ClaudeCodeCodingRuntimeTest {
         return workload;
     }
 
-    private static RunProfiles profiles(String zaiSecret) {
-        var glm = new RunProfiles.FileProfile("glm-5.3", "GLM 5.3", "https://api.z.ai/api/anthropic",
-                "bearer-token", "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", 100, 8192);
-        return new RunProfiles(config("bearer-token"), new RunProfiles.Properties(List.of(glm), null),
-                Map.of("FACTORY_ZAI_API_KEY", zaiSecret)::get);
-    }
-
-    private static DevRuntimeProperties.ClaudeCode config(String authentication) {
-        return new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway.example/anthropic", "custom/Model-1",
-                authentication, "secret-key", "secret-token", 10, 4096, "high");
-    }
 
     static CodingRequest request() {
         return new CodingRequest("TASK-1", "Implement task", "Description", List.of(), List.of(), List.of(), List.of(),

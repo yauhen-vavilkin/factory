@@ -31,8 +31,8 @@ final class StepUsageSummary {
         if (legacyOnly || incomplete()) return null;
         return estimator.estimate(usageByStep.values().stream()
                 .filter(ReportedUsage::codingTokensPresent)
-                .map(usage -> new DeveloperCostEstimator.Usage(
-                        usage.model(), usage.input(), usage.cacheRead(), usage.cacheWrite(), usage.output()))
+                .map(usage -> new DeveloperCostEstimator.Usage(usage.model().id(), usage.model().model(),
+                        usage.input(), usage.cacheRead(), usage.cacheWrite(), usage.output()))
                 .toList());
     }
 
@@ -56,16 +56,16 @@ final class StepUsageSummary {
             List<AuditEvent> events, boolean includeCodingProgress, JsonMapper jsonMapper) {
         Map<String, ReportedUsage> completed = new LinkedHashMap<>();
         Map<String, ReportedUsage> progress = new LinkedHashMap<>();
-        Map<String, String> runtimeModels = new LinkedHashMap<>();
+        Map<String, ModelRef> runtimeModels = new LinkedHashMap<>();
         for (var event : events) {
             if (event.getStepId() == null) continue;
             var stepId = event.getStepId();
             var detail = jsonMapper.readTree(event.getDetail() == null ? "{}" : event.getDetail());
             switch (usageEvent(event, detail, includeCodingProgress)) {
-                case RUNTIME_STARTING -> runtimeModels.put(stepId, text(detail, "model"));
-                case CODING_USAGE -> reportedUsage(detail, runtimeModels.get(stepId))
+                case RUNTIME_STARTING -> runtimeModels.put(stepId, ModelRef.of(detail));
+                case CODING_USAGE -> reportedUsage(detail, runtimeModels.getOrDefault(stepId, ModelRef.NONE))
                         .ifPresent(usage -> progress.put(stepId, usage));
-                case STEP_COMPLETED -> reportedUsage(detail, null)
+                case STEP_COMPLETED -> reportedUsage(detail, ModelRef.NONE)
                         .ifPresent(usage -> completed.put(stepId, usage));
                 case OTHER -> { }
             }
@@ -89,16 +89,16 @@ final class StepUsageSummary {
     }
 
     /** Empty when the event reports no token counts at all. */
-    private static Optional<ReportedUsage> reportedUsage(JsonNode detail, String runtimeModel) {
+    private static Optional<ReportedUsage> reportedUsage(JsonNode detail, ModelRef runtimeModel) {
         var usage = TokenUsage.from(detail);
         if (!usage.hasCounts()) {
             return Optional.empty();
         }
-        var model = text(detail, "model");
+        var model = ModelRef.of(detail);
         return Optional.of(new ReportedUsage(atLeastZero(usage.promptTokens()), atLeastZero(usage.completionTokens()),
                 atLeastZero(usage.inputTokens()), atLeastZero(usage.cacheReadTokens()),
                 atLeastZero(usage.cacheWriteTokens()), atLeastZero(usage.outputTokens()),
-                model == null ? runtimeModel : model, usage.usageIncomplete()));
+                model.model() == null ? runtimeModel : model, usage.usageIncomplete()));
     }
 
     private static Long atLeastZero(Long count) {
@@ -165,6 +165,19 @@ final class StepUsageSummary {
 
     private enum UsageEvent { RUNTIME_STARTING, CODING_USAGE, STEP_COMPLETED, OTHER }
 
+    /**
+     * The model entry id and model string of a step. Runs record the id in their identity and in the rate they
+     * stored; Pi runs and runs started before 2026-11-03 have no id.
+     */
+    private record ModelRef(String id, String model) {
+        static final ModelRef NONE = new ModelRef(null, null);
+
+        static ModelRef of(JsonNode detail) {
+            String id = text(detail, "modelId");
+            return new ModelRef(id == null ? text(detail.path("rate"), "modelId") : id, text(detail, "model"));
+        }
+    }
+
     private record ReportedUsage(
             Long prompt,
             Long completion,
@@ -172,7 +185,7 @@ final class StepUsageSummary {
             Long cacheRead,
             Long cacheWrite,
             Long output,
-            String model,
+            ModelRef model,
             boolean usageIncomplete) {
         boolean factoryTokensPresent() {
             return prompt != null || completion != null;

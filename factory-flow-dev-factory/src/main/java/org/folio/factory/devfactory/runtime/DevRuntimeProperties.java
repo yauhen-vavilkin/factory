@@ -3,7 +3,6 @@ package org.folio.factory.devfactory.runtime;
 import org.folio.factory.devfactory.verification.MavenTestSuite;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -63,8 +62,7 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         public Coding {
             runtime = normalized(first(runtime, "claude-code"));
             pi = pi == null ? new Pi(null, null, null, null, null, null, null, null, null) : pi;
-            claudeCode = claudeCode == null
-                    ? new ClaudeCode(null, null, null, null, null, null, null, null, null, null) : claudeCode;
+            claudeCode = claudeCode == null ? new ClaudeCode(null, null) : claudeCode;
         }
     }
 
@@ -79,10 +77,7 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         }
 
         public void requireConfigured() {
-            // Built-in API types in the pinned Pi 0.85.1 image (pi-ai KnownApi).
-            if (!List.of("openai-completions", "openai-responses", "anthropic-messages",
-                    "mistral-conversations", "azure-openai-responses", "openai-codex-responses",
-                    "bedrock-converse-stream", "google-generative-ai", "google-vertex", "pi-messages").contains(api)) {
+            if (!PiCodingRuntime.APIS.contains(api)) {
                 throw new IllegalStateException(
                         "Unsupported Pi API type; configure a built-in API supported by Pi 0.85.1");
             }
@@ -101,64 +96,23 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         }
     }
 
-    public record ClaudeCode(String image, String api, String baseUrl, String model, String authentication,
-                             String apiKey, String authToken, Integer maxTurns, Integer maxOutputTokens,
-                             String effort) {
+    /**
+     * The model, endpoint and secret of a Claude Code run come from config/developer-models.yaml. maxTurns is a
+     * safety limit, not a tuning knob: the 30-minute coding timeout usually ends a run first.
+     */
+    public record ClaudeCode(String image, Integer maxTurns) {
+        public static final int MAX_TURNS_LIMIT = 500;
+
         public ClaudeCode {
             image = first(image, "factory-dev-claude-code:2.1.287-java21");
-            api = first(api, "anthropic-messages");
-            baseUrl = first(baseUrl, "http://host.docker.internal:4001");
-            model = first(model, "claude-sonnet-5-5");
-            authentication = first(authentication, "bearer-token");
-            authToken = first(authToken, "codemie-proxy");
-            maxTurns = maxTurns == null ? 40 : maxTurns;
-            maxOutputTokens = maxOutputTokens == null ? 16384 : maxOutputTokens;
+            maxTurns = maxTurns == null ? 200 : maxTurns;
         }
+
         public void requireConfigured() {
-            if (!"anthropic-messages".equals(api)) {
-                throw new IllegalStateException("Claude Code requires api=anthropic-messages; "
-                        + "OpenAI API endpoints need a different runtime");
-            }
-            if (!"api-key".equals(authentication) && !"bearer-token".equals(authentication)) {
-                throw new IllegalStateException("Claude Code authentication must be api-key or bearer-token");
-            }
-            required("claude-code", image, baseUrl, model, secret());
-            requireValidEndpoint();
-            if (maxTurns <= 0 || maxOutputTokens <= 0) {
-                throw new IllegalStateException("Claude Code max-turns and max-output-tokens must be positive");
-            }
-            if (maxTurns > RunProfiles.MAX_TURNS) {
+            if (maxTurns < 1 || maxTurns > MAX_TURNS_LIMIT) {
                 throw new IllegalStateException("FACTORY_CLAUDE_CODE_MAX_TURNS is " + maxTurns
-                        + ", but it must be from 1 to " + RunProfiles.MAX_TURNS);
+                        + ", but it must be from 1 to " + MAX_TURNS_LIMIT);
             }
-            if (effort != null && !effort.isBlank()
-                    && !RunProfiles.EFFORTS.contains(effort.strip().toLowerCase(Locale.ROOT))) {
-                throw new IllegalStateException("Claude Code effort must be low, medium, high, xhigh or max");
-            }
-        }
-
-        private void requireValidEndpoint() {
-            URI endpoint;
-            try {
-                endpoint = URI.create(baseUrl);
-            } catch (IllegalArgumentException e) {
-                throw new IllegalStateException("Claude Code base-url must be an HTTP(S) endpoint");
-            }
-            boolean http = "http".equals(endpoint.getScheme()) || "https".equals(endpoint.getScheme());
-            if (!http || endpoint.getHost() == null || endpoint.getUserInfo() != null
-                    || endpoint.getRawQuery() != null || endpoint.getFragment() != null) {
-                throw new IllegalStateException(
-                        "Claude Code base-url must be HTTP(S), without credentials, query or fragment");
-            }
-        }
-
-        public String secret() {
-            return "bearer-token".equals(authentication) ? authToken : apiKey;
-        }
-
-        @Override
-        public String toString() {
-            return "ClaudeCode[image=" + image + ", model=" + model + "]";
         }
     }
 

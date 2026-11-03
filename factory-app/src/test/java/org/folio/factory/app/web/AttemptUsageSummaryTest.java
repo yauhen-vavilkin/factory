@@ -3,8 +3,6 @@ import org.folio.factory.core.domain.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 import tools.jackson.databind.json.JsonMapper;
-import java.math.BigDecimal;
-import java.net.URI;
 import java.time.*;
 import java.util.*;
 import static org.assertj.core.api.Assertions.*;
@@ -112,10 +110,8 @@ class AttemptUsageSummaryTest {
     }
 
     @Test void oldAndNewAccountingPriceIdenticalUsageIdentically() {
-        var estimator=new DeveloperCostEstimator(new DeveloperPricingProperties(Map.of(
-                "haiku",new DeveloperPricingProperties.Rate("claude-haiku-5-5","USD",
-                        LocalDate.parse("2026-09-19"),URI.create("https://www.anthropic.com/pricing"),
-                        new BigDecimal("0.15"),new BigDecimal("0.03"),null,new BigDecimal("0.50"),null,null))));
+        var estimator=DeveloperCostEstimatorTest.estimatorFor("claude-haiku-5-5",
+                "https://www.anthropic.com/pricing","0.15","0.03","0.50");
         String rate="{\"currency\":\"USD\",\"source\":\"anthropic-pricing\",\"asOf\":\"2026-09-19\","
                 +"\"inputPerMillion\":0.15,\"cacheReadPerMillion\":0.03,\"outputPerMillion\":0.50}";
         var initial=new AuditEvent(UUID.randomUUID(),AuditEventType.STEP_COMPLETED,"implement","test",

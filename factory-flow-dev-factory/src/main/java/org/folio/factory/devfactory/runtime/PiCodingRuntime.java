@@ -15,6 +15,10 @@ import java.util.function.Consumer;
 
 /** Pi adapter for the Factory-owned coding request and outcome contracts. */
 public class PiCodingRuntime implements CodingRuntime {
+    /** Built-in API types of the pinned Pi 0.85.1 image (pi-ai KnownApi); every API a model entry can name. */
+    public static final List<String> APIS = List.of("openai-completions", "openai-responses", "anthropic-messages",
+            "mistral-conversations", "azure-openai-responses", "openai-codex-responses", "bedrock-converse-stream",
+            "google-generative-ai", "google-vertex", "pi-messages");
     static final int EVENT_STREAM_LIMIT = 16 * 1024 * 1024;
     private static final String PI_VERSION = "0.85.1";
     private static final String PI_DIRECTORY = "/tmp/factory-pi";

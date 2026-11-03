@@ -70,6 +70,11 @@ public class Task {
     @Setter
     private boolean inScope = true;
 
+    /** Added to My tasks by its key: a scan keeps it in the list even when it is not assigned to the developer. */
+    @Column(name = "added_by_key", nullable = false)
+    @Setter
+    private boolean addedByKey;
+
     @Column(name = "jira_created_at")
     @Setter
     private Instant jiraCreatedAt;

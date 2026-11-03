@@ -41,7 +41,7 @@ import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.PiCodingRuntime;
 import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
-import org.folio.factory.devfactory.runtime.RunProfiles;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
 import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 import org.folio.factory.devfactory.tasks.TaskGuard;
@@ -73,7 +73,7 @@ import java.util.Map;
  * class only assembles the worker beans the descriptor references.
  */
 @Configuration
-@EnableConfigurationProperties({DevFactoryProperties.class, DevRuntimeProperties.class, RunProfiles.Properties.class})
+@EnableConfigurationProperties({DevFactoryProperties.class, DevRuntimeProperties.class, ModelCatalog.Properties.class})
 public class DevFactoryConfiguration {
 
     /** The id in {@code flows/dev-factory.yaml}. */
@@ -85,7 +85,8 @@ public class DevFactoryConfiguration {
             ObjectProvider<AttemptPricing> pricing, ObjectProvider<CodingTranscripts> transcripts,
             ObjectProvider<SelectedRepositoryPreflight> repositoryPreflight) {
         return new DevFactoryHooks(taskPolicy.getIfAvailable(TaskAttemptPolicy::none),
-                pricing.getIfAvailable(() -> model -> Map.of()), transcripts.getIfAvailable(CodingTranscripts::none),
+                pricing.getIfAvailable(() -> (modelId, model) -> Map.of()),
+                transcripts.getIfAvailable(CodingTranscripts::none),
                 repositoryPreflight.getIfAvailable(SelectedRepositoryPreflight::none));
     }
 
@@ -114,18 +115,18 @@ public class DevFactoryConfiguration {
         return new CandidateFreezer();
     }
 
-    /** Secrets are read through the Environment by the variable name a profile gives; the file holds none. */
+    /** Secrets are read through the Environment by the variable name a model gives; the file holds none. */
     @Bean
-    public RunProfiles devRunProfiles(DevRuntimeProperties runtime, RunProfiles.Properties profiles,
+    public ModelCatalog devModelCatalog(DevRuntimeProperties runtime, ModelCatalog.Properties models,
             Environment environment) {
-        return new RunProfiles(runtime.coding().claudeCode(), profiles, environment::getProperty);
+        return new ModelCatalog(models, runtime.coding().runtime(), environment::getProperty);
     }
 
     @Bean
-    public CodingRuntime devCodingRuntime(DevRuntimeProperties runtime, RunProfiles profiles) {
+    public CodingRuntime devCodingRuntime(DevRuntimeProperties runtime, ModelCatalog models) {
         return switch (runtime.coding().runtime()) {
             case "pi" -> new PiCodingRuntime(runtime.coding().pi());
-            case "claude-code" -> new ClaudeCodeCodingRuntime(runtime.coding().claudeCode(), profiles);
+            case ClaudeCodeCodingRuntime.ID -> new ClaudeCodeCodingRuntime(runtime.coding().claudeCode(), models);
             default -> throw new IllegalStateException(
                     "Unsupported coding runtime '" + runtime.coding().runtime() + "'");
         };

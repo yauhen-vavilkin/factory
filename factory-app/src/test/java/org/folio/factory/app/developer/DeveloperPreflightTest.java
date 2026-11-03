@@ -1,7 +1,6 @@
 package org.folio.factory.app.developer;
 
 import org.folio.factory.agents.artifact.FrontmatterCodec;
-import org.folio.factory.app.web.DeveloperPricingProperties;
 import org.folio.factory.connectors.github.GitHubProperties;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.jira.JiraIssue;
@@ -16,7 +15,9 @@ import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
-import org.folio.factory.devfactory.runtime.RunProfiles;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
+import org.folio.factory.devfactory.runtime.ModelEntry;
+import org.folio.factory.devfactory.runtime.ModelPrice;
 import org.folio.factory.devfactory.worker.IntakeWorker;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +33,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -62,6 +64,12 @@ class DeveloperPreflightTest {
 
     private static final String SHA = "a".repeat(40);
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final ModelPrice PRICE = new ModelPrice("USD", LocalDate.of(2026, 10, 22),
+            URI.create("https://pricing.fixture.invalid"), BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, null, null,
+            BigDecimal.ONE);
+    private static final ModelEntry GLM = new ModelEntry("glm-5.3", "anthropic-messages",
+            "https://api.z.ai/api/anthropic", "bearer-token", "FACTORY_ZAI_API_KEY", "glm-5.3",
+            List.of("low", "high", "max"), "max", null, null);
 
     private final CodingRuntime coding = mock(CodingRuntime.class);
     private final JiraConnector jira = mock(JiraConnector.class);
@@ -71,19 +79,18 @@ class DeveloperPreflightTest {
     private final GitHubProperties github = new GitHubProperties("", "github-fixture-secret");
     private DevRuntimeProperties settings;
     private DevFactoryProperties repositories;
-    private DeveloperPricingProperties pricing;
+    /** The default model; the other model of the file is {@link #GLM}. */
+    private ModelEntry defaultModel;
+    private Map<String, String> secrets;
 
     @BeforeEach
     void configuredFixture() {
-        var profile = new DevRuntimeProperties.ClaudeCode("coding:image", "anthropic-messages",
-                "http://gateway.fixture.invalid:4001", "exact-model", "bearer-token", null,
-                "coding-fixture-secret", 40, 16384, null);
-        var runtime = new DevRuntimeProperties.Coding("claude-code", null, profile);
+        var runtime = new DevRuntimeProperties.Coding("claude-code", null,
+                new DevRuntimeProperties.ClaudeCode("coding:image", 40));
         settings = new DevRuntimeProperties(Map.of("unit", List.of("mvn", "-B", "test")), runtime, 1800, null, null);
         repositories = catalog(Map.of("fixture", repository("source/module", true)));
-        pricing = new DeveloperPricingProperties(Map.of("fixture", new DeveloperPricingProperties.Rate(
-                "exact-model", "USD", LocalDate.of(2026, 10, 22), URI.create("https://pricing.fixture.invalid"),
-                BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, BigDecimal.ONE, null, null)));
+        defaultModel = model("http://gateway.fixture.invalid:4001", PRICE);
+        secrets = new HashMap<>(Map.of("CODING_SECRET", "coding-fixture-secret"));
         when(coding.id()).thenReturn("claude-code");
         when(coding.image()).thenReturn("coding:image");
         when(coding.identity(any())).thenReturn(Map.of("runtime", "claude-code", "image", "coding:image", "model", "exact-model"));
@@ -117,14 +124,14 @@ class DeveloperPreflightTest {
     }
 
     @Test
-    void invalidSelectedProfileBlocksAdmissionWithoutProbingItsGatewayOrExposingCredential() {
+    void invalidSelectedModelBlocksAdmissionWithoutProbingItsGatewayOrExposingCredential() {
         doThrow(new IllegalStateException("invalid coding-fixture-secret")).when(coding).requireConfigured(any());
 
         var report = service().check("TASK-1");
 
         assertThat(report.ready()).isFalse();
         assertThat(check(report, "runtime").status()).isEqualTo(FAIL);
-        // Only the overview of every run profile probes endpoints; admission never probes this gateway.
+        // Only the overview of every model probes endpoints; admission never probes this gateway.
         assertThat(report.checks()).noneMatch(check -> check.name().equals("gateway"));
         assertSafe(report);
         org.mockito.Mockito.clearInvocations(probe);
@@ -136,69 +143,61 @@ class DeveloperPreflightTest {
     }
 
     @Test
-    void aTaskRunIsCheckedWithItsOwnProfileSoABrokenDefaultDoesNotBlockIt() throws Exception {
-        var broken = new DevRuntimeProperties.ClaudeCode("coding:image", "anthropic-messages",
-                "http://gateway.fixture.invalid:4001", "exact-model", "api-key", null, null, 40, 16384, null);
-        var service = profileService(broken, "zai-fixture-secret");
+    void aTaskRunIsCheckedWithItsOwnModelSoABrokenDefaultDoesNotBlockIt() throws Exception {
+        secrets = Map.of("FACTORY_ZAI_API_KEY", "zai-fixture-secret");
+        var service = serviceWithClaudeCode();
         var payload = JSON.readTree("{\"issueKey\":\"TASK-1\"}");
 
-        assertThatCode(() -> DeveloperPreflight.forRun(new CodingRequest.RunSettings("glm-5.3", "max", 50, null),
+        assertThatCode(() -> DeveloperPreflight.forRun(new CodingRequest.RunSettings("glm-5.3", "max", null),
                 () -> {
                     service.requireReady("dev-factory", payload);
                     return null;
                 })).doesNotThrowAnyException();
         verify(probe).gatewayReachable(URI.create("https://api.z.ai/api/anthropic"));
-        // A run that uses the broken default, or a profile that is gone, stops alone with a plain reason.
+        // A run that uses the broken default, or a model that is gone, stops alone with a plain reason.
         assertThatThrownBy(() -> service.requireReady("dev-factory", payload))
                 .isInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
-                .hasMessageContaining("set FACTORY_CLAUDE_CODE_API_KEY in .env");
-        assertThatThrownBy(() -> DeveloperPreflight.forRun(new CodingRequest.RunSettings("gone", null, null, null),
+                .hasMessageContaining("set CODING_SECRET in .env");
+        assertThatThrownBy(() -> DeveloperPreflight.forRun(new CodingRequest.RunSettings("gone", null, null),
                 () -> {
                     service.requireReady("dev-factory", payload);
                     return null;
                 }))
                 .isInstanceOf(DeveloperPreflight.TaskNotRunnableException.class)
-                .hasMessageContaining("profile gone").hasMessageContaining("config/developer-run-profiles.yaml");
+                .hasMessageContaining("model gone").hasMessageContaining("config/developer-models.yaml");
     }
 
     @Test
-    void theConfigurationPageListsEveryRunProfileWithItsOwnChecks() {
-        var configured = settings.coding().claudeCode();
-        var report = profileService(configured, "").check(null);
+    void theConfigurationPageListsEveryModelWithItsOwnChecks() {
+        var report = serviceWithClaudeCode().check(null);
 
-        assertThat(report.profiles()).extracting(row -> row.get("id")).containsExactly("env-default", "glm-5.3");
-        var envDefault = report.profiles().getFirst();
-        assertThat(envDefault).containsEntry("default", true).containsEntry("model", "exact-model")
-                .containsEntry("effort", "high (CLI default)").containsEntry("maxTurns", 40)
-                .containsEntry("endpointOrigin", "http://gateway.fixture.invalid:4001");
-        assertThat(profileChecks(envDefault)).containsEntry("secret", PASS).containsEntry("endpoint", PASS)
-                .containsEntry("rate card", PASS).containsEntry("efforts", PASS);
-        var glm = report.profiles().get(1);
-        assertThat(glm).containsEntry("default", false).containsEntry("effort", "max")
-                .containsEntry("efforts", List.of("low", "high", "max"))
-                .containsEntry("endpointOrigin", "https://api.z.ai");
-        assertThat(profileChecks(glm)).containsEntry("secret", FAIL).containsEntry("endpoint", PASS)
-                .containsEntry("rate card", WARN).containsEntry("efforts", PASS);
+        assertThat(report.models()).extracting(ModelChecks.ModelRow::id).containsExactly("fixture", "glm-5.3");
+        var fixture = report.models().getFirst();
+        assertThat(fixture.defaultModel()).isTrue();
+        assertThat(fixture.ready()).isTrue();
+        assertThat(fixture.model()).isEqualTo("exact-model");
+        assertThat(fixture.endpointOrigin()).isEqualTo("http://gateway.fixture.invalid:4001");
+        assertThat(checks(fixture)).containsEntry("api", PASS).containsEntry("efforts", PASS)
+                .containsEntry("secret", PASS).containsEntry("endpoint", PASS).containsEntry("price", PASS);
+        var glm = report.models().get(1);
+        assertThat(glm.defaultModel()).isFalse();
+        assertThat(glm.ready()).isFalse();
+        assertThat(glm.efforts()).isEqualTo("low, high, max; default max");
+        assertThat(glm.endpointOrigin()).isEqualTo("https://api.z.ai");
+        assertThat(checks(glm)).containsEntry("secret", FAIL).containsEntry("endpoint", PASS)
+                .containsEntry("price", WARN).containsEntry("efforts", PASS);
         assertThat(JSON.writeValueAsString(report)).doesNotContain("coding-fixture-secret");
     }
 
-    @SuppressWarnings("unchecked")
-    private static Map<String, DeveloperPreflight.Status> profileChecks(Map<String, Object> row) {
+    private static Map<String, DeveloperPreflight.Status> checks(ModelChecks.ModelRow row) {
         var checks = new java.util.LinkedHashMap<String, DeveloperPreflight.Status>();
-        ((List<DeveloperPreflight.Check>) row.get("checks")).forEach(check -> checks.put(check.name(), check.status()));
+        row.checks().forEach(check -> checks.put(check.name(), check.status()));
         return checks;
     }
 
-    private DeveloperPreflight profileService(DevRuntimeProperties.ClaudeCode environment, String zaiKey) {
-        var glm = new RunProfiles.FileProfile("glm-5.3", "GLM-5.3 (Z.ai)", "https://api.z.ai/api/anthropic",
-                "bearer-token", "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", 100, 16384);
-        var profiles = new RunProfiles(environment, new RunProfiles.Properties(List.of(glm), null),
-                Map.of("FACTORY_ZAI_API_KEY", zaiKey)::get);
-        var runtime = new DevRuntimeProperties.Coding("claude-code", null, environment);
-        settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null, null);
-        return new DeveloperPreflight(repositories, settings,
-                new ClaudeCodeCodingRuntime(environment, profiles), jiraProperties, jira, github, pricing, probe,
-                profiles);
+    /** The preflight with the real Claude Code runtime over the fixture models, not the mocked runtime. */
+    private DeveloperPreflight serviceWithClaudeCode() {
+        return service(new ClaudeCodeCodingRuntime(settings.coding().claudeCode(), models()), github);
     }
 
     @ParameterizedTest
@@ -271,7 +270,7 @@ class DeveloperPreflightTest {
 
     @Test
     void missingRateCardWarnsWithoutBlockingOtherwiseReadyTask() {
-        pricing = new DeveloperPricingProperties(Map.of());
+        defaultModel = model("http://gateway.fixture.invalid:4001", null);
 
         var report = service().check("TASK-1");
 
@@ -281,11 +280,7 @@ class DeveloperPreflightTest {
 
     @Test
     void controlPlaneCannotReachCodingEndpointButDoesNotVetoTheCodingNetwork() {
-        var profile = new DevRuntimeProperties.ClaudeCode("coding:image", "anthropic-messages",
-                "http://host.docker.internal:4001", "exact-model", "bearer-token", null,
-                "coding-fixture-secret", 40, 16384, null);
-        settings = new DevRuntimeProperties(settings.plans(), new DevRuntimeProperties.Coding("claude-code", null,
-                profile), 1800, null, null);
+        defaultModel = model("http://host.docker.internal:4001", PRICE);
         when(probe.gatewayReachable(any())).thenReturn(false);
 
         var report = service().check("TASK-1");
@@ -414,8 +409,7 @@ class DeveloperPreflightTest {
     @Test
     void unsupportedEnterpriseApiIsBlockedBeforeRepositoryAccess() {
         var enterprise = new GitHubProperties("https://github.enterprise.invalid/api/v3", "github-fixture-secret");
-        var service = new DeveloperPreflight(repositories, settings, coding, jiraProperties, jira,
-                enterprise, pricing, probe, RunProfiles.envOnly(settings.coding().claudeCode()));
+        var service = service(coding, enterprise);
 
         var report = service.check("TASK-1");
 
@@ -426,33 +420,17 @@ class DeveloperPreflightTest {
     }
 
     @Test
-    void defaultProxyProfileHasASafeEffectiveConfiguration() {
+    void theDefaultModelHasASafeEffectiveConfiguration() {
         settings = new DevRuntimeProperties(Map.of(), null, 1800, null, null);
 
         var report = service().check(null);
 
         assertThat(report.ready()).isFalse();
         assertThat(report.runtime())
+                .containsEntry("api", "anthropic-messages")
                 .containsEntry("authentication", "bearer-token")
-                .containsEntry("endpointOrigin", "http://host.docker.internal:4001");
+                .containsEntry("endpointOrigin", "http://gateway.fixture.invalid:4001");
         assertThat(check(report, "runtime").status()).isEqualTo(PASS);
-        assertThat(JSON.writeValueAsString(report)).doesNotContain("codemie-proxy");
-        assertSafe(report);
-    }
-
-    @Test
-    void invalidAuthenticationIsRedactedFromEffectiveConfiguration() {
-        var profile = new DevRuntimeProperties.ClaudeCode(null, null, null, null,
-                "coding-fixture-secret", null, null, null, null, null);
-        var runtime = new DevRuntimeProperties.Coding("claude-code", null, profile);
-        settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null, null);
-        doThrow(new IllegalStateException("invalid coding-fixture-secret")).when(coding).requireConfigured(any());
-
-        var report = service().check(null);
-
-        assertThat(report.ready()).isFalse();
-        assertThat(report.runtime()).containsEntry("authentication", "unset or invalid");
-        assertThat(check(report, "runtime").status()).isEqualTo(FAIL);
         assertSafe(report);
     }
 
@@ -550,8 +528,23 @@ class DeveloperPreflightTest {
     }
 
     private DeveloperPreflight service() {
-        return new DeveloperPreflight(repositories, settings, coding, jiraProperties, jira, github, pricing,
-                probe, RunProfiles.envOnly(settings.coding().claudeCode()));
+        return service(coding, github);
+    }
+
+    private DeveloperPreflight service(CodingRuntime runtime, GitHubProperties gitHub) {
+        var models = models();
+        return new DeveloperPreflight(repositories, settings, runtime, jiraProperties, jira, gitHub, probe, models,
+                new ModelChecks(models, probe));
+    }
+
+    private ModelCatalog models() {
+        return new ModelCatalog(new ModelCatalog.Properties(List.of(defaultModel, GLM), null),
+                settings.coding().runtime(), secrets::get);
+    }
+
+    private static ModelEntry model(String baseUrl, ModelPrice price) {
+        return new ModelEntry("fixture", "anthropic-messages", baseUrl, "bearer-token", "CODING_SECRET", "exact-model",
+                List.of("low", "medium", "high", "xhigh", "max"), "high", null, price);
     }
 
     private void usePiProfile(String baseUrl) {

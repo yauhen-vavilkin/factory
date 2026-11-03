@@ -13,7 +13,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientResponseException;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -69,15 +68,6 @@ public class TaskAdmissionChecks {
         }
         DiscoveredIssue issue = fetch(issueKey).issue();
         return issue != null && issue.id().equals(task.getIssueId()) ? issue : null;
-    }
-
-    /** Null when the issue routes to a repository the token can push to; the refusal otherwise. */
-    String routingProblem(DiscoveredIssue issue) {
-        TaskDiscoveryService.Routing routing = discovery.routing(issue);
-        if (routing.eligibility() != Task.Eligibility.ELIGIBLE) {
-            return routing.reason();
-        }
-        return pushProblem(routing.reason(), new HashMap<>());
     }
 
     /** Null when the token can push to the routed repository; the refusal otherwise (cached per repository). */

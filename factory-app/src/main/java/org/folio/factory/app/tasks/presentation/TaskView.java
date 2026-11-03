@@ -29,6 +29,7 @@ public record TaskView(
         String pullRequestUrl,
         List<String> draftReasons,
         boolean inScope,
+        boolean addedByKey,
         long version,
         String inputFingerprint,
         String destinationFingerprint,

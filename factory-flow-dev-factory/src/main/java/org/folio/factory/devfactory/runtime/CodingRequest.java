@@ -1,5 +1,8 @@
 package org.folio.factory.devfactory.runtime;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.util.List;
 
 /** Factory-owned, runtime-neutral description of one authorized coding attempt. */
@@ -70,11 +73,13 @@ public record CodingRequest(
     }
 
     /**
-     * What the operator chose for this run: the run profile, effort, turn limit and extra instructions.
-     * A null field means the profile's default; a request without settings uses the default profile.
-     * It never holds a secret.
+     * What the person chose for this run: the model from config/developer-models.yaml, its effort and extra
+     * instructions. A null field means the default; a request without settings uses the default model. It never
+     * holds a secret. Requests stored before 2026-11-03 name the model "profileId" and also hold maxTurns, which
+     * is now a limit in .env; the JSON name stays so that open pull requests still get their feedback runs.
      */
-    public record RunSettings(String profileId, String effort, Integer maxTurns, String instructions) {
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record RunSettings(@JsonProperty("profileId") String modelId, String effort, String instructions) {
     }
 
     public record Constraints(String workingDirectory, boolean allowRepositorySwitch, boolean allowPush,

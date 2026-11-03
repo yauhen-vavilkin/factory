@@ -2,6 +2,7 @@ package org.folio.factory.app;
 
 import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.developer.ModelChecks;
 import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.TaskFixture;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
@@ -24,7 +25,7 @@ import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.CodingTranscripts;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
-import org.folio.factory.devfactory.runtime.RunProfiles;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -66,19 +67,15 @@ import static org.mockito.Mockito.when;
 @TestPropertySource(properties = {
         "factory.connectors.jira.base-url=https://jira.example.org",
         "factory.tasks.source.assignee=Jane Developer",
-        "factory.developer-pricing.rates.test.model=test-model",
-        "factory.developer-pricing.rates.test.currency=USD",
-        "factory.developer-pricing.rates.test.as-of=2026-09-19",
-        "factory.developer-pricing.rates.test.source=https://example.test/pricing",
-        "factory.developer-pricing.rates.test.input-per-million=0.15",
-        "factory.developer-pricing.rates.test.cache-read-per-million=0.03",
-        "factory.developer-pricing.rates.test.output-per-million=0.50",
+        "FACTORY_CODEMIE_PROXY_TOKEN=" + UiRenderSmokeTest.PROXY_TOKEN,
+        "FACTORY_ANTHROPIC_API_KEY=",
         "FACTORY_ZAI_API_KEY=" + UiRenderSmokeTest.ZAI_KEY})
-// Own context: its own Jira, assignee, pricing and Z.AI key for the rendered pages; closing it stops its schedulers and frees its connections.
+// Own context: its own Jira, assignee and model secrets for the rendered pages; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class UiRenderSmokeTest {
 
     static final String ZAI_KEY = "smoke-zai-secret-key";
+    static final String PROXY_TOKEN = "smoke-proxy-secret-token";
 
     @LocalServerPort
     int port;
@@ -127,7 +124,7 @@ class UiRenderSmokeTest {
     private DevRuntimeProperties devRuntime;
 
     @Autowired
-    private RunProfiles.Properties runProfilesFile;
+    private ModelCatalog.Properties modelsFile;
 
     private RestClient rest;
 
@@ -223,25 +220,17 @@ class UiRenderSmokeTest {
                 "Push permission check <read-only> & base alignment.");
         var inferenceCheck = new DeveloperPreflight.Check("inference", DeveloperPreflight.Status.NOT_RUN,
                 "No model call made.");
-        Map<String, Object> profile = Map.ofEntries(Map.entry("id", "glm-5.3"),
-                Map.entry("label", "GLM-5.3 (Z.ai)"), Map.entry("default", false), Map.entry("model", "glm-5.3"),
-                Map.entry("endpointOrigin", "https://api.z.ai"), Map.entry("authentication", "bearer-token"),
-                Map.entry("efforts", List.of("low", "high", "max")), Map.entry("effort", "max"),
-                Map.entry("maxTurns", 100), Map.entry("maxOutputTokens", 16384),
-                Map.entry("checks", List.of(new DeveloperPreflight.Check("secret", DeveloperPreflight.Status.FAIL,
-                        "Profile glm-5.3 is not configured: set FACTORY_ZAI_API_KEY in .env. If docker-compose.yml"
-                                + " does not pass FACTORY_ZAI_API_KEY to the factory service yet, add it there. Then run"
-                                + " docker compose up -d again."))));
-        Map<String, Object> envDefault = Map.ofEntries(Map.entry("id", "env-default"),
-                Map.entry("label", "Configured in .env"), Map.entry("default", true),
-                Map.entry("model", "claude-sonnet-5-5"), Map.entry("endpointOrigin", "http://host.docker.internal:4001"),
-                Map.entry("authentication", "bearer-token"),
-                Map.entry("efforts", List.of("low", "medium", "high", "xhigh", "max")),
-                Map.entry("effort", "high (CLI default)"), Map.entry("maxTurns", 40),
-                Map.entry("maxOutputTokens", 16384), Map.entry("checks", List.of()));
+        var sonnet = new ModelChecks.ModelRow("codemie-sonnet-5.5", true, true, "claude-sonnet-5-5",
+                "anthropic-messages", "http://host.docker.internal:4001", "bearer-token",
+                "low, medium, high, xhigh, max; default high", List.of());
+        var glm = new ModelChecks.ModelRow("glm-5.3", false, false, "glm-5.3", "anthropic-messages",
+                "https://api.z.ai", "bearer-token", "low, high, max; default max",
+                List.of(new DeveloperPreflight.Check("secret", DeveloperPreflight.Status.FAIL,
+                        "Set FACTORY_ZAI_API_KEY in .env. If docker-compose.yml does not pass it to the factory"
+                                + " service yet, add it there. Then run docker compose up -d.")));
         var report = new DeveloperPreflight.Report(deliveryStatus == DeveloperPreflight.Status.PASS,
                 issueKey == null ? "" : issueKey, runtime, List.of(repository), List.of(deliveryCheck, inferenceCheck),
-                List.of(envDefault, profile));
+                List.of(sonnet, glm));
         when(developerPreflight.check(issueKey)).thenReturn(report);
 
         String path = "/developer/configuration";
@@ -252,10 +241,16 @@ class UiRenderSmokeTest {
         assertThat(body).contains("claude-sonnet-5-5", "sidecar", "java21-unit", "owner/folio-module-sidecar",
                         "NOT_RUN", "No model call made.", "Push permission check &lt;read-only&gt; &amp; base alignment.")
                 .doesNotContain("check <read-only>");
-        assertThat(body).contains("<h2>Run profiles</h2>", "Configured in .env", "env-default · default for runs",
-                "Effort high (CLI default)", "low, medium, high, xhigh, max · 40 turns · 16384 output tokens",
-                "GLM-5.3 (Z.ai)", "https://api.z.ai · bearer-token", "Effort max",
-                "FAIL · secret: Profile glm-5.3 is not configured: set FACTORY_ZAI_API_KEY in .env");
+        assertThat(body).contains("<h2>Models</h2>", "codemie-sonnet-5.5", "ready · default for runs",
+                "low, medium, high, xhigh, max; default high", "not ready",
+                "anthropic-messages · https://api.z.ai · bearer-token", "low, high, max; default max",
+                "FAIL · secret: Set FACTORY_ZAI_API_KEY in .env");
+        // Where My tasks come from: moved here from the My tasks page.
+        assertThat(body).contains("My tasks source", "Jane Developer", "jira.example.org",
+                        "assignee = &quot;Jane Developer&quot; AND statusCategory != Done ORDER BY updated DESC",
+                        "href=\"https://jira.example.org/issues/?jql=", "Jira projects configured:",
+                        "docker compose restart factory")
+                .doesNotContain(ZAI_KEY, PROXY_TOKEN);
         return body;
     }
 
@@ -543,8 +538,8 @@ class UiRenderSmokeTest {
     void developerExecutionShowsEstimatedCostEvidenceWithoutRuntimeCost() {
         var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
-                Map.of("activity", "coding_starting", "runtime", "pi", "provider", "test-provider", "model", "test-model",
-                        "image", "factory-dev-pi:0.85.1-java21"));
+                Map.of("activity", "coding_starting", "runtime", "pi", "provider", "test-provider",
+                        "model", "glm-5.3-flash", "image", "factory-dev-pi:0.85.1-java21"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "pi_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
                         "cacheWriteTokens", 0, "outputTokens", 10_000, "costUsd", 0));
@@ -556,7 +551,7 @@ class UiRenderSmokeTest {
                 body.indexOf("<details class=\"tech-details\""));
         assertThat(currentPanel).doesNotContain("run-facts", "<dt>Model</dt>", "<dt>Provider</dt>",
                 "<dt>Runtime</dt>", "<dt>Image</dt>");
-        assertThat(usagePanel).contains("Runtime and usage", "<dt>Model</dt>", ">test-model</dd>",
+        assertThat(usagePanel).contains("Runtime and usage", "<dt>Model</dt>", ">glm-5.3-flash</dd>",
                         "<dt>Provider</dt>", ">test-provider</dd>", "<dt>Runtime</dt>", ">pi</dd>",
                         "<dt>Image</dt>", ">factory-dev-pi:0.85.1-java21</code>",
                         "tokens so far", "Input (uncached)", "Cache read",
@@ -566,7 +561,8 @@ class UiRenderSmokeTest {
                 .containsOnlyOnce("<dt>Model</dt>").containsOnlyOnce("<dt>Provider</dt>")
                 .containsOnlyOnce("<dt>Runtime</dt>").containsOnlyOnce("<dt>Image</dt>")
                 .contains("0.0203 USD so far", "2026-09-19",
-                        "href=\"https://example.test/pricing\"", ">https://example.test/pricing</a>",
+                        "href=\"https://docs.z.ai/guides/overview/pricing\"",
+                        ">https://docs.z.ai/guides/overview/pricing</a>",
                         "Rate-card estimate;")
                 .doesNotContain("Coding runtime-reported cost", "<dt>Coding runtime</dt>", "<dt>Coding image</dt>");
     }
@@ -594,18 +590,30 @@ class UiRenderSmokeTest {
     }
 
     @Test
-    void developerExecutionShowsTheRunProfileModelEffortAndMaxTurns() {
+    void developerExecutionShowsTheModelEffortAndMaxTurns() {
         var execution = executions.save(new PipelineExecution("dev-factory", "0.9.0", "{}"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "coding_starting", "runtime", "claude-code", "provider", "anthropic-messages",
+                        "modelId", "codemie-sonnet-5.5", "model", "claude-sonnet-5-5", "effort", "high",
+                        "maxTurns", 200));
+        // A run from before the models file named its run profile.
+        var legacy = executions.save(new PipelineExecution("dev-factory", "0.9.0", "{}"));
+        auditLog.record(legacy.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "coding_starting", "runtime", "claude-code", "provider", "anthropic-messages",
                         "profile", "glm-5.3", "profileLabel", "GLM-5.3 (Z.ai)", "model", "glm-5.3",
                         "effort", "max", "maxTurns", 100));
 
-        String body = assertRendered("/executions/" + execution.getId(), "Runtime and usage");
-        String usagePanel = body.substring(body.indexOf("<section class=\"run-panel run-usage\""),
+        assertThat(usagePanel(assertRendered("/executions/" + execution.getId(), "Runtime and usage")))
+                .containsSubsequence("<dt>Model</dt>", ">codemie-sonnet-5.5<", "<dt>Model ID</dt>",
+                        ">claude-sonnet-5-5<", "<dt>Effort</dt>", ">high<", "<dt>Max turns</dt>", ">200<");
+        assertThat(usagePanel(assertRendered("/executions/" + legacy.getId(), "Runtime and usage")))
+                .containsSubsequence("<dt>Model</dt>", ">GLM-5.3 (Z.ai)<", "<dt>Model ID</dt>", ">glm-5.3<",
+                        "<dt>Effort</dt>", ">max<", "<dt>Max turns</dt>", ">100<");
+    }
+
+    private static String usagePanel(String body) {
+        return body.substring(body.indexOf("<section class=\"run-panel run-usage\""),
                 body.indexOf("<details class=\"tech-details\""));
-        assertThat(usagePanel).containsSubsequence("<dt>Profile</dt>", ">GLM-5.3 (Z.ai)<", "<dt>Model</dt>",
-                ">glm-5.3<", "<dt>Effort</dt>", ">max<", "<dt>Max turns</dt>", ">100<");
     }
 
     @Test
@@ -651,7 +659,7 @@ class UiRenderSmokeTest {
                 "{\"status\":\"FAILED\",\"failure\":{\"code\":\"PROVIDER_RETRIES_EXHAUSTED\","
                         + "\"message\":\"Pi provider request failed: HTTP 429 (rate limited)\"}}", "implement");
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
-                Map.of("activity", "coding_starting", "provider", "test-provider", "model", "test-model"));
+                Map.of("activity", "coding_starting", "provider", "test-provider", "model", "glm-5.3-flash"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "coding_usage", "inputTokens", 40_000, "cacheReadTokens", 100_000,
                         "cacheWriteTokens", 0, "outputTokens", 4_000));
@@ -663,7 +671,7 @@ class UiRenderSmokeTest {
                         "reason", "HTTP 429 (rate limited)"));
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement",
                 Map.of("inputTokens", 100_000, "cacheReadTokens", 200_000, "cacheWriteTokens", 0,
-                        "outputTokens", 10_000, "provider", "test-provider", "model", "test-model"));
+                        "outputTokens", 10_000, "provider", "test-provider", "model", "glm-5.3-flash"));
 
         String body = assertRendered("/executions/" + execution.getId(), "Provider diagnostics");
         assertThat(body).contains("Stop reason: Pi provider request failed: HTTP 429 (rate limited)",
@@ -859,7 +867,7 @@ class UiRenderSmokeTest {
         resetTaskData();
         seedTask("70001", "MODBAR-701", "Awaiting task", Task.Eligibility.ELIGIBLE, "repository mod-bar");
         seedTask("70002", "MODBAR-702", "Unsupported task", Task.Eligibility.INELIGIBLE,
-                "Project MODX is not configured: no repository for it in config/developer-repositories.yaml");
+                "Project MODBAR is not configured: no repository for it in config/developer-repositories.yaml");
         seedTask("70003", "MODBAR-703", "Reviewed task", "In Review", Task.Eligibility.ELIGIBLE,
                 "repository mod-bar");
         Task queued = seedTask("70004", "MODBAR-704", "Queued task",
@@ -880,7 +888,7 @@ class UiRenderSmokeTest {
         holdTheSlot(seedAttempt(held, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.NEEDS_INSPECTION, null));
         Task byKey = seedTask("70008", "MODBAR-708", "Task added by key",
                 Task.Eligibility.ELIGIBLE, "repository mod-bar");
-        byKey.setInScope(false);
+        byKey.setAddedByKey(true);
         taskTasks.save(byKey);
         TaskAttempt byKeyAttempt = seedAttempt(byKey, 1, TaskAttempt.Kind.INITIAL,
                 TaskAttempt.State.RESERVED, null);
@@ -900,6 +908,14 @@ class UiRenderSmokeTest {
         draftAttempt.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/8");
         draftAttempt.setDraftReasons("[\"1 acceptance criterion is not met.\"]");
         taskAttempts.save(draftAttempt);
+        Task added = seedTask("70013", "MODBAR-713", "Added and not run yet",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        added.setAddedByKey(true);
+        taskTasks.save(added);
+        Task awaiting = taskTasks.findAll().stream().filter(task -> task.getDisplayKey().equals("MODBAR-701"))
+                .findFirst().orElseThrow();
+        Task unsupported = taskTasks.findAll().stream().filter(task -> task.getDisplayKey().equals("MODBAR-702"))
+                .findFirst().orElseThrow();
 
         String body = assertRendered("/flows/dev-factory", "My Jira tasks");
         // A draft pull request is not the green PR ready.
@@ -908,15 +924,17 @@ class UiRenderSmokeTest {
                 .containsOnlyOnce("class=\"state-pill state-pill-success\">PR ready</span>");
         assertThat(body)
                 .contains("aria-current=\"page\">My tasks</a>", "href=\"/flows/dev-factory?view=definition\"")
-                .contains("Assigned to", "Jane Developer", "jira.example.org",
-                        "assignee = &quot;Jane Developer&quot; AND statusCategory != Done ORDER BY updated DESC",
-                        "href=\"https://jira.example.org/issues/?jql=")
+                // The query and the assignee moved to Check configuration; the ⓘ says so.
+                .contains("aria-label=\"What is in this list\"",
+                        "Jira issues assigned to you that are not done yet, plus the ones you add by key.",
+                        "href=\"/developer/configuration\"")
+                .doesNotContain("Assigned to", "assignee = &quot;Jane Developer&quot;", "What exactly is scanned")
                 .contains("action=\"/flows/dev-factory/scan\"", "action=\"/tasks/run-selected\"",
-                        "action=\"/flows/dev-factory/run-by-key\"", "Not in your list? Run a task by key")
+                        "action=\"/flows/dev-factory/add-by-key\"", "Not in your list?", ">Add to list</button>")
+                .doesNotContain("run-by-key", "Add to run", "Max turns", "name=\"maxTurns\"")
                 .contains("data-status-chip=\"Open\"", "data-status-chip=\"In Review\"",
                         "aria-pressed=\"false\"", "data-status=\"In Review\" hidden=\"hidden\"")
-                .contains("Not eligible", "Project MODX is not configured")
-                .containsPattern("data-available-count>1</span><span class=\"dev-count\"\\s+data-not-eligible>"
+                .containsPattern("data-available-count>2</span><span class=\"dev-count\"\\s+data-not-eligible>"
                         + " · <span data-not-eligible-count>1</span> not eligible</span>")
                 .containsPattern("data-run-selected\\s*>Run</button>")
                 .doesNotContainPattern("data-select-all\\s+disabled")
@@ -939,38 +957,56 @@ class UiRenderSmokeTest {
                         "data-poll-fields=\"revision\"", "data-poll-baseline=")
                 .doesNotContain("Trigger flow", "Outside current filter", "Enable automatic admission",
                         "Withdrawn", "Sprint");
-        // Triggered: the key on its own line, the title below it clamped to two lines, the reason under the
-        // badge clamped to two lines, and the row's one action (Retry or Mark as stopped…) in the last column.
+        // Triggered: the key and its repository chip on one line, the title below it clamped to two lines, the
+        // reason under the badge clamped to two lines, and the row's one action (Retry or Mark as stopped…) last.
         String triggered = body.substring(body.indexOf("id=\"triggered-title\""));
         assertThat(triggered)
                 .contains("<span><span class=\"sr-only\">Action</span></span>")
                 .containsPattern("<a class=\"task-key\" href=\"https://jira.example.org/browse/MODBAR-705\">MODBAR-705</a>"
+                        + "\\s*<span class=\"repo-chip\"\\s+title=\"Repository mod-bar\">mod-bar</span>"
                         + "\\s*</div>\\s*<a class=\"task-title clamp-2\"\\s+href=\"/tasks/" + stopped.getId()
                         + "\"\\s+title=\"Stopped task\">Stopped task</a>")
+                .containsPattern(">MODBAR-708</a>\\s*<span class=\"repo-chip\"[^>]*>mod-bar</span>"
+                        + "\\s*<span class=\"task-tag\">added by key</span>")
                 .containsPattern("<span class=\"state-detail clamp-2\"\\s+title=\"Verification failed: 2 tests in error\">"
                         + "Verification failed: 2 tests in error</span>")
                 .containsPattern("<div class=\"task-action\">\\s*<form method=\"post\"\\s+action=\"/tasks/" + held.getId()
                         + "/attempts/[0-9a-f-]+/mark-stopped\">\\s*<input type=\"hidden\" name=\"returnTo\" value=\"flow\">"
                         + "\\s*<button type=\"submit\" class=\"btn btn-outline btn-sm\"[^>]*aria-label=\"Mark as stopped: MODBAR-707\"")
                 .doesNotContain("btn-inline", "state-detail-action", "state-detail-text", ">incomplete<");
-        // Run and Run by key share one compact Profile, Effort and Max turns row each.
+        // Run: one Model for the run, the ready models only, each with its levels for the page script.
         String run = body.substring(body.indexOf("action=\"/tasks/run-selected\""), body.indexOf("data-run-selected"));
-        String keyForm = body.substring(body.indexOf("action=\"/flows/dev-factory/run-by-key\""),
-                body.indexOf("Add to run</button>"));
-        for (String form : List.of(run, keyForm)) {
-            assertThat(form).contains("Profile", "name=\"profileId\"", "data-run-profile", "Effort", "name=\"effort\"",
-                            "data-run-effort", "Max turns", "name=\"maxTurns\"", "max=\"500\"", "value=\"40\"")
-                    .containsPattern("<option value=\"env-default\"[^>]*selected=\"selected\"[^>]*>\\s*Configured in \\.env")
-                    .containsPattern("<option value=\"glm-5.3\"(?=[^>]*data-default-effort=\"max\")"
-                            + "(?=[^>]*data-max-turns=\"100\")[^>]*>GLM-5.3 \\(Z\\.ai\\)")
-                    .containsPattern("<option value=\"\"(?=[^>]*data-profile=\"env-default\")(?=[^>]*selected=\"selected\")"
-                            + "[^>]*>high \\(CLI default\\)")
-                    .containsPattern("<option value=\"xhigh\"[^>]*data-profile=\"env-default\"")
-                    // Another profile's efforts are hidden and disabled until the script shows them.
-                    .containsPattern("<option value=\"max\" data-profile=\"glm-5.3\"(?=[^>]*hidden=\"hidden\")"
-                            + "(?=[^>]*disabled=\"disabled\")[^>]*>max");
-        }
-        assertThat(body).doesNotContain(ZAI_KEY, "not configured)");
+        assertThat(run).contains("<span>Model</span>", "name=\"modelId\"", "data-model-select")
+                .containsPattern("<option value=\"codemie-sonnet-5.5\"(?=[^>]*selected=\"selected\")"
+                        + "(?=[^>]*data-efforts=\"low medium high xhigh max\")(?=[^>]*data-default-effort=\"high\")")
+                .containsPattern("<option value=\"glm-5.3\"(?=[^>]*data-efforts=\"low high max\")"
+                        + "(?=[^>]*data-default-effort=\"max\")")
+                .doesNotContain("value=\"anthropic-sonnet-5.5\"", "value=\"codemie-gemini-3.8-flash\"");
+        // Effort on each row that can run: radio buttons of the selected model, its default checked.
+        assertThat(body).contains("task-grid-effort", ">Effort</span>")
+                .containsPattern("role=\"radiogroup\"[^>]*aria-label=\"Effort for MODBAR-701\"")
+                .containsPattern("<input type=\"radio\" name=\"effort-" + awaiting.getId()
+                        + "\" value=\"high\" checked=\"checked\">\\s*<span>high</span>")
+                .containsPattern("<input type=\"radio\" name=\"effort-" + awaiting.getId()
+                        + "\" value=\"xhigh\">\\s*<span>xhigh</span>")
+                .doesNotContain("name=\"effort-" + unsupported.getId() + "\"");
+        // A task that cannot run: a red chip on the key line that opens the dialog with the fix.
+        assertThat(body)
+                .containsPattern("<a class=\"config-chip\" href=\"/tasks/" + unsupported.getId()
+                        + "\" title=\"Why and how to fix\"\\s+data-fix-dialog=\"fix-" + unsupported.getId()
+                        + "\">Not configured</a>")
+                .containsPattern("<dialog class=\"dialog dialog-compact fix-dialog\" id=\"fix-" + unsupported.getId()
+                        + "\"")
+                .contains("Project MODBAR is not configured</h2>",
+                        "Factory does not know which repository holds the code for MODBAR, so it cannot run MODBAR-702.",
+                        "  jira-projects: [<span>MODBAR</span>]", "docker compose restart factory",
+                        "3. Click Scan Jira. The task becomes available.", "<form method=\"dialog\"")
+                .doesNotContain("Not eligible</span>", "Project MODBAR is not configured: no repository");
+        // A task added by key and not run yet can leave the list again.
+        assertThat(body).containsPattern(">MODBAR-713</a>\\s*<span class=\"repo-chip\"[^>]*>mod-bar</span>"
+                + "\\s*<span class=\"task-tag\">added by key</span>\\s*<button type=\"submit\" class=\"row-remove\""
+                + "\\s+formaction=\"/tasks/" + added.getId() + "/remove-from-list\"");
+        assertThat(body).doesNotContain(ZAI_KEY, PROXY_TOKEN, "not configured)");
         assertThat(rest.get().uri("/tasks").retrieve().toEntity(String.class).getBody()).contains("My Jira tasks");
     }
 
@@ -979,7 +1015,7 @@ class UiRenderSmokeTest {
         resetTaskData();
         for (int i = 1; i <= 3; i++) {
             seedTask("7010" + i, "MODBAR-71" + i, "Unsupported task " + i, Task.Eligibility.INELIGIBLE,
-                    "Project MODX is not configured: no repository for it in config/developer-repositories.yaml");
+                    "Project MODBAR is not configured: no repository for it in config/developer-repositories.yaml");
         }
         seedTask("70104", "MODBAR-714", "Hidden eligible task", "In Review", Task.Eligibility.ELIGIBLE,
                 "repository mod-bar");
@@ -993,38 +1029,56 @@ class UiRenderSmokeTest {
     }
 
     @Test
-    void aProfileWithoutItsSecretIsShownAsNotConfiguredAndCannotBeChosen() {
+    void aModelWithoutItsSecretIsNotOfferedAndOneReadyModelHidesTheList() {
         resetTaskData();
-        seedTask("70201", "MODBAR-761", "Eligible task", Task.Eligibility.ELIGIBLE, "repository mod-bar");
-        // The same profiles file, but FACTORY_ZAI_API_KEY is empty.
-        var withoutKey = new TaskRunSettings(codingRuntime,
-                new RunProfiles(devRuntime.coding().claudeCode(), runProfilesFile, name -> ""));
-        doAnswer(call -> withoutKey.form(call.getArgument(0))).when(runSettings).form(any());
+        Task eligible = seedTask("70201", "MODBAR-761", "Eligible task", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+        // The same models file, but only FACTORY_ZAI_API_KEY is set, and glm-5.3-flash is the only other model.
+        var glmOnly = new ModelCatalog(new ModelCatalog.Properties(modelsFile.models().stream()
+                .filter(model -> model.id().startsWith("glm-5.3")).toList(), "glm-5.3"), "claude-code",
+                name -> "FACTORY_ZAI_API_KEY".equals(name) ? ZAI_KEY : null);
+        var withoutProxy = new TaskRunSettings(codingRuntime, glmOnly);
+        doAnswer(call -> withoutProxy.form(call.getArgument(0))).when(runSettings).form(any());
 
         String body = assertRendered("/flows/dev-factory", "My Jira tasks");
-        for (String profile : List.of("glm-5.3\"", "glm-5.3-flash\"")) {
-            assertThat(body).containsPattern("<option value=\"" + Pattern.quote(profile)
-                    + "(?=[^>]*disabled=\"disabled\")[^>]*>GLM-5\\.3( Flash)? \\(Z\\.ai\\) \\(not configured\\)</option>");
-        }
-        assertThat(body).containsPattern("<option value=\"env-default\"(?![^>]*disabled)[^>]*selected=\"selected\"");
+        assertThat(body).containsPattern("<option value=\"glm-5.3\"[^>]*selected=\"selected\"")
+                .contains("value=\"glm-5.3-flash\"")
+                .doesNotContain("value=\"codemie-sonnet-5.5\"", "not configured)")
+                .containsPattern("<input type=\"radio\" name=\"effort-" + eligible.getId()
+                        + "\" value=\"max\" checked=\"checked\">");
+
+        var oneModel = new ModelCatalog(new ModelCatalog.Properties(modelsFile.models().stream()
+                .filter(model -> model.id().equals("glm-5.3")).toList(), null), "claude-code",
+                name -> "FACTORY_ZAI_API_KEY".equals(name) ? ZAI_KEY : null);
+        var single = new TaskRunSettings(codingRuntime, oneModel);
+        doAnswer(call -> single.form(call.getArgument(0))).when(runSettings).form(any());
+        assertThat(assertRendered("/flows/dev-factory", "My Jira tasks"))
+                .contains("<input type=\"hidden\" name=\"modelId\" value=\"glm-5.3\">")
+                .doesNotContain("data-model-select", "<span>Model</span>");
+
+        var none = new TaskRunSettings(codingRuntime, new ModelCatalog(modelsFile, "claude-code", name -> null));
+        doAnswer(call -> none.form(call.getArgument(0))).when(runSettings).form(any());
+        assertThat(assertRendered("/flows/dev-factory", "My Jira tasks"))
+                .contains("No model can run now. Check configuration lists the models in config/developer-models.yaml")
+                .doesNotContain("name=\"modelId\"", "name=\"effort-");
     }
 
     @Test
-    void piRetryFormHasOnlyTheInstructionsAndNoProfileChoice() {
+    void piRetryFormHasOnlyTheInstructionsAndNoModelChoice() {
         resetTaskData();
         Task stopped = seedTask("70202", "MODBAR-762", "Stopped task",
                 Task.Eligibility.ELIGIBLE, "repository mod-bar");
         seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
                 "VERIFICATION_FAILED: 2 tests in error");
-        // With the Pi runtime there are no run profiles, so the form has no Profile, Effort and Max turns.
+        // With the Pi harness there is no model choice, so the form has no Model and no Effort.
         doReturn(null).when(runSettings).form(any());
 
         String body = assertRendered("/tasks/" + stopped.getId(), "Could not complete");
         assertThat(body).containsPattern("<form class=\"retry-form\" id=\"retry\"")
                 .contains("Instructions for the agent", "name=\"instructions\"", ">Retry</button>")
-                .doesNotContain("name=\"profileId\"", "name=\"effort\"", "name=\"maxTurns\"", "class=\"run-settings\"");
+                .doesNotContain("name=\"modelId\"", "name=\"effort\"", "data-effort-toggle", "class=\"run-settings\"");
         assertThat(assertRendered("/flows/dev-factory", "My Jira tasks"))
-                .doesNotContain("name=\"profileId\"", "class=\"run-settings\"");
+                .doesNotContain("name=\"modelId\"", "data-effort-toggle", "task-grid-effort", ">Effort</span>");
     }
 
     @Test
@@ -1100,9 +1154,11 @@ class UiRenderSmokeTest {
                 .containsPattern("<form class=\"retry-form\" id=\"retry\" method=\"post\"\\s+action=\"/tasks/"
                         + stopped.getId() + "/retry\"")
                 .contains("Instructions for the agent", "name=\"instructions\"", "maxlength=\"8000\"",
-                        ">Read the ADR through the wiki &lt;REST&gt; URL.</textarea>", "value=\"77\"")
+                        ">Read the ADR through the wiki &lt;REST&gt; URL.</textarea>")
+                .doesNotContain("value=\"77\"", "Max turns")
+                // Retry keeps the previous model and effort.
                 .containsPattern("<option value=\"glm-5.3\"[^>]*selected=\"selected\"")
-                .containsPattern("<option value=\"low\"(?=[^>]*data-profile=\"glm-5.3\")(?=[^>]*selected=\"selected\")")
+                .contains("<span>Effort</span>", "<input type=\"radio\" name=\"effort\" value=\"low\" checked=\"checked\">")
                 .contains("<span class=\"attempt-run\">glm-5.3 · low</span>")
                 .doesNotContain(ZAI_KEY)
                 .contains("href=\"/executions/" + execution.getId() + "\">Open last run</a>",

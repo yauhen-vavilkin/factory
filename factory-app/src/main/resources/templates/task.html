@@ -48,8 +48,14 @@
             <input type="hidden" name="expectedVersion" th:value="${task['version']}">
             <input type="hidden" name="inputFingerprint" th:value="${task['inputFingerprint']}">
             <input type="hidden" name="destinationFingerprint" th:value="${task['destinationFingerprint']}">
-            <div class="run-settings" th:if="${retryForm != null}"
-                 th:insert="~{fragments/developer-flow :: runSettings(${retryForm})}"></div>
+            <div class="run-settings" th:if="${retryForm != null}">
+                <th:block th:insert="~{fragments/developer-flow :: modelChoice(${retryForm})}"></th:block>
+                <div class="run-setting" th:if="${retryForm.selected() != null}">
+                    <span>Effort</span>
+                    <th:block th:insert="~{fragments/developer-flow :: effortChoice(${retryForm.selected()},
+                            ${retryForm.effort()}, 'effort', 'Effort', false)}"></th:block>
+                </div>
+            </div>
             <label class="retry-instructions">
                 <span>Instructions for the agent <span class="muted">(optional)</span></span>
                 <textarea class="textarea" name="instructions" rows="3" th:maxlength="${instructionsLimit}"

@@ -21,7 +21,8 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     initTaskSelection();
-    initRunSettings();
+    initModelChoice();
+    initFixDialogs();
     function formatDuration(seconds) {
       var safe = Math.max(0, seconds);
       if (safe < 60) return safe + 's';
@@ -70,23 +71,52 @@
     location.reload();
   }
 
-  // Run forms: Effort shows only the chosen profile's options; a profile change takes its defaults.
-  function initRunSettings() {
-    Array.prototype.forEach.call(document.querySelectorAll('[data-run-profile]'), function (profile) {
-      var form = profile.form;
-      var effort = form.querySelector('[data-run-effort]');
-      var turns = form.querySelector('[data-run-turns]');
-      profile.addEventListener('change', function () {
-        var chosen = profile.options[profile.selectedIndex];
-        // No default effort (an empty value) means the CLI default.
-        var preferred = chosen.getAttribute('data-default-effort') || '';
-        Array.prototype.forEach.call(effort.options, function (option) {
-          var mine = option.getAttribute('data-profile') === profile.value;
-          option.hidden = !mine;
-          option.disabled = !mine;
-          if (mine && option.value === preferred) option.selected = true;
-        });
-        if (turns) turns.value = chosen.getAttribute('data-max-turns');
+  // Run forms: Effort offers only the chosen model's levels. A model change gives every Effort choice the new
+  // model's default, except a level the developer picked that the new model also has.
+  function initModelChoice() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-model-select]'), function (select) {
+      var toggles = Array.prototype.slice.call(select.form.querySelectorAll('[data-effort-toggle]'));
+      toggles.forEach(function (toggle) {
+        toggle.addEventListener('change', function () { toggle.setAttribute('data-effort-picked', 'true'); });
+      });
+      select.addEventListener('change', function () {
+        var chosen = select.options[select.selectedIndex];
+        var efforts = chosen.getAttribute('data-efforts').split(' ');
+        var preferred = chosen.getAttribute('data-default-effort');
+        toggles.forEach(function (toggle) { showEfforts(toggle, efforts, preferred); });
+      });
+    });
+  }
+
+  function showEfforts(toggle, efforts, preferred) {
+    var checked = toggle.querySelector('input:checked');
+    var kept = toggle.getAttribute('data-effort-picked') === 'true' && checked && efforts.indexOf(checked.value) >= 0;
+    var value = kept ? checked.value : preferred;
+    var name = toggle.getAttribute('data-effort-name');
+    while (toggle.firstChild) toggle.removeChild(toggle.firstChild);
+    efforts.forEach(function (effort) {
+      var label = document.createElement('label');
+      var input = document.createElement('input');
+      var text = document.createElement('span');
+      input.type = 'radio';
+      input.name = name;
+      input.value = effort;
+      input.checked = effort === value;
+      text.textContent = effort;
+      label.appendChild(input);
+      label.appendChild(text);
+      toggle.appendChild(label);
+    });
+  }
+
+  // A red chip opens the dialog that says how to fix its task; without a script it links to the task page.
+  function initFixDialogs() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-fix-dialog]'), function (chip) {
+      var dialog = document.getElementById(chip.getAttribute('data-fix-dialog'));
+      if (!dialog || typeof dialog.showModal !== 'function') return;
+      chip.addEventListener('click', function (event) {
+        event.preventDefault();
+        dialog.showModal();
       });
     });
   }

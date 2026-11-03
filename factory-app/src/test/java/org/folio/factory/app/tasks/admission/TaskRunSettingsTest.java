@@ -2,86 +2,111 @@ package org.folio.factory.app.tasks.admission;
 
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
-import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
-import org.folio.factory.devfactory.runtime.RunProfiles;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
+import org.folio.factory.devfactory.runtime.ModelEntry;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class TaskRunSettingsTest {
 
-    private static final DevRuntimeProperties.ClaudeCode ENV = new DevRuntimeProperties.ClaudeCode(null, null,
-            "http://gateway.example:4001", "claude-sonnet-5-5", "bearer-token", null, "gateway-token", 40, 16384,
-            null);
+    private static final ModelEntry SONNET = new ModelEntry("codemie-sonnet-5.5", "anthropic-messages",
+            "http://gateway.example:4001", "bearer-token", "FACTORY_CODEMIE_PROXY_TOKEN", "claude-sonnet-5-5",
+            List.of("low", "medium", "high", "xhigh", "max"), "high", null, null);
+    private static final ModelEntry GLM = new ModelEntry("glm-5.3", "anthropic-messages",
+            "https://api.z.ai/api/anthropic", "bearer-token", "FACTORY_ZAI_API_KEY", "glm-5.3",
+            List.of("low", "high", "max"), "max", null, null);
 
     @Test
-    void aProfileWithoutItsSecretIsListedAsNotConfiguredAndTheFormFallsBackToTheDefault() {
+    void theFormOffersReadyModelsAndFallsBackToTheDefaultWhenThePreviousModelIsNotReady() {
         var settings = settings("claude-code", "");
         String previous = "{\"profileId\":\"glm-5.3\",\"effort\":\"low\",\"maxTurns\":7,\"instructions\":\"x\"}";
 
-        Map<String, Object> form = settings.form(previous);
+        var form = settings.form(previous);
 
-        assertThat(rows(form, "profiles")).extracting(row -> row.get("label"))
-                .containsExactly("Configured in .env", "GLM-5.3 (Z.ai) (not configured)");
-        assertThat(rows(form, "profiles")).extracting(row -> row.get("configured")).containsExactly(true, false);
-        assertThat(form).containsEntry("profile", "env-default").containsEntry("effort", "")
-                .containsEntry("maxTurns", 40);
-        assertThat(rows(form, "efforts")).first()
-                .isEqualTo(Map.of("profile", "env-default", "value", "", "label", "high (CLI default)"));
+        assertThat(form.models()).extracting(TaskRunSettings.ModelOption::id).containsExactly("codemie-sonnet-5.5");
+        assertThat(form.modelListShown()).isFalse();
+        assertThat(form.selected().id()).isEqualTo("codemie-sonnet-5.5");
+        assertThat(form.effort()).isEqualTo("high");
+        assertThat(form.selected().effortList()).isEqualTo("low medium high xhigh max");
     }
 
     @Test
-    void withPiThereIsNoProfileChoiceAndARunKeepsOnlyItsInstructions() {
+    void theRetryFormKeepsThePreviousModelAndItsEffort() {
+        var form = settings("claude-code", "zai-key").form("{\"profileId\":\"glm-5.3\",\"effort\":\"low\"}");
+
+        assertThat(form.modelListShown()).isTrue();
+        assertThat(form.selected().id()).isEqualTo("glm-5.3");
+        assertThat(form.effort()).isEqualTo("low");
+        // A run from before the models file named env-default: the form starts from the default model.
+        var legacy = settings("claude-code", "zai-key").form("{\"profileId\":\"env-default\",\"effort\":null}");
+        assertThat(legacy.selected().id()).isEqualTo("codemie-sonnet-5.5");
+        assertThat(legacy.effort()).isEqualTo("high");
+    }
+
+    @Test
+    void withoutAReadyModelTheFormSaysWhyAndARunIsRefused() {
+        var settings = settings("claude-code", "", "");
+
+        var form = settings.form(null);
+
+        assertThat(form.selected()).isNull();
+        assertThat(form.problem()).isEqualTo("No model can run now. Check configuration lists the models in"
+                + " config/developer-models.yaml and what each one needs.");
+        assertThatThrownBy(() -> settings.snapshot(null, null, null)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Model codemie-sonnet-5.5 is not configured");
+    }
+
+    @Test
+    void withPiThereIsNoModelChoiceAndARunKeepsOnlyItsInstructions() {
         var settings = settings("pi", "zai-key");
 
         assertThat(settings.form(null)).isNull();
-        assertThat(settings.snapshot("glm-5.3", "max", "10", null)).isNull();
-        assertThat(TaskRunSettings.settings(settings.snapshot("glm-5.3", "max", "10", " Keep the API. ")))
-                .isEqualTo(new CodingRequest.RunSettings(null, null, null, "Keep the API."));
+        assertThat(settings.snapshot("glm-5.3", "max", null)).isNull();
+        assertThat(TaskRunSettings.settings(settings.snapshot("glm-5.3", "max", " Keep the API. ")))
+                .isEqualTo(new CodingRequest.RunSettings(null, null, "Keep the API."));
     }
 
     @Test
     void theSnapshotHoldsTheChoiceButNeverTheSecret() {
-        String snapshot = settings("claude-code", "zai-key").snapshot("glm-5.3", "", "", "Note");
+        String snapshot = settings("claude-code", "zai-key").snapshot("glm-5.3", "", "Note");
 
-        assertThat(TaskRunSettings.read(snapshot)).isEqualTo(new TaskRunSettings.Snapshot("glm-5.3", "max", 100,
+        assertThat(TaskRunSettings.settings(snapshot)).isEqualTo(new CodingRequest.RunSettings("glm-5.3", "max",
                 "Note"));
-        assertThat(snapshot).doesNotContain("zai-key", "/api/anthropic");
+        assertThat(snapshot).doesNotContain("zai-key", "/api/anthropic", "maxTurns");
         assertThat(TaskRunSettings.label(snapshot)).isEqualTo("glm-5.3 · max");
         assertThat(TaskRunSettings.label(null)).isNull();
         assertThat(TaskRunSettings.settings(null)).isNull();
     }
 
     @Test
-    void snapshotsStoredWithTheFormerDisplayFieldsStillRead() {
+    void snapshotsStoredBeforeTheModelsFileStillRead() {
         String stored = "{\"effort\":\"low\",\"endpointOrigin\":\"https://api.z.ai\","
                 + "\"instructions\":\"Keep the API.\",\"maxTurns\":77,\"model\":\"glm-5.3\","
                 + "\"profileId\":\"glm-5.3\",\"profileLabel\":\"GLM-5.3 (Z.ai)\"}";
 
-        assertThat(TaskRunSettings.read(stored))
-                .isEqualTo(new TaskRunSettings.Snapshot("glm-5.3", "low", 77, "Keep the API."));
         assertThat(TaskRunSettings.settings(stored))
-                .isEqualTo(new CodingRequest.RunSettings("glm-5.3", "low", 77, "Keep the API."));
+                .isEqualTo(new CodingRequest.RunSettings("glm-5.3", "low", "Keep the API."));
         assertThat(TaskRunSettings.label(stored)).isEqualTo("glm-5.3 · low");
+        assertThat(TaskRunSettings.label("{\"profileId\":\"env-default\"}")).isEqualTo("env-default");
         assertThat(TaskRunSettings.instructions(stored)).isEqualTo("Keep the API.");
     }
 
     private static TaskRunSettings settings(String runtime, String zaiKey) {
-        CodingRuntime coding = mock(CodingRuntime.class);
-        when(coding.id()).thenReturn(runtime);
-        var glm = new RunProfiles.FileProfile("glm-5.3", "GLM-5.3 (Z.ai)", "https://api.z.ai/api/anthropic",
-                "bearer-token", "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", 100, 16384);
-        return new TaskRunSettings(coding, new RunProfiles(ENV, new RunProfiles.Properties(List.of(glm), null),
-                Map.of("FACTORY_ZAI_API_KEY", zaiKey)::get));
+        return settings(runtime, zaiKey, "codemie-proxy");
     }
 
-    @SuppressWarnings("unchecked")
-    private static List<Map<String, Object>> rows(Map<String, Object> form, String key) {
-        return (List<Map<String, Object>>) form.get(key);
+    private static TaskRunSettings settings(String runtime, String zaiKey, String proxyToken) {
+        CodingRuntime coding = mock(CodingRuntime.class);
+        when(coding.id()).thenReturn(runtime);
+        var secrets = Map.of("FACTORY_ZAI_API_KEY", zaiKey, "FACTORY_CODEMIE_PROXY_TOKEN", proxyToken);
+        return new TaskRunSettings(coding, new ModelCatalog(new ModelCatalog.Properties(List.of(SONNET, GLM), null),
+                runtime, secrets::get));
     }
 }

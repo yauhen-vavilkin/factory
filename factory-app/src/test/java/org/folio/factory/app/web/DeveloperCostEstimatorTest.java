@@ -1,5 +1,8 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.devfactory.runtime.ModelCatalog;
+import org.folio.factory.devfactory.runtime.ModelEntry;
+import org.folio.factory.devfactory.runtime.ModelPrice;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -18,80 +21,79 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DeveloperCostEstimatorTest {
+    private static final String SONNET = "codemie-sonnet-5.5";
     private static final String SONNET_MODEL = "claude-sonnet-5-5";
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
-    private final DeveloperCostEstimator estimator = new DeveloperCostEstimator(new DeveloperPricingProperties(Map.of(
-            "haiku", new DeveloperPricingProperties.Rate("claude-haiku-5-5", "USD",
-                    LocalDate.parse("2026-09-19"), URI.create("https://www.anthropic.com/pricing"),
-                    new BigDecimal("0.15"), new BigDecimal("0.03"), null, new BigDecimal("0.50"), null, null))));
+    private final DeveloperCostEstimator estimator = estimatorFor("claude-haiku-5-5",
+            "https://www.anthropic.com/pricing", "0.15", "0.03", "0.50");
 
     @Test
     void estimatesFromModelAndAvailableCategories() {
         var estimate = estimator.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "claude-haiku-5-5", 71_200L, 2_500_000L, 0L, 35_100L)));
+                "priced", "claude-haiku-5-5", 71_200L, 2_500_000L, 0L, 35_100L)));
 
         assertThat(estimate).isNotNull();
         assertThat(estimate.amount()).isEqualTo("0.10323");
         assertThat(estimate.currency()).isEqualTo("USD");
+        // Pi runs and runs from before the models file record no entry id: the model string finds the entry.
+        assertThat(estimator.estimate(List.of(new DeveloperCostEstimator.Usage(
+                null, "claude-haiku-5-5", 71_200L, 2_500_000L, 0L, 35_100L)))).isEqualTo(estimate);
     }
 
     @Test
     void refusesUnknownModelsAndPositiveCategoriesWithoutRates() {
         assertThat(estimator.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "other", 1L, 0L, 0L, 0L)))).isNull();
+                null, "other", 1L, 0L, 0L, 0L)))).isNull();
         assertThat(estimator.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "claude-haiku-5-5", 1L, 0L, 1L, 0L)))).isNull();
+                "priced", "claude-haiku-5-5", 1L, 0L, 1L, 0L)))).isNull();
         assertThat(estimator.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "claude-haiku-5-5", null, 0L, 0L, 1L)))).isNull();
+                "priced", "claude-haiku-5-5", null, 0L, 0L, 1L)))).isNull();
     }
 
     @Test
-    void rejectsAmbiguousOfficialRatesForTheSameModel() {
-        var configured = new DeveloperPricingProperties.Rate("claude-haiku-5-5", "USD",
-                LocalDate.parse("2026-09-19"), URI.create("https://www.anthropic.com/pricing"),
-                new BigDecimal("0.15"), new BigDecimal("0.03"), null, new BigDecimal("0.50"), null, null);
+    void aModelStringThatTwoEntriesShareIsPricedOnlyByTheEntryId() throws Exception {
+        var committed = new DeveloperCostEstimator(loadCatalog());
 
-        assertThatThrownBy(() -> new DeveloperPricingProperties(Map.of("first", configured, "second", configured)))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Duplicate pricing model claude-haiku-5-5");
+        assertThat(committed.estimate(List.of(new DeveloperCostEstimator.Usage(
+                null, SONNET_MODEL, 1_000_000L, 0L, 0L, 100_000L)))).isNull();
+        assertThat(committed.estimate(List.of(new DeveloperCostEstimator.Usage(
+                SONNET, SONNET_MODEL, 1_000_000L, 0L, 0L, 100_000L))).amount()).isEqualTo("3");
     }
 
     @Test
     void estimatesGeminiWithCacheHitsAndSuppressesMissingUsage() throws Exception {
-        DeveloperPricingProperties rates = loadRates();
-        var configured = rates.rates().get("google-gemini-3-8-flash");
+        var catalog = loadCatalog();
+        var configured = catalog.find("codemie-gemini-3.8-flash").orElseThrow();
         assertThat(configured.model()).isEqualTo("gemini-3.8-flash");
-        assertThat(configured.inputPerMillion()).isEqualByComparingTo("0.75");
-        assertThat(configured.cacheReadPerMillion()).isEqualByComparingTo("0.075");
-        assertThat(configured.outputPerMillion()).isEqualByComparingTo("3.75");
-        assertThat(configured.cacheWritePerMillion()).isNull();
+        assertThat(configured.price().inputPerMillion()).isEqualByComparingTo("0.75");
+        assertThat(configured.price().cacheReadPerMillion()).isEqualByComparingTo("0.075");
+        assertThat(configured.price().outputPerMillion()).isEqualByComparingTo("3.75");
+        assertThat(configured.price().cacheWritePerMillion()).isNull();
 
-        var gemini = new DeveloperCostEstimator(rates);
+        var gemini = new DeveloperCostEstimator(catalog);
         var estimate = gemini.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "gemini-3.8-flash", 1_000_000L, 2_000_000L, 0L, 100_000L)));
+                null, "gemini-3.8-flash", 1_000_000L, 2_000_000L, 0L, 100_000L)));
         assertThat(estimate).isNotNull();
         assertThat(estimate.amount()).isEqualTo("1.275");
         assertThat(estimate.asOf()).isEqualTo(LocalDate.parse("2026-09-21"));
         assertThat(gemini.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "gemini-3.8-flash", 0L, 0L, 0L, 0L)))).isNull();
+                null, "gemini-3.8-flash", 0L, 0L, 0L, 0L)))).isNull();
         assertThat(gemini.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "gemini-3.8-flash", null, 0L, 0L, 1L)))).isNull();
+                null, "gemini-3.8-flash", null, 0L, 0L, 1L)))).isNull();
         assertThat(gemini.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "gemini-3.8-flash", 1L, 0L, 1L, 0L)))).isNull();
+                null, "gemini-3.8-flash", 1L, 0L, 1L, 0L)))).isNull();
     }
 
     @Test
     void sonnetYamlUsesLiteralModelAndSeparateCacheTtlRates() throws Exception {
-        var configured = loadRates().rateFor(SONNET_MODEL).orElseThrow();
+        var configured = loadCatalog().find(SONNET).orElseThrow().price();
 
-        assertThat(configured.asOf()).isEqualTo(LocalDate.parse("2026-10-22"));
+        assertThat(configured.asOf()).isEqualTo(LocalDate.parse("2026-11-03"));
         assertThat(configured.source()).isEqualTo(URI.create(
                 "https://platform.claude.com/docs/en/about-claude/pricing"));
         assertThat(configured.inputPerMillion()).isEqualByComparingTo("2.00");
@@ -182,7 +184,7 @@ class DeveloperCostEstimatorTest {
 
     @Test
     void historicalAggregateRateSnapshotStillPricesUsageWithoutCacheTtl() throws Exception {
-        ObjectNode snapshot = JSON.valueToTree(new AttemptRateSnapshot(loadRates()).snapshot(SONNET_MODEL));
+        ObjectNode snapshot = JSON.valueToTree(new AttemptRateSnapshot(loadCatalog()).snapshot(SONNET, SONNET_MODEL));
         snapshot.remove("cacheWrite5mPerMillion");
         snapshot.remove("cacheWrite1hPerMillion");
         snapshot.put("cacheWritePerMillion", new BigDecimal("2.50"));
@@ -198,18 +200,19 @@ class DeveloperCostEstimatorTest {
 
     @Test
     void aggregateEstimatorCannotAssumeACacheTtlForSonnet() throws Exception {
-        var sonnetEstimator = new DeveloperCostEstimator(loadRates());
+        var sonnetEstimator = new DeveloperCostEstimator(loadCatalog());
         var usage = new DeveloperCostEstimator.Usage(
-                SONNET_MODEL, 1_000_000L, 2_000_000L, 3_000_000L, 100_000L);
+                SONNET, SONNET_MODEL, 1_000_000L, 2_000_000L, 3_000_000L, 100_000L);
 
         assertThat(sonnetEstimator.estimate(List.of(usage))).isNull();
     }
 
     @Test
     void estimatesLunaMaxReasoningOutputAndCacheWritesAtOfficialRates() throws Exception {
-        DeveloperPricingProperties rates = loadRates();
-        var configured = rates.rates().get("openai-gpt-5-6-luna");
-        assertThat(configured.model()).isEqualTo("gpt-5.6-luna-2026-07-09");
+        var catalog = loadCatalog();
+        var entry = catalog.find("codemie-gpt-5.6-luna").orElseThrow();
+        var configured = entry.price();
+        assertThat(entry.model()).isEqualTo("gpt-5.6-luna-2026-07-09");
         assertThat(configured.inputPerMillion()).isEqualByComparingTo("0.20");
         assertThat(configured.cacheReadPerMillion()).isEqualByComparingTo("0.02");
         assertThat(configured.cacheWritePerMillion()).isEqualByComparingTo("0.25");
@@ -217,28 +220,40 @@ class DeveloperCostEstimatorTest {
         assertThat(configured.source()).isEqualTo(URI.create(
                 "https://developers.openai.com/api/docs/models/gpt-5.6-luna"));
 
-        var luna = new DeveloperCostEstimator(rates);
+        var luna = new DeveloperCostEstimator(catalog);
         var estimate = luna.estimate(List.of(new DeveloperCostEstimator.Usage(
-                "gpt-5.6-luna-2026-07-09", 1_000_000L, 2_000_000L, 3_000_000L, 100_000L)));
+                null, "gpt-5.6-luna-2026-07-09", 1_000_000L, 2_000_000L, 3_000_000L, 100_000L)));
         assertThat(estimate).isNotNull();
         assertThat(estimate.amount()).isEqualTo("1.11");
         assertThat(estimate.asOf()).isEqualTo(LocalDate.parse("2026-09-21"));
     }
 
-    private static DeveloperPricingProperties loadRates() throws Exception {
+    /** An estimator with one model entry, "priced", that runs {@code model} at these USD rates per million. */
+    static DeveloperCostEstimator estimatorFor(String model, String source, String input, String cacheRead,
+                                               String output) {
+        var price = new ModelPrice("USD", LocalDate.parse("2026-09-19"), URI.create(source), new BigDecimal(input),
+                new BigDecimal(cacheRead), null, null, null, new BigDecimal(output));
+        var entry = new ModelEntry("priced", "anthropic-messages", "https://api.anthropic.com", "api-key",
+                "PRICED_KEY", model, List.of("low"), "low", null, price);
+        return new DeveloperCostEstimator(new ModelCatalog(new ModelCatalog.Properties(List.of(entry), null),
+                "claude-code", name -> null));
+    }
+
+    private static ModelCatalog loadCatalog() throws Exception {
         Path directory = Path.of("").toAbsolutePath();
-        Path rateCard = directory.resolve("config/developer-pricing.yaml");
-        if (!Files.exists(rateCard)) {
-            rateCard = directory.getParent().resolve("config/developer-pricing.yaml");
+        Path models = directory.resolve("config/developer-models.yaml");
+        if (!Files.exists(models)) {
+            models = directory.getParent().resolve("config/developer-models.yaml");
         }
-        var source = new YamlPropertySourceLoader().load("pricing", new FileSystemResource(rateCard)).getFirst();
-        return new Binder(ConfigurationPropertySources.from(source))
-                .bind("factory.developer-pricing", DeveloperPricingProperties.class)
+        var source = new YamlPropertySourceLoader().load("models", new FileSystemResource(models)).getFirst();
+        var file = new Binder(ConfigurationPropertySources.from(source))
+                .bind("factory.dev-factory", ModelCatalog.Properties.class)
                 .get();
+        return new ModelCatalog(file, "claude-code", name -> null);
     }
 
     private static JsonNode sonnetSnapshot() throws Exception {
-        return JSON.valueToTree(new AttemptRateSnapshot(loadRates()).snapshot(SONNET_MODEL));
+        return JSON.valueToTree(new AttemptRateSnapshot(loadCatalog()).snapshot(SONNET, SONNET_MODEL));
     }
 
     private static ObjectNode sonnetUsage(long fiveMinuteTokens, long oneHourTokens) {

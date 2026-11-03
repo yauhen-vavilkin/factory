@@ -93,44 +93,65 @@ test('Available counts only shown tasks that can run', () => {
   assert.equal(parts['[data-not-eligible]'].hidden, true);
 });
 
-test('Effort shows only the chosen profile and a profile change takes its defaults', () => {
-  function option(value, attributes) {
-    return { value, hidden: false, disabled: false, selected: false,
-      getAttribute: key => key in attributes ? attributes[key] : null };
+test('Effort offers the chosen model levels and a model change keeps only a level the developer picked', () => {
+  function node(tag) {
+    return { tag, children: [], attributes: {}, listeners: {},
+      get firstChild() { return this.children[0] || null; },
+      appendChild(child) { this.children.push(child); },
+      removeChild(child) { this.children.splice(this.children.indexOf(child), 1); },
+      getAttribute(key) { return key in this.attributes ? this.attributes[key] : null; },
+      setAttribute(key, value) { this.attributes[key] = value; },
+      addEventListener(event, callback) { this.listeners[event] = callback; } };
   }
-  const profiles = [option('env-default', { 'data-max-turns': '40' }),
-    option('glm-5.3', { 'data-default-effort': 'max', 'data-max-turns': '100' })];
-  const efforts = [option('', { 'data-profile': 'env-default' }), option('high', { 'data-profile': 'env-default' }),
-    option('low', { 'data-profile': 'glm-5.3' }), option('max', { 'data-profile': 'glm-5.3' })];
-  const turns = { value: '40' };
-  let change;
-  const select = { value: 'env-default', selectedIndex: 0, options: profiles,
-    addEventListener: (event, callback) => { change = callback; } };
-  select.form = { querySelector: selector => selector === '[data-run-effort]' ? { options: efforts }
-    : selector === '[data-run-turns]' ? turns : null };
+  function input(label) { return label.children[0]; }
+  function toggle(name, efforts, checked) {
+    const element = node('div');
+    element.attributes['data-effort-name'] = name;
+    element.querySelector = selector => selector === 'input:checked'
+      ? element.children.map(input).find(i => i.checked) || null : null;
+    efforts.forEach(effort => {
+      const label = node('label');
+      label.appendChild(Object.assign(node('input'), { name, value: effort, checked: effort === checked }));
+      element.appendChild(label);
+    });
+    return element;
+  }
+  function option(value, efforts, preferred) {
+    const attributes = { 'data-efforts': efforts, 'data-default-effort': preferred };
+    return { value, getAttribute: key => attributes[key] };
+  }
+  const five = ['low', 'medium', 'high', 'xhigh', 'max'];
+  const untouched = toggle('effort-a', five, 'high');
+  const pickedLow = toggle('effort-b', five, 'low');
+  const pickedMedium = toggle('effort-c', five, 'medium');
+  const toggles = [untouched, pickedLow, pickedMedium];
+  const select = { selectedIndex: 0, addEventListener(event, callback) { this.change = callback; },
+    options: [option('codemie-sonnet-5.5', five.join(' '), 'high'), option('glm-5.3', 'low high max', 'max')],
+    form: { querySelectorAll: selector => selector === '[data-effort-toggle]' ? toggles : [] } };
   let ready;
   vm.runInNewContext(POLL_JS, {
     window: {},
     document: {
       addEventListener: (event, callback) => { ready = callback; },
       querySelector: () => null,
-      querySelectorAll: selector => selector === '[data-run-profile]' ? [select] : []
+      querySelectorAll: selector => selector === '[data-model-select]' ? [select] : [],
+      createElement: node
     }
   });
   ready();
+  pickedLow.listeners.change();
+  pickedMedium.listeners.change();
 
-  select.value = 'glm-5.3';
   select.selectedIndex = 1;
-  change();
-  assert.deepEqual(efforts.map(o => o.hidden), [true, true, false, false]);
-  assert.deepEqual(efforts.map(o => o.disabled), [true, true, false, false]);
-  assert.equal(efforts[3].selected, true);
-  assert.equal(turns.value, '100');
+  select.change();
 
-  select.value = 'env-default';
-  select.selectedIndex = 0;
-  change();
-  assert.deepEqual(efforts.map(o => o.hidden), [false, false, true, true]);
-  assert.equal(efforts[0].selected, true);
-  assert.equal(turns.value, '40');
+  for (const [element, name] of [[untouched, 'effort-a'], [pickedLow, 'effort-b'], [pickedMedium, 'effort-c']]) {
+    assert.deepEqual(element.children.map(label => input(label).value), ['low', 'high', 'max']);
+    assert.ok(element.children.every(label => input(label).name === name && input(label).type === 'radio'));
+    assert.deepEqual(element.children.map(label => label.children[1].textContent), ['low', 'high', 'max']);
+  }
+  const checked = element => element.children.map(input).filter(i => i.checked).map(i => i.value);
+  assert.deepEqual(checked(untouched), ['max']);
+  assert.deepEqual(checked(pickedLow), ['low']);
+  assert.deepEqual(checked(pickedMedium), ['max']);
 });

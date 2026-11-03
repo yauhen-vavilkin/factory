@@ -3,10 +3,8 @@ spring:
     import:
       - classpath:developer-repositories.yaml
       - optional:file:./config/developer-repositories.yaml
-      - classpath:developer-run-profiles.yaml
-      - optional:file:./config/developer-run-profiles.yaml
-      - classpath:developer-pricing.yaml
-      - optional:file:./config/developer-pricing.yaml
+      - classpath:developer-models.yaml
+      - optional:file:./config/developer-models.yaml
   application:
     name: ai-factory
   lifecycle:
@@ -147,9 +145,8 @@ factory:
       # Task queue processing: opt-in; new launches are refused while retention is enabled.
       # Gates the outcome and dispatch wiring; the engine itself knows nothing about tasks.
       enabled: ${FACTORY_TASKS_EXECUTION_ENABLED:false}
-      # Whole-attempt budget from preparation through delivery (forty coding turns
-      # and sixty minutes are the M1 defaults; queue and review waiting excluded).
-      # The coding-turn cap stays the runtime default of 40
+      # Whole-attempt budget from preparation through delivery (queue and review waiting
+      # excluded). The coding turns have their own safety limit, 200 by default
       # (factory.dev-factory.runtime.coding.claude-code.max-turns).
       deadline: ${FACTORY_TASKS_EXECUTION_DEADLINE:60m}
       # Dispatch poller, also run once at startup: re-examines the active attempt, retries
@@ -161,10 +158,10 @@ factory:
       assignee: ${FACTORY_TASKS_ASSIGNEE:}
   dev-factory:
     git-base-url: ${FACTORY_DEV_FACTORY_GIT_BASE_URL:https://github.com}
-    # Run profile used when a run names none (manual API trigger, older attempts) and preselected in
-    # the run forms. Empty: env-default, built from the FACTORY_CLAUDE_CODE_* settings below. Other
-    # profiles live in config/developer-run-profiles.yaml.
-    default-run-profile: ${FACTORY_DEV_FACTORY_DEFAULT_RUN_PROFILE:}
+    # Model used when a run names none (manual API trigger, runs from before the models file) and
+    # preselected in the run forms: an id from config/developer-models.yaml. Empty: the first model
+    # in that file that the coding harness can run.
+    default-model: ${FACTORY_DEV_FACTORY_DEFAULT_MODEL:}
     runtime:
       timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
@@ -180,19 +177,12 @@ factory:
           api-key: ${FACTORY_PI_API_KEY:}
           reasoning-effort: ${FACTORY_PI_REASONING_EFFORT:}
           max-output-tokens: ${FACTORY_PI_MAX_OUTPUT_TOKENS:}
+        # The model, endpoint, secret and effort of a Claude Code run come from config/developer-models.yaml.
         claude-code:
           image: ${FACTORY_CLAUDE_CODE_IMAGE:factory-dev-claude-code:2.1.287-java21}
-          api: ${FACTORY_CLAUDE_CODE_API:anthropic-messages}
-          base-url: ${FACTORY_CLAUDE_CODE_BASE_URL:http://host.docker.internal:4001}
-          model: ${FACTORY_CLAUDE_CODE_MODEL:claude-sonnet-5-5}
-          authentication: ${FACTORY_CLAUDE_CODE_AUTHENTICATION:bearer-token}
-          api-key: ${FACTORY_CLAUDE_CODE_API_KEY:}
-          auth-token: ${FACTORY_CLAUDE_CODE_AUTH_TOKEN:codemie-proxy}
-          max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:40}
-          max-output-tokens: ${FACTORY_CLAUDE_CODE_MAX_OUTPUT_TOKENS:16384}
-          # Default effort of profile env-default: low, medium, high, xhigh or max. Empty sends no
-          # --effort, so the CLI uses high.
-          effort: ${FACTORY_CLAUDE_CODE_EFFORT:}
+          # A safety limit from 1 to 500, not a tuning knob: the coding timeout above usually ends a
+          # run first (about 180 turns in 30 minutes). A run that hits it loses its work.
+          max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:200}
   test-factory:
     execution:
       base-url: ${FACTORY_TEST_FACTORY_EXECUTION_BASE_URL:}

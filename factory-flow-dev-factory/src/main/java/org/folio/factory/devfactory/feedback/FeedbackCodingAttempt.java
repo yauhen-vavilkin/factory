@@ -53,7 +53,8 @@ final class FeedbackCodingAttempt {
     private void recordStart(FeedbackState state, CodingRequest request, Consumer<Map<String, Object>> progress) {
         var identity = coding.identity(request.runSettings());
         state.runtimeName = Objects.toString(identity.get("runtime"), "");
-        state.rate = pricing.snapshot(Objects.toString(identity.get("model"), ""));
+        state.rate = pricing.snapshot(Objects.toString(identity.get("modelId"), null),
+                Objects.toString(identity.get("model"), ""));
         var start = new LinkedHashMap<String, Object>(identity);
         start.put("activity", "coding_starting");
         start.put("rate", state.rate);

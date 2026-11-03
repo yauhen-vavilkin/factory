@@ -11,10 +11,10 @@ import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
+import org.folio.factory.app.tasks.presentation.SourceCard;
 import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.app.tasks.presentation.TaskUsage;
 import org.folio.factory.app.tasks.presentation.TaskView;
-import org.folio.factory.app.tasks.source.TaskDiscoveryService;
 import org.folio.factory.app.tasks.source.TaskJiraInstance;
 import org.folio.factory.app.tasks.source.TaskSourceProperties;
 import org.folio.factory.core.registry.FlowRegistry;
@@ -23,8 +23,8 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
-import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
-import org.folio.factory.devfactory.runtime.RunProfiles;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
+import org.folio.factory.devfactory.runtime.ModelEntry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,6 +44,7 @@ import org.springframework.web.servlet.view.InternalResourceViewResolver;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -53,7 +54,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -90,9 +90,6 @@ class TaskUiControllerTest {
 
 
     @Mock
-    private TaskDiscoveryService discovery;
-
-    @Mock
     private TaskDispatcher dispatcher;
 
     @Mock
@@ -125,18 +122,20 @@ class TaskUiControllerTest {
     @BeforeEach
     void setUp() {
         lenient().when(coding.id()).thenReturn("claude-code");
-        var envDefault = new DevRuntimeProperties.ClaudeCode(null, null, "http://gateway.example:4001",
-                "claude-sonnet-5-5", "bearer-token", null, "gateway-token", 40, 16384, null);
-        var glm = new RunProfiles.FileProfile("glm-5.3", "GLM-5.3 (Z.ai)", "https://api.z.ai/api/anthropic",
-                "bearer-token", "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", 100, 16384);
-        runSettings = new TaskRunSettings(coding, new RunProfiles(envDefault,
-                new RunProfiles.Properties(List.of(glm), null), Map.of("FACTORY_ZAI_API_KEY", "zai-key")::get));
+        var sonnet = new ModelEntry("codemie-sonnet-5.5", "anthropic-messages", "http://gateway.example:4001",
+                "bearer-token", "FACTORY_CODEMIE_PROXY_TOKEN", "claude-sonnet-5-5",
+                List.of("low", "medium", "high", "xhigh", "max"), "high", null, null);
+        var glm = new ModelEntry("glm-5.3", "anthropic-messages", "https://api.z.ai/api/anthropic", "bearer-token",
+                "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", null, null);
+        var secrets = Map.of("FACTORY_CODEMIE_PROXY_TOKEN", "gateway-token", "FACTORY_ZAI_API_KEY", "zai-key");
+        runSettings = new TaskRunSettings(coding, new ModelCatalog(new ModelCatalog.Properties(List.of(sonnet, glm),
+                null), "claude-code", secrets::get));
         var repositories = new DevFactoryProperties("https://github.com", new TreeMap<>(Map.of("mod-bar",
                 new DevFactoryProperties.Repository("folio-org/mod-bar", "master", "build:image", "unit",
                         List.of("MODBAR"), List.of(), new DeliveryTarget("folio-org/mod-bar", null)))));
         var rows = new TaskRows(new TaskSourceProperties("Jane Developer"), jira, repositories);
         var controller = new TaskUiController(taskQuery, installations, attempts, admissions,
-                discovery, dispatcher, outcomes, rows, flows, runSettings);
+                dispatcher, outcomes, rows, flows, runSettings);
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new UiExceptionHandler())
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
@@ -162,7 +161,7 @@ class TaskUiControllerTest {
         MvcResult result = mvc.perform(get(FLOW_PAGE))
                 .andExpect(status().isOk())
                 .andExpect(view().name("flow-my-tasks"))
-                .andExpect(model().attributeExists("flow", "source", "repositoryMap", "available", "statusChips",
+                .andExpect(model().attributeExists("flow", "source", "available", "statusChips",
                         "triggered", "page", "pollUrl", "pollBaseline"))
                 .andReturn();
 
@@ -173,7 +172,9 @@ class TaskUiControllerTest {
                 .containsEntry("key", "MODBAR-901")
                 .containsEntry("repository", "mod-bar")
                 .containsEntry("jiraStatus", "Open")
-                .containsEntry("selectable", true);
+                .containsEntry("selectable", true)
+                .containsEntry("problem", null)
+                .containsEntry("shown", true);
         assertThat(rows(model, "triggered").getFirst())
                 .containsEntry("stateLabel", "Could not complete")
                 .containsEntry("stateClass", "state-pill state-pill-danger")
@@ -181,27 +182,24 @@ class TaskUiControllerTest {
                 .containsEntry("addedByKey", false)
                 .containsEntry("link", "/tasks/" + OTHER_TASK_ID)
                 .containsEntry("markStoppedAttemptId", null);
-        assertThat(model.get("repositoryMap")).isEqualTo("1 Jira project configured: MODBAR → mod-bar");
-        @SuppressWarnings("unchecked")
-        var source = (Map<String, Object>) model.get("source");
-        assertThat(source)
-                .containsEntry("assignee", "Jane Developer")
-                .containsEntry("jiraHost", "jira.example.org")
-                .containsEntry("query", "assignee = \"Jane Developer\" AND statusCategory != Done"
-                        + " ORDER BY updated DESC");
-        assertThat((String) source.get("searchUrl")).startsWith("https://jira.example.org/issues/?jql=");
-        @SuppressWarnings("unchecked")
-        var runForm = (Map<String, Object>) model.get("runForm");
-        assertThat(runForm).containsEntry("profile", "env-default").containsEntry("effort", "")
-                .containsEntry("maxTurns", 40).containsEntry("maxTurnsLimit", 500);
-        assertThat(rows(runForm, "profiles")).extracting(row -> row.get("id")).containsExactly("env-default", "glm-5.3");
-        verifyNoInteractions(admissions, discovery, outcomes);
+        var source = (SourceCard) model.get("source");
+        assertThat(source.assignee()).isEqualTo("Jane Developer");
+        assertThat(source.jiraHost()).isEqualTo("jira.example.org");
+        assertThat(source.query()).isEqualTo("assignee = \"Jane Developer\" AND statusCategory != Done"
+                + " ORDER BY updated DESC");
+        assertThat(source.searchUrl()).startsWith("https://jira.example.org/issues/?jql=");
+        var runForm = (TaskRunSettings.Form) model.get("runForm");
+        assertThat(runForm.models()).extracting(TaskRunSettings.ModelOption::id)
+                .containsExactly("codemie-sonnet-5.5", "glm-5.3");
+        assertThat(runForm.selected().id()).isEqualTo("codemie-sonnet-5.5");
+        assertThat(runForm.effort()).isEqualTo("high");
+        verifyNoInteractions(admissions, outcomes);
         verify(dispatcher, never()).dispatchNext();
         verify(dispatcher, never()).dispatchNextQuietly();
     }
 
     @Test
-    void myTasks_withThePiRuntimeTheRunFormHasNoProfileChoice() throws Exception {
+    void myTasks_withThePiRuntimeTheRunFormHasNoModelChoice() throws Exception {
         when(coding.id()).thenReturn("pi");
         when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of()));
 
@@ -443,13 +441,12 @@ class TaskUiControllerTest {
         assertThat(rows(result.getModelAndView().getModel(), "attempts"))
                 .extracting(row -> row.get("label"))
                 .containsExactly("1 · first run", "2 · first run by key");
-        verifyNoInteractions(admissions, discovery, outcomes);
+        verifyNoInteractions(admissions, outcomes);
         verify(dispatcher, never()).dispatchNext();
         verify(dispatcher, never()).dispatchNextQuietly();
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void taskDetail_retryFormIsFilledFromThePreviousAttempt() throws Exception {
         String previous = "{\"profileId\":\"glm-5.3\",\"profileLabel\":\"GLM-5.3 (Z.ai)\",\"model\":\"glm-5.3\","
                 + "\"endpointOrigin\":\"https://api.z.ai\",\"effort\":\"low\",\"maxTurns\":77,"
@@ -463,8 +460,9 @@ class TaskUiControllerTest {
                 .andReturn();
 
         var model = result.getModelAndView().getModel();
-        assertThat((Map<String, Object>) model.get("retryForm")).containsEntry("profile", "glm-5.3")
-                .containsEntry("effort", "low").containsEntry("maxTurns", 77);
+        var retryForm = (TaskRunSettings.Form) model.get("retryForm");
+        assertThat(retryForm.selected().id()).isEqualTo("glm-5.3");
+        assertThat(retryForm.effort()).isEqualTo("low");
         assertThat(model.get("retryInstructions")).isEqualTo("Keep the public API.");
         assertThat(rows(model, "attempts")).extracting(row -> row.get("run"))
                 .containsExactly(null, "glm-5.3 · low");
@@ -486,30 +484,9 @@ class TaskUiControllerTest {
         mvc.perform(get("/tasks/poll"))
                 .andExpect(status().isOk());
 
-        verifyNoInteractions(admissions, discovery, outcomes);
+        verifyNoInteractions(admissions, outcomes);
         verify(dispatcher, never()).dispatchNext();
         verify(dispatcher, never()).dispatchNextQuietly();
-    }
-
-    // ----- scan -----
-
-    @Test
-    void scan_reportsTheAssignedCount() throws Exception {
-        when(discovery.sync()).thenReturn(new TaskDiscoveryService.SyncResult(true, 3, Instant.now(), null));
-
-        mvc.perform(post(FLOW_PAGE + "/scan"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl(FLOW_PAGE))
-                .andExpect(flash().attribute("message", "Scan complete: 3 tasks are assigned to you."));
-    }
-
-    @Test
-    void scan_failureRedirectsWithTheProblem() throws Exception {
-        when(discovery.sync()).thenReturn(new TaskDiscoveryService.SyncResult(false, 0, null, "Jira timed out"));
-
-        mvc.perform(post(FLOW_PAGE + "/scan"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl(FLOW_PAGE + "?error=Scan+failed%3A+Jira+timed+out"));
     }
 
     // ----- run selected -----
@@ -532,49 +509,54 @@ class TaskUiControllerTest {
         TaskCommands.RunSelected run = runCaptor.getValue();
         assertThat(run.requestId()).startsWith("ui-");
         assertThat(run.requestId().length()).isLessThanOrEqualTo(63);
-        assertThat(run.selections()).containsExactly(new TaskCommands.Selection(
-                TASK_ID, 3L, "revision-MODBAR-901", "dest-MODBAR-901"));
-        // Without a choice the run takes the default profile and its defaults.
-        assertThat(TaskRunSettings.read(run.runSettings())).isEqualTo(new TaskRunSettings.Snapshot(
-                "env-default", null, 40, null));
+        // Without a choice the run takes the default model and its default effort.
+        assertThat(run.selections()).singleElement().satisfies(selection -> {
+            assertThat(selection).isEqualTo(new TaskCommands.Selection(TASK_ID, 3L, "revision-MODBAR-901",
+                    "dest-MODBAR-901", selection.runSettings()));
+            assertThat(TaskRunSettings.settings(selection.runSettings()))
+                    .isEqualTo(new CodingRequest.RunSettings("codemie-sonnet-5.5", "high", null));
+        });
     }
 
     @Test
-    void runSelected_appliesOneChoiceOfProfileEffortAndTurnsToEveryTask() throws Exception {
+    void runSelected_givesEachTaskTheEffortOfItsRowWithTheChosenModel() throws Exception {
         when(admissions.runSelected(any())).thenReturn(
                 new TaskAdmissionService.AdmissionResult(List.of(TASK_ID, OTHER_TASK_ID), Map.of()));
 
         mvc.perform(post("/tasks/run-selected")
                         .param("taskId", TASK_ID.toString(), OTHER_TASK_ID.toString())
-                        .param("profileId", "glm-5.3").param("effort", "low").param("maxTurns", "120"))
+                        .param("modelId", "glm-5.3")
+                        .param("effort-" + TASK_ID, "low").param("effort-" + OTHER_TASK_ID, "max"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl(FLOW_PAGE));
 
         verify(admissions).runSelected(runCaptor.capture());
-        assertThat(runCaptor.getValue().selections()).hasSize(2);
-        assertThat(TaskRunSettings.settings(runCaptor.getValue().runSettings()))
-                .isEqualTo(new CodingRequest.RunSettings("glm-5.3", "low", 120, null));
-        assertThat(runCaptor.getValue().runSettings()).doesNotContain("zai-key");
+        assertThat(runCaptor.getValue().selections())
+                .extracting(selection -> TaskRunSettings.settings(selection.runSettings()))
+                .containsExactly(new CodingRequest.RunSettings("glm-5.3", "low", null),
+                        new CodingRequest.RunSettings("glm-5.3", "max", null));
+        assertThat(runCaptor.getValue().selections()).allSatisfy(selection ->
+                assertThat(selection.runSettings()).doesNotContain("zai-key"));
     }
 
     @Test
     void runSelected_badRunSettingsAreRejectedWithAPlainMessage() throws Exception {
         MvcResult result = mvc.perform(post("/tasks/run-selected")
                         .param("taskId", TASK_ID.toString())
-                        .param("profileId", "glm-5.3").param("effort", "medium").param("maxTurns", "10"))
+                        .param("modelId", "glm-5.3").param("effort-" + TASK_ID, "medium"))
                 .andExpect(status().is3xxRedirection())
                 .andReturn();
         assertThat(java.net.URLDecoder.decode(result.getResponse().getRedirectedUrl(),
                 java.nio.charset.StandardCharsets.UTF_8))
-                .endsWith("Effort medium is not available for profile glm-5.3. Choose one of: low, high, max.");
+                .endsWith("Effort medium is not available for model glm-5.3. Choose one of: low, high, max.");
 
         result = mvc.perform(post("/tasks/run-selected")
-                        .param("taskId", TASK_ID.toString()).param("maxTurns", "501"))
+                        .param("taskId", TASK_ID.toString()).param("modelId", "gone"))
                 .andExpect(status().is3xxRedirection())
                 .andReturn();
         assertThat(java.net.URLDecoder.decode(result.getResponse().getRedirectedUrl(),
                 java.nio.charset.StandardCharsets.UTF_8))
-                .endsWith("Max turns must be a whole number from 1 to 500.");
+                .endsWith("There is no model gone. Reload the page and choose a model from the list.");
         verifyNoInteractions(admissions);
     }
 
@@ -618,62 +600,6 @@ class TaskUiControllerTest {
         verifyNoInteractions(admissions);
     }
 
-    // ----- run by key -----
-
-    @Test
-    void runByKey_reportsTheQueuedKey() throws Exception {
-        when(admissions.runByKey(anyString(), any(), any())).thenReturn(
-                new TaskAdmissionService.KeyResult("MODBAR-930", TASK_ID, null));
-
-        mvc.perform(post(FLOW_PAGE + "/run-by-key").param("key", "https://jira.example.org/browse/MODBAR-930"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl(FLOW_PAGE))
-                .andExpect(flash().attribute("message", "MODBAR-930 joined the queue."));
-
-        verify(admissions).runByKey(anyString(), org.mockito.ArgumentMatchers.eq(
-                "https://jira.example.org/browse/MODBAR-930"), any());
-    }
-
-    @Test
-    void runByKey_carriesTheChosenRunSettings() throws Exception {
-        when(admissions.runByKey(anyString(), any(), any())).thenReturn(
-                new TaskAdmissionService.KeyResult("MODBAR-930", TASK_ID, null));
-
-        mvc.perform(post(FLOW_PAGE + "/run-by-key").param("key", "MODBAR-930")
-                        .param("profileId", "glm-5.3").param("effort", "high").param("maxTurns", "60"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl(FLOW_PAGE));
-
-        ArgumentCaptor<String> settings = ArgumentCaptor.forClass(String.class);
-        verify(admissions).runByKey(anyString(), org.mockito.ArgumentMatchers.eq("MODBAR-930"), settings.capture());
-        assertThat(TaskRunSettings.settings(settings.getValue()))
-                .isEqualTo(new CodingRequest.RunSettings("glm-5.3", "high", 60, null));
-    }
-
-    @Test
-    void runByKey_refusalRedirectsWithTheReason() throws Exception {
-        when(admissions.runByKey(anyString(), any(), any())).thenReturn(new TaskAdmissionService.KeyResult(
-                "MODX-1", null, "Project MODX is not configured"));
-
-        mvc.perform(post(FLOW_PAGE + "/run-by-key").param("key", "MODX-1"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl(FLOW_PAGE + "?error=Project+MODX+is+not+configured"));
-    }
-
-    @Test
-    void runByKey_aLongJiraErrorStaysShortInTheRedirect() throws Exception {
-        when(admissions.runByKey(anyString(), any(), any())).thenReturn(new TaskAdmissionService.KeyResult(
-                "MODX-1", null, "Jira could not be read: " + "<html>".repeat(2000)));
-
-        MvcResult result = mvc.perform(post(FLOW_PAGE + "/run-by-key").param("key", "MODX-1"))
-                .andExpect(status().is3xxRedirection())
-                .andReturn();
-
-        String error = java.net.URLDecoder.decode(result.getResponse().getRedirectedUrl()
-                .substring((FLOW_PAGE + "?error=").length()), java.nio.charset.StandardCharsets.UTF_8);
-        assertThat(error).hasSize(UiFormat.MAX_REDIRECT_MESSAGE).startsWith("Jira could not be read: ").endsWith("…");
-    }
-
     // ----- retry -----
 
     @Test
@@ -699,18 +625,18 @@ class TaskUiControllerTest {
     }
 
     @Test
-    void retry_carriesProfileEffortTurnsAndInstructions() throws Exception {
+    void retry_carriesModelEffortAndInstructions() throws Exception {
         when(admissions.retry(any())).thenReturn(new TaskAdmissionService.RetryResult(ATTEMPT_ID, null, TaskAttempt.State.RESERVED, "the retry joined the queue", false));
 
         mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "3")
-                        .param("profileId", "glm-5.3").param("effort", "max").param("maxTurns", "150")
+                        .param("modelId", "glm-5.3").param("effort", "max")
                         .param("instructions", "  Read the ADR through the wiki REST URL.  "))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/tasks/" + TASK_ID));
 
         verify(admissions).retry(retryCaptor.capture());
         assertThat(TaskRunSettings.settings(retryCaptor.getValue().runSettings())).isEqualTo(
-                new CodingRequest.RunSettings("glm-5.3", "max", 150, "Read the ADR through the wiki REST URL."));
+                new CodingRequest.RunSettings("glm-5.3", "max", "Read the ADR through the wiki REST URL."));
     }
 
     @Test
@@ -784,27 +710,14 @@ class TaskUiControllerTest {
 
     @Test
     void crossSitePostsAreRefusedBeforeAnyService() throws Exception {
-        mvc.perform(post(FLOW_PAGE + "/scan").header("Sec-Fetch-Site", "cross-site"))
-                .andExpect(status().isForbidden());
-        mvc.perform(post(FLOW_PAGE + "/run-by-key").param("key", "MODBAR-1")
+        mvc.perform(post("/tasks/run-selected").param("taskId", TASK_ID.toString())
                         .header("Origin", "https://evil.example"))
                 .andExpect(status().isForbidden());
         mvc.perform(post("/tasks/{taskId}/attempts/{attemptId}/mark-stopped", TASK_ID, ATTEMPT_ID)
                         .header("Sec-Fetch-Site", "same-site"))
                 .andExpect(status().isForbidden());
 
-        verifyNoInteractions(discovery, admissions, outcomes, dispatcher);
-    }
-
-    @Test
-    void sameOriginPostsPass() throws Exception {
-        when(discovery.sync()).thenReturn(new TaskDiscoveryService.SyncResult(true, 1, Instant.now(), null));
-
-        mvc.perform(post(FLOW_PAGE + "/scan").header("Origin", "http://localhost"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(flash().attribute("message", "Scan complete: 1 task is assigned to you."));
-        mvc.perform(post(FLOW_PAGE + "/scan").header("Sec-Fetch-Site", "same-origin"))
-                .andExpect(status().is3xxRedirection());
+        verifyNoInteractions(admissions, outcomes, dispatcher);
     }
 
     // ----- helpers -----
@@ -814,9 +727,26 @@ class TaskUiControllerTest {
         return (Map<String, Object>) result.getModelAndView().getModel().get("task");
     }
 
+    /** Page rows as maps of their fields, so records and the maps older rows still use read alike. */
     @SuppressWarnings("unchecked")
     private static List<Map<String, Object>> rows(Map<String, Object> model, String name) {
-        return (List<Map<String, Object>>) model.get(name);
+        return ((List<Object>) model.get(name)).stream().map(TaskUiControllerTest::fields).toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> fields(Object row) {
+        if (row instanceof Map<?, ?> map) {
+            return (Map<String, Object>) map;
+        }
+        var fields = new LinkedHashMap<String, Object>();
+        for (var component : row.getClass().getRecordComponents()) {
+            try {
+                fields.put(component.getName(), component.getAccessor().invoke(row));
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+        return fields;
     }
 
     private static TaskQuery.MyTasks myTasks(List<TaskView> available, TaskView... triggered) {
@@ -837,6 +767,8 @@ class TaskUiControllerTest {
                         ? attempts[attempts.length - 1].draftReasons() : null,
                 java.util.Arrays.stream(attempts)
                         .noneMatch(attempt -> attempt.admittedVia() == TaskAttempt.AdmittedVia.BY_KEY),
+                java.util.Arrays.stream(attempts)
+                        .anyMatch(attempt -> attempt.admittedVia() == TaskAttempt.AdmittedVia.BY_KEY),
                 3L, "revision-" + key, "dest-" + key,
                 List.of(attempts), emptyUsage(), new TaskView.AllowedActions(select, retry));
     }
@@ -893,7 +825,8 @@ class TaskUiControllerTest {
         return new TaskView(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(), view.projectKey(),
                 view.jiraStatus(), view.state(), view.queuePosition(), view.reason(), view.stage(),
                 view.stageStartedAt(), view.destinationRepository(), view.pullRequestUrl(), view.draftReasons(),
-                view.inScope(), view.version(), view.inputFingerprint(), view.destinationFingerprint(),
+                view.inScope(), view.addedByKey(), view.version(), view.inputFingerprint(),
+                view.destinationFingerprint(),
                 view.attempts(), usage, view.allowedActions());
     }
 }

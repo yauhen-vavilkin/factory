@@ -127,8 +127,10 @@ class TaskRetryIntegrationTest {
     @Test
     void retryOfATaskAddedByKeyRunsOnWhatJiraSaysAtTheClick() {
         source.issues = List.of(issueWithSummary("50091", "MODBAR-591", EARLIER, "Which limit applies?"));
-        var added = admissions.runByKey("by-key-591", "MODBAR-591", null);
+        var added = admissions.addByKey("MODBAR-591");
         assertThat(added.problem()).isNull();
+        admissions.runSelected(new TaskCommands.RunSelected("by-key-591",
+                List.of(TaskFixture.selection(tasks.findById(added.taskId()).orElseThrow()))));
         Task task = tasks.findById(added.taskId()).orElseThrow();
         fixture.forceState(task, TaskAttempt.State.STOPPED, "coding: the limit is not specified");
         source.issues = List.of(issueWithSummary("50091", "MODBAR-591", EARLIER, "The limit is 100 per page"));
@@ -141,7 +143,8 @@ class TaskRetryIntegrationTest {
         assertThat(retry.getApprovedSnapshot()).contains("The limit is 100 per page");
         Task refreshed = tasks.findById(task.getId()).orElseThrow();
         assertThat(refreshed.getTitle()).isEqualTo("The limit is 100 per page");
-        assertThat(refreshed.isInScope()).as("a task added by key stays outside My tasks").isFalse();
+        assertThat(refreshed.isInScope()).as("a task added by key stays in My tasks").isTrue();
+        assertThat(refreshed.isAddedByKey()).isTrue();
     }
 
     @Test

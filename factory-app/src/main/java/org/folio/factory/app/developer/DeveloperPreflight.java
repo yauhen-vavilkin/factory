@@ -1,7 +1,6 @@
 package org.folio.factory.app.developer;
 
 import lombok.RequiredArgsConstructor;
-import org.folio.factory.app.web.DeveloperPricingProperties;
 import org.folio.factory.connectors.github.GitHubProperties;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.jira.JiraIssue;
@@ -16,7 +15,8 @@ import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
-import org.folio.factory.devfactory.runtime.RunProfiles;
+import org.folio.factory.devfactory.runtime.Model;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
@@ -24,7 +24,6 @@ import tools.jackson.databind.JsonNode;
 
 import java.net.URI;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -45,10 +44,10 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
             "Cannot read the requested Jira issue; check URL, credentials and issue access.";
     private static final Pattern COMMIT_SHA = Pattern.compile("[0-9a-f]{40}|[0-9a-f]{64}");
     /**
-     * Checks that fail because of the task itself or the run profile it chose, not because of Factory,
+     * Checks that fail because of the task itself or the model it chose, not because of Factory,
      * Docker, Jira or GitHub.
      */
-    private static final Set<String> TASK_CHECKS = Set.of("task", "issue", "mapping", "profile");
+    private static final Set<String> TASK_CHECKS = Set.of("task", "issue", "mapping", "model");
     /** The settings of the task run being launched on this thread; see {@link #forRun}. */
     private static final ThreadLocal<CodingRequest.RunSettings> LAUNCHING = new ThreadLocal<>();
 
@@ -61,7 +60,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
 
     public record Report(boolean ready, String issueKey, Map<String, Object> runtime,
                          List<Map<String, Object>> repositories, List<Check> checks,
-                         List<Map<String, Object>> profiles) {
+                         List<ModelChecks.ModelRow> models) {
     }
 
     /**
@@ -88,14 +87,14 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     private final JiraProperties jiraProperties;
     private final JiraConnector jira;
     private final GitHubProperties github;
-    private final DeveloperPricingProperties pricing;
     private final DeveloperPreflightProbe probe;
-    private final RunProfiles profiles;
+    private final ModelCatalog models;
+    private final ModelChecks modelChecks;
 
     /**
      * Runs a trigger (and with it this preflight) for a task run that uses these settings. The trigger
-     * payload cannot carry them, so the launcher hands them over here: a broken default profile then does
-     * not block a run with another profile, and a run whose own profile cannot be used stops alone.
+     * payload cannot carry them, so the launcher hands them over here: a broken default model then does
+     * not block a run with another model, and a run whose own model cannot be used stops alone.
      */
     public static <T> T forRun(CodingRequest.RunSettings settings, Supplier<T> trigger) {
         LAUNCHING.set(settings);
@@ -165,8 +164,8 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         return report(requestedIssue, true);
     }
 
-    /** A trigger needs only the checks of its own run; the page also lists every run profile. */
-    private Report report(String requestedIssue, boolean listProfiles) {
+    /** A trigger needs only the checks of its own run; the page also lists every model. */
+    private Report report(String requestedIssue, boolean listModels) {
         String issueKey = requestedIssue == null ? "" : requestedIssue;
         List<Check> checks = new ArrayList<>();
         checkRuntime(checks);
@@ -184,7 +183,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
 
         boolean ready = !issueKey.isEmpty() && !hasFailures(checks);
         return new Report(ready, issueKey, effectiveRuntime(), effectiveRepositories(), List.copyOf(checks),
-                listProfiles ? profileRows() : List.of());
+                listModels ? modelChecks.rows(usesClaudeCode()) : List.of());
     }
 
     private void checkRuntime(List<Check> checks) {
@@ -202,11 +201,11 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
             coding.requireConfigured(LAUNCHING.get());
             endpoint();
             return new Check("runtime", Status.PASS, usesClaudeCode()
-                    ? "Run profile " + runProfile().id() + " is configured."
+                    ? "Model " + runModel().id() + " is configured."
                     : "Selected coding profile is configured.");
-        } catch (RunProfiles.ProfileException e) {
-            // Written to be shown; a run that cannot use its own profile stops alone instead of the whole queue.
-            return new Check("profile", Status.FAIL, coding.redact(e.getMessage()));
+        } catch (ModelCatalog.ModelException e) {
+            // Written to be shown; a run that cannot use its own model stops alone instead of the whole queue.
+            return new Check("model", Status.FAIL, coding.redact(e.getMessage()));
         } catch (IllegalStateException | IllegalArgumentException e) {
             // Configuration exceptions can contain credentials. Report a safe instruction instead.
             return new Check("runtime", Status.FAIL,
@@ -245,33 +244,33 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     }
 
     private Check checkPricing() {
-        String model = selectedModel();
-        if (pricing.rateFor(model).isPresent()) {
+        if (pricedEntry().isPresent()) {
             return new Check("pricing", Status.PASS,
-                    "A rate card exists for the literal model ID; estimate still depends on observed usage.");
+                    "The model has a price; the estimate still depends on observed usage.");
         }
         return new Check("pricing", Status.WARN,
-                "No matching rate card. Coding is allowed, but a complete cost estimate may be unavailable.");
+                "The model has no price. Coding is allowed, but a complete cost estimate may be unavailable.");
     }
 
-    private String selectedModel() {
-        if (usesClaudeCode()) {
-            try {
-                return runProfile().model();
-            } catch (RunProfiles.ProfileException e) {
-                return ""; // The profile check already fails with the reason.
-            }
+    private Optional<Model> pricedEntry() {
+        if (!usesClaudeCode()) {
+            return models.pricedEntry(null, settings.coding().pi().model());
         }
-        return settings.coding().pi().model();
+        try {
+            Model model = runModel();
+            return models.pricedEntry(model.id(), model.model());
+        } catch (ModelCatalog.ModelException e) {
+            return Optional.empty(); // The model check already fails with the reason.
+        }
     }
 
-    /** The profile of the run being checked: the launching task run's, or the default. */
-    private RunProfiles.Profile runProfile() {
-        return profiles.resolve(LAUNCHING.get()).profile();
+    /** The model of the run being checked: the launching task run's, or the default. */
+    private Model runModel() {
+        return models.resolve(LAUNCHING.get()).model();
     }
 
     private URI endpoint() {
-        return endpoint(usesClaudeCode() ? runProfile().baseUrl() : settings.coding().pi().baseUrl());
+        return endpoint(usesClaudeCode() ? runModel().baseUrl() : settings.coding().pi().baseUrl());
     }
 
     /** Null when no base URL is set: the runtime then uses its provider's own endpoint. */
@@ -279,7 +278,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         if (baseUrl == null || baseUrl.isBlank()) {
             return null;
         }
-        RunProfiles.origin(baseUrl);
+        Model.origin(baseUrl);
         return URI.create(baseUrl);
     }
 
@@ -428,12 +427,12 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
         identity.put("timeoutSeconds", settings.timeoutSeconds());
         identity.put("mavenCacheVolume", settings.mavenCacheVolume());
         if (usesClaudeCode()) {
-            // The default run profile; every profile is listed with its checks under Run profiles.
-            RunProfiles.Profile profile = profiles.defaultProfile();
-            identity.put("api", settings.coding().claudeCode().api());
-            identity.put("authentication", safeAuthentication(profile.authentication(), true));
-            identity.put("maxTurns", profile.maxTurns());
-            identity.put("maxOutputTokens", profile.maxOutputTokens());
+            // The default model; every model is listed with its checks under Models.
+            models.defaultModel().ifPresent(model -> {
+                identity.put("api", model.api());
+                identity.put("authentication", safeAuthentication(model.authentication(), true));
+                identity.put("maxOutputTokens", model.maxOutputTokens());
+            });
         } else {
             DevRuntimeProperties.Pi profile = settings.coding().pi();
             identity.put("authentication", safeAuthentication(profile.authentication(), false));
@@ -455,90 +454,16 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     }
 
     private void addEndpointOrigin(Map<String, Object> identity) {
-        String baseUrl = usesClaudeCode() ? profiles.defaultProfile().baseUrl() : settings.coding().pi().baseUrl();
+        String baseUrl = usesClaudeCode() ? models.defaultModel().map(Model::baseUrl).orElse(null)
+                : settings.coding().pi().baseUrl();
         if (baseUrl == null || baseUrl.isBlank()) {
             return;
         }
         try {
-            identity.put("endpointOrigin", RunProfiles.origin(baseUrl));
+            identity.put("endpointOrigin", Model.origin(baseUrl));
         } catch (IllegalArgumentException e) {
             identity.put("endpointOrigin", "unset or invalid");
         }
-    }
-
-    /**
-     * Every Claude Code run profile with its own checks: secret set, endpoint reachable over TCP, rate card,
-     * effort list. Empty with the Pi runtime, which has no profiles.
-     */
-    private List<Map<String, Object>> profileRows() {
-        if (!usesClaudeCode()) {
-            return List.of();
-        }
-        Map<String, Boolean> reachable = new HashMap<>();
-        List<Map<String, Object>> rows = new ArrayList<>();
-        for (RunProfiles.Profile profile : profiles.all()) {
-            rows.add(profileRow(profile, reachable));
-        }
-        return List.copyOf(rows);
-    }
-
-    /** One run profile with its checks; {@code reachable} remembers the TCP probe of each endpoint origin. */
-    private Map<String, Object> profileRow(RunProfiles.Profile profile, Map<String, Boolean> reachable) {
-        List<Check> checks = new ArrayList<>(secretChecks(profile));
-        var endpoint = checkEndpoint(profile, reachable);
-        checks.add(endpoint.check());
-        checks.add(checkRateCard(profile));
-        checks.add(effortsCheck(profile));
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("id", profile.id());
-        row.put("label", profile.label());
-        row.put("default", profile.id().equals(profiles.defaultProfile().id()));
-        row.put("model", profile.model());
-        row.put("endpointOrigin", endpoint.origin());
-        row.put("authentication", safeAuthentication(profile.authentication(), true));
-        row.put("efforts", profile.efforts());
-        row.put("effort", RunProfiles.effortLabel(profile.defaultEffort()));
-        row.put("maxTurns", profile.maxTurns());
-        row.put("maxOutputTokens", profile.maxOutputTokens());
-        row.put("checks", List.copyOf(checks));
-        return row;
-    }
-
-    private static List<Check> secretChecks(RunProfiles.Profile profile) {
-        boolean secret = profile.secret() != null && !profile.secret().isBlank();
-        if (!secret) {
-            return List.of(new Check("secret", Status.FAIL, profile.problem()));
-        }
-        var set = new Check("secret", Status.PASS, profile.secretVariable() + " is set.");
-        return profile.problem() == null ? List.of(set) : List.of(set, new Check("settings", Status.FAIL,
-                profile.problem()));
-    }
-
-    private EndpointCheck checkEndpoint(RunProfiles.Profile profile, Map<String, Boolean> reachable) {
-        try {
-            String origin = profile.endpointOrigin();
-            boolean open = reachable.computeIfAbsent(origin, key -> probe.gatewayReachable(endpoint(key)));
-            return new EndpointCheck(origin, new Check("endpoint", open ? Status.PASS : Status.WARN, open
-                    ? origin + " is reachable over TCP from Factory; the API itself is not tested."
-                    : origin + " is not reachable over TCP from Factory; check the base URL and the network."));
-        } catch (IllegalArgumentException e) {
-            return new EndpointCheck("unset or invalid", new Check("endpoint", Status.FAIL,
-                    "The base URL must be an HTTP(S) URL without credentials, query or fragment."));
-        }
-    }
-
-    private Check checkRateCard(RunProfiles.Profile profile) {
-        return pricing.rateFor(profile.model()).isPresent()
-                ? new Check("rate card", Status.PASS, "config/developer-pricing.yaml has a rate for "
-                        + profile.model() + ".")
-                : new Check("rate card", Status.WARN, "No rate for " + profile.model()
-                        + " in config/developer-pricing.yaml; runs work, but cost is not estimated.");
-    }
-
-    /** RunProfiles builds every profile with a valid effort list, so this line always passes; the page lists it. */
-    private static Check effortsCheck(RunProfiles.Profile profile) {
-        return new Check("efforts", Status.PASS,
-                String.join(", ", profile.efforts()) + "; default " + RunProfiles.effortLabel(profile.defaultEffort()));
     }
 
     private List<Map<String, Object>> effectiveRepositories() {
@@ -578,9 +503,5 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
 
     private static void add(List<Check> checks, String name, Status status, String message) {
         checks.add(new Check(name, status, message));
-    }
-
-    /** The endpoint check of a run profile and the origin shown next to it. */
-    private record EndpointCheck(String origin, Check check) {
     }
 }

@@ -20,7 +20,7 @@ import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
-import org.folio.factory.devfactory.runtime.RunProfiles;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.folio.factory.devfactory.runtime.TokenUsage;
 
 import tools.jackson.databind.JsonNode;
@@ -177,7 +177,8 @@ public final class InitialCodingAttempt {
                 settings.runtime().mavenCacheVolume(), "coding")) {
             var identity = new LinkedHashMap<>(services.coding().identity(run.request().runSettings()));
             var attemptId = UUID.randomUUID().toString();
-            var rate = hooks.pricing().snapshot(Objects.toString(identity.get("model"), ""));
+            var rate = hooks.pricing().snapshot(Objects.toString(identity.get("modelId"), null),
+                    Objects.toString(identity.get("model"), ""));
             identity.put("activity", "coding_starting");
             identity.put("attemptId", attemptId);
             identity.put("rate", rate);
@@ -240,8 +241,8 @@ public final class InitialCodingAttempt {
             String repositoryKey, String frozenBaseSha, CodingRequest.RunSettings runSettings) {
         try {
             services.coding().requireConfigured(runSettings);
-        } catch (RunProfiles.ProfileException exception) {
-            // Written to be shown: it names the profile and the fix.
+        } catch (ModelCatalog.ModelException exception) {
+            // Written to be shown: it names the model and the fix.
             return Optional.of(safeRedact(exception.getMessage()));
         } catch (RuntimeException exception) {
             // Other failures can contain credentials; persist only the safe operator guidance.

@@ -37,7 +37,24 @@ class DeveloperExecutionViewTest {
                 .containsEntry("runtimeFields", List.of(Map.of("label", "Runtime", "value", "pi")));
     }
 
-    @Test void runtimeAndUsageShowTheRunProfileModelEffortAndMaxTurns() {
+    @Test void runtimeAndUsageShowTheChosenModelItsIdEffortAndMaxTurns() {
+        var execution = new PipelineExecution("dev-factory", "0.9.0", "{}");
+        Instant start = Instant.parse("2026-11-03T10:00:00Z");
+        var started = runtime(Map.of("activity", "coding_starting", "runtime", "claude-code",
+                "provider", "anthropic-messages", "modelId", "codemie-sonnet-5.5", "model", "claude-sonnet-5-5",
+                "effort", "high", "maxTurns", 200), start);
+
+        assertThat(view.build(execution, List.of(), List.of(started), start.plusSeconds(1)))
+                .containsEntry("runtimeFields", List.of(
+                        Map.of("label", "Model", "value", "codemie-sonnet-5.5"),
+                        Map.of("label", "Model ID", "value", "claude-sonnet-5-5"),
+                        Map.of("label", "Effort", "value", "high"),
+                        Map.of("label", "Max turns", "value", "200"),
+                        Map.of("label", "Provider", "value", "anthropic-messages"),
+                        Map.of("label", "Runtime", "value", "claude-code")));
+    }
+
+    @Test void runsFromBeforeTheModelsFileShowTheirRunProfileAsTheModel() {
         var execution = new PipelineExecution("dev-factory", "0.9.0", "{}");
         Instant start = Instant.parse("2026-10-27T10:00:00Z");
         var started = runtime(Map.of("activity", "coding_starting", "runtime", "claude-code",
@@ -46,8 +63,8 @@ class DeveloperExecutionViewTest {
 
         assertThat(view.build(execution, List.of(), List.of(started), start.plusSeconds(1)))
                 .containsEntry("runtimeFields", List.of(
-                        Map.of("label", "Profile", "value", "GLM-5.3 (Z.ai)"),
-                        Map.of("label", "Model", "value", "glm-5.3"),
+                        Map.of("label", "Model", "value", "GLM-5.3 (Z.ai)"),
+                        Map.of("label", "Model ID", "value", "glm-5.3"),
                         Map.of("label", "Effort", "value", "high (CLI default)"),
                         Map.of("label", "Max turns", "value", "100"),
                         Map.of("label", "Provider", "value", "anthropic-messages"),

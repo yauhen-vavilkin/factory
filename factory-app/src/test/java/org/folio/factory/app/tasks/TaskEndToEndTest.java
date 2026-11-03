@@ -21,7 +21,6 @@ import org.folio.factory.app.tasks.presentation.TaskQuery;
 import org.folio.factory.app.tasks.presentation.TaskView;
 import org.folio.factory.app.tasks.source.TaskDiscoveryService;
 import org.folio.factory.app.tasks.source.TaskJiraInstance;
-import org.folio.factory.app.web.DeveloperPricingProperties;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.repository.HitlReviewRepository;
@@ -35,6 +34,9 @@ import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
+import org.folio.factory.devfactory.runtime.Model;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
+import org.folio.factory.devfactory.runtime.ModelPrice;
 import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.folio.factory.devfactory.worker.DevelopWorker;
@@ -190,7 +192,7 @@ class TaskEndToEndTest {
     CandidateDelivery delivery;
 
     @MockitoBean
-    DeveloperPricingProperties pricing;
+    ModelCatalog models;
 
     @Autowired
     TaskDiscoveryService discovery;
@@ -283,7 +285,7 @@ class TaskEndToEndTest {
         var selections = List.of(
                 selectionFor("8101"), selectionFor("8103"), selectionFor("8102"), selectionFor("8104"));
 
-        var result = admissions.runSelected(new TaskCommands.RunSelected("e2e-run-1", selections, null));
+        var result = admissions.runSelected(new TaskCommands.RunSelected("e2e-run-1", selections));
 
         assertThat(result.admittedTaskIds()).as(String.valueOf(result)).containsExactlyInAnyOrder(
                 taskId("8101"), taskId("8103"), taskId("8102"));
@@ -301,7 +303,7 @@ class TaskEndToEndTest {
         assertThat(executions.count()).isZero();
 
         var repeated = admissions.runSelected(new TaskCommands.RunSelected("e2e-run-1",
-                List.of(selectionFor("8101")), null));
+                List.of(selectionFor("8101"))));
         assertThat(repeated.admittedTaskIds()).containsExactly(taskId("8101"));
         assertThat(attempts.count()).isEqualTo(3);
         assertThat(jiraStayedReadOnly()).isTrue();
@@ -441,7 +443,7 @@ class TaskEndToEndTest {
         assertThat(retryOutcome.state()).isEqualTo(TaskOutcomeService.AttemptOutcome.State.PR_READY);
         // The settings chosen at Retry reach the coding request; the first attempt had none.
         assertThat(codingRequests.get("MODFOO-103").runSettings())
-                .isEqualTo(new CodingRequest.RunSettings("glm-5.3", "low", 33, "Use the wiki REST URL."));
+                .isEqualTo(new CodingRequest.RunSettings("glm-5.3", "low", "Use the wiki REST URL."));
         assertThat(attempts.findById(firstClick.attemptId()).orElseThrow().getRunSettings()).contains("glm-5.3");
         assertThat(attempts.findById(firstClick.attemptId()).orElseThrow().getPublicationIdentity()).isEqualTo(FOO_PR);
         List<TaskAttempt> history = attempts.findByTaskIdOrderByOrdinalAsc(taskId("8103"));
@@ -457,19 +459,26 @@ class TaskEndToEndTest {
 
     @Test
     @Order(6)
-    void taskAddedByKeyJoinsTheQueueWithoutAScanAndCannotBeAddedTwice() {
+    void taskAddedByKeyJoinsMyTasksRunsFromTheListAndCannotBeAddedTwice() {
         // Keep the run queued (a refused preflight holds dispatch) so the next
-        // scenario starts it after the task leaves My tasks.
+        // scenario starts it after a scan that no longer finds the task.
         doThrow(new IllegalArgumentException("coding runtime not ready"))
                 .when(preflight).requireReady(eq("dev-factory"), any());
         stubSearch(issue("8106", "MODBAR-106", "MODBAR", "Expose the new endpoint", "2026-10-01T10:00:00.000+0000", ""));
 
-        var added = admissions.runByKey("e2e-key-106", jira.baseUrl() + "/browse/MODBAR-106", null);
+        var added = admissions.addByKey(jira.baseUrl() + "/browse/MODBAR-106");
 
         assertThat(added.problem()).isNull();
         assertThat(added.issueKey()).isEqualTo("MODBAR-106");
         Task task = tasks.findById(added.taskId()).orElseThrow();
-        assertThat(task.isInScope()).as("a key does not put the task into My tasks").isFalse();
+        assertThat(task.isInScope()).as("a key puts the task into My tasks").isTrue();
+        assertThat(task.isAddedByKey()).isTrue();
+        assertThat(attempts.findByTaskIdOrderByOrdinalAsc(task.getId())).as("adding does not run it").isEmpty();
+        assertThat(admissions.addByKey("modbar-106").problem()).isEqualTo("MODBAR-106 is already in your list.");
+
+        var run = admissions.runSelected(new TaskCommands.RunSelected("e2e-key-106", List.of(selectionFor("8106"))));
+
+        assertThat(run.admittedTaskIds()).containsExactly(task.getId());
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(task.getId()))
                 .singleElement()
                 .satisfies(attempt -> {
@@ -477,14 +486,14 @@ class TaskEndToEndTest {
                     assertThat(attempt.getKind()).isEqualTo(TaskAttempt.Kind.INITIAL);
                     assertThat(attempt.getAdmittedVia()).isEqualTo(TaskAttempt.AdmittedVia.BY_KEY);
                 });
-        var again = admissions.runByKey("e2e-key-106-again", "modbar-106", null);
-        assertThat(again.problem()).isEqualTo("MODBAR-106 is already queued or running");
-        assertThat(admissions.runByKey("e2e-key-bad", "not a key", null).problem()).startsWith("Enter a Jira key");
+        assertThat(admissions.addByKey("MODBAR-106").problem())
+                .isEqualTo("MODBAR-106 has already run. Retry it from its row under Triggered.");
+        assertThat(admissions.addByKey("not a key").problem()).startsWith("Enter a Jira key");
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(task.getId())).hasSize(1);
 
         jira.stubFor(post(urlEqualTo("/rest/api/2/search/jql"))
                 .willReturn(aResponse().withStatus(503).withBody("<html>" + "maintenance ".repeat(500) + "</html>")));
-        assertThat(admissions.runByKey("e2e-key-107", "MODBAR-107", null).problem())
+        assertThat(admissions.addByKey("MODBAR-107").problem())
                 .isEqualTo("Jira could not be read: HTTP 503");
         stubSearch(issue("8106", "MODBAR-106", "MODBAR", "Expose the new endpoint", "2026-10-01T10:00:00.000+0000", ""));
         assertThat(jiraStayedReadOnly()).isTrue();
@@ -514,7 +523,8 @@ class TaskEndToEndTest {
                 issue("8105", "MODBAR-105", "MODBAR", "Blocked by preparation", "2026-10-01T09:45:00.000+0000",
                         linked("MODBAR-999")));
         assertThat(discovery.sync().complete()).isTrue();
-        assertThat(tasks.findById(taskId("8106")).orElseThrow().isInScope()).isFalse();
+        assertThat(tasks.findById(taskId("8106")).orElseThrow().isInScope())
+                .as("a task added by key stays in My tasks when a scan does not find it").isTrue();
 
         awaitTerminal(holderExecutionId);
         assertThat(outcomes.refresh(holderAttemptId).state())
@@ -670,10 +680,11 @@ class TaskEndToEndTest {
         when(coding.image()).thenReturn("stub:image");
         when(coding.identity(any())).thenReturn(Map.of("runtime", "stub", "image", "stub:image",
                 "model", "claude-sonnet-5-5"));
-        when(pricing.rateFor(any())).thenReturn(Optional.of(new DeveloperPricingProperties.Rate(
-                "claude-sonnet-5-5", "USD", LocalDate.of(2026, 10, 22),
-                URI.create("https://pricing.fixture.invalid"), BigDecimal.valueOf(2),
-                BigDecimal.valueOf(0.1), BigDecimal.ONE, BigDecimal.TEN, null, null)));
+        var price = new ModelPrice("USD", LocalDate.of(2026, 10, 22), URI.create("https://pricing.fixture.invalid"),
+                BigDecimal.valueOf(2), BigDecimal.valueOf(0.1), BigDecimal.ONE, null, null, BigDecimal.TEN);
+        when(models.pricedEntry(any(), any())).thenReturn(Optional.of(new Model("sonnet", "anthropic-messages",
+                "https://gateway.fixture.invalid", "bearer-token", "SONNET_TOKEN", null, "claude-sonnet-5-5",
+                List.of("high"), "high", 16384, price)));
         when(coding.code(any(), any(), anyInt(), any(), any())).thenAnswer(invocation -> {
             CodingRequest request = invocation.getArgument(1);
             codingCalls.merge(request.issueKey(), 1, Integer::sum);

@@ -178,8 +178,15 @@ final class DeveloperExecutionView {
 
     private static List<Map<String, String>> runtimeFields(JsonNode config) {
         List<Map<String, String>> fields = new ArrayList<>();
-        add(fields, "Profile", first(config.path("profileLabel"), config.path("profile")));
-        add(fields, "Model", config.path("model"));
+        // The model as chosen in the run form; runs started before 2026-11-03 named a run profile instead, and
+        // Pi names only the model ID. The model ID shows on its own line when it differs from the choice.
+        String model = first(config.path("model"));
+        String chosen = first(config.path("modelId"), config.path("profileLabel"), config.path("profile"),
+                config.path("model"));
+        add(fields, "Model", chosen);
+        if (!chosen.equals(model)) {
+            add(fields, "Model ID", model);
+        }
         add(fields, "Effort", config.path("effort"));
         add(fields, "Max turns", config.path("maxTurns"));
         add(fields, "Provider", config.path("provider"));

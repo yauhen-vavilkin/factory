@@ -1,0 +1,165 @@
+# The models you can run. One entry is one model at one provider: the same model at another
+# provider is another entry with its own price. The run forms on My tasks and on the task page
+# offer the entries that the coding harness can run and whose secret is set; Check configuration
+# lists every entry and what it still needs.
+#
+# id                 the name in the Model list
+# api                anthropic-messages (the only one Claude Code understands) or a Pi API type
+# base-url           the provider endpoint
+# authentication     api-key or bearer-token
+# secret-env         the .env variable that holds the secret; never put the secret in this file.
+#                    Compose passes only the variables it lists to Factory: for a new variable, also
+#                    add it to the factory service in docker-compose.yml, next to FACTORY_ZAI_API_KEY.
+# model              the model string the endpoint expects
+# efforts            the model's effort levels; default-effort is one of them
+# max-output-tokens  optional, 16384 when left out
+# price              optional; USD per million tokens from a public price page. It is an estimate,
+#                    not your bill. Without a price the cost of a run shows as unknown.
+#
+# The default model is FACTORY_DEV_FACTORY_DEFAULT_MODEL, or else the first entry the harness can
+# run. To use your own copy of this file, set FACTORY_DEV_FACTORY_MODELS_FILE in .env.
+factory:
+  dev-factory:
+    models:
+      # CodeMie proxy on your machine (codemie-code, port 4001). The price is Anthropic's public
+      # list price, not what CodeMie charges your organization. Cache writes have no single
+      # price: they need the observed 5m and 1h counters, so never add cache-write-per-million.
+      - id: codemie-sonnet-5.5
+        api: anthropic-messages
+        base-url: http://host.docker.internal:4001
+        authentication: bearer-token
+        secret-env: FACTORY_CODEMIE_PROXY_TOKEN
+        model: claude-sonnet-5-5
+        efforts: [low, medium, high, xhigh, max]
+        default-effort: high
+        price:
+          currency: USD
+          as-of: 2026-11-03
+          source: https://platform.claude.com/docs/en/about-claude/pricing
+          input-per-million: 2.00
+          cache-read-per-million: 0.10
+          cache-write-5m-per-million: 2.50
+          cache-write-1h-per-million: 4.00
+          output-per-million: 10.00
+      - id: codemie-opus-5.5
+        api: anthropic-messages
+        base-url: http://host.docker.internal:4001
+        authentication: bearer-token
+        secret-env: FACTORY_CODEMIE_PROXY_TOKEN
+        model: claude-opus-5-5
+        efforts: [low, medium, high, xhigh, max]
+        default-effort: medium
+        price:
+          currency: USD
+          as-of: 2026-11-03
+          source: https://platform.claude.com/docs/en/about-claude/pricing
+          input-per-million: 4.00
+          cache-read-per-million: 0.20
+          cache-write-5m-per-million: 5.00
+          cache-write-1h-per-million: 8.00
+          output-per-million: 20.00
+      # Prompts over 100K tokens cost more on Haiku 5.5; this is the price up to 100K.
+      - id: codemie-haiku-5.5
+        api: anthropic-messages
+        base-url: http://host.docker.internal:4001
+        authentication: bearer-token
+        secret-env: FACTORY_CODEMIE_PROXY_TOKEN
+        model: claude-haiku-5-5
+        efforts: [low, medium, high, xhigh, max]
+        default-effort: medium
+        price:
+          currency: USD
+          as-of: 2026-11-03
+          source: https://platform.claude.com/docs/en/about-claude/pricing
+          input-per-million: 0.10
+          cache-read-per-million: 0.01
+          cache-write-5m-per-million: 0.125
+          cache-write-1h-per-million: 0.20
+          output-per-million: 0.50
+      # The same Sonnet straight from the Anthropic API, with your own key.
+      - id: anthropic-sonnet-5.5
+        api: anthropic-messages
+        base-url: https://api.anthropic.com
+        authentication: api-key
+        secret-env: FACTORY_ANTHROPIC_API_KEY
+        model: claude-sonnet-5-5
+        efforts: [low, medium, high, xhigh, max]
+        default-effort: high
+        price:
+          currency: USD
+          as-of: 2026-11-03
+          source: https://platform.claude.com/docs/en/about-claude/pricing
+          input-per-million: 2.00
+          cache-read-per-million: 0.10
+          cache-write-5m-per-million: 2.50
+          cache-write-1h-per-million: 4.00
+          output-per-million: 10.00
+      # Z.ai GLM. Runs started before 2026-11-03 name these ids, so keep them.
+      - id: glm-5.3
+        api: anthropic-messages
+        base-url: https://api.z.ai/api/anthropic
+        authentication: bearer-token
+        secret-env: FACTORY_ZAI_API_KEY
+        model: glm-5.3
+        efforts: [low, high, max]
+        default-effort: max
+        price:
+          currency: USD
+          as-of: 2026-09-19
+          source: https://docs.z.ai/guides/overview/pricing
+          input-per-million: 1.40
+          cache-read-per-million: 0.26
+          output-per-million: 4.40
+      - id: glm-5.3-flash
+        api: anthropic-messages
+        base-url: https://api.z.ai/api/anthropic
+        authentication: bearer-token
+        secret-env: FACTORY_ZAI_API_KEY
+        model: glm-5.3-flash
+        efforts: [low, high, max]
+        default-effort: max
+        price:
+          currency: USD
+          as-of: 2026-09-19
+          source: https://docs.z.ai/guides/overview/pricing
+          input-per-million: 0.15
+          cache-read-per-million: 0.03
+          output-per-million: 0.50
+      # Models for the Pi harness through CodeMie. Pi still takes its model and reasoning level
+      # from FACTORY_PI_*; it uses these entries for the price only.
+      # Public Google Standard API list price, not the CodeMie organization's bill.
+      # Introductory rates expire after 2026-12-31; review before that date.
+      - id: codemie-gemini-3.8-flash
+        api: openai-completions
+        base-url: http://host.docker.internal:4001/v1
+        authentication: api-key
+        secret-env: FACTORY_PI_API_KEY
+        model: gemini-3.8-flash
+        efforts: [low, medium, high]
+        default-effort: medium
+        price:
+          currency: USD
+          as-of: 2026-09-21
+          source: https://ai.google.dev/gemini-api/docs/pricing
+          input-per-million: 0.75
+          cache-read-per-million: 0.075
+          output-per-million: 3.75
+      # Public OpenAI Standard short-context list price, not the CodeMie organization's bill.
+      # Factory's Pi setup advertises 200K context, below OpenAI's 272K long-context threshold.
+      # Reasoning tokens, including max effort, are billed as output tokens at the same rate.
+      - id: codemie-gpt-5.6-luna
+        api: openai-responses
+        base-url: http://host.docker.internal:4001/v1
+        authentication: api-key
+        secret-env: FACTORY_PI_API_KEY
+        model: gpt-5.6-luna-2026-07-09
+        efforts: [low, medium, high]
+        default-effort: medium
+        price:
+          currency: USD
+          as-of: 2026-09-21
+          source: https://developers.openai.com/api/docs/models/gpt-5.6-luna
+          input-per-million: 0.20
+          cache-read-per-million: 0.02
+          cache-write-per-million: 0.25
+          output-per-million: 1.20

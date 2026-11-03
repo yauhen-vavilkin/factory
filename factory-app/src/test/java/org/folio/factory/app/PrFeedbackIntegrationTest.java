@@ -47,12 +47,17 @@ class PrFeedbackIntegrationTest {
         r.add("factory.dev-factory.repositories.fixture.verification-plan",()->"fixture-checks");
         r.add("factory.dev-factory.runtime.plans.fixture-checks[0]",()->"fixture-check");
         r.add("factory.dev-factory.repositories.fixture.delivery.repository",()->"fork/repo");
-        for(String model:List.of("fixture-model","second-fixture-model")) {
-            String prefix="factory.developer-pricing.rates."+model+".";
-            r.add(prefix+"model",()->model); r.add(prefix+"currency",()->"USD");
-            r.add(prefix+"as-of",()->"2026-09-23"); r.add(prefix+"source",()->"https://example.org/fixture-pricing");
-            r.add(prefix+"input-per-million",()->model.equals("fixture-model")?"2":"4");
-            r.add(prefix+"output-per-million",()->model.equals("fixture-model")?"10":"20");
+        List<String> models=List.of("fixture-model","second-fixture-model");
+        for(int i=0;i<models.size();i++) {
+            String model=models.get(i); String prefix="factory.dev-factory.models["+i+"].";
+            r.add(prefix+"id",()->model); r.add(prefix+"api",()->"anthropic-messages");
+            r.add(prefix+"base-url",()->"https://gateway.fixture.invalid"); r.add(prefix+"authentication",()->"api-key");
+            r.add(prefix+"secret-env",()->"FIXTURE_KEY"); r.add(prefix+"model",()->model);
+            r.add(prefix+"efforts[0]",()->"high"); r.add(prefix+"default-effort",()->"high");
+            r.add(prefix+"price.currency",()->"USD");
+            r.add(prefix+"price.as-of",()->"2026-09-23"); r.add(prefix+"price.source",()->"https://example.org/fixture-pricing");
+            r.add(prefix+"price.input-per-million",()->model.equals("fixture-model")?"2":"4");
+            r.add(prefix+"price.output-per-million",()->model.equals("fixture-model")?"10":"20");
         }
     }
     @Autowired StateManager state;
@@ -181,6 +186,17 @@ class PrFeedbackIntegrationTest {
         assertThat(view().state().summary()).contains("Verified changes published");
         assertThat(view().state().taskSummary()).isEqualTo("PR merged");
         assertThat(view().state().completionReason()).isEqualTo("MERGED");
+    }
+    @Test void aRequestStoredBeforeTheModelsFileStillGetsItsFeedbackRun() {
+        // Runs before 2026-11-03 stored the old env-default profile and a turn limit in their request.
+        var legacy=artifacts.getLatest(id,"dev_coding_request.json").orElseThrow().getContent().replace("\"runSettings\":null",
+                "\"runSettings\":{\"profileId\":\"env-default\",\"effort\":null,\"maxTurns\":40,\"instructions\":\"Keep the API.\"}");
+        artifacts.putMarkdown(id,"dev_coding_request.json",legacy,"fixture");
+        startRound();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
+        var request=org.mockito.ArgumentCaptor.forClass(CodingRequest.class);
+        verify(coding).code(any(),request.capture(),anyInt(),any(),any());
+        assertThat(request.getValue().runSettings()).isEqualTo(new CodingRequest.RunSettings("env-default",null,"Keep the API."));
     }
     @Test void preservesPartialPatchAcrossQuestionAndFailureThenVerifiesBeforePublishing() {
         ask=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.QUESTION); assertThat(actions.patch(id)).contains("fix 1");

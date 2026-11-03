@@ -95,12 +95,12 @@ class TaskAdmissionIntegrationTest {
         Task changedInput = task("20012", "MODBAR-112");
         Task changedDestination = task("20013", "MODBAR-113");
         var staleSelection = new TaskCommands.Selection(stale.getId(), stale.getVersion() + 5,
-                TaskAdmissionChecks.inputFingerprint(stale), TaskAdmissionChecks.destinationFingerprint(stale));
+                TaskAdmissionChecks.inputFingerprint(stale), TaskAdmissionChecks.destinationFingerprint(stale), null);
         var changedInputSelection = new TaskCommands.Selection(changedInput.getId(), changedInput.getVersion(),
-                "different-input", TaskAdmissionChecks.destinationFingerprint(changedInput));
+                "different-input", TaskAdmissionChecks.destinationFingerprint(changedInput), null);
         var changedDestinationSelection = new TaskCommands.Selection(changedDestination.getId(),
                 changedDestination.getVersion(), TaskAdmissionChecks.inputFingerprint(changedDestination),
-                "different-destination");
+                "different-destination", null);
 
         var result = run("run-2", staleSelection, changedInputSelection, changedDestinationSelection);
 
@@ -244,7 +244,7 @@ class TaskAdmissionIntegrationTest {
     }
 
     private TaskAdmissionService.AdmissionResult run(String requestId, List<TaskCommands.Selection> selections) {
-        return admissions.runSelected(new TaskCommands.RunSelected(requestId, selections, null));
+        return admissions.runSelected(new TaskCommands.RunSelected(requestId, selections));
     }
 
     private Task task(String issueId, String displayKey) {

@@ -734,32 +734,68 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   padding: 16px 24px;
 }
 .source-card-identity { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.source-card-scope, .source-card-actions { font-size: 13px; color: hsl(var(--muted-foreground)); }
-.source-card-scope strong, .source-card-actions strong { color: hsl(var(--foreground)); font-weight: 600; }
+.source-card-actions { font-size: 13px; color: hsl(var(--muted-foreground)); }
+.source-card-actions strong { color: hsl(var(--foreground)); font-weight: 600; }
 .source-card-problem { font-size: 13px; color: hsl(var(--destructive)); }
 .source-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-.source-details { border-top: 1px solid hsl(var(--border)); }
-.source-details summary {
-  padding: 10px 24px;
+/* Add by key: the second row of the source card. */
+.source-card-add {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  border-top: 1px solid hsl(var(--border));
   font-size: 13px;
+}
+.source-card-add label { font-weight: 500; white-space: nowrap; }
+.source-card-add input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--background));
+  font-size: 13px;
+}
+.source-card-add input::placeholder { color: hsl(var(--muted-foreground)); }
+.title-row { display: flex; align-items: center; gap: 8px; }
+/* The ⓘ next to a title: a details element, so it opens without a script. */
+.info-pop { position: relative; }
+.info-pop summary { list-style: none; }
+.info-pop summary::-webkit-details-marker { display: none; }
+.info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 9999px;
   color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
 }
-.source-details-grid {
-  display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
-  gap: 12px 16px;
-  padding: 4px 24px 20px;
+.info-pop[open] .info-btn { border-color: hsl(var(--primary)); color: hsl(var(--foreground)); }
+.info-pop-panel {
+  position: absolute;
+  z-index: 5;
+  top: -8px;
+  left: 32px;
+  width: 360px;
+  max-width: calc(100vw - 4rem);
+  padding: 12px 14px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--popover));
+  box-shadow: 0 8px 24px hsl(0 0% 0% / 0.14);
   font-size: 13px;
+  line-height: 1.5;
+  color: hsl(var(--foreground));
 }
-.source-details-query { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.source-details-query pre {
-  padding: 10px 12px;
-  border-radius: 6px;
-  background: hsl(var(--muted));
-  font-size: 12px;
-  white-space: pre-wrap;
-}
+.info-pop-panel p + p { margin-top: 6px; color: hsl(var(--muted-foreground)); }
+.info-pop-panel a { color: hsl(var(--foreground)); text-decoration: underline; }
 
 .task-section { display: flex; flex-direction: column; gap: 12px; }
 .task-section-head {
@@ -808,6 +844,9 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 }
 .task-grid-attempts .task-row-head { align-items: stretch; font-size: 12px; }
 .task-grid-available .task-row { grid-template-columns: 28px minmax(0, 1fr) 120px; }
+/* Wide enough for five effort levels; each row is its own grid, so the column cannot size to its content. */
+.task-grid-available.task-grid-effort .task-row { grid-template-columns: 28px minmax(0, 1fr) 270px 110px; }
+.task-grid-available.task-grid-effort .task-row:not(.task-row-head) { align-items: center; }
 .task-grid-triggered .task-grid-rows { min-width: 820px; }
 .task-grid-triggered .task-row { grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) 120px 120px 72px; }
 .task-grid-triggered.task-grid-wide .task-row { grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) 120px 120px 144px; }
@@ -817,7 +856,6 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .task-check { width: 16px; height: 16px; margin: 3px 0 0; }
 .task-row-head .task-check { margin: 0; }
 .task-cell { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.task-cell-blocked { gap: 4px; }
 .task-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .task-key {
   display: inline-flex;
@@ -840,7 +878,6 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   overflow-wrap: anywhere;
 }
 .task-action { display: flex; justify-content: flex-end; }
-.task-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: hsl(var(--muted-foreground)); }
 .task-tag {
   display: inline-flex;
   padding: 0 6px;
@@ -849,14 +886,40 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   color: hsl(var(--soft-foreground));
   font-weight: 500;
 }
-.task-blocked { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: hsl(var(--quiet-foreground)); }
-.task-blocked-tag {
+/* The chips of a task's key line share one box: same height, padding, border and font size.
+   Only colour and weight tell them apart. */
+.task-line .task-key, .task-line .task-tag, .repo-chip, .config-chip {
+  box-sizing: border-box;
   display: inline-flex;
-  padding: 0 6px;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid hsl(var(--border));
   border-radius: 6px;
-  background: hsl(var(--muted));
-  color: hsl(var(--soft-foreground));
+  font-size: 12px;
+  line-height: 1;
+}
+.repo-chip { background: hsl(var(--muted)); color: hsl(var(--soft-foreground)); font-weight: 500; }
+.task-line .task-tag { border-style: dashed; color: hsl(var(--muted-foreground)); }
+.config-chip {
+  border-color: hsl(var(--destructive) / 0.5);
+  background: hsl(var(--destructive) / 0.08);
+  color: hsl(var(--destructive));
   font-weight: 600;
+  text-decoration: none;
+}
+.config-chip::after { content: "?"; font-weight: 700; opacity: 0.8; }
+.task-row-off .task-title { color: hsl(var(--quiet-foreground)); }
+.row-remove {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: hsl(var(--muted-foreground));
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
 }
 .task-jira-status { font-size: 13px; }
 .state-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; max-width: 100%; }
@@ -882,34 +945,55 @@ a.state-detail { color: hsl(var(--foreground)); text-decoration: underline; }
 .value-cell { display: flex; flex-direction: column; font-size: 13px; }
 .value-cell-quiet { color: hsl(var(--muted-foreground)); }
 .value-cell .dev-note { font-size: 12px; }
-.key-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  padding: 12px 16px;
-  border: 1px dashed hsl(var(--strong-border));
-  border-radius: 8px;
-}
-.key-form label { font-size: 13px; font-weight: 500; }
-.key-form input {
-  flex: 1 1 240px;
-  min-width: 0;
-  min-height: 36px;
-  padding: 0 10px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 6px;
-  background: hsl(var(--background));
-  font-size: 13px;
-}
-.key-form input::placeholder { color: hsl(var(--muted-foreground)); }
-.key-form-hint { flex-basis: 100%; font-size: 12px; color: hsl(var(--muted-foreground)); }
-/* Profile, Effort and Max turns of a run form: one compact row that wraps on narrow screens. */
+/* Model and Effort of a run form: one compact row that wraps on narrow screens. */
 .run-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .run-setting { display: flex; align-items: center; gap: 6px; font-size: 13px; color: hsl(var(--foreground)); }
 .run-setting > span { font-weight: 500; white-space: nowrap; }
-.run-setting .select { width: auto; max-width: 14rem; height: 2rem; }
-.run-setting .run-setting-turns { width: 5rem; height: 2rem; }
+.run-setting .select { width: auto; max-width: 16rem; height: 2rem; }
+.run-setting-problem { font-size: 13px; color: hsl(var(--destructive)); }
+/* Effort: one radio button per level of the model, drawn as a segmented control. */
+.effort-toggle {
+  display: inline-flex;
+  height: 2rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  overflow: hidden;
+}
+.effort-toggle label { position: relative; display: flex; }
+.effort-toggle input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; }
+.effort-toggle span {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border-left: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  color: hsl(var(--soft-foreground));
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.effort-toggle label:first-child span { border-left: 0; }
+.effort-toggle input:checked + span {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-weight: 600;
+}
+.effort-toggle input:focus-visible + span { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
+.effort-toggle-sm { height: 26px; justify-self: start; }
+.effort-toggle-sm span { padding: 0 9px; font-size: 12px; }
+/* The Not configured dialog: what is wrong and the steps to fix it. */
+.dialog.fix-dialog { max-width: 600px; }
+.fix-steps { display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+.fix-steps p { color: hsl(var(--soft-foreground)); }
+.fix-steps pre {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: hsl(var(--muted));
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+}
 .retry-form { display: flex; flex-direction: column; gap: 12px; padding-top: 14px; border-top: 1px solid hsl(var(--border)); }
 .retry-instructions { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; }
 .queue-waiting {

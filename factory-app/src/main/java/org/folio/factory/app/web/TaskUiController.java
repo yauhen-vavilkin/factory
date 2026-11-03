@@ -11,12 +11,12 @@ import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
+import org.folio.factory.app.tasks.presentation.AvailableRow;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
 import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.app.tasks.presentation.TaskView;
-import org.folio.factory.app.tasks.source.TaskDiscoveryService;
 import org.folio.factory.core.registry.FlowRegistry;
-import org.folio.factory.devfactory.runtime.RunProfiles;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -59,7 +59,6 @@ public class TaskUiController {
     private final TaskInstallationRepository installations;
     private final TaskAttemptRepository attempts;
     private final TaskAdmissionService admissions;
-    private final TaskDiscoveryService discovery;
     private final TaskDispatcher dispatcher;
     private final ObjectProvider<TaskOutcomeService> outcomes;
     private final TaskRows rows;
@@ -83,10 +82,9 @@ public class TaskUiController {
         model.addAttribute("flow", Map.of("id", descriptor.id(), "name", descriptor.name(),
                 "version", descriptor.version()));
         model.addAttribute("source", rows.sourceCard(installation));
-        model.addAttribute("repositoryMap", rows.repositoryMap());
         addAvailable(model, available);
         addTriggered(model, installation, myTasks.triggered(), queuedCount);
-        // Profile, Effort and Max turns for Run and Run by key; null with the Pi runtime.
+        // Model for Run and the Effort choices of each row; null with the Pi harness.
         model.addAttribute("runForm", runSettings.form(null));
         model.addAttribute("error", error);
         model.addAttribute("pollUrl", "/tasks/poll");
@@ -110,7 +108,7 @@ public class TaskUiController {
         var previous = view.attempts().isEmpty() ? null : view.attempts().getLast().runSettings();
         model.addAttribute("retryForm", runSettings.form(previous));
         model.addAttribute("retryInstructions", TaskRunSettings.instructions(previous));
-        model.addAttribute("instructionsLimit", RunProfiles.MAX_INSTRUCTIONS);
+        model.addAttribute("instructionsLimit", ModelCatalog.MAX_INSTRUCTIONS);
         model.addAttribute("error", error);
         return "task";
     }
@@ -120,18 +118,6 @@ public class TaskUiController {
     @ResponseBody
     public Map<String, Object> poll() {
         return Map.of("revision", revision(installation()));
-    }
-
-    @PostMapping(FLOW_PAGE + "/scan")
-    public String scan(HttpServletRequest request, RedirectAttributes redirect) {
-        requireSameOrigin(request);
-        TaskDiscoveryService.SyncResult result = discovery.sync();
-        if (!result.complete()) {
-            return UiFormat.errorRedirect(FLOW_PAGE, "Scan failed: " + result.problem());
-        }
-        redirect.addFlashAttribute("message", "Scan complete: " + result.discoveredCount()
-                + (result.discoveredCount() == 1 ? " task is" : " tasks are") + " assigned to you.");
-        return "redirect:" + FLOW_PAGE;
     }
 
     @PostMapping("/tasks/run-selected")
@@ -144,11 +130,7 @@ public class TaskUiController {
             if (selections.isEmpty()) {
                 return UiFormat.errorRedirect(FLOW_PAGE, "Select at least one task, then choose Run.");
             }
-            // One choice of Profile, Effort and Max turns applies to every selected task.
-            var settings = runSettings.snapshot(allParams.get("profileId"), allParams.get("effort"),
-                    allParams.get("maxTurns"), null);
-            var result = admissions.runSelected(
-                    new TaskCommands.RunSelected("ui-" + UUID.randomUUID(), selections, settings));
+            var result = admissions.runSelected(new TaskCommands.RunSelected("ui-" + UUID.randomUUID(), selections));
             return admissionRedirect(result, redirect);
         } catch (NumberFormatException e) {
             return UiFormat.errorRedirect(FLOW_PAGE,
@@ -156,27 +138,6 @@ public class TaskUiController {
         } catch (IllegalArgumentException e) {
             return UiFormat.errorRedirect(FLOW_PAGE, e.getMessage());
         }
-    }
-
-    @PostMapping(FLOW_PAGE + "/run-by-key")
-    public String runByKey(@RequestParam(name = "key", required = false) String key,
-                           @RequestParam(name = "profileId", required = false) String profileId,
-                           @RequestParam(name = "effort", required = false) String effort,
-                           @RequestParam(name = "maxTurns", required = false) String maxTurns,
-                           HttpServletRequest request, RedirectAttributes redirect) {
-        requireSameOrigin(request);
-        String settings;
-        try {
-            settings = runSettings.snapshot(profileId, effort, maxTurns, null);
-        } catch (IllegalArgumentException e) {
-            return UiFormat.errorRedirect(FLOW_PAGE, e.getMessage());
-        }
-        TaskAdmissionService.KeyResult result = admissions.runByKey("ui-" + UUID.randomUUID(), key, settings);
-        if (result.problem() != null) {
-            return UiFormat.errorRedirect(FLOW_PAGE, result.problem());
-        }
-        redirect.addFlashAttribute("message", result.issueKey() + " joined the queue.");
-        return "redirect:" + FLOW_PAGE;
     }
 
     /**
@@ -192,8 +153,7 @@ public class TaskUiController {
         var back = "flow".equals(form.get("returnTo")) ? FLOW_PAGE : "/tasks/" + taskId;
         String settings;
         try {
-            settings = runSettings.snapshot(form.get("profileId"), form.get("effort"), form.get("maxTurns"),
-                    form.get("instructions"));
+            settings = runSettings.snapshot(form.get("modelId"), form.get("effort"), form.get("instructions"));
         } catch (IllegalArgumentException e) {
             return UiFormat.errorRedirect(back, e.getMessage());
         }
@@ -260,9 +220,9 @@ public class TaskUiController {
         return request.getServerName() + (defaultPort ? "" : ":" + port);
     }
 
-    private static void addAvailable(Model model, List<Map<String, Object>> available) {
-        var chips = TaskRows.statusChips(available);
-        TaskRows.markShown(available, chips);
+    private static void addAvailable(Model model, List<AvailableRow> unfiltered) {
+        var chips = TaskRows.statusChips(unfiltered);
+        var available = TaskRows.markShown(unfiltered, chips);
         model.addAttribute("available", available);
         // Available counts only shown tasks that can run; poll.js applies the same rule after a filter change.
         var shownByRunnable = TaskRows.countShownByRunnable(available);
@@ -296,7 +256,8 @@ public class TaskUiController {
         return "redirect:" + FLOW_PAGE;
     }
 
-    private static List<TaskCommands.Selection> selections(List<String> taskIds, Map<String, String> allParams) {
+    /** Each selected task with the identity the developer saw and its own run settings: the effort of its row. */
+    private List<TaskCommands.Selection> selections(List<String> taskIds, Map<String, String> allParams) {
         if (taskIds == null) {
             return List.of();
         }
@@ -305,7 +266,8 @@ public class TaskUiController {
             selections.add(new TaskCommands.Selection(UUID.fromString(id),
                     Long.parseLong(allParams.getOrDefault("version-" + id, "0")),
                     allParams.get("input-" + id),
-                    allParams.get("destination-" + id)));
+                    allParams.get("destination-" + id),
+                    runSettings.snapshot(allParams.get("modelId"), allParams.get("effort-" + id), null)));
         }
         return selections;
     }

@@ -322,6 +322,47 @@ class TaskDiscoveryIntegrationTest {
     }
 
     @Test
+    void aTaskAddedByKeyStaysThroughScansUntilItIsRemovedOrAssigned() {
+        stubFullSearch();
+        discovery.sync();
+        Task added = addedByKey("10002");
+        Task ran = addedByKey("10005");
+        TaskAttempt ranAttempt = attempts.save(new TaskAttempt(ran.getId(), 1, TaskAttempt.Kind.INITIAL,
+                "ran-by-key", TaskAttempt.State.STOPPED));
+
+        jira.resetAll();
+        stubSinglePageSearch(issue("10001", "MODBAR-1", "MODBAR", "Summary of MODBAR-1", ""));
+        assertThat(discovery.sync().complete()).isTrue();
+
+        assertThat(tasks.findById(added.getId()).orElseThrow().isInScope()).isTrue();
+        assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10003").orElseThrow().isInScope()).isFalse();
+        assertThat(discovery.removeFromList(ran.getId()))
+                .isEqualTo("MODBAR-5 has already run, so it stays under Triggered.");
+        assertThat(discovery.removeFromList(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow()
+                .getId())).isEqualTo("This task is not one you added by key; reload the page.");
+        assertThat(discovery.removeFromList(added.getId())).isNull();
+        Task removed = tasks.findById(added.getId()).orElseThrow();
+        assertThat(removed.isInScope()).isFalse();
+        assertThat(removed.isAddedByKey()).isFalse();
+
+        // Found assigned to the developer, a task added by key becomes one of My tasks.
+        jira.resetAll();
+        stubSinglePageSearch(issue("10005", "MODBAR-5", "MODBAR", "Summary of MODBAR-5", ""));
+        assertThat(discovery.sync().complete()).isTrue();
+        Task assigned = tasks.findById(ran.getId()).orElseThrow();
+        assertThat(assigned.isInScope()).isTrue();
+        assertThat(assigned.isAddedByKey()).isFalse();
+        // The other tests of this class share the tasks and expect them without attempts.
+        attempts.delete(ranAttempt);
+    }
+
+    private Task addedByKey(String issueId) {
+        Task task = tasks.findByJiraInstanceAndIssueId(INSTANCE, issueId).orElseThrow();
+        task.setAddedByKey(true);
+        return tasks.save(task);
+    }
+
+    @Test
     void failedApplyTransactionPreservesRowsAndLastSuccessAndMarksScanStale() {
         stubFullSearch();
         discovery.sync();

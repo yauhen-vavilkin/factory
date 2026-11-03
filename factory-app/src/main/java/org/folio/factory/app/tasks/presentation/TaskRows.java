@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.tasks.admission.TaskRunSettings;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
+import org.folio.factory.app.tasks.persistence.TaskRoutingReason;
 import org.folio.factory.app.tasks.source.TaskJiraInstance;
 import org.folio.factory.app.tasks.source.TaskSourceProperties;
 import org.folio.factory.app.web.UiFormat;
@@ -40,8 +41,8 @@ import static org.folio.factory.app.tasks.presentation.TaskLabels.working;
 
 /**
  * Page rows of My tasks, the task summary and the run page header, built from the
- * task projection. My tasks adds the shown flag to the available rows after the
- * status chips are counted, so the rows are Maps.
+ * task projection. My tasks marks an available row shown after the status chips
+ * are counted.
  */
 @Component
 @RequiredArgsConstructor
@@ -55,18 +56,13 @@ public class TaskRows {
     private final TaskJiraInstance jira;
     private final DevFactoryProperties repositories;
 
-    public Map<String, Object> sourceCard(TaskInstallation installation) {
-        Map<String, Object> card = new LinkedHashMap<>();
+    public SourceCard sourceCard(TaskInstallation installation) {
         String base = jira.baseUrl();
-        card.put("assignee", source.assignee());
-        card.put("jiraHost", base == null ? null : jira.current());
         boolean ready = source.assignee() != null && base != null;
-        card.put("query", ready ? source.effectiveQuery() : null);
-        card.put("searchUrl", ready ? source.searchUrl(base) : null);
-        card.put("lastScan", ago(installation.getLastSuccessfulSyncAt()));
-        card.put("lastScanTitle", UiFormat.format(installation.getLastSuccessfulSyncAt()));
-        card.put("problem", installation.getSyncProblem());
-        return card;
+        return new SourceCard(source.assignee(), base == null ? null : jira.current(),
+                ready ? source.effectiveQuery() : null, ready ? source.searchUrl(base) : null,
+                ago(installation.getLastSuccessfulSyncAt()), UiFormat.format(installation.getLastSuccessfulSyncAt()),
+                installation.getSyncProblem());
     }
 
     /** "PROJECT → repository" for each catalog entry, the routing a scan applies. */
@@ -78,42 +74,39 @@ public class TaskRows {
                 + String.join(" · ", parts);
     }
 
-    public Map<String, Object> availableRow(TaskView view) {
-        Map<String, Object> row = baseRow(view);
-        row.put("jiraStatus", view.jiraStatus() == null ? "Unknown" : view.jiraStatus());
-        row.put("selectable", view.allowedActions().select());
-        row.put("notEligibleReason", view.state() == TaskView.TaskState.UNSUPPORTED ? view.reason() : null);
-        return row;
+    /** Not shown yet: {@link #markShown} decides that from the status chips. */
+    public AvailableRow availableRow(TaskView view) {
+        var reason = view.state() == TaskView.TaskState.UNSUPPORTED ? view.reason() : null;
+        var problem = TaskRoutingReason.problem(reason).orElse(null);
+        return new AvailableRow(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(),
+                view.jiraStatus() == null ? "Unknown" : view.jiraStatus(), view.projectKey(), repository(view),
+                view.addedByKey(), view.allowedActions().select(), view.version(), view.inputFingerprint(),
+                view.destinationFingerprint(), problem, problemLabel(problem), reason, false);
     }
 
-    public static List<Map<String, Object>> statusChips(List<Map<String, Object>> available) {
+    public static List<StatusChip> statusChips(List<AvailableRow> available) {
         Map<String, Long> counts = new TreeMap<>();
-        for (Map<String, Object> row : available) {
-            counts.merge((String) row.get("jiraStatus"), 1L, Long::sum);
-        }
+        available.forEach(row -> counts.merge(row.jiraStatus(), 1L, Long::sum));
         boolean anyDefault = counts.keySet().stream()
                 .anyMatch(status -> DEFAULT_STATUSES.contains(status.toLowerCase(Locale.ROOT)));
-        List<Map<String, Object>> chips = new ArrayList<>();
-        counts.forEach((status, count) -> chips.add(Map.of(
-                "status", status,
-                "count", count,
-                "pressed", !anyDefault || DEFAULT_STATUSES.contains(status.toLowerCase(Locale.ROOT)))));
-        chips.sort((left, right) -> Integer.compare(chipOrder((String) left.get("status")),
-                chipOrder((String) right.get("status"))));
+        List<StatusChip> chips = new ArrayList<>();
+        counts.forEach((status, count) -> chips.add(new StatusChip(status, count,
+                !anyDefault || DEFAULT_STATUSES.contains(status.toLowerCase(Locale.ROOT)))));
+        chips.sort((left, right) -> Integer.compare(chipOrder(left.status()), chipOrder(right.status())));
         return chips;
     }
 
-    /** Marks an available row shown when the chip of its Jira status is pressed. */
-    public static void markShown(List<Map<String, Object>> available, List<Map<String, Object>> chips) {
-        Set<Object> shownStatuses = chips.stream().filter(chip -> (boolean) chip.get("pressed"))
-                .map(chip -> chip.get("status")).collect(Collectors.toSet());
-        available.forEach(row -> row.put("shown", shownStatuses.contains(row.get("jiraStatus"))));
+    /** The rows again, each shown when the chip of its Jira status is pressed. */
+    public static List<AvailableRow> markShown(List<AvailableRow> available, List<StatusChip> chips) {
+        Set<String> shownStatuses = chips.stream().filter(StatusChip::pressed).map(StatusChip::status)
+                .collect(Collectors.toSet());
+        return available.stream().map(row -> row.shownAs(shownStatuses.contains(row.jiraStatus()))).toList();
     }
 
     /** Shown available rows, counted by whether they can run (true) or not (false). */
-    public static Map<Boolean, Long> countShownByRunnable(List<Map<String, Object>> available) {
-        return available.stream().filter(row -> (boolean) row.get("shown"))
-                .collect(Collectors.partitioningBy(row -> (boolean) row.get("selectable"), Collectors.counting()));
+    public static Map<Boolean, Long> countShownByRunnable(List<AvailableRow> available) {
+        return available.stream().filter(AvailableRow::shown)
+                .collect(Collectors.partitioningBy(AvailableRow::selectable, Collectors.counting()));
     }
 
     /** True when the latest attempt of a task needs inspection, so its row offers Mark as stopped. */
@@ -122,25 +115,19 @@ public class TaskRows {
                 && view.attempts().getLast().state() == TaskAttempt.State.NEEDS_INSPECTION);
     }
 
-    public Map<String, Object> triggeredRow(TaskView view) {
-        Map<String, Object> row = baseRow(view);
+    public TriggeredRow triggeredRow(TaskView view) {
         var latest = view.attempts().getLast();
         var label = stateLabel(view);
-        row.put("stateLabel", label);
-        row.put("stateClass", stateClass(label));
-        // A task added by key stays marked after a Retry: it is still not one of My tasks.
-        row.put("addedByKey", !view.inScope() && view.attempts().stream()
-                .anyMatch(attempt -> attempt.admittedVia() == TaskAttempt.AdmittedVia.BY_KEY));
-        row.put("link", working(view) && latest.executionId() != null
-                ? "/executions/" + latest.executionId() : "/tasks/" + view.taskId());
-        row.put("detail", triggeredDetail(view));
-        putPullRequest(row, view.pullRequestUrl());
-        row.put("retryAllowed", view.allowedActions().retry());
-        row.put("markStoppedAttemptId", markStoppedAttemptId(latest));
-        row.put("cost", costLabel(view.usage()));
-        putCostNote(row, triggeredCostNote(view));
-        putWhen(row, latest, working(view));
-        return row;
+        var link = working(view) && latest.executionId() != null
+                ? "/executions/" + latest.executionId() : "/tasks/" + view.taskId();
+        var prUrl = view.pullRequestUrl();
+        var costNote = triggeredCostNote(view);
+        var when = latest.startedAt() != null ? latest.startedAt() : latest.createdAt();
+        return new TriggeredRow(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(), repository(view),
+                view.addedByKey(), label, stateClass(label), link, triggeredDetail(view), prUrl,
+                prUrl == null ? null : pullRequestLabel(prUrl), view.allowedActions().retry(),
+                markStoppedAttemptId(latest), costLabel(view.usage()), costNote, costNoteTitle(costNote),
+                ago(when), UiFormat.format(when), whenNote(latest, working(view)));
     }
 
     public Map<String, Object> detail(TaskView view) {
@@ -253,12 +240,23 @@ public class TaskRows {
         row.put("costNoteTitle", costNoteTitle(costNote));
     }
 
-    private static void putWhen(Map<String, Object> row, TaskView.AttemptHistoryEntry latest, boolean working) {
-        boolean started = latest.startedAt() != null;
-        row.put("when", ago(started ? latest.startedAt() : latest.createdAt()));
-        row.put("whenTitle", UiFormat.format(started ? latest.startedAt() : latest.createdAt()));
-        row.put("whenNote", working ? "started"
-                : !started ? "triggered" : minutes(latest.activeSeconds()) + " active");
+    private static String whenNote(TaskView.AttemptHistoryEntry latest, boolean working) {
+        return working ? "started"
+                : latest.startedAt() == null ? "triggered" : minutes(latest.activeSeconds()) + " active";
+    }
+
+    private static String problemLabel(TaskRoutingReason.Problem problem) {
+        if (problem == null) {
+            return null;
+        }
+        return switch (problem) {
+            case NO_REPOSITORY -> "Not configured";
+            case SEVERAL_REPOSITORIES -> "Several repositories";
+        };
+    }
+
+    private String repository(TaskView view) {
+        return view.destinationRepository() == null ? null : repositoryName(view.destinationRepository());
     }
 
     private static void putUsage(Map<String, Object> row, TaskUsage usage) {

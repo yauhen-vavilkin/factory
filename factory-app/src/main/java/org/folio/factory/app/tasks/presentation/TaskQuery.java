@@ -214,7 +214,7 @@ public class TaskQuery {
                 TaskRoutingReason.eligibleRepositoryKey(task.getRoutingReason()),
                 prReady ? latest.getPublicationIdentity() : null,
                 prReady ? draftReasons(latest) : null,
-                task.isInScope(), task.getVersion(),
+                task.isInScope(), task.isAddedByKey(), task.getVersion(),
                 TaskAdmissionChecks.inputFingerprint(task), TaskAdmissionChecks.destinationFingerprint(task),
                 progress.entries(), progress.usage(), outcome.allowedActions());
     }

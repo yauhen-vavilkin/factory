@@ -24,11 +24,12 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
- * Admission into the durable task queue: tasks selected in My tasks, one task added by its Jira key, and an
- * explicit Retry of a terminal unsuccessful attempt. Before anything is reserved, the GitHub token's push
- * access to the task's delivery repository is checked. Each admission then runs in its own short transaction
- * that locks the task, revalidates what the developer saw ({@link TaskAdmissionChecks}) and reserves one live
- * attempt; a repeated request id resolves to the existing admission instead of creating anything. A retry
+ * Admission into the durable task queue: tasks selected in My tasks and an explicit Retry of a terminal
+ * unsuccessful attempt. It also adds a task to My tasks by its Jira key. Before anything is reserved, the
+ * GitHub token's push access to the task's delivery repository is checked. Each admission then runs in its
+ * own short transaction that locks the task, revalidates what the developer saw ({@link TaskAdmissionChecks})
+ * and reserves one live attempt; a repeated request id resolves to the existing admission instead of
+ * creating anything. A retry
  * re-reads the task from Jira when it can, so it runs on what Jira says now, and keeps the earlier attempts'
  * history and costs. After admitting work the dispatcher is asked to start the queue head — best-effort for
  * a selection, so a refused dispatch only leaves the attempts queued for the scheduled poller.
@@ -70,7 +71,7 @@ public class TaskAdmissionService {
         }
     }
 
-    /** The task a run by key queued, or the reason nothing was queued. */
+    /** The task added by key, or the reason nothing was added. */
     public record KeyResult(String issueKey, UUID taskId, String problem) {
     }
 
@@ -88,7 +89,7 @@ public class TaskAdmissionService {
         Map<UUID, String> rejected = new LinkedHashMap<>();
         Map<String, String> pushProblems = new HashMap<>();
         for (TaskCommands.Selection selection : run.selections()) {
-            String reason = admitSelected(requestId, selection, run.runSettings(), pushProblems);
+            String reason = admitSelected(requestId, selection, pushProblems);
             if (reason == null) {
                 admitted.add(selection.taskId());
             } else {
@@ -104,7 +105,7 @@ public class TaskAdmissionService {
     }
 
     /** Null when the task is admitted, now or by an earlier request with the same id; the refusal otherwise. */
-    private String admitSelected(String requestId, TaskCommands.Selection selection, String runSettings,
+    private String admitSelected(String requestId, TaskCommands.Selection selection,
                                  Map<String, String> pushProblems) {
         String attemptRequestId = attemptRequestId(requestId, selection.taskId());
         if (attempts.findByRequestId(attemptRequestId).isPresent()) {
@@ -118,13 +119,13 @@ public class TaskAdmissionService {
         }
         // A concurrent admission or scan may win the row. When it holds our request
         // id, resolve to that stored admission; otherwise this click is stale.
-        return inTransaction(() -> admitOnce(attemptRequestId, selection, runSettings),
+        return inTransaction(() -> admitOnce(attemptRequestId, selection),
                 conflict -> attempts.findByRequestId(attemptRequestId).isPresent() ? null
                         : "task changed at the same moment; review and select again");
     }
 
     /** Null when the attempt was reserved, otherwise the rejection reason. */
-    private String admitOnce(String attemptRequestId, TaskCommands.Selection selection, String runSettings) {
+    private String admitOnce(String attemptRequestId, TaskCommands.Selection selection) {
         Task task = tasks.lockById(selection.taskId()).orElse(null);
         if (task == null) {
             return "task " + selection.taskId() + " no longer exists";
@@ -135,18 +136,19 @@ public class TaskAdmissionService {
         if (refusal != null) {
             return refusal;
         }
-        reserve(task, TaskAttempt.Kind.INITIAL, attemptRequestId, TaskAttempt.AdmittedVia.MANUAL, runSettings);
+        // A task added by key keeps that mark on its attempt, as when the key used to queue it directly.
+        reserve(task, TaskAttempt.Kind.INITIAL, attemptRequestId,
+                task.isAddedByKey() ? TaskAttempt.AdmittedVia.BY_KEY : TaskAttempt.AdmittedVia.MANUAL,
+                selection.runSettings());
         return null;
     }
 
     /**
-     * Queues one task by its Jira key or link, whatever its Jira status or
-     * assignee, also after an earlier pull request. Nothing is written for a key
-     * that cannot run; a task that is already queued or running is refused
-     * before its row is touched.
+     * Adds one task to My tasks by its Jira key or link, whatever its Jira status or assignee. It then runs like
+     * any task in the list. A task from a project without a repository is added too: its row says what to fix.
+     * A task that already ran, or is already in the list, is refused before its row is touched.
      */
-    public KeyResult runByKey(String requestId, String input, String runSettings) {
-        String run = requireRequestId(requestId);
+    public KeyResult addByKey(String input) {
         String issueKey;
         try {
             issueKey = jiraInstance.issueKey(input);
@@ -154,35 +156,29 @@ public class TaskAdmissionService {
             return new KeyResult(null, null, e.getMessage());
         }
         var fetched = checks.fetch(issueKey);
-        var problem = fetched.problem() != null ? fetched.problem() : checks.routingProblem(fetched.issue());
-        if (problem != null) {
-            return new KeyResult(issueKey, null, problem);
+        if (fetched.problem() != null) {
+            return new KeyResult(issueKey, null, fetched.problem());
         }
-        var result = inTransaction(() -> admitKey(run, fetched.issue(), runSettings), conflict -> new KeyResult(
-                issueKey, null, "Jira was being scanned at the same moment; add " + issueKey + " again"));
-        if (result.problem() == null) {
-            dispatcher.dispatchNextQuietly();
-        }
-        return result;
+        return inTransaction(() -> addKey(fetched.issue()), conflict -> new KeyResult(issueKey, null,
+                "Jira was being scanned at the same moment; add " + issueKey + " again"));
     }
 
-    private KeyResult admitKey(String requestId, DiscoveredIssue issue, String runSettings) {
+    private KeyResult addKey(DiscoveredIssue issue) {
         Task existing = tasks.findByJiraInstanceAndIssueId(jiraInstance.current(), issue.id())
                 .flatMap(task -> tasks.lockById(task.getId()))
                 .orElse(null);
         if (existing != null) {
-            if (attempts.findByRequestId(attemptRequestId(requestId, existing.getId())).isPresent()) {
-                return new KeyResult(issue.key(), existing.getId(), null);
+            boolean ran = attempts.findByTaskIdOrderByOrdinalAsc(existing.getId()).stream()
+                    .anyMatch(attempt -> attempt.getState() != TaskAttempt.State.WITHDRAWN);
+            if (ran) {
+                return new KeyResult(issue.key(), existing.getId(), issue.key()
+                        + " has already run. Retry it from its row under Triggered.");
             }
-            if (!attempts.findLiveByTaskId(existing.getId()).isEmpty()) {
-                return new KeyResult(issue.key(), existing.getId(),
-                        issue.key() + " is already queued or running");
+            if (existing.isInScope()) {
+                return new KeyResult(issue.key(), existing.getId(), issue.key() + " is already in your list.");
             }
         }
-        Task task = discovery.upsert(issue, false);
-        TaskAttempt.Kind kind = attempts.findByTaskIdOrderByOrdinalAsc(task.getId()).isEmpty()
-                ? TaskAttempt.Kind.INITIAL : TaskAttempt.Kind.RETRY;
-        reserve(task, kind, attemptRequestId(requestId, task.getId()), TaskAttempt.AdmittedVia.BY_KEY, runSettings);
+        Task task = discovery.addToList(issue);
         return new KeyResult(issue.key(), task.getId(), null);
     }
 

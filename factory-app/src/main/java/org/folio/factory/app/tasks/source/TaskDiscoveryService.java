@@ -1,6 +1,7 @@
 package org.folio.factory.app.tasks.source;
 
 import lombok.extern.slf4j.Slf4j;
+import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
@@ -24,6 +25,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Read-only discovery of the developer's own Jira tasks into durable tasks,
@@ -113,18 +115,17 @@ public class TaskDiscoveryService {
                     TaskRoutingReason.ELIGIBLE_PREFIX + candidates.getFirst());
         }
         if (candidates.isEmpty()) {
-            return new Routing(Task.Eligibility.INELIGIBLE,
-                    "Project " + issue.projectKey() + " is not configured: no repository for it in"
-                            + " config/developer-repositories.yaml");
+            return new Routing(Task.Eligibility.INELIGIBLE, TaskRoutingReason.noRepository(issue.projectKey()));
         }
         return new Routing(Task.Eligibility.INELIGIBLE,
-                "Project " + issue.projectKey() + " maps to several repositories: " + String.join(", ", candidates));
+                TaskRoutingReason.severalRepositories(issue.projectKey(), candidates));
     }
 
     /**
      * Writes the issue's current snapshot and routing onto its task, creating the
-     * task on first sight. Only a scan decides whether the task is in My tasks;
-     * a task first seen through its key starts outside it. Started work holds: a
+     * task on first sight. A scan puts the task in My tasks as one assigned to the
+     * developer; otherwise its place in the list does not change, and a new task
+     * starts outside it (see {@link #addToList}). Started work holds: a
      * task with a queued or running attempt keeps the key, snapshot and routing it
      * was admitted with, so a later change in Jira cannot redirect or block it; the
      * first scan after the run ends refreshes the row.
@@ -139,7 +140,7 @@ public class TaskDiscoveryService {
                 .orElse(null);
         if (task != null && !attempts.findLiveByTaskId(task.getId()).isEmpty()) {
             if (fromScan) {
-                task.setInScope(true);
+                assignedToDeveloper(task);
             }
             return tasks.save(task);
         }
@@ -152,9 +153,45 @@ public class TaskDiscoveryService {
         }
         applyIssue(task, issue, snapshot, routing);
         if (fromScan) {
-            task.setInScope(true);
+            assignedToDeveloper(task);
         }
         return tasks.save(task);
+    }
+
+    /**
+     * Puts a task in My tasks by its key, whoever it is assigned to: later scans keep it there until it runs or
+     * the developer removes it. Call it in the transaction that locked the task.
+     */
+    public Task addToList(DiscoveredIssue issue) {
+        Task task = upsert(issue, false);
+        task.setInScope(true);
+        task.setAddedByKey(true);
+        return tasks.save(task);
+    }
+
+    /** Takes a task that was added by key out of My tasks. The message says why nothing changed, or is null. */
+    public String removeFromList(UUID taskId) {
+        return transactions.execute(status -> {
+            Task task = tasks.lockById(taskId).orElse(null);
+            if (task == null || !task.isAddedByKey() || !task.isInScope()) {
+                return "This task is not one you added by key; reload the page.";
+            }
+            boolean ran = attempts.findByTaskIdOrderByOrdinalAsc(taskId).stream()
+                    .anyMatch(attempt -> attempt.getState() != TaskAttempt.State.WITHDRAWN);
+            if (ran) {
+                return task.getDisplayKey() + " has already run, so it stays under Triggered.";
+            }
+            task.setInScope(false);
+            task.setAddedByKey(false);
+            tasks.save(task);
+            return null;
+        });
+    }
+
+    /** A scan found the task assigned to the developer: it is one of My tasks, not a task added by key. */
+    private static void assignedToDeveloper(Task task) {
+        task.setInScope(true);
+        task.setAddedByKey(false);
     }
 
     private void applyIssue(Task task, DiscoveredIssue issue, Map<String, Object> snapshot, Routing routing) {
@@ -192,7 +229,7 @@ public class TaskDiscoveryService {
             upsert(issue, true);
         }
         for (Task task : tasks.findByJiraInstanceAndInScopeTrue(jiraInstance.current())) {
-            if (!discoveredIds.contains(task.getIssueId())) {
+            if (!discoveredIds.contains(task.getIssueId()) && !task.isAddedByKey()) {
                 task.setInScope(false);
             }
         }

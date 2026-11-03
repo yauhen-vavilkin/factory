@@ -2,6 +2,9 @@ package org.folio.factory.app.web;
 
 import lombok.RequiredArgsConstructor;
 import lombok.AccessLevel;
+import org.folio.factory.devfactory.runtime.Model;
+import org.folio.factory.devfactory.runtime.ModelCatalog;
+import org.folio.factory.devfactory.runtime.ModelPrice;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -13,11 +16,11 @@ import java.util.Collection;
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class DeveloperCostEstimator {
     private static final BigDecimal MILLION = BigDecimal.valueOf(1_000_000);
-    private final DeveloperPricingProperties properties;
+    private final ModelCatalog models;
 
     Estimate estimate(Collection<Usage> usages) {
         BigDecimal total = BigDecimal.ZERO;
-        DeveloperPricingProperties.Rate selected = null;
+        ModelPrice selected = null;
         boolean observed = false;
         for (Usage usage : usages) {
             if (!usage.present() || usage.model() == null) return null;
@@ -26,7 +29,7 @@ final class DeveloperCostEstimator {
                     && usage.cacheRead() == 0
                     && usage.cacheWrite() == 0
                     && usage.output() == 0) return null;
-            var rate = properties.rateFor(usage.model()).orElse(null);
+            var rate = models.pricedEntry(usage.modelId(), usage.model()).map(Model::price).orElse(null);
             if (rate == null
                     || selected != null
                             && (!selected.currency().equals(rate.currency())
@@ -65,7 +68,8 @@ final class DeveloperCostEstimator {
                         .divide(MILLION, 12, RoundingMode.HALF_UP);
     }
 
-    record Usage(String model, Long input, Long cacheRead, Long cacheWrite, Long output) {
+    /** modelId is null for Pi and for runs started before 2026-11-03. */
+    record Usage(String modelId, String model, Long input, Long cacheRead, Long cacheWrite, Long output) {
         boolean present() {
             return input != null && cacheRead != null && cacheWrite != null && output != null;
         }

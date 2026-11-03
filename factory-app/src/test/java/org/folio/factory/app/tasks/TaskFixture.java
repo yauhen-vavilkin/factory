@@ -75,7 +75,7 @@ public final class TaskFixture {
 
     public static TaskCommands.Selection selection(Task task) {
         return new TaskCommands.Selection(task.getId(), task.getVersion(),
-                TaskAdmissionChecks.inputFingerprint(task), TaskAdmissionChecks.destinationFingerprint(task));
+                TaskAdmissionChecks.inputFingerprint(task), TaskAdmissionChecks.destinationFingerprint(task), null);
     }
 
     /** Empties the task tables and restores the installation row. */
@@ -96,7 +96,7 @@ public final class TaskFixture {
 
     /** Asks to run one task; the caller decides what the outcome must be. */
     public TaskAdmissionService.AdmissionResult runSelected(String runId, Task task) {
-        return admissions.runSelected(new TaskCommands.RunSelected(runId, List.of(selection(task)), null));
+        return admissions.runSelected(new TaskCommands.RunSelected(runId, List.of(selection(task))));
     }
 
     /** Saves the task, completes the sync and asks to run it as {@code run-<issue id>}, without checking. */

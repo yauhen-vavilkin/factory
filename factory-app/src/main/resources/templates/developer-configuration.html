@@ -22,6 +22,30 @@
                 <p th:unless="${report.ready}" th:text="${report.issueKey.isEmpty()} ? 'Configuration overview. Enter an issue key for task readiness.' : 'Resolve failed checks before triggering this task.'"></p>
             </div>
         </section>
+        <section class="card" th:if="${source != null}">
+            <div class="card-header"><h2 class="card-title">My tasks source</h2></div>
+            <div class="card-content">
+                <dl class="def-list">
+                    <dt>Assignee</dt>
+                    <dd th:text="${source.assignee() != null} ? ${source.assignee()}
+                            : 'Not set: set FACTORY_TASKS_ASSIGNEE in .env to your name as shown in Jira.'">Jane</dd>
+                    <dt>Jira</dt>
+                    <dd th:text="${source.jiraHost() != null} ? ${source.jiraHost()}
+                            : 'Not set: set FACTORY_CONNECTORS_JIRA_BASE_URL in .env.'">jira.example</dd>
+                    <dt>Query</dt>
+                    <dd><code th:text="${source.query() != null} ? ${source.query()}
+                            : 'Set the assignee and Jira first'">query</code>
+                        <a class="dev-link" th:if="${source.searchUrl() != null}" th:href="${source.searchUrl()}">Open
+                            this search in Jira</a></dd>
+                    <dt>Repositories</dt>
+                    <dd th:text="${repositoryMap}">Projects</dd>
+                    <dt>Change it</dt>
+                    <dd><code>FACTORY_TASKS_ASSIGNEE</code> in <code>.env</code>, then
+                        <code>docker compose up -d</code>. Projects: <code>config/developer-repositories.yaml</code>,
+                        then <code>docker compose restart factory</code>.</dd>
+                </dl>
+            </div>
+        </section>
         <section class="card">
             <div class="card-header"><h2 class="card-title">Selected runtime</h2></div>
             <div class="card-content">
@@ -32,21 +56,21 @@
                 </dl>
             </div>
         </section>
-        <section th:unless="${#lists.isEmpty(report.profiles)}">
-            <h2>Run profiles</h2>
-            <p class="muted">Profile env-default uses the FACTORY_CLAUDE_CODE_* settings in .env; the others come from
-                config/developer-run-profiles.yaml. A profile that is not configured cannot be chosen in a run form.</p>
+        <section th:unless="${#lists.isEmpty(report.models)}">
+            <h2>Models</h2>
+            <p class="muted">From config/developer-models.yaml. The run forms offer the models that are ready; the
+                checks say what each of the others needs.</p>
             <div class="table-wrap"><table>
-                <thead><tr><th>Profile</th><th>Model / endpoint</th><th>Effort / turns</th><th>Checks</th></tr></thead>
-                <tbody><tr th:each="profile : ${report.profiles}">
-                    <td><div th:text="${profile['label']}"></div>
-                        <small th:text="${profile['id']} + (${profile['default']} ? ' · default for runs' : '')"></small></td>
-                    <td><div th:text="${profile['model']}"></div>
-                        <small th:text="${profile['endpointOrigin']} + ' · ' + ${profile['authentication']}"></small></td>
-                    <td><div th:text="'Effort ' + ${profile['effort']}"></div>
-                        <small th:text="${#strings.listJoin(profile['efforts'], ', ')} + ' · ' + ${profile['maxTurns']}
-                                + ' turns · ' + ${profile['maxOutputTokens']} + ' output tokens'"></small></td>
-                    <td><div th:each="check : ${profile['checks']}"
+                <thead><tr><th>Model</th><th>Provider model / endpoint</th><th>Effort</th><th>Checks</th></tr></thead>
+                <tbody><tr th:each="model : ${report.models}">
+                    <td><div th:text="${model.id()}"></div>
+                        <small th:text="(${model.ready()} ? 'ready' : 'not ready')
+                                + (${model.defaultModel()} ? ' · default for runs' : '')"></small></td>
+                    <td><div th:text="${model.model()}"></div>
+                        <small th:text="${model.api()} + ' · ' + ${model.endpointOrigin()} + ' · '
+                                + ${model.authentication()}"></small></td>
+                    <td th:text="${model.efforts()}"></td>
+                    <td><div th:each="check : ${model.checks()}"
                              th:text="${check.status} + ' · ' + ${check.name} + ': ' + ${check.message}"></div></td>
                 </tr></tbody>
             </table></div>

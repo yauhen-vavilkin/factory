@@ -123,8 +123,7 @@
         <directory>${project.basedir}/../config</directory>
         <includes>
           <include>developer-repositories.yaml</include>
-          <include>developer-run-profiles.yaml</include>
-          <include>developer-pricing.yaml</include>
+          <include>developer-models.yaml</include>
         </includes>
       </resource>
     </resources>

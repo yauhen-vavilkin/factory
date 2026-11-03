@@ -19,49 +19,55 @@ import java.util.function.Consumer;
 @Slf4j
 @RequiredArgsConstructor
 public final class ClaudeCodeCodingRuntime implements CodingRuntime {
+    public static final String ID = "claude-code";
     public static final String VERSION = "2.1.287";
+    /** The only API a Claude Code model entry can use, and the levels --effort accepts. */
+    public static final String API = "anthropic-messages";
+    public static final List<String> EFFORTS = List.of("low", "medium", "high", "xhigh", "max");
     private static final String INPUT = "/tmp/factory-claude";
     private static final String TOOLS = "Bash,Read,Edit,Write,Glob,Grep,WebFetch";
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private final DevRuntimeProperties.ClaudeCode config;
-    private final RunProfiles profiles;
+    private final ModelCatalog models;
 
-    @Override public String id() { return "claude-code"; }
+    @Override public String id() { return ID; }
     @Override public String image() { return config.image(); }
 
-    @Override public void requireConfigured(CodingRequest.RunSettings settings) { usableRun(settings); }
+    @Override public void requireConfigured(CodingRequest.RunSettings settings) {
+        config.requireConfigured();
+        usableRun(settings);
+    }
 
-    private RunProfiles.Run usableRun(CodingRequest.RunSettings settings) {
-        var run = profiles.resolve(settings);
-        String problem = run.profile().problem();
-        if (problem != null) throw new RunProfiles.ProfileException(problem);
+    private ModelCatalog.Run usableRun(CodingRequest.RunSettings settings) {
+        var run = models.resolve(settings);
+        models.problem(run.model()).ifPresent(problem -> {
+            throw new ModelCatalog.ModelException(problem);
+        });
         return run;
     }
 
     @Override public Map<String, Object> identity(CodingRequest.RunSettings settings) {
         var identity = new LinkedHashMap<>(CodingRuntime.super.identity(settings));
-        identity.put("provider", "anthropic-messages");
+        identity.put("provider", API);
+        identity.put("maxTurns", config.maxTurns());
         try {
-            var run = profiles.resolve(settings);
-            identity.put("profile", run.profile().id());
-            identity.put("profileLabel", run.profile().label());
-            if (run.profile().model() != null && !run.profile().model().isBlank())
-                identity.put("model", run.profile().model());
-            identity.put("effort", RunProfiles.effortLabel(run.effort()));
-            identity.put("maxTurns", run.maxTurns());
-        } catch (RunProfiles.ProfileException e) {
-            if (settings != null && settings.profileId() != null) identity.put("profile", settings.profileId());
+            var run = models.resolve(settings);
+            identity.put("modelId", run.model().id());
+            identity.put("model", run.model().model());
+            identity.put("effort", run.effort());
+        } catch (ModelCatalog.ModelException e) {
+            if (settings != null && settings.modelId() != null) identity.put("modelId", settings.modelId());
         }
         return Map.copyOf(identity);
     }
 
-    @Override public String redact(String value) { return profiles.redact(value); }
+    @Override public String redact(String value) { return models.redact(value); }
 
     @Override public CodingOutcome code(DockerWorkloads.Workload workload, CodingRequest request, int timeoutSeconds,
                                         Consumer<Map<String, Object>> progress, CodingTranscripts.Sink transcript) {
         var run = usableRun(request.runSettings());
         request.requireReady();
-        var protocol = new ClaudeCodeProtocol(run.profile().model(), run.maxTurns(), this::redact, progress,
+        var protocol = new ClaudeCodeProtocol(run.model().model(), config.maxTurns(), this::redact, progress,
                 transcript);
         try {
             var version = workload.execute(List.of("claude", "--version"), 30, Processes.OUTPUT_LIMIT, null);
@@ -86,14 +92,14 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
         }
     }
 
-    private CodingOutcome runSession(DockerWorkloads.Workload workload, CodingRequest request, RunProfiles.Run run,
+    private CodingOutcome runSession(DockerWorkloads.Workload workload, CodingRequest request, ModelCatalog.Run run,
                                      ClaudeCodeProtocol protocol, int timeoutSeconds) throws IOException {
         var temporary = CandidateFreezer.temporary("factory-dev-claude-");
         try {
             String prompt = CodingProtocol.prompt(request);
-            copyInput(workload, temporary, run.profile(), prompt);
+            copyInput(workload, temporary, run.model(), prompt);
             protocol.prompt(prompt);
-            var streamed = workload.stream(command(run), timeoutSeconds, this::redact, line -> {
+            var streamed = workload.stream(command(run, config.maxTurns()), timeoutSeconds, this::redact, line -> {
                 protocol.accept(line);
                 return !protocol.failed();
             });
@@ -109,9 +115,9 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
     }
 
     /** The secret environment file stays owner-only, and both files go outside the exported workspace. */
-    private static void copyInput(DockerWorkloads.Workload workload, Path temporary, RunProfiles.Profile profile,
+    private static void copyInput(DockerWorkloads.Workload workload, Path temporary, Model model,
                                   String prompt) throws IOException {
-        Files.writeString(temporary.resolve("environment"), environment(profile));
+        Files.writeString(temporary.resolve("environment"), environment(model));
         Files.setPosixFilePermissions(
                 temporary.resolve("environment"), PosixFilePermissions.fromString("rw-------"));
         Files.writeString(temporary.resolve("task.txt"), prompt);
@@ -123,9 +129,9 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
      * Without --bare the CLI offers WebFetch. With no setting sources it still loads no settings, hooks or
      * plugins from the repository or the home directory, and no MCP server. Settings given by --settings
      * always load: they stop WebFetch from first sending each domain to api.anthropic.com for a check, which
-     * fails where that host cannot be reached and is not part of the profile's endpoint.
+     * fails where that host cannot be reached and is not part of the model's endpoint.
      */
-    private static List<String> command(RunProfiles.Run run) {
+    private static List<String> command(ModelCatalog.Run run, int maxTurns) {
         var command = new ArrayList<>(List.of("/bin/sh", "-c",
                 "set -a; . " + INPUT + "/environment; set +a; exec \"$@\" < " + INPUT + "/task.txt", "--",
                 "claude", "--print", "--output-format", "stream-json", "--verbose",
@@ -133,21 +139,20 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
                 "--settings", "{\"skipWebFetchPreflight\":true}", "--strict-mcp-config",
                 "--mcp-config", "{\"mcpServers\":{}}", "--tools", TOOLS, "--allowedTools", TOOLS,
                 "--permission-mode", "dontAsk", "--permission-prompts", "none",
-                "--model", run.profile().model(), "--max-turns", Integer.toString(run.maxTurns())));
-        if (run.effort() != null)
-            command.addAll(List.of("--effort", run.effort()));
+                "--model", run.model().model(), "--max-turns", Integer.toString(maxTurns),
+                "--effort", run.effort()));
         return command;
     }
 
-    private static String environment(RunProfiles.Profile profile) {
+    private static String environment(Model model) {
         // No credential on docker exec argv or container configuration; no host Claude state. --bare is off,
         // so auto-memory, background traffic and updates are switched off here.
         return "unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN CLAUDE_CODE_OAUTH_TOKEN\n"
-                + "ANTHROPIC_BASE_URL=" + quote(profile.baseUrl()) + "\n"
-                + ("api-key".equals(profile.authentication()) ? "ANTHROPIC_API_KEY=" : "ANTHROPIC_AUTH_TOKEN=")
-                + quote(profile.secret()) + "\n"
-                + modelEnvironment(profile.model())
-                + "CLAUDE_CODE_MAX_OUTPUT_TOKENS=" + profile.maxOutputTokens() + "\n"
+                + "ANTHROPIC_BASE_URL=" + quote(model.baseUrl()) + "\n"
+                + ("api-key".equals(model.authentication()) ? "ANTHROPIC_API_KEY=" : "ANTHROPIC_AUTH_TOKEN=")
+                + quote(model.secret()) + "\n"
+                + modelEnvironment(model.model())
+                + "CLAUDE_CODE_MAX_OUTPUT_TOKENS=" + model.maxOutputTokens() + "\n"
                 + "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1\nDISABLE_AUTOUPDATER=1\nDISABLE_UPDATES=1\n"
                 + "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1\n";
     }
