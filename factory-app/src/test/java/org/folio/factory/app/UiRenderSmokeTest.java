@@ -674,7 +674,8 @@ class UiRenderSmokeTest {
             String body = assertRendered("/executions/" + execution.getId(), "planned-model");
             String currentPanel = body.substring(body.indexOf("<section class=\"run-panel run-activity\""),
                     body.indexOf("<section class=\"run-panel run-usage\""));
-            assertThat(currentPanel).contains("class=\"run-log\"", "Starting build started · mvn test");
+            assertThat(currentPanel).contains("class=\"run-log\"", "<span>Building the project</span>")
+                    .doesNotContain("Starting build started");
             assertThat(body).containsOnlyOnce("class=\"run-log\"")
                     .contains("No token usage reported yet.", ">coding-image</code>")
                     .doesNotContain("Latest reported activity", "Recent meaningful activity", "coding configured");

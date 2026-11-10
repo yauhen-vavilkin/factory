@@ -220,8 +220,6 @@ page as on its board.
 Runs: MGRAPPS-64 attempts 2 and 3 (`7631be89`, `48f6594f`), PR feedback round 2 on `79246e67`.
 The question flow, the in-progress strip and Factory's comment on the pull request work.
 
-- **Raw lines in Activity before the agent starts**: Maven output ("[INFO] ---
-  compiler:3.15.0:compile"), "Starting build completed · 0 ·", "coding starting".
 - **Small text defects**: "In progress In progress." on the task page, the banner "Retry queued:
   the retry attempt launched a new execution", "so far" without an amount on a new attempt,
   the Runs row shows the cost of the previous attempt while a new one works, the cost on the

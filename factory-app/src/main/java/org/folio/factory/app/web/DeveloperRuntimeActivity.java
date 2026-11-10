@@ -5,13 +5,18 @@ import org.folio.factory.core.domain.AuditEventType;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-/** Display projection of runtime events, including consecutive heartbeats and overlapping tools. */
+/**
+ * Display projection of runtime events: one row per tool call and one row for the starting build, without
+ * the build's own log lines.
+ */
 final class DeveloperRuntimeActivity {
     private final JsonMapper json;
     private final boolean feedbackFlow;
@@ -22,7 +27,11 @@ final class DeveloperRuntimeActivity {
     private JsonNode configuration;
     private boolean runtimeObserved;
     private String notice = "";
-    private String previousHeartbeat;
+    private BuildStart buildStart;
+
+    /** The row of the running starting build and when it started. */
+    private record BuildStart(int row, Instant at) {
+    }
 
     private DeveloperRuntimeActivity(JsonMapper json, boolean feedbackFlow) {
         this.json = json;
@@ -73,17 +82,21 @@ final class DeveloperRuntimeActivity {
                 if (initialRuntime && configuration.isEmpty()) configuration = detail;
                 return;
             }
-            case "pi_usage", "coding_usage" -> {
+            case "pi_usage", "coding_usage", "baseline_progress" -> {
                 return;
             }
             case "agent_start" -> runtimeObserved = true;
             case "pi_starting", "coding_starting" -> {
                 if (initialRuntime) configuration = detail;
                 runtimeObserved = true;
+                return;
             }
+            case "baseline_started" -> buildStart = new BuildStart(activity.size(), event.getOccurredAt());
             default -> {}
         }
-        addRow(event, detail, action);
+        if (!action.equals("baseline_completed") || !mergedBuildRow(event, detail)) {
+            addRow(event, detail, action);
+        }
     }
 
     private void addRow(AuditEvent event, JsonNode detail, String action) {
@@ -96,18 +109,27 @@ final class DeveloperRuntimeActivity {
         }
         if (detail.has("notice")) notice = detail.path("notice").asString("");
         if (action.equals("turn_start") || mergedToolRow(event, detail, action, text)) {
-            previousHeartbeat = null;
             return;
         }
-        boolean heartbeat = action.equals("baseline_progress")
-                && detail.path("message").asString("").equals("Starting build is still running");
-        // Keep only the latest timestamp for consecutive heartbeats; the audit trail is unchanged.
-        if (heartbeat && text.equals(previousHeartbeat)) {
-            activity.set(activity.size() - 1, row);
-        } else {
-            activity.add(row);
+        activity.add(row);
+    }
+
+    /** The end of the starting build replaces its start row: "Built the project · took 40s". */
+    private boolean mergedBuildRow(AuditEvent event, JsonNode detail) {
+        if (buildStart == null) {
+            return false;
         }
-        previousHeartbeat = heartbeat ? text : null;
+        var start = activity.get(buildStart.row());
+        var took = Math.max(0, Duration.between(buildStart.at(), event.getOccurredAt()).toMillis());
+        activity.set(buildStart.row(), Map.of("time", start.get("time"), "timeTitle", start.get("timeTitle"),
+                "text", buildEndText(detail) + " · took " + UiFormat.milliseconds(took)));
+        buildStart = null;
+        return true;
+    }
+
+    private static String buildEndText(JsonNode detail) {
+        var exitCode = detail.path("exitCode").asInt(0);
+        return exitCode == 0 ? "Built the project" : "Build failed · exit " + exitCode;
     }
 
     /** One row per tool call: the end replaces its start row; true when this event needs no row of its own. */
@@ -127,9 +149,6 @@ final class DeveloperRuntimeActivity {
 
     private static String activityLabel(String action) {
         return switch (action) {
-            case "baseline_started" -> "Starting build started";
-            case "baseline_progress" -> "Starting build progress";
-            case "baseline_completed" -> "Starting build completed";
             case "baseline_retryable_failure" -> "Starting build network failure";
             default -> action.replace('_', ' ');
         };
@@ -140,6 +159,8 @@ final class DeveloperRuntimeActivity {
         return switch (action) {
             case "agent_start" -> "Coding agent started";
             case "agent_end" -> "Coding agent finished";
+            case "baseline_started" -> "Building the project";
+            case "baseline_completed" -> buildEndText(detail);
             case "turn_start" -> "Coding agent working";
             case "provider_error" -> "Provider request failed" + providerDetail(detail);
             case "auto_retry_start" -> "Coding runtime retrying request" + retryAttempt(detail)

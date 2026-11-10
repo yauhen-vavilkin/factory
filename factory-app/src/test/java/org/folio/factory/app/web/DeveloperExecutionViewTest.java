@@ -242,7 +242,7 @@ class DeveloperExecutionViewTest {
                 .containsEntry("reason", "");
     }
 
-    @Test void compactsOnlyConsecutiveIdenticalHeartbeatsAndKeepsPiStartHonest() {
+    @Test void theStartingBuildIsOneRowWithItsTimeAndNoLogLines() {
         var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
         Instant start = Instant.parse("2026-09-18T10:00:00Z");
         var events = new java.util.ArrayList<AuditEvent>();
@@ -258,18 +258,11 @@ class DeveloperExecutionViewTest {
 
         @SuppressWarnings("unchecked")
         var activity = (List<Map<String, String>>) model.get("activity");
-        assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "Starting build started · mvn test",
-                "Starting build progress · Starting build is still running",
-                "Starting build progress · Downloaded from central: dependency.jar",
-                "Starting build progress · Downloaded from central: dependency.jar",
-                "Starting build progress · Starting build is still running",
-                "Starting build completed · Build passed");
+        assertThat(activity).extracting(row -> row.get("text")).containsExactly("Built the project · took 24s");
         // The time column shows only the clock; the full date and time go into the title attribute.
-        assertThat(activity.get(1)).containsEntry("time", "10:00:20")
-                .containsEntry("timeTitle", "2026-09-18 10:00:20");
+        assertThat(activity.getFirst()).containsEntry("time", "10:00:00")
+                .containsEntry("timeTitle", "2026-09-18 10:00:00");
         assertThat(events).hasSize(25);
-        assertThat(((List<?>) model.get("activity")).getLast().toString()).contains("Starting build completed");
         assertThat(DeveloperExecutionView.technicalStepLabel("implement")).isEqualTo("Implementation");
 
         events.add(runtime("agent_start", "Pi started", start.plusSeconds(26)));
@@ -277,7 +270,7 @@ class DeveloperExecutionViewTest {
                 .contains("Coding agent started");
     }
 
-    @Test void hiddenAuditEventsDoNotSplitHeartbeatsButMeaningfulRuntimeEventsDo() {
+    @Test void buildLogLinesAndTheCodingStartGetNoRows() {
         var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
         Instant start = Instant.parse("2026-09-18T10:00:00Z");
         var events = List.of(
@@ -286,9 +279,21 @@ class DeveloperExecutionViewTest {
                 runtime("baseline_progress", "Starting build is still running", start.plusSeconds(2)),
                 runtime("tool_execution_start", "mvn test", start.plusSeconds(3)),
                 runtime("baseline_progress", "Starting build is still running", start.plusSeconds(4)),
-                runtime("baseline_progress", "[ERROR] Connection timed out", start.plusSeconds(5)));
-        assertThat((List<?>) view.build(execution, List.of(), events, start.plusSeconds(6)).get("activity"))
-                .hasSize(4);
+                runtime("baseline_progress", "[ERROR] Connection timed out", start.plusSeconds(5)),
+                runtime("coding_starting", "Coding runtime is starting", start.plusSeconds(6)));
+        assertThat((List<?>) view.build(execution, List.of(), events, start.plusSeconds(7)).get("activity"))
+                .hasSize(1);
+    }
+
+    @Test void aFailedStartingBuildSaysSoWithItsExitCode() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        Instant start = Instant.parse("2026-09-18T10:00:00Z");
+        var events = List.of(runtime("baseline_started", "mvn test", start),
+                runtime(Map.of("activity", "baseline_completed", "exitCode", 1, "summary", ""), start.plusSeconds(40)));
+        @SuppressWarnings("unchecked")
+        var activity = (List<Map<String, String>>) view.build(execution, List.of(), events, start.plusSeconds(41))
+                .get("activity");
+        assertThat(activity).extracting(row -> row.get("text")).containsExactly("Build failed · exit 1 · took 40s");
     }
 
     @Test void rendersPiToolActivityWithoutRawBooleans() {
