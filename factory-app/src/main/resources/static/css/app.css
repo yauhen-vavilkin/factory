@@ -47,9 +47,35 @@ a:hover { text-decoration: underline; }
 }
 .sidebar-brand {
   display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-  padding: 0.25rem 0.5rem 0.75rem;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0 0.25rem 0.25rem;
+}
+.sidebar-menu { flex: 1 1 auto; display: flex; flex-direction: column; }
+.menu-toggle {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 0.125rem);
+  background: transparent;
+  color: hsl(var(--sidebar-foreground));
+  cursor: pointer;
+}
+.menu-toggle:hover { background: hsl(var(--accent)); }
+/* The collapsed menu is a narrow rail: the open button and the name, read from bottom to top. */
+html[data-menu="collapsed"] .app-shell { grid-template-columns: 52px minmax(0, 1fr); }
+html[data-menu="collapsed"] .sidebar { align-items: center; padding: 14px 0; }
+html[data-menu="collapsed"] .sidebar-menu { display: none; }
+html[data-menu="collapsed"] .sidebar-brand { flex-direction: column; gap: 18px; padding: 0; }
+html[data-menu="collapsed"] .sidebar-brand strong {
+  writing-mode: vertical-rl;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: hsl(var(--muted-foreground));
 }
 .sidebar-brand strong {
   font-size: 0.9375rem;
@@ -185,14 +211,15 @@ a:hover { text-decoration: underline; }
   color: hsl(var(--primary-foreground));
 }
 .btn-primary:hover { background: hsl(var(--primary) / 0.9); }
-.btn-outline {
-  background: hsl(var(--background));
-  border-color: hsl(var(--border));
-  color: hsl(var(--foreground));
+/* Every action that is not the main one of its screen: a light grey fill, never white on white. */
+.btn-secondary, .btn-outline {
+  background: hsl(var(--secondary));
+  border-color: hsl(var(--strong-border));
+  color: hsl(var(--secondary-foreground));
 }
-.btn-outline:hover {
-  background: hsl(var(--accent));
-  color: hsl(var(--accent-foreground));
+.btn-secondary:hover, .btn-outline:hover {
+  background: hsl(var(--border));
+  color: hsl(var(--secondary-foreground));
 }
 .btn-ghost {
   background: transparent;
@@ -208,10 +235,79 @@ a:hover { text-decoration: underline; }
 }
 .btn-destructive:hover { background: hsl(var(--destructive) / 0.9); }
 .btn-sm {
-  height: 2rem;
-  padding: 0 0.75rem;
-  font-size: 0.8125rem;
+  height: 30px;
+  padding: 0 12px;
+  font-size: 13px;
 }
+/* The buttons of one column of a list have one width. */
+.btn-col { width: 96px; padding: 0; }
+
+/* ---------- chip: one shape for every state; only the tone changes ---------- */
+.chip {
+  --chip-tone: var(--muted-foreground);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 1px solid hsl(var(--chip-tone) / 0.4);
+  border-radius: 9999px;
+  background: hsl(var(--chip-tone) / 0.1);
+  color: hsl(var(--chip-tone));
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.chip::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: currentColor;
+}
+a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8); }
+.chip-neutral { color: hsl(var(--foreground)); }
+.chip-neutral::before { background: hsl(var(--muted-foreground)); }
+.chip-info { --chip-tone: var(--info); }
+.chip-success { --chip-tone: var(--success); }
+.chip-warning { --chip-tone: var(--warning); }
+.chip-danger { --chip-tone: var(--destructive); }
+/* Links that leave Factory (Jira, GitHub) carry an arrow so they look clickable. */
+.ext-link { display: inline-flex; align-items: center; gap: 4px; }
+.ext-link::after {
+  content: "";
+  width: 11px;
+  height: 11px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17L17 7M9 7h8v8'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17L17 7M9 7h8v8'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* A closed disclosure that looks like a small button: border, arrow, label. */
+.disclosure > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid hsl(var(--strong-border));
+  border-radius: calc(var(--radius) - 0.125rem);
+  background: hsl(var(--secondary));
+  font-size: 13px;
+  list-style: none;
+  cursor: pointer;
+}
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary::before {
+  content: "";
+  width: 13px;
+  height: 13px;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
+  transition: transform 150ms ease;
+}
+.disclosure[open] > summary::before { transform: rotate(90deg); }
 
 /* ---------- badge ---------- */
 .badge {
@@ -923,23 +1019,6 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 }
 .task-jira-status { font-size: 13px; }
 .state-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; max-width: 100%; }
-.state-pill {
-  display: inline-flex;
-  padding: 0 8px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 6px;
-  color: hsl(var(--foreground));
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.state-pill-success { border: 0; background: hsl(var(--success)); color: hsl(var(--success-foreground)); }
-.state-pill-danger { border: 0; background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); }
-.state-pill-warning {
-  border-color: hsl(var(--notice-border));
-  background: hsl(var(--notice));
-  color: hsl(var(--notice-foreground));
-}
 .state-detail { font-size: 12px; color: hsl(var(--muted-foreground)); }
 a.state-detail { color: hsl(var(--foreground)); text-decoration: underline; }
 .value-cell { display: flex; flex-direction: column; font-size: 13px; }

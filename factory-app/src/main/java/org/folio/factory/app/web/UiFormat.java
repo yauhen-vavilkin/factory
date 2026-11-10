@@ -8,6 +8,8 @@ import org.folio.factory.core.registry.model.StepDescriptor;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
@@ -17,6 +19,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Shared formatting and request-parsing helpers for the server-rendered views.
@@ -45,6 +48,22 @@ public final class UiFormat {
 
     static String abbreviate(String value) {
         return value.length() <= 13 ? value : value.substring(0, 10) + "...";
+    }
+
+    /** One cost format for every page: {@code $0.70} for USD, {@code 0.70 EUR} for other currencies. */
+    public static String money(BigDecimal amount, String currency) {
+        var rounded = amount.setScale(2, RoundingMode.HALF_UP).toPlainString();
+        return "USD".equals(currency) ? "$" + rounded : rounded + " " + currency;
+    }
+
+    /** Costs in several currencies joined with " + "; null when there is no cost. */
+    public static String money(Map<String, BigDecimal> amountsByCurrency) {
+        if (amountsByCurrency.isEmpty()) {
+            return null;
+        }
+        return amountsByCurrency.entrySet().stream()
+                .map(entry -> money(entry.getValue(), entry.getKey()))
+                .collect(Collectors.joining(" + "));
     }
 
     /** Groups a count with thousands separators — token totals reach seven figures. */

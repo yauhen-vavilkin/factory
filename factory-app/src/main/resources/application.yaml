@@ -80,6 +80,10 @@ server:
   # Finish in-flight HTTP requests before exit instead of dropping them on
   # SIGTERM. Runs in the SmartLifecycle stop phase, bounded by timeout-per-shutdown-phase.
   shutdown: graceful
+  servlet:
+    session:
+      # Flash messages need a session; a cookie keeps ;jsessionid= out of redirect URLs.
+      tracking-modes: cookie
 
 factory:
   engine:

@@ -8,7 +8,6 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -20,7 +19,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
 import java.util.TreeMap;
-import java.util.stream.Collectors;
 
 /** Immutable audit snapshots are grouped per actual coding attempt, never just per step. */
 public final class AttemptUsageSummary {
@@ -166,14 +164,11 @@ public final class AttemptUsageSummary {
         }
 
         private static String costDisplay(Totals t) {
-            var cost = t.costByCurrency().entrySet().stream()
-                    .map(e -> e.getValue().setScale(6, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
-                            + " " + e.getKey())
-                    .collect(Collectors.joining(" + "));
-            if (!cost.isBlank()) {
+            var cost = UiFormat.money(t.costByCurrency());
+            if (cost != null) {
                 return cost;
             }
-            return t.present() ? "—" : "0";
+            return t.present() ? "—" : "$0.00";
         }
 
         private static Map<String, Long> breakdownCounts(Map<AttemptCharge.Category, Long> breakdown) {

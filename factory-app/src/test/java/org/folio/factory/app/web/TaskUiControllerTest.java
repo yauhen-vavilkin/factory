@@ -177,7 +177,7 @@ class TaskUiControllerTest {
                 .containsEntry("shown", true);
         assertThat(rows(model, "triggered").getFirst())
                 .containsEntry("stateLabel", "Could not complete")
-                .containsEntry("stateClass", "state-pill state-pill-danger")
+                .containsEntry("stateClass", "chip chip-danger")
                 .containsEntry("retryAllowed", true)
                 .containsEntry("addedByKey", false)
                 .containsEntry("link", "/tasks/" + OTHER_TASK_ID)
@@ -313,28 +313,28 @@ class TaskUiControllerTest {
                 .getModelAndView().getModel();
         assertThat(rows(model, "triggered").get(0))
                 .containsEntry("stateLabel", "Draft PR")
-                .containsEntry("stateClass", "state-pill state-pill-warning")
+                .containsEntry("stateClass", "chip chip-neutral")
                 .containsEntry("detail", null)
                 .containsEntry("prLabel", "Pull request #7");
         assertThat(rows(model, "triggered").get(1))
                 .containsEntry("stateLabel", "PR ready")
-                .containsEntry("stateClass", "state-pill state-pill-success");
+                .containsEntry("stateClass", "chip chip-success");
 
         MvcResult result = mvc.perform(get("/tasks/{taskId}", TASK_ID)).andExpect(status().isOk()).andReturn();
         assertThat(detail(result))
                 .containsEntry("stateLabel", "Draft PR")
-                .containsEntry("stateClass", "state-pill state-pill-warning")
+                .containsEntry("stateClass", "chip chip-neutral")
                 .containsEntry("result", "Pull request #7 is open as a draft.")
                 .containsEntry("draftReasons", reasons)
                 .containsEntry("prAction", "Open pull request #7");
         assertThat(rows(result.getModelAndView().getModel(), "attempts").getFirst())
                 .containsEntry("resultLabel", "Draft PR")
-                .containsEntry("resultClass", "state-pill state-pill-warning")
+                .containsEntry("resultClass", "chip chip-neutral")
                 .containsEntry("result", "Pull request #7 opened as a draft");
         // The execution page header uses the same label for the attempt behind the run.
         assertThat(TaskRows.runContext(draft, EXECUTION_ID))
                 .containsEntry("stateLabel", "Draft PR")
-                .containsEntry("stateClass", "state-pill state-pill-warning");
+                .containsEntry("stateClass", "chip chip-neutral");
         assertThat(TaskRows.runContext(ready, EXECUTION_ID))
                 .containsEntry("stateLabel", "PR ready");
     }

@@ -46,7 +46,7 @@
                    th:text="${developer['reasonLabel']} + ': ' + ${developer['reason']}"></p>
             </div>
             <div class="result-chips">
-                <th:block th:with="cost=${attemptUsage != null ? attemptUsage['cost'] : (estimatedCost != null ? estimatedCost.amount + ' ' + estimatedCost.currency : null)}">
+                <th:block th:with="cost=${attemptUsage != null ? attemptUsage['cost'] : (estimatedCost != null ? estimatedCost.label() : null)}">
                     <span th:if="${cost != null}" th:text="${cost} + (${pollUrl != null} ? ' so far' : ' total')">$0.00</span>
                 </th:block>
                 <span><span th:attr="data-elapsed-start=${factoryTimeStart}" th:text="${factoryTime}">0s</span> active</span>
@@ -126,7 +126,7 @@
                         </th:block>
                         <th:block th:if="${initialUsage == null and estimatedCost != null}">
                             <dt class="usage-total">Estimated cost</dt>
-                            <dd class="usage-total" th:text="${estimatedCost.amount} + ' ' + ${estimatedCost.currency}"></dd>
+                            <dd class="usage-total" th:text="${estimatedCost.label()}"></dd>
                         </th:block>
                     </dl>
                     <p class="dev-note" th:if="${attemptUsage == null and tokenTotals['present'] and estimatedCost == null and usageIncomplete}">Cost estimate unavailable: the runtime did not report enough usage for every response.</p>

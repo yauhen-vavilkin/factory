@@ -75,5 +75,10 @@ final class DeveloperCostEstimator {
         }
     }
 
-    record Estimate(String amount, String currency, LocalDate asOf, String source) {}
+    record Estimate(String amount, String currency, LocalDate asOf, String source) {
+        /** The amount in the console's one cost format. */
+        public String label() {
+            return UiFormat.money(new BigDecimal(amount), currency);
+        }
+    }
 }

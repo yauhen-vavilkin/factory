@@ -22,17 +22,17 @@ class AttemptUsageSummaryTest {
                 event("1","",true,"a","USD",100,30),event("1","coding_usage",false,"a","USD",150,50),
                 event("2","",true,"b","USD",200,40));
         var result=summary(events,null,false);
-        assertThat(result).containsEntry("attempts",2).containsEntry("tokensDisplay","370").containsEntry("cost","0.0013 USD")
+        assertThat(result).containsEntry("attempts",2).containsEntry("tokensDisplay","370").containsEntry("cost","$0.00")
                 .containsEntry("partial",false).containsEntry("models","a, b");
     }
     @Test void interruptedUsageIsIncludedAndCurrenciesStaySeparate() {
         var result=summary(List.of(event("1","",true,"a","USD",100,0),event("2","",true,"b","EUR",100,0),
                 event("3","coding_usage",false,"c","USD",200,20)),null,false);
-        assertThat(result).containsEntry("cost","0.0002 EUR + 0.0008 USD").containsEntry("partial",true)
+        assertThat(result).containsEntry("cost","0.00 EUR + $0.00").containsEntry("partial",true)
                 .containsEntry("tokensDisplay","420");
         assertThat(summary(List.of(event("4","coding_starting",false,"d","",0,0)),null,false))
                 .containsEntry("cost","—").containsEntry("partial",true).containsEntry("tokensDisplay","—");
-        assertThat(summary(List.of(event("5","",true,"a","USD",0,0)),null,false)).containsEntry("cost","0 USD");
+        assertThat(summary(List.of(event("5","",true,"a","USD",0,0)),null,false)).containsEntry("cost","$0.00");
     }
     @Test void waitingAfterAbandonedAttemptIsNotCountedAsActiveWork() {
         Instant start=Instant.parse("2026-09-23T12:00:00Z");
@@ -44,9 +44,9 @@ class AttemptUsageSummaryTest {
     @Test void runningAttemptShowsEstimateFromStreamAndCapturedRate() {
         var events=List.of(event("live","coding_starting",false,"a","USD",0,0),
                 event("live","coding_usage",false,"a","USD",100,20));
-        assertThat(summary(events,null,false)).containsEntry("cost","0.0004 USD");
+        assertThat(summary(events,null,false)).containsEntry("cost","$0.00");
         assertThat(summary(events,null,true))
-                .containsEntry("cost","0.0004 USD")
+                .containsEntry("cost","$0.00")
                 .containsEntry("tokensDisplay","120");
         assertThat(AttemptUsageSummary.totals(events,true).provisional()).isTrue();
     }
@@ -56,7 +56,7 @@ class AttemptUsageSummaryTest {
                  "usageIncomplete":true,"rate":{"currency":"USD","inputPerMillion":2}}
                 """);
         assertThat(summary(List.of(incomplete),null,true))
-                .containsEntry("cost","0.0002 USD").containsEntry("tokensDisplay","120").containsEntry("partial",true);
+                .containsEntry("cost","$0.00").containsEntry("tokensDisplay","120").containsEntry("partial",true);
         var unpriced=new AuditEvent(UUID.randomUUID(),AuditEventType.RUNTIME_PROGRESS,"implement","test","""
                 {"attemptId":"unpriced","activity":"coding_usage","inputTokens":100,"outputTokens":0,
                  "cacheReadTokens":0,"cacheWriteTokens":0,"rate":{"currency":"USD"}}
@@ -69,9 +69,9 @@ class AttemptUsageSummaryTest {
                 event("new","coding_starting",false,"a","USD",0,0),
                 event("new","coding_usage",false,"a","USD",50,10));
         assertThat(summary(events,1,true))
-                .containsEntry("cost","0.0006 USD").containsEntry("tokensDisplay","180");
+                .containsEntry("cost","$0.00").containsEntry("tokensDisplay","180");
         assertThat(summary(events,-1,true))
-                .containsEntry("cost","0").containsEntry("tokensDisplay","0").containsEntry("present",false);
+                .containsEntry("cost","$0.00").containsEntry("tokensDisplay","0").containsEntry("present",false);
     }
     @Test void typedTotalsReproduceTheFormattedSummaryOnTheSameFixtures() {
         var events=List.of(event("1","coding_starting",false,"a","USD",0,0),event("1","coding_usage",false,"a","USD",50,20),
@@ -136,7 +136,7 @@ class AttemptUsageSummaryTest {
         assertThat(withFeedbackTotals.rateSources()).containsExactly("anthropic-pricing (2026-09-19)");
         assertThat(withFeedbackTotals.models()).containsExactly("claude-haiku-5-5");
         assertThat(withFeedbackTotals.partial()).isFalse();
-        assertThat(summary(List.of(initial,feedback),1,false)).containsEntry("cost","0.008 USD");
+        assertThat(summary(List.of(initial,feedback),1,false)).containsEntry("cost","$0.01");
     }
 
     @Test void projectionKeepsRoundsSeparateAndUsesCapturedRates() {
@@ -152,9 +152,9 @@ class AttemptUsageSummaryTest {
                 new AuditEvent(initial.getExecutionId(), initial.getEventType(), "implement", "test", JSON.writeValueAsString(initialDetail)),
                 event("round", "", true, "b", "EUR", 200, 30));
         var projection = new AttemptUsageSummary.Projection(events);
-        assertThat(projection.summary(-1, false)).containsEntry("cost", "0.0004 USD").containsEntry("attempts", 1);
-        assertThat(projection.summary(1, false)).containsEntry("cost", "0.0007 EUR").containsEntry("tokensDisplay", "230");
-        assertThat(projection.summary(null, false)).containsEntry("cost", "0.0007 EUR + 0.0004 USD")
+        assertThat(projection.summary(-1, false)).containsEntry("cost", "$0.00").containsEntry("attempts", 1);
+        assertThat(projection.summary(1, false)).containsEntry("cost", "0.00 EUR").containsEntry("tokensDisplay", "230");
+        assertThat(projection.summary(null, false)).containsEntry("cost", "0.00 EUR + $0.00")
                 .containsEntry("tokensDisplay", "350").containsEntry("attempts", 2);
     }
 }

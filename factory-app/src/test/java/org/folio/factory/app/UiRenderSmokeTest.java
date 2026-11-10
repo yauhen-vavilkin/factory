@@ -41,6 +41,8 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.web.client.RestClient;
+import jakarta.servlet.ServletContext;
+import jakarta.servlet.SessionTrackingMode;
 import org.thymeleaf.ITemplateEngine;
 import org.thymeleaf.context.Context;
 
@@ -126,6 +128,9 @@ class UiRenderSmokeTest {
     @Autowired
     private ModelCatalog.Properties modelsFile;
 
+    @Autowired
+    private ServletContext servletContext;
+
     private RestClient rest;
 
     @BeforeEach
@@ -146,12 +151,29 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void layoutNamesTheProductAndOffersTheMenuRail() {
+        String body = assertRendered("/", "Dashboard");
+        assertThat(body)
+                .contains("Dashboard — AI FOLIO</title>", "<strong>AI FOLIO</strong>", "id=\"menu-toggle\"",
+                        "aria-label=\"Close menu\"", "aria-expanded=\"true\"",
+                        "localStorage.getItem('menu') === 'collapsed'")
+                .containsPattern("src=\"/js/menu-[0-9a-f]{32}\\.js\"")
+                .contains("class=\"btn btn-secondary\" data-confirm-cancel>Cancel</button>")
+                .doesNotContain("AI Factory");
+    }
+
+    @Test
+    void sessionsAreTrackedByCookieOnlySoRedirectsCarryNoSessionId() {
+        assertThat(servletContext.getEffectiveSessionTrackingModes()).containsExactly(SessionTrackingMode.COOKIE);
+    }
+
+    @Test
     void pageLinksCarryAContentHashAndHashedFilesAreCachedForAYear() {
         ResponseEntity<String> page = rest.get().uri("/flows/dev-factory").retrieve().toEntity(String.class);
         String body = page.getBody();
         assertThat(page.getHeaders().getCacheControl()).as("HTML pages stay uncached").isNull();
         assertThat(body).doesNotContainPattern("\"/(css|js)/[a-z]+\\.(css|js)\"");
-        for (String file : List.of("css/tokens", "css/app", "js/app", "js/theme", "js/confirm", "js/poll")) {
+        for (String file : List.of("css/tokens", "css/app", "js/app", "js/theme", "js/confirm", "js/poll", "js/menu")) {
             String extension = file.substring(0, file.indexOf('/'));
             Matcher link = Pattern.compile("\"(/" + file + "-[0-9a-f]{32}\\." + extension + ")\"").matcher(body);
             assertThat(link.find()).as("hashed link for " + file).isTrue();
@@ -555,12 +577,12 @@ class UiRenderSmokeTest {
                         "<dt>Provider</dt>", ">test-provider</dd>", "<dt>Runtime</dt>", ">pi</dd>",
                         "<dt>Image</dt>", ">factory-dev-pi:0.85.1-java21</code>",
                         "tokens so far", "Input (uncached)", "Cache read",
-                        "Cache write", "Output", ">Estimated cost</dt>", "0.0203 USD")
+                        "Cache write", "Output", ">Estimated cost</dt>", "$0.02")
                 .doesNotContain("Configured rate card ·", "Actual provider or proxy charges may differ");
         assertThat(body)
                 .containsOnlyOnce("<dt>Model</dt>").containsOnlyOnce("<dt>Provider</dt>")
                 .containsOnlyOnce("<dt>Runtime</dt>").containsOnlyOnce("<dt>Image</dt>")
-                .contains("0.0203 USD so far", "2026-09-19",
+                .contains("$0.02 so far", "2026-09-19",
                         "href=\"https://docs.z.ai/guides/overview/pricing\"",
                         ">https://docs.z.ai/guides/overview/pricing</a>",
                         "Rate-card estimate;")
@@ -675,7 +697,7 @@ class UiRenderSmokeTest {
 
         String body = assertRendered("/executions/" + execution.getId(), "Provider diagnostics");
         assertThat(body).contains("Stop reason: Pi provider request failed: HTTP 429 (rate limited)",
-                        "310k", "0.026 USD", "Coding runtime retrying request (1/3) · HTTP 429 (rate limited)")
+                        "310k", "$0.03", "Coding runtime retrying request (1/3) · HTTP 429 (rate limited)")
                 .doesNotContain("Coding runtime-reported cost");
     }
 
@@ -919,9 +941,9 @@ class UiRenderSmokeTest {
 
         String body = assertRendered("/flows/dev-factory", "My Jira tasks");
         // A draft pull request is not the green PR ready.
-        assertThat(body).contains("class=\"state-pill state-pill-warning\">Draft PR</span>",
+        assertThat(body).contains("class=\"chip chip-neutral\">Draft PR</span>",
                         "href=\"https://github.com/folio-org/mod-bar/pull/8\"", "Pull request #8")
-                .containsOnlyOnce("class=\"state-pill state-pill-success\">PR ready</span>");
+                .containsOnlyOnce("class=\"chip chip-success\">PR ready</span>");
         assertThat(body)
                 .contains("aria-current=\"page\">My tasks</a>", "href=\"/flows/dev-factory?view=definition\"")
                 // The query and the assignee moved to Check configuration; the ⓘ says so.
@@ -1246,7 +1268,7 @@ class UiRenderSmokeTest {
         assertThat(body)
                 .contains("href=\"https://github.com/folio-org/mod-bar/pull/7\">Open pull request #7</a>",
                         "href=\"/executions/" + execution.getId() + "#pr-feedback\">Work on PR feedback</a>",
-                        "state-pill-success")
+                        "chip-success")
                 .doesNotContain("Draft PR", "Factory opened it as a draft because:")
                 .doesNotContain("name=\"expectedVersion\"");
     }
@@ -1275,21 +1297,21 @@ class UiRenderSmokeTest {
 
         String body = assertRendered("/tasks/" + delivered.getId(), "Pull request #8 is open as a draft.");
         assertThat(body)
-                .contains("class=\"state-pill state-pill-warning\">Draft PR</span>",
+                .contains("class=\"chip chip-neutral\">Draft PR</span>",
                         "Factory opened it as a draft because:", "<li>1 acceptance criterion is not met.</li>",
                         "<li>The agent made assumptions that a reviewer should confirm.</li>",
                         "Pull request #8 opened as a draft",
                         "href=\"https://github.com/folio-org/mod-bar/pull/8\">Open pull request #8</a>")
-                .doesNotContain("state-pill-success", "is ready for review");
+                .doesNotContain("chip-success", "is ready for review");
         // The Attempts Result column marks the draft with the same Draft PR badge.
         assertThat(body.substring(body.indexOf("id=\"attempts-title\"")))
-                .containsPattern("<span class=\"state-pill state-pill-warning\">Draft PR</span>\\s*"
+                .containsPattern("<span class=\"chip chip-neutral\">Draft PR</span>\\s*"
                         + "<span>Pull request #8 opened as a draft</span>")
                 .contains(">Open run</a>");
 
         String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(run)
-                .contains("class=\"state-pill state-pill-warning\">Draft PR</span>", ">Draft pull request #8</a>",
+                .contains("class=\"chip chip-neutral\">Draft PR</span>", ">Draft pull request #8</a>",
                         "Draft pull request created")
                 .doesNotContain(">PR ready</span>", "Pull request created");
     }
@@ -1360,7 +1382,7 @@ class UiRenderSmokeTest {
                 .contains(">Running task</h1>", "href=\"/flows/dev-factory\">Developer Flow</a>",
                         "href=\"/tasks/" + task.getId() + "\">MODBAR-771</a>",
                         "href=\"https://jira.example.org/browse/MODBAR-771\"",
-                        "class=\"state-pill\">Working</span>", "Runtime and usage", "Engine steps")
+                        "class=\"chip chip-info\">Working</span>", "Runtime and usage", "Engine steps")
                 .doesNotContain("badge-status-RUNNING");
     }
 

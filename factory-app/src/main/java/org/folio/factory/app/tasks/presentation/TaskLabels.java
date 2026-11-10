@@ -4,16 +4,14 @@ import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
+import org.folio.factory.app.web.UiFormat;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /** The words the task pages show for states, stages, failures, durations and cost. */
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
@@ -66,13 +64,14 @@ final class TaskLabels {
 
     static String stateClass(String label) {
         if (label == null) {
-            return "state-pill";
+            return "chip chip-neutral";
         }
         return switch (label) {
-            case "PR ready" -> "state-pill state-pill-success";
-            case "Could not complete" -> "state-pill state-pill-danger";
-            case "Needs inspection", "Draft PR" -> "state-pill state-pill-warning";
-            default -> "state-pill";
+            case "PR ready" -> "chip chip-success";
+            case "Could not complete" -> "chip chip-danger";
+            case "Needs inspection" -> "chip chip-warning";
+            case "Working" -> "chip chip-info";
+            default -> "chip chip-neutral";
         };
     }
 
@@ -193,14 +192,7 @@ final class TaskLabels {
     }
 
     static String costLabel(TaskUsage usage) {
-        if (usage.estimatesByCurrency().isEmpty()) {
-            return null;
-        }
-        return usage.estimatesByCurrency().entrySet().stream()
-                .map(entry -> "USD".equals(entry.getKey())
-                        ? "$" + entry.getValue().setScale(2, RoundingMode.HALF_UP).toPlainString()
-                        : plain(entry.getValue()) + " " + entry.getKey())
-                .collect(Collectors.joining(" + "));
+        return UiFormat.money(usage.estimatesByCurrency());
     }
 
     /** Why a finished cost is missing or may be too low; null when all usage was reported and priced. */
@@ -261,10 +253,6 @@ final class TaskLabels {
         }
         String stripped = text.strip();
         return stripped.endsWith(".") ? stripped : stripped + ".";
-    }
-
-    private static String plain(BigDecimal value) {
-        return value.stripTrailingZeros().toPlainString();
     }
 
     private static String joinNonNull(String first, String second) {
