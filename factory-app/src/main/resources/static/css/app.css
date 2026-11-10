@@ -1105,11 +1105,11 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 /* PR feedback on the run page: new comments and rounds are plain rows, like My tasks. */
 .feedback-section { display: flex; flex-direction: column; gap: 22px; }
 .feedback-reason { font-size: 13px; }
-.feedback-comment { align-items: flex-start; cursor: pointer; }
+.dev-row.feedback-comment { align-items: flex-start; cursor: pointer; }
 .feedback-comment .task-check { margin-top: 3px; }
 .feedback-comment-body { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 .feedback-location { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.feedback-round { align-items: flex-start; }
+.dev-row.feedback-round { align-items: flex-start; }
 .feedback-round-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .feedback-round-summary { margin-top: 8px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .feedback-round-link { display: inline-flex; margin-top: 6px; font-size: 12px; }
