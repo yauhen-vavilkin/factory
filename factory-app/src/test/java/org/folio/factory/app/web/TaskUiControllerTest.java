@@ -6,11 +6,15 @@ import org.folio.factory.app.tasks.admission.TaskRunSettings;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
+import org.folio.factory.app.tasks.persistence.TaskRoutingReason;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
+import org.folio.factory.app.tasks.presentation.CannotRunGroup;
+import org.folio.factory.app.tasks.presentation.InProgressStrip;
+import org.folio.factory.app.tasks.presentation.RunAction;
 import org.folio.factory.app.tasks.presentation.SourceCard;
 import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.app.tasks.presentation.TaskUsage;
@@ -161,7 +165,7 @@ class TaskUiControllerTest {
         MvcResult result = mvc.perform(get(FLOW_PAGE))
                 .andExpect(status().isOk())
                 .andExpect(view().name("flow-my-tasks"))
-                .andExpect(model().attributeExists("flow", "source", "available", "statusChips",
+                .andExpect(model().attributeExists("flow", "source", "available", "cannotRun",
                         "triggered", "page", "pollUrl", "pollBaseline"))
                 .andReturn();
 
@@ -173,15 +177,16 @@ class TaskUiControllerTest {
                 .containsEntry("repository", "mod-bar")
                 .containsEntry("jiraStatus", "Open")
                 .containsEntry("selectable", true)
-                .containsEntry("problem", null)
-                .containsEntry("shown", true);
+                .containsEntry("problem", null);
         assertThat(rows(model, "triggered").getFirst())
-                .containsEntry("stateLabel", "Could not complete")
-                .containsEntry("stateClass", "chip chip-danger")
-                .containsEntry("retryAllowed", true)
-                .containsEntry("addedByKey", false)
-                .containsEntry("link", "/tasks/" + OTHER_TASK_ID)
+                .containsEntry("chipLabel", "Failed")
+                .containsEntry("chipClass", "chip chip-danger")
+                .containsEntry("chipUrl", null)
+                .containsEntry("detail", "Verification failed: 2 tests failed")
+                .containsEntry("action", RunAction.RETRY)
+                .containsEntry("actionUrl", "/tasks/" + OTHER_TASK_ID + "#retry")
                 .containsEntry("markStoppedAttemptId", null);
+        assertThat(model.get("inProgress")).isNull();
         var source = (SourceCard) model.get("source");
         assertThat(source.assignee()).isEqualTo("Jane Developer");
         assertThat(source.jiraHost()).isEqualTo("jira.example.org");
@@ -209,57 +214,44 @@ class TaskUiControllerTest {
     }
 
     @Test
-    void myTasks_statusChipsPressOpenAndInProgressByDefault() throws Exception {
-        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(
-                taskView(TASK_ID, "MODBAR-901", "In Review", TaskView.TaskState.AWAITING_SELECTION, true, false),
-                taskView(OTHER_TASK_ID, "MODBAR-902", "In Progress",
-                        TaskView.TaskState.AWAITING_SELECTION, true, false),
-                taskView(UUID.randomUUID(), "MODBAR-903", "Open",
-                        TaskView.TaskState.AWAITING_SELECTION, true, false))));
-
-        var chips = rows(mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel(), "statusChips");
-
-        assertThat(chips).extracting(chip -> chip.get("status"))
-                .containsExactly("Open", "In Progress", "In Review");
-        assertThat(chips).extracting(chip -> chip.get("pressed")).containsExactly(true, true, false);
-    }
-
-    @Test
-    void myTasks_pressesEveryChipWhenNoDefaultStatusIsPresent() throws Exception {
-        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(
-                taskView(TASK_ID, "MODBAR-901", "To Do", TaskView.TaskState.AWAITING_SELECTION, true, false))));
-
-        var chips = rows(mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel(), "statusChips");
-
-        assertThat(chips).singleElement().satisfies(chip -> assertThat(chip).containsEntry("pressed", true));
-    }
-
-    @Test
-    void myTasks_availableCountsOnlyShownTasksThatCanRun() throws Exception {
-        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(
-                taskView(TASK_ID, "MODBAR-901", "Open", TaskView.TaskState.UNSUPPORTED, false, false),
-                taskView(OTHER_TASK_ID, "MODBAR-902", "Open", TaskView.TaskState.UNSUPPORTED, false, false),
-                taskView(UUID.randomUUID(), "MODBAR-903", "In Progress",
-                        TaskView.TaskState.UNSUPPORTED, false, false))));
-
-        Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
-
-        assertThat(model).containsEntry("availableShown", 0L).containsEntry("notEligibleShown", 3L);
-    }
-
-    @Test
-    void myTasks_availableIgnoresTasksHiddenByTheStatusFilter() throws Exception {
+    void myTasks_listsTasksThatCannotRunOnOneLinePerReason() throws Exception {
         when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(
                 taskView(TASK_ID, "MODBAR-901", "Open", TaskView.TaskState.AWAITING_SELECTION, true, false),
-                taskView(OTHER_TASK_ID, "MODBAR-902", "Open", TaskView.TaskState.UNSUPPORTED, false, false),
-                taskView(UUID.randomUUID(), "MODBAR-903", "In Review",
-                        TaskView.TaskState.AWAITING_SELECTION, true, false),
-                taskView(UUID.randomUUID(), "MODBAR-904", "In Review",
-                        TaskView.TaskState.UNSUPPORTED, false, false))));
+                unsupported(OTHER_TASK_ID, "MODBAR-902", TaskRoutingReason.noRepository("MODBAR")),
+                unsupported(UUID.randomUUID(), "MODBAR-903", TaskRoutingReason.noRepository("MODBAR")),
+                unsupported(UUID.randomUUID(), "MODBAR-904", "Out of scope"))));
 
         Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
 
-        assertThat(model).containsEntry("availableShown", 1L).containsEntry("notEligibleShown", 1L);
+        assertThat(rows(model, "available")).extracting(row -> row.get("key")).containsExactly("MODBAR-901");
+        assertThat(model).containsEntry("cannotRunCount", 3L);
+        assertThat(rows(model, "cannotRun")).extracting(group -> group.get("keys")).containsExactly(
+                List.of("MODBAR-902", "MODBAR-903"), List.of("MODBAR-904"));
+        @SuppressWarnings("unchecked")
+        var groups = (List<CannotRunGroup>) model.get("cannotRun");
+        assertThat(groups.getFirst().line())
+                .isEqualTo("MODBAR-902, MODBAR-903: no repository is set for the project");
+    }
+
+    @Test
+    void myTasks_showsTheRunningTaskInTheStripAndOffersOpenRun() throws Exception {
+        TaskView running = taskView(TASK_ID, "MODBAR-931", "Open", TaskView.TaskState.WORKING, false, false,
+                attempt("RUNNING", "MANUAL", 1,
+                        "{\"profileId\":\"glm-5.3\",\"effort\":\"max\"}"));
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), running));
+
+        Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
+
+        var strip = (InProgressStrip) model.get("inProgress");
+        assertThat(strip.key()).isEqualTo("MODBAR-931");
+        assertThat(strip.run()).startsWith("glm-5.3 · max · ");
+        assertThat(strip.runUrl()).isEqualTo("/executions/" + EXECUTION_ID);
+        assertThat(rows(model, "triggered").getFirst())
+                .containsEntry("chipLabel", "In progress")
+                .containsEntry("chipClass", "chip chip-info")
+                .containsEntry("detail", null)
+                .containsEntry("action", RunAction.OPEN_RUN)
+                .containsEntry("actionUrl", "/executions/" + EXECUTION_ID);
     }
 
     @Test
@@ -280,8 +272,8 @@ class TaskUiControllerTest {
         assertThat(model.get("queueWaiting")).isEqualTo(Map.of("key", "MODBAR-921", "taskId", TASK_ID,
                 "attemptId", ATTEMPT_ID));
         assertThat(rows(model, "triggered").getFirst())
-                .containsEntry("stateLabel", "Needs inspection")
-                .containsEntry("addedByKey", true)
+                .containsEntry("chipLabel", "Needs inspection")
+                .containsEntry("action", RunAction.MARK_STOPPED)
                 .containsEntry("markStoppedAttemptId", ATTEMPT_ID);
     }
 
@@ -294,7 +286,6 @@ class TaskUiControllerTest {
         Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
 
         assertThat(model)
-                .containsEntry("queuedCount", 2L)
                 .containsEntry("queueProblem", "Developer Flow preflight failed: Docker is not running.");
     }
 
@@ -312,13 +303,15 @@ class TaskUiControllerTest {
         Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andExpect(status().isOk()).andReturn()
                 .getModelAndView().getModel();
         assertThat(rows(model, "triggered").get(0))
-                .containsEntry("stateLabel", "Draft PR")
-                .containsEntry("stateClass", "chip chip-neutral")
+                .containsEntry("chipLabel", "Draft PR #7")
+                .containsEntry("chipClass", "chip chip-neutral")
+                .containsEntry("chipUrl", "https://github.com/folio-org/mod-bar/pull/7")
                 .containsEntry("detail", null)
-                .containsEntry("prLabel", "Pull request #7");
+                .containsEntry("action", RunAction.PR_FEEDBACK)
+                .containsEntry("actionUrl", "/executions/" + EXECUTION_ID + "#pr-feedback");
         assertThat(rows(model, "triggered").get(1))
-                .containsEntry("stateLabel", "PR ready")
-                .containsEntry("stateClass", "chip chip-success");
+                .containsEntry("chipLabel", "PR #7")
+                .containsEntry("chipClass", "chip chip-success");
 
         MvcResult result = mvc.perform(get("/tasks/{taskId}", TASK_ID)).andExpect(status().isOk()).andReturn();
         assertThat(detail(result))
@@ -355,8 +348,7 @@ class TaskUiControllerTest {
         Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
         assertThat(rows(model, "triggered").getFirst())
                 .containsEntry("cost", "$0.32")
-                .containsEntry("costNote", "cost may be higher")
-                .containsEntry("costNoteTitle",
+                .containsEntry("costTitle",
                         "Some usage was not reported by the runtime or has no price, so the real cost may be higher.");
 
         Map<String, Object> detail = mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn().getModelAndView()
@@ -383,8 +375,7 @@ class TaskUiControllerTest {
         Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
         assertThat(rows(model, "triggered").getFirst())
                 .containsEntry("cost", null)
-                .containsEntry("costNote", "cost unknown")
-                .containsEntry("costNoteTitle", unknownTitle);
+                .containsEntry("costTitle", unknownTitle);
 
         // The retry is running and has not reported usage yet: its cost is "so far", like Working in Triggered.
         TaskView working = withUsage(taskView(TASK_ID, "MODBAR-911", "Open", TaskView.TaskState.WORKING,
@@ -431,7 +422,7 @@ class TaskUiControllerTest {
                 .andReturn();
 
         assertThat(detail(result))
-                .containsEntry("stateLabel", "Could not complete")
+                .containsEntry("stateLabel", "Failed")
                 .containsEntry("retryAllowed", true)
                 .containsEntry("lastRunUrl", "/executions/" + EXECUTION_ID)
                 .containsEntry("project", "MODBAR")
@@ -771,6 +762,14 @@ class TaskUiControllerTest {
                         .anyMatch(attempt -> attempt.admittedVia() == TaskAttempt.AdmittedVia.BY_KEY),
                 3L, "revision-" + key, "dest-" + key,
                 List.of(attempts), emptyUsage(), new TaskView.AllowedActions(select, retry));
+    }
+
+    private static TaskView unsupported(UUID taskId, String key, String reason) {
+        var view = taskView(taskId, key, "Open", TaskView.TaskState.UNSUPPORTED, false, false);
+        return new TaskView(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(), view.projectKey(),
+                view.jiraStatus(), view.state(), null, reason, null, null, null, null, null, true, false,
+                view.version(), view.inputFingerprint(), view.destinationFingerprint(), List.of(), view.usage(),
+                view.allowedActions());
     }
 
     private static TaskView.AttemptHistoryEntry attempt(String state, String admittedVia) {

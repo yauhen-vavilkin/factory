@@ -36,12 +36,12 @@
                 <button type="submit" class="btn btn-outline btn-md"
                         th:attr="data-confirm-title='Mark ' + ${task['key']} + ' as stopped?'"
                         data-confirm-ok="Mark as stopped" data-confirm-style="compact"
-                        data-confirm="Do this only if its run is really over: no factory container is running for it. If it was opening a pull request, check the repository first. The task becomes Could not complete, its cost so far stays, and the queue starts the next task.">Mark as stopped…</button>
+                        data-confirm="Do this only if its run is really over: no factory container is running for it. If it was opening a pull request, check the repository first. The task becomes Failed, its cost so far stays, and the queue starts the next task.">Mark as stopped…</button>
             </form>
             <a class="dev-link" th:if="${task['lastRunUrl'] != null}"
                th:href="${task['prUrl'] != null} ? ${task['lastRunUrl'] + '#pr-feedback'} : ${task['lastRunUrl']}"
                th:text="${task['prUrl'] != null} ? 'Work on PR feedback'
-                        : (${task['stateLabel'] == 'Working'} ? 'Open live run' : 'Open last run')">Open last run</a>
+                        : (${task['stateLabel'] == 'In progress'} ? 'Open live run' : 'Open last run')">Open last run</a>
         </div>
         <form class="retry-form" id="retry" method="post" th:if="${task['retryAllowed']}"
               th:action="@{'/tasks/' + ${task['taskId']} + '/retry'}">

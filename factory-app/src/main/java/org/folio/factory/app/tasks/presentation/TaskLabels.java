@@ -32,10 +32,10 @@ final class TaskLabels {
             case AWAITING_SELECTION -> "Not started";
             case WITHDRAWN -> "Withdrawn";
             case UNSUPPORTED -> "Not eligible";
-            case STOPPED -> "Could not complete";
+            case STOPPED -> "Failed";
             case UNCERTAIN, PROCESSING_PAUSED -> "Needs inspection";
             case PR_READY -> view.draftReasons() == null ? "PR ready" : "Draft PR";
-            case WORKING -> queued(view) ? "Queued" : "Working";
+            case WORKING -> queued(view) ? "Queued" : "In progress";
         };
     }
 
@@ -43,9 +43,9 @@ final class TaskLabels {
     static String attemptLabel(TaskView.AttemptHistoryEntry attempt) {
         return switch (attempt.state()) {
             case RESERVED -> "Queued";
-            case QUEUED, RUNNING -> "Working";
+            case QUEUED, RUNNING -> "In progress";
             case PR_READY -> attempt.draftReasons() == null ? "PR ready" : "Draft PR";
-            case STOPPED -> "Could not complete";
+            case STOPPED -> "Failed";
             case NEEDS_INSPECTION -> "Needs inspection";
             case WITHDRAWN -> "Withdrawn";
         };
@@ -68,9 +68,9 @@ final class TaskLabels {
         }
         return switch (label) {
             case "PR ready" -> "chip chip-success";
-            case "Could not complete" -> "chip chip-danger";
+            case "Failed" -> "chip chip-danger";
             case "Needs inspection" -> "chip chip-warning";
-            case "Working" -> "chip chip-info";
+            case "In progress" -> "chip chip-info";
             default -> "chip chip-neutral";
         };
     }
@@ -189,6 +189,13 @@ final class TaskLabels {
         }
         Matcher number = PULL_NUMBER.matcher(url);
         return number.find() ? "Pull request #" + number.group(1) : "Pull request";
+    }
+
+    /** "Draft PR #6" or "PR #6": the pull request chip of a list row. */
+    static String shortPullRequestLabel(String url, boolean draft) {
+        var number = url == null ? null : PULL_NUMBER.matcher(url);
+        var label = number != null && number.find() ? "PR #" + number.group(1) : "PR";
+        return draft ? "Draft " + label : label;
     }
 
     static String costLabel(TaskUsage usage) {

@@ -65,35 +65,17 @@ test('a picked effort holds the live reload and shows the notice instead', async
   assert.equal(notice.hidden, false);
 });
 
-test('Available counts only shown tasks that can run', () => {
-  function element(attributes, extra) {
+test('Run counts the checked tasks and is disabled while none is checked', () => {
+  function box(checked) {
     const listeners = {};
-    return Object.assign({
-      hidden: false,
-      getAttribute: key => key in attributes ? attributes[key] : null,
-      setAttribute: (key, value) => { attributes[key] = value; },
-      addEventListener: (event, callback) => { listeners[event] = callback; },
-      fire: event => listeners[event](),
-      querySelector: () => null
-    }, extra);
+    return { checked, addEventListener: (event, callback) => { listeners[event] = callback; },
+      fire: event => listeners[event]() };
   }
-  function row(status, runnable) {
-    const box = runnable ? element({}, { checked: false, disabled: false }) : null;
-    return element({ 'data-status': status }, { querySelector: () => box });
-  }
-  const rows = [row('Open', false), row('Open', false), row('Open', false), row('In Review', true)];
-  const chips = [element({ 'data-status-chip': 'Open', 'aria-pressed': 'true' }),
-    element({ 'data-status-chip': 'In Review', 'aria-pressed': 'false' })];
-  const parts = {
-    '[data-available-count]': element({}, { textContent: '' }),
-    '[data-not-eligible]': element({}),
-    '[data-not-eligible-count]': element({}, { textContent: '' }),
-    '[data-run-selected]': element({}, { textContent: 'Run', disabled: false }),
-    '[data-select-all]': element({}, { checked: false, disabled: false })
-  };
+  const boxes = [box(false), box(false), box(false)];
+  const runButton = { textContent: 'Run', disabled: false };
   const form = {
-    querySelectorAll: selector => selector === '[data-status]' ? rows : selector === '[data-status-chip]' ? chips : [],
-    querySelector: selector => parts[selector] || null
+    querySelectorAll: selector => selector === 'input[name="taskId"]' ? boxes : [],
+    querySelector: selector => selector === '[data-run-selected]' ? runButton : null
   };
   let ready;
   vm.runInNewContext(POLL_JS, {
@@ -106,20 +88,17 @@ test('Available counts only shown tasks that can run', () => {
   });
   ready();
 
-  assert.equal(String(parts['[data-available-count]'].textContent), '0');
-  assert.equal(String(parts['[data-not-eligible-count]'].textContent), '3');
-  assert.equal(parts['[data-not-eligible]'].hidden, false);
-  assert.equal(parts['[data-run-selected]'].disabled, true);
-  assert.equal(parts['[data-select-all]'].disabled, true);
+  assert.equal(runButton.textContent, 'Run');
+  assert.equal(runButton.disabled, true);
 
-  chips[1].fire('click');
-  assert.equal(String(parts['[data-available-count]'].textContent), '1');
-  assert.equal(String(parts['[data-not-eligible-count]'].textContent), '3');
-  assert.equal(parts['[data-select-all]'].disabled, false);
+  boxes[0].checked = true;
+  boxes[0].fire('change');
+  assert.equal(runButton.textContent, 'Run 1 task');
+  assert.equal(runButton.disabled, false);
 
-  chips[0].fire('click');
-  assert.equal(String(parts['[data-available-count]'].textContent), '1');
-  assert.equal(parts['[data-not-eligible]'].hidden, true);
+  boxes[2].checked = true;
+  boxes[2].fire('change');
+  assert.equal(runButton.textContent, 'Run 2 tasks');
 });
 
 test('Effort offers the chosen model levels and a model change keeps only a level the developer picked', () => {

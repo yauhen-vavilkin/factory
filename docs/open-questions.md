@@ -173,3 +173,14 @@ Spec: `docs/superpowers/specs/2026-11-03-models-config-and-run-form.md`.
   in 0 s. The question is on no page and in no artifact, only at the end of the transcript,
   and the only action offered is a blind Retry. Not investigated in the code yet: the
   no-changes check seems to win over the decision request.
+
+## Left out of the demo UX work of 2026-11-10
+
+Spec: `docs/superpowers/specs/2026-11-10-demo-ux-requirements.md`. Each item is a cut taken to keep a
+page as on its board.
+
+- **My tasks.** The fix steps dialog of a task that cannot run is gone; "N cannot run here" shows the
+  reason in one line and the task page still has the stored reason. "cost may be higher" and "cost
+  unknown" are no longer printed in Runs: the cost carries the explanation as its tooltip. The last scan
+  time is the tooltip of Scan Jira. A task added by key keeps a small Remove button, which board 1 does
+  not show. The in-progress strip shows the first running task only.

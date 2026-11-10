@@ -540,15 +540,15 @@ class UiRenderSmokeTest {
                         + " Check the provider and the Developer Flow settings, then retry. Error: API Error: 429");
 
         String expected = "Implementation failed: " + turnLimit.substring(0, turnLimit.length() - 1);
-        String list = assertRendered("/flows/dev-factory", "My Jira tasks");
+        String list = assertRendered("/flows/dev-factory", "Ready to run");
         assertThat(list)
                 .contains(expected, "Implementation failed: Claude Code stopped with an error"
                         + " (subtype success, API status 429). Check the provider and the Developer Flow settings,"
                         + " then retry. Error: API Error: 429");
-        // The Triggered status cell shows the whole reason, two lines at most, with the full text in the title.
-        assertThat(list).containsPattern("<span class=\"state-detail clamp-2\"\\s+title=\"" + Pattern.quote(expected)
+        // The Runs row shows the whole reason, with the full text in the title.
+        assertThat(list).containsPattern("<span title=\"" + Pattern.quote(expected)
                 + "\">" + Pattern.quote(expected) + "</span>");
-        String task = assertRendered("/tasks/" + stopped.getId(), "Could not complete");
+        String task = assertRendered("/tasks/" + stopped.getId(), "Failed");
         assertThat(task).contains(expected + ". No pull request was created.");
         // The Attempts Result column keeps the reason and what to do.
         assertThat(task.substring(task.indexOf("id=\"attempts-title\""))).contains("<span>" + expected + "</span>");
@@ -939,63 +939,37 @@ class UiRenderSmokeTest {
         Task unsupported = taskTasks.findAll().stream().filter(task -> task.getDisplayKey().equals("MODBAR-702"))
                 .findFirst().orElseThrow();
 
-        String body = assertRendered("/flows/dev-factory", "My Jira tasks");
-        // A draft pull request is not the green PR ready.
-        assertThat(body).contains("class=\"chip chip-neutral\">Draft PR</span>",
-                        "href=\"https://github.com/folio-org/mod-bar/pull/8\"", "Pull request #8")
-                .containsOnlyOnce("class=\"chip chip-success\">PR ready</span>");
+        String body = assertRendered("/flows/dev-factory", "Ready to run");
+        // Tabs in the header row; the configuration is a tab, not a button.
         assertThat(body)
-                .contains("aria-current=\"page\">My tasks</a>", "href=\"/flows/dev-factory?view=definition\"")
-                // The query and the assignee moved to Check configuration; the ⓘ says so.
-                .contains("aria-label=\"What is in this list\"",
-                        "Jira issues assigned to you that are not done yet, plus the ones you add by key.",
-                        "href=\"/developer/configuration\"")
-                .doesNotContain("Assigned to", "assignee = &quot;Jane Developer&quot;", "What exactly is scanned")
-                .contains("action=\"/flows/dev-factory/scan\"", "action=\"/tasks/run-selected\"",
-                        "action=\"/flows/dev-factory/add-by-key\"", "Not in your list?", ">Add to list</button>")
-                .doesNotContain("run-by-key", "Add to run", "Max turns", "name=\"maxTurns\"")
-                .contains("data-status-chip=\"Open\"", "data-status-chip=\"In Review\"",
-                        "aria-pressed=\"false\"", "data-status=\"In Review\" hidden=\"hidden\"")
-                .containsPattern("data-available-count>2</span><span class=\"dev-count\"\\s+data-not-eligible>"
-                        + " · <span data-not-eligible-count>1</span> not eligible</span>")
-                .containsPattern("data-run-selected\\s*>Run</button>")
-                .doesNotContainPattern("data-select-all\\s+disabled")
-                .contains("href=\"https://jira.example.org/browse/MODBAR-701\"", "href=\"/tasks/")
-                .contains("Queued", "next in line", "2nd in line", "Could not complete",
-                        "Verification failed: 2 tests in error", "PR ready", "Pull request #7",
-                        "href=\"https://github.com/folio-org/mod-bar/pull/7\"", "Needs inspection",
-                        "outcome not confirmed", "Working", "Implementation", "added by key")
-                .contains("href=\"/executions/" + liveExecution.getId() + "\"")
-                .contains("Queue is waiting.", "MODBAR-707 needs inspection", "/mark-stopped",
-                        "data-confirm-title=\"Mark MODBAR-707 as stopped?\"", "task-grid-wide")
-                // Retry no longer starts a run from the list: it opens the task page form.
-                .containsPattern("<a class=\"btn btn-outline btn-sm\"\\s+href=\"/tasks/" + stopped.getId()
-                        + "#retry\"\\s+aria-label=\"Retry MODBAR-705\">Retry</a>")
-                .contains("name=\"returnTo\" value=\"flow\"")
-                .doesNotContain(">Retry</button>")
-                .contains("Queued tasks are not starting.", "FACTORY_TASKS_EXECUTION_ENABLED=true")
-                .contains("data-task-selection", "data-run-selected", "data-selected-count",
-                        "data-select-all", "data-poll-notice", "data-poll-url=\"/tasks/poll\"",
-                        "data-poll-fields=\"revision\"", "data-poll-baseline=")
-                .doesNotContain("Trigger flow", "Outside current filter", "Enable automatic admission",
-                        "Withdrawn", "Sprint");
-        // Triggered: the key and its repository chip on one line, the title below it clamped to two lines, the
-        // reason under the badge clamped to two lines, and the row's one action (Retry or Mark as stopped…) last.
-        String triggered = body.substring(body.indexOf("id=\"triggered-title\""));
-        assertThat(triggered)
-                .contains("<span><span class=\"sr-only\">Action</span></span>")
-                .containsPattern("<a class=\"task-key\" href=\"https://jira.example.org/browse/MODBAR-705\">MODBAR-705</a>"
-                        + "\\s*<span class=\"repo-chip\"\\s+title=\"Repository mod-bar\">mod-bar</span>"
-                        + "\\s*</div>\\s*<a class=\"task-title clamp-2\"\\s+href=\"/tasks/" + stopped.getId()
-                        + "\"\\s+title=\"Stopped task\">Stopped task</a>")
-                .containsPattern(">MODBAR-708</a>\\s*<span class=\"repo-chip\"[^>]*>mod-bar</span>"
-                        + "\\s*<span class=\"task-tag\">added by key</span>")
-                .containsPattern("<span class=\"state-detail clamp-2\"\\s+title=\"Verification failed: 2 tests in error\">"
-                        + "Verification failed: 2 tests in error</span>")
-                .containsPattern("<div class=\"task-action\">\\s*<form method=\"post\"\\s+action=\"/tasks/" + held.getId()
-                        + "/attempts/[0-9a-f-]+/mark-stopped\">\\s*<input type=\"hidden\" name=\"returnTo\" value=\"flow\">"
-                        + "\\s*<button type=\"submit\" class=\"btn btn-outline btn-sm\"[^>]*aria-label=\"Mark as stopped: MODBAR-707\"")
-                .doesNotContain("btn-inline", "state-detail-action", "state-detail-text", ">incomplete<");
+                .contains("aria-current=\"page\">My tasks</a>", "href=\"/flows/dev-factory?view=definition\"",
+                        "href=\"/developer/configuration\"", ">Configuration</a>")
+                .doesNotContain("Check configuration", "My Jira tasks", "What is in this list",
+                        "assignee = &quot;Jane Developer&quot;");
+        // The running task: one strip with its state first, then the task, then the shortcut to its run.
+        assertThat(body)
+                .containsPattern("<span class=\"progress-strip-state\">In progress</span>\\s*"
+                        + "<a class=\"key-link ext-link\" href=\"https://jira.example.org/browse/MODBAR-709\">MODBAR-709</a>"
+                        + "\\s*<span class=\"progress-strip-title\">Live task</span>")
+                .containsPattern("<a class=\"btn btn-secondary btn-sm btn-col\" href=\"/executions/"
+                        + liveExecution.getId() + "\">Open run</a>");
+        // Ready to run: the ways to get tasks in its header, the rows without frame or header row.
+        String readyList = body.substring(body.indexOf("id=\"available-title\""), body.indexOf("id=\"triggered-title\""));
+        assertThat(readyList)
+                .containsPattern("Ready to run <span class=\"dev-count\"\\s*>3</span>")
+                .contains("action=\"/flows/dev-factory/add-by-key\"", "placeholder=\"Add by key, for example MGRAPPS-101\"",
+                        ">Add</button>", "action=\"/flows/dev-factory/scan\"", ">Scan Jira</button>",
+                        "title=\"Not scanned yet\"", "action=\"/tasks/run-selected\"",
+                        "<a class=\"key-link ext-link\" href=\"https://jira.example.org/browse/MODBAR-701\">MODBAR-701</a>",
+                        "<span>Jira: Open</span>", "<span>Jira: In Review</span>", "<span>mod-bar</span>",
+                        "aria-label=\"Select MODBAR-701\"", ">Effort</span>")
+                .contains("data-run-selected disabled>Run</button>")
+                .doesNotContain("data-status-chip", "task-grid", "data-select-all", "Select MODBAR-702",
+                        "Add to list", "Not in your list?", "added by key", "fix-dialog");
+        // Tasks that cannot run: a closed disclosure with one line per reason.
+        assertThat(readyList)
+                .containsPattern("<details class=\"disclosure\">\\s*<summary>1 cannot run here</summary>\\s*"
+                        + "<p class=\"disclosure-line\">MODBAR-702: no repository is set for the project</p>");
         // Run: one Model for the run, the ready models only, each with its levels for the page script.
         String run = body.substring(body.indexOf("action=\"/tasks/run-selected\""), body.indexOf("data-run-selected"));
         assertThat(run).contains("<span>Model</span>", "name=\"modelId\"", "data-model-select")
@@ -1005,49 +979,60 @@ class UiRenderSmokeTest {
                         + "(?=[^>]*data-default-effort=\"max\")")
                 .doesNotContain("value=\"anthropic-sonnet-5.5\"", "value=\"codemie-gemini-3.8-flash\"");
         // Effort on each row that can run: radio buttons of the selected model, its default checked.
-        assertThat(body).contains("task-grid-effort", ">Effort</span>")
+        assertThat(body)
                 .containsPattern("role=\"radiogroup\"[^>]*aria-label=\"Effort for MODBAR-701\"")
                 .containsPattern("<input type=\"radio\" name=\"effort-" + awaiting.getId()
                         + "\" value=\"high\" checked=\"checked\">\\s*<span>high</span>")
                 .containsPattern("<input type=\"radio\" name=\"effort-" + awaiting.getId()
                         + "\" value=\"xhigh\">\\s*<span>xhigh</span>")
                 .doesNotContain("name=\"effort-" + unsupported.getId() + "\"");
-        // A task that cannot run: a red chip on the key line that opens the dialog with the fix.
-        assertThat(body)
-                .containsPattern("<a class=\"config-chip\" href=\"/tasks/" + unsupported.getId()
-                        + "\" title=\"Why and how to fix\"\\s+data-fix-dialog=\"fix-" + unsupported.getId()
-                        + "\">Not configured</a>")
-                .containsPattern("<dialog class=\"dialog dialog-compact fix-dialog\" id=\"fix-" + unsupported.getId()
-                        + "\"")
-                .contains("Project MODBAR is not configured</h2>",
-                        "Factory does not know which repository holds the code for MODBAR, so it cannot run MODBAR-702.",
-                        "  jira-projects: [<span>MODBAR</span>]", "docker compose restart factory",
-                        "3. Click Scan Jira. The task becomes available.", "<form method=\"dialog\"")
-                .doesNotContain("Not eligible</span>", "Project MODBAR is not configured: no repository");
         // A task added by key and not run yet can leave the list again.
-        assertThat(body).containsPattern(">MODBAR-713</a>\\s*<span class=\"repo-chip\"[^>]*>mod-bar</span>"
-                + "\\s*<span class=\"task-tag\">added by key</span>\\s*<button type=\"submit\" class=\"row-remove\""
-                + "\\s+formaction=\"/tasks/" + added.getId() + "/remove-from-list\"");
+        assertThat(readyList).containsPattern("<button type=\"submit\" class=\"btn btn-secondary btn-sm\"\\s+"
+                + "formaction=\"/tasks/" + added.getId() + "/remove-from-list\"");
+        // Runs: title, key, cost and age, a chip, and one action per row.
+        String triggered = body.substring(body.indexOf("id=\"triggered-title\""));
+        assertThat(triggered)
+                .contains("Queued", "next in line", "2nd in line", "Verification failed: 2 tests in error",
+                        "class=\"chip chip-danger\">Failed</span>", "class=\"chip chip-warning\">Needs inspection</span>",
+                        "class=\"chip chip-info\">In progress</span>", "outcome not confirmed")
+                .containsPattern("<a class=\"chip chip-success ext-link\" href=\"https://github.com/folio-org/mod-bar/pull/7\""
+                        + ">PR #7</a>")
+                .containsPattern("<a class=\"chip chip-neutral ext-link\" href=\"https://github.com/folio-org/mod-bar/pull/8\""
+                        + ">Draft PR #8</a>")
+                .containsPattern("<a class=\"dev-row-title\" href=\"/tasks/" + stopped.getId()
+                        + "\"\\s+title=\"Stopped task\">Stopped task</a>")
+                .containsPattern("<a class=\"btn btn-secondary btn-sm btn-col\" href=\"/tasks/" + stopped.getId()
+                        + "#retry\"\\s+aria-label=\"Retry MODBAR-705\">Retry</a>")
+                .containsPattern("href=\"/executions/" + liveExecution.getId() + "\"\\s+aria-label=\"Open run MODBAR-709\">Open run</a>")
+                .containsPattern("<form method=\"post\"\\s+action=\"/tasks/" + held.getId()
+                        + "/attempts/[0-9a-f-]+/mark-stopped\">\\s*<input type=\"hidden\" name=\"returnTo\" value=\"flow\">"
+                        + "\\s*<button type=\"submit\" class=\"btn btn-secondary btn-sm btn-col\"[^>]*aria-label=\"Mark as stopped: MODBAR-707\"")
+                .contains("Queue is waiting.", "MODBAR-707 needs inspection", "data-confirm-title=\"Mark MODBAR-707 as stopped?\"",
+                        "The task becomes Failed, its cost so far stays")
+                .contains("Queued tasks are not starting.", "FACTORY_TASKS_EXECUTION_ENABLED=true")
+                .doesNotContain("task-grid", "Triggered", " working · ", ">Retry</button>", "Working");
+        assertThat(body).contains("data-task-selection", "data-run-selected", "data-poll-notice",
+                        "data-poll-url=\"/tasks/poll\"", "data-poll-fields=\"revision\"", "data-poll-baseline=")
+                .doesNotContain("Trigger flow", "Outside current filter", "Enable automatic admission", "Withdrawn",
+                        "Sprint", "run-by-key", "Max turns", "name=\"maxTurns\"");
         assertThat(body).doesNotContain(ZAI_KEY, PROXY_TOKEN, "not configured)");
-        assertThat(rest.get().uri("/tasks").retrieve().toEntity(String.class).getBody()).contains("My Jira tasks");
+        assertThat(rest.get().uri("/tasks").retrieve().toEntity(String.class).getBody()).contains("Ready to run");
     }
 
     @Test
-    void myTasksDisablesRunWhenNoShownTaskCanRun() {
+    void myTasksDisablesRunWhenNoTaskCanRun() {
         resetTaskData();
         for (int i = 1; i <= 3; i++) {
             seedTask("7010" + i, "MODBAR-71" + i, "Unsupported task " + i, Task.Eligibility.INELIGIBLE,
                     "Project MODBAR is not configured: no repository for it in config/developer-repositories.yaml");
         }
-        seedTask("70104", "MODBAR-714", "Hidden eligible task", "In Review", Task.Eligibility.ELIGIBLE,
-                "repository mod-bar");
 
-        String body = assertRendered("/flows/dev-factory", "My Jira tasks");
+        String body = assertRendered("/flows/dev-factory", "Ready to run");
         assertThat(body)
-                .containsPattern("data-available-count>0</span><span class=\"dev-count\"\\s+data-not-eligible>"
-                        + " · <span data-not-eligible-count>3</span> not eligible</span>")
-                .containsPattern("data-run-selected\\s+disabled=\"disabled\">Run</button>")
-                .containsPattern("data-select-all\\s+disabled=\"disabled\"");
+                .containsPattern("Ready to run <span class=\"dev-count\"\\s*>0</span>")
+                .contains("<summary>3 cannot run here</summary>",
+                        "MODBAR-711, MODBAR-712, MODBAR-713: no repository is set for the project")
+                .contains("data-run-selected disabled>Run</button>");
     }
 
     @Test
@@ -1062,7 +1047,7 @@ class UiRenderSmokeTest {
         var withoutProxy = new TaskRunSettings(codingRuntime, glmOnly);
         doAnswer(call -> withoutProxy.form(call.getArgument(0))).when(runSettings).form(any());
 
-        String body = assertRendered("/flows/dev-factory", "My Jira tasks");
+        String body = assertRendered("/flows/dev-factory", "Ready to run");
         assertThat(body).containsPattern("<option value=\"glm-5.3\"[^>]*selected=\"selected\"")
                 .contains("value=\"glm-5.3-flash\"")
                 .doesNotContain("value=\"codemie-sonnet-5.5\"", "not configured)")
@@ -1074,13 +1059,13 @@ class UiRenderSmokeTest {
                 name -> "FACTORY_ZAI_API_KEY".equals(name) ? ZAI_KEY : null);
         var single = new TaskRunSettings(codingRuntime, oneModel);
         doAnswer(call -> single.form(call.getArgument(0))).when(runSettings).form(any());
-        assertThat(assertRendered("/flows/dev-factory", "My Jira tasks"))
+        assertThat(assertRendered("/flows/dev-factory", "Ready to run"))
                 .contains("<input type=\"hidden\" name=\"modelId\" value=\"glm-5.3\">")
                 .doesNotContain("data-model-select", "<span>Model</span>");
 
         var none = new TaskRunSettings(codingRuntime, new ModelCatalog(modelsFile, "claude-code", name -> null));
         doAnswer(call -> none.form(call.getArgument(0))).when(runSettings).form(any());
-        assertThat(assertRendered("/flows/dev-factory", "My Jira tasks"))
+        assertThat(assertRendered("/flows/dev-factory", "Ready to run"))
                 .contains("No model can run now. Check configuration lists the models in config/developer-models.yaml")
                 .doesNotContain("name=\"modelId\"", "name=\"effort-");
     }
@@ -1095,12 +1080,12 @@ class UiRenderSmokeTest {
         // With the Pi harness there is no model choice, so the form has no Model and no Effort.
         doReturn(null).when(runSettings).form(any());
 
-        String body = assertRendered("/tasks/" + stopped.getId(), "Could not complete");
+        String body = assertRendered("/tasks/" + stopped.getId(), "Failed");
         assertThat(body).containsPattern("<form class=\"retry-form\" id=\"retry\"")
                 .contains("Instructions for the agent", "name=\"instructions\"", ">Retry</button>")
                 .doesNotContain("name=\"modelId\"", "name=\"effort\"", "data-effort-toggle", "class=\"run-settings\"");
-        assertThat(assertRendered("/flows/dev-factory", "My Jira tasks"))
-                .doesNotContain("name=\"modelId\"", "data-effort-toggle", "task-grid-effort", ">Effort</span>");
+        assertThat(assertRendered("/flows/dev-factory", "Ready to run"))
+                .doesNotContain("name=\"modelId\"", "data-effort-toggle", ">Effort</span>");
     }
 
     @Test
@@ -1108,19 +1093,19 @@ class UiRenderSmokeTest {
         resetTaskData();
 
         String body = assertRendered("/flows/dev-factory", "Press Scan Jira to load the tasks assigned to you.");
-        assertThat(body).contains("Not scanned yet", "Nothing has run yet.");
+        assertThat(body).contains("title=\"Not scanned yet\"", "Nothing has run yet.");
 
         TaskInstallation installation = taskInstallations.findById(1).orElseThrow();
         installation.setSyncProblem("search page 2 failed");
         taskInstallations.save(installation);
         assertThat(assertRendered("/flows/dev-factory", "Last scan failed: search page 2 failed"))
-                .contains("My Jira tasks");
+                .contains("Ready to run");
     }
 
     @Test
     void developerFlowDefinitionTabHasNoJsonTrigger() {
         String body = assertRendered("/flows/dev-factory?view=definition", "Retry policy");
-        assertThat(body).contains("aria-current=\"page\">Definition</a>", "Check configuration")
+        assertThat(body).contains("aria-current=\"page\">Definition</a>", ">Configuration</a>")
                 .doesNotContain("trigger-dialog", "Trigger flow");
         assertThat(assertRendered("/flows/test-factory", "Retry policy")).contains("Trigger flow");
     }
@@ -1164,7 +1149,7 @@ class UiRenderSmokeTest {
                         "rate", Map.of("currency", "USD", "source", "card",
                                 "inputPerMillion", 0.15, "cacheReadPerMillion", 0.03, "outputPerMillion", 0.5)));
 
-        String body = assertRendered("/tasks/" + stopped.getId(), "Could not complete");
+        String body = assertRendered("/tasks/" + stopped.getId(), "Failed");
         assertThat(body)
                 .contains("← Developer Flow · My tasks",
                         "Verification failed: 2 tests in error. No pull request was created.")
@@ -1204,9 +1189,11 @@ class UiRenderSmokeTest {
                 + " price, so the real cost may be higher.\">cost may be higher</span>";
         assertThat(partialBody.substring(partialBody.indexOf("id=\"attempts-title\"")))
                 .containsPattern(costNote).doesNotContain(">incomplete<");
-        String partialList = assertRendered("/flows/dev-factory", "My Jira tasks");
+        String partialList = assertRendered("/flows/dev-factory", "Ready to run");
         assertThat(partialList.substring(partialList.indexOf("id=\"triggered-title\"")))
-                .containsPattern(costNote).doesNotContain(">incomplete<");
+                .containsPattern("<span title=\"Some usage was not reported by the runtime or has no price, so the"
+                        + " real cost may be higher.\">\\$[0-9.]+</span>")
+                .doesNotContain(">incomplete<", ">cost may be higher<");
 
         Task live = seedTask("70023", "MODBAR-723", "Live task",
                 Task.Eligibility.ELIGIBLE, "repository mod-bar");
@@ -1223,7 +1210,7 @@ class UiRenderSmokeTest {
 
         String liveBody = assertRendered("/tasks/" + live.getId(), "In progress: Implementation.");
         assertThat(liveBody)
-                .contains("Working", "Open live run", "Includes live usage that can still change.")
+                .contains("In progress", "Open live run", "Includes live usage that can still change.")
                 .doesNotContain("name=\"expectedVersion\"");
         // A running attempt's cost is "so far", the same as Working in Triggered.
         assertThat(liveBody.substring(liveBody.indexOf("id=\"attempts-title\"")))
@@ -1243,13 +1230,13 @@ class UiRenderSmokeTest {
 
         String unknownCost = "<span>—</span>\\s*<span class=\"dev-note\"\\s+title=\"The runtime did not report usage,"
                 + " or the usage has no price, so the cost is not known.\">cost unknown</span>";
-        String unreportedBody = assertRendered("/tasks/" + unreported.getId(), "Could not complete");
+        String unreportedBody = assertRendered("/tasks/" + unreported.getId(), "Failed");
         assertThat(unreportedBody.substring(unreportedBody.indexOf("id=\"attempts-title\"")))
                 .containsPattern(unknownCost).doesNotContain("cost may be higher");
-        String unreportedList = assertRendered("/flows/dev-factory", "My Jira tasks");
+        String unreportedList = assertRendered("/flows/dev-factory", "Ready to run");
         String unreportedRow = unreportedList.substring(unreportedList.indexOf(">MODBAR-724</a>"));
-        assertThat(unreportedRow.substring(0, unreportedRow.indexOf("class=\"task-action\"")))
-                .containsPattern(unknownCost).doesNotContain("cost may be higher");
+        assertThat(unreportedRow.substring(0, unreportedRow.indexOf("class=\"dev-row-action\"")))
+                .doesNotContain("cost may be higher", "cost unknown", "—");
     }
 
     @Test
@@ -1353,7 +1340,7 @@ class UiRenderSmokeTest {
         assertThat(body)
                 .contains("3 · retry", "2 · retry", "1 · first run", "Withdrawn before start",
                         "Verification failed: first failure", "Verification failed: second failure")
-                .contains("Could not complete");
+                .contains("Failed");
         String attemptsTable = body.substring(body.indexOf("id=\"attempts-title\""));
         // A clear Open run button replaces the small "run 1234…" link.
         assertThat(attemptsTable)
@@ -1382,7 +1369,7 @@ class UiRenderSmokeTest {
                 .contains(">Running task</h1>", "href=\"/flows/dev-factory\">Developer Flow</a>",
                         "href=\"/tasks/" + task.getId() + "\">MODBAR-771</a>",
                         "href=\"https://jira.example.org/browse/MODBAR-771\"",
-                        "class=\"chip chip-info\">Working</span>", "Runtime and usage", "Engine steps")
+                        "class=\"chip chip-info\">In progress</span>", "Runtime and usage", "Engine steps")
                 .doesNotContain("badge-status-RUNNING");
     }
 

@@ -12,6 +12,7 @@ import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.presentation.AvailableRow;
+import org.folio.factory.app.tasks.presentation.RunRows;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
 import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.app.tasks.presentation.TaskView;
@@ -220,29 +221,20 @@ public class TaskUiController {
         return request.getServerName() + (defaultPort ? "" : ":" + port);
     }
 
-    private static void addAvailable(Model model, List<AvailableRow> unfiltered) {
-        var chips = TaskRows.statusChips(unfiltered);
-        var available = TaskRows.markShown(unfiltered, chips);
-        model.addAttribute("available", available);
-        // Available counts only shown tasks that can run; poll.js applies the same rule after a filter change.
-        var shownByRunnable = TaskRows.countShownByRunnable(available);
-        model.addAttribute("availableShown", shownByRunnable.get(true));
-        model.addAttribute("notEligibleShown", shownByRunnable.get(false));
-        model.addAttribute("statusChips", chips);
+    private static void addAvailable(Model model, List<AvailableRow> available) {
+        model.addAttribute("available", available.stream().filter(AvailableRow::selectable).toList());
+        model.addAttribute("cannotRun", RunRows.cannotRun(available));
+        model.addAttribute("cannotRunCount", available.stream().filter(row -> !row.selectable()).count());
     }
 
     private void addTriggered(Model model, TaskInstallation installation, Page<TaskView> triggered,
                               long queuedCount) {
-        model.addAttribute("triggered", triggered.getContent().stream().map(rows::triggeredRow).toList());
+        model.addAttribute("triggered", triggered.getContent().stream().map(RunRows::row).toList());
+        model.addAttribute("inProgress", RunRows.strip(triggered.getContent()).orElse(null));
         model.addAttribute("page", triggered);
         model.addAttribute("baseUrl", FLOW_PAGE + "?");
-        model.addAttribute("workingCount",
-                attempts.countByStateIn(List.of(TaskAttempt.State.QUEUED, TaskAttempt.State.RUNNING)));
-        model.addAttribute("queuedCount", queuedCount);
         model.addAttribute("queueWaiting", queueWaiting(installation, triggered.getContent()));
         model.addAttribute("queueProblem", queuedCount > 0 ? dispatcher.queueProblem() : null);
-        // A row with Mark as stopped… needs the wider action column so the button stays on one line.
-        model.addAttribute("triggeredWide", TaskRows.anyNeedsInspection(triggered.getContent()));
     }
 
     private String admissionRedirect(TaskAdmissionService.AdmissionResult result, RedirectAttributes redirect) {

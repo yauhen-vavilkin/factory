@@ -18,10 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
-import java.util.TreeMap;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 import static org.folio.factory.app.tasks.presentation.TaskLabels.ago;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.attemptResult;
@@ -30,25 +27,20 @@ import static org.folio.factory.app.tasks.presentation.TaskLabels.costNoteTitle;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.incompleteCostNote;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.minutes;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.pullRequestLabel;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.queued;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.resultChips;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.resultSentence;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.stateClass;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.stateLabel;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.triggeredDetail;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.usageNote;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.working;
 
 /**
  * Page rows of My tasks, the task summary and the run page header, built from the
- * task projection. My tasks marks an available row shown after the status chips
- * are counted.
+ * task projection.
  */
 @Component
 @RequiredArgsConstructor
 public class TaskRows {
 
-    private static final Set<String> DEFAULT_STATUSES = Set.of("open", "in progress");
     private static final DateTimeFormatter STARTED =
             DateTimeFormatter.ofPattern("MMM d, HH:mm", Locale.US).withZone(ZoneOffset.UTC);
 
@@ -74,60 +66,13 @@ public class TaskRows {
                 + String.join(" · ", parts);
     }
 
-    /** Not shown yet: {@link #markShown} decides that from the status chips. */
     public AvailableRow availableRow(TaskView view) {
         var reason = view.state() == TaskView.TaskState.UNSUPPORTED ? view.reason() : null;
         var problem = TaskRoutingReason.problem(reason).orElse(null);
         return new AvailableRow(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(),
                 view.jiraStatus() == null ? "Unknown" : view.jiraStatus(), view.projectKey(), repository(view),
                 view.addedByKey(), view.allowedActions().select(), view.version(), view.inputFingerprint(),
-                view.destinationFingerprint(), problem, problemLabel(problem), reason, false);
-    }
-
-    public static List<StatusChip> statusChips(List<AvailableRow> available) {
-        Map<String, Long> counts = new TreeMap<>();
-        available.forEach(row -> counts.merge(row.jiraStatus(), 1L, Long::sum));
-        boolean anyDefault = counts.keySet().stream()
-                .anyMatch(status -> DEFAULT_STATUSES.contains(status.toLowerCase(Locale.ROOT)));
-        List<StatusChip> chips = new ArrayList<>();
-        counts.forEach((status, count) -> chips.add(new StatusChip(status, count,
-                !anyDefault || DEFAULT_STATUSES.contains(status.toLowerCase(Locale.ROOT)))));
-        chips.sort((left, right) -> Integer.compare(chipOrder(left.status()), chipOrder(right.status())));
-        return chips;
-    }
-
-    /** The rows again, each shown when the chip of its Jira status is pressed. */
-    public static List<AvailableRow> markShown(List<AvailableRow> available, List<StatusChip> chips) {
-        Set<String> shownStatuses = chips.stream().filter(StatusChip::pressed).map(StatusChip::status)
-                .collect(Collectors.toSet());
-        return available.stream().map(row -> row.shownAs(shownStatuses.contains(row.jiraStatus()))).toList();
-    }
-
-    /** Shown available rows, counted by whether they can run (true) or not (false). */
-    public static Map<Boolean, Long> countShownByRunnable(List<AvailableRow> available) {
-        return available.stream().filter(AvailableRow::shown)
-                .collect(Collectors.partitioningBy(AvailableRow::selectable, Collectors.counting()));
-    }
-
-    /** True when the latest attempt of a task needs inspection, so its row offers Mark as stopped. */
-    public static boolean anyNeedsInspection(List<TaskView> views) {
-        return views.stream().anyMatch(view -> !view.attempts().isEmpty()
-                && view.attempts().getLast().state() == TaskAttempt.State.NEEDS_INSPECTION);
-    }
-
-    public TriggeredRow triggeredRow(TaskView view) {
-        var latest = view.attempts().getLast();
-        var label = stateLabel(view);
-        var link = working(view) && latest.executionId() != null
-                ? "/executions/" + latest.executionId() : "/tasks/" + view.taskId();
-        var prUrl = view.pullRequestUrl();
-        var costNote = triggeredCostNote(view);
-        var when = latest.startedAt() != null ? latest.startedAt() : latest.createdAt();
-        return new TriggeredRow(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(), repository(view),
-                view.addedByKey(), label, stateClass(label), link, triggeredDetail(view), prUrl,
-                prUrl == null ? null : pullRequestLabel(prUrl), view.allowedActions().retry(),
-                markStoppedAttemptId(latest), costLabel(view.usage()), costNote, costNoteTitle(costNote),
-                ago(when), UiFormat.format(when), whenNote(latest, working(view)));
+                view.destinationFingerprint(), problem, reason);
     }
 
     public Map<String, Object> detail(TaskView view) {
@@ -217,10 +162,6 @@ public class TaskRows {
         row.put("prLabel", url == null ? null : pullRequestLabel(url));
     }
 
-    private static String triggeredCostNote(TaskView view) {
-        return queued(view) ? "not started" : working(view) ? "so far" : incompleteCostNote(view.usage());
-    }
-
     /** Same notes as Triggered; a queued attempt already says "not started" in Started. */
     private static String attemptCostNote(TaskView.AttemptHistoryEntry attempt) {
         return switch (attempt.state()) {
@@ -240,21 +181,6 @@ public class TaskRows {
         row.put("costNoteTitle", costNoteTitle(costNote));
     }
 
-    private static String whenNote(TaskView.AttemptHistoryEntry latest, boolean working) {
-        return working ? "started"
-                : latest.startedAt() == null ? "triggered" : minutes(latest.activeSeconds()) + " active";
-    }
-
-    private static String problemLabel(TaskRoutingReason.Problem problem) {
-        if (problem == null) {
-            return null;
-        }
-        return switch (problem) {
-            case NO_REPOSITORY -> "Not configured";
-            case SEVERAL_REPOSITORIES -> "Several repositories";
-        };
-    }
-
     private String repository(TaskView view) {
         return view.destinationRepository() == null ? null : repositoryName(view.destinationRepository());
     }
@@ -268,14 +194,6 @@ public class TaskRows {
                 .toList());
         row.put("usageCost", costLabel(usage));
         row.put("usageNote", usageNote(usage));
-    }
-
-    private static int chipOrder(String status) {
-        return switch (status.toLowerCase(Locale.ROOT)) {
-            case "open" -> 0;
-            case "in progress" -> 1;
-            default -> 2;
-        };
     }
 
     private String repositoryName(String repositoryKey) {

@@ -240,7 +240,7 @@ html[data-menu="collapsed"] .sidebar-brand strong {
   font-size: 13px;
 }
 /* The buttons of one column of a list have one width. */
-.btn-col { width: 96px; padding: 0; }
+.btn-col { min-width: 96px; }
 
 /* ---------- chip: one shape for every state; only the tone changes ---------- */
 .chip {
@@ -773,43 +773,12 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .dev-count { margin-left: 4px; color: hsl(var(--muted-foreground)); font-weight: 500; }
 .dev-link { text-decoration: underline; }
 .dev-note { font-size: 12px; color: hsl(var(--muted-foreground)); }
-.dev-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px 24px;
-}
-.dev-header-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: hsl(var(--muted-foreground));
-}
-.dev-version {
-  display: inline-flex;
-  padding: 1px 8px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: hsl(var(--foreground));
-}
+.dev-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 20px; }
 .btn-md { font-size: 13px; padding: 0 14px; }
 .btn-md.btn-roomy { padding: 0 16px; }
-/* The header link is 38px tall in the design, unlike the 36px buttons. */
-.dev-header-meta .btn { height: 38px; padding: 0 12px; }
-.dev-tabs {
-  display: flex;
-  gap: 4px;
-  margin-top: -8px;
-  border-bottom: 1px solid hsl(var(--border));
-}
+.dev-tabs { display: flex; gap: 16px; }
 .dev-tabs a {
-  padding: 10px 12px;
-  margin-bottom: -1px;
+  padding-bottom: 4px;
   border-bottom: 2px solid transparent;
   color: hsl(var(--muted-foreground));
 }
@@ -820,111 +789,6 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   font-weight: 600;
 }
 
-.source-card { border: 1px solid hsl(var(--border)); border-radius: 8px; background: hsl(var(--card)); }
-.source-card-main {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px 24px;
-  padding: 16px 24px;
-}
-.source-card-identity { flex: 1 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.source-card-actions { font-size: 13px; color: hsl(var(--muted-foreground)); }
-.source-card-actions strong { color: hsl(var(--foreground)); font-weight: 600; }
-.source-card-problem { font-size: 13px; color: hsl(var(--destructive)); }
-.source-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-/* Add by key: the second row of the source card. */
-.source-card-add {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 24px;
-  border-top: 1px solid hsl(var(--border));
-  font-size: 13px;
-}
-.source-card-add label { font-weight: 500; white-space: nowrap; }
-.source-card-add input {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 36px;
-  padding: 0 10px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 6px;
-  background: hsl(var(--background));
-  font-size: 13px;
-}
-.source-card-add input::placeholder { color: hsl(var(--muted-foreground)); }
-.title-row { display: flex; align-items: center; gap: 8px; }
-/* The ⓘ next to a title: a details element, so it opens without a script. */
-.info-pop { position: relative; }
-.info-pop summary { list-style: none; }
-.info-pop summary::-webkit-details-marker { display: none; }
-.info-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 9999px;
-  color: hsl(var(--muted-foreground));
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.info-pop[open] .info-btn { border-color: hsl(var(--primary)); color: hsl(var(--foreground)); }
-.info-pop-panel {
-  position: absolute;
-  z-index: 5;
-  top: -8px;
-  left: 32px;
-  width: 360px;
-  max-width: calc(100vw - 4rem);
-  padding: 12px 14px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  background: hsl(var(--popover));
-  box-shadow: 0 8px 24px hsl(0 0% 0% / 0.14);
-  font-size: 13px;
-  line-height: 1.5;
-  color: hsl(var(--foreground));
-}
-.info-pop-panel p + p { margin-top: 6px; color: hsl(var(--muted-foreground)); }
-.info-pop-panel a { color: hsl(var(--foreground)); text-decoration: underline; }
-
-.task-section { display: flex; flex-direction: column; gap: 12px; }
-.task-section-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-}
-.task-section-tools {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  font-size: 13px;
-  color: hsl(var(--muted-foreground));
-}
-.status-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
-.status-chip {
-  min-height: 32px;
-  padding: 0 12px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 9999px;
-  background: hsl(var(--background));
-  color: hsl(var(--soft-foreground));
-  font-weight: 500;
-  cursor: pointer;
-}
-.status-chip[aria-pressed="true"] {
-  border-color: hsl(var(--primary));
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
-}
 .task-grid { border: 1px solid hsl(var(--border)); border-radius: 8px; overflow-x: auto; }
 .task-grid-rows { min-width: 640px; }
 .task-row { display: grid; gap: 12px; align-items: start; padding: 12px 16px; }
@@ -939,20 +803,11 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   color: hsl(var(--muted-foreground));
 }
 .task-grid-attempts .task-row-head { align-items: stretch; font-size: 12px; }
-.task-grid-available .task-row { grid-template-columns: 28px minmax(0, 1fr) 120px; }
-/* Wide enough for five effort levels; each row is its own grid, so the column cannot size to its content. */
-.task-grid-available.task-grid-effort .task-row { grid-template-columns: 28px minmax(0, 1fr) 270px 110px; }
-.task-grid-available.task-grid-effort .task-row:not(.task-row-head) { align-items: center; }
-.task-grid-triggered .task-grid-rows { min-width: 820px; }
-.task-grid-triggered .task-row { grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) 120px 120px 72px; }
-.task-grid-triggered.task-grid-wide .task-row { grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr) 120px 120px 144px; }
 .task-grid-attempts .task-row { grid-template-columns: 150px minmax(0, 1fr) 130px 80px 120px; }
 .task-grid-attempts .task-row:not(.task-row-head) { font-size: 13px; }
-.task-row-empty { padding: 16px; font-size: 13px; color: hsl(var(--muted-foreground)); }
 .task-check { width: 16px; height: 16px; margin: 3px 0 0; }
 .task-row-head .task-check { margin: 0; }
 .task-cell { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.task-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .task-key {
   display: inline-flex;
   padding: 0 6px;
@@ -963,64 +818,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   font-size: 12px;
   font-weight: 600;
 }
-.task-title { font-weight: 500; }
-/* Two lines at most; the element's title attribute holds the full text. */
-.clamp-2 {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-}
-.task-action { display: flex; justify-content: flex-end; }
-.task-tag {
-  display: inline-flex;
-  padding: 0 6px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 6px;
-  color: hsl(var(--soft-foreground));
-  font-weight: 500;
-}
-/* The chips of a task's key line share one box: same height, padding, border and font size.
-   Only colour and weight tell them apart. */
-.task-line .task-key, .task-line .task-tag, .repo-chip, .config-chip {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 7px;
-  border: 1px solid hsl(var(--border));
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1;
-}
-.repo-chip { background: hsl(var(--muted)); color: hsl(var(--soft-foreground)); font-weight: 500; }
-.task-line .task-tag { border-style: dashed; color: hsl(var(--muted-foreground)); }
-.config-chip {
-  border-color: hsl(var(--destructive) / 0.5);
-  background: hsl(var(--destructive) / 0.08);
-  color: hsl(var(--destructive));
-  font-weight: 600;
-  text-decoration: none;
-}
-.config-chip::after { content: "?"; font-weight: 700; opacity: 0.8; }
-.task-row-off .task-title { color: hsl(var(--quiet-foreground)); }
-.row-remove {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: hsl(var(--muted-foreground));
-  font: inherit;
-  font-size: 12px;
-  text-decoration: underline;
-  cursor: pointer;
-}
-.task-jira-status { font-size: 13px; }
 .state-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; max-width: 100%; }
-.state-detail { font-size: 12px; color: hsl(var(--muted-foreground)); }
-a.state-detail { color: hsl(var(--foreground)); text-decoration: underline; }
 .value-cell { display: flex; flex-direction: column; font-size: 13px; }
 .value-cell-quiet { color: hsl(var(--muted-foreground)); }
 .value-cell .dev-note { font-size: 12px; }
@@ -1028,13 +826,15 @@ a.state-detail { color: hsl(var(--foreground)); text-decoration: underline; }
 .run-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .run-setting { display: flex; align-items: center; gap: 6px; font-size: 13px; color: hsl(var(--foreground)); }
 .run-setting > span { font-weight: 500; white-space: nowrap; }
-.run-setting .select { width: auto; max-width: 16rem; height: 2rem; }
+.run-setting .select { width: auto; max-width: 16rem; }
+.run-setting > span { color: hsl(var(--muted-foreground)); font-weight: 400; }
+.input-sm, .select-sm { height: 30px; font-size: 13px; }
 .run-setting-problem { font-size: 13px; color: hsl(var(--destructive)); }
 /* Effort: one radio button per level of the model, drawn as a segmented control. */
 .effort-toggle {
   display: inline-flex;
-  height: 2rem;
-  border: 1px solid hsl(var(--border));
+  height: 30px;
+  border: 1px solid hsl(var(--strong-border));
   border-radius: 6px;
   overflow: hidden;
 }
@@ -1052,27 +852,15 @@ a.state-detail { color: hsl(var(--foreground)); text-decoration: underline; }
   cursor: pointer;
 }
 .effort-toggle label:first-child span { border-left: 0; }
+/* Light grey, not filled: the one filled control of a screen is its main button. */
 .effort-toggle input:checked + span {
-  background: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: hsl(var(--border));
+  color: hsl(var(--foreground));
   font-weight: 600;
 }
 .effort-toggle input:focus-visible + span { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
-.effort-toggle-sm { height: 26px; justify-self: start; }
-.effort-toggle-sm span { padding: 0 9px; font-size: 12px; }
+.effort-toggle-sm span { padding: 0 10px; font-size: 12px; }
 /* The Not configured dialog: what is wrong and the steps to fix it. */
-.dialog.fix-dialog { max-width: 600px; }
-.fix-steps { display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
-.fix-steps p { color: hsl(var(--soft-foreground)); }
-.fix-steps pre {
-  padding: 10px 12px;
-  border-radius: 6px;
-  background: hsl(var(--muted));
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre;
-  overflow-x: auto;
-}
 .retry-form { display: flex; flex-direction: column; gap: 12px; padding-top: 14px; border-top: 1px solid hsl(var(--border)); }
 .retry-instructions { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; }
 .queue-waiting {
@@ -1373,3 +1161,72 @@ a.state-detail { color: hsl(var(--foreground)); text-decoration: underline; }
 .feedback-answer textarea { width: 100%; padding: .75rem; }
 
 .feedback-diagnostics { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; }
+
+/* ---------- Developer Flow lists: rows with thin lines, no frame, no header row ---------- */
+.dev-list { display: flex; flex-direction: column; }
+.dev-list-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.dev-list-head .dev-section-title { font-size: 16px; }
+.dev-list-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; }
+.dev-list-tools [data-poll-notice] { color: hsl(var(--notice-foreground)); }
+.add-key { display: flex; align-items: center; gap: 10px; }
+.add-key-input { width: 280px; }
+.dev-row {
+  display: flex;
+  align-items: center;
+  gap: 14px 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.dev-row-main { flex: 1 1 0; min-width: 0; }
+.dev-row-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 3px;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+.dev-row-action { display: flex; justify-content: flex-end; }
+.dev-row .task-check { margin: 0; flex: 0 0 auto; }
+.key-link {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.dev-list-foot { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; padding-top: 12px; }
+.dev-list-foot .run-settings { margin-left: auto; }
+.disclosure-line { margin-top: 8px; font-size: 13px; color: hsl(var(--muted-foreground)); }
+.dev-empty { padding: 12px 0; font-size: 13px; color: hsl(var(--muted-foreground)); }
+.dev-problem { padding-top: 8px; font-size: 13px; color: hsl(var(--destructive)); }
+/* In progress: one 30 px line while a run works, then its Open run button. */
+.progress-strip { display: flex; align-items: center; gap: 12px; }
+.progress-strip-line {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid hsl(var(--info) / 0.4);
+  border-radius: 6px;
+  background: hsl(var(--info) / 0.08);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.progress-strip-state { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: hsl(var(--info)); }
+.progress-strip-state::before { content: ""; width: 7px; height: 7px; border-radius: 9999px; background: currentColor; }
+.progress-strip-title { overflow: hidden; text-overflow: ellipsis; }
+.progress-strip-run { margin-left: auto; color: hsl(var(--soft-foreground)); }

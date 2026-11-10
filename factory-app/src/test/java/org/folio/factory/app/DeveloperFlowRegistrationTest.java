@@ -95,7 +95,7 @@ class DeveloperFlowRegistrationTest {
         assertThat(rest.get().uri("/flows").retrieve().body(String.class))
                 .contains("Developer Flow").contains("Test Factory");
         assertThat(rest.get().uri("/flows/dev-factory").retrieve().body(String.class))
-                .contains("Developer Flow").contains("My Jira tasks");
+                .contains("Developer Flow").contains("Ready to run");
         assertThat(rest.get().uri("/flows/dev-factory?view=definition").retrieve().body(String.class))
                 .contains("Developer Flow").contains("dev-intake");
     }
