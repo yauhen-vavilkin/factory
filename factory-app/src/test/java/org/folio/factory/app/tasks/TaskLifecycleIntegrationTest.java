@@ -31,6 +31,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -123,9 +124,11 @@ class TaskLifecycleIntegrationTest {
         assertThat(attempts.findById(attempt.getId()).orElseThrow().getDeadlineAt())
                 .isEqualTo(persistedDeadline);
 
+        // PostgreSQL keeps microseconds; Linux clocks give nanoseconds, so compare stored values.
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         TaskAttempt rewound = attempts.findById(attempt.getId()).orElseThrow();
-        rewound.setStartedAt(Instant.now().minusSeconds(7200));
-        rewound.setDeadlineAt(Instant.now().minusSeconds(5400));
+        rewound.setStartedAt(now.minusSeconds(7200));
+        rewound.setDeadlineAt(now.minusSeconds(5400));
         attempts.save(rewound);
 
         dispatcher.dispatchNext();

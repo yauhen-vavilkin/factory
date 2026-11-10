@@ -163,3 +163,13 @@ Spec: `docs/superpowers/specs/2026-11-03-models-config-and-run-form.md`.
   - Check configuration probes the endpoint of every model over TCP, also of models that the
     installed harness cannot run.
   - `TaskUiController` and `TaskListController` both define `FLOW_PAGE`.
+
+## Seen in the live run of 2026-11-10
+
+- **The agent's question is lost.** The GLM-5.3 run of MGRAPPS-64 (execution `70b3baee`) ended
+  with a `FACTORY_DECISION_REQUIRED` block: the work of the ticket is no longer in
+  mgr-applications, with a question and three options. Factory showed only "Development
+  stopped: Candidate contains no changes" and the step "Clarify implementation" as completed
+  in 0 s. The question is on no page and in no artifact, only at the end of the transcript,
+  and the only action offered is a blind Retry. Not investigated in the code yet: the
+  no-changes check seems to win over the decision request.
