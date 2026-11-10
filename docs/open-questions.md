@@ -184,3 +184,15 @@ page as on its board.
   unknown" are no longer printed in Runs: the cost carries the explanation as its tooltip. The last scan
   time is the tooltip of Scan Jira. A task added by key keeps a small Remove button, which board 1 does
   not show. The in-progress strip shows the first running task only.
+- **The lost question.** The parser takes the first line that starts with `FACTORY_DECISION_REQUIRED:`
+  and ignores any text after that line. The prompt still asks for a one-line answer; it was not changed.
+  "Needs your answer" is read from the stop reason of the attempt (`TaskStops.asksForAnswer`), not from a
+  stored state, so it needs no migration.
+- **Task page.** The result chip of an attempt says "Failed", not a kind such as "Build failed" (board
+  4): the stop reasons have no short kind yet; the full reason is the chip's tooltip and the status
+  card's headline. "Cost and usage" moved into Technical details. The total time and the models of all
+  attempts are no longer in the status card. The answer goes into the next attempt as its instructions:
+  the answer first, then the question, then the agent's text before the question, cut to fit 8000
+  characters. The agent's evidence is shown on the page but not passed on. A task page with a pull
+  request, or one that waits, is not on a board: it keeps "Open pull request" and "PR feedback" or
+  "Open live run" in the status card.

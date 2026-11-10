@@ -551,8 +551,9 @@ class UiRenderSmokeTest {
                 + "\">" + Pattern.quote(expected) + "</span>");
         String task = assertRendered("/tasks/" + stopped.getId(), "Failed");
         assertThat(task).contains(expected + ". No pull request was created.");
-        // The Attempts Result column keeps the reason and what to do.
-        assertThat(task.substring(task.indexOf("id=\"attempts-title\""))).contains("<span>" + expected + "</span>");
+        // The attempt chip keeps the reason and what to do in its title.
+        assertThat(task.substring(task.indexOf("id=\"attempts-title\"")))
+                .contains("title=\"" + expected + "\">Failed</span>");
         assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
                 .contains("Stop reason: " + turnLimit);
     }
@@ -1099,9 +1100,10 @@ class UiRenderSmokeTest {
         doReturn(null).when(runSettings).form(any());
 
         String body = assertRendered("/tasks/" + stopped.getId(), "Failed");
-        assertThat(body).containsPattern("<form class=\"retry-form\" id=\"retry\"")
-                .contains("Instructions for the agent", "name=\"instructions\"", ">Retry</button>")
-                .doesNotContain("name=\"modelId\"", "name=\"effort\"", "data-effort-toggle", "class=\"run-settings\"");
+        assertThat(body).containsPattern("<section class=\"dev-section\" id=\"retry\"")
+                .contains("What should the agent do differently? (optional)", "name=\"instructions\"",
+                        ">Start attempt 2</button>")
+                .doesNotContain("name=\"modelId\"", "name=\"effort\"", "data-effort-toggle");
         assertThat(assertRendered("/flows/dev-factory", "Ready to run"))
                 .doesNotContain("name=\"modelId\"", "data-effort-toggle", ">Effort</span>");
     }
@@ -1169,25 +1171,33 @@ class UiRenderSmokeTest {
 
         String body = assertRendered("/tasks/" + stopped.getId(), "Failed");
         assertThat(body)
-                .contains("← Developer Flow · My tasks",
-                        "Verification failed: 2 tests in error. No pull request was created.")
-                .contains("$0.02 total", "1 attempt", "Cost and usage", "120,000", "Input (uncached)", "Output",
-                        ">Estimated cost</dt>")
-                .contains(">Retry</button>", "name=\"expectedVersion\"", "name=\"inputFingerprint\"",
-                        "name=\"destinationFingerprint\"", "Retry starts one fresh attempt")
-                // Retry is a form in the Result card, filled from the previous attempt.
-                .containsPattern("<form class=\"retry-form\" id=\"retry\" method=\"post\"\\s+action=\"/tasks/"
+                .contains("<a href=\"/flows/dev-factory\">Developer Flow</a>",
+                        "<span class=\"chip chip-danger\">Failed</span>",
+                        "<span class=\"status-card-headline\">Verification failed: 2 tests in error."
+                                + " No pull request was created.</span>")
+                .contains("<span class=\"status-card-money\">$0.02</span>", "spent in 1 attempt", "120,000",
+                        "Input (uncached)", "Output", ">Estimated cost</dt>")
+                .containsPattern("<details class=\"disclosure tech-disclosure\">\\s*<summary>Technical details</summary>")
+                .doesNotContain("Cost and usage", "<details class=\"disclosure tech-disclosure\" open")
+                .contains(">Start attempt 2</button>", "name=\"expectedVersion\"", "name=\"inputFingerprint\"",
+                        "name=\"destinationFingerprint\"",
+                        "A new attempt starts from a clean checkout and adds to the cost.")
+                // The next attempt is its own section, filled from the previous attempt.
+                .containsPattern("<section class=\"dev-section\" id=\"retry\"")
+                .containsPattern("<form class=\"dev-form\" method=\"post\"\\s+action=\"/tasks/"
                         + stopped.getId() + "/retry\"")
-                .contains("Instructions for the agent", "name=\"instructions\"", "maxlength=\"8000\"",
-                        ">Read the ADR through the wiki &lt;REST&gt; URL.</textarea>")
+                .contains("What should the agent do differently? (optional)", "name=\"instructions\"",
+                        "maxlength=\"8000\"", ">Read the ADR through the wiki &lt;REST&gt; URL.</textarea>")
                 .doesNotContain("value=\"77\"", "Max turns")
                 // Retry keeps the previous model and effort.
                 .containsPattern("<option value=\"glm-5.3\"[^>]*selected=\"selected\"")
                 .contains("<span>Effort</span>", "<input type=\"radio\" name=\"effort\" value=\"low\" checked=\"checked\">")
-                .contains("<span class=\"attempt-run\">glm-5.3 · low</span>")
+                .contains("glm-5.3 · low · ", "&quot;Read the ADR through the wiki &lt;REST&gt; URL.&quot;")
                 .doesNotContain(ZAI_KEY)
-                .contains("href=\"/executions/" + execution.getId() + "\">Open last run</a>",
-                        "1 · first run", "Technical details", stopped.getId().toString());
+                .containsPattern("href=\"/executions/" + execution.getId() + "\"\\s+aria-label=\"Open run for attempt 1\""
+                        + "\\s*>Open run</a>")
+                .contains("Attempt 1</strong>", "<span>first run</span>", "Technical details",
+                        stopped.getId().toString());
 
         Task partial = seedTask("70022", "MODBAR-722", "Partial task",
                 Task.Eligibility.ELIGIBLE, "repository mod-bar");
@@ -1201,10 +1211,10 @@ class UiRenderSmokeTest {
                         "inputTokens", 50_000, "cacheReadTokens", 0, "cacheWriteTokens", 0,
                         "rate", Map.of("currency", "USD", "inputPerMillion", 0.15)));
 
-        String partialBody = assertRendered("/tasks/" + partial.getId(), "total · incomplete");
+        String partialBody = assertRendered("/tasks/" + partial.getId(), "spent in 1 attempt, cost may be higher");
         assertThat(partialBody).contains("Incomplete: some usage has no reported tokens or rate yet.", "50,000");
-        String costNote = "<span class=\"dev-note\"\\s+title=\"Some usage was not reported by the runtime or has no"
-                + " price, so the real cost may be higher.\">cost may be higher</span>";
+        String costNote = "<span class=\"attempt-cost\"\\s+title=\"Some usage was not reported by the runtime or has no"
+                + " price, so the real cost may be higher.\">\\$[0-9.]+</span>";
         assertThat(partialBody.substring(partialBody.indexOf("id=\"attempts-title\"")))
                 .containsPattern(costNote).doesNotContain(">incomplete<");
         String partialList = assertRendered("/flows/dev-factory", "Ready to run");
@@ -1232,7 +1242,7 @@ class UiRenderSmokeTest {
                 .doesNotContain("name=\"expectedVersion\"");
         // A running attempt's cost is "so far", the same as Working in Triggered.
         assertThat(liveBody.substring(liveBody.indexOf("id=\"attempts-title\"")))
-                .containsPattern("<span class=\"dev-note\"\\s*>so far</span>")
+                .containsPattern("<span class=\"attempt-cost\"\\s*>\\$[0-9.]+ so far</span>")
                 .doesNotContain("cost may be higher", "cost unknown");
 
         // A paid start that stopped before the runtime reported any usage, for example on a Docker error:
@@ -1246,7 +1256,7 @@ class UiRenderSmokeTest {
         unreportedAttempt.setPaidStartAt(Instant.now());
         taskAttempts.save(unreportedAttempt);
 
-        String unknownCost = "<span>—</span>\\s*<span class=\"dev-note\"\\s+title=\"The runtime did not report usage,"
+        String unknownCost = "<span class=\"attempt-cost\"\\s+title=\"The runtime did not report usage,"
                 + " or the usage has no price, so the cost is not known.\">cost unknown</span>";
         String unreportedBody = assertRendered("/tasks/" + unreported.getId(), "Failed");
         assertThat(unreportedBody.substring(unreportedBody.indexOf("id=\"attempts-title\"")))
@@ -1255,6 +1265,38 @@ class UiRenderSmokeTest {
         String unreportedRow = unreportedList.substring(unreportedList.indexOf(">MODBAR-724</a>"));
         assertThat(unreportedRow.substring(0, unreportedRow.indexOf("class=\"dev-row-action\"")))
                 .doesNotContain("cost may be higher", "cost unknown", "—");
+    }
+
+    @Test
+    void taskPageShowsTheAgentsQuestionAndStartsTheNextAttemptWithTheAnswer() {
+        resetTaskData();
+        Task asked = seedTask("70025", "MODBAR-725", "Asking task", Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        TaskAttempt attempt = seedAttempt(asked, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
+                "clarify-implementation: " + TaskStops.DECISION_REASON + "Remove <old> routes too?");
+        attempt.setExecutionId(execution.getId());
+        taskAttempts.save(attempt);
+        artifactStore.putMarkdown(execution.getId(), "dev_coding_outcome.json", """
+                {"status":"NEEDS_DECISION","summary":"I read the code.","decision":{"kind":"PRODUCT_REQUIREMENTS",
+                "question":"Remove <old> routes too?","options":["Only from now on.","Also the old ones."],
+                "evidence":"removeRoutes runs only on a new event."},"metrics":{}}""", "implement");
+
+        String body = assertRendered("/tasks/" + asked.getId(), "The agent's question");
+        assertThat(body)
+                .contains("<span class=\"chip chip-warning\">Needs your answer</span>",
+                        "<span class=\"status-card-headline\">The agent stopped with a question</span>",
+                        "<p class=\"answer-question\">Remove &lt;old&gt; routes too?</p>",
+                        "removeRoutes runs only on a new event.",
+                        "role=\"radiogroup\" aria-label=\"Your answer\"", "<span>Only from now on.</span>",
+                        "<span>Also the old ones.</span>", "<span>My own answer</span>",
+                        "Anything to add for the agent? (optional)", "name=\"note\"",
+                        ">Start attempt 2 with this answer</button>",
+                        "A new attempt starts from a clean checkout and adds to the cost.")
+                .containsPattern("<input type=\"radio\" name=\"answer\" value=\"0\" checked=\"checked\">")
+                .containsPattern("<input type=\"radio\" name=\"answer\" value=\"own\"\\s*>")
+                .doesNotContain("id=\"retry\"", "What should the agent do differently?", "I read the code.");
+        assertThat(body.substring(body.indexOf("id=\"attempts-title\"")))
+                .contains(">Asked a question</span>");
     }
 
     @Test
@@ -1272,7 +1314,7 @@ class UiRenderSmokeTest {
         String body = assertRendered("/tasks/" + delivered.getId(), "Pull request #7 is ready for review.");
         assertThat(body)
                 .contains("href=\"https://github.com/folio-org/mod-bar/pull/7\">Open pull request #7</a>",
-                        "href=\"/executions/" + execution.getId() + "#pr-feedback\">Work on PR feedback</a>",
+                        "href=\"/executions/" + execution.getId() + "#pr-feedback\">PR feedback</a>",
                         "chip-success")
                 .doesNotContain("Draft PR", "Factory opened it as a draft because:")
                 .doesNotContain("name=\"expectedVersion\"");
@@ -1310,8 +1352,7 @@ class UiRenderSmokeTest {
                 .doesNotContain("chip-success", "is ready for review");
         // The Attempts Result column marks the draft with the same Draft PR badge.
         assertThat(body.substring(body.indexOf("id=\"attempts-title\"")))
-                .containsPattern("<span class=\"chip chip-neutral\">Draft PR</span>\\s*"
-                        + "<span>Pull request #8 opened as a draft</span>")
+                .contains("<span class=\"chip chip-neutral\" title=\"Pull request #8 opened as a draft\">Draft PR</span>")
                 .contains(">Open run</a>");
 
         String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
@@ -1337,7 +1378,7 @@ class UiRenderSmokeTest {
     }
 
     @Test
-    void taskSummaryRendersFullAttemptHistoryOldestFirst() {
+    void taskSummaryRendersFullAttemptHistoryNewestFirst() {
         resetTaskData();
         Task retried = seedTask("70041", "MODBAR-741", "Retried task",
                 Task.Eligibility.ELIGIBLE, "repository mod-bar");
@@ -1356,20 +1397,20 @@ class UiRenderSmokeTest {
 
         String body = assertRendered("/tasks/" + retried.getId(), "Attempts");
         assertThat(body)
-                .contains("3 · retry", "2 · retry", "1 · first run", "Withdrawn before start",
+                .contains("Attempt 3</strong>", "<span>retry</span>", "<span>first run</span>", "Withdrawn before start",
                         "Verification failed: first failure", "Verification failed: second failure")
                 .contains("Failed");
         String attemptsTable = body.substring(body.indexOf("id=\"attempts-title\""));
         // A clear Open run button replaces the small "run 1234…" link.
         assertThat(attemptsTable)
-                .containsPattern("<a class=\"btn btn-outline btn-sm\"\\s+href=\"/executions/" + first.getId()
+                .containsPattern("<a class=\"btn btn-secondary btn-sm btn-col\"\\s+href=\"/executions/" + first.getId()
                         + "\"\\s+aria-label=\"Open run for attempt 2\">Open run</a>")
-                .containsPattern("<a class=\"btn btn-outline btn-sm\"\\s+href=\"/executions/" + second.getId()
+                .containsPattern("<a class=\"btn btn-secondary btn-sm btn-col\"\\s+href=\"/executions/" + second.getId()
                         + "\"\\s+aria-label=\"Open run for attempt 3\">Open run</a>")
                 .doesNotContainPattern(">run [0-9a-f]{4}…</a>");
-        // Oldest first: a new attempt is added at the bottom.
-        assertThat(attemptsTable.indexOf("1 · first run")).isLessThan(attemptsTable.indexOf("2 · retry"));
-        assertThat(attemptsTable.indexOf("2 · retry")).isLessThan(attemptsTable.indexOf("3 · retry"));
+        // Newest first: a new attempt is added at the top.
+        assertThat(attemptsTable.indexOf("Attempt 3</strong>")).isLessThan(attemptsTable.indexOf("Attempt 2</strong>"));
+        assertThat(attemptsTable.indexOf("Attempt 2</strong>")).isLessThan(attemptsTable.indexOf("Attempt 1</strong>"));
     }
 
     @Test

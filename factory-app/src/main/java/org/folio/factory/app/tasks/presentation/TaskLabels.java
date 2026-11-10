@@ -9,7 +9,6 @@ import org.folio.factory.app.web.UiFormat;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -121,27 +120,6 @@ final class TaskLabels {
     private static String linePlace(TaskView view) {
         return view.queuePosition() == null || view.queuePosition() == 1
                 ? "next in line" : ordinal(view.queuePosition()) + " in line";
-    }
-
-    static List<String> resultChips(TaskView view) {
-        List<String> chips = new ArrayList<>();
-        String cost = costLabel(view.usage());
-        if (cost != null) {
-            chips.add(cost + " total" + (view.usage().complete() ? "" : " · incomplete"));
-        }
-        int count = view.attempts().size();
-        if (count > 0) {
-            chips.add(count + (count == 1 ? " attempt" : " attempts"));
-        }
-        long active = view.attempts().stream().filter(TaskView.AttemptHistoryEntry::paidStart)
-                .mapToLong(TaskView.AttemptHistoryEntry::activeSeconds).sum();
-        if (active > 0) {
-            chips.add(minutes(active) + " active");
-        }
-        if (!view.usage().models().isEmpty()) {
-            chips.add(String.join(", ", view.usage().models()));
-        }
-        return chips;
     }
 
     /**

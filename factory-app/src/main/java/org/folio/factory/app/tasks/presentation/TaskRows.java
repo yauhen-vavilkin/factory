@@ -18,16 +18,19 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static org.folio.factory.app.tasks.presentation.TaskLabels.ago;
+import static org.folio.factory.app.tasks.presentation.TaskLabels.attemptLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.attemptResult;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costNoteTitle;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.incompleteCostNote;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.minutes;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.pullRequestLabel;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.resultChips;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.resultSentence;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.stateClass;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.stateLabel;
@@ -43,6 +46,7 @@ public class TaskRows {
 
     private static final DateTimeFormatter STARTED =
             DateTimeFormatter.ofPattern("MMM d, HH:mm", Locale.US).withZone(ZoneOffset.UTC);
+    private static final int QUOTE = 80;
 
     private final TaskSourceProperties source;
     private final TaskJiraInstance jira;
@@ -75,46 +79,28 @@ public class TaskRows {
                 view.destinationFingerprint(), problem, reason);
     }
 
-    public Map<String, Object> detail(TaskView view) {
-        Map<String, Object> row = baseRow(view);
+    public TaskDetail detail(TaskView view) {
         var label = view.attempts().isEmpty() ? null : stateLabel(view);
         var latest = view.attempts().isEmpty() ? null : view.attempts().getLast();
-        row.put("stateLabel", label == null ? (view.state() == TaskView.TaskState.UNSUPPORTED
-                ? "Not eligible" : "Not started") : label);
-        row.put("stateClass", stateClass(label));
-        row.put("result", resultSentence(view));
-        row.put("chips", resultChips(view));
-        row.put("retryAllowed", view.allowedActions().retry());
-        row.put("lastRunUrl",
-                latest == null || latest.executionId() == null ? null : "/executions/" + latest.executionId());
-        putPullRequest(row, view.pullRequestUrl());
-        row.put("prAction", view.pullRequestUrl() == null ? null
-                : "Open p" + pullRequestLabel(view.pullRequestUrl()).substring(1));
-        row.put("draftReasons", view.draftReasons());
-        row.put("markStoppedAttemptId", latest == null ? null : markStoppedAttemptId(latest));
-        row.put("project", view.projectKey());
-        row.put("destination", destination(view.destinationRepository()));
-        putUsage(row, view.usage());
-        return row;
+        var stateLabel = label != null ? label
+                : view.state() == TaskView.TaskState.UNSUPPORTED ? "Not eligible" : "Not started";
+        return new TaskDetail(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(), repository(view),
+                view.version(), view.inputFingerprint(), view.destinationFingerprint(), stateLabel,
+                stateClass(label), headline(view), view.draftReasons(), costLabel(view.usage()), spentNote(view),
+                view.allowedActions().retry(), view.attempts().size() + 1, runUrl(view, latest), runLabel(view),
+                view.pullRequestUrl(), view.pullRequestUrl() == null ? null
+                        : "Open p" + pullRequestLabel(view.pullRequestUrl()).substring(1),
+                latest == null ? null : markStoppedAttemptId(latest), view.projectKey(),
+                destination(view.destinationRepository()), usage(view.usage()));
     }
 
-    public static Map<String, Object> attemptRow(TaskView.AttemptHistoryEntry attempt) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("label", attempt.ordinal() + " · " + (attempt.kind() == TaskAttempt.Kind.RETRY ? "retry" : "first run")
-                + (attempt.admittedVia() == TaskAttempt.AdmittedVia.BY_KEY ? " by key" : ""));
-        row.put("ordinal", attempt.ordinal());
-        row.put("run", TaskRunSettings.label(attempt.runSettings()));
-        row.put("executionId", attempt.executionId());
-        boolean draft = attempt.state() == TaskAttempt.State.PR_READY && attempt.draftReasons() != null;
-        row.put("resultLabel", draft ? "Draft PR" : null);
-        row.put("resultClass", draft ? stateClass("Draft PR") : null);
-        row.put("result", attemptResult(attempt));
-        row.put("started", attempt.startedAt() == null ? "not started" : STARTED.format(attempt.startedAt()));
-        row.put("startedTitle", UiFormat.format(attempt.startedAt()));
-        row.put("active", attempt.paidStart() ? minutes(attempt.activeSeconds()) : "—");
-        row.put("cost", costLabel(attempt.usage()));
-        putCostNote(row, attemptCostNote(attempt));
-        return row;
+    public static AttemptRow attemptRow(TaskView.AttemptHistoryEntry attempt) {
+        var label = attemptLabel(attempt);
+        var costNote = attemptCostNote(attempt);
+        return new AttemptRow(attempt.ordinal(), attemptKind(attempt), attemptMeta(attempt),
+                UiFormat.format(attempt.startedAt()), costLabel(attempt.usage()), costNote, costNoteTitle(costNote),
+                costText(costLabel(attempt.usage()), costNote), label, stateClass(label), attemptResult(attempt),
+                attempt.executionId());
     }
 
     /** The run page's link back to its task: key, Jira link and the state of the attempt behind this run. */
@@ -143,25 +129,6 @@ public class TaskRows {
         return waiting;
     }
 
-    private Map<String, Object> baseRow(TaskView view) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("taskId", view.taskId());
-        row.put("key", view.displayKey());
-        row.put("jiraUrl", view.jiraUrl());
-        row.put("title", view.title());
-        row.put("repository",
-                view.destinationRepository() == null ? null : repositoryName(view.destinationRepository()));
-        row.put("version", view.version());
-        row.put("inputFingerprint", view.inputFingerprint());
-        row.put("destinationFingerprint", view.destinationFingerprint());
-        return row;
-    }
-
-    private static void putPullRequest(Map<String, Object> row, String url) {
-        row.put("prUrl", url);
-        row.put("prLabel", url == null ? null : pullRequestLabel(url));
-    }
-
     /** Same notes as Triggered; a queued attempt already says "not started" in Started. */
     private static String attemptCostNote(TaskView.AttemptHistoryEntry attempt) {
         return switch (attempt.state()) {
@@ -176,24 +143,77 @@ public class TaskRows {
         return attempt.state() == TaskAttempt.State.NEEDS_INSPECTION ? attempt.attemptId() : null;
     }
 
-    private static void putCostNote(Map<String, Object> row, String costNote) {
-        row.put("costNote", costNote);
-        row.put("costNoteTitle", costNoteTitle(costNote));
+    /** "$0.02", "$0.02 so far", or the note when there is no cost figure. */
+    private static String costText(String cost, String costNote) {
+        if (cost == null) {
+            return costNote == null ? "—" : costNote;
+        }
+        return "so far".equals(costNote) ? cost + " so far" : cost;
+    }
+
+    private static String headline(TaskView view) {
+        return view.needsAnswer() ? "The agent stopped with a question" : resultSentence(view);
+    }
+
+    /** "spent in 2 attempts"; null before the first attempt. */
+    private static String spentNote(TaskView view) {
+        int count = view.attempts().size();
+        if (count == 0) {
+            return null;
+        }
+        return "spent in " + count + (count == 1 ? " attempt" : " attempts")
+                + (view.usage().complete() ? "" : ", cost may be higher");
+    }
+
+    private static String runUrl(TaskView view, TaskView.AttemptHistoryEntry latest) {
+        if (latest == null || latest.executionId() == null) {
+            return null;
+        }
+        var run = "/executions/" + latest.executionId();
+        return view.pullRequestUrl() != null ? run + "#pr-feedback" : run;
+    }
+
+    private static String runLabel(TaskView view) {
+        if (view.pullRequestUrl() != null) {
+            return "PR feedback";
+        }
+        return TaskLabels.working(view) ? "Open live run" : "Open last run";
+    }
+
+    /** "first run", "retry" or "retry with instructions", and "by key" for a task added by its key. */
+    private static String attemptKind(TaskView.AttemptHistoryEntry attempt) {
+        var instructed = TaskRunSettings.instructions(attempt.runSettings()) != null;
+        var kind = attempt.kind() != TaskAttempt.Kind.RETRY ? "first run"
+                : instructed ? "retry with instructions" : "retry";
+        return attempt.admittedVia() == TaskAttempt.AdmittedVia.BY_KEY ? kind + " by key" : kind;
+    }
+
+    /** "glm-5.3 · max · Nov 10, 17:48 · 13 min · "first line of the instructions"". */
+    private static String attemptMeta(TaskView.AttemptHistoryEntry attempt) {
+        var instructions = TaskRunSettings.instructions(attempt.runSettings());
+        return Stream.of(TaskRunSettings.label(attempt.runSettings()),
+                        attempt.startedAt() == null ? "not started" : STARTED.format(attempt.startedAt()),
+                        attempt.paidStart() ? minutes(attempt.activeSeconds()) : null,
+                        instructions == null ? null : "\"" + firstLine(instructions) + "\"")
+                .filter(Objects::nonNull).collect(Collectors.joining(" · "));
+    }
+
+    private static String firstLine(String text) {
+        var line = text.strip().lines().findFirst().orElse("");
+        return line.length() <= QUOTE ? line : line.substring(0, QUOTE - 1) + "…";
+    }
+
+    private static TaskDetail.Usage usage(TaskUsage usage) {
+        return new TaskDetail.Usage(usage.tokens() > 0 || !usage.estimatesByCurrency().isEmpty(),
+                UiFormat.count(usage.tokens()),
+                usage.tokensByCategory().entrySet().stream()
+                        .map(entry -> new TaskDetail.Figure(entry.getKey().label(), UiFormat.count(entry.getValue())))
+                        .toList(),
+                costLabel(usage), usageNote(usage));
     }
 
     private String repository(TaskView view) {
         return view.destinationRepository() == null ? null : repositoryName(view.destinationRepository());
-    }
-
-    private static void putUsage(Map<String, Object> row, TaskUsage usage) {
-        row.put("usagePresent", usage.tokens() > 0 || !usage.estimatesByCurrency().isEmpty());
-        row.put("usageTokens", UiFormat.count(usage.tokens()));
-        row.put("usageCategories", usage.tokensByCategory().entrySet().stream()
-                .map(entry -> Map.of("label", entry.getKey().label(),
-                        "value", UiFormat.count(entry.getValue())))
-                .toList());
-        row.put("usageCost", costLabel(usage));
-        row.put("usageNote", usageNote(usage));
     }
 
     private String repositoryName(String repositoryKey) {

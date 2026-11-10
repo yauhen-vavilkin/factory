@@ -33,6 +33,15 @@
     <span class="run-setting-problem" th:if="${form.problem() != null}" th:text="${form.problem()}">No model.</span>
 </th:block>
 
+<!-- Model and Effort of the next attempt on the task page. -->
+<th:block th:fragment="runChoice(form)">
+    <th:block th:insert="~{fragments/developer-flow :: modelChoice(${form})}"></th:block>
+    <div class="run-setting" th:if="${form.selected() != null}">
+        <span>Effort</span>
+        <th:block th:insert="~{fragments/developer-flow :: effortChoice(${form.selected()}, ${form.effort()}, 'effort', 'Effort', false)}"></th:block>
+    </div>
+</th:block>
+
 <!-- Effort as radio buttons, one per level of the model, so it works without the page script and with the
      keyboard. -->
 <div th:fragment="effortChoice(model, current, name, label, small)" class="effort-toggle"

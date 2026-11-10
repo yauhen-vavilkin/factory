@@ -1,5 +1,11 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.app.tasks.presentation.AgentQuestion;
+import org.folio.factory.app.tasks.presentation.TaskAnswers;
+import org.folio.factory.core.domain.Artifact;
+import org.folio.factory.core.service.ArtifactStore;
+import org.folio.factory.devfactory.runtime.CodingOutcome;
+import org.folio.factory.devfactory.worker.DevelopWorker;
 import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
@@ -109,6 +115,9 @@ class TaskUiControllerTest {
     @Mock
     private FlowRegistry flows;
 
+    @Mock
+    private ArtifactStore artifactStore;
+
     @Captor
     private ArgumentCaptor<TaskCommands.RunSelected> runCaptor;
 
@@ -141,7 +150,8 @@ class TaskUiControllerTest {
         var rows = new TaskRows(new TaskSourceProperties("Jane Developer"), jira, repositories);
         var controller = new TaskUiController(taskQuery, installations, attempts, admissions,
                 dispatcher, outcomes, rows, flows, runSettings);
-        mvc = MockMvcBuilders.standaloneSetup(controller)
+        var page = new TaskPageController(taskQuery, admissions, rows, runSettings, new TaskAnswers(artifactStore));
+        mvc = MockMvcBuilders.standaloneSetup(controller, page)
                 .setControllerAdvice(new UiExceptionHandler())
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
@@ -340,12 +350,12 @@ class TaskUiControllerTest {
         assertThat(detail(result))
                 .containsEntry("stateLabel", "Draft PR")
                 .containsEntry("stateClass", "chip chip-neutral")
-                .containsEntry("result", "Pull request #7 is open as a draft.")
+                .containsEntry("headline", "Pull request #7 is open as a draft.")
                 .containsEntry("draftReasons", reasons)
                 .containsEntry("prAction", "Open pull request #7");
         assertThat(rows(result.getModelAndView().getModel(), "attempts").getFirst())
-                .containsEntry("resultLabel", "Draft PR")
-                .containsEntry("resultClass", "chip chip-neutral")
+                .containsEntry("chipLabel", "Draft PR")
+                .containsEntry("chipClass", "chip chip-neutral")
                 .containsEntry("result", "Pull request #7 opened as a draft");
         // The execution page header uses the same label for the attempt behind the run.
         assertThat(TaskRows.runContext(draft, EXECUTION_ID))
@@ -382,7 +392,7 @@ class TaskUiControllerTest {
                         "Some usage was not reported by the runtime or has no price, so the real cost may be higher.")
                 .containsEntry("ordinal", 1)
                 .containsEntry("executionId", EXECUTION_ID)
-                .containsEntry("resultLabel", null)
+                .containsEntry("chipLabel", "Failed")
                 // The reason keeps what to do.
                 .containsEntry("result", "Implementation failed: " + turnLimit.substring(0, turnLimit.length() - 1));
     }
@@ -408,14 +418,15 @@ class TaskUiControllerTest {
 
         List<Map<String, Object>> attempts = rows(mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn()
                 .getModelAndView().getModel(), "attempts");
+        // Newest first.
         assertThat(attempts.get(0))
-                .containsEntry("cost", null)
-                .containsEntry("costNote", "cost unknown")
-                .containsEntry("costNoteTitle", unknownTitle);
-        assertThat(attempts.get(1))
                 .containsEntry("cost", null)
                 .containsEntry("costNote", "so far")
                 .containsEntry("costNoteTitle", null);
+        assertThat(attempts.get(1))
+                .containsEntry("cost", null)
+                .containsEntry("costNote", "cost unknown")
+                .containsEntry("costNoteTitle", unknownTitle);
 
         // A queued attempt has no cost note: its Started cell already says "not started".
         when(taskQuery.detail(OTHER_TASK_ID)).thenReturn(taskView(OTHER_TASK_ID, "MODBAR-912", "Open",
@@ -434,7 +445,7 @@ class TaskUiControllerTest {
     }
 
     @Test
-    void taskDetail_rendersSummaryWithAttemptsOldestFirst() throws Exception {
+    void taskDetail_rendersSummaryWithAttemptsNewestFirst() throws Exception {
         when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-911", "Open",
                 TaskView.TaskState.STOPPED, false, true,
                 attempt("STOPPED", "MANUAL", 1), attempt("STOPPED", "BY_KEY", 2)));
@@ -447,14 +458,17 @@ class TaskUiControllerTest {
         assertThat(detail(result))
                 .containsEntry("stateLabel", "Failed")
                 .containsEntry("retryAllowed", true)
-                .containsEntry("lastRunUrl", "/executions/" + EXECUTION_ID)
+                .containsEntry("runUrl", "/executions/" + EXECUTION_ID)
+                .containsEntry("nextAttempt", 3)
+                .containsEntry("spentNote", "spent in 2 attempts")
                 .containsEntry("project", "MODBAR")
                 .containsEntry("destination", "folio-org/mod-bar · base master");
-        assertThat((String) detail(result).get("result")).endsWith("No pull request was created.");
-        // Oldest first: a new attempt is added at the bottom.
+        assertThat((String) detail(result).get("headline")).endsWith("No pull request was created.");
+        // Newest first: a new attempt is added at the top.
         assertThat(rows(result.getModelAndView().getModel(), "attempts"))
-                .extracting(row -> row.get("label"))
-                .containsExactly("1 · first run", "2 · first run by key");
+                .extracting(row -> row.get("ordinal") + " · " + row.get("kind"))
+                .containsExactly("2 · first run by key", "1 · first run");
+        assertThat(result.getModelAndView().getModel().get("question")).isNull();
         verifyNoInteractions(admissions, outcomes);
         verify(dispatcher, never()).dispatchNext();
         verify(dispatcher, never()).dispatchNextQuietly();
@@ -478,8 +492,9 @@ class TaskUiControllerTest {
         assertThat(retryForm.selected().id()).isEqualTo("glm-5.3");
         assertThat(retryForm.effort()).isEqualTo("low");
         assertThat(model.get("retryInstructions")).isEqualTo("Keep the public API.");
-        assertThat(rows(model, "attempts")).extracting(row -> row.get("run"))
-                .containsExactly(null, "glm-5.3 · low");
+        assertThat(rows(model, "attempts")).extracting(row -> row.get("meta"))
+                .containsExactly("glm-5.3 · low · Oct 23, 08:00 · 10 min · \"Keep the public API.\"",
+                        "Oct 23, 08:00 · 10 min");
     }
 
     @Test
@@ -690,6 +705,86 @@ class TaskUiControllerTest {
                 .andExpect(flash().attributeCount(0));
     }
 
+    @Test
+    void taskDetail_showsTheAgentsQuestionAndItsOptions() throws Exception {
+        when(taskQuery.detail(TASK_ID)).thenReturn(askedView());
+        when(artifactStore.getLatest(EXECUTION_ID, DevelopWorker.OUTCOME)).thenReturn(Optional.of(askedOutcome()));
+
+        var model = mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn().getModelAndView().getModel();
+
+        assertThat(fields(model.get("task")))
+                .containsEntry("stateLabel", "Needs your answer")
+                .containsEntry("stateClass", "chip chip-warning")
+                .containsEntry("headline", "The agent stopped with a question")
+                .containsEntry("nextAttempt", 2);
+        assertThat(model.get("question")).isEqualTo(new AgentQuestion("Which API should change?",
+                "Both APIs exist", List.of("The public API", "The internal API"), "I read the code."));
+        assertThat(rows(model, "attempts").getFirst()).containsEntry("chipLabel", "Asked a question")
+                .containsEntry("chipClass", "chip chip-warning");
+    }
+
+    @Test
+    void retry_anAnswerStartsTheNextAttemptWithTheAnswerTheQuestionAndTheAgentsText() throws Exception {
+        when(taskQuery.detail(TASK_ID)).thenReturn(askedView());
+        when(artifactStore.getLatest(EXECUTION_ID, DevelopWorker.OUTCOME)).thenReturn(Optional.of(askedOutcome()));
+        when(admissions.retry(any())).thenReturn(new TaskAdmissionService.RetryResult(ATTEMPT_ID, null,
+                TaskAttempt.State.RESERVED, "the retry joined the queue", false));
+
+        mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "3")
+                        .param("modelId", "glm-5.3").param("effort", "max")
+                        .param("answer", "1").param("note", "Keep the change small."))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/tasks/" + TASK_ID));
+
+        verify(admissions).retry(retryCaptor.capture());
+        assertThat(TaskRunSettings.settings(retryCaptor.getValue().runSettings()).instructions()).isEqualTo("""
+                My answer to your question: The internal API
+                Keep the change small.
+
+                Your question was: Which API should change?
+
+                What you wrote before the question in the last attempt:
+                I read the code.""");
+    }
+
+    @Test
+    void retry_myOwnAnswerNeedsItsText() throws Exception {
+        when(taskQuery.detail(TASK_ID)).thenReturn(askedView());
+        when(artifactStore.getLatest(EXECUTION_ID, DevelopWorker.OUTCOME)).thenReturn(Optional.of(askedOutcome()));
+
+        MvcResult result = mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "3")
+                        .param("answer", "own").param("note", "  "))
+                .andExpect(status().is3xxRedirection())
+                .andReturn();
+
+        assertThat(java.net.URLDecoder.decode(result.getResponse().getRedirectedUrl(),
+                java.nio.charset.StandardCharsets.UTF_8))
+                .contains("Write your answer in the text field, or choose one of the agent's options.");
+        verify(admissions, never()).retry(any());
+    }
+
+    private static TaskView askedView() {
+        var stopped = taskView(TASK_ID, "MODBAR-941", "Open", TaskView.TaskState.STOPPED, false, true);
+        var reason = "clarify-implementation: " + TaskStops.DECISION_REASON + "Which API should change?";
+        var attempt = new TaskView.AttemptHistoryEntry(UUID.randomUUID(), 1, TaskAttempt.Kind.INITIAL,
+                TaskAttempt.AdmittedVia.MANUAL, TaskAttempt.State.STOPPED, "clarify-implementation", reason, null,
+                null, EXECUTION_ID, Instant.parse("2026-10-23T07:59:00Z"), Instant.parse("2026-10-23T08:00:00Z"),
+                true, 600, emptyUsage(), null);
+        return new TaskView(stopped.taskId(), stopped.displayKey(), stopped.jiraUrl(), stopped.title(),
+                stopped.projectKey(), stopped.jiraStatus(), stopped.state(), null, reason, "clarify-implementation",
+                null, stopped.destinationRepository(), null, null, true, false, stopped.version(),
+                stopped.inputFingerprint(), stopped.destinationFingerprint(), List.of(attempt), stopped.usage(),
+                stopped.allowedActions());
+    }
+
+    private static Artifact askedOutcome() {
+        var outcome = CodingOutcome.needsDecision(new CodingOutcome.Decision(
+                CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which API should change?",
+                List.of("The public API", "The internal API"), "Both APIs exist"), "I read the code.", Map.of());
+        var json = tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(outcome);
+        return new Artifact(EXECUTION_ID, DevelopWorker.OUTCOME, 1, "application/json", json, "sha", "dev-develop");
+    }
+
     // ----- mark as stopped -----
 
     @Test
@@ -738,7 +833,7 @@ class TaskUiControllerTest {
 
     @SuppressWarnings("unchecked")
     private static Map<String, Object> detail(MvcResult result) {
-        return (Map<String, Object>) result.getModelAndView().getModel().get("task");
+        return fields(result.getModelAndView().getModel().get("task"));
     }
 
     /** Page rows as maps of their fields, so records and the maps older rows still use read alike. */

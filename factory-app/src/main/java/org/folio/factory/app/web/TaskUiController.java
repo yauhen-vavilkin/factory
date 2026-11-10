@@ -17,7 +17,6 @@ import org.folio.factory.app.tasks.presentation.TaskQuery;
 import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.app.tasks.presentation.TaskView;
 import org.folio.factory.core.registry.FlowRegistry;
-import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -99,21 +98,6 @@ public class TaskUiController {
         return "redirect:" + FLOW_PAGE;
     }
 
-    @GetMapping("/tasks/{taskId}")
-    public String task(@PathVariable("taskId") UUID taskId,
-                       @RequestParam(name = "error", required = false) String error, Model model) {
-        var view = taskQuery.detail(taskId);
-        model.addAttribute("task", rows.detail(view));
-        model.addAttribute("attempts", view.attempts().stream().map(TaskRows::attemptRow).toList());
-        // Retry fills the form from the previous attempt.
-        var previous = view.attempts().isEmpty() ? null : view.attempts().getLast().runSettings();
-        model.addAttribute("retryForm", runSettings.form(previous));
-        model.addAttribute("retryInstructions", TaskRunSettings.instructions(previous));
-        model.addAttribute("instructionsLimit", ModelCatalog.MAX_INSTRUCTIONS);
-        model.addAttribute("error", error);
-        return "task";
-    }
-
     /** Baseline for the page's live refresh; a read-only projection, never an action. */
     @GetMapping("/tasks/poll")
     @ResponseBody
@@ -139,32 +123,6 @@ public class TaskUiController {
         } catch (IllegalArgumentException e) {
             return UiFormat.errorRedirect(FLOW_PAGE, e.getMessage());
         }
-    }
-
-    /**
-     * The optional text fields (fingerprints, returnTo and the run settings) are read from the
-     * form map, the same way Run reads its run settings.
-     */
-    @PostMapping("/tasks/{taskId}/retry")
-    public String retry(@PathVariable("taskId") UUID taskId,
-                        @RequestParam(name = "expectedVersion", defaultValue = "0") long expectedVersion,
-                        @RequestParam Map<String, String> form,
-                        HttpServletRequest request, RedirectAttributes redirect) {
-        requireSameOrigin(request);
-        var back = "flow".equals(form.get("returnTo")) ? FLOW_PAGE : "/tasks/" + taskId;
-        String settings;
-        try {
-            settings = runSettings.snapshot(form.get("modelId"), form.get("effort"), form.get("instructions"));
-        } catch (IllegalArgumentException e) {
-            return UiFormat.errorRedirect(back, e.getMessage());
-        }
-        var result = admissions.retry(new TaskCommands.Retry("ui-" + UUID.randomUUID(), taskId, expectedVersion,
-                form.get("inputFingerprint"), form.get("destinationFingerprint"), settings));
-        if (!result.refused() && result.state() != null && result.state().isInFlight()) {
-            redirect.addFlashAttribute("message", "Retry queued: " + result.explanation());
-            return "redirect:" + back;
-        }
-        return UiFormat.errorRedirect(back, result.explanation());
     }
 
     @PostMapping("/tasks/{taskId}/attempts/{attemptId}/mark-stopped")
