@@ -355,9 +355,10 @@ final class DeveloperExecutionView {
         for (int i = 0; i < definitions.size(); i++) {
             var phase = definitions.get(i);
             var timing = timing(new HashSet<>(phase.stepIds()), events, execution, now);
-            var state = failedPhase >= 0
+            var notRun = notRun(i, evidence);
+            var state = notRun ? "pending" : failedPhase >= 0
                     ? stateAroundFailure(i, failedPhase) : phaseState(phase, execution, timing.seen());
-            var blockedByFailure = failedPhase >= 0 && i > failedPhase;
+            var blockedByFailure = notRun || failedPhase >= 0 && i > failedPhase;
             var duration = !timing.seen() || blockedByFailure ? "Not started" : UiFormat.duration(timing.seconds());
             var elapsedStart = "current".equals(state) && timing.running() ? now.minusSeconds(timing.seconds()) : null;
             rows.add(phaseRow(phase.label(), duration, state, phaseStateLabel(state, execution), elapsedStart));
@@ -393,6 +394,16 @@ final class DeveloperExecutionView {
             return 2;
         }
         return "DELIVERY_BLOCKED".equals(evidence.delivery().path("state").asString("")) ? 3 : -1;
+    }
+
+    /** Verification and delivery record NOT_RUN when the run stopped before them, for example on a question. */
+    private static boolean notRun(int phase, Evidence evidence) {
+        var outcome = switch (phase) {
+            case 2 -> evidence.verification();
+            case 3 -> evidence.delivery();
+            default -> null;
+        };
+        return outcome != null && "NOT_RUN".equals(outcome.path("state").asString(""));
     }
 
     private static String stateAroundFailure(int index, int failedPhase) {
@@ -471,7 +482,7 @@ final class DeveloperExecutionView {
         return switch (state) {
             case "done" -> "Passed";
             case "failed" -> "Failed";
-            case "pending" -> "Waiting";
+            case "pending" -> execution.getStatus().isTerminal() ? "Not started" : "Waiting";
             case "current" -> switch (execution.getStatus()) {
                 case RUNNING -> "Working";
                 case PENDING -> "Retry pending";

@@ -541,6 +541,25 @@ class DeveloperExecutionViewTest {
         assertThat(phases.getFirst()).containsEntry("sublabel", "9s").containsKey("elapsedStart");
     }
 
+    @Test void aRunThatStoppedOnAQuestionShowsVerifyAndPullRequestAsNotStarted() {
+        var execution = new PipelineExecution("dev-factory", "0.9.0", "{}");
+        execution.setCurrentStepIndex(10);
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        var events = List.of(
+                event(AuditEventType.STEP_STARTED, "verify", Instant.parse("2026-11-10T18:00:00Z")),
+                event(AuditEventType.STEP_COMPLETED, "verify", Instant.parse("2026-11-10T18:00:00Z")),
+                event(AuditEventType.STEP_STARTED, "publish", Instant.parse("2026-11-10T18:00:00Z")),
+                event(AuditEventType.STEP_COMPLETED, "publish", Instant.parse("2026-11-10T18:00:00Z")));
+
+        var phases = phases(view.build(execution, List.of(
+                artifact("dev_verification.json", 1, "{\"state\":\"NOT_RUN\"}"),
+                artifact("dev_delivery.json", 1, "{\"state\":\"NOT_RUN\"}")), events, Instant.now()));
+
+        assertThat(phases).extracting(p -> p.get("state")).containsExactly("done", "done", "pending", "pending");
+        assertThat(phases).extracting(p -> p.get("stateLabel"))
+                .containsExactly("Passed", "Passed", "Not started", "Not started");
+    }
+
     @Test void domainOutcomesMarkTheOriginFailedAndLaterPhasesPending() {
         var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
         execution.setCurrentStepIndex(6);

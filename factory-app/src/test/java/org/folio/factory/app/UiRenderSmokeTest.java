@@ -422,6 +422,21 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void aRunThatStoppedOnAQuestionShowsVerifyAndPullRequestAsNotStarted() {
+        var execution = new PipelineExecution("dev-factory", "0.9.0", "{}");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        execution.setCurrentStepIndex(10);
+        execution = executions.save(execution);
+        artifactStore.put(execution.getId(), "dev_verification.json", "{\"state\":\"NOT_RUN\"}", "application/json", "test");
+        artifactStore.put(execution.getId(), "dev_delivery.json", "{\"state\":\"NOT_RUN\"}", "application/json", "test");
+
+        String body = assertRendered("/executions/" + execution.getId(), "Verify changes");
+        var stages = body.substring(body.indexOf("class=\"run-stages\""));
+        assertThat(stages.substring(stages.indexOf("Verify changes"), stages.indexOf("</ol>")))
+                .contains("<span>Not started</span>").doesNotContain("Passed");
+    }
+
+    @Test
     void prFeedbackShowsNewCommentsRoundsWithFactorysCommentAndOneFilledButton() {
         var execution = new PipelineExecution("dev-factory",
                 org.folio.factory.devfactory.feedback.FeedbackArtifacts.VERSION, "{}");

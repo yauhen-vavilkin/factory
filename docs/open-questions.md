@@ -220,8 +220,6 @@ page as on its board.
 Runs: MGRAPPS-64 attempts 2 and 3 (`7631be89`, `48f6594f`), PR feedback round 2 on `79246e67`.
 The question flow, the in-progress strip and Factory's comment on the pull request work.
 
-- **A run that ended with a question shows steps 3 and 4 as "Passed · 0s".** Nothing was
-  verified and no pull request was made.
 - **The run page does not leave "Implementing corrections" when a round ends.** It changed
   only after a reload.
 - **Raw lines in Activity before the agent starts**: Maven output ("[INFO] ---
