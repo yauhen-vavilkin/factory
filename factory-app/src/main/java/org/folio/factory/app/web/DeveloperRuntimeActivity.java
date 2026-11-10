@@ -16,6 +16,7 @@ final class DeveloperRuntimeActivity {
     private final JsonMapper json;
     private final boolean feedbackFlow;
     private final BashActivity bashActivity = new BashActivity();
+    private final ToolRows toolRows = new ToolRows();
     private final List<Map<String, String>> activity = new ArrayList<>();
     private final List<Map<String, String>> diagnostics = new ArrayList<>();
     private JsonNode configuration;
@@ -94,7 +95,7 @@ final class DeveloperRuntimeActivity {
             diagnostics.add(row);
         }
         if (detail.has("notice")) notice = detail.path("notice").asString("");
-        if (action.equals("turn_start")) {
+        if (action.equals("turn_start") || mergedToolRow(event, detail, action, text)) {
             previousHeartbeat = null;
             return;
         }
@@ -107,6 +108,21 @@ final class DeveloperRuntimeActivity {
             activity.add(row);
         }
         previousHeartbeat = heartbeat ? text : null;
+    }
+
+    /** One row per tool call: the end replaces its start row; true when this event needs no row of its own. */
+    private boolean mergedToolRow(AuditEvent event, JsonNode detail, String action, String text) {
+        if (action.equals("tool_execution_start")) {
+            toolRows.started(detail, activity.size(), text, event.getOccurredAt());
+            return false;
+        }
+        if (!action.equals("tool_execution_end")) {
+            return false;
+        }
+        var merged = toolRows.ended(detail, event.getOccurredAt());
+        merged.ifPresent(row -> activity.set(row.getKey(), Map.of("time", activity.get(row.getKey()).get("time"),
+                "timeTitle", activity.get(row.getKey()).get("timeTitle"), "text", row.getValue())));
+        return merged.isPresent();
     }
 
     private static String activityLabel(String action) {

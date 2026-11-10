@@ -888,8 +888,6 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .usage-figures dt { color: hsl(var(--muted-foreground)); }
 .usage-figures dd { margin: 0; text-align: right; }
 .usage-figures .usage-total { padding-top: 6px; border-top: 1px solid hsl(var(--muted)); color: hsl(var(--foreground)); font-weight: 600; }
-.tech-details { border-top: 1px solid hsl(var(--border)); padding-top: 12px; }
-.tech-details > summary { font-size: 13px; color: hsl(var(--quiet-foreground)); cursor: pointer; }
 .tech-grid {
   display: grid;
   grid-template-columns: 140px minmax(0, 1fr);
@@ -1241,4 +1239,3 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .answer-options input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: hsl(var(--primary)); }
 .attempt-title { font-weight: 600; }
 .attempt-cost { min-width: 60px; text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; }
-.tech-disclosure .tech-grid { padding-top: 12px; }

@@ -453,6 +453,11 @@ class UiRenderSmokeTest {
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "tool_execution_start", "tool", "bash", "command", "mvn test"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "tool_execution_start", "tool", "Read", "path", "/workspace/src/Foo.java"));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "tool_execution_end", "tool", "Read", "path", "/workspace/src/Foo.java",
+                        "error", false, "durationMs", 6));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "turn_start", "message", "HIDDEN_MESSAGE_SENTINEL",
                         "reasoning", "HIDDEN_REASONING_SENTINEL"));
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of("costUsd", 0));
@@ -465,7 +470,12 @@ class UiRenderSmokeTest {
                         "href=\"/audit?executionId=" + execution.getId() + "\">Audit events</a>",
                         "aria-label=\"Runtime activity, oldest first\"", "Running mvn test")
                 .containsPattern("<time title=\"\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\">\\d{2}:\\d{2}:\\d{2}</time>")
-                .doesNotContain("newest first", ">full log<");
+                // One row per tool call, and its duration says "took".
+                .contains("<span>Read Foo.java · took 6 ms</span>")
+                .doesNotContain("newest first", ">full log<", "Reading Foo.java", "completed in");
+        // Technical details start closed.
+        assertThat(body).contains("<details class=\"tech-details disclosure\">")
+                .doesNotContain("<details class=\"tech-details disclosure\" open");
         assertThat(body).contains("MODSIDECAR-196", "17 tests executed", "mvn test", "DELIVERY_BLOCKED",
                 "Safe destination missing", "class=\"task-key\">MODSIDECAR-196</span>",
                 "auditTrail.length,artifacts.length", "Prepare task", "Implement changes", "Verify changes",
@@ -572,7 +582,7 @@ class UiRenderSmokeTest {
         String currentPanel = body.substring(body.indexOf("<section class=\"run-panel run-activity\""),
                 body.indexOf("<section class=\"run-panel run-usage\""));
         String usagePanel = body.substring(body.indexOf("<section class=\"run-panel run-usage\""),
-                body.indexOf("<details class=\"tech-details\""));
+                body.indexOf("<details class=\"tech-details disclosure\">"));
         assertThat(currentPanel).doesNotContain("run-facts", "<dt>Model</dt>", "<dt>Provider</dt>",
                 "<dt>Runtime</dt>", "<dt>Image</dt>");
         assertThat(usagePanel).contains("Runtime and usage", "<dt>Model</dt>", ">glm-5.3-flash</dd>",
@@ -637,7 +647,7 @@ class UiRenderSmokeTest {
 
     private static String usagePanel(String body) {
         return body.substring(body.indexOf("<section class=\"run-panel run-usage\""),
-                body.indexOf("<details class=\"tech-details\""));
+                body.indexOf("<details class=\"tech-details disclosure\">"));
     }
 
     @Test
@@ -648,7 +658,7 @@ class UiRenderSmokeTest {
                     Map.of("activity", "coding_starting", field, "reported-" + field));
             String body = assertRendered("/executions/" + execution.getId(), "Runtime and usage");
             String usagePanel = body.substring(body.indexOf("<section class=\"run-panel run-usage\""),
-                    body.indexOf("<details class=\"tech-details\""));
+                    body.indexOf("<details class=\"tech-details disclosure\">"));
             assertThat(usagePanel).contains("class=\"run-facts\"", ">reported-" + field + "<",
                             "No token usage reported yet.")
                     .doesNotContain("tokens so far", "Estimated cost");

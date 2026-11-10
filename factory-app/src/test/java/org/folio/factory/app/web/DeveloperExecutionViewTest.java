@@ -312,16 +312,15 @@ class DeveloperExecutionViewTest {
         var activity = (List<Map<String, String>>) view.build(execution, List.of(), events,
                 start.plusSeconds(9)).get("activity");
 
+        // One row per tool call; Pi reports no duration, so it comes from the event times.
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "Editing KeycloakAuthorizationService.java",
-                "edit completed",
-                "Writing AdvisoryLockService.java",
-                "write completed",
+                "Edited KeycloakAuthorizationService.java · took 1s",
+                "Wrote AdvisoryLockService.java · took 1s",
                 "Reading Foo.java",
-                "Running mvn test",
-                "mvn test completed",
-                "Running mvn test",
-                "mvn test failed");
+                "Ran mvn test · took 1s",
+                "Ran mvn test · failed · took 1s");
+        assertThat(activity).extracting(row -> row.get("time")).containsExactly(
+                "10:00:00", "10:00:02", "10:00:04", "10:00:05", "10:00:07");
         assertThat(activity.toString()).doesNotContain("false", "true", "error=");
     }
 
@@ -350,15 +349,14 @@ class DeveloperExecutionViewTest {
         var activity = (List<Map<String, String>>) view.build(execution, List.of(), events,
                 start.plusSeconds(8)).get("activity");
 
+        // Calls that overlap still pair up by their file or command.
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "Running mvn test",
-                "Reading Foo.java",
-                "Read Foo.java completed in 15 ms",
+                "Ran mvn test · failed · took 1m 12s · Exit code 1 BUILD FAILURE",
+                "Read Foo.java · took 15 ms",
                 "Finding files matching **/*.java",
                 "Searching for TODO",
                 "Fetching https://example.org/doc",
-                "Editing Bar.java",
-                "mvn test failed in 1m 12s · Exit code 1 BUILD FAILURE");
+                "Editing Bar.java");
     }
 
     @Test void parallelBashCompletionsUseNeutralLabelsInsteadOfGuessing() {

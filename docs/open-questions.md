@@ -196,3 +196,9 @@ page as on its board.
   characters. The agent's evidence is shown on the page but not passed on. A task page with a pull
   request, or one that waits, is not on a board: it keeps "Open pull request" and "PR feedback" or
   "Open live run" in the status card.
+- **Run page while it works.** Activity stays oldest first with the last 20 rows, so "Show 35 earlier"
+  and the newest-first order of board 2 are not built; the time limit ("of 30") is not in the status
+  card. A tool call shows one row once it ends ("Read Foo.java · took 6 ms"); Pi reports no duration, so
+  the time between start and end is used. Calls are paired only when the match is certain: when two
+  calls of the same tool overlap and the end names no file or command, the end keeps its own row, as
+  before. A call still running says "Running …", not "running now".
