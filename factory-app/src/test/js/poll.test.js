@@ -36,6 +36,46 @@ test('audit and artifact growth reload an unchanged running step', async () => {
   }
 });
 
+test('a hidden run page still polls, slower, and reloads when the round ends; showing it polls at once', async () => {
+  const listeners = {};
+  const delays = [];
+  let tick, fetches = 0, reloads = 0;
+  const attributes = {
+    'data-poll-url': '/api/executions/id',
+    'data-poll-fields': 'execution.status',
+    'data-poll-baseline': 'RUNNING'
+  };
+  const document = {
+    hidden: true,
+    addEventListener: (event, callback) => { listeners[event] = callback; },
+    querySelector: selector => selector === '[data-poll-url]' ? { getAttribute: key => attributes[key] } : null,
+    querySelectorAll: () => []
+  };
+  let status = 'RUNNING';
+  vm.runInNewContext(POLL_JS, {
+    window: {},
+    document,
+    setTimeout: (callback, ms) => { tick = callback; delays.push(ms); return delays.length; },
+    clearTimeout: () => {},
+    location: { reload: () => { reloads++; } },
+    fetch: async () => { fetches++; return { ok: true, json: async () => ({ execution: { status } }) }; }
+  });
+  listeners.DOMContentLoaded();
+  assert.equal(delays.at(-1), 30000);
+
+  tick();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(fetches, 1);
+  assert.equal(reloads, 0);
+
+  status = 'AWAITING_HITL';
+  document.hidden = false;
+  listeners.visibilitychange();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(fetches, 2);
+  assert.equal(reloads, 1);
+});
+
 test('a picked effort holds the live reload and shows the notice instead', async () => {
   let ready, tick, reloads = 0;
   const notice = { hidden: true };

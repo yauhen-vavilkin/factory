@@ -1,14 +1,27 @@
 (function () {
+  // A hidden page still polls, every 30 s, so it reaches the finished state by itself; it polls at once
+  // when it is shown again.
+  var HIDDEN_MS = 30000;
   function startPolling(url, ms, onData) {
     var interval = ms;
-    function schedule() { setTimeout(tick, interval); }
+    var timer = null;
+    var busy = false;
+    function schedule() {
+      timer = setTimeout(tick, document.hidden ? Math.max(interval, HIDDEN_MS) : interval);
+    }
     function tick() {
-      if (document.hidden) { schedule(); return; }
+      if (busy) return;
+      busy = true;
       fetch(url, { headers: { Accept: 'application/json' } })
         .then(function (r) { if (!r.ok) throw new Error('status ' + r.status); return r.json(); })
-        .then(function (data) { interval = ms; onData(data); schedule(); })
-        .catch(function () { interval = Math.min(interval * 2, 60000); schedule(); });
+        .then(function (data) { interval = ms; busy = false; onData(data); schedule(); })
+        .catch(function () { interval = Math.min(interval * 2, 60000); busy = false; schedule(); });
     }
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden || busy) return;
+      clearTimeout(timer);
+      tick();
+    });
     schedule();
   }
   window.startPolling = startPolling;
