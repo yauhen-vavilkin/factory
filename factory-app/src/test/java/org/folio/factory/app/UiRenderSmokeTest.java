@@ -437,7 +437,8 @@ class UiRenderSmokeTest {
         var round = "\"round\":1,\"pr\":" + pr + ",\"selected\":[" + done + "],\"roundStartedAt\":\"2026-11-10T18:22:00Z\"";
         artifactStore.put(id, "dev_pr_state.json", "{" + round + ",\"phase\":\"CODE\"}", "application/json", "test");
         artifactStore.put(id, "dev_pr_state.json", "{" + round + ",\"phase\":\"READY\",\"commitSha\":\"" + "c".repeat(40)
-                + "\",\"summary\":\"Added minProperties to the items object.\",\"finishedAt\":\"2026-11-10T18:28:00Z\"}",
+                + "\",\"summary\":\"## Changes\\n- Added `minProperties` to the items object (PR feedback inline:1)."
+                + "\\n\\n## Assumptions\\n- None.\",\"finishedAt\":\"2026-11-10T18:28:00Z\"}",
                 "application/json", "test");
         artifactStore.put(id, "dev_pr_comments.json", "{\"id\":\"s1\",\"pr\":" + pr + ",\"comments\":[" + done + "," + fresh + "]}",
                 "application/json", "test");
@@ -451,7 +452,8 @@ class UiRenderSmokeTest {
                         "data-selection=\"selectedIds\"", ">Fix 1 comment</button>", "Starts a new round and adds to the cost.",
                         ">Round 1</strong>", "<span>1 comment</span>",
                         "href=\"https://github.com/o/mgr-applications/pull/6/commits/" + "c".repeat(40) + "\">ccccccc</a>",
-                        "Nov 10, 18:22 · 6 min", "Agent: Added minProperties to the items object.",
+                        "Nov 10, 18:22 · 6 min", ">Agent: Added minProperties to the items object.</p>",
+                        "<strong>Agent's report</strong>", "## Assumptions",
                         "href=\"https://github.com/o/mgr-applications/pull/6#issuecomment-9\">Factory's comment on the PR</a>",
                         "<summary>Round details</summary>", "class=\"chip chip-success\">Published</span>",
                         ">Verify my manual changes</button>", "Runs the tests on commits you pushed to the PR branch yourself.",

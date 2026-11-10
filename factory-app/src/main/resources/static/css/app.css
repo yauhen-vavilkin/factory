@@ -1116,7 +1116,8 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .feedback-round-details { margin-top: 8px; font-size: 13px; }
 .feedback-round-details[open] { display: flex; flex-direction: column; gap: 10px; }
 .feedback-round-details > summary { align-self: flex-start; }
-.feedback-selected p { white-space: pre-wrap; overflow-wrap: anywhere; margin: .25rem 0 0; }
+.feedback-selected p,
+.feedback-report p { white-space: pre-wrap; overflow-wrap: anywhere; margin: .25rem 0 0; }
 .feedback-sha { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .feedback-actions { display: flex; flex-direction: column; gap: 10px; }
 .feedback-actions form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; }

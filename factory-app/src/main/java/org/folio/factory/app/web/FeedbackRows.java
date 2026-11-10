@@ -5,6 +5,7 @@ import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.devfactory.feedback.FeedbackState;
 import org.folio.factory.devfactory.feedback.PrFeedbackGateway;
 import org.folio.factory.devfactory.feedback.RoundComment;
+import org.folio.factory.devfactory.feedback.RoundReport;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -42,9 +43,13 @@ final class FeedbackRows {
     public record Selected(String author, String body) {
     }
 
-    /** One round: what it fixed, its commit, checks, the agent's summary and Factory's comment on the PR. */
+    /**
+     * One round: what it fixed, its commit, checks, a short summary of the agent's report, the full report
+     * and Factory's comment on the PR.
+     */
     public record Round(String title, String comments, String commit, String commitSha, String commitUrl, String meta,
-                        String summary, String reason, String commentUrl, String cost, Chip chip, boolean manual,
+                        String summary, String report, String reason, String commentUrl, String cost, Chip chip,
+                        boolean manual,
                         List<Selected> selected, Map<String, Object> usage, String runtime,
                         VerificationReceipt verification, List<Map<String, String>> activity) {
     }
@@ -105,7 +110,8 @@ final class FeedbackRows {
                 .map(comment -> new Selected(comment.author(), comment.body()))
                 .toList();
         return new Round(title, commentCount(state), shortSha, sha, commitUrl(state.pr(), sha), meta(state),
-                state.summary(), state.reason(), facts.commentUrls().get(round), String.valueOf(usage.get("cost")),
+                RoundReport.brief(state.summary()), state.summary(), state.reason(), facts.commentUrls().get(round),
+                String.valueOf(usage.get("cost")),
                 chip(state), state.manual(), selected, usage, state.runtimeName(), state.verification(),
                 facts.projection().activity(round));
     }

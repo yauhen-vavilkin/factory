@@ -84,6 +84,8 @@
             </th:block>
             <th:block th:if="${round.commitSha() != null}"><dt>Commit</dt><dd class="feedback-sha" th:text="${round.commitSha()}"></dd></th:block>
           </dl>
+          <div class="feedback-report" th:unless="${#strings.isEmpty(round.report())}"><strong>Agent's report</strong>
+            <p th:text="${round.report()}">## Changes</p></div>
           <div class="feedback-selected" th:each="item : ${round.selected()}"><strong th:text="${item.author()}"></strong>
             <p th:text="${item.body()}"></p></div>
           <th:block th:if="${round.verification() != null}">

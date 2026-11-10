@@ -214,3 +214,26 @@ page as on its board.
   the comment twice when the step runs again. The comment says "Factory round N" with the stored round
   number, which also counts manual verification rounds, so it can differ from "Round N" on the page.
   Reading PR comments leaves out comments that start with Factory's marker.
+
+## Seen in the live check of the demo screens (2026-11-10, evening)
+
+Runs: MGRAPPS-64 attempts 2 and 3 (`7631be89`, `48f6594f`), PR feedback round 2 on `79246e67`.
+The question flow, the in-progress strip and Factory's comment on the pull request work.
+
+- **A run that ended with a question shows steps 3 and 4 as "Passed · 0s".** Nothing was
+  verified and no pull request was made.
+- **The run page does not leave "Implementing corrections" when a round ends.** It changed
+  only after a reload.
+- **Raw lines in Activity before the agent starts**: Maven output ("[INFO] ---
+  compiler:3.15.0:compile"), "Starting build completed · 0 ·", "coding starting".
+- **Small text defects**: "In progress In progress." on the task page, the banner "Retry queued:
+  the retry attempt launched a new execution", "so far" without an amount on a new attempt,
+  the Runs row shows the cost of the previous attempt while a new one works, the cost on the
+  run page stayed at "$0.05 so far" for minutes.
+- **Labels are not linked to their inputs**: the answer radios are named "0", "1", "2", "own"
+  and the comment checkbox "inline:<id>" for a screen reader.
+- **After the answer the agent worked in another repository.** The first option of the
+  MGRAPPS-64 question was "retarget the task to mgr-tenant-entitlements"; the agent cloned
+  that repository into /tmp although the request forbids a repository switch, and the attempt
+  failed with "Command exceeded output limit". MGRAPPS-64 is not a task for the demo. Whether
+  a run after an answer reaches a pull request is not verified.

@@ -10,8 +10,9 @@ import java.util.UUID;
 import java.util.function.UnaryOperator;
 
 /**
- * Factory's one comment on the pull request after a published round: the commit and the agent's
- * summary. The comment never fails the round; its URL is kept in the audit trail, keyed by round.
+ * Factory's one comment on the pull request after a published round: the commit and the "Changes"
+ * part of the agent's report. The comment never fails the round; its URL is kept in the audit trail,
+ * keyed by round.
  */
 public final class RoundComment {
 
@@ -60,8 +61,8 @@ public final class RoundComment {
     }
 
     private static String body(UUID executionId, FeedbackState state) {
-        var summary = state.summary.length() <= MAX_SUMMARY ? state.summary
-                : state.summary.substring(0, MAX_SUMMARY) + "\n[cut]";
+        var changes = RoundReport.changes(state.summary);
+        var summary = changes.length() <= MAX_SUMMARY ? changes : changes.substring(0, MAX_SUMMARY) + "\n[cut]";
         return MARKER + executionId + " " + state.round + " -->\n"
                 + "Factory round " + state.round + ": pushed " + state.commitSha + ".\n\n" + summary;
     }
