@@ -462,7 +462,9 @@ class UiRenderSmokeTest {
                 "round", 1, "commentUrl", "https://github.com/o/mgr-applications/pull/6#issuecomment-9"));
 
         String body = assertRendered("/executions/" + id, "New PR comments");
-        assertThat(body).contains("Waiting for your review", ">Check PR comments</button>", ">Rename the test</span>",
+        assertThat(body).contains("Waiting for your review", ">Check PR comments</button>",
+                        "id=\"comment-0\"", "aria-labelledby=\"comment-0-text\"", "for=\"comment-0\"",
+                        "id=\"comment-0-text\">Rename the test</span>",
                         "href=\"https://github.com/o/mgr-applications/pull/6#discussion_r2\">AppTest.java:214</a>",
                         "data-selection=\"selectedIds\"", ">Fix 1 comment</button>", "Starts a new round and adds to the cost.",
                         ">Round 1</strong>", "<span>1 comment</span>",
@@ -1356,13 +1358,19 @@ class UiRenderSmokeTest {
                         "<span class=\"status-card-headline\">The agent stopped with a question</span>",
                         "<p class=\"answer-question\">Remove &lt;old&gt; routes too?</p>",
                         "removeRoutes runs only on a new event.",
-                        "role=\"radiogroup\" aria-label=\"Your answer\"", "<span>Only from now on.</span>",
-                        "<span>Also the old ones.</span>", "<span>My own answer</span>",
+                        "role=\"radiogroup\" aria-label=\"Your answer\"",
+                        "<span id=\"answer-0-text\">Only from now on.</span>",
+                        "<span id=\"answer-1-text\">Also the old ones.</span>",
+                        "<label for=\"answer-own\">", "<span\n                        id=\"answer-own-text\">My own answer</span>",
                         "Anything to add for the agent? (optional)", "name=\"note\"",
                         ">Start attempt 2 with this answer</button>",
                         "A new attempt starts from a clean checkout and adds to the cost.")
-                .containsPattern("<input type=\"radio\" name=\"answer\" value=\"0\" checked=\"checked\">")
-                .containsPattern("<input type=\"radio\" name=\"answer\" value=\"own\"\\s*>")
+                // Each answer is named by its text, not by its value.
+                .contains("<label for=\"answer-0\">")
+                .containsPattern("<input type=\"radio\" name=\"answer\" id=\"answer-0\" value=\"0\"\\s*"
+                        + "aria-labelledby=\"answer-0-text\" checked=\"checked\">")
+                .containsPattern("<input type=\"radio\" name=\"answer\" id=\"answer-own\" value=\"own\"\\s*"
+                        + "aria-labelledby=\"answer-own-text\"\\s*>")
                 .doesNotContain("id=\"retry\"", "What should the agent do differently?", "I read the code.");
         assertThat(body.substring(body.indexOf("id=\"attempts-title\"")))
                 .contains(">Asked a question</span>");

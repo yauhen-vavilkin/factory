@@ -22,10 +22,13 @@
       <input type="hidden" name="stateVersion" th:value="${feedback['version']}">
       <input type="hidden" name="snapshotId" th:value="${feedback['snapshotId']}">
       <input type="hidden" name="action" value="FIX">
-      <label class="dev-row feedback-comment" th:each="comment : ${feedback['comments']}">
-        <input type="checkbox" class="task-check" name="selectedIds" th:value="${comment.id()}" checked>
+      <label class="dev-row feedback-comment" th:each="comment, state : ${feedback['comments']}"
+             th:for="'comment-' + ${state.index}">
+        <input type="checkbox" class="task-check" name="selectedIds" th:id="'comment-' + ${state.index}"
+               th:value="${comment.id()}" th:attr="aria-labelledby='comment-' + ${state.index} + '-text'" checked>
         <span class="dev-row-main">
-          <span class="feedback-comment-body" th:text="${comment.body()}">Comment</span>
+          <span class="feedback-comment-body" th:id="'comment-' + ${state.index} + '-text'"
+                th:text="${comment.body()}">Comment</span>
           <span class="dev-row-meta">
             <a class="ext-link feedback-location" th:if="${comment.url() != null}" th:href="${comment.url()}"
                th:text="${comment.location()}">File.java:1</a>

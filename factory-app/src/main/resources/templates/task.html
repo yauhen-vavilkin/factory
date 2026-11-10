@@ -53,11 +53,13 @@
             <input type="hidden" name="inputFingerprint" th:value="${task.inputFingerprint()}">
             <input type="hidden" name="destinationFingerprint" th:value="${task.destinationFingerprint()}">
             <div class="answer-options" role="radiogroup" aria-label="Your answer">
-                <label th:each="option, state : ${question.options()}">
-                    <input type="radio" name="answer" th:value="${state.index}" th:checked="${state.first}">
-                    <span th:text="${option}">Option</span></label>
-                <label><input type="radio" name="answer" value="own"
-                              th:checked="${#lists.isEmpty(question.options())}"><span>My own answer</span></label>
+                <label th:each="option, state : ${question.options()}" th:for="'answer-' + ${state.index}">
+                    <input type="radio" name="answer" th:id="'answer-' + ${state.index}" th:value="${state.index}"
+                           th:checked="${state.first}" th:attr="aria-labelledby='answer-' + ${state.index} + '-text'">
+                    <span th:id="'answer-' + ${state.index} + '-text'" th:text="${option}">Option</span></label>
+                <label for="answer-own"><input type="radio" name="answer" id="answer-own" value="own"
+                              aria-labelledby="answer-own-text" th:checked="${#lists.isEmpty(question.options())}"><span
+                        id="answer-own-text">My own answer</span></label>
             </div>
             <label class="dev-field">
                 <span>Anything to add for the agent? (optional)</span>

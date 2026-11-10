@@ -221,8 +221,6 @@ Runs: MGRAPPS-64 attempts 2 and 3 (`7631be89`, `48f6594f`), PR feedback round 2 
 The question flow, the in-progress strip and Factory's comment on the pull request work.
 
 - **The cost on the run page stayed at "$0.05 so far" for minutes.**
-- **Labels are not linked to their inputs**: the answer radios are named "0", "1", "2", "own"
-  and the comment checkbox "inline:<id>" for a screen reader.
 - **After the answer the agent worked in another repository.** The first option of the
   MGRAPPS-64 question was "retarget the task to mgr-tenant-entitlements"; the agent cloned
   that repository into /tmp although the request forbids a repository switch, and the attempt
