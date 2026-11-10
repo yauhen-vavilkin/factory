@@ -143,10 +143,10 @@ public class TaskRows {
         return attempt.state() == TaskAttempt.State.NEEDS_INSPECTION ? attempt.attemptId() : null;
     }
 
-    /** "$0.02", "$0.02 so far", or the note when there is no cost figure. */
+    /** "$0.02", "$0.02 so far", or the note when there is no cost figure; a new attempt shows "—". */
     private static String costText(String cost, String costNote) {
         if (cost == null) {
-            return costNote == null ? "—" : costNote;
+            return costNote == null || "so far".equals(costNote) ? "—" : costNote;
         }
         return "so far".equals(costNote) ? cost + " so far" : cost;
     }

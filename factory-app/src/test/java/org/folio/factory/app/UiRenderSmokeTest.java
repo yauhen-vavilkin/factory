@@ -1305,7 +1305,7 @@ class UiRenderSmokeTest {
                         "rate", Map.of("currency", "USD", "inputPerMillion", 0.15)));
         auditLog.record(liveExecution.getId(), AuditEventType.STEP_STARTED, "implement", "smoke", Map.of());
 
-        String liveBody = assertRendered("/tasks/" + live.getId(), "In progress: Implementation.");
+        String liveBody = assertRendered("/tasks/" + live.getId(), "Implementation is running.");
         assertThat(liveBody)
                 .contains("In progress", "Open live run", "Includes live usage that can still change.")
                 .doesNotContain("name=\"expectedVersion\"");

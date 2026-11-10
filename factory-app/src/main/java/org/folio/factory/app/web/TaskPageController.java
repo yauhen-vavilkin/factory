@@ -15,7 +15,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.Map;
 import java.util.UUID;
@@ -61,7 +60,7 @@ public class TaskPageController {
     public String retry(@PathVariable("taskId") UUID taskId,
                         @RequestParam(name = "expectedVersion", defaultValue = "0") long expectedVersion,
                         @RequestParam Map<String, String> form,
-                        HttpServletRequest request, RedirectAttributes redirect) {
+                        HttpServletRequest request) {
         requireSameOrigin(request);
         var back = "flow".equals(form.get("returnTo")) ? FLOW_PAGE : "/tasks/" + taskId;
         String settings;
@@ -72,8 +71,8 @@ public class TaskPageController {
         }
         var result = admissions.retry(new TaskCommands.Retry("ui-" + UUID.randomUUID(), taskId, expectedVersion,
                 form.get("inputFingerprint"), form.get("destinationFingerprint"), settings));
+        // The status card and Runs already say that the new attempt is queued or running.
         if (!result.refused() && result.state() != null && result.state().isInFlight()) {
-            redirect.addFlashAttribute("message", "Retry queued: " + result.explanation());
             return "redirect:" + back;
         }
         return UiFormat.errorRedirect(back, result.explanation());

@@ -107,8 +107,8 @@ final class TaskLabels {
             case PR_READY -> pullRequestLabel(view.pullRequestUrl())
                     + (view.draftReasons() == null ? " is ready for review." : " is open as a draft.");
             case WORKING -> queued(view) ? "Queued: " + linePlace(view) + "."
-                    : stageLabel(view.stage()) == null ? "In progress."
-                    : "In progress: " + stageLabel(view.stage()) + ".";
+                    : stageLabel(view.stage()) == null ? "The run is starting."
+                    : stageLabel(view.stage()) + " is running.";
             case UNCERTAIN, PROCESSING_PAUSED -> "Factory could not confirm how the last run ended.";
             default -> view.reason() != null && view.reason().contains(TaskOutcomeService.PULL_REQUEST_MAY_EXIST)
                     ? sentence(failureText(view.reason())) + " Check the repository before you retry."

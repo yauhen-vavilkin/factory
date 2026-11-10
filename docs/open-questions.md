@@ -220,10 +220,7 @@ page as on its board.
 Runs: MGRAPPS-64 attempts 2 and 3 (`7631be89`, `48f6594f`), PR feedback round 2 on `79246e67`.
 The question flow, the in-progress strip and Factory's comment on the pull request work.
 
-- **Small text defects**: "In progress In progress." on the task page, the banner "Retry queued:
-  the retry attempt launched a new execution", "so far" without an amount on a new attempt,
-  the Runs row shows the cost of the previous attempt while a new one works, the cost on the
-  run page stayed at "$0.05 so far" for minutes.
+- **The cost on the run page stayed at "$0.05 so far" for minutes.**
 - **Labels are not linked to their inputs**: the answer radios are named "0", "1", "2", "own"
   and the comment checkbox "inline:<id>" for a screen reader.
 - **After the answer the agent worked in another repository.** The first option of the

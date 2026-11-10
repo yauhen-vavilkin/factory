@@ -422,7 +422,17 @@ class TaskUiControllerTest {
         assertThat(attempts.get(0))
                 .containsEntry("cost", null)
                 .containsEntry("costNote", "so far")
-                .containsEntry("costNoteTitle", null);
+                .containsEntry("costNoteTitle", null)
+                .containsEntry("costText", "—");
+
+        // In Runs a working task shows the cost of the attempt that works now, not the total of the earlier ones.
+        TaskView retrying = withUsage(taskView(TASK_ID, "MODBAR-911", "Open", TaskView.TaskState.WORKING,
+                false, false, attempt("STOPPED", 1, incompleteUsage()), attempt("RUNNING", 2, unreportedUsage())),
+                incompleteUsage());
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), retrying));
+        assertThat(rows(mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel(), "triggered").getFirst())
+                .containsEntry("cost", null)
+                .containsEntry("costTitle", null);
         assertThat(attempts.get(1))
                 .containsEntry("cost", null)
                 .containsEntry("costNote", "cost unknown")
@@ -642,7 +652,7 @@ class TaskUiControllerTest {
                         .param("returnTo", "flow"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl(FLOW_PAGE))
-                .andExpect(flash().attribute("message", "Retry queued: the retry joined the queue"));
+                .andExpect(flash().attributeCount(0));
 
         verify(admissions).retry(retryCaptor.capture());
         TaskCommands.Retry command = retryCaptor.getValue();

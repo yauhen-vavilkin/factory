@@ -39,12 +39,22 @@ public final class RunRows {
         var pullRequest = delivered(view);
         var when = latest.startedAt() != null ? latest.startedAt() : latest.createdAt();
         var action = action(view, latest);
+        var costTitle = working(view) ? null : costNoteTitle(incompleteCostNote(view.usage()));
         return new TriggeredRow(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(),
                 pullRequest ? shortPullRequestLabel(view.pullRequestUrl(), view.draftReasons() != null) : label,
                 pullRequest ? pullRequestClass(view) : stateClass(label), pullRequest ? view.pullRequestUrl() : null,
-                detail(view), costLabel(view.usage()), costNoteTitle(incompleteCostNote(view.usage())), ago(when),
+                detail(view), cost(view, latest), costTitle, ago(when),
                 UiFormat.format(when), action,
                 actionUrl(view, latest, action), action == RunAction.MARK_STOPPED ? latest.attemptId() : null);
+    }
+
+    /** The task's total, or the cost so far of the attempt that works now (none before it reports usage). */
+    private static String cost(TaskView view, TaskView.AttemptHistoryEntry latest) {
+        if (!working(view)) {
+            return costLabel(view.usage());
+        }
+        var soFar = costLabel(latest.usage());
+        return soFar == null ? null : soFar + " so far";
     }
 
     /** The running task, when one runs: the strip above Ready to run is a shortcut to its run. */
