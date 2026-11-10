@@ -17,6 +17,7 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 final class TaskLabels {
 
+    static final String NEEDS_ANSWER = "Needs your answer";
     private static final String COST_MAY_BE_HIGHER = "cost may be higher";
     private static final String COST_UNKNOWN = "cost unknown";
     private static final String COST_MAY_BE_HIGHER_TITLE =
@@ -32,7 +33,7 @@ final class TaskLabels {
             case AWAITING_SELECTION -> "Not started";
             case WITHDRAWN -> "Withdrawn";
             case UNSUPPORTED -> "Not eligible";
-            case STOPPED -> "Failed";
+            case STOPPED -> view.needsAnswer() ? NEEDS_ANSWER : "Failed";
             case UNCERTAIN, PROCESSING_PAUSED -> "Needs inspection";
             case PR_READY -> view.draftReasons() == null ? "PR ready" : "Draft PR";
             case WORKING -> queued(view) ? "Queued" : "In progress";
@@ -45,7 +46,7 @@ final class TaskLabels {
             case RESERVED -> "Queued";
             case QUEUED, RUNNING -> "In progress";
             case PR_READY -> attempt.draftReasons() == null ? "PR ready" : "Draft PR";
-            case STOPPED -> "Failed";
+            case STOPPED -> attempt.asked() ? "Asked a question" : "Failed";
             case NEEDS_INSPECTION -> "Needs inspection";
             case WITHDRAWN -> "Withdrawn";
         };
@@ -69,7 +70,7 @@ final class TaskLabels {
         return switch (label) {
             case "PR ready" -> "chip chip-success";
             case "Failed" -> "chip chip-danger";
-            case "Needs inspection" -> "chip chip-warning";
+            case "Needs inspection", NEEDS_ANSWER, "Asked a question" -> "chip chip-warning";
             case "In progress" -> "chip chip-info";
             default -> "chip chip-neutral";
         };
@@ -81,6 +82,7 @@ final class TaskLabels {
                     view.stageStartedAt() == null ? null
                             : minutes(Duration.between(view.stageStartedAt(), Instant.now()).getSeconds()));
             case PR_READY -> null;
+            case STOPPED -> view.needsAnswer() ? null : failureText(view.reason());
             case UNCERTAIN, PROCESSING_PAUSED -> "outcome not confirmed";
             default -> failureText(view.reason());
         };

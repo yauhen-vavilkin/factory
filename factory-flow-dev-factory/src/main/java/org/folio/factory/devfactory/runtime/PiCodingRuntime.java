@@ -181,6 +181,7 @@ public class PiCodingRuntime implements CodingRuntime {
                                 redact(decision.question()),
                                 decision.options().stream().map(this::redact).toList(),
                                 redact(decision.evidence())),
+                        redact(outcome.summary()),
                         outcome.metrics());
             }
             case FAILED ->

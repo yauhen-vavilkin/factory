@@ -16,11 +16,22 @@ public final class TaskStops {
     public static final String DEADLINE_STATE = "DEADLINE_EXCEEDED";
     /** Uncertain ownership or cleanup; the attempt must be inspected, not retried blindly. */
     public static final String INSPECTION_STATE = "NEEDS_INSPECTION";
+    /** Start of the stop reason when the coding agent asked a question in a task run. */
+    public static final String DECISION_REASON = "coding requested a human decision: ";
     /** Fixed operator-guidance suffix of the flow's shared environment failures. */
     public static final String SHARED_ENVIRONMENT_MARKER = "check Developer Flow configuration";
     /** Coding-runtime failure codes that indicate a shared provider or runtime outage. */
     public static final Set<String> SHARED_PROVIDER_FAILURE_CODES =
             Set.of("PROVIDER_FAILED", "RUNTIME_ERROR", "RUNTIME_VERSION");
+
+    /** True when the recorded stop reason, "stage: reason", is the agent's question. */
+    public static boolean asksForAnswer(String reason) {
+        if (reason == null) {
+            return false;
+        }
+        var separator = reason.indexOf(": ");
+        return separator > 0 && reason.startsWith(DECISION_REASON, separator + 2);
+    }
 
     /** True when the recorded failure looks like one shared provider/auth/environment outage. */
     public static boolean sharedFailure(String reason, String codingFailureCode) {

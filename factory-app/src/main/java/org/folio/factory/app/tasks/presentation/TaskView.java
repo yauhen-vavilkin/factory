@@ -1,5 +1,6 @@
 package org.folio.factory.app.tasks.presentation;
 
+import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 
 import java.time.Instant;
@@ -37,6 +38,11 @@ public record TaskView(
         TaskUsage usage,
         AllowedActions allowedActions) {
 
+    /** The last attempt stopped because the agent asked a question. */
+    public boolean needsAnswer() {
+        return state == TaskState.STOPPED && TaskStops.asksForAnswer(reason);
+    }
+
     /**
      * Distinct current meanings: not yet delegated, pulled before start,
      * unroutable, work in flight, finished unsuccessfully, held with an
@@ -63,6 +69,11 @@ public record TaskView(
             long activeSeconds,
             TaskUsage usage,
             String runSettings) {
+
+        /** This attempt stopped because the agent asked a question. */
+        public boolean asked() {
+            return state == TaskAttempt.State.STOPPED && TaskStops.asksForAnswer(reason);
+        }
     }
 
     /**

@@ -552,6 +552,17 @@ class ClaudeCodeCodingRuntimeTest {
     }
 
     @Test
+    void theReportBeforeADecisionIsRedacted() {
+        String answer = "I looked at secret-key in the config.\n\nFACTORY_DECISION_REQUIRED: "
+                + "{\"kind\":\"PRODUCT_REQUIREMENTS\",\"question\":\"Which API?\",\"options\":[],\"evidence\":\"Both\"}";
+        String result = JSON.writeValueAsString(Map.of("type", "result", "subtype", "success",
+                "is_error", false, "result", answer));
+        var outcome = parse(INIT + result, 0);
+        assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
+        assertThat(outcome.summary()).isEqualTo("I looked at [REDACTED] in the config.");
+    }
+
+    @Test
     void cacheTtlCountersSurviveTerminalReplacementWithoutDoubleCounting() {
         ObjectNode terminalResult = resultWithCacheTtl(1L, 1L);
         var protocol = new ClaudeCodeProtocol("custom/Model-1", 0, text -> text, event -> {}, CodingTranscripts.NONE);

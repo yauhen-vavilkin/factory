@@ -8,6 +8,7 @@ import org.folio.factory.core.registry.model.HitlGateSpec;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.decision.ConditionalDecisionGate;
 import org.folio.factory.devfactory.tasks.TaskGuard;
+import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -40,6 +41,6 @@ public class CodingDecisionGateWorker implements AgentWorker {
         CodingOutcome outcome = json.readValue(context.requireInput(DevelopWorker.OUTCOME).content(),
                 CodingOutcome.class);
         return DecisionGates.openOrStop(context, gate, GATE, outcome.status() == CodingOutcome.Status.NEEDS_DECISION,
-                () -> "coding requested a human decision: " + outcome.decision().question(), taskGuard);
+                () -> TaskStops.DECISION_REASON + outcome.decision().question(), taskGuard);
     }
 }

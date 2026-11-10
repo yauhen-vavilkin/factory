@@ -83,6 +83,9 @@ public final class RunRows {
         if (latest.state() == TaskAttempt.State.NEEDS_INSPECTION) {
             return RunAction.MARK_STOPPED;
         }
+        if (view.needsAnswer() && view.allowedActions().retry()) {
+            return RunAction.ANSWER;
+        }
         if (view.allowedActions().retry()) {
             return RunAction.RETRY;
         }

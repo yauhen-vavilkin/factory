@@ -1,5 +1,6 @@
 package org.folio.factory.app.tasks;
 
+import org.folio.factory.devfactory.tasks.TaskStops;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.support.DevFlowHarness;
@@ -540,6 +541,7 @@ class TaskEndToEndTest {
         List<TaskAttempt> history = attempts.findByTaskIdOrderByOrdinalAsc(taskId("8102"));
         assertThat(history).hasSize(2);
         assertThat(history.get(1).getResultReason()).contains("Which acceptance criterion defines the limit?");
+        assertThat(TaskStops.asksForAnswer(history.get(1).getResultReason())).isTrue();
         assertThat(executions.count()).isEqualTo(6);
         assertThat(jiraStayedReadOnly()).isTrue();
     }

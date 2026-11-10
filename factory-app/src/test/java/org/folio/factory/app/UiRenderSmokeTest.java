@@ -1,5 +1,6 @@
 package org.folio.factory.app;
 
+import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.developer.ModelChecks;
@@ -1017,6 +1018,23 @@ class UiRenderSmokeTest {
                         "Sprint", "run-by-key", "Max turns", "name=\"maxTurns\"");
         assertThat(body).doesNotContain(ZAI_KEY, PROXY_TOKEN, "not configured)");
         assertThat(rest.get().uri("/tasks").retrieve().toEntity(String.class).getBody()).contains("Ready to run");
+    }
+
+    @Test
+    void myTasksShowsARunThatAskedAsNeedsYourAnswerWithAnswer() {
+        resetTaskData();
+        Task asked = seedTask("70020", "MODBAR-720", "Asking task", Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(asked, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
+                "clarify-implementation: " + TaskStops.DECISION_REASON + "Which API should change?");
+
+        String body = assertRendered("/flows/dev-factory", "Runs");
+
+        String runs = body.substring(body.indexOf("id=\"triggered-title\""));
+        assertThat(runs)
+                .contains("<span class=\"chip chip-warning\">Needs your answer</span>")
+                .containsPattern("href=\"/tasks/" + asked.getId() + "#answer\"\\s+aria-label=\"Answer MODBAR-720\""
+                        + "\\s*>Answer</a>")
+                .doesNotContain("Which API should change?", ">Retry</a>");
     }
 
     @Test

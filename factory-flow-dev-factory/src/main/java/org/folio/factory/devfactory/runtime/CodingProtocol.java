@@ -12,6 +12,7 @@ final class CodingProtocol {
     private static final JsonMapper JSON = JsonMapper.builder()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
     private static final String DECISION_PREFIX = "FACTORY_DECISION_REQUIRED:";
+    private static final int MAX_SUMMARY = 8000;
     private static final String TASK_RULES = """
         Implement this task in /workspace, completing it in one session.
         Keep changes focused. Do not push, perform Jira/GitHub writes, switch repositories, alter .git, or \
@@ -60,19 +61,37 @@ final class CodingProtocol {
     }
 
     static CodingOutcome answer(String summary, Map<String, Object> metrics, String runtime) {
-        var normalized = summary.stripLeading();
-        if (!normalized.startsWith(DECISION_PREFIX)) {
-            return CodingOutcome.completed(summary.substring(0, Math.min(8000, summary.length())), metrics);
+        var marker = decisionLine(summary);
+        if (marker < 0) {
+            return CodingOutcome.completed(bounded(summary), metrics);
         }
-        var detail = normalized.substring(DECISION_PREFIX.length()).strip();
+        var detail = summary.substring(marker).strip().substring(DECISION_PREFIX.length()).strip();
         if (detail.contains("\n") || detail.contains("\r")) {
             return invalidDecision(runtime, metrics);
         }
         try {
-            return CodingOutcome.needsDecision(decision(JSON.readTree(detail)), metrics);
+            var before = bounded(summary.substring(0, marker).strip());
+            return CodingOutcome.needsDecision(decision(JSON.readTree(detail)), before, metrics);
         } catch (RuntimeException e) {
             return invalidDecision(runtime, metrics);
         }
+    }
+
+    /** Models often write a report before the marker line, so the marker counts at the start of any line. */
+    private static int decisionLine(String summary) {
+        var lineStart = 0;
+        for (var line : summary.split("\n", -1)) {
+            var indent = line.length() - line.stripLeading().length();
+            if (line.stripLeading().startsWith(DECISION_PREFIX)) {
+                return lineStart + indent;
+            }
+            lineStart += line.length() + 1;
+        }
+        return -1;
+    }
+
+    private static String bounded(String text) {
+        return text.substring(0, Math.min(MAX_SUMMARY, text.length()));
     }
 
     private static CodingOutcome.Decision decision(JsonNode decision) {

@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.admission.TaskRunSettings;
@@ -252,6 +253,28 @@ class TaskUiControllerTest {
                 .containsEntry("detail", null)
                 .containsEntry("action", RunAction.OPEN_RUN)
                 .containsEntry("actionUrl", "/executions/" + EXECUTION_ID);
+    }
+
+    @Test
+    void myTasks_aRunThatAskedNeedsYourAnswerAndOffersAnswer() throws Exception {
+        var reason = "clarify-implementation: " + TaskStops.DECISION_REASON + "Which API should change?";
+        var stopped = taskView(TASK_ID, "MODBAR-941", "Open", TaskView.TaskState.STOPPED, false, true,
+                attempt("STOPPED", "MANUAL"));
+        TaskView asked = new TaskView(stopped.taskId(), stopped.displayKey(), stopped.jiraUrl(), stopped.title(),
+                stopped.projectKey(), stopped.jiraStatus(), stopped.state(), null, reason,
+                "clarify-implementation", null, stopped.destinationRepository(), null, null, true, false,
+                stopped.version(), stopped.inputFingerprint(), stopped.destinationFingerprint(),
+                stopped.attempts(), stopped.usage(), stopped.allowedActions());
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), asked));
+
+        Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
+
+        assertThat(rows(model, "triggered").getFirst())
+                .containsEntry("chipLabel", "Needs your answer")
+                .containsEntry("chipClass", "chip chip-warning")
+                .containsEntry("detail", null)
+                .containsEntry("action", RunAction.ANSWER)
+                .containsEntry("actionUrl", "/tasks/" + TASK_ID + "#answer");
     }
 
     @Test

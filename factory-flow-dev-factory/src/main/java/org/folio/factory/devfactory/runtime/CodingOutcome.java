@@ -26,7 +26,12 @@ public record CodingOutcome(Status status, String summary, Decision decision, Fa
     }
 
     public static CodingOutcome needsDecision(Decision decision, Map<String, Object> metrics) {
-        return new CodingOutcome(Status.NEEDS_DECISION, "", decision, null, metrics);
+        return needsDecision(decision, "", metrics);
+    }
+
+    /** {@code textBefore} is what the agent wrote before its question; the next attempt gets it back. */
+    public static CodingOutcome needsDecision(Decision decision, String textBefore, Map<String, Object> metrics) {
+        return new CodingOutcome(Status.NEEDS_DECISION, textBefore, decision, null, metrics);
     }
 
     public static CodingOutcome failed(String code, String message, Map<String, Object> metrics) {
