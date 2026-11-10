@@ -111,17 +111,22 @@
   }
 
   // A red chip opens the dialog that says how to fix its task; without a script it links to the task page.
-  // Run counts the checked tasks: "Run 2 tasks", disabled while none is checked.
+  // A selection button counts the checked boxes: "Run 2 tasks", "Fix 1 comment", disabled while none is checked.
+  // The form names its checkbox field in data-selection, and the button's verb and noun.
   function initTaskSelection() {
-    var form = document.querySelector('[data-task-selection]');
-    if (!form) return;
-    var boxes = Array.prototype.slice.call(form.querySelectorAll('input[name="taskId"]'));
-    var runButton = form.querySelector('[data-run-selected]');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-selection]'), initSelection);
+  }
+
+  function initSelection(form) {
+    var boxes = Array.prototype.slice.call(form.querySelectorAll('input[name="' + form.getAttribute('data-selection') + '"]'));
+    var button = form.querySelector('[data-run-selected]');
+    var verb = form.getAttribute('data-selection-verb') || 'Run';
+    var noun = form.getAttribute('data-selection-noun') || 'task';
     function refresh() {
       var checked = boxes.filter(function (b) { return b.checked; }).length;
-      if (!runButton) return;
-      runButton.textContent = checked ? 'Run ' + checked + (checked === 1 ? ' task' : ' tasks') : 'Run';
-      runButton.disabled = checked === 0;
+      if (!button) return;
+      button.textContent = checked ? verb + ' ' + checked + ' ' + noun + (checked === 1 ? '' : 's') : verb;
+      button.disabled = checked === 0;
     }
     boxes.forEach(function (b) { b.addEventListener('change', refresh); });
     refresh();

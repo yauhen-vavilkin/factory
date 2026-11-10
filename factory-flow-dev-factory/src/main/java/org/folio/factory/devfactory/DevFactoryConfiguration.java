@@ -29,7 +29,9 @@ import org.folio.factory.devfactory.feedback.FeedbackGit;
 import org.folio.factory.devfactory.feedback.FeedbackPrMonitor;
 import org.folio.factory.devfactory.feedback.FeedbackServices;
 import org.folio.factory.devfactory.feedback.FeedbackWorker;
+import org.folio.factory.devfactory.feedback.GitHubPrCommentWriter;
 import org.folio.factory.devfactory.feedback.GitHubPrFeedbackGateway;
+import org.folio.factory.devfactory.feedback.PrCommentWriter;
 import org.folio.factory.devfactory.feedback.PrFeedbackGateway;
 import org.folio.factory.devfactory.repository.BaseRefResolver;
 import org.folio.factory.devfactory.repository.GitBaseRefResolver;
@@ -228,6 +230,11 @@ public class DevFactoryConfiguration {
     }
 
     @Bean
+    public PrCommentWriter prCommentWriter(GitHubProperties properties, RestClient.Builder builder) {
+        return new GitHubPrCommentWriter(properties, builder);
+    }
+
+    @Bean
     public FeedbackGit feedbackGit(CandidateFreezer freezer) {
         return new FeedbackGit(freezer);
     }
@@ -277,8 +284,9 @@ public class DevFactoryConfiguration {
     }
 
     @Bean
-    public FeedbackServices feedbackServices(PrFeedbackGateway gateway, FeedbackGit git, GitHubProperties github) {
-        return new FeedbackServices(gateway, git, github);
+    public FeedbackServices feedbackServices(PrFeedbackGateway gateway, FeedbackGit git, GitHubProperties github,
+            PrCommentWriter comments) {
+        return new FeedbackServices(gateway, git, github, comments);
     }
 
     @Bean

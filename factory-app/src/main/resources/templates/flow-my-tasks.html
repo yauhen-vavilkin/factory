@@ -39,7 +39,7 @@
         <p class="dev-problem" th:if="${source.problem() != null}"
            th:text="'Last scan failed: ' + ${source.problem()}"></p>
 
-        <form method="post" th:action="@{/tasks/run-selected}" data-task-selection>
+        <form method="post" th:action="@{/tasks/run-selected}" data-selection="taskId">
             <div class="dev-row" th:each="row : ${available}">
                 <input type="checkbox" class="task-check" name="taskId" th:value="${row.taskId()}"
                        th:attr="aria-label='Select ' + ${row.key()}">

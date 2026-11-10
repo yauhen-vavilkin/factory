@@ -55,7 +55,7 @@ class FeedbackDockerTest {
         var state=mock(StateManager.class);when(state.get(id)).thenReturn(new PipelineExecution("dev-factory",VERSION,null));
         var audit=mock(AuditLog.class);when(audit.forExecution(id)).thenReturn(List.of());
         var worker=new FeedbackWorker(new DevFlowSettings(repositories, runtime), new CodingServices(coding, docker, freezer),
-                new FeedbackServices(gateway, new FeedbackGit(freezer), new GitHubProperties("","")), new CandidateVerifier(repositories,runtime,freezer,docker), state, audit,
+                new FeedbackServices(gateway, new FeedbackGit(freezer), new GitHubProperties("",""), mock(PrCommentWriter.class)), new CandidateVerifier(repositories,runtime,freezer,docker), state, audit,
                 new DevFactoryHooks(TaskAttemptPolicy.none(), (modelId,model)->Map.of(), CodingTranscripts.none(), SelectedRepositoryPreflight.none()));
         var settings=new CodingRequest.RunSettings("glm-5.3","max","Keep the public API.");
         var request=new CodingRequest("TEST-1","Correct value","Original task",List.of(),List.of(),List.of(),List.of(),new CodingRequest.RepositoryTarget("fixture","upstream/repo","main",base),null,settings);

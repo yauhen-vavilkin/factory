@@ -75,6 +75,7 @@ class PrFeedbackIntegrationTest {
     @Autowired org.folio.factory.app.developer.CodingTranscriptStore transcripts;
     @LocalServerPort int port;
     @MockitoBean PrFeedbackGateway gateway;
+    @MockitoBean PrCommentWriter commentWriter;
     @MockitoBean DockerWorkloads docker;
     @MockitoBean CodingRuntime coding;
     @MockitoBean CandidateVerifier verifier;
@@ -179,13 +180,51 @@ class PrFeedbackIntegrationTest {
         assertThat(transcript.getLast().detail().path("text").asString()).isEqualTo("Feedback round 12");
         assertThat(git(bare,"for-each-ref","--format=%(refname)","refs/heads").lines()).containsExactly("refs/heads/"+branch);
         var html=RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class);
-        assertThat(html).contains("Round 1","Round 12","$0.01 so far"," active</span>","fixture-model","second-fixture-model","Work on feedback");
+        assertThat(html).contains("Round 1","Round 12","$0.01 so far"," active</span>","fixture-model","second-fixture-model","Rounds","Waiting for your review");
         assertThat(html).doesNotContain("Download current patch", "Download diagnostics", "Rate-card estimate", "Finish task");
         assertThatThrownBy(()->action(FINISH)).isInstanceOf(IllegalArgumentException.class);
         merged=true; actions.reconcilePr(id); drive(); assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
-        assertThat(view().state().summary()).contains("Verified changes published");
+        // The round keeps the agent's own summary.
+        assertThat(view().state().summary()).isEqualTo("Corrected selected feedback");
         assertThat(view().state().taskSummary()).isEqualTo("PR merged");
         assertThat(view().state().completionReason()).isEqualTo("MERGED");
+    }
+    @Test void aPublishedRoundCommentsOnThePullRequestOnceWithTheCommitAndTheAgentsSummary() {
+        when(commentWriter.configured()).thenReturn(true);
+        when(commentWriter.post(any(),anyString())).thenReturn("https://github.com/fork/repo/pull/7#issuecomment-1");
+        // The comment goes to GitHub only through the runtime's redaction.
+        when(coding.redact(anyString())).thenAnswer(i->i.<String>getArgument(0).replace("Corrected","[REDACTED]"));
+        startRound();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
+        var body=org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(commentWriter).post(argThat(pr->pr.number()==7&&pr.repository().equals("fork/repo")),body.capture());
+        assertThat(body.getValue()).startsWith("<!-- factory-round "+id+" 1 -->")
+                .contains("Factory round 1: pushed "+view().state().commitSha(),"[REDACTED] selected feedback")
+                .doesNotContain("Corrected");
+        assertThat(roundComments(AuditEventType.CONNECTOR_ACTION)).singleElement().asString()
+                .contains("\"commentUrl\": \"https://github.com/fork/repo/pull/7#issuecomment-1\"","\"round\": 1");
+        var html=RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class);
+        assertThat(html).contains("href=\"https://github.com/fork/repo/pull/7#issuecomment-1\">Factory's comment on the PR</a>");
+    }
+    @Test void aFailedPullRequestCommentDoesNotFailTheRound() {
+        when(commentWriter.configured()).thenReturn(true);
+        when(commentWriter.post(any(),anyString())).thenThrow(new IllegalStateException("500 Internal Server Error"));
+        startRound();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
+        assertThat(view().state().commitSha()).isEqualTo(pr().headSha());
+        assertThat(roundComments(AuditEventType.CONNECTOR_ACTION)).singleElement().asString()
+                .contains("Factory could not comment on the pull request: 500 Internal Server Error").doesNotContain("commentUrl");
+    }
+    @Test void withoutAGitHubTokenTheRoundSkipsItsComment() {
+        startRound();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
+        verify(commentWriter,never()).post(any(),anyString());
+        assertThat(roundComments(AuditEventType.CONNECTOR_SKIPPED)).singleElement().asString()
+                .contains("GitHub token is not set");
+    }
+    List<String> roundComments(AuditEventType type) {
+        return audit.forExecution(id).stream().filter(e->e.getEventType()==type).map(AuditEvent::getDetail)
+                .filter(d->d.contains("pr-round-comment")).toList();
     }
     @Test void aRequestStoredBeforeTheModelsFileStillGetsItsFeedbackRun() {
         // Runs before 2026-11-03 stored the old env-default profile and a turn limit in their request.

@@ -66,7 +66,7 @@ public class GitHubPrFeedbackGateway implements PrFeedbackGateway {
             if (!nodes.isArray()) throw new IllegalStateException("Invalid GitHub comments response");
             for (var n : nodes) {
                 String body = n.path("body").asString("");
-                if (body.isBlank()) continue;
+                if (body.isBlank() || body.stripLeading().startsWith(RoundComment.MARKER)) continue;
                 result.add(new Comment(kind + ":" + n.path("id").asString(""),
                         n.path("user").path("login").asString(""),
                         body, n.path("path").asString(""), n.path("line").isNumber() ? n.path("line").asInt() : null,

@@ -1100,29 +1100,36 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   .developer-live-grid { grid-template-columns: 1fr; }
   .developer-recent li,
   .developer-history li { grid-template-columns: 1fr; gap: 0.0625rem; }
-  .feedback-round-content { padding: 1rem; }
-  .feedback-toolbar .btn { white-space: normal; }
 }
 
-/* PR rounds extend the existing Developer Flow panels. */
-.feedback-content { display: grid; gap: 1.25rem; }
-.feedback-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }
-.feedback-toolbar form { margin: 0; }
-.feedback-selection, .feedback-answer { display: grid; gap: 1rem; }
-.feedback-comment { display: grid; grid-template-columns: 1.2rem minmax(0, 1fr); align-items: start; gap: .8rem; padding: 1rem; border: 1px solid hsl(var(--border)); border-radius: .5rem; cursor: pointer; }
-.feedback-comment input { margin-top: .3rem; }
-.feedback-comment-meta { display: flex; flex-wrap: wrap; gap: .5rem; color: hsl(var(--muted-foreground)); font-size: .8rem; }
-.feedback-comment-body { display: block; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: .6rem; }
-.feedback-rounds { display: grid; gap: 1rem; }
-.feedback-round { border: 1px solid hsl(var(--border)); border-radius: .65rem; overflow: hidden; }
-.feedback-round > summary { display: flex; flex-wrap: wrap; gap: .85rem; padding: 1rem 1.25rem; cursor: pointer; background: hsl(var(--muted) / .3); }
-.feedback-round-content { display: grid; gap: 1rem; padding: 1.25rem; }
-.feedback-selected + .feedback-selected { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid hsl(var(--border)); }
-.feedback-selected p { white-space: pre-wrap; overflow-wrap: anywhere; margin: .4rem 0 0; }
-.feedback-sha { overflow-wrap: anywhere; font-family: monospace; font-size: .8rem; }
-.feedback-answer textarea { width: 100%; padding: .75rem; }
-
-.feedback-diagnostics { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto; }
+/* PR feedback on the run page: new comments and rounds are plain rows, like My tasks. */
+.feedback-section { display: flex; flex-direction: column; gap: 22px; }
+.feedback-reason { font-size: 13px; }
+.feedback-comment { align-items: flex-start; cursor: pointer; }
+.feedback-comment .task-check { margin-top: 3px; }
+.feedback-comment-body { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+.feedback-location { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.feedback-round { align-items: flex-start; }
+.feedback-round-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.feedback-round-summary { margin-top: 8px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.feedback-round-link { display: inline-flex; margin-top: 6px; font-size: 12px; }
+.feedback-round-details { margin-top: 8px; font-size: 13px; }
+.feedback-round-details[open] { display: flex; flex-direction: column; gap: 10px; }
+.feedback-round-details > summary { align-self: flex-start; }
+.feedback-selected p { white-space: pre-wrap; overflow-wrap: anywhere; margin: .25rem 0 0; }
+.feedback-sha { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.feedback-actions { display: flex; flex-direction: column; gap: 10px; }
+.feedback-actions form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; }
+.feedback-diagnostics {
+  max-height: 14rem;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 
 /* ---------- Developer Flow lists: rows with thin lines, no frame, no header row ---------- */
 .dev-list { display: flex; flex-direction: column; }
@@ -1239,3 +1246,6 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .answer-options input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: hsl(var(--primary)); }
 .attempt-title { font-weight: 600; }
 .attempt-cost { min-width: 60px; text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* The run page with a pull request closes Activity and usage into one disclosure. */
+.run-disclosure[open] > .run-panels { margin-top: 12px; }

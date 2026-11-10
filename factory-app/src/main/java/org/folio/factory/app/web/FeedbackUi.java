@@ -9,11 +9,9 @@ import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.devfactory.feedback.FeedbackActions;
 import org.folio.factory.devfactory.feedback.FeedbackState;
-import org.folio.factory.devfactory.feedback.PrFeedbackGateway;
 import org.springframework.stereotype.Component;
 import org.springframework.ui.Model;
 
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -26,6 +24,8 @@ import java.util.TreeMap;
 @Component
 @RequiredArgsConstructor
 public class FeedbackUi {
+    private static final String MANUAL_NOTE = "Runs the tests on commits you pushed to the PR branch yourself.";
+
     private final FeedbackActions actions;
 
     public void populate(
@@ -44,8 +44,9 @@ public class FeedbackUi {
 
         var history = History.from(artifacts);
         var data = feedbackControls(view);
-        data.put("comments", comments(view.snapshot(), history.processed()));
-        data.put("rounds", roundCards(history.rounds(), projection, live));
+        data.put("comments", FeedbackRows.newComments(view.snapshot(), history.processed()));
+        data.put("rounds", FeedbackRows.rounds(history.rounds(),
+                new FeedbackRows.RoundFacts(projection, live, FeedbackRows.commentUrls(events))));
         model.addAttribute("feedback", data);
     }
 
@@ -84,67 +85,10 @@ public class FeedbackUi {
         data.put("actions", view.actions().stream()
                 .filter(action -> action != FeedbackActions.Action.FIX
                         && action != FeedbackActions.Action.ANSWER)
-                .map(action -> Map.of("value", action.name(), "label", actionLabel(action)))
+                .map(action -> Map.of("value", action.name(), "label", actionLabel(action),
+                        "note", action == FeedbackActions.Action.MANUAL_CONTINUE ? MANUAL_NOTE : ""))
                 .toList());
         return data;
-    }
-
-    private static List<Map<String, Object>> comments(
-            PrFeedbackGateway.Snapshot snapshot, Set<String> processed) {
-        if (snapshot == null) return List.of();
-        var comments = new ArrayList<Map<String, Object>>();
-        for (var comment : snapshot.comments()) {
-            var row = new LinkedHashMap<String, Object>();
-            row.put("id", comment.id());
-            row.put("author", comment.author());
-            row.put("body", comment.body());
-            row.put("location", comment.path().isBlank() ? "PR discussion"
-                    : comment.path() + (comment.line() == null ? "" : ":" + comment.line()));
-            row.put("outdated", comment.outdated());
-            row.put("processed", processed.contains(comment.id()));
-            comments.add(row);
-        }
-        return comments;
-    }
-
-    private static List<Map<String, Object>> roundCards(
-            TreeMap<Integer, FeedbackState> rounds,
-            AttemptUsageSummary.Projection projection,
-            boolean live) {
-        var cards = new ArrayList<Map<String, Object>>();
-        int correction = 0;
-        int manual = 0;
-        for (var entry : rounds.entrySet()) {
-            var state = entry.getValue();
-            var card = new LinkedHashMap<String, Object>();
-            card.put("open", entry.getKey().equals(rounds.lastKey()));
-            card.put("title", state.manual()
-                    ? "Manual verification " + (++manual) : "Round " + (++correction));
-            card.put("manual", state.manual());
-            card.put("phase", roundPhase(state));
-            card.put("summary", state.summary());
-            card.put("reason", state.reason());
-            card.put("commit", state.commitSha());
-            card.put("selected", selectedComments(state));
-            card.put("usage", projection.summary(entry.getKey(), live));
-            card.put("runtime", state.runtimeName());
-            card.put("verification", state.verification());
-            card.put("activity", projection.activity(entry.getKey()));
-            cards.add(card);
-        }
-        return cards;
-    }
-
-    private static List<Map<String, String>> selectedComments(FeedbackState state) {
-        return state.selected().stream()
-                .map(comment -> Map.of("author", comment.author(), "body", comment.body()))
-                .toList();
-    }
-
-    private static String roundPhase(FeedbackState state) {
-        if (state.phase() != FeedbackState.Phase.READY) return label(state.phase());
-        if (!state.commitSha().isBlank()) return "Changes published";
-        return state.manual() ? "Manual changes verified" : "No changes needed";
     }
 
     private record History(Set<String> processed, TreeMap<Integer, FeedbackState> rounds) {
@@ -191,7 +135,7 @@ public class FeedbackUi {
 
     static String label(FeedbackState.Phase p) {
         return switch (p) {
-            case READY -> "Awaiting PR feedback";
+            case READY -> "Waiting for your review";
             case PREPARE -> "Preparing selected feedback";
             case CODE -> "Implementing corrections";
             case VERIFY -> "Running independent checks";

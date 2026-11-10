@@ -65,40 +65,57 @@ test('a picked effort holds the live reload and shows the notice instead', async
   assert.equal(notice.hidden, false);
 });
 
-test('Run counts the checked tasks and is disabled while none is checked', () => {
+function selectionForm(field, attributes, count) {
   function box(checked) {
     const listeners = {};
     return { checked, addEventListener: (event, callback) => { listeners[event] = callback; },
       fire: event => listeners[event]() };
   }
-  const boxes = [box(false), box(false), box(false)];
-  const runButton = { textContent: 'Run', disabled: false };
+  const boxes = Array.from({ length: count }, () => box(false));
+  const button = { textContent: '', disabled: false };
   const form = {
-    querySelectorAll: selector => selector === 'input[name="taskId"]' ? boxes : [],
-    querySelector: selector => selector === '[data-run-selected]' ? runButton : null
+    getAttribute: key => key === 'data-selection' ? field : (attributes[key] === undefined ? null : attributes[key]),
+    querySelectorAll: selector => selector === 'input[name="' + field + '"]' ? boxes : [],
+    querySelector: selector => selector === '[data-run-selected]' ? button : null
   };
   let ready;
   vm.runInNewContext(POLL_JS, {
     window: {},
     document: {
       addEventListener: (event, callback) => { ready = callback; },
-      querySelector: selector => selector === '[data-task-selection]' ? form : null,
-      querySelectorAll: () => []
+      querySelector: () => null,
+      querySelectorAll: selector => selector === '[data-selection]' ? [form] : []
     }
   });
   ready();
+  return { boxes, button };
+}
 
-  assert.equal(runButton.textContent, 'Run');
-  assert.equal(runButton.disabled, true);
+test('Run counts the checked tasks and is disabled while none is checked', () => {
+  const { boxes, button } = selectionForm('taskId', {}, 3);
+
+  assert.equal(button.textContent, 'Run');
+  assert.equal(button.disabled, true);
 
   boxes[0].checked = true;
   boxes[0].fire('change');
-  assert.equal(runButton.textContent, 'Run 1 task');
-  assert.equal(runButton.disabled, false);
+  assert.equal(button.textContent, 'Run 1 task');
+  assert.equal(button.disabled, false);
 
   boxes[2].checked = true;
   boxes[2].fire('change');
-  assert.equal(runButton.textContent, 'Run 2 tasks');
+  assert.equal(button.textContent, 'Run 2 tasks');
+});
+
+test('Fix counts the checked PR comments', () => {
+  const { boxes, button } = selectionForm('selectedIds',
+    { 'data-selection-verb': 'Fix', 'data-selection-noun': 'comment' }, 2);
+  assert.equal(button.textContent, 'Fix');
+  assert.equal(button.disabled, true);
+
+  boxes.forEach(b => { b.checked = true; b.fire('change'); });
+  assert.equal(button.textContent, 'Fix 2 comments');
+  assert.equal(button.disabled, false);
 });
 
 test('Effort offers the chosen model levels and a model change keeps only a level the developer picked', () => {

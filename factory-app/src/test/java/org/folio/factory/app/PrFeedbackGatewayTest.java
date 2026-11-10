@@ -28,6 +28,25 @@ class PrFeedbackGatewayTest {
         assertThat(gateway.comments(pr).id()).isNotEqualTo(snapshot.id());
         server.verify(0,postRequestedFor(anyUrl()));
     }
+    @Test void factorysOwnRoundCommentIsNotOfferedAsFeedback() {
+        stub("/repos/fork/repo/issues/7/comments?per_page=100&page=1","["+comment(1,"<!-- factory-round x 1 -->\\nFactory round 1")+","+comment(2,"Please rename")+"]");
+        stub("/repos/fork/repo/pulls/7/reviews?per_page=100&page=1","[]");
+        stub("/repos/fork/repo/pulls/7/comments?per_page=100&page=1","[]");
+        assertThat(gateway.comments(gateway.read("fork/repo",7)).comments()).extracting(PrFeedbackGateway.Comment::id)
+                .containsExactly("issue:2");
+    }
+    @Test void theRoundCommentIsPostedOnThePullRequest() {
+        server.stubFor(post(urlEqualTo("/repos/fork/repo/issues/7/comments"))
+                .willReturn(okJson("{\"html_url\":\"https://github.com/fork/repo/pull/7#issuecomment-9\"}")));
+        var writer=new GitHubPrCommentWriter(new GitHubProperties(server.baseUrl(),"fixture-token"),RestClient.builder());
+        var pr=new PrFeedbackGateway.PullRequest("fork/repo",7,"feedback","main",sha,"",true);
+        assertThat(writer.configured()).isTrue();
+        assertThat(writer.post(pr,"Factory round 1")).isEqualTo("https://github.com/fork/repo/pull/7#issuecomment-9");
+        server.verify(postRequestedFor(urlEqualTo("/repos/fork/repo/issues/7/comments"))
+                .withHeader("Authorization",equalTo("Bearer fixture-token"))
+                .withRequestBody(matchingJsonPath("$.body",equalTo("Factory round 1"))));
+        assertThat(new GitHubPrCommentWriter(new GitHubProperties(server.baseUrl(),""),RestClient.builder()).configured()).isFalse();
+    }
     @Test void rejectsDifferentForkAndIdentifiesClosedOrMergedPr() {
         stub("/repos/fork/repo/pulls/7",pr("other/repo","open",false));
         assertThatThrownBy(()->gateway.read("fork/repo",7)).hasMessageContaining("authorized delivery target");

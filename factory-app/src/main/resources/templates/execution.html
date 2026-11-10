@@ -51,8 +51,8 @@
                 </th:block>
                 <span><span th:attr="data-elapsed-start=${factoryTimeStart}" th:text="${factoryTime}">0s</span> active</span>
                 <span th:if="${#strings.isEmpty(developer['pullRequestUrl'])}">PR not created yet</span>
-                <a class="dev-link" th:unless="${#strings.isEmpty(developer['pullRequestUrl'])}" th:href="${developer['pullRequestUrl']}"
-                   th:text="(${developer['pullRequestDraft']} ? 'Draft pull request' : 'Pull request') + (${#strings.contains(developer['pullRequestUrl'], '/pull/')} ? ' #' + ${#strings.substringAfter(developer['pullRequestUrl'], '/pull/')} : '')">Pull request</a>
+                <a class="chip chip-neutral ext-link" th:unless="${#strings.isEmpty(developer['pullRequestUrl'])}" th:href="${developer['pullRequestUrl']}"
+                   th:text="(${developer['pullRequestDraft']} ? 'Draft PR' : 'PR') + (${#strings.contains(developer['pullRequestUrl'], '/pull/')} ? ' #' + ${#strings.substringAfter(developer['pullRequestUrl'], '/pull/')} : '')">PR</a>
             </div>
             <div class="result-actions" th:if="${pendingReview != null and feedback == null}">
                 <a class="btn btn-primary btn-md btn-roomy" th:href="@{'/reviews/' + ${pendingReview.id}}">Open review</a>
@@ -73,68 +73,11 @@
 
         <th:block th:if="${feedback != null}"><th:block th:replace="~{fragments/pr-feedback :: feedback}"></th:block></th:block>
 
-        <div class="run-panels">
-            <section class="run-panel run-activity" aria-labelledby="activity-title">
-                <div class="run-panel-head">
-                    <h2 class="dev-section-title" id="activity-title">Activity</h2>
-                    <span>Runtime log, oldest first · last 20 events · <a
-                            th:href="@{'/executions/' + ${execution.id} + '/transcript'}">Transcript</a> · <a
-                            th:href="@{/audit(executionId=${execution.id})}">Audit events</a></span>
-                </div>
-                <p class="run-log-empty" th:if="${#lists.isEmpty(developer['activity'])}">No activity reported yet.</p>
-                <div class="run-log" tabindex="0" role="region" aria-label="Runtime activity, oldest first"
-                     th:unless="${#lists.isEmpty(developer['activity'])}">
-                    <ol>
-                        <li th:each="activity : ${developer['activity']}">
-                            <time th:title="${activity['timeTitle']}" th:text="${activity['time']}">00:00:00</time>
-                            <span th:text="${activity['text']}">activity</span>
-                        </li>
-                    </ol>
-                </div>
-                <p class="run-log-empty" th:if="${!#strings.isEmpty(developer['activityNotice'])}"
-                   th:text="${developer['activityNotice']}"></p>
-            </section>
-
-            <section class="run-panel run-usage" aria-labelledby="usage-title">
-                <div class="run-panel-head">
-                    <h2 class="dev-section-title" id="usage-title">Runtime and usage</h2>
-                </div>
-                <div class="run-usage-body">
-                    <dl class="run-facts" th:unless="${#lists.isEmpty(developer['runtimeFields'])}">
-                        <th:block th:each="field : ${developer['runtimeFields']}">
-                            <dt th:text="${field['label']}">Model</dt>
-                            <dd th:if="${field['label'] == 'Image'}"><code th:text="${field['value']}">image</code></dd>
-                            <dd th:unless="${field['label'] == 'Image'}" th:text="${field['value']}">value</dd>
-                        </th:block>
-                    </dl>
-                    <div class="run-tokens" th:if="${tokenTotals['present']}">
-                        <strong th:text="${tokenTotals['total']}">0</strong>
-                        <span th:text="${pollUrl != null} ? 'tokens so far' : 'tokens'">tokens</span>
-                    </div>
-                    <p class="muted" th:unless="${tokenTotals['present']}">No token usage reported yet.</p>
-                    <dl class="usage-figures" th:if="${tokenTotals['present'] or initialUsage != null or estimatedCost != null}">
-                        <th:block th:if="${tokenTotals['present'] and tokenTotals['coding'] == true}">
-                            <th:block th:each="category : ${tokenCategories}" th:if="${tokenTotals[category.key] != null}"><dt
-                                    th:text="${category.value}">Input</dt><dd th:text="${tokenTotals[category.key]}"></dd></th:block>
-                        </th:block>
-                        <th:block th:if="${tokenTotals['present'] and tokenTotals['coding'] != true}">
-                            <dt>Prompt</dt><dd th:text="${tokenTotals['prompt']}"></dd>
-                            <dt>Completion</dt><dd th:text="${tokenTotals['completion']}"></dd>
-                        </th:block>
-                        <th:block th:if="${initialUsage != null}">
-                            <dt class="usage-total">Estimated cost</dt><dd class="usage-total" th:text="${initialUsage['cost']}"></dd>
-                        </th:block>
-                        <th:block th:if="${initialUsage == null and estimatedCost != null}">
-                            <dt class="usage-total">Estimated cost</dt>
-                            <dd class="usage-total" th:text="${estimatedCost.label()}"></dd>
-                        </th:block>
-                    </dl>
-                    <p class="dev-note" th:if="${attemptUsage == null and tokenTotals['present'] and estimatedCost == null and usageIncomplete}">Cost estimate unavailable: the runtime did not report enough usage for every response.</p>
-                    <p class="dev-note" th:if="${attemptUsage == null and tokenTotals['present'] and estimatedCost == null and !usageIncomplete}">No matching configured rate card.</p>
-                    <p class="dev-note" th:if="${attemptUsage != null and attemptUsage['partial']}">Totals include reported usage and available rates; some attempts have incomplete data.</p>
-                </div>
-            </section>
-        </div>
+        <th:block th:if="${feedback == null}"><th:block th:replace="~{fragments/developer-flow :: runPanels}"></th:block></th:block>
+        <details class="disclosure run-disclosure" th:if="${feedback != null}">
+            <summary>Activity and usage</summary>
+            <th:block th:replace="~{fragments/developer-flow :: runPanels}"></th:block>
+        </details>
 
         <details class="tech-details disclosure" th:with="facts=${developer['techFacts']}">
             <summary>Technical details</summary>

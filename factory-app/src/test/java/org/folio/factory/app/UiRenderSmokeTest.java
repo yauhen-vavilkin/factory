@@ -422,6 +422,46 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void prFeedbackShowsNewCommentsRoundsWithFactorysCommentAndOneFilledButton() {
+        var execution = new PipelineExecution("dev-factory",
+                org.folio.factory.devfactory.feedback.FeedbackArtifacts.VERSION, "{}");
+        execution.setStatus(ExecutionStatus.AWAITING_HITL);
+        execution = executions.save(execution);
+        var id = execution.getId();
+        var pr = "{\"repository\":\"o/mgr-applications\",\"number\":6,\"branch\":\"factory/x\",\"baseBranch\":\"master\","
+                + "\"headSha\":\"" + "c".repeat(40) + "\",\"url\":\"https://github.com/o/mgr-applications/pull/6\",\"open\":true}";
+        var done = "{\"id\":\"inline:1\",\"author\":\"reviewer\",\"body\":\"Add minProperties\",\"path\":\"a.json\","
+                + "\"line\":3,\"outdated\":false,\"updatedAt\":\"\",\"url\":\"https://github.com/o/mgr-applications/pull/6#discussion_r1\"}";
+        var fresh = "{\"id\":\"inline:2\",\"author\":\"yauhen\",\"body\":\"Rename the test\",\"path\":\"AppTest.java\","
+                + "\"line\":214,\"outdated\":false,\"updatedAt\":\"\",\"url\":\"https://github.com/o/mgr-applications/pull/6#discussion_r2\"}";
+        var round = "\"round\":1,\"pr\":" + pr + ",\"selected\":[" + done + "],\"roundStartedAt\":\"2026-11-10T18:22:00Z\"";
+        artifactStore.put(id, "dev_pr_state.json", "{" + round + ",\"phase\":\"CODE\"}", "application/json", "test");
+        artifactStore.put(id, "dev_pr_state.json", "{" + round + ",\"phase\":\"READY\",\"commitSha\":\"" + "c".repeat(40)
+                + "\",\"summary\":\"Added minProperties to the items object.\",\"finishedAt\":\"2026-11-10T18:28:00Z\"}",
+                "application/json", "test");
+        artifactStore.put(id, "dev_pr_comments.json", "{\"id\":\"s1\",\"pr\":" + pr + ",\"comments\":[" + done + "," + fresh + "]}",
+                "application/json", "test");
+        reviews.save(new HitlReview(id, "pr-feedback", execution.getCurrentStepIndex(), "{}"));
+        auditLog.record(id, AuditEventType.CONNECTOR_ACTION, "pr-follow-up", Map.of("action", "pr-round-comment",
+                "round", 1, "commentUrl", "https://github.com/o/mgr-applications/pull/6#issuecomment-9"));
+
+        String body = assertRendered("/executions/" + id, "New PR comments");
+        assertThat(body).contains("Waiting for your review", ">Check PR comments</button>", ">Rename the test</span>",
+                        "href=\"https://github.com/o/mgr-applications/pull/6#discussion_r2\">AppTest.java:214</a>",
+                        "data-selection=\"selectedIds\"", ">Fix 1 comment</button>", "Starts a new round and adds to the cost.",
+                        ">Round 1</strong>", "<span>1 comment</span>",
+                        "href=\"https://github.com/o/mgr-applications/pull/6/commits/" + "c".repeat(40) + "\">ccccccc</a>",
+                        "Nov 10, 18:22 · 6 min", "Agent: Added minProperties to the items object.",
+                        "href=\"https://github.com/o/mgr-applications/pull/6#issuecomment-9\">Factory's comment on the PR</a>",
+                        "<summary>Round details</summary>", "class=\"chip chip-success\">Published</span>",
+                        ">Verify my manual changes</button>", "Runs the tests on commits you pushed to the PR branch yourself.",
+                        "<summary>Activity and usage</summary>")
+                .doesNotContain(">Add minProperties</span>", "Work on feedback");
+        // One filled button on the page: Fix N comments.
+        assertThat(body.split("btn btn-primary", -1)).hasSize(2);
+    }
+
+    @Test
     void developerExecutionShowsPullRequestTitleOrUrlAsLink() {
         var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
         String url = "https://github.com/user/repo/pull/42";
@@ -431,7 +471,8 @@ class UiRenderSmokeTest {
                             + "\",\"pullRequestTitle\":\"" + title + "\"}", "publish");
             String body = assertRendered("/executions/" + execution.getId(), "Pull request");
             String label = title.isEmpty() ? url : "TASK-1: Fix &lt;routing&gt; &amp; permissions";
-            assertThat(body).contains("href=\"" + url + "\">" + label + "</a>", ">Pull request #42</a>")
+            assertThat(body).contains("href=\"" + url + "\">" + label + "</a>",
+                    "class=\"chip chip-neutral ext-link\" href=\"" + url + "\">PR #42</a>")
                     .doesNotContain("Open pull request", "<routing>");
         }
     }
@@ -1023,7 +1064,7 @@ class UiRenderSmokeTest {
                         "The task becomes Failed, its cost so far stays")
                 .contains("Queued tasks are not starting.", "FACTORY_TASKS_EXECUTION_ENABLED=true")
                 .doesNotContain("task-grid", "Triggered", " working · ", ">Retry</button>", "Working");
-        assertThat(body).contains("data-task-selection", "data-run-selected", "data-poll-notice",
+        assertThat(body).contains("data-selection=\"taskId\"", "data-run-selected", "data-poll-notice",
                         "data-poll-url=\"/tasks/poll\"", "data-poll-fields=\"revision\"", "data-poll-baseline=")
                 .doesNotContain("Trigger flow", "Outside current filter", "Enable automatic admission", "Withdrawn",
                         "Sprint", "run-by-key", "Max turns", "name=\"maxTurns\"");
@@ -1367,7 +1408,7 @@ class UiRenderSmokeTest {
 
         String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(run)
-                .contains("class=\"chip chip-neutral\">Draft PR</span>", ">Draft pull request #8</a>",
+                .contains("class=\"chip chip-neutral\">Draft PR</span>", ">Draft PR #8</a>",
                         "Draft pull request created")
                 .doesNotContain(">PR ready</span>", "Pull request created");
     }

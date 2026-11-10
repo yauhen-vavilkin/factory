@@ -202,3 +202,15 @@ page as on its board.
   the time between start and end is used. Calls are paired only when the match is certain: when two
   calls of the same tool overlap and the end names no file or command, the end keeps its own row, as
   before. A call still running says "Running …", not "running now".
+- **Run page with a pull request.** "checked N min ago" next to Check PR comments is not shown: the
+  stored comments snapshot has no read time. The page head does not say "attempt 1" with its model and
+  effort, and the note under Fix says "Starts a new round", without the round number and model. Each
+  round row keeps a closed "Round details" disclosure (selected comments, check output, activity),
+  which board 5 does not show. Comments that an earlier round addressed are no longer listed under New
+  PR comments. The feedback controls and `DeveloperExecutionView` still build `Map` rows.
+- **Factory's comment on the pull request.** Factory posts one comment after a round that pushed a
+  commit, and keeps its URL in a `CONNECTOR_ACTION` audit event keyed by round; a repeated round step
+  that finds that event does not post again. A crash between the GitHub call and the audit write posts
+  the comment twice when the step runs again. The comment says "Factory round N" with the stored round
+  number, which also counts manual verification rounds, so it can differ from "Round N" on the page.
+  Reading PR comments leaves out comments that start with Factory's marker.

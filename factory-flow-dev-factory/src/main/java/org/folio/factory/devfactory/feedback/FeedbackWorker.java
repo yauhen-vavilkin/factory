@@ -47,6 +47,7 @@ public class FeedbackWorker implements AgentWorker {
     private final StateManager executions;
     private final FeedbackCodingAttempt codingAttempt;
     private final VerificationPolicy verificationPolicy;
+    private final RoundComment roundComment;
 
     public FeedbackWorker(DevFlowSettings settings, CodingServices services, FeedbackServices feedback,
                           CandidateVerifier verifier, StateManager executions, AuditLog audit, DevFactoryHooks hooks) {
@@ -63,6 +64,7 @@ public class FeedbackWorker implements AgentWorker {
         this.codingAttempt = new FeedbackCodingAttempt(services.freezer(), services.coding(), services.docker(),
                 settings.runtime(), hooks.pricing(), hooks.transcripts());
         this.verificationPolicy = new VerificationPolicy(settings.repositories(), settings.runtime());
+        this.roundComment = new RoundComment(feedback.comments(), audit);
     }
 
     public String id() {
@@ -334,7 +336,8 @@ public class FeedbackWorker implements AgentWorker {
         state.commitSha = git.publish(
                 source(state), state.pr.branch(), candidate, intent,
                 github.token(), context.invocation()::requireOwned);
-        state.summary = "Verified changes published to the same PR";
+        // The agent's summary of the round stays: the round row and Factory's PR comment show it.
+        roundComment.post(context.executionId(), context.stepId(), state, coding::redact);
         state.ready();
     }
 

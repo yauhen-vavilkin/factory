@@ -135,7 +135,8 @@ class FeedbackCatalogTest {
         var audit = mock(AuditLog.class);
         when(audit.forExecution(executionId)).thenReturn(List.of());
         return new FeedbackWorker(new DevFlowSettings(repositories, runtime), new CodingServices(coding, docker, freezer),
-                new FeedbackServices(gateway, mock(FeedbackGit.class), new GitHubProperties(null, "fixture-token")), mock(CandidateVerifier.class), executions, audit,
+                new FeedbackServices(gateway, mock(FeedbackGit.class), new GitHubProperties(null, "fixture-token"),
+                        mock(PrCommentWriter.class)), mock(CandidateVerifier.class), executions, audit,
                 new DevFactoryHooks(TaskAttemptPolicy.none(), (modelId, model) -> Map.of(), CodingTranscripts.none(), SelectedRepositoryPreflight.none()));
     }
 
