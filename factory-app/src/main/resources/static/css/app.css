@@ -18,6 +18,8 @@ body {
 }
 code, pre, kbd, samp { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 h1, h2, h3, h4 { font-weight: 600; letter-spacing: -0.025em; line-height: 1.25; }
+/* One section heading size; a heading class may set its own. */
+h2 { font-size: 16px; }
 a { text-decoration: none; }
 a:hover { text-decoration: underline; }
 :focus-visible {
@@ -45,11 +47,12 @@ a:hover { text-decoration: underline; }
   border-right: 1px solid hsl(var(--border));
   overflow-y: auto;
 }
+/* The menu toggle and the theme button start where the menu labels start. */
 .sidebar-brand {
   display: flex;
   align-items: center;
   gap: 0.625rem;
-  padding: 0 0.25rem 0.25rem;
+  padding: 0 0.25rem 0.25rem 0.5rem;
 }
 .sidebar-menu { flex: 1 1 auto; display: flex; flex-direction: column; }
 .menu-toggle {
@@ -111,17 +114,18 @@ html[data-menu="collapsed"] .sidebar-brand strong {
   text-decoration: none;
 }
 .nav-item[aria-current="page"] {
-  background: hsl(var(--secondary));
+  background: hsl(var(--secondary-hover));
   color: hsl(var(--secondary-foreground));
   font-weight: 600;
 }
-.sidebar-footer { margin-top: auto; padding: 0.25rem 0.25rem 0; }
+.sidebar-footer { margin-top: auto; padding: 0.25rem 0.25rem 0 0.5rem; }
 
+/* Left aligned: with the menu collapsed the content starts at the rail plus the page padding. */
 .main {
   padding: 2rem;
   width: 100%;
   max-width: 1200px;
-  margin: 0 auto;
+  margin: 0;
 }
 .page-header { margin-bottom: 1.5rem; }
 .page-header h1 { font-size: 1.5rem; }
@@ -183,17 +187,17 @@ html[data-menu="collapsed"] .sidebar-brand strong {
   border-top: 1px solid hsl(var(--border));
 }
 
-/* ---------- button ---------- */
+/* ---------- button: one size in the whole console, 30 px high with 13 px text ---------- */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  height: 2.25rem;
-  padding: 0 1rem;
+  height: 30px;
+  padding: 0 12px;
   border: 1px solid transparent;
   border-radius: calc(var(--radius) - 0.125rem);
-  font-size: 0.875rem;
+  font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
@@ -218,7 +222,7 @@ html[data-menu="collapsed"] .sidebar-brand strong {
   color: hsl(var(--secondary-foreground));
 }
 .btn-secondary:hover, .btn-outline:hover {
-  background: hsl(var(--border));
+  background: hsl(var(--secondary-hover));
   color: hsl(var(--secondary-foreground));
 }
 .btn-ghost {
@@ -240,7 +244,7 @@ html[data-menu="collapsed"] .sidebar-brand strong {
   font-size: 13px;
 }
 /* The buttons of one column of a list have one width. */
-.btn-col { min-width: 96px; }
+.btn-col { width: 96px; padding-inline: 8px; }
 
 /* ---------- chip: one shape for every state; only the tone changes ---------- */
 .chip {
@@ -283,8 +287,10 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17L17 7M9 7h8v8'/%3E%3C/svg%3E") center / contain no-repeat;
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17L17 7M9 7h8v8'/%3E%3C/svg%3E") center / contain no-repeat;
 }
-/* A closed disclosure that looks like a small button: border, arrow, label. */
-.disclosure > summary {
+/* A disclosure looks like a small secondary button with a chevron that points right when closed and down
+   when open. The opened content is one indented box tied to its summary, never loose page text. The
+   .run-extra and .details-inline disclosures share the look. */
+.disclosure > summary, .run-extra > summary, .details-inline > summary {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -293,13 +299,26 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
   border: 1px solid hsl(var(--strong-border));
   border-radius: calc(var(--radius) - 0.125rem);
   background: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
   font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
   list-style: none;
   cursor: pointer;
+  user-select: none;
+  transition: background-color 150ms ease;
 }
-.disclosure > summary::-webkit-details-marker { display: none; }
-.disclosure > summary::before {
+.disclosure > summary:hover, .run-extra > summary:hover, .details-inline > summary:hover {
+  background: hsl(var(--secondary-hover));
+}
+.disclosure > summary::-webkit-details-marker, .run-extra > summary::-webkit-details-marker,
+.details-inline > summary::-webkit-details-marker { display: none; }
+.disclosure > summary::before, .run-extra > summary::before, .details-inline > summary::before {
   content: "";
+  flex: none;
+  display: block;
   width: 13px;
   height: 13px;
   background: currentColor;
@@ -307,7 +326,18 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
   transition: transform 150ms ease;
 }
-.disclosure[open] > summary::before { transform: rotate(90deg); }
+.disclosure[open] > summary::before, .run-extra[open] > summary::before,
+.details-inline[open] > summary::before { transform: rotate(90deg); }
+/* The content box of an open details element; browsers without ::details-content show it unboxed. */
+.disclosure[open]::details-content, .run-extra[open]::details-content, .details-inline[open]::details-content {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--subtle));
+}
+.disclosure[open] > :not(summary) + :not(summary),
+.run-extra[open] > :not(summary) + :not(summary) { margin-top: 8px; }
 
 /* ---------- badge ---------- */
 .badge {
@@ -395,6 +425,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .field { display: flex; flex-direction: column; gap: 0.375rem; }
 .field + .field { margin-top: 1rem; }
 .label { font-size: 14px; font-weight: 500; }
+/* Inputs and selects have the button size: 30 px high with 13 px text. */
 .input, .select, .textarea {
   width: 100%;
   border: 1px solid hsl(var(--input));
@@ -402,11 +433,19 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   background: hsl(var(--background));
   color: hsl(var(--foreground));
   padding: 0 0.75rem;
-  height: 2.25rem;
-  font-size: 0.875rem;
+  height: 30px;
+  font-size: 13px;
   transition: border-color 150ms ease, box-shadow 150ms ease;
 }
-.textarea { height: auto; min-height: 5rem; padding: 0.5rem 0.75rem; line-height: 1.5; resize: vertical; }
+/* Three whole lines: 3 × 21 px of text, 8 px padding and a 1 px border on each side. */
+.textarea {
+  height: auto;
+  min-height: 81px;
+  padding: 0.5rem 0.75rem;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
 .select {
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
@@ -761,32 +800,33 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 /* ---------- Developer Flow: My tasks, task summary, run ----------
    Page-scoped so the shared components keep their look elsewhere; sizes follow
    docs/superpowers/mockups/my-tasks-v3. */
-.dev-page { display: flex; flex-direction: column; gap: 24px; max-width: 1120px; }
-.dev-page-narrow { max-width: 1040px; }
+/* One content width for every Developer Flow page, so the right column does not move between pages. */
+.dev-page { display: flex; flex-direction: column; gap: 24px; max-width: 1040px; }
 .dev-page-head { margin-bottom: 24px; }
 .dev-page form { margin: 0; }
 .dev-title, .dev-card-title, .dev-section-title, .dev-label-title { line-height: 1.5; letter-spacing: normal; }
 .dev-title { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
 .dev-card-title { font-size: 18px; font-weight: 600; }
-.dev-section-title { font-size: 15px; font-weight: 600; }
+.dev-section-title { font-size: 16px; font-weight: 600; }
 .dev-label-title { font-size: 13px; font-weight: 500; color: hsl(var(--muted-foreground)); }
-.dev-count { margin-left: 4px; color: hsl(var(--muted-foreground)); font-weight: 500; }
+.dev-count { color: hsl(var(--muted-foreground)); font-weight: 400; }
 .dev-link { text-decoration: underline; }
 .dev-note { font-size: 12px; color: hsl(var(--muted-foreground)); }
 .dev-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 20px; }
 .btn-md { font-size: 13px; padding: 0 14px; }
 .btn-md.btn-roomy { padding: 0 16px; }
+/* One weight in both states, so the tabs do not move; the selected tab has colour and an underline. */
 .dev-tabs { display: flex; gap: 16px; }
 .dev-tabs a {
   padding-bottom: 4px;
   border-bottom: 2px solid transparent;
   color: hsl(var(--muted-foreground));
+  font-weight: 500;
 }
 .dev-tabs a:hover { color: hsl(var(--foreground)); text-decoration: none; }
 .dev-tabs a[aria-current="page"] {
   border-bottom-color: hsl(var(--foreground));
   color: hsl(var(--foreground));
-  font-weight: 600;
 }
 
 .task-check { width: 16px; height: 16px; margin: 3px 0 0; }
@@ -808,11 +848,11 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .run-setting > span { color: hsl(var(--muted-foreground)); font-weight: 400; }
 .input-sm, .select-sm { height: 30px; font-size: 13px; }
 .run-setting-problem { font-size: 13px; color: hsl(var(--destructive)); }
-/* Effort: one radio button per level of the model, drawn as a segmented control. */
+/* Effort: one radio button per level of the model, drawn as a segmented control with the select's border. */
 .effort-toggle {
   display: inline-flex;
   height: 30px;
-  border: 1px solid hsl(var(--strong-border));
+  border: 1px solid hsl(var(--input));
   border-radius: 6px;
   overflow: hidden;
 }
@@ -822,14 +862,16 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   display: inline-flex;
   align-items: center;
   padding: 0 12px;
-  border-left: 1px solid hsl(var(--border));
+  border-left: 1px solid hsl(var(--input));
   background: hsl(var(--background));
   color: hsl(var(--soft-foreground));
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+  transition: background-color 150ms ease;
 }
 .effort-toggle label:first-child span { border-left: 0; }
+.effort-toggle input:not(:checked) + span:hover { background: hsl(var(--secondary)); }
 /* Light grey, not filled: the one filled control of a screen is its main button. */
 .effort-toggle input:checked + span {
   background: hsl(var(--border));
@@ -1039,10 +1081,8 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .run-steps-grid .run-step-state, .run-steps-grid [data-state="pending"] { color: hsl(var(--muted-foreground)); }
 .run-steps-grid [data-state="current"], .run-steps-grid [data-state="failed"] { color: hsl(var(--foreground)); font-weight: 600; }
 .run-links { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; }
-.run-links a, .run-links summary { text-decoration: underline; cursor: pointer; }
+.run-links a { text-decoration: underline; cursor: pointer; }
 .run-extra { min-width: 0; }
-.run-extra > summary { list-style: none; }
-.run-extra > summary::-webkit-details-marker { display: none; }
 /* An opened link becomes a full-width block under the row, so its table or log has room. */
 .run-extra[open] { order: 1; flex-basis: 100%; display: flex; flex-direction: column; gap: 8px; }
 
@@ -1080,8 +1120,6 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 * + .badge-row { margin-top: 0.75rem; }
 .stack { display: flex; flex-direction: column; gap: 1.5rem; }
 .details-inline { margin-top: 0.5rem; }
-.details-inline summary { cursor: pointer; font-size: 0.8125rem; color: hsl(var(--muted-foreground)); }
-.details-inline[open] summary { margin-bottom: 0.5rem; }
 
 @media (max-width: 720px) {
   .app-shell { grid-template-columns: minmax(0, 1fr); }
