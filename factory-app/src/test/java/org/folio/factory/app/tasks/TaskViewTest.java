@@ -12,6 +12,7 @@ import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
+import org.folio.factory.app.tasks.presentation.AttemptStatus;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
 import org.folio.factory.app.tasks.presentation.TaskView;
 import org.folio.factory.app.web.AttemptCharge;
@@ -37,6 +38,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -409,6 +411,59 @@ class TaskViewTest {
                 "repository mod-bar");
 
         assertThat(query.detail(task.getId()).jiraUrl()).isNull();
+    }
+
+    @Test
+    void aPullRequestTheRunOpenedShowsBeforeTheDispatcherClosesTheAttempt() {
+        Task task = eligibleTask("90061", "MODBAR-961");
+        fixture.admit(task, "run-961");
+        UUID executionId = dispatcher.dispatchNext().orElseThrow();
+        stateManager.transition(executionId, ExecutionStatus.RUNNING, null);
+        assertThat(status(task).headline()).isEqualTo("Starting the run");
+        auditLog.record(executionId, AuditEventType.STEP_STARTED, "implement", Map.of());
+        assertThat(status(task)).returns("In progress", AttemptStatus::chipLabel)
+                .returns("Implementing changes", AttemptStatus::headline);
+        auditLog.record(executionId, AuditEventType.STEP_STARTED, "publish", Map.of());
+        writeArtifact(executionId, DeliveryWorker.DELIVERY, "{\"state\":\"DELIVERED\",\"pullRequestDraft\":true,"
+                + "\"draftReasons\":[\"Checks did not run.\"],"
+                + "\"pullRequestUrl\":\"https://github.com/folio-org/mod-bar/pull/7\"}");
+        auditLog.record(executionId, AuditEventType.STEP_STARTED, "initialize-pr-feedback", Map.of());
+
+        // The run initialises PR feedback, then waits for comments; the attempt record is still in flight.
+        for (var status : List.of(ExecutionStatus.RUNNING, ExecutionStatus.AWAITING_HITL)) {
+            if (status == ExecutionStatus.AWAITING_HITL) {
+                stateManager.transition(executionId, status, null);
+            }
+            var view = query.detail(task.getId());
+            assertThat(view.attempts().getFirst().state().isInFlight()).isTrue();
+            assertThat(view.draftReasons()).containsExactly("Checks did not run.");
+            assertThat(AttemptStatus.of(view, view.attempts().getFirst()))
+                    .returns("Draft PR #7", AttemptStatus::chipLabel)
+                    .returns("https://github.com/folio-org/mod-bar/pull/7", AttemptStatus::chipUrl)
+                    .returns("Pull request #7 is open as a draft", AttemptStatus::headline);
+            assertThat(query.runContext(executionId).orElseThrow().status())
+                    .isEqualTo(AttemptStatus.of(view, view.attempts().getFirst()));
+        }
+    }
+
+    @Test
+    void aRunThatWaitsAfterAStepNeverGoesBackToStarting() {
+        Task task = eligibleTask("90062", "MODBAR-962");
+        fixture.admit(task, "run-962");
+        UUID executionId = dispatcher.dispatchNext().orElseThrow();
+        stateManager.transition(executionId, ExecutionStatus.RUNNING, null);
+        auditLog.record(executionId, AuditEventType.STEP_STARTED, "verify", Map.of());
+        stateManager.transition(executionId, ExecutionStatus.AWAITING_HITL, null);
+
+        assertThat(status(task).headline()).isEqualTo("Verifying changes");
+        stateManager.transition(executionId, ExecutionStatus.COMPLETED, null);
+        assertThat(status(task)).returns("In progress", AttemptStatus::chipLabel)
+                .returns("Finishing the attempt", AttemptStatus::headline);
+    }
+
+    private AttemptStatus status(Task task) {
+        var view = query.detail(task.getId());
+        return AttemptStatus.of(view, view.attempts().getFirst());
     }
 
     private Task withJiraCreated(Task task, String createdAt) {

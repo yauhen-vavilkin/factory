@@ -50,12 +50,14 @@ public class FeedbackUi {
                 new FeedbackRows.RoundFacts(projection, live, FeedbackRows.commentUrls(events)));
         var feedback = feedback(view, FeedbackRows.newComments(view.snapshot(), history.processed()), rounds);
         model.addAttribute("feedback", feedback);
-        return Optional.of(new Summary(feedback.phase(), phase == FeedbackState.Phase.READY, !rounds.isEmpty()));
+        var waiting = phase == FeedbackState.Phase.READY || phase == FeedbackState.Phase.INIT;
+        return Optional.of(new Summary(feedback.phase(), waiting, !rounds.isEmpty()));
     }
 
     /**
-     * What the status card says about PR feedback: the phase in words, whether it waits for new comments (the card
-     * then names the pull request), and whether rounds ran, so the amount is the total.
+     * What the status card says about PR feedback: the phase in words, whether it waits for new comments or is
+     * still getting ready to (the card then names the pull request), and whether rounds ran, so the amount is the
+     * total.
      */
     public record Summary(String headline, boolean waiting, boolean rounds) {
     }

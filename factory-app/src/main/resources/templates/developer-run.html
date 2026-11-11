@@ -25,9 +25,7 @@
 
     <section class="status-card" aria-label="Status">
         <div class="status-card-main">
-            <a th:if="${status.chipUrl() != null}" th:class="${status.chipClass()} + ' ext-link'" th:href="${status.chipUrl()}" th:text="${status.chipLabel()}">Draft PR #6</a>
-            <span th:if="${status.chipUrl() == null}" th:class="${status.chipClass()}"
-                  th:text="${status.chipLabel()}">In progress</span>
+            <th:block th:replace="~{fragments/developer-flow :: statusChip(${status})}"></th:block>
             <div class="status-card-body">
                 <p class="status-card-headline" th:text="${status.headline()}">Implementing changes</p>
                 <p class="status-card-reason" th:if="${status.reason() != null}"><span class="status-card-label" th:text="${status.reasonLabel()}">Reason</span>
@@ -36,6 +34,7 @@
                     The agent's question.</p>
                 <p class="status-card-note" th:if="${status.note() != null}" th:text="${status.note()}">
                     No pull request was created.</p>
+                <div th:replace="~{fragments/developer-flow :: draftReasons(${status.draftReasons()})}"></div>
             </div>
         </div>
         <div class="status-card-side">
@@ -43,10 +42,7 @@
                     th:text="${status.amount()}">$0.23</span>
                 <span class="status-card-note" th:if="${status.amountNote() != null}"
                       th:text="${status.amountNote()}">so far</span></span>
-            <span><span class="status-card-money" th:attr="data-elapsed-start=${status.timeStart()}"
-                    th:text="${status.time()}">5 min</span>
-                <span class="status-card-note" th:if="${status.timeLimit() != null}"
-                      th:text="${status.timeLimit()}">of 60</span></span>
+            <span th:replace="~{fragments/developer-flow :: clock(${status.clock()})}"></span>
             <a class="btn btn-primary btn-sm" th:if="${status.actionUrl() != null}" th:href="${status.actionUrl()}"
                th:text="${status.actionLabel()}">Answer on the task page</a>
         </div>

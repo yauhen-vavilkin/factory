@@ -31,10 +31,10 @@ class RunContextTest {
         assertThat(run.crumb()).isEqualTo("Attempt 1");
         assertThat(run.pageTitle()).isEqualTo("MODBAR-1 · attempt 1");
         assertThat(run.settings()).isEqualTo("glm-5.3 · max");
-        assertThat(run.chipLabel()).isEqualTo("Failed");
+        assertThat(run.status().chipLabel()).isEqualTo("Failed");
         assertThat(run.failure().headline()).isEqualTo("Attempt 1 failed");
         assertThat(run.failureNote()).isEqualTo("No pull request was created.");
-        assertThat(run.retryLabel()).isEqualTo("Start attempt 2");
+        assertThat(run.retryLabel()).isEqualTo("Start attempt 2 on the task page");
         assertThat(run.retryUrl()).isEqualTo("/tasks/" + TASK_ID + "#retry");
         assertThat(run.standing()).isNull();
         assertThat(run.inFlight()).isFalse();
@@ -53,8 +53,8 @@ class RunContextTest {
                 "/executions/" + THIRD_RUN, ", Draft PR #14."));
         assertThat(run.retryLabel()).isNull();
         var latest = RunContext.of(view, THIRD_RUN).orElseThrow();
-        assertThat(latest.chipLabel()).isEqualTo("Draft PR #14");
-        assertThat(latest.chipUrl()).isEqualTo(PR);
+        assertThat(latest.status().chipLabel()).isEqualTo("Draft PR #14");
+        assertThat(latest.status().chipUrl()).isEqualTo(PR);
         assertThat(latest.standing()).isNull();
     }
 
@@ -63,14 +63,14 @@ class RunContextTest {
         var question = "coding: " + TaskStops.DECISION_REASON + "Which client should change?";
         var asked = attempt(1, FIRST_RUN, TaskAttempt.State.STOPPED, question, null);
         var waiting = RunContext.of(task(TaskView.TaskState.STOPPED, question, true, asked), FIRST_RUN).orElseThrow();
-        assertThat(waiting.chipLabel()).isEqualTo("Needs your answer");
+        assertThat(waiting.status().chipLabel()).isEqualTo("Needs your answer");
         assertThat(waiting.answerUrl()).isEqualTo("/tasks/" + TASK_ID + "#answer");
         assertThat(waiting.failure()).isNull();
         assertThat(waiting.retryLabel()).isNull();
 
         var answered = RunContext.of(task(TaskView.TaskState.WORKING, null, false, asked,
                 attempt(2, SECOND_RUN, TaskAttempt.State.RUNNING, null, null)), FIRST_RUN).orElseThrow();
-        assertThat(answered.chipLabel()).isEqualTo("Asked a question");
+        assertThat(answered.status().chipLabel()).isEqualTo("Asked a question");
         assertThat(answered.answerUrl()).isNull();
         assertThat(answered.standing().tail()).isEqualTo(", in progress.");
     }

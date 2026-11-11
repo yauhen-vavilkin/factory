@@ -127,7 +127,7 @@ public class TaskPageController {
 
     /** Newest first: a new attempt is added at the top. */
     private static List<AttemptRow> attemptRows(TaskView view) {
-        return view.attempts().reversed().stream().map(TaskRows::attemptRow).toList();
+        return view.attempts().reversed().stream().map(attempt -> TaskRows.attemptRow(view, attempt)).toList();
     }
 
     /** The page shows the text the developer typed again; it goes through the session, never into the URL. */

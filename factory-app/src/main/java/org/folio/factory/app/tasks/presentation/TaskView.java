@@ -5,6 +5,7 @@ import org.folio.factory.app.tasks.persistence.TaskAttempt;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -37,6 +38,17 @@ public record TaskView(
         List<AttemptHistoryEntry> attempts,
         TaskUsage usage,
         AllowedActions allowedActions) {
+
+    /**
+     * The attempt the task's state stands for: the last one that was not withdrawn, as the task projection picks
+     * it, or the last one when all were withdrawn; empty before the first attempt.
+     */
+    public Optional<AttemptHistoryEntry> standingAttempt() {
+        return attempts.reversed().stream()
+                .filter(attempt -> attempt.state() != TaskAttempt.State.WITHDRAWN)
+                .findFirst()
+                .or(() -> attempts.isEmpty() ? Optional.empty() : Optional.of(attempts.getLast()));
+    }
 
     /** The last attempt stopped because the agent asked a question. */
     public boolean needsAnswer() {

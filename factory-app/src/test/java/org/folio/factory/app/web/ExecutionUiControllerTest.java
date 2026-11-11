@@ -2,8 +2,11 @@ package org.folio.factory.app.web;
 
 import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
-import org.folio.factory.app.tasks.execution.TaskExecutionProperties;
+import org.folio.factory.app.tasks.presentation.AttemptClock;
+import org.folio.factory.app.tasks.presentation.AttemptStatus;
 import org.folio.factory.app.tasks.presentation.RunContext;
+import org.folio.factory.app.tasks.presentation.RunLimits;
+import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -95,9 +98,11 @@ class ExecutionUiControllerTest {
         var estimator = DeveloperCostEstimatorTest.estimatorFor("glm-5.3-flash", "https://example.test/pricing",
                 "0.15", "0.03", "0.50");
         taskQuery = mock(org.folio.factory.app.tasks.presentation.TaskQuery.class);
+        var limits = mock(RunLimits.class);
+        when(limits.limits()).thenReturn(new AttemptClock.Limits(1800, java.time.Duration.ofMinutes(60)));
         var runPage = new DeveloperRunPage(json, estimator,
                 new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class)), taskQuery,
-                new TaskExecutionProperties(null, false));
+                limits, mock(TaskRows.class));
         mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(
                         new EngineRecords(executions, artifactStore, flowRegistry), auditLog, reviews, json, runPage,
                         taskAttempts),
@@ -685,7 +690,8 @@ class ExecutionUiControllerTest {
 
     private static RunContext runContext(String chip, boolean inFlight) {
         return new RunContext(UUID.fromString("00000000-0000-0000-0000-0000000000aa"), "TASK-1", "Fix route", null,
-                2, "glm-5.3 · max", chip, "chip chip-info", null, null, null, null, null, null, null, inFlight);
+                2, "glm-5.3 · max", new AttemptStatus(chip, "chip chip-info", null, chip), null, null, null, null,
+                null, null, inFlight, null, null);
     }
 
     private static PipelineExecution execution(ExecutionStatus status, int stepIndex, String retryCounts) {

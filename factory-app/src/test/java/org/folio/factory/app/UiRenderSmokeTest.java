@@ -354,7 +354,7 @@ class UiRenderSmokeTest {
         String body = assertRendered("/reviews", "Human-in-the-loop gates and their decisions.");
 
         assertThat(body).contains(">Waiting for PR comments: MGRAPPS-21</td>",
-                        "href=\"/executions/" + execution.getId() + "#pr-feedback\">Open run</a>",
+                        "href=\"/executions/" + execution.getId() + "#pr-feedback\">PR feedback</a>",
                         ">QA review: manual test cases</td>", "href=\"/reviews/" + qaReview.getId() + "\">Review</a>")
                 .doesNotContain(">PR feedback</td>", "MGRAPPS-22");
     }
@@ -820,10 +820,10 @@ class UiRenderSmokeTest {
                 .containsPattern("<p class=\"status-card-note\">\\s*No pull request was created.</p>")
                 .doesNotContain("Implementation failed", "DEVELOPMENT_FAILED");
         // The attempt chip keeps the reason and what to do in its title; the meta line has its start time for
-        // time.js, and its title has the whole line in UTC.
+        // time.js, and no title in UTC, since the line itself shows the local time.
         assertThat(task.substring(task.indexOf("id=\"attempts-title\"")))
                 .contains("title=\"" + expected + "\">Failed</span>",
-                        "<div class=\"dev-row-meta dev-row-meta-dots\" title=\"Nov 10, 22:42 UTC\">"
+                        "<div class=\"dev-row-meta dev-row-meta-dots\">"
                                 + timeTag(PageTime.day(Instant.parse("2026-11-10T22:42:00Z"))) + "</div>");
         // The run page says it in the same words, and links back to its task and attempt.
         String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
@@ -1581,16 +1581,17 @@ class UiRenderSmokeTest {
         String partialBody = assertRendered("/tasks/" + partial.getId(), ">spent in 1 attempt</span>");
         // Why the amount may be too low is the title of the amount, not a visible note.
         assertThat(partialBody).doesNotContain("spent in 1 attempt, cost may be higher")
-                .containsPattern("<span class=\"status-card-money\" title=\"Incomplete: some usage has"
-                        + " no reported tokens or rate yet. Cost per attempt is in Attempts.\">\\$[0-9.]+</span>");
+                // 50,000 tokens at $0.15 per million cost $0.0075: under one cent, never "$0.00" or "$0.01".
+                .contains("<span class=\"status-card-money\" title=\"Incomplete: some usage has"
+                        + " no reported tokens or rate yet. Cost per attempt is in Attempts.\">&lt;$0.01</span>");
         String costNote = "<span class=\"row-amount\"\\s+title=\"Some usage was not reported by the runtime or has no"
-                + " price, so the real cost may be higher.\">\\$[0-9.]+</span>";
+                + " price, so the real cost may be higher.\">&lt;\\$0.01</span>";
         assertThat(partialBody.substring(partialBody.indexOf("id=\"attempts-title\"")))
                 .containsPattern(costNote).doesNotContain(">incomplete<");
         String partialList = assertRendered("/flows/dev-factory", "Ready to run");
         assertThat(partialList.substring(partialList.indexOf("id=\"triggered-title\"")))
-                .containsPattern("<span class=\"row-amount\" title=\"Some usage was not reported by the runtime or has"
-                        + " no price, so the real cost may be higher.\">\\$[0-9.]+</span>")
+                .contains("<span class=\"row-amount\" title=\"Some usage was not reported by the runtime or has"
+                        + " no price, so the real cost may be higher.\">&lt;$0.01</span>")
                 .doesNotContain(">incomplete<", ">cost may be higher<");
 
         Task live = seedTask("70023", "MODBAR-723", "Live task",
@@ -1606,13 +1607,19 @@ class UiRenderSmokeTest {
                         "rate", Map.of("currency", "USD", "inputPerMillion", 0.15)));
         auditLog.record(liveExecution.getId(), AuditEventType.STEP_STARTED, "implement", "smoke", Map.of());
 
-        String liveBody = assertRendered("/tasks/" + live.getId(), "Implementation is running.");
+        String liveBody = assertRendered("/tasks/" + live.getId(), "Implementing changes</p>");
         assertThat(liveBody)
                 .contains("In progress", ">Open run</a>", "Includes live usage that can still change.")
-                .doesNotContain("name=\"expectedVersion\"");
+                .doesNotContain("name=\"expectedVersion\"", "Implementing changes.");
+        // The status card shows the time of the coding step against its own limit, as the run page does.
+        assertThat(liveBody.substring(liveBody.indexOf("class=\"status-card-side\"")))
+                .containsPattern("<span title=\"The whole attempt may take 1 h.\"><span\\s+class=\"status-card-money\""
+                        + " data-elapsed-start=\"[^\"]+\">\\d+ s</span>\\s*"
+                        + "<span class=\"status-card-note\">of 30 min</span></span>");
         // A running attempt's cost is "so far", the same as Working in Triggered.
         assertThat(liveBody.substring(liveBody.indexOf("id=\"attempts-title\"")))
-                .containsPattern("<span class=\"row-amount\"\\s*>\\$[0-9.]+ so far</span>")
+                .containsPattern("<span class=\"row-amount\"\\s*>&lt;\\$0.01 so far</span>")
+                .containsPattern("<span class=\"chip chip-info\"\\s+title=\"Implementing changes\">In progress</span>")
                 .doesNotContain("cost may be higher", "cost unknown");
 
         // A paid start that stopped before the runtime reported any usage, for example on a Docker error:
@@ -1671,8 +1678,9 @@ class UiRenderSmokeTest {
                 .containsPattern("<input type=\"radio\" name=\"answer\" id=\"answer-own\" value=\"own\"\\s*"
                         + "aria-labelledby=\"answer-own-text\"\\s*>")
                 .doesNotContain("id=\"retry\"", "What should the agent do differently?", "I read the code.");
+        // The attempt row has the chip of the status card: the question of the latest attempt waits for an answer.
         assertThat(body.substring(body.indexOf("id=\"attempts-title\"")))
-                .contains(">Asked a question</span>");
+                .contains(">Needs your answer</span>");
     }
 
     @Test
@@ -1687,11 +1695,16 @@ class UiRenderSmokeTest {
         attempt.setExecutionId(execution.getId());
         taskAttempts.save(attempt);
 
-        String body = assertRendered("/tasks/" + delivered.getId(), "Pull request #7 is ready for review.");
+        String body = assertRendered("/tasks/" + delivered.getId(),
+                "<p class=\"status-card-headline\">Pull request #7 is ready for review</p>");
+        // The chip opens the pull request; the secondary button opens the PR feedback block of the run page.
         assertThat(body)
-                .contains("href=\"https://github.com/folio-org/mod-bar/pull/7\">Open pull request #7</a>",
-                        "href=\"/executions/" + execution.getId() + "\">Open run</a>",
-                        "chip-success")
+                .contains("<a class=\"chip chip-success ext-link\" href=\"https://github.com/folio-org/mod-bar/pull/7\">"
+                                + "PR #7</a>",
+                        "class=\"btn btn-primary btn-sm\" href=\"https://github.com/folio-org/mod-bar/pull/7\">"
+                                + "Open pull request #7</a>",
+                        "class=\"btn btn-secondary btn-sm\" href=\"/executions/" + execution.getId()
+                                + "#pr-feedback\">PR feedback</a>")
                 .doesNotContain("Draft PR", "Factory opened it as a draft because:")
                 .doesNotContain("name=\"expectedVersion\"");
     }
@@ -1762,23 +1775,30 @@ class UiRenderSmokeTest {
                         + "\"pullRequestDraft\":true,\"draftReasons\":[\"1 acceptance criterion is not met.\"]}",
                 "publish");
 
-        String body = assertRendered("/tasks/" + delivered.getId(), "Pull request #8 is open as a draft.");
+        String body = assertRendered("/tasks/" + delivered.getId(),
+                "<p class=\"status-card-headline\">Pull request #8 is open as a draft</p>");
         assertThat(body)
-                .contains("class=\"chip chip-neutral\">Draft PR</span>",
+                .contains("<a class=\"chip chip-neutral ext-link\" href=\"https://github.com/folio-org/mod-bar/pull/8\">"
+                                + "Draft PR #8</a>",
                         "Factory opened it as a draft because:", "<li>1 acceptance criterion is not met.</li>",
                         "<li>The agent made assumptions that a reviewer should confirm.</li>",
                         "Pull request #8 opened as a draft",
                         "href=\"https://github.com/folio-org/mod-bar/pull/8\">Open pull request #8</a>")
                 .doesNotContain("chip-success", "is ready for review");
-        // The Attempts Result column marks the draft with the same Draft PR badge.
+        // The Attempts row marks the draft with the chip of the status card.
         assertThat(body.substring(body.indexOf("id=\"attempts-title\"")))
-                .contains("<span class=\"chip chip-neutral\" title=\"Pull request #8 opened as a draft\">Draft PR</span>")
+                .containsPattern("<a class=\"chip chip-neutral ext-link\"\\s+href=\"https://github.com/folio-org/mod-bar/pull/8\""
+                        + " title=\"Pull request #8 opened as a draft\">Draft PR #8</a>")
                 .contains(">Open run</a>");
 
         String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(run)
                 .contains("<a class=\"chip chip-neutral ext-link\" href=\"https://github.com/folio-org/mod-bar/pull/8\">"
-                        + "Draft PR #8</a>", "<p class=\"status-card-headline\">Pull request #8 is open as a draft</p>")
+                        + "Draft PR #8</a>", "<p class=\"status-card-headline\">Pull request #8 is open as a draft</p>",
+                        // The run page lists why the pull request is a draft, and its meta line names the
+                        // repository as the task page does.
+                        "Factory opened it as a draft because:", "<li>1 acceptance criterion is not met.</li>",
+                        "<span>mod-bar</span>")
                 .containsPattern("data-state=\"done\">\\s*<span class=\"run-step-title\">4 · Create pull request</span>"
                         + "\\s*<span class=\"run-step-state\"><span>Passed</span> · <span>draft</span>")
                 .doesNotContain(">PR ready</span>", "is ready for review");
@@ -1794,7 +1814,7 @@ class UiRenderSmokeTest {
         holdTheSlot(heldAttempt);
 
         assertThat(assertRendered("/tasks/" + held.getId(), "Needs inspection"))
-                .contains("Factory could not confirm how the last run ended.", "Mark as stopped…",
+                .contains("<p class=\"status-card-headline\">Factory could not confirm how the run ended</p>", "Mark as stopped…",
                         "/attempts/" + heldAttempt.getId() + "/mark-stopped", "data-confirm-style=\"compact\"")
                 .doesNotContain("name=\"expectedVersion\"");
     }
@@ -1819,7 +1839,7 @@ class UiRenderSmokeTest {
 
         String body = assertRendered("/tasks/" + retried.getId(), "Attempts");
         assertThat(body)
-                .contains("Attempt 3</strong>", "<span>retry</span>", "<span>first run</span>", "Withdrawn before start",
+                .contains("Attempt 3</strong>", "<span>retry</span>", "<span>first run</span>", "Withdrawn before it started",
                         "Verification failed: first failure", "Verification failed: second failure")
                 .contains("Failed");
         String attemptsTable = body.substring(body.indexOf("id=\"attempts-title\""));
@@ -1857,10 +1877,20 @@ class UiRenderSmokeTest {
                         "<p class=\"dev-poll-notice\" role=\"status\" data-poll-notice hidden>")
                 .containsPattern("href=\"/flows\"[^>]*aria-current=\"page\"")
                 .doesNotContain("chip-status-RUNNING", "Engine steps", "Runtime and usage", "Now · updates live");
-        // While it works, the time ticks and is measured against the attempt time limit.
-        assertThat(body.substring(body.indexOf("class=\"status-card-side\"")))
-                .containsPattern("<span class=\"status-card-money\" data-elapsed-start=\"[^\"]+\">\\d+ s</span>\\s*"
-                        + "<span class=\"status-card-note\">of 60</span>");
+        // Right after the start: its own headline, the amount from the first render, the time alone.
+        assertThat(body.substring(body.indexOf("class=\"status-card\"")))
+                .contains("<p class=\"status-card-headline\">Starting the run</p>")
+                .containsPattern("<span class=\"status-card-money\">\\$0.00</span>\\s*"
+                        + "<span class=\"status-card-note\">so far</span>")
+                .containsPattern("<span><span\\s+class=\"status-card-money\" data-elapsed-start=\"[^\"]+\">\\d+ s</span>"
+                        + "\\s*</span>");
+        // While the coding step works, the time is that step's, against the step's own limit.
+        auditLog.record(execution.getId(), AuditEventType.STEP_STARTED, "implement", "smoke", Map.of());
+        String coding = assertRendered("/executions/" + execution.getId(), "Implementing changes</p>");
+        assertThat(coding.substring(coding.indexOf("class=\"status-card-side\"")))
+                .containsPattern("<span title=\"The whole attempt may take 1 h.\"><span\\s+class=\"status-card-money\""
+                        + " data-elapsed-start=\"[^\"]+\">\\d+ s</span>\\s*"
+                        + "<span class=\"status-card-note\">of 30 min</span></span>");
     }
 
     /** The {@code pageTime} fragment of a time, as the page renders it. */

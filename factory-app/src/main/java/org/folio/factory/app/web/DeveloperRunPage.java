@@ -1,9 +1,12 @@
 package org.folio.factory.app.web;
 
-import org.folio.factory.app.tasks.execution.TaskExecutionProperties;
+import org.folio.factory.app.tasks.presentation.AttemptClock;
 import org.folio.factory.app.tasks.presentation.RunContext;
+import org.folio.factory.app.tasks.presentation.RunLimits;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
+import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.core.domain.Artifact;
+import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.PipelineExecution;
@@ -32,16 +35,18 @@ class DeveloperRunPage {
     private final DeveloperCostEstimator costEstimator;
     private final FeedbackUi feedbackUi;
     private final TaskQuery taskQuery;
-    private final TaskExecutionProperties taskLimits;
+    private final AttemptClock.Limits limits;
+    private final TaskRows taskRows;
     private final DeveloperExecutionView developerView;
 
     DeveloperRunPage(JsonMapper jsonMapper, DeveloperCostEstimator costEstimator, FeedbackUi feedbackUi,
-                     TaskQuery taskQuery, TaskExecutionProperties taskLimits) {
+                     TaskQuery taskQuery, RunLimits runLimits, TaskRows taskRows) {
         this.jsonMapper = jsonMapper;
         this.costEstimator = costEstimator;
         this.feedbackUi = feedbackUi;
         this.taskQuery = taskQuery;
-        this.taskLimits = taskLimits;
+        this.limits = runLimits.limits();
+        this.taskRows = taskRows;
         this.developerView = new DeveloperExecutionView(jsonMapper);
     }
 
@@ -54,9 +59,9 @@ class DeveloperRunPage {
         var projection = new AttemptUsageSummary.Projection(detail.events());
         var feedback = feedbackUi.populate(execution, detail.artifacts(), detail.events(), projection, model);
         var usage = usage(detail, projection, feedback);
-        var input = new RunStatusCard.Input(facts, context, execution, feedback, usage, clock(detail, context, now),
-                review);
-        model.addAttribute("run", new DeveloperRunView(RunStatusCard.header(facts, context, execution),
+        var input = new RunStatusCard.Input(facts, context, execution, feedback, usage, clock(detail, now), review);
+        var repository = context.map(RunContext::repositoryKey).map(taskRows::repositoryLine).orElse(null);
+        model.addAttribute("run", new DeveloperRunView(RunStatusCard.header(facts, context, execution, repository),
                 RunStatusCard.status(input), RunStatusCard.standing(context), facts.steps().cards(),
                 facts.activity(), usage.column(), facts.technical(), links(detail, usage)));
         model.addAttribute("pollUrl", polls(execution, context) ? "/executions/" + detail.id() + "/poll" : null);
@@ -97,13 +102,16 @@ class DeveloperRunPage {
                 feedback.map(FeedbackUi.Summary::rounds).orElse(false));
     }
 
-    /** Active time, and the attempt deadline as its limit for a run of a task. */
-    private RunStatusCard.Clock clock(ExecutionDetail detail, Optional<RunContext> context, Instant now) {
+    /** The active time of the run, or of its working step with that step's limit, as the task page shows it. */
+    private AttemptClock clock(ExecutionDetail detail, Instant now) {
         var execution = detail.execution();
         var end = execution.getStatus().isFinal() && execution.getCompletedAt() != null
                 ? execution.getCompletedAt() : now;
-        return new RunStatusCard.Clock(AttemptUsageSummary.activeSeconds(detail.events(), end), now,
-                context.isPresent() ? (int) taskLimits.deadline().toMinutes() : null);
+        var start = AttemptClock.stepStart(detail.events());
+        var facts = new AttemptClock.Facts(AttemptUsageSummary.activeSeconds(detail.events(), end),
+                start.map(AuditEvent::getStepId).orElse(null), start.map(AuditEvent::getOccurredAt).orElse(null),
+                execution.getStatus() == ExecutionStatus.RUNNING, now);
+        return AttemptClock.of(facts, limits);
     }
 
     private static DeveloperRunView.Links links(ExecutionDetail detail, RunUsage usage) {

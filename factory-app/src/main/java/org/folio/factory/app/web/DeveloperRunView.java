@@ -1,5 +1,7 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.app.tasks.presentation.AttemptClock;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
@@ -23,12 +25,12 @@ public record DeveloperRunView(Header header, Status status, Standing standing, 
 
     /**
      * Chip and headline with the lines under them, then the amount, the time and the button of the next step.
-     * Every field but the chip and the headline is null when the card does not show it. {@code timeStart} makes
-     * the time tick while the run works.
+     * Every field but the chip, the headline and the clock is null when the card does not show it;
+     * {@code draftReasons} says why the pull request is a draft, as the task page says it.
      */
     public record Status(String chipLabel, String chipClass, String chipUrl, String headline, String reasonLabel,
-                         String reason, String question, String note, String amount, String amountNote,
-                         String amountTitle, String time, Instant timeStart, String timeLimit, String actionLabel,
+                         String reason, String question, String note, List<String> draftReasons, String amount,
+                         String amountNote, String amountTitle, AttemptClock clock, String actionLabel,
                          String actionUrl) {
     }
 

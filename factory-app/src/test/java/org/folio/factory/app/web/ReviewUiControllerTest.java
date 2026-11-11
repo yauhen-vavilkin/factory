@@ -228,7 +228,7 @@ class ReviewUiControllerTest {
         assertThat(rows).singleElement().satisfies(row -> {
             assertThat(row.title()).isEqualTo("Waiting for PR comments: MGRAPPS-21");
             assertThat(row.url()).isEqualTo("/executions/" + run.getId() + "#pr-feedback");
-            assertThat(row.action()).isEqualTo("Open run");
+            assertThat(row.action()).isEqualTo("PR feedback");
         });
     }
 

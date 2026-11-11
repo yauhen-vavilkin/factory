@@ -17,6 +17,8 @@ import java.util.regex.Pattern;
 final class TaskLabels {
 
     static final String NEEDS_ANSWER = "Needs your answer";
+    /** The stage of an attempt in flight whose run ended before the dispatcher closed the attempt. */
+    static final String RUN_ENDED = "run-ended";
     private static final String COST_MAY_BE_HIGHER = "cost may be higher";
     private static final String COST_UNKNOWN = "cost unknown";
     private static final String COST_MAY_BE_HIGHER_TITLE =
@@ -24,30 +26,6 @@ final class TaskLabels {
     private static final String COST_UNKNOWN_TITLE =
             "The runtime did not report usage, or the usage has no price, so the cost is not known.";
     private static final Pattern PULL_NUMBER = Pattern.compile("/pull/(\\d+)");
-
-    static String stateLabel(TaskView view) {
-        return switch (view.state()) {
-            case AWAITING_SELECTION -> "Not started";
-            case WITHDRAWN -> "Withdrawn";
-            case UNSUPPORTED -> "Not eligible";
-            case STOPPED -> view.needsAnswer() ? NEEDS_ANSWER : "Failed";
-            case UNCERTAIN, PROCESSING_PAUSED -> "Needs inspection";
-            case PR_READY -> view.draftReasons() == null ? "PR ready" : "Draft PR";
-            case WORKING -> queued(view) ? "Queued" : "In progress";
-        };
-    }
-
-    /** The words of one attempt's state, as the run page shows them next to the task. */
-    static String attemptLabel(TaskView.AttemptHistoryEntry attempt) {
-        return switch (attempt.state()) {
-            case RESERVED -> "Queued";
-            case QUEUED, RUNNING -> "In progress";
-            case PR_READY -> attempt.draftReasons() == null ? "PR ready" : "Draft PR";
-            case STOPPED -> attempt.asked() ? "Asked a question" : "Failed";
-            case NEEDS_INSPECTION -> "Needs inspection";
-            case WITHDRAWN -> "Withdrawn";
-        };
-    }
 
     /** Work in flight whose latest attempt waits for the dispatcher. */
     static boolean queued(TaskView view) {
@@ -58,19 +36,6 @@ final class TaskLabels {
     /** Work in flight that the dispatcher has started. */
     static boolean working(TaskView view) {
         return view.state() == TaskView.TaskState.WORKING && !queued(view);
-    }
-
-    static String stateClass(String label) {
-        if (label == null) {
-            return "chip chip-neutral";
-        }
-        return switch (label) {
-            case "PR ready" -> "chip chip-success";
-            case "Failed" -> "chip chip-danger";
-            case "Needs inspection", NEEDS_ANSWER, "Asked a question" -> "chip chip-warning";
-            case "In progress" -> "chip chip-info";
-            default -> "chip chip-neutral";
-        };
     }
 
     static String triggeredDetail(TaskView view) {
@@ -85,30 +50,37 @@ final class TaskLabels {
         };
     }
 
-    static String attemptResult(TaskView.AttemptHistoryEntry attempt) {
-        return switch (attempt.state()) {
-            case PR_READY -> pullRequestLabel(attempt.pullRequestUrl())
+    static String attemptResult(TaskView.AttemptHistoryEntry attempt, AttemptStatus status) {
+        if (attempt.pullRequestUrl() != null) {
+            return pullRequestLabel(attempt.pullRequestUrl())
                     + (attempt.draftReasons() == null ? " opened" : " opened as a draft");
-            case RESERVED -> "Queued";
-            case QUEUED, RUNNING -> "In progress";
-            case WITHDRAWN -> "Withdrawn before start";
-            default -> AttemptFailure.reason(attempt.reason());
+        }
+        return switch (attempt.state()) {
+            case STOPPED, NEEDS_INSPECTION, PR_READY -> AttemptFailure.reason(attempt.reason());
+            default -> status.headline();
         };
     }
 
-    static String resultSentence(TaskView view) {
-        if (view.attempts().isEmpty()) {
-            return view.state() == TaskView.TaskState.UNSUPPORTED ? AttemptFailure.reason(view.reason())
-                    : "Not started yet. Select it in My tasks and press Run.";
+    /** The headline of a task that has no attempt yet. */
+    static String notStartedSentence(TaskView view) {
+        return view.state() == TaskView.TaskState.UNSUPPORTED ? AttemptFailure.reason(view.reason())
+                : "Not started yet. Select it in My tasks and press Run.";
+    }
+
+    /** What an attempt in flight does now, in the words of the run page's step cards. */
+    static String workingHeadline(String stage) {
+        if (RUN_ENDED.equals(stage)) {
+            return "Finishing the attempt";
         }
-        return switch (view.state()) {
-            case PR_READY -> pullRequestLabel(view.pullRequestUrl())
-                    + (view.draftReasons() == null ? " is ready for review." : " is open as a draft.");
-            case WORKING -> queued(view) ? "Queued: " + linePlace(view) + "."
-                    : stageLabel(view.stage()) == null ? "The run is starting."
-                    : stageLabel(view.stage()) + " is running.";
-            case UNCERTAIN, PROCESSING_PAUSED -> "Factory could not confirm how the last run ended.";
-            default -> AttemptFailure.reason(view.reason()) + " " + pullRequestNote(view.reason());
+        var label = stageLabel(stage);
+        if (label == null) {
+            return AttemptStatus.STARTING;
+        }
+        return switch (label) {
+            case "Preparation" -> "Preparing the task";
+            case "Implementation" -> "Implementing changes";
+            case "Verification" -> "Verifying changes";
+            default -> "Creating the pull request";
         };
     }
 
@@ -221,7 +193,7 @@ final class TaskLabels {
         return second == null ? first : first + " · " + second;
     }
 
-    private static String ordinal(int position) {
+    static String ordinal(int position) {
         int lastTwo = position % 100;
         String suffix = lastTwo >= 11 && lastTwo <= 13 ? "th" : switch (position % 10) {
             case 1 -> "st";

@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.app.tasks.presentation.AttemptClock;
 import org.folio.factory.app.tasks.presentation.AttemptFailure;
 import org.folio.factory.app.tasks.presentation.RunContext;
 import org.folio.factory.app.web.DeveloperRunView.Status;
@@ -7,7 +8,6 @@ import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.PipelineExecution;
 
-import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -20,6 +20,7 @@ import java.util.regex.Pattern;
 final class RunStatusCard {
 
     private static final Pattern PULL_NUMBER = Pattern.compile("/pull/(\\d+)");
+    private static final String STARTING = "Starting the run";
     private static final Map<String, String> WORKING = Map.of(
             "Prepare task", "Preparing the task", "Implement changes", "Implementing changes",
             "Verify changes", "Verifying changes", "Create pull request", "Creating the pull request");
@@ -29,16 +30,12 @@ final class RunStatusCard {
 
     /** What the card is built from; {@code review} is the pending review of a run that waits for one, or null. */
     record Input(RunFacts facts, Optional<RunContext> context, PipelineExecution execution,
-                 Optional<FeedbackUi.Summary> feedback, RunUsage usage, Clock clock, HitlReview review) {
+                 Optional<FeedbackUi.Summary> feedback, RunUsage usage, AttemptClock clock, HitlReview review) {
 
         boolean live() {
             var status = execution.getStatus();
             return status == ExecutionStatus.RUNNING || status == ExecutionStatus.PENDING;
         }
-    }
-
-    /** The active time of the run; {@code limitMinutes} is the attempt deadline, null for a run of no task. */
-    record Clock(long activeSeconds, Instant now, Integer limitMinutes) {
     }
 
     /** A status chip: its words, its classes and, for a pull request, its link. */
@@ -55,7 +52,12 @@ final class RunStatusCard {
         }
     }
 
-    static DeveloperRunView.Header header(RunFacts facts, Optional<RunContext> context, PipelineExecution execution) {
+    /**
+     * The run of a task attempt has the meta line of its task page, {@code taskRepository}, which the task knows
+     * before the run checks anything out; any other run names the repository it checked out.
+     */
+    static DeveloperRunView.Header header(RunFacts facts, Optional<RunContext> context, PipelineExecution execution,
+                                          String taskRepository) {
         var task = facts.task();
         var repository = blankToNull(task.repository().substring(task.repository().indexOf('/') + 1));
         var settings = context.map(RunContext::settings).orElse(null);
@@ -63,7 +65,7 @@ final class RunStatusCard {
         if (context.isPresent()) {
             var run = context.get();
             return new DeveloperRunView.Header(run.pageTitle(), run.taskId(), run.key(), run.jiraUrl(), run.crumb(),
-                    run.title(), repository, settings);
+                    run.title(), taskRepository != null ? taskRepository : repository, settings);
         }
         var crumb = "run " + execution.getId().toString().substring(0, 4) + "…";
         var key = blankToNull(task.key());
@@ -72,22 +74,24 @@ final class RunStatusCard {
                 settings);
     }
 
+    /**
+     * The run of a task attempt takes its chip and headline from the attempt, as the task page does; a PR feedback
+     * round that works or stopped says its phase instead. A run that works shows its amount from the first render.
+     */
     static Status status(Input in) {
-        var chip = in.context().map(run -> new Chip(run.chipLabel(), run.chipClass(), run.chipUrl()))
+        var chip = in.context().map(RunContext::status)
+                .map(status -> new Chip(status.chipLabel(), status.chipClass(), status.chipUrl()))
                 .orElseGet(() -> chip(in.facts().productStatus(), in.facts().pullRequest()));
         var headline = headline(in);
         var usage = in.usage();
+        var amount = usage.amount() != null ? usage.amount() : in.live() ? "$0.00" : null;
         var rounds = in.feedback().map(FeedbackUi.Summary::rounds).orElse(false);
-        var amountNote = usage.amount() == null ? null : in.live() ? "so far" : rounds ? "total" : null;
-        var clock = in.clock();
-        var ticking = in.execution().getStatus() == ExecutionStatus.RUNNING;
+        var amountNote = amount == null ? null : in.live() ? "so far" : rounds ? "total" : null;
         var action = action(in);
         return new Status(chip.label(), chip.cssClass(), chip.url(), headline.text(), headline.reasonLabel(),
-                headline.reason(), headline.question(), headline.note(), usage.amount(), amountNote,
-                usage.partial() ? RunUsage.INCOMPLETE : null, UiFormat.duration(clock.activeSeconds()),
-                ticking ? clock.now().minusSeconds(clock.activeSeconds()) : null,
-                ticking && clock.limitMinutes() != null ? "of " + clock.limitMinutes() : null,
-                action.label(), action.url());
+                headline.reason(), headline.question(), headline.note(),
+                in.context().map(RunContext::draftReasons).orElse(null), amount, amountNote,
+                usage.partial() ? RunUsage.INCOMPLETE : null, in.clock(), action.label(), action.url());
     }
 
     /** The muted line under the card: where an older attempt stands, or the button to start the next attempt. */
@@ -106,27 +110,42 @@ final class RunStatusCard {
     }
 
     private static Headline headline(Input in) {
+        var feedback = in.feedback();
+        if (feedback.isPresent() && !feedback.get().waiting()) {
+            return Headline.of(feedback.get().headline());
+        }
+        return in.context().map(run -> attemptHeadline(in, run)).orElseGet(() -> runHeadline(in));
+    }
+
+    /** The headline of the attempt, with the reason of a failure, the question, or the problem a retry follows. */
+    private static Headline attemptHeadline(Input in, RunContext run) {
+        var text = run.status().headline();
+        if (run.failure() != null) {
+            return new Headline(text, "Reason", run.failure().reason(), null, run.failureNote());
+        }
+        if (in.facts().asked()) {
+            return new Headline(text, null, null, in.facts().reason(), null);
+        }
+        return in.live() ? retrying(text, in.facts()) : Headline.of(text);
+    }
+
+    /** A run that no task attempt started says what its artifacts say. */
+    private static Headline runHeadline(Input in) {
         var facts = in.facts();
         if (in.feedback().isPresent()) {
-            return in.feedback().get().waiting() ? Headline.of(pullRequestHeadline(facts.pullRequest()))
-                    : Headline.of(in.feedback().get().headline());
+            return Headline.of(pullRequestHeadline(facts.pullRequest()));
         }
-        if (in.live() && facts.steps().current() != null) {
-            return working(facts);
+        if (in.live()) {
+            var current = facts.steps().current();
+            return current == null ? Headline.of(STARTING) : retrying(WORKING.getOrDefault(current, current), facts);
         }
         if (facts.asked()) {
             return new Headline("The agent stopped with a question", null, null, facts.reason(), null);
         }
-        var failure = in.context().map(RunContext::failure);
-        if (failure.isPresent()) {
-            return new Headline(failure.get().headline(), "Reason", failure.get().reason(), null,
-                    in.context().get().failureNote());
-        }
         return finished(in);
     }
 
-    private static Headline working(RunFacts facts) {
-        var text = WORKING.getOrDefault(facts.steps().current(), facts.steps().current());
+    private static Headline retrying(String text, RunFacts facts) {
         return switch (facts.reasonKind()) {
             case RETRY_PENDING -> new Headline(text, "Retry pending", AttemptFailure.reason(facts.reason()),
                     null, null);

@@ -152,7 +152,7 @@ public class ReviewUiController {
         return new ReviewRow(review.getId(), title, flowId, review.getGateId(),
                 PageTime.timestamp(review.getCreatedAt()), review.getStatus(), review.getDecision(),
                 review.getReviewer(), PageTime.timestamp(review.getDecidedAt()), url,
-                taskKey == null ? "Review" : "Open run");
+                taskKey == null ? "Review" : "PR feedback");
     }
 
     /** The task key of each run that waits for PR comments, read in one query for the whole page. */

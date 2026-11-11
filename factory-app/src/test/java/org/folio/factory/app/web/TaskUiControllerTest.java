@@ -1,6 +1,10 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.app.tasks.presentation.AgentQuestion;
+import org.folio.factory.app.tasks.presentation.AttemptClock;
+import org.folio.factory.app.tasks.presentation.AttemptStatus;
+import org.folio.factory.app.tasks.presentation.RunLimits;
+import org.folio.factory.app.tasks.presentation.TaskDetail;
 import org.folio.factory.app.tasks.presentation.TaskAnswers;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -156,7 +160,9 @@ class TaskUiControllerTest {
         var repositories = new DevFactoryProperties("https://github.com", new TreeMap<>(Map.of("mod-bar",
                 new DevFactoryProperties.Repository("folio-org/mod-bar", "master", "build:image", "unit",
                         List.of("MODBAR"), List.of(), new DeliveryTarget("folio-org/mod-bar", null)))));
-        var rows = new TaskRows(new TaskSourceProperties("Jane Developer"), jira, repositories);
+        var limits = org.mockito.Mockito.mock(RunLimits.class);
+        lenient().when(limits.limits()).thenReturn(new AttemptClock.Limits(1800, java.time.Duration.ofMinutes(60)));
+        var rows = new TaskRows(new TaskSourceProperties("Jane Developer"), jira, repositories, limits);
         var revisions = new TaskRevisions(attempts, executions, dispatcher, taskQuery);
         var controller = new TaskUiController(taskQuery, installations, attempts, admissions,
                 dispatcher, rows, flows, runSettings, revisions);
@@ -366,23 +372,25 @@ class TaskUiControllerTest {
 
         MvcResult result = mvc.perform(get("/tasks/{taskId}", TASK_ID)).andExpect(status().isOk()).andReturn();
         assertThat(detail(result))
-                .containsEntry("stateLabel", "Draft PR")
-                .containsEntry("stateClass", "chip chip-neutral")
-                .containsEntry("headline", "Pull request #7 is open as a draft.")
+                .containsEntry("chipLabel", "Draft PR #7")
+                .containsEntry("chipClass", "chip chip-neutral")
+                .containsEntry("chipUrl", draft.pullRequestUrl())
+                .containsEntry("headline", "Pull request #7 is open as a draft")
                 .containsEntry("draftReasons", reasons)
                 .containsEntry("prAction", "Open pull request #7");
         assertThat(rows(result.getModelAndView().getModel(), "attempts").getFirst())
-                .containsEntry("chipLabel", "Draft PR")
+                .containsEntry("chipLabel", "Draft PR #7")
                 .containsEntry("chipClass", "chip chip-neutral")
                 .containsEntry("result", "Pull request #7 opened as a draft");
         // The run page chip names the attempt's pull request and links it.
-        assertThat(RunContext.of(draft, EXECUTION_ID)).get()
-                .returns("Draft PR #7", RunContext::chipLabel)
-                .returns("chip chip-neutral", RunContext::chipClass)
-                .returns(draft.pullRequestUrl(), RunContext::chipUrl);
-        assertThat(RunContext.of(ready, EXECUTION_ID)).get()
-                .returns("PR #7", RunContext::chipLabel)
-                .returns("chip chip-success", RunContext::chipClass);
+        assertThat(RunContext.of(draft, EXECUTION_ID).orElseThrow().status())
+                .returns("Draft PR #7", AttemptStatus::chipLabel)
+                .returns("chip chip-neutral", AttemptStatus::chipClass)
+                .returns(draft.pullRequestUrl(), AttemptStatus::chipUrl)
+                .returns("Pull request #7 is open as a draft", AttemptStatus::headline);
+        assertThat(RunContext.of(ready, EXECUTION_ID).orElseThrow().status())
+                .returns("PR #7", AttemptStatus::chipLabel)
+                .returns("chip chip-success", AttemptStatus::chipClass);
     }
 
     @Test
@@ -487,9 +495,9 @@ class TaskUiControllerTest {
                 .andReturn();
 
         assertThat(detail(result))
-                .containsEntry("stateLabel", "Failed")
+                .containsEntry("chipLabel", "Failed")
                 .containsEntry("retryAllowed", true)
-                .containsEntry("runUrl", "/executions/" + EXECUTION_ID)
+                .containsEntry("run", new TaskDetail.RunLink("Open run", "/executions/" + EXECUTION_ID))
                 .containsEntry("nextAttempt", 3)
                 .containsEntry("spentNote", "spent in 2 attempts")
                 .containsEntry("repository", "mod-bar → folio-org/mod-bar · master");
@@ -525,12 +533,14 @@ class TaskUiControllerTest {
         assertThat(retryForm.selected().id()).isEqualTo("codemie-sonnet-5.5");
         assertThat(retryForm.effort()).isEqualTo("high");
         assertThat(model).doesNotContainKeys("retryInstructions", "typedInstructions");
+        // The title has the whole line but the start time, which the line shows in local time.
         assertThat(rows(model, "attempts")).extracting(row -> row.get("meta"))
-                .containsExactly("glm-5.3 · low · Oct 23, 08:00 UTC · 10 min · \"Keep the public API.\"",
-                        "Oct 23, 08:00 UTC · 10 min");
-        // The line shows the settings, the start time for time.js and what followed; the title has it all.
-        assertThat(rows(model, "attempts")).extracting(row -> row.get("settings"), row -> row.get("details"))
-                .containsExactly(tuple("glm-5.3 · low", "10 min · \"Keep the public API.\""), tuple(null, "10 min"));
+                .containsExactly("glm-5.3 · low · 10 min · \"Keep the public API.\"", "10 min");
+        // The line shows the settings, the start time for time.js, the time and the quote, which alone may be cut.
+        assertThat(rows(model, "attempts")).extracting(row -> row.get("settings"),
+                        row -> ((AttemptClock) row.get("clock")).time(), row -> row.get("quote"))
+                .containsExactly(tuple("glm-5.3 · low", "10 min", "\"Keep the public API.\""),
+                        tuple(null, "10 min", null));
     }
 
     @Test
@@ -831,13 +841,13 @@ class TaskUiControllerTest {
         var model = mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn().getModelAndView().getModel();
 
         assertThat(fields(model.get("task")))
-                .containsEntry("stateLabel", "Needs your answer")
-                .containsEntry("stateClass", "chip chip-warning")
+                .containsEntry("chipLabel", "Needs your answer")
+                .containsEntry("chipClass", "chip chip-warning")
                 .containsEntry("headline", "The agent stopped with a question")
                 .containsEntry("nextAttempt", 2);
         assertThat(model.get("question")).isEqualTo(new AgentQuestion("Which API should change?",
                 "Both APIs exist", List.of("The public API", "The internal API"), "I read the code."));
-        assertThat(rows(model, "attempts").getFirst()).containsEntry("chipLabel", "Asked a question")
+        assertThat(rows(model, "attempts").getFirst()).containsEntry("chipLabel", "Needs your answer")
                 .containsEntry("chipClass", "chip chip-warning");
     }
 
@@ -968,7 +978,12 @@ class TaskUiControllerTest {
         var fields = new LinkedHashMap<String, Object>();
         for (var component : row.getClass().getRecordComponents()) {
             try {
-                fields.put(component.getName(), component.getAccessor().invoke(row));
+                var value = component.getAccessor().invoke(row);
+                // The chip and headline of a row or the task card read like fields of their own.
+                if (value instanceof AttemptStatus status) {
+                    fields.putAll(fields(status));
+                }
+                fields.put(component.getName(), value);
             } catch (ReflectiveOperationException e) {
                 throw new IllegalStateException(e);
             }

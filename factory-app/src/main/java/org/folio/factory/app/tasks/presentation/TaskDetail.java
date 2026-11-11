@@ -5,13 +5,19 @@ import java.util.UUID;
 
 /**
  * The task page: head, status card, the action it offers. repository says where the task is checked out and where
- * its pull request goes. reason and reasonNote are set when the latest attempt failed: the failure sentence and
- * what the attempt left behind. spentTitle says why the amount may be too low. runUrl opens the latest run.
+ * its pull request goes. status is the chip and headline of the attempt the task stands for, the same as on its
+ * run page. reason and reasonNote are set when the latest attempt failed: the failure sentence and what the
+ * attempt left behind. spentTitle says why the amount may be too low. clock is the time of the attempt that works
+ * now, null while none works. run opens the latest run, at its PR feedback once there is a pull request.
  */
 public record TaskDetail(UUID taskId, String key, String jiraUrl, String title, String repository,
                          long version, String inputFingerprint, String destinationFingerprint,
-                         String stateLabel, String stateClass, String headline, String reason, String reasonNote,
+                         AttemptStatus status, String reason, String reasonNote,
                          List<String> draftReasons, String spent, String spentNote, String spentTitle,
-                         boolean retryAllowed, int nextAttempt, String runUrl, String prUrl, String prAction,
-                         UUID markStoppedAttemptId) {
+                         AttemptClock clock, boolean retryAllowed, int nextAttempt, RunLink run, String prUrl,
+                         String prAction, UUID markStoppedAttemptId) {
+
+    /** The button to the run page: "Open run", or "PR feedback" to the PR feedback part of it. */
+    public record RunLink(String label, String url) {
+    }
 }

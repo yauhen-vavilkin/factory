@@ -22,9 +22,6 @@ import static org.folio.factory.app.tasks.presentation.TaskLabels.costNoteTitle;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.incompleteCostNote;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.minutes;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.queued;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.shortPullRequestLabel;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.stateClass;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.stateLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.triggeredDetail;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.working;
 
@@ -34,15 +31,13 @@ public final class RunRows {
 
     public static TriggeredRow row(TaskView view) {
         var latest = view.attempts().getLast();
-        var label = stateLabel(view);
-        var pullRequest = delivered(view);
+        var status = AttemptStatus.of(view, view.standingAttempt().orElse(latest));
         var when = latest.startedAt() != null ? latest.startedAt() : latest.createdAt();
         var action = action(view, latest);
         var costTitle = working(view) ? null : costNoteTitle(incompleteCostNote(view.usage()));
         var detail = detail(view);
         return new TriggeredRow(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(),
-                pullRequest ? shortPullRequestLabel(view.pullRequestUrl(), view.draftReasons() != null) : label,
-                pullRequest ? pullRequestClass(view) : stateClass(label), pullRequest ? view.pullRequestUrl() : null,
+                status.chipLabel(), status.chipClass(), status.chipUrl(),
                 detail == null ? null : AttemptFailure.firstSentence(detail), detail, cost(view, latest), costTitle,
                 ago(when),
                 PageTime.timestamp(when), action,
@@ -116,10 +111,6 @@ public final class RunRows {
 
     private static boolean delivered(TaskView view) {
         return view.state() == TaskView.TaskState.PR_READY && view.pullRequestUrl() != null;
-    }
-
-    private static String pullRequestClass(TaskView view) {
-        return view.draftReasons() == null ? "chip chip-success" : "chip chip-neutral";
     }
 
     /** A running task needs no detail: its chip says it; a queued one says its place in line. */

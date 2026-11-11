@@ -11,6 +11,8 @@ import org.folio.factory.app.web.PageTime;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -20,7 +22,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.folio.factory.app.tasks.presentation.TaskLabels.ago;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.attemptLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.attemptResult;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costNoteTitle;
@@ -28,10 +29,9 @@ import static org.folio.factory.app.tasks.presentation.TaskLabels.incompleteCost
 import static org.folio.factory.app.tasks.presentation.TaskLabels.minutes;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.pullRequestLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.pullRequestNote;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.resultSentence;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.stateClass;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.stateLabel;
+import static org.folio.factory.app.tasks.presentation.TaskLabels.notStartedSentence;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.usageNote;
+import static org.folio.factory.app.tasks.presentation.TaskLabels.working;
 
 /**
  * Page rows of My tasks, the task summary and the run page header, built from the
@@ -46,6 +46,7 @@ public class TaskRows {
     private final TaskSourceProperties source;
     private final TaskJiraInstance jira;
     private final DevFactoryProperties repositories;
+    private final RunLimits limits;
 
     public SourceCard sourceCard(TaskInstallation installation) {
         String base = jira.baseUrl();
@@ -65,32 +66,72 @@ public class TaskRows {
     }
 
     public TaskDetail detail(TaskView view) {
-        var label = view.attempts().isEmpty() ? null : stateLabel(view);
         var latest = view.attempts().isEmpty() ? null : view.attempts().getLast();
-        var stateLabel = label != null ? label
-                : view.state() == TaskView.TaskState.UNSUPPORTED ? "Not eligible" : "Not started";
         var failure = failure(view);
-        return new TaskDetail(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(), repositoryLine(view),
-                view.version(), view.inputFingerprint(), view.destinationFingerprint(), stateLabel,
-                stateClass(label), failure.map(AttemptFailure::headline).orElseGet(() -> headline(view)),
-                failure.map(AttemptFailure::reason).orElse(null),
+        var pullRequest = view.pullRequestUrl();
+        return new TaskDetail(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(),
+                repositoryLine(view.destinationRepository()), view.version(), view.inputFingerprint(),
+                view.destinationFingerprint(), status(view), failure.map(AttemptFailure::reason).orElse(null),
                 failure.map(found -> pullRequestNote(view.reason())).orElse(null),
-                view.draftReasons(), costLabel(view.usage()), spentNote(view), usageNote(view.usage()),
-                view.allowedActions().retry(), view.attempts().size() + 1, runUrl(view),
-                view.pullRequestUrl(), view.pullRequestUrl() == null ? null
-                        : "Open p" + pullRequestLabel(view.pullRequestUrl()).substring(1),
+                view.draftReasons(), costLabel(view.usage()), spentNote(view), usageNote(view.usage()), clock(view),
+                view.allowedActions().retry(), view.attempts().size() + 1, runLink(view, pullRequest != null),
+                pullRequest, pullRequest == null ? null : "Open p" + pullRequestLabel(pullRequest).substring(1),
                 latest == null ? null : markStoppedAttemptId(latest));
     }
 
-    public static AttemptRow attemptRow(TaskView.AttemptHistoryEntry attempt) {
-        var label = attemptLabel(attempt);
+    public static AttemptRow attemptRow(TaskView view, TaskView.AttemptHistoryEntry attempt) {
+        var status = AttemptStatus.of(view, attempt);
         var costNote = attemptCostNote(attempt);
         var started = PageTime.day(attempt.startedAt());
-        return new AttemptRow(attempt.ordinal(), attemptKind(attempt), attemptMeta(attempt, started),
-                TaskRunSettings.label(attempt.runSettings()), started, attemptDetails(attempt, started),
+        return new AttemptRow(attempt.ordinal(), attemptKind(attempt), attemptMeta(attempt),
+                TaskRunSettings.label(attempt.runSettings()), started, attemptClock(attempt),
+                started == null ? "not started" : null, quote(attempt),
                 costLabel(attempt.usage()), costNote, costNoteTitle(costNote),
-                costText(costLabel(attempt.usage()), costNote), label, stateClass(label), attemptResult(attempt),
+                costText(costLabel(attempt.usage()), costNote), status, attemptResult(attempt, status),
                 attempt.executionId());
+    }
+
+    /**
+     * "mgr-applications → owner/mgr-applications · master": the repository the task is checked out from, then
+     * where its pull request goes; only the name when no delivery is set, null for a task with no repository.
+     */
+    public String repositoryLine(String repositoryKey) {
+        var repository = repositoryKey == null ? null : repositories.repositories().get(repositoryKey);
+        var name = repositoryKey == null ? null : repositoryName(repositoryKey);
+        var target = repository == null ? null : repository.delivery();
+        return name == null || target == null || target.repository() == null ? name
+                : name + " → " + target.repository() + " · " + target.baseBranch();
+    }
+
+    /** The chip and headline of the attempt the task stands for; the task's own words before its first attempt. */
+    private static AttemptStatus status(TaskView view) {
+        var attempt = view.standingAttempt();
+        if (attempt.isPresent()) {
+            return AttemptStatus.of(view, attempt.get());
+        }
+        var label = view.state() == TaskView.TaskState.UNSUPPORTED ? "Not eligible" : "Not started";
+        return new AttemptStatus(label, "chip chip-neutral", null, notStartedSentence(view));
+    }
+
+    /** The time of the attempt that works now, as the run page shows it; null while no attempt works. */
+    private AttemptClock clock(TaskView view) {
+        if (!working(view) || view.pullRequestUrl() != null) {
+            return null;
+        }
+        var latest = view.attempts().getLast();
+        var facts = new AttemptClock.Facts(latest.activeSeconds(), view.stage(), view.stageStartedAt(),
+                !TaskLabels.RUN_ENDED.equals(view.stage()), Instant.now());
+        return AttemptClock.of(facts, limits.limits());
+    }
+
+    /** "PR feedback" on the run page once the attempt has a pull request, "Open run" before. */
+    private static TaskDetail.RunLink runLink(TaskView view, boolean pullRequest) {
+        var url = runUrl(view);
+        if (url == null) {
+            return null;
+        }
+        return pullRequest ? new TaskDetail.RunLink("PR feedback", url + "#pr-feedback")
+                : new TaskDetail.RunLink("Open run", url);
     }
 
     /** The notice that the queue waits on an attempt that needs inspection. */
@@ -132,10 +173,6 @@ public class TaskRows {
         return "so far".equals(costNote) ? cost + " so far" : cost;
     }
 
-    private static String headline(TaskView view) {
-        return view.needsAnswer() ? "The agent stopped with a question" : resultSentence(view);
-    }
-
     /** "spent in 2 attempts"; null before the first attempt. Why the amount may be too low is its title. */
     private static String spentNote(TaskView view) {
         int count = view.attempts().size();
@@ -146,7 +183,7 @@ public class TaskRows {
     }
 
     /** The run of the latest attempt that has one, in every state. */
-    private static String runUrl(TaskView view) {
+    static String runUrl(TaskView view) {
         return view.attempts().reversed().stream()
                 .map(TaskView.AttemptHistoryEntry::executionId)
                 .filter(Objects::nonNull)
@@ -167,21 +204,34 @@ public class TaskRows {
         return TaskAnswers.isAnswer(instructions) ? "answer to the agent's question" : "retry with your instructions";
     }
 
-    /** The whole meta line for its title: "glm-5.3 · max · Nov 10, 17:48 UTC · 13 min · "first line"". */
-    private static String attemptMeta(TaskView.AttemptHistoryEntry attempt, PageTime started) {
-        return Stream.of(TaskRunSettings.label(attempt.runSettings()), started == null ? null : started.text(),
-                        attemptDetails(attempt, started))
+    /**
+     * The meta line for its title, without the start time, which the line shows in local time:
+     * "glm-5.3 · max · 13 min · "first line"".
+     */
+    private static String attemptMeta(TaskView.AttemptHistoryEntry attempt) {
+        var clock = attemptClock(attempt);
+        return Stream.of(TaskRunSettings.label(attempt.runSettings()), attempt.startedAt() == null ? "not started"
+                        : null, clock == null || clock.start() != null ? null : clock.time(), quote(attempt))
                 .filter(Objects::nonNull).collect(Collectors.joining(" · "));
     }
 
-    /** What follows the start time: "13 min · "first line of the instructions"", or "not started". */
-    private static String attemptDetails(TaskView.AttemptHistoryEntry attempt, PageTime started) {
+    /** The time the attempt worked: ticking while it is in flight, null before its paid start. */
+    private static AttemptClock attemptClock(TaskView.AttemptHistoryEntry attempt) {
+        if (!attempt.paidStart()) {
+            return null;
+        }
+        if (!attempt.state().isInFlight() || attempt.pullRequestUrl() != null
+                || TaskLabels.RUN_ENDED.equals(attempt.stage())) {
+            return new AttemptClock(minutes(attempt.activeSeconds()), null, null, null);
+        }
+        var facts = new AttemptClock.Facts(attempt.activeSeconds(), null, null, true, Instant.now());
+        return AttemptClock.of(facts, new AttemptClock.Limits(0, Duration.ZERO));
+    }
+
+    /** The first line of the developer's instructions in quotes, null when the attempt has none. */
+    private static String quote(TaskView.AttemptHistoryEntry attempt) {
         var instructions = TaskRunSettings.instructions(attempt.runSettings());
-        var details = Stream.of(started == null ? "not started" : null,
-                        attempt.paidStart() ? minutes(attempt.activeSeconds()) : null,
-                        instructions == null ? null : "\"" + firstLine(instructions) + "\"")
-                .filter(Objects::nonNull).collect(Collectors.joining(" · "));
-        return details.isEmpty() ? null : details;
+        return instructions == null ? null : "\"" + firstLine(instructions) + "\"";
     }
 
     private static String firstLine(String text) {
@@ -202,13 +252,4 @@ public class TaskRows {
         return sourceRepo.substring(sourceRepo.indexOf('/') + 1);
     }
 
-    /** "mgr-applications → owner/mgr-applications · master", or only the name when no delivery is set. */
-    private String repositoryLine(TaskView view) {
-        var name = repository(view);
-        var repository = view.destinationRepository() == null ? null
-                : repositories.repositories().get(view.destinationRepository());
-        var target = repository == null ? null : repository.delivery();
-        return name == null || target == null || target.repository() == null ? name
-                : name + " → " + target.repository() + " · " + target.baseBranch();
-    }
 }

@@ -73,9 +73,8 @@ public final class UiFormat {
         return NumberFormat.getIntegerInstance(Locale.US).format(value);
     }
 
-    /** Compact elapsed time for live UI clocks: seconds, then minutes, then hours. */
     /** "9 s", "5 min", "1 h 20 min": the words the run page uses, and poll.js ticks in, for a time span. */
-    static String duration(long seconds) {
+    public static String duration(long seconds) {
         long safe = Math.max(0, seconds);
         if (safe < 60) {
             return safe + " s";

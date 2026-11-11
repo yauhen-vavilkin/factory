@@ -19,29 +19,25 @@
 
     <section class="status-card" aria-label="Status">
         <div class="status-card-main">
-            <span th:class="${task.stateClass()}" th:text="${task.stateLabel()}">State</span>
+            <th:block th:replace="~{fragments/developer-flow :: statusChip(${task.status()})}"></th:block>
             <div class="status-card-body">
-                <p class="status-card-headline" th:text="${task.headline()}">Headline</p>
+                <p class="status-card-headline" th:text="${task.status().headline()}">Headline</p>
                 <p class="status-card-reason" th:if="${task.reason() != null}"><span class="status-card-label">Reason</span>
                     <span th:text="${task.reason()}">Why the attempt failed.</span></p>
                 <p class="status-card-note" th:if="${task.reasonNote() != null}" th:text="${task.reasonNote()}">
                     No pull request was created.</p>
-                <div class="status-card-reasons"
-                     th:if="${task.draftReasons() != null and !#lists.isEmpty(task.draftReasons())}">
-                    <p>Factory opened it as a draft because:</p>
-                    <ul>
-                        <li th:each="reason : ${task.draftReasons()}" th:text="${reason}">reason</li>
-                    </ul>
-                </div>
+                <div th:replace="~{fragments/developer-flow :: draftReasons(${task.draftReasons()})}"></div>
             </div>
         </div>
         <div class="status-card-side">
             <span th:if="${task.spentNote() != null}"><span class="status-card-money" th:title="${task.spentTitle()}"
                     th:text="${task.spent() != null} ? ${task.spent()} : '—'">$0.00</span>
                 <span class="status-card-note" th:text="${task.spentNote()}">spent in 1 attempt</span></span>
+            <span th:replace="~{fragments/developer-flow :: clock(${task.clock()})}"></span>
             <a class="btn btn-primary btn-sm" th:if="${task.prUrl() != null}" th:href="${task.prUrl()}"
                th:text="${task.prAction()}">Open pull request</a>
-            <a class="btn btn-secondary btn-sm" th:if="${task.runUrl() != null}" th:href="${task.runUrl()}">Open run</a>
+            <a class="btn btn-secondary btn-sm" th:if="${task.run() != null}" th:href="${task.run().url()}"
+               th:text="${task.run().label()}">Open run</a>
             <form method="post" th:if="${task.markStoppedAttemptId() != null}"
                   th:action="@{'/tasks/' + ${task.taskId()} + '/attempts/' + ${task.markStoppedAttemptId()} + '/mark-stopped'}">
                 <button type="submit" class="btn btn-secondary btn-sm"
@@ -123,11 +119,18 @@
                 <div class="dev-row-meta dev-row-meta-dots" th:title="${attempt.meta()}"><span
                         th:if="${attempt.settings() != null}" th:text="${attempt.settings()}">glm-5.3 · max</span><time
                         th:replace="~{fragments/components :: pageTime(${attempt.started()})}"></time><span
-                        th:if="${attempt.details() != null}" th:text="${attempt.details()}">13 min</span></div>
+                        th:if="${attempt.note() != null}" th:text="${attempt.note()}">not started</span><span
+                        th:if="${attempt.clock() != null}" th:attr="data-elapsed-start=${attempt.clock().start()}"
+                        th:text="${attempt.clock().time()}">13 min</span><span class="dev-row-quote"
+                        th:if="${attempt.quote() != null}" th:text="${attempt.quote()}">"first line"</span></div>
             </div>
             <div class="row-cluster">
                 <span class="row-amount" th:title="${attempt.costNoteTitle()}" th:text="${attempt.costText()}">$0.00</span>
-                <span th:class="${attempt.chipClass()}" th:title="${attempt.result()}" th:text="${attempt.chipLabel()}">Failed</span>
+                <a th:if="${attempt.status().chipUrl() != null}" th:class="${attempt.status().chipClass()} + ' ext-link'"
+                   th:href="${attempt.status().chipUrl()}" th:title="${attempt.result()}"
+                   th:text="${attempt.status().chipLabel()}">Draft PR #6</a>
+                <span th:if="${attempt.status().chipUrl() == null}" th:class="${attempt.status().chipClass()}"
+                      th:title="${attempt.result()}" th:text="${attempt.status().chipLabel()}">Failed</span>
                 <div class="dev-row-action">
                     <a class="btn btn-secondary btn-sm btn-col" th:if="${attempt.executionId() != null}"
                        th:href="@{'/executions/' + ${attempt.executionId()}}"

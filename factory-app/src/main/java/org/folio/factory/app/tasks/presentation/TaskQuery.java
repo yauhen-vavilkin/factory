@@ -14,7 +14,6 @@ import org.folio.factory.app.tasks.source.TaskJiraInstance;
 import org.folio.factory.app.web.AttemptUsageSummary;
 import org.folio.factory.connectors.jira.JiraProperties;
 import org.folio.factory.core.domain.AuditEvent;
-import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
@@ -28,7 +27,6 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,6 +57,7 @@ public class TaskQuery {
     private final AuditLog auditLog;
     private final JiraProperties jira;
     private final TaskJiraInstance jiraInstance;
+    private final AttemptPullRequests pullRequests;
     private final JsonMapper json = JsonMapper.builder().build();
 
     /** Available: in My tasks and never started; Triggered: started at least once, newest first. */
@@ -140,27 +139,37 @@ public class TaskQuery {
     private AttemptRow attemptRow(TaskAttempt attempt, Map<UUID, PipelineExecution> executionsById, Instant now) {
         var execution = attempt.getExecutionId() == null ? null : executionsById.get(attempt.getExecutionId());
         List<AuditEvent> events = execution == null ? List.of() : auditLog.forExecution(execution.getId());
-        var live = execution != null && execution.getStatus() == ExecutionStatus.RUNNING;
-        var totals = AttemptUsageSummary.totals(events, live);
+        var totals = AttemptUsageSummary.totals(events,
+                execution != null && execution.getStatus() == ExecutionStatus.RUNNING);
         var usageMissingAfterPaidStart = attempt.getPaidStartAt() != null
                 && totals.tokens() == 0 && !totals.tokensReported();
-        var stageStart = live ? liveStageStart(events) : null;
-        var stage = live ? (stageStart == null ? null : stageStart.getStepId())
+        // An attempt in flight names the step its run started last, also while the run waits, so its page never
+        // goes back to "Starting the run" once a step has started.
+        var inFlight = execution != null && attempt.getState().isInFlight();
+        var stageStart = inFlight ? AttemptClock.stepStart(events).orElse(null) : null;
+        var stage = inFlight ? workingStage(execution, stageStart)
                 : TaskOutcomeService.stageOf(attempt.getResultReason());
         var entry = historyEntry(attempt, stage, AttemptUsageSummary.activeSeconds(events, now),
                 TaskUsage.aggregate(List.of(totals), usageMissingAfterPaidStart));
-        return new AttemptRow(entry, totals, usageMissingAfterPaidStart, live,
+        return new AttemptRow(entry, totals, usageMissingAfterPaidStart, inFlight,
                 stageStart == null ? null : stageStart.getOccurredAt());
+    }
+
+    /** The step the run works on, or that its run ended before the dispatcher closed the attempt. */
+    private static String workingStage(PipelineExecution execution, AuditEvent stageStart) {
+        if (execution.getStatus().isTerminal()) {
+            return TaskLabels.RUN_ENDED;
+        }
+        return stageStart == null ? null : stageStart.getStepId();
     }
 
     private TaskView.AttemptHistoryEntry historyEntry(TaskAttempt attempt, String stage, long activeSeconds,
                                                       TaskUsage usage) {
-        var prReady = attempt.getState() == TaskAttempt.State.PR_READY;
+        var pullRequest = pullRequests.of(attempt);
         return new TaskView.AttemptHistoryEntry(attempt.getId(), attempt.getOrdinal(), attempt.getKind(),
                 attempt.getAdmittedVia(), attempt.getState(), stage, attempt.getResultReason(),
-                prReady ? attempt.getPublicationIdentity() : null,
-                prReady ? draftReasons(attempt) : null,
-                attempt.getExecutionId(), attempt.getCreatedAt(), attempt.getStartedAt(),
+                pullRequest.url(), pullRequest.draftReasons(), attempt.getExecutionId(), attempt.getCreatedAt(),
+                attempt.getStartedAt(),
                 attempt.getPaidStartAt() != null, activeSeconds, usage, attempt.getRunSettings());
     }
 
@@ -203,17 +212,19 @@ public class TaskQuery {
         return new TaskView.AllowedActions(selectable, retriable);
     }
 
+    /** The task's pull request is the one of the attempt it stands for, also while that attempt is in flight. */
     private TaskView toView(Task task, Map<UUID, Integer> queue, TaskOutcome outcome,
                                  AttemptProgress progress) {
         var latest = outcome.latest();
-        var prReady = outcome.state() == TaskView.TaskState.PR_READY && latest != null;
+        var pullRequest = latest == null ? null : progress.entries().stream()
+                .filter(entry -> entry.attemptId().equals(latest.getId())).findFirst().orElse(null);
         return new TaskView(task.getId(), task.getDisplayKey(), jiraLink(task.getDisplayKey()), task.getTitle(),
                 task.getProjectKey(), jiraStatus(task), outcome.state(),
                 latest == null ? null : queue.get(latest.getId()),
                 outcome.reason(), outcome.stage(), outcome.stageStartedAt(),
                 TaskRoutingReason.eligibleRepositoryKey(task.getRoutingReason()),
-                prReady ? latest.getPublicationIdentity() : null,
-                prReady ? draftReasons(latest) : null,
+                pullRequest == null ? null : pullRequest.pullRequestUrl(),
+                pullRequest == null ? null : pullRequest.draftReasons(),
                 task.isInScope(), task.isAddedByKey(), task.getVersion(),
                 TaskAdmissionChecks.inputFingerprint(task), TaskAdmissionChecks.destinationFingerprint(task),
                 progress.entries(), progress.usage(), outcome.allowedActions());
@@ -245,20 +256,6 @@ public class TaskQuery {
         };
     }
 
-    /** Why the attempt's pull request is a draft: null when it is ready for review, empty when unreadable. */
-    private List<String> draftReasons(TaskAttempt attempt) {
-        if (attempt.getDraftReasons() == null) {
-            return null;
-        }
-        try {
-            List<String> reasons = new ArrayList<>();
-            json.readTree(attempt.getDraftReasons()).forEach(reason -> reasons.add(reason.asString("")));
-            return List.copyOf(reasons);
-        } catch (RuntimeException e) {
-            return List.of();
-        }
-    }
-
     /** The task's status in Jira at the last scan or run by key, read from its snapshot. */
     private String jiraStatus(Task task) {
         try {
@@ -268,17 +265,6 @@ public class TaskQuery {
         } catch (RuntimeException e) {
             return null;
         }
-    }
-
-    /** The step a live execution is on: the latest STEP_STARTED audit event of that execution. */
-    private static AuditEvent liveStageStart(List<AuditEvent> events) {
-        for (int i = events.size() - 1; i >= 0; i--) {
-            AuditEvent event = events.get(i);
-            if (event.getEventType() == AuditEventType.STEP_STARTED) {
-                return event;
-            }
-        }
-        return null;
     }
 
     private String jiraLink(String displayKey) {
