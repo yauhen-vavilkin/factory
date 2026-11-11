@@ -269,3 +269,11 @@ The question flow, the in-progress strip and Factory's comment on the pull reque
 - **`DeveloperExecutionView.ListFacts.productStatus` is read only by tests.** The run list now takes its state from `RunState`.
 - **The whole-attempt deadline reason is still internal wording.** "the whole-attempt deadline expired before …; queue and human-review waiting are excluded from the budget" (`TaskGuard`) has no plain-words mapping and no Configuration link.
 - **The run form's model refusal still names the config API word.** `ModelCatalog.problem` says "uses api openai-completions"; only the Configuration tab says the API in words.
+
+## Left after the Dashboard and list polish (2026-11-11)
+
+- **Connector names are ids.** Status and the Dashboard's "Connector actions" chart show `github`, `jira`, `testrail`. `ConnectorHealth` has no display name, and the audit rows the chart counts store the id; a name on each connector would serve both.
+- **The LLM tokens card counts the chosen period, the other Dashboard cards count all runs.** Nothing on the card says so.
+- **Reviews still shows the raw decision.** The Decision column says `APPROVE`, `AMEND` or `REJECT`, and the flash message after a decision says "Decision APPROVE recorded for review <uuid>".
+- **Workers "Used by" names flows and steps by their ids** (`dev-factory · read-task`), while Executions, Reviews and Artifacts now use the flow name.
+- **The "Runs started per day" chart labels its days as ISO dates** (`2026-11-01`), not as the short dates of the lists.
