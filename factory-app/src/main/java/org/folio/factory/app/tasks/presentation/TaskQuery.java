@@ -79,11 +79,11 @@ public class TaskQuery {
         return new MyTasks(available, triggeredIds.map(id -> project(byId.get(id), queue, installation)));
     }
 
-    /** The task row context of an execution that a task attempt started; empty for any other run. */
+    /** The task behind a run page, when a task attempt started that execution; empty for any other run. */
     @Transactional(readOnly = true)
-    public Optional<Map<String, Object>> runContext(UUID executionId) {
+    public Optional<RunContext> runContext(UUID executionId) {
         return attempts.findByExecutionId(executionId)
-                .map(attempt -> TaskRows.runContext(detail(attempt.getTaskId()), executionId));
+                .flatMap(attempt -> RunContext.of(detail(attempt.getTaskId()), executionId));
     }
 
     @Transactional(readOnly = true)

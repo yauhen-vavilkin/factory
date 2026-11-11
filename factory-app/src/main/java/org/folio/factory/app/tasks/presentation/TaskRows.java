@@ -108,27 +108,6 @@ public class TaskRows {
                 attempt.executionId());
     }
 
-    /**
-     * The run page's link back to its task: key, Jira link and the state of the attempt behind this run, and
-     * "failure" (an {@link AttemptFailure}, null unless that attempt failed) for its status card.
-     */
-    public static Map<String, Object> runContext(TaskView view, UUID executionId) {
-        var attempt = view.attempts().stream()
-                .filter(entry -> executionId.equals(entry.executionId()))
-                .findFirst();
-        String label = attempt.map(TaskLabels::attemptLabel).orElseGet(() -> stateLabel(view));
-        Map<String, Object> run = new LinkedHashMap<>();
-        run.put("taskId", view.taskId());
-        run.put("key", view.displayKey());
-        run.put("title", view.title());
-        run.put("jiraUrl", view.jiraUrl());
-        run.put("stateLabel", label);
-        run.put("stateClass", stateClass(label));
-        run.put("failure", attempt.filter(TaskRows::failed)
-                .map(entry -> AttemptFailure.of(entry.ordinal(), entry.reason())).orElse(null));
-        return run;
-    }
-
     /** The notice that the queue waits on an attempt that needs inspection. */
     public static Map<String, Object> queueWaiting(String key, TaskAttempt attempt) {
         Map<String, Object> waiting = new LinkedHashMap<>();
@@ -144,10 +123,6 @@ public class TaskRows {
             return Optional.empty();
         }
         return Optional.of(AttemptFailure.of(view.attempts().getLast().ordinal(), view.reason()));
-    }
-
-    private static boolean failed(TaskView.AttemptHistoryEntry attempt) {
-        return attempt.state() == TaskAttempt.State.STOPPED && !attempt.asked();
     }
 
     /** Same notes as Triggered; a queued attempt already says "not started" in Started. */

@@ -1524,7 +1524,7 @@ class UiRenderSmokeTest {
 
         String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(run)
-                .contains("class=\"chip chip-neutral\">Draft PR</span>", ">Draft PR #8</a>",
+                .contains("class=\"chip chip-neutral\">Draft PR #8</span>", ">Draft PR #8</a>",
                         "Draft pull request created")
                 .doesNotContain(">PR ready</span>", "Pull request created");
     }

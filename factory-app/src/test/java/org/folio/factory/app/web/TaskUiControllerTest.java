@@ -27,6 +27,7 @@ import org.folio.factory.app.tasks.presentation.InProgressStrip;
 import org.folio.factory.app.tasks.presentation.RunAction;
 import org.folio.factory.app.tasks.presentation.SourceCard;
 import org.folio.factory.app.tasks.presentation.TaskRevisions;
+import org.folio.factory.app.tasks.presentation.RunContext;
 import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.app.tasks.presentation.TaskUsage;
 import org.folio.factory.app.tasks.presentation.TaskView;
@@ -373,12 +374,14 @@ class TaskUiControllerTest {
                 .containsEntry("chipLabel", "Draft PR")
                 .containsEntry("chipClass", "chip chip-neutral")
                 .containsEntry("result", "Pull request #7 opened as a draft");
-        // The execution page header uses the same label for the attempt behind the run.
-        assertThat(TaskRows.runContext(draft, EXECUTION_ID))
-                .containsEntry("stateLabel", "Draft PR")
-                .containsEntry("stateClass", "chip chip-neutral");
-        assertThat(TaskRows.runContext(ready, EXECUTION_ID))
-                .containsEntry("stateLabel", "PR ready");
+        // The run page chip names the attempt's pull request and links it.
+        assertThat(RunContext.of(draft, EXECUTION_ID)).get()
+                .returns("Draft PR #7", RunContext::chipLabel)
+                .returns("chip chip-neutral", RunContext::chipClass)
+                .returns(draft.pullRequestUrl(), RunContext::chipUrl);
+        assertThat(RunContext.of(ready, EXECUTION_ID)).get()
+                .returns("PR #7", RunContext::chipLabel)
+                .returns("chip chip-success", RunContext::chipClass);
     }
 
     @Test
