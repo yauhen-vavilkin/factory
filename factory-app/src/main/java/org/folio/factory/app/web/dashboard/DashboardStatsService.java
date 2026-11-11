@@ -1,6 +1,7 @@
 package org.folio.factory.app.web.dashboard;
 
 import lombok.RequiredArgsConstructor;
+import org.folio.factory.app.tasks.persistence.RunState;
 import org.folio.factory.app.web.dashboard.DashboardStats.ConnectorOutcome;
 import org.folio.factory.app.web.dashboard.DashboardStats.DailyCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.FlowStatusCount;
@@ -17,7 +18,9 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Aggregates execution/audit/HITL metrics for the dashboard charts in one payload.
@@ -95,30 +98,41 @@ public class DashboardStatsService {
         return Instant.now().minus(days, ChronoUnit.DAYS).atOffset(ZoneOffset.UTC);
     }
 
+    /**
+     * All runs by {@link RunState}, the states the Executions list filters by: a failed Developer Flow attempt is
+     * Failed, not Completed, though its engine run ran to the end.
+     */
+    public Map<RunState, Long> countByState() {
+        Map<RunState, Long> counts = new EnumMap<>(RunState.class);
+        executionsByStatus().forEach(row -> counts.put(RunState.valueOf(row.state()), row.count()));
+        return counts;
+    }
+
     private List<StatusCount> executionsByStatus() {
-        return jdbc.sql("SELECT status, count(*) AS c FROM pipeline_execution GROUP BY status")
-                .query((rs, n) -> new StatusCount(rs.getString("status"), rs.getLong("c")))
+        return jdbc.sql("SELECT " + RunState.SQL + " AS state, count(*) AS c FROM " + RunState.FROM + " GROUP BY 1")
+                .query((rs, n) -> new StatusCount(rs.getString("state"), label(rs.getString("state")), rs.getLong("c")))
                 .list();
     }
 
     private List<FlowStatusCount> executionsByFlowAndStatus() {
-        return jdbc.sql("""
-                        SELECT flow_id, status, count(*) AS c
-                        FROM pipeline_execution GROUP BY flow_id, status ORDER BY flow_id
-                        """)
-                .query((rs, n) -> new FlowStatusCount(rs.getString("flow_id"), rs.getString("status"), rs.getLong("c")))
+        return jdbc.sql("SELECT e.flow_id, " + RunState.SQL + " AS state, count(*) AS c FROM " + RunState.FROM
+                        + " GROUP BY 1, 2 ORDER BY 1")
+                .query((rs, n) -> new FlowStatusCount(rs.getString("flow_id"), rs.getString("state"), rs.getLong("c")))
                 .list();
     }
 
     private List<DailyCount> executionsPerDay(OffsetDateTime since) {
-        return jdbc.sql("""
-                        SELECT (date_trunc('day', created_at AT TIME ZONE 'UTC'))::date AS day, status, count(*) AS c
-                        FROM pipeline_execution WHERE created_at >= :since GROUP BY 1, 2 ORDER BY 1
-                        """)
+        return jdbc.sql("SELECT (date_trunc('day', e.created_at AT TIME ZONE 'UTC'))::date AS day, " + RunState.SQL
+                        + " AS state, count(*) AS c FROM " + RunState.FROM
+                        + " WHERE e.created_at >= :since GROUP BY 1, 2 ORDER BY 1")
                 .param("since", since)
                 .query((rs, n) -> new DailyCount(rs.getObject("day", LocalDate.class),
-                        rs.getString("status"), rs.getLong("c")))
+                        rs.getString("state"), label(rs.getString("state")), rs.getLong("c")))
                 .list();
+    }
+
+    private static String label(String state) {
+        return RunState.valueOf(state).getLabel();
     }
 
     private List<StepFailureCount> stepFailures(OffsetDateTime since) {

@@ -1,6 +1,7 @@
 package org.folio.factory.app.web.dashboard;
 
 import org.folio.factory.app.support.FactoryIntegrationTest;
+import org.folio.factory.app.tasks.persistence.RunState;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
@@ -80,14 +81,15 @@ class DashboardStatsIntegrationTest {
 
         DashboardStats stats = dashboardStatsService.compute(7);
 
+        // Runs are counted by the state the Executions list filters by, with its words for the charts.
         assertThat(stats.executionsByStatus())
-                .anySatisfy(s -> assertThat(s.status()).isEqualTo(ExecutionStatus.COMPLETED.name()))
-                .anySatisfy(s -> assertThat(s.status()).isEqualTo(ExecutionStatus.RUNNING.name()));
+                .anySatisfy(s -> assertThat(s).isEqualTo(new DashboardStats.StatusCount("COMPLETED", "Completed", 1)))
+                .anySatisfy(s -> assertThat(s.state()).isEqualTo(RunState.IN_PROGRESS.name()));
 
         assertThat(stats.executionsByFlowAndStatus())
                 .anySatisfy(s -> {
                     assertThat(s.flowId()).isEqualTo(FLOW_B);
-                    assertThat(s.status()).isEqualTo(ExecutionStatus.PENDING.name());
+                    assertThat(s.state()).isEqualTo(RunState.IN_PROGRESS.name());
                 });
 
         assertThat(stats.executionsPerDay())
@@ -142,7 +144,7 @@ class DashboardStatsIntegrationTest {
                 .anySatisfy(f -> assertThat(f.stepId()).isEqualTo("legacy-step"));
 
         // Same data over HTTP: charts.js string-joins on this exact shape
-        // (r.day + '|' + r.status), so the day must serialize as a plain
+        // (r.day + '|' + r.state), so the day must serialize as a plain
         // "yyyy-MM-dd" string, not a [y,m,d] array.
         JsonNode body = rest.get().uri("/api/dashboard/stats?days=7").retrieve().body(JsonNode.class);
         JsonNode perDay = body.path("executionsPerDay");
@@ -150,6 +152,7 @@ class DashboardStatsIntegrationTest {
         assertThat(perDay).isNotEmpty();
         for (JsonNode row : perDay) {
             assertThat(row.path("day").asString()).matches("\\d{4}-\\d{2}-\\d{2}");
+            assertThat(row.path("label").asString()).isEqualTo(RunState.valueOf(row.path("state").asString()).getLabel());
         }
     }
 

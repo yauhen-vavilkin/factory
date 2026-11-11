@@ -34,26 +34,27 @@
     };
   }
 
-  // ---------- STATUS_COLORS (color follows the entity, never position) ----------
-  function statusColor(status) {
-    switch (status) {
-      case 'PENDING': return T.chart1;
-      case 'RUNNING': return T.chart2;
-      case 'AWAITING_HITL': return T.warning;
-      case 'AWAITING_SUBFLOW': return T.chart4;
+  // ---------- STATE_COLORS (color follows the entity, never position) ----------
+  // The states are RunState on the server, which sends their words as `label`.
+  function statusColor(state) {
+    switch (state) {
+      case 'IN_PROGRESS': return T.chart2;
+      case 'WAITING_FOR_REVIEW': return T.warning;
+      case 'PULL_REQUEST': return T.chart1;
       case 'COMPLETED': return T.success;
-      case 'FAILED_ESCALATED': return T.destructive;
-      case 'REJECTED': return T.chart3;
-      case 'CANCELLED': return T.muted;
+      case 'ASKED': return T.chart4;
+      case 'NEEDS_INSPECTION': return T.chart5;
+      case 'FAILED': return T.destructive;
+      case 'CANCELLED_OR_REJECTED': return T.muted;
       default: return T.muted;
     }
   }
 
-  // Stack order for the terminal-status "executions over time" chart. Ordered so
-  // COMPLETED (green) and FAILED_ESCALATED (red) are never adjacent — validated
-  // CVD-safe; the only sub-threshold pair (green↔orange, dark) is relieved by the
-  // 2px card-background spacer between segments plus the legend and tooltips.
-  var TERMINAL_ORDER = ['COMPLETED', 'REJECTED', 'FAILED_ESCALATED', 'CANCELLED'];
+  // Stack order for the "runs started per day" chart. Ordered so COMPLETED (green)
+  // and FAILED (red) are never adjacent; the 2px card-background spacer between
+  // segments plus the legend and tooltips relieve the closer pairs.
+  var STATE_ORDER = ['COMPLETED', 'PULL_REQUEST', 'CANCELLED_OR_REJECTED', 'FAILED', 'ASKED', 'NEEDS_INSPECTION',
+    'WAITING_FOR_REVIEW', 'IN_PROGRESS'];
   var FLOW_PALETTE = ['chart1', 'chart2', 'chart3', 'chart4', 'chart5'];
 
   function fmtSeconds(s) {
@@ -83,20 +84,22 @@
 
   function execOverTime(data) {
     var labels = dailyAxis(data.executionsPerDay, data.days);
-    var byDayStatus = {};
+    var byDayState = {};
+    var names = {};
     data.executionsPerDay.forEach(function (r) {
-      byDayStatus[r.day + '|' + r.status] = r.count;
+      byDayState[r.day + '|' + r.state] = r.count;
+      names[r.state] = r.label;
     });
-    var datasets = TERMINAL_ORDER.map(function (status) {
-      var series = labels.map(function (day) { return byDayStatus[day + '|' + status] || 0; });
-      return { status: status, series: series };
+    var datasets = STATE_ORDER.map(function (state) {
+      var series = labels.map(function (day) { return byDayState[day + '|' + state] || 0; });
+      return { state: state, series: series };
     }).filter(function (d) {
       return d.series.some(function (v) { return v > 0; });
     }).map(function (d) {
       return {
-        label: d.status,
+        label: names[d.state],
         data: d.series,
-        backgroundColor: statusColor(d.status),
+        backgroundColor: statusColor(d.state),
         borderColor: T.card,
         borderWidth: 2,
         borderRadius: 4
@@ -108,9 +111,9 @@
   function statusMix(data) {
     var rows = data.executionsByStatus.filter(function (r) { return r.count > 0; });
     return {
-      labels: rows.map(function (r) { return r.status; }),
+      labels: rows.map(function (r) { return r.label; }),
       data: rows.map(function (r) { return r.count; }),
-      colors: rows.map(function (r) { return statusColor(r.status); })
+      colors: rows.map(function (r) { return statusColor(r.state); })
     };
   }
 
@@ -260,7 +263,7 @@
     upsert('chart-throughput', 'bar', {
       labels: t.labels,
       datasets: [{
-        label: 'Executions',
+        label: 'Runs',
         data: t.values,
         backgroundColor: t.colors,
         borderColor: T.card,

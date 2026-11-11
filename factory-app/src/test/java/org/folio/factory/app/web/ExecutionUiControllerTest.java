@@ -1,6 +1,7 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.app.developer.CodingTranscriptStore;
+import org.folio.factory.app.tasks.persistence.RunStateRepository;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.presentation.AttemptClock;
 import org.folio.factory.app.tasks.presentation.AttemptStatus;
@@ -86,6 +87,9 @@ class ExecutionUiControllerTest {
     @Mock
     private TaskAttemptRepository taskAttempts;
 
+    @Mock
+    private RunStateRepository runStates;
+
     @Captor
     private ArgumentCaptor<Pageable> pageableCaptor;
 
@@ -103,9 +107,9 @@ class ExecutionUiControllerTest {
         var runPage = new DeveloperRunPage(json, estimator,
                 new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class)), taskQuery,
                 limits, mock(TaskRows.class));
-        mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(
-                        new EngineRecords(executions, artifactStore, flowRegistry), auditLog, reviews, json, runPage,
-                        taskAttempts),
+        var engine = new EngineRecords(executions, artifactStore, flowRegistry);
+        mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(engine, auditLog, reviews, json, runPage,
+                        new ExecutionListPage(engine, runStates, taskAttempts, json)),
                         new TranscriptUiController(executions, taskQuery, transcripts))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
@@ -114,81 +118,84 @@ class ExecutionUiControllerTest {
     // ----- list filter dispatch -----
 
     @Test
-    void executions_noFilters_usesFindAll() throws Exception {
-        when(executions.search(any(), any(), any())).thenCallRealMethod();
-        when(executions.findAll(any(Pageable.class))).thenReturn(emptyPage());
+    void executions_noFilters_listsEveryRunNewestFirstFromTheQuery() throws Exception {
+        when(runStates.search(eq(""), eq(""), any())).thenReturn(emptyRows());
 
         mvc.perform(get("/executions"))
                 .andExpect(status().isOk())
                 .andExpect(view().name("executions"))
-                .andExpect(model().attributeExists("executions", "page", "statuses", "flows"));
+                .andExpect(model().attributeExists("executions", "page", "states", "flows"));
 
-        verify(executions).findAll(pageableCaptor.capture());
+        verify(runStates).search(eq(""), eq(""), pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(20);
-        assertThat(pageableCaptor.getValue().getSort().getOrderFor("createdAt")).isNotNull();
+        // The query orders the runs itself, so the page asks for no sort of its own.
+        assertThat(pageableCaptor.getValue().getSort().isUnsorted()).isTrue();
     }
 
     @Test
-    void executions_engineRowsShowTheirStepAndNeedNoAttemptLookup() throws Exception {
-        when(executions.search(any(), any(), any())).thenCallRealMethod();
+    void executions_engineRowsShowTheirStepAndStateAndNeedNoAttemptLookup() throws Exception {
         var execution = new PipelineExecution("test-factory", "1", "{}");
         execution.setCurrentStepIndex(2);
-        when(executions.findAll(any(Pageable.class)))
-                .thenReturn(new PageImpl<>(List.of(execution), PageRequest.of(0, 20), 1));
+        when(runStates.search(eq(""), eq(""), any()))
+                .thenReturn(new PageImpl<>(List.of(new Row(execution.getId(), "FAILED")), PageRequest.of(0, 20), 1));
+        when(executions.findAllById(List.of(execution.getId()))).thenReturn(List.of(execution));
+        when(flowRegistry.all()).thenReturn(List.of(new FlowDescriptor("test-factory", "Test Factory", "1", null,
+                null, null, null, null)));
 
-        mvc.perform(get("/executions"))
+        var result = mvc.perform(get("/executions"))
                 .andExpect(status().isOk())
-                .andExpect(model().attribute("showStep", true));
+                .andExpect(model().attribute("showStep", true))
+                .andReturn();
 
+        assertThat(((List<?>) result.getModelAndView().getModel().get("executions")).getFirst())
+                .hasFieldOrPropertyWithValue("flowName", "Test Factory")
+                .hasFieldOrPropertyWithValue("statusLabel", "Failed")
+                .hasFieldOrPropertyWithValue("statusClass", "chip chip-danger")
+                .hasFieldOrPropertyWithValue("step", "2");
         verifyNoInteractions(taskAttempts);
     }
 
     @Test
-    void executions_statusFilter_dispatchesToFindByStatus() throws Exception {
-        when(executions.search(any(), any(), any())).thenCallRealMethod();
-        when(executions.findByStatus(eq(ExecutionStatus.RUNNING), any())).thenReturn(emptyPage());
+    void executions_statusFilter_asksTheQueryForThatState() throws Exception {
+        when(runStates.search(eq("FAILED"), eq(""), any())).thenReturn(emptyRows());
 
-        mvc.perform(get("/executions").param("status", "RUNNING"))
+        mvc.perform(get("/executions").param("status", "failed"))
                 .andExpect(status().isOk())
-                .andExpect(model().attribute("selectedStatus", "RUNNING"));
+                .andExpect(model().attribute("selectedStatus", "FAILED"));
 
-        verify(executions).findByStatus(eq(ExecutionStatus.RUNNING), any());
+        verify(runStates).search(eq("FAILED"), eq(""), any());
     }
 
     @Test
-    void executions_flowFilter_dispatchesToFindByFlowId() throws Exception {
-        when(executions.search(any(), any(), any())).thenCallRealMethod();
-        when(executions.findByFlowId(eq("test-factory"), any())).thenReturn(emptyPage());
+    void executions_flowFilter_asksTheQueryForThatFlow() throws Exception {
+        when(runStates.search(eq(""), eq("test-factory"), any())).thenReturn(emptyRows());
 
         mvc.perform(get("/executions").param("flow", "test-factory"))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("selectedFlow", "test-factory"));
 
-        verify(executions).findByFlowId(eq("test-factory"), any());
+        verify(runStates).search(eq(""), eq("test-factory"), any());
     }
 
     @Test
-    void executions_statusAndFlow_dispatchesToCombinedQuery() throws Exception {
-        when(executions.search(any(), any(), any())).thenCallRealMethod();
-        when(executions.findByStatusAndFlowId(eq(ExecutionStatus.COMPLETED), eq("test-factory"), any()))
-                .thenReturn(emptyPage());
+    void executions_statusAndFlow_filterTogether() throws Exception {
+        when(runStates.search(eq("COMPLETED"), eq("test-factory"), any())).thenReturn(emptyRows());
 
         mvc.perform(get("/executions").param("status", "COMPLETED").param("flow", "test-factory"))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("filtersActive", true));
 
-        verify(executions).findByStatusAndFlowId(eq(ExecutionStatus.COMPLETED), eq("test-factory"), any());
+        verify(runStates).search(eq("COMPLETED"), eq("test-factory"), any());
     }
 
     @Test
-    void executions_invalidStatus_treatedAsAll() throws Exception {
-        when(executions.search(any(), any(), any())).thenCallRealMethod();
-        when(executions.findAll(any(Pageable.class))).thenReturn(emptyPage());
+    void executions_anEngineStatusOrAnUnknownStateListsEveryRun() throws Exception {
+        when(runStates.search(eq(""), eq(""), any())).thenReturn(emptyRows());
 
-        mvc.perform(get("/executions").param("status", "NONSENSE"))
-                .andExpect(status().isOk());
+        mvc.perform(get("/executions").param("status", "FAILED_ESCALATED")).andExpect(status().isOk());
+        mvc.perform(get("/executions").param("status", "NONSENSE")).andExpect(status().isOk());
 
-        verify(executions).findAll(any(Pageable.class));
+        verify(runStates, org.mockito.Mockito.times(2)).search(eq(""), eq(""), any());
     }
 
     // ----- detail: stepper state mapping -----
@@ -656,8 +663,7 @@ class ExecutionUiControllerTest {
 
     @Test
     void executions_baseUrl_urlEncodesFilterValues() throws Exception {
-        when(executions.search(any(), any(), any())).thenCallRealMethod();
-        when(executions.findByFlowId(eq("a b&c"), any())).thenReturn(emptyPage());
+        when(runStates.search(eq(""), eq("a b&c"), any())).thenReturn(emptyRows());
 
         var result = mvc.perform(get("/executions").param("flow", "a b&c"))
                 .andExpect(status().isOk())
@@ -669,8 +675,11 @@ class ExecutionUiControllerTest {
 
     // ----- helpers -----
 
-    private static Page<PipelineExecution> emptyPage() {
+    private static Page<RunStateRepository.Row> emptyRows() {
         return new PageImpl<>(List.of(), PageRequest.of(0, 20), 0);
+    }
+
+    private record Row(UUID getId, String getState) implements RunStateRepository.Row {
     }
 
     private static List<Map<String, Object>> steps(org.springframework.test.web.servlet.MvcResult result) {

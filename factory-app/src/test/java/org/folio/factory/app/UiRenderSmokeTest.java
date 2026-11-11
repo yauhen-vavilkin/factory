@@ -146,10 +146,12 @@ class UiRenderSmokeTest {
         assertThat(body)
                 .containsPattern("src=\"/js/charts-[0-9a-f]{32}\\.js\"")
                 .contains("class=\"charts-grid\"")
-                // Completed counts runs that ran to the end, also a Developer Flow attempt that failed.
-                .containsPattern("<span class=\"kpi-label\">Completed</span>\\s*<span class=\"kpi-trend\">Ran to the"
-                        + " end. A Developer Flow attempt that failed is counted here too;\\s+Executions shows each"
-                        + " result.</span>");
+                // The cards count runs by the states the Executions list filters by, in its words.
+                .containsPattern("<span class=\"kpi-label\">Completed</span>\\s*</div>")
+                .contains("<span class=\"kpi-label\">Pull request opened</span>",
+                        "<span class=\"kpi-label\">Waiting for review</span>", "<span class=\"kpi-label\">Failed</span>",
+                        "<span class=\"kpi-label\">Cancelled or rejected</span>", "Runs started per day, by state")
+                .doesNotContain("Ran to the end", "Failed / escalated", "Awaiting review", "HITL reviews");
         Matcher chart = Pattern.compile("src=\"(/webjars/chart\\.js/[^\"]+/chart\\.umd-[0-9a-f]{32}\\.js)\"")
                 .matcher(body);
         assertThat(chart.find()).as("hashed chart.js link").isTrue();
@@ -364,11 +366,15 @@ class UiRenderSmokeTest {
         var execution = executions.save(new PipelineExecution("test-factory", "1", "{}"));
         var stored = executions.findById(execution.getId()).orElseThrow();
 
-        assertThat(assertRendered("/executions?flow=test-factory", "Pipeline runs across all flows, most recent first."))
-                .contains("<a class=\"table-link\" href=\"/executions/" + execution.getId() + "\">", "<th>Step</th>",
-                        "<td>0</td>",
-                        "<td class=\"muted\">" + timeTag(PageTime.timestamp(stored.getCreatedAt())) + "</td>",
-                        "<td class=\"muted\">" + timeTag(PageTime.timestamp(stored.getUpdatedAt())) + "</td>");
+        // The list says its runs and its Status filter in words, names each flow, and shows its times without seconds.
+        assertThat(assertRendered("/executions?flow=test-factory", "The runs of every flow, newest first."))
+                .contains("<a class=\"table-link\" href=\"/executions/" + execution.getId() + "\">", "<th>Run</th>",
+                        "<th>Step</th>", "<td>0</td>", "<td>Test Factory</td>", "class=\"chip chip-info\">In progress</span>",
+                        "<option value=\"FAILED\">Failed</option>", "<option value=\"PULL_REQUEST\">Pull request opened</option>",
+                        "<option value=\"test-factory\" selected=\"selected\">Test Factory</option>",
+                        "<td class=\"muted\">" + timeTag(PageTime.day(stored.getCreatedAt())) + "</td>",
+                        "<td class=\"muted\">" + timeTag(PageTime.day(stored.getUpdatedAt())) + "</td>")
+                .doesNotContain("<th>Execution</th>", ">FAILED_ESCALATED<", "Pipeline runs");
     }
 
     @Test
@@ -1045,8 +1051,10 @@ class UiRenderSmokeTest {
                 assertThat(usageColumn(detail)).containsSubsequence("<dt>Input</dt>", "<dt>Cache read</dt>",
                                 "<dt>Cache write</dt>", "<dt>Output</dt>", "<dt>Total tokens</dt><dd>16</dd>")
                         .doesNotContain("pi usage", "Coding runtime-reported cost");
+            // The list has the same words: a run without a pull request failed.
             String list = assertRendered("/executions?flow=dev-factory", "Executions");
-            assertThat(list).contains(chip).doesNotContain(">" + outcome + "</span>", "chip-status-COMPLETED");
+            assertThat(list).contains(chip).doesNotContain(">" + outcome + "</span>", "chip-status-COMPLETED",
+                    ">Completed</span>");
         }
     }
 
@@ -1061,8 +1069,8 @@ class UiRenderSmokeTest {
                 .contains("class=\"chip chip-status-COMPLETED\">COMPLETED</span>")
                 .doesNotContain("chip-status-DEVELOPMENT_FAILED", "Engine status", "badge-status-");
         assertThat(assertRendered("/executions?flow=test-factory", "Executions"))
-                .contains("class=\"chip chip-status-COMPLETED\">COMPLETED</span>")
-                .doesNotContain("chip-status-DEVELOPMENT_FAILED");
+                .contains("class=\"chip chip-success\">Completed</span>")
+                .doesNotContain("chip-status-DEVELOPMENT_FAILED", ">Failed</span>");
     }
 
     @Test
@@ -1088,8 +1096,9 @@ class UiRenderSmokeTest {
 
         String list = assertRendered("/executions?flow=dev-factory", "Executions");
 
+        // An attempt in flight is In progress, as its task page says, whatever its run waits for.
         assertThat(list).contains("href=\"/executions/" + question.getId() + "\">MGRAPPS-64 · attempt 2</a>",
-                        "class=\"chip chip-warning\">Asked a question</span>",
+                        "class=\"chip chip-info\">In progress</span>",
                         "<a class=\"table-link\" href=\"/executions/" + draft.getId() + "\">MGRAPPS-21</a>",
                         "class=\"chip chip-neutral\">Draft PR #412</span>")
                 .doesNotContain(">NEEDS_DECISION<", ">DELIVERED<", "<th>Step</th>", "<td>4</td>", "<td>7</td>");

@@ -1,12 +1,12 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.app.tasks.persistence.RunState;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.TokenUsage;
 import org.folio.factory.app.web.dashboard.DashboardStatsService;
 import org.folio.factory.connectors.ConnectorHealth;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
-import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.engine.EngineProperties;
 import org.folio.factory.core.registry.FlowRegistry;
@@ -14,7 +14,6 @@ import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.repository.AuditEventRepository;
 import org.folio.factory.core.repository.FlowRegistryEntryRepository;
 import org.folio.factory.core.repository.HitlReviewRepository;
-import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,6 +31,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.view.InternalResourceViewResolver;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -59,9 +59,6 @@ class DashboardUiControllerTest {
     private FlowRegistryEntryRepository flowRegistryEntries;
 
     @Mock
-    private PipelineExecutionRepository executions;
-
-    @Mock
     private HitlReviewRepository reviews;
 
     @Mock
@@ -86,22 +83,16 @@ class DashboardUiControllerTest {
     private MockMvc mvcWithConnectors(List<ConnectorHealth> connectors) {
         EngineProperties engine = new EngineProperties(true, 2000L, 5, 4, 1800L, 30, true);
         DashboardUiController controller = new DashboardUiController(
-                connectors, flowRegistry, engine, flowRegistryEntries, executions, reviews, audit, json,
-                dashboardStats);
+                connectors, flowRegistry, engine, flowRegistryEntries, reviews, audit, json, dashboardStats);
         return MockMvcBuilders.standaloneSetup(controller)
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
 
     private void stubKpiCounts() {
-        when(executions.countGroupedByStatus()).thenReturn(List.of(
-                new Object[]{ExecutionStatus.PENDING, 2L},
-                new Object[]{ExecutionStatus.RUNNING, 1L},
-                new Object[]{ExecutionStatus.AWAITING_HITL, 3L},
-                new Object[]{ExecutionStatus.COMPLETED, 10L},
-                new Object[]{ExecutionStatus.FAILED_ESCALATED, 4L},
-                new Object[]{ExecutionStatus.REJECTED, 1L},
-                new Object[]{ExecutionStatus.CANCELLED, 2L}));
+        when(dashboardStats.countByState()).thenReturn(new EnumMap<>(Map.of(
+                RunState.IN_PROGRESS, 3L, RunState.WAITING_FOR_REVIEW, 3L, RunState.PULL_REQUEST, 2L,
+                RunState.COMPLETED, 10L, RunState.FAILED, 4L, RunState.CANCELLED_OR_REJECTED, 3L)));
         when(reviews.countByStatus(HitlReviewStatus.PENDING)).thenReturn(5L);
         when(dashboardStats.tokenUsage(anyInt())).thenReturn(new TokenUsage(1234, 567));
         when(dashboardStats.stepTokens(anyInt())).thenReturn(List.of(
@@ -117,13 +108,13 @@ class DashboardUiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(view().name("dashboard"))
                 .andExpect(model().attribute("days", 14))
-                .andExpect(model().attribute("totalExecutions", 23L))
+                .andExpect(model().attribute("totalExecutions", 25L))
                 .andExpect(model().attribute("completedCount", 10L))
+                .andExpect(model().attribute("pullRequestCount", 2L))
                 .andExpect(model().attribute("awaitingHitlCount", 3L))
                 .andExpect(model().attribute("pendingReviews", 5L))
                 .andExpect(model().attribute("failedCount", 4L))
-                .andExpect(model().attribute("cancelledCount", 2L))
-                .andExpect(model().attribute("rejectedCount", 1L))
+                .andExpect(model().attribute("cancelledOrRejectedCount", 3L))
                 .andExpect(model().attribute("engineEnabled", true))
                 .andExpect(model().attribute("connectorsConfigured", 1))
                 .andExpect(model().attribute("connectorsTotal", 2))

@@ -1,13 +1,13 @@
 package org.folio.factory.app.web;
 
 import lombok.RequiredArgsConstructor;
+import org.folio.factory.app.tasks.persistence.RunState;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.TokenUsage;
 import org.folio.factory.app.web.dashboard.DashboardStatsService;
 import org.folio.factory.connectors.ConnectorHealth;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
-import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.FlowRegistryEntry;
 import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.engine.EngineProperties;
@@ -16,7 +16,6 @@ import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.repository.AuditEventRepository;
 import org.folio.factory.core.repository.FlowRegistryEntryRepository;
 import org.folio.factory.core.repository.HitlReviewRepository;
-import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
@@ -30,7 +29,6 @@ import tools.jackson.databind.json.JsonMapper;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,7 +54,6 @@ public class DashboardUiController {
     private final FlowRegistry flowRegistry;
     private final EngineProperties engineProperties;
     private final FlowRegistryEntryRepository flowRegistryEntries;
-    private final PipelineExecutionRepository executions;
     private final HitlReviewRepository reviews;
     private final AuditEventRepository audit;
     private final JsonMapper jsonMapper;
@@ -86,19 +83,15 @@ public class DashboardUiController {
         return "dashboard";
     }
 
-    /** All-time execution counts: the total and one count per status the dashboard shows. */
+    /** All-time run counts: the total and one count per state the Executions list filters by. */
     private void addExecutionCounts(Model model) {
-        Map<ExecutionStatus, Long> byStatus = new EnumMap<>(ExecutionStatus.class);
-        for (Object[] row : executions.countGroupedByStatus()) {
-            byStatus.put((ExecutionStatus) row[0], (Long) row[1]);
-        }
-        long total = byStatus.values().stream().mapToLong(Long::longValue).sum();
-        model.addAttribute("totalExecutions", total);
-        model.addAttribute("completedCount", byStatus.getOrDefault(ExecutionStatus.COMPLETED, 0L));
-        model.addAttribute("awaitingHitlCount", byStatus.getOrDefault(ExecutionStatus.AWAITING_HITL, 0L));
-        model.addAttribute("failedCount", byStatus.getOrDefault(ExecutionStatus.FAILED_ESCALATED, 0L));
-        model.addAttribute("cancelledCount", byStatus.getOrDefault(ExecutionStatus.CANCELLED, 0L));
-        model.addAttribute("rejectedCount", byStatus.getOrDefault(ExecutionStatus.REJECTED, 0L));
+        var byState = dashboardStats.countByState();
+        model.addAttribute("totalExecutions", byState.values().stream().mapToLong(Long::longValue).sum());
+        model.addAttribute("completedCount", byState.getOrDefault(RunState.COMPLETED, 0L));
+        model.addAttribute("pullRequestCount", byState.getOrDefault(RunState.PULL_REQUEST, 0L));
+        model.addAttribute("awaitingHitlCount", byState.getOrDefault(RunState.WAITING_FOR_REVIEW, 0L));
+        model.addAttribute("failedCount", byState.getOrDefault(RunState.FAILED, 0L));
+        model.addAttribute("cancelledOrRejectedCount", byState.getOrDefault(RunState.CANCELLED_OR_REJECTED, 0L));
     }
 
     private static Map<String, Object> stepTokenRow(StepTokenCount step) {

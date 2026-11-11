@@ -1,8 +1,7 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.app.EngineRecords;
-import org.folio.factory.app.tasks.persistence.TaskAttempt;
-import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
+import org.folio.factory.app.tasks.persistence.RunState;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
@@ -15,8 +14,6 @@ import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,7 +33,6 @@ import java.util.NoSuchElementException;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 import org.folio.factory.devfactory.DevFactoryConfiguration;
 
 /**
@@ -47,30 +43,26 @@ import org.folio.factory.devfactory.DevFactoryConfiguration;
 @Controller
 public class ExecutionUiController {
 
-    private static final int DEFAULT_SIZE = 20;
-
     private final PipelineExecutionRepository executions;
     private final ArtifactStore artifactStore;
     private final AuditLog auditLog;
     private final FlowRegistry flowRegistry;
     private final HitlReviewRepository reviews;
     private final JsonMapper jsonMapper;
-    private final DeveloperExecutionView developerView;
     private final DeveloperRunPage developerRunPage;
-    private final TaskAttemptRepository taskAttempts;
+    private final ExecutionListPage listPage;
 
     public ExecutionUiController(EngineRecords engine, AuditLog auditLog, HitlReviewRepository reviews,
                                  JsonMapper jsonMapper, DeveloperRunPage developerRunPage,
-                                 TaskAttemptRepository taskAttempts) {
+                                 ExecutionListPage listPage) {
         this.executions = engine.executions();
         this.artifactStore = engine.artifacts();
         this.auditLog = auditLog;
         this.flowRegistry = engine.flows();
         this.reviews = reviews;
         this.jsonMapper = jsonMapper;
-        this.developerView = new DeveloperExecutionView(jsonMapper);
         this.developerRunPage = developerRunPage;
-        this.taskAttempts = taskAttempts;
+        this.listPage = listPage;
     }
 
     @GetMapping("/executions")
@@ -80,25 +72,9 @@ public class ExecutionUiController {
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "20") int size,
             Model model) {
-        var clampedSize = PageValidation.clampSize(size, DEFAULT_SIZE);
-        var pageable = PageRequest.of(Math.max(page, 0), clampedSize, Sort.by(Sort.Direction.DESC, "createdAt"));
-        var parsedStatus = UiFormat.enumOrNull(ExecutionStatus.class, status);
-        var selectedStatus = parsedStatus != null ? parsedStatus.name() : "";
-        var selectedFlow = flow != null && !flow.isBlank() ? flow : "";
-        var result = executions.search(parsedStatus, flow, pageable);
-        var attempts = attemptNumbers(result.getContent());
-        var rows = result.getContent().stream().map(execution -> executionRow(execution, attempts)).toList();
-        model.addAttribute("executions", rows);
-        model.addAttribute("showStep", rows.stream().anyMatch(row -> row.step() != null));
-        model.addAttribute("page", result);
-        model.addAttribute("statuses", ExecutionStatus.values());
-        model.addAttribute("flows", flowRegistry.all().stream().map(FlowDescriptor::id).toList());
-        model.addAttribute("selectedStatus", selectedStatus);
-        model.addAttribute("selectedFlow", selectedFlow);
-        model.addAttribute("filtersActive", parsedStatus != null || !selectedFlow.isEmpty());
-        model.addAttribute("baseUrl", "/executions?status=" + UiFormat.encode(selectedStatus)
-                + "&flow=" + UiFormat.encode(selectedFlow) + "&size=" + clampedSize);
-        return "executions";
+        var filter = new ExecutionListPage.Filter(UiFormat.enumOrNull(RunState.class, status),
+                flow == null ? "" : flow.strip(), page, size);
+        return listPage.render(filter, model);
     }
 
     /** A Developer Flow run has its own run page; every other run shows the engine's view. */
@@ -150,43 +126,6 @@ public class ExecutionUiController {
         model.addAttribute("steps", steps);
         model.addAttribute("children", childRows(execution, detail.id()));
         model.addAttribute("pendingReview", pendingReview(execution, detail.id()));
-    }
-
-    /** The attempt number of each Developer Flow run on the page, read in one query for the whole page. */
-    private Map<UUID, Integer> attemptNumbers(List<PipelineExecution> page) {
-        var ids = page.stream().filter(execution -> DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId()))
-                .map(PipelineExecution::getId).toList();
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        return taskAttempts.findByExecutionIdIn(ids).stream()
-                .collect(Collectors.toMap(TaskAttempt::getExecutionId, TaskAttempt::getOrdinal, (one, other) -> one));
-    }
-
-    private ExecutionRow executionRow(PipelineExecution execution, Map<UUID, Integer> attempts) {
-        var idShort = UiFormat.abbreviate(execution.getId().toString());
-        var parentId = execution.getParentExecutionId();
-        var parentShort = parentId == null ? null : UiFormat.abbreviate(parentId.toString());
-        var created = PageTime.timestamp(execution.getCreatedAt());
-        var updated = PageTime.timestamp(execution.getUpdatedAt());
-        if (!DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId())) {
-            return new ExecutionRow(execution.getId(), idShort, execution.getFlowId(), execution.getStatus().name(),
-                    null, null, String.valueOf(execution.getCurrentStepIndex()), created, updated, parentId,
-                    parentShort);
-        }
-        // A Developer Flow run: its task key opens its run page, its status is in product words, and its engine
-        // step means nothing to the person.
-        var facts = developerView.listFacts(execution, name -> artifactStore.getLatest(execution.getId(), name));
-        var chip = RunStatusCard.chip(facts.productStatus(), facts.pullRequest());
-        var name = facts.taskKey().isBlank() ? idShort : runName(facts.taskKey(), attempts.get(execution.getId()));
-        return new ExecutionRow(execution.getId(), name,
-                execution.getFlowId(), facts.productStatus(), chip.label(), chip.cssClass(), null, created, updated,
-                parentId, parentShort);
-    }
-
-    /** "MGRENTITLE-229 · attempt 2", so the runs of one task differ; the key alone for a run no attempt started. */
-    private static String runName(String taskKey, Integer attempt) {
-        return attempt == null ? taskKey : taskKey + " · attempt " + attempt;
     }
 
     private List<Map<String, Object>> stepStates(PipelineExecution execution, List<StepDescriptor> chain) {
@@ -292,14 +231,5 @@ public class ExecutionUiController {
                 .filter(review -> review.getStatus() == HitlReviewStatus.PENDING)
                 .findFirst()
                 .orElse(null);
-    }
-
-    /**
-     * One row of the run list. A Developer Flow run is named by its task key and has its status in words
-     * ({@code statusLabel}, {@code statusClass}) and no {@code step}; other runs show the engine status.
-     */
-    public record ExecutionRow(UUID id, String name, String flowId, String status, String statusLabel,
-                               String statusClass, String step, PageTime createdAt, PageTime updatedAt,
-                               UUID parentExecutionId, String parentShort) {
     }
 }

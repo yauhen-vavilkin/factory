@@ -9,13 +9,14 @@ public record DashboardStats(Instant generatedAt, int days,
         List<DailyCount> executionsPerDay, List<StepFailureCount> stepFailures, HitlStats hitl,
         List<ConnectorOutcome> connectorOutcomes, TokenUsage tokens, List<StepTokenCount> stepTokens) {
 
-    public record StatusCount(String status, long count) {
+    /** Runs in one {@code RunState}: its name, the words the Executions list shows for it, and the count. */
+    public record StatusCount(String state, String label, long count) {
     }
 
-    public record FlowStatusCount(String flowId, String status, long count) {
+    public record FlowStatusCount(String flowId, String state, long count) {
     }
 
-    public record DailyCount(LocalDate day, String status, long count) {
+    public record DailyCount(LocalDate day, String state, String label, long count) {
     }
 
     public record StepFailureCount(String flowId, String stepId, long failures, long retriesScheduled) {
