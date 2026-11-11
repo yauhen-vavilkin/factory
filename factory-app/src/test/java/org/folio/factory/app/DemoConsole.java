@@ -51,7 +51,13 @@ import java.util.Map;
 @TestPropertySource(properties = {
         "factory.connectors.jira.base-url=https://jira.example.org",
         "factory.tasks.source.assignee=Jane Developer",
-        "FACTORY_ZAI_API_KEY=demo-console-key"})
+        "FACTORY_ZAI_API_KEY=demo-console-key",
+        // Templates, CSS and JS come from src without a cache: an edit shows on reload, and a Maven build that
+        // rewrites target/classes does not touch them.
+        "spring.thymeleaf.prefix=file:src/main/resources/templates/",
+        "spring.thymeleaf.cache=false",
+        "factory.console.static-location=file:src/main/resources/static/",
+        "spring.web.resources.chain.cache=false"})
 @EnabledIfSystemProperty(named = "demo.console", matches = "true")
 class DemoConsole {
 

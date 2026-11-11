@@ -45,9 +45,10 @@ mvn spring-boot:run -pl factory-app      # run the app (needs ANTHROPIC_API_KEY 
 mvn verify                               # full build + all tests (Docker required: Testcontainers starts its own PostgreSQL)
 mvn -B -ntp -pl factory-core -am test -Dtest=SubFlowIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false   # one test class
 mvn -B -ntp -pl factory-core -am test -Dtest='SubFlowIntegrationTest#method' -Dsurefire.failIfNoSpecifiedTests=false   # one method
-node --test factory-app/src/test/js/poll.test.js   # console JS tests (not run by Maven or CI)
+node --test factory-app/src/test/js/*.test.js   # console JS tests (not run by Maven or CI)
 mvn validate                             # Checkstyle only; it also runs first in every build
 mvn -B -ntp -o -pl factory-app -am test -Dtest=DemoConsole -Ddemo.console=true -Dsurefire.failIfNoSpecifiedTests=false   # demo console on :8090, see below
+mvn -B -ntp -o -pl factory-app -am test -Dtest='UiRenderSmokeTest,RunStateIntegrationTest,org/folio/factory/app/web/**/*Test,org/folio/factory/app/tasks/presentation/*Test' -Dsurefire.failIfNoSpecifiedTests=false   # console page tests only, for the UI loop
 ```
 
 Tests run under Surefire only. This repo has no Failsafe, so the workspace-level
@@ -201,20 +202,37 @@ Conventions that are easy to violate silently:
 - Page-size params: REST validates strictly (`PageValidation.pageable`, 422);
   UI clamps leniently (`PageValidation.clampSize`).
 - Every error a person sees says the cause and what to do, in plain words.
-- **Demo console: see every state before you change a page.** `DemoConsole`
-  (`factory-app/src/test/java/org/folio/factory/app/DemoConsole.java`) starts the console on
-  `http://localhost:8090/flows/dev-factory` with one seeded task in every state of My tasks, the task page and the
-  run page: ready, cannot run, queued, working, asked a question, each stop cause, several attempts, every pull
-  request and PR feedback state, needs inspection. It uses a throwaway Testcontainers database and a stopped
-  engine, so nothing runs and the local Factory is not touched. Its Javadoc lists the states. Use it for every UI
-  change: walk the pages in a real browser, because the string-matching tests show neither a state next to the
-  others nor hover and click behaviour. When you add a state or a page that depends on one, add its task to the
-  seed in the same change. Stop it (`pkill -f "Dtest=DemoConsole"`) before any Maven build and start it again
-  afterwards: templates and CSS come from `target/classes` and static files are cached. Task and run ids change on
-  every start. Pressing Run or answering in it changes no state.
-- Keep the existing visual system (`tokens.css`, `app.css`, existing fragments). Make a
-  static HTML mockup only when the layout is unclear or the operator should choose
-  between options; clear UI fixes go straight to code.
+- **Page rules** (agreed on 2026-11-10). Keep the existing visual system (`tokens.css`, `app.css`,
+  existing fragments). Few boxes: lists are rows with thin lines, with no outer frame and no table
+  inside a card. Little to read: a label or a chip instead of a sentence, no grey explanations.
+  Buttons stay buttons, never plain text links: one `.btn-primary` per screen, `.btn-secondary` for
+  the rest, `.btn-col` for one width per column. One `.chip` shape, costs through `UiFormat.money`
+  (`$0.70`), one alignment. The Jira key and the pull request chip open Jira and GitHub and look
+  clickable. Second-level information sits behind a disclosure that looks like a control, closed by
+  default. Light theme first. Make a static HTML mockup only when the layout is unclear or I should
+  choose between options; clear UI fixes go straight to code.
+- **A remark changes what it names.** A remark about one element changes that element on every page
+  that shows it, and nothing else. A task's state and whose turn it is are worked out in
+  `TaskRows` (My tasks, task page), `RunStatusCard.turn` (run page), `FeedbackUi.standing` and
+  `AttemptStatus.of`: change them together, and never work them out in a template. One session at
+  a time edits the console pages (templates, `static/`, the page row classes): no parallel
+  sessions or implementer agents on them.
+- **Done means seen.** Before you call a change to My tasks, the task page or the run page done,
+  open it in `DemoConsole` in every state the change touches and name those states; a passing
+  render test is not a look. `DemoConsole`
+  (`factory-app/src/test/java/org/folio/factory/app/DemoConsole.java`, command above) serves
+  `http://localhost:8090/flows/dev-factory` with one seeded task in every state of My tasks, the
+  task page and the run page (its Javadoc lists them), on a throwaway database with a stopped
+  engine: nothing runs, Run and answers change no state, ids change on every start. It reads
+  templates, CSS and JS from `src`, so an edit shows on a normal reload and it keeps running
+  through Maven builds; restart it after a Java change. If `lsof -nP -iTCP:8090 -sTCP:LISTEN`
+  shows a console you did not start, ask me; stop your own with
+  `lsof -ti tcp:8090 -sTCP:LISTEN | xargs kill`. A new state, or a page that depends on one, gets
+  its task in the seed in the same change.
+- **Fast loop.** While you iterate on a page, run the console page tests (command above), not
+  `mvn verify`; run `mvn verify` once before the commit. When a change breaks a smoke assertion on
+  incidental markup, assert the visible text or link instead of copying the new markup.
+- `docs/superpowers/` holds past specs and mockups: history, not instructions.
 
 ## Adding a new flow (the plugin pattern)
 

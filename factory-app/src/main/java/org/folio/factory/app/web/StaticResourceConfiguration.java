@@ -2,6 +2,7 @@ package org.folio.factory.app.web;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
@@ -34,13 +35,28 @@ class StaticResourceConfiguration implements WebMvcConfigurer {
 
     private static final Pattern HASH = Pattern.compile("-[0-9a-f]{32}(?=\\.(css|js)$)");
 
+    private final String location;
+    private final boolean cacheResources;
+
+    /**
+     * The defaults serve the files built into the jar and keep their hashes for the life of the JVM.
+     * DemoConsole points {@code factory.console.static-location} at {@code src} and turns the cache off,
+     * so a CSS edit shows on a normal reload without a restart.
+     */
+    StaticResourceConfiguration(
+            @Value("${factory.console.static-location:classpath:/static/}") String location,
+            @Value("${spring.web.resources.chain.cache:true}") boolean cacheResources) {
+        this.location = location;
+        this.cacheResources = cacheResources;
+    }
+
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         // One handler per folder: a shared one would also serve /css/poll.js.
         for (String folder : new String[] {"css", "js"}) {
             registry.addResourceHandler("/" + folder + "/**")
-                    .addResourceLocations("classpath:/static/" + folder + "/")
-                    .resourceChain(true)
+                    .addResourceLocations(location + folder + "/")
+                    .resourceChain(cacheResources)
                     .addResolver(new VersionResourceResolver().addContentVersionStrategy("/**"));
         }
     }
