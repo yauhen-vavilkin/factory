@@ -41,6 +41,16 @@ class FeedbackRowsTest {
     }
 
     @Test
+    void factorysOwnSummaryOfARoundIsNotShownAsTheAgentsReport() {
+        var round = round("{\"round\":1,\"phase\":\"FINISHED\",\"selected\":[" + COMMENT + "],"
+                + "\"summary\":\"Verified changes published to the same PR\"}");
+
+        assertThat(round.summary()).isNull();
+        assertThat(round.report()).isNull();
+        assertThat(round.selected()).hasSize(1);
+    }
+
+    @Test
     void aManualRoundHasNoAgentReportAndNoChecksBeforeTheyRan() {
         var round = round("{\"round\":1,\"phase\":\"VERIFY\",\"manual\":true,"
                 + "\"summary\":\"Manual changes independently verified\"}");

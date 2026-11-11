@@ -54,6 +54,14 @@ public final class RoundReport {
         return cutAtWord(sentence.matches(".*[.!?]$") ? sentence : sentence + ".");
     }
 
+    /**
+     * True when the report has a "Changes" section. Without one the stored text is Factory's own summary of the
+     * round ("Verified changes published to the same PR"), not the agent's report.
+     */
+    public static boolean hasChanges(String report) {
+        return !section(headingLines(report), "changes").isEmpty();
+    }
+
     /** The report without Markdown marks or internal ids: headings and list items keep their own lines. */
     public static String text(String report) {
         var text = new ArrayList<String>();

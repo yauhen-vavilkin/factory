@@ -56,6 +56,10 @@ class RoundReportTest {
 
     @Test
     void aReportWithoutAChangesSectionHasNoFirstSentence() {
+        assertThat(RoundReport.hasChanges("Verified changes published to the same PR")).isFalse();
+        assertThat(RoundReport.hasChanges("## Assumptions\n- None.")).isFalse();
+        assertThat(RoundReport.hasChanges(null)).isFalse();
+        assertThat(RoundReport.hasChanges("Nothing to change. ## Changes\n- None: it passes.")).isTrue();
         assertThat(RoundReport.firstSentence("Manual changes independently verified")).isEmpty();
         assertThat(RoundReport.firstSentence("## Assumptions\n- None.")).isEmpty();
         assertThat(RoundReport.firstSentence("")).isEmpty();

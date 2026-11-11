@@ -103,7 +103,8 @@ final class FeedbackRows {
         var selected = state.selected().stream()
                 .map(comment -> new Selected(comment.author(), comment.body()))
                 .toList();
-        var report = state.manual() ? null : blankToNull(RoundReport.text(state.summary()));
+        var report = state.manual() || !RoundReport.hasChanges(state.summary()) ? null
+                : blankToNull(RoundReport.text(state.summary()));
         var verification = state.verification();
         var started = PageTime.day(instant(state.roundStartedAt()));
         var meta = blankToNull(meta(state));
