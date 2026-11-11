@@ -120,11 +120,13 @@ html[data-menu="collapsed"] .sidebar-brand strong {
 }
 .sidebar-footer { margin-top: auto; padding: 0.25rem 0.25rem 0 0.5rem; }
 
-/* Left aligned: with the menu collapsed the content starts at the rail plus the page padding. */
+/* Left aligned: with the menu collapsed the content starts at the rail plus the page padding. One content width
+   (1040 px) for every page and its flash messages, so the right edge does not move between pages; wide tables
+   scroll in their own box. */
 .main {
   padding: 2rem;
   width: 100%;
-  max-width: 1200px;
+  max-width: calc(1040px + 4rem);
   margin: 0;
 }
 .page-header { margin-bottom: 1.5rem; }
@@ -714,8 +716,8 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 /* ---------- Developer Flow: My tasks, task summary, run ----------
    Page-scoped so the shared components keep their look elsewhere; sizes follow
    docs/superpowers/mockups/my-tasks-v3. */
-/* One content width for every Developer Flow page, so the right column does not move between pages. */
-.dev-page { display: flex; flex-direction: column; gap: 24px; max-width: 1040px; }
+/* The page is the container the run page's step cards measure, so the menu counts and the window does not. */
+.dev-page { display: flex; flex-direction: column; gap: 24px; container-type: inline-size; }
 .dev-page form { margin: 0; }
 .dev-title, .dev-section-title { line-height: 1.5; letter-spacing: normal; }
 .dev-title { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
@@ -826,15 +828,17 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   color: hsl(var(--muted-foreground));
 }
 .run-standing a:not(.btn) { color: hsl(var(--quiet-foreground)); text-decoration: underline; }
-/* Four separate cards that wrap whole, so a narrow window never doubles a border. */
+/* Four separate cards: four in a row, then two by two, then one column, never three and one. */
 .run-steps {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
+@container (min-width: 23rem) { .run-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (min-width: 46rem) { .run-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .run-step {
   display: flex;
   flex-direction: column;
@@ -899,6 +903,8 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .tech-facts dt { color: hsl(var(--muted-foreground)); }
 .tech-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .tech-facts code { font-size: 12px; }
+/* Artifact names are longer than the other labels: their column takes the longest name. */
+.artifact-list { grid-template-columns: max-content minmax(0, 1fr); }
 .artifact-links { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .run-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; min-width: 0; font-size: 13px; }
 .run-links > a { text-decoration: underline; }

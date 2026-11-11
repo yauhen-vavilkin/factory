@@ -129,7 +129,7 @@
                 <details class="disclosure">
                     <summary th:text="'Artifacts (' + ${links.artifactCount()} + ')'">Artifacts (0)</summary>
                     <p class="dev-note" th:if="${#lists.isEmpty(links.artifacts())}">This run has no artifacts.</p>
-                    <dl class="tech-facts" th:unless="${#lists.isEmpty(links.artifacts())}">
+                    <dl class="tech-facts artifact-list" th:unless="${#lists.isEmpty(links.artifacts())}">
                         <th:block th:each="group : ${links.artifacts()}">
                             <dt th:text="${group.name()}">dev_result.json</dt>
                             <dd class="artifact-links"><a th:each="version : ${group.versions()}"

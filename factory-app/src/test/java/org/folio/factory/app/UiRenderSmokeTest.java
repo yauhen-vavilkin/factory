@@ -145,7 +145,11 @@ class UiRenderSmokeTest {
         String body = assertRendered("/", "Dashboard");
         assertThat(body)
                 .containsPattern("src=\"/js/charts-[0-9a-f]{32}\\.js\"")
-                .contains("class=\"charts-grid\"");
+                .contains("class=\"charts-grid\"")
+                // Completed counts runs that ran to the end, also a Developer Flow attempt that failed.
+                .containsPattern("<span class=\"kpi-label\">Completed</span>\\s*<span class=\"kpi-trend\">Ran to the"
+                        + " end. A Developer Flow attempt that failed is counted here too;\\s+Executions shows each"
+                        + " result.</span>");
         Matcher chart = Pattern.compile("src=\"(/webjars/chart\\.js/[^\"]+/chart\\.umd-[0-9a-f]{32}\\.js)\"")
                 .matcher(body);
         assertThat(chart.find()).as("hashed chart.js link").isTrue();
@@ -690,7 +694,7 @@ class UiRenderSmokeTest {
                 .contains("MODSIDECAR-196", "<code>mvn test</code> · exit code 0", "1 · Prepare task",
                         "2 · Implement changes", "3 · Verify changes", "4 · Create pull request",
                         "<summary>Starting build output</summary>", "Compiling 42 source files", "transfer failed",
-                        "<summary>Artifacts (4)</summary>", ">Audit log</a>", "No usage reported yet.");
+                        "<summary>Artifacts (4)</summary>", "<dl class=\"tech-facts artifact-list\">", ">Audit log</a>", "No usage reported yet.");
         assertThat(body).doesNotContain("SOURCE_CONTENT_SENTINEL", "HIDDEN_MESSAGE_SENTINEL",
                 "HIDDEN_REASONING_SENTINEL", "HIDDEN_HEREDOC_SENTINEL", "HIDDEN_STDERR_SENTINEL", "run-stages",
                 "Engine steps", "Execution history", "Now · updates live", "class=\"task-key\"", "class=\"stepper\"",
