@@ -63,6 +63,19 @@ class FeedbackRowsTest {
         assertThat(round.cost()).isEqualTo("$0.00");
     }
 
+    @Test
+    void theStartsOfTheRoundsCarryTheTitlesOfTheRunPage() {
+        var rounds = new TreeMap<Integer, FeedbackState>();
+        rounds.put(1, FeedbackArtifacts.JSON.readValue("{\"round\":1,\"phase\":\"READY\",\"manual\":true,"
+                + "\"roundStartedAt\":\"2026-11-10T21:00:00Z\"}", FeedbackState.class));
+        rounds.put(2, FeedbackArtifacts.JSON.readValue("{\"round\":2,\"phase\":\"READY\","
+                + "\"roundStartedAt\":\"2026-11-10T21:10:00Z\"}", FeedbackState.class));
+
+        // A manual round has no coding run, so it gets no section; the agent's round is still "Round 1".
+        assertThat(FeedbackRows.starts(rounds)).containsExactly(
+                new FeedbackRows.RoundStart("Round 1", java.time.Instant.parse("2026-11-10T21:10:00Z")));
+    }
+
     private static FeedbackRows.Round round(String state) {
         var rounds = new TreeMap<Integer, FeedbackState>();
         rounds.put(1, FeedbackArtifacts.JSON.readValue(state, FeedbackState.class));

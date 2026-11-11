@@ -5,6 +5,7 @@ import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.app.tasks.presentation.RunContext;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
+import org.folio.factory.core.service.ArtifactStore;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,6 +22,7 @@ public class TranscriptUiController {
     private final PipelineExecutionRepository executions;
     private final TaskQuery taskQuery;
     private final CodingTranscriptStore transcripts;
+    private final ArtifactStore artifacts;
 
     @GetMapping("/executions/{id}/transcript")
     public String transcript(@PathVariable("id") UUID id, Model model) {
@@ -31,7 +33,8 @@ public class TranscriptUiController {
         model.addAttribute("runCrumb", taskRun.map(RunContext::crumb)
                 .orElse("run " + id.toString().substring(0, 4) + "…"));
         model.addAttribute("pageTitle", taskRun.map(run -> run.pageTitle() + " · transcript").orElse("Transcript"));
-        model.addAttribute("runs", DeveloperTranscriptView.runs(transcripts.read(id)));
+        var rounds = FeedbackUi.roundStarts(execution, artifacts.allForExecution(id));
+        model.addAttribute("runs", DeveloperTranscriptView.sections(transcripts.read(id), rounds));
         return "transcript";
     }
 }

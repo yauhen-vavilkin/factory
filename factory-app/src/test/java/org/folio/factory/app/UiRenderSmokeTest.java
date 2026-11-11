@@ -749,7 +749,8 @@ class UiRenderSmokeTest {
         try (var sink = transcripts.open(execution.getId(), UUID.randomUUID(), "implement")) {
             sink.add(new CodingTranscripts.Entry("prompt", at, Map.of("text", "Implement MODBAR-1 <now>")));
             sink.add(new CodingTranscripts.Entry("text", at.plusSeconds(1),
-                    Map.of("text", "I will run the tests", "thinking", "HIDDEN_REASONING_SENTINEL")));
+                    Map.of("text", "I will run the tests\n\n## Regexes\nThe pattern is fine.",
+                            "thinking", "HIDDEN_REASONING_SENTINEL")));
             sink.add(new CodingTranscripts.Entry("tool_call", at.plusSeconds(2),
                     Map.of("id", "t1", "tool", "Bash", "input", "{ \"command\" : \"mvn test\" }")));
             sink.add(new CodingTranscripts.Entry("tool_result", at.plusSeconds(5),
@@ -766,7 +767,10 @@ class UiRenderSmokeTest {
         assertThat(body)
                 .contains("<title>Transcript — AI FOLIO</title>", "/ Transcript</nav>",
                         ">run " + execution.getId().toString().substring(0, 4) + "…</a>",
-                        "<details class=\"disclosure\">", "Run 1 · Implementation",
+                        "<details class=\"disclosure\">", "<h2 class=\"dev-section-title\">Implementation</h2>",
+                        // A Markdown heading of the agent is a bold line, not a heading of the page.
+                        "<p class=\"transcript-text\"><strong>Regexes</strong></p>",
+                        "<p class=\"transcript-text\">The pattern is fine.</p>",
                         "Started " + timeTag(PageTime.timestamp(Instant.parse("2026-10-27T09:15:30Z"))),
                         "<summary>Prompt sent to the agent</summary>", "Implement MODBAR-1 &lt;now&gt;",
                         "I will run the tests", "<strong>Bash</strong>", "failed", "3 s",
@@ -776,7 +780,8 @@ class UiRenderSmokeTest {
                         "Transcript cut at 5 MB; the attempt went on.",
                         timeTag(PageTime.clock(Instant.parse("2026-10-27T09:15:32Z"))),
                         "href=\"/executions/" + execution.getId() + "\"")
-                .doesNotContain("<details open", "HIDDEN_REASONING_SENTINEL", "<now>", "run-panel");
+                .doesNotContain("<details open", "HIDDEN_REASONING_SENTINEL", "<now>", "run-panel", "## Regexes",
+                        "Run 1");
 
         var empty = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
         assertThat(assertRendered("/executions/" + empty.getId() + "/transcript", "Transcript"))

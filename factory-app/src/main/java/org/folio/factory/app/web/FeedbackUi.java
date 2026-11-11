@@ -54,6 +54,14 @@ public class FeedbackUi {
         return Optional.of(new Summary(feedback.phase(), waiting, !rounds.isEmpty()));
     }
 
+    /** The rounds the agent worked on the run, with their titles on the run page; empty without PR feedback. */
+    static List<FeedbackRows.RoundStart> roundStarts(PipelineExecution execution, List<Artifact> artifacts) {
+        if (!VERSION.equals(execution.getFlowVersion())) {
+            return List.of();
+        }
+        return FeedbackRows.starts(History.from(artifacts).rounds());
+    }
+
     /**
      * What the status card says about PR feedback: the phase in words, whether it waits for new comments or is
      * still getting ready to (the card then names the pull request), and whether rounds ran, so the amount is the

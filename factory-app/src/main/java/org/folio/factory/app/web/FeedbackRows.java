@@ -12,7 +12,6 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -66,16 +65,37 @@ final class FeedbackRows {
                 .toList();
     }
 
+    /** The title of a round the agent worked and when it started, for the sections of the transcript. */
+    record RoundStart(String title, Instant startedAt) {
+    }
+
     static List<Round> rounds(TreeMap<Integer, FeedbackState> rounds, RoundFacts facts) {
-        var rows = new ArrayList<Round>();
+        var titles = titles(rounds);
+        return rounds.entrySet().stream()
+                .map(entry -> round(titles.get(entry.getKey()), entry.getKey(), entry.getValue(), facts))
+                .toList();
+    }
+
+    /** The rounds the agent worked, oldest first, with the titles the run page gives them. */
+    static List<RoundStart> starts(TreeMap<Integer, FeedbackState> rounds) {
+        var titles = titles(rounds);
+        return rounds.entrySet().stream()
+                .filter(entry -> !entry.getValue().manual() && instant(entry.getValue().roundStartedAt()) != null)
+                .map(entry -> new RoundStart(titles.get(entry.getKey()),
+                        instant(entry.getValue().roundStartedAt())))
+                .toList();
+    }
+
+    /** "Round 2" or "Manual verification 1": each kind of round counts on its own. */
+    private static Map<Integer, String> titles(TreeMap<Integer, FeedbackState> rounds) {
+        var titles = new HashMap<Integer, String>();
         int correction = 0;
         int manual = 0;
         for (var entry : rounds.entrySet()) {
-            var state = entry.getValue();
-            var title = state.manual() ? "Manual verification " + (++manual) : "Round " + (++correction);
-            rows.add(round(title, entry.getKey(), state, facts));
+            var title = entry.getValue().manual() ? "Manual verification " + (++manual) : "Round " + (++correction);
+            titles.put(entry.getKey(), title);
         }
-        return rows;
+        return titles;
     }
 
     /** Round number to the URL of Factory's comment on the PR for that round. */

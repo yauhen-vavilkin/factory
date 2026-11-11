@@ -110,7 +110,7 @@ class ExecutionUiControllerTest {
         var engine = new EngineRecords(executions, artifactStore, flowRegistry);
         mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(engine, auditLog, reviews, json, runPage,
                         new ExecutionListPage(engine, runStates, taskAttempts, json)),
-                        new TranscriptUiController(executions, taskQuery, transcripts))
+                        new TranscriptUiController(executions, taskQuery, transcripts, artifactStore))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
@@ -358,17 +358,20 @@ class ExecutionUiControllerTest {
                 .andReturn();
 
         @SuppressWarnings("unchecked")
-        var runs = (List<Map<String, Object>>) result.getModelAndView().getModel().get("runs");
-        assertThat(runs).extracting(run -> run.get("label"))
-                .containsExactly("Run 1 · Implementation", "Run 2 · PR feedback");
-        @SuppressWarnings("unchecked")
-        var entries = (List<Map<String, Object>>) runs.getFirst().get("entries");
-        assertThat(entries).extracting(entry -> entry.get("kind")).containsExactly("prompt", "tool", "result");
-        assertThat(entries.get(0)).containsEntry("time", PageTime.clock(Instant.parse("2026-10-27T09:15:30Z")));
-        assertThat(entries.get(1)).containsEntry("tool", "Bash").containsEntry("input", "{ \"command\" : \"mvn test\" }")
-                .containsEntry("result", "BUILD FAILURE").containsEntry("error", true).containsEntry("duration", "3 s")
-                .containsEntry("hasResult", true);
-        assertThat(entries.get(2)).containsEntry("facts", "3 turns · 40 input tokens · 5 output tokens");
+        var runs = (List<DeveloperTranscriptView.Section>) result.getModelAndView().getModel().get("runs");
+        // A run without PR feedback state has no rounds to name, so its feedback section says only what it was.
+        assertThat(runs).extracting(DeveloperTranscriptView.Section::label)
+                .containsExactly("Implementation", "PR feedback");
+        var entries = runs.getFirst().entries();
+        assertThat(entries).extracting(DeveloperTranscriptView.Row::kind).containsExactly("prompt", "tool", "result");
+        assertThat(entries.get(0).time()).isEqualTo(PageTime.clock(Instant.parse("2026-10-27T09:15:30Z")));
+        assertThat(entries.get(1)).returns("Bash", DeveloperTranscriptView.Row::tool)
+                .returns("{ \"command\" : \"mvn test\" }", DeveloperTranscriptView.Row::input)
+                .returns("BUILD FAILURE", DeveloperTranscriptView.Row::result)
+                .returns(true, DeveloperTranscriptView.Row::error)
+                .returns("3 s", DeveloperTranscriptView.Row::duration)
+                .returns(true, DeveloperTranscriptView.Row::hasResult);
+        assertThat(entries.get(2).facts()).isEqualTo("3 turns · 40 input tokens · 5 output tokens");
     }
 
     private CodingTranscriptStore.Entry transcriptEntry(UUID run, int seq, String step, String kind,
