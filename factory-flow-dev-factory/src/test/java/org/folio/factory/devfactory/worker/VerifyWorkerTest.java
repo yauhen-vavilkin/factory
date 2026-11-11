@@ -2,10 +2,8 @@ package org.folio.factory.devfactory.worker;
 
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.ArtifactContent;
-import org.folio.factory.connectors.github.GitHubConnector;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
-import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import org.folio.factory.devfactory.tasks.AttemptDeadline;
 import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.tasks.RecordingTaskAttempts;
@@ -13,6 +11,8 @@ import org.folio.factory.devfactory.verification.CandidateVerifier;
 import org.folio.factory.devfactory.verification.VerificationFailure;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -32,7 +32,6 @@ import static org.mockito.Mockito.when;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import static org.mockito.ArgumentMatchers.anyInt;
 import org.folio.factory.devfactory.DevFlowSettings;
-import org.folio.factory.devfactory.delivery.DeliveryServices;
 
 class VerifyWorkerTest {
     private static final DevFactoryProperties REPOSITORIES = new DevFactoryProperties("https://github.com",
@@ -41,27 +40,42 @@ class VerifyWorkerTest {
     private static final String SOURCE = "https://github.com/owner/source.git";
     private static final DevRuntimeProperties RUNTIME = new DevRuntimeProperties(Map.of(), null, 60, null, null);
     @Test
-    void eligibleCandidateFailureExplicitlyDefersRepairAndCannotReachDelivery() {
+    void aPassingReceiptIsVerifiedWithItsPlanAndNoRepair() {
         var verifier = mock(CandidateVerifier.class);
-        var delivery = mock(CandidateDelivery.class);
-        var github = mock(GitHubConnector.class);
-        var json = JsonMapper.builder().build();
-        var execution = UUID.randomUUID();
-        var candidate = new Candidate("source", "a".repeat(40), "b".repeat(40),
-                Candidate.sha256(""), "", "CANDIDATE_UNVERIFIED");
+        var candidate = candidate();
+        var receipt = new VerificationReceipt(execution.toString(), candidate.repository(), candidate.baseSha(),
+                candidate.treeSha(), candidate.patchSha256(), "unit", "image", List.of("mvn", "test"),
+                "workload", Instant.EPOCH, Instant.EPOCH.plusSeconds(10), 0, 1, 3, 0, 0, "PASS", "ok", null,
+                0, List.of(), List.of());
+        when(verifier.verify(execution, "verify", candidate, SOURCE, 60)).thenReturn(receipt);
+
+        var verification = new VerifyWorker(verifier, new DevFlowSettings(REPOSITORIES, RUNTIME),
+                RecordingTaskAttempts.none().guard()).execute(candidateContext());
+
+        assertThat(json.readValue(verification.outputs().get(VerifyWorker.RECEIPT), VerificationReceipt.class))
+                .isEqualTo(receipt);
+        var result = json.readTree(verification.outputs().get(VerifyWorker.RESULT));
+        assertThat(result.path("state").asString()).isEqualTo("VERIFIED");
+        assertThat(result.path("verificationPlan").asString()).isEqualTo("unit");
+        assertThat(result.path("treeSha").asString()).isEqualTo(candidate.treeSha());
+        assertThat(result.has("repair")).isFalse();
+        assertThat(result.has("repairReason")).isFalse();
+    }
+
+    @Test
+    void eligibleCandidateFailureExplicitlyDefersRepair() {
+        var verifier = mock(CandidateVerifier.class);
+        var candidate = candidate();
         var receipt = new VerificationReceipt(execution.toString(), candidate.repository(), candidate.baseSha(),
                 candidate.treeSha(), candidate.patchSha256(), "unit", "image", List.of("mvn", "test"),
                 "workload", Instant.EPOCH, Instant.EPOCH.plusSeconds(10), 1, 1, 3, 1, 0, "FAIL",
                 "AssertionFailedError: expected: <ready> but was: <failed>", VerificationFailure.CANDIDATE,
                 0, List.of("surefire"), List.of());
         when(verifier.verify(execution, "verify", candidate, SOURCE, 60)).thenReturn(receipt);
-        var context = new AgentContext(execution, "verify", Map.of(DevelopWorker.CANDIDATE,
-                new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json", json.writeValueAsString(candidate))),
-                null, Map.of(), List.of());
 
-        var verification = new VerifyWorker(verifier, new DevFlowSettings(REPOSITORIES, RUNTIME), RecordingTaskAttempts.none().guard()).execute(context);
+        var verification = new VerifyWorker(verifier, new DevFlowSettings(REPOSITORIES, RUNTIME),
+                RecordingTaskAttempts.none().guard()).execute(candidateContext());
 
-        assertThat(receipt.failureKind().repairable()).isTrue();
         assertThat(json.readValue(verification.outputs().get(VerifyWorker.RECEIPT), VerificationReceipt.class))
                 .isEqualTo(receipt);
         var result = json.readTree(verification.outputs().get(VerifyWorker.RESULT));
@@ -71,18 +85,6 @@ class VerifyWorkerTest {
         assertThat(result.path("failureKind").asString()).isEqualTo("CANDIDATE");
         assertThat(result.path("failureCount").asInt()).isEqualTo(1);
         assertThat(result.path("treeSha").asString()).isEqualTo(candidate.treeSha());
-
-        var publishContext = new AgentContext(execution, "publish", Map.of(VerifyWorker.RESULT,
-                new ArtifactContent(VerifyWorker.RESULT, 1, "application/json",
-                        verification.outputs().get(VerifyWorker.RESULT))), null, Map.of(), List.of());
-        var published = new DeliveryWorker(new DevFlowSettings(null, null), new DeliveryServices(delivery, github, null), null,
-                null, null, RecordingTaskAttempts.none().guard()).execute(publishContext);
-
-        assertThat(json.readTree(published.outputs().get(DeliveryWorker.DELIVERY)).path("state").asString())
-                .isEqualTo("NOT_RUN");
-        assertThat(published.outputs().get(VerifyWorker.RESULT))
-                .isEqualTo(verification.outputs().get(VerifyWorker.RESULT));
-        verifyNoInteractions(delivery, github);
     }
 
     @Test
@@ -114,34 +116,19 @@ class VerifyWorkerTest {
         }
     }
 
-    @Test
-    void developmentBlockerIsReportedWithoutStartingVerification() {
+    @ParameterizedTest
+    @CsvSource({"DEVELOPMENT_FAILED, provider unavailable", "REPOSITORY_MISMATCH, Repository target remains unresolved"})
+    void aCandidatePlaceholderIsReportedWithoutStartingVerification(String state, String reason) {
         CandidateVerifier verifier = mock(CandidateVerifier.class);
         var candidate = new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json",
-                "{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"provider unavailable\"}");
+                json.writeValueAsString(Map.of("state", state, "reason", reason)));
         var context = new AgentContext(UUID.randomUUID(), "verify", Map.of(DevelopWorker.CANDIDATE, candidate),
                 null, Map.of(), List.of());
 
         var result = new VerifyWorker(verifier, new DevFlowSettings(REPOSITORIES, RUNTIME), RecordingTaskAttempts.none().guard()).execute(context);
 
         assertThat(result.outputs().get(VerifyWorker.RECEIPT)).contains("NOT_RUN");
-        assertThat(result.outputs().get(VerifyWorker.RESULT)).contains("DEVELOPMENT_FAILED", "provider unavailable");
-        verifyNoInteractions(verifier);
-    }
-
-    @Test
-    void repositoryMismatchPlaceholderCannotBeVerified() {
-        CandidateVerifier verifier = mock(CandidateVerifier.class);
-        var candidate = new ArtifactContent(DevelopWorker.CANDIDATE, 1, "application/json",
-                "{\"state\":\"REPOSITORY_MISMATCH\",\"reason\":\"Repository target remains unresolved\"}");
-        var context = new AgentContext(UUID.randomUUID(), "verify", Map.of(DevelopWorker.CANDIDATE, candidate),
-                null, Map.of(), List.of());
-
-        var result = new VerifyWorker(verifier, new DevFlowSettings(REPOSITORIES, RUNTIME), RecordingTaskAttempts.none().guard()).execute(context);
-
-        assertThat(result.outputs().get(VerifyWorker.RECEIPT)).contains("NOT_RUN");
-        assertThat(result.outputs().get(VerifyWorker.RESULT))
-                .contains("REPOSITORY_MISMATCH", "Repository target remains unresolved");
+        assertThat(result.outputs().get(VerifyWorker.RESULT)).contains(state, reason);
         verifyNoInteractions(verifier);
     }
 

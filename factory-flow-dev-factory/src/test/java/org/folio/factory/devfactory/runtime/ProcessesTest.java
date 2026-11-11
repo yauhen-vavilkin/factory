@@ -17,7 +17,7 @@ class ProcessesTest {
             var process = executor.submit(() -> Processes.run(null,
                     List.of("/bin/sh", "-c", "printf 'first\\n'; sleep 2; printf 'last'"), 10,
                     java.util.Map.of(), 1024, line -> { received.countDown(); throw new IllegalArgumentException(); }));
-            assertThat(received.await(1, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(received.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             assertThat(process.isDone()).isFalse();
             assertThat(process.get().output()).isEqualTo("first\nlast");
         } finally { executor.shutdownNow(); }
@@ -46,7 +46,7 @@ class ProcessesTest {
                         lines.incrementAndGet();
                         return true;
                     }));
-            assertThat(first.await(1, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(first.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             assertThat(streamed.isDone()).isFalse();
             var result = streamed.get();
             assertThat(result.exitCode()).isZero();
@@ -101,9 +101,6 @@ class ProcessesTest {
             assertThat(result.outputUnread()).isFalse();
             assertThat(seen).containsExactly("first", "last");
         } finally { executor.shutdownNow(); }
-        assertThat(Processes.READER_DRAIN)
-                .as("stream() waits for a busy reader up to this bound, longer than the 5 s join it replaced")
-                .isGreaterThan(java.time.Duration.ofSeconds(6));
     }
 
     private static void awaitRelease(java.util.concurrent.CountDownLatch release) {

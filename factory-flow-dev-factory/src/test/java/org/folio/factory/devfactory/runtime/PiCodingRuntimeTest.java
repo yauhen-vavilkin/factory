@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class PiCodingRuntimeTest {
+    private static final tools.jackson.databind.json.JsonMapper JSON = tools.jackson.databind.json.JsonMapper.builder().build();
     private static final String SETTLED = "{\"type\":\"agent_settled\"}";
     private static final String USAGE_FRAME = """
             {"type":"message_end","message":{"role":"assistant","provider":"p","model":"m","stopReason":"stop","content":[{"type":"text","text":"private secret-key"}],"usage":{"input":10,"output":3,"cacheRead":2,"cacheWrite":1,"cost":{"total":0.125}}}}
@@ -461,6 +462,50 @@ class PiCodingRuntimeTest {
         assertThat(result.status()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
         assertThat(result.decision().kind()).isEqualTo(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS);
         assertThat(result.decision().question()).isEqualTo("Which public API should change?");
+    }
+
+    @Test void aDecisionReachesTheTaskWithItsQuestionOptionsAndEvidenceRedacted() {
+        String decision = "FACTORY_DECISION_REQUIRED: " + JSON.writeValueAsString(Map.of(
+                "kind", "PRODUCT_REQUIREMENTS", "question", "Use key secret-key?",
+                "options", List.of("Keep secret-key", "Drop it"), "evidence", "Config holds secret-key"));
+
+        var outcome = runPi(assistantFrame(List.of(Map.of("type", "text", "text", "Report secret-key\n\n" + decision))));
+
+        assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
+        assertThat(outcome.decision().question()).isEqualTo("Use key [REDACTED]?");
+        assertThat(outcome.decision().options()).containsExactly("Keep [REDACTED]", "Drop it");
+        assertThat(outcome.decision().evidence()).isEqualTo("Config holds [REDACTED]");
+        assertThat(outcome.summary()).isEqualTo("Report [REDACTED]");
+        assertThat(outcome.toString()).doesNotContain("secret-key");
+    }
+
+    @Test void aThinkingBlockNeverReachesTheSummary() {
+        var outcome = runPi(assistantFrame(List.of(
+                Map.of("type", "thinking", "thinking", "HIDDEN_REASONING_SENTINEL"),
+                Map.of("type", "text", "text", "Implemented"))));
+
+        assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(outcome.summary()).isEqualTo("Implemented");
+        assertThat(outcome.toString()).doesNotContain("HIDDEN_REASONING_SENTINEL");
+    }
+
+    private static String assistantFrame(List<Map<String, String>> content) {
+        return JSON.writeValueAsString(Map.of("type", "message_end", "message", Map.of("role", "assistant",
+                "provider", "p", "model", "m", "stopReason", "stop", "content", content))) + "\n" + SETTLED;
+    }
+
+    /** Runs Pi through the runtime, as a task does, with secret-key as its API key and {@code output} as its stream. */
+    private static CodingOutcome runPi(String output) {
+        var workload = mock(DockerWorkloads.Workload.class);
+        when(workload.execute(List.of("pi", "--version"), 30, Processes.OUTPUT_LIMIT, null))
+                .thenReturn(new Processes.Result(0, "0.85.1"));
+        when(workload.execute(List.of("mkdir", "-p", "/tmp/factory-pi"), 30, Processes.OUTPUT_LIMIT, null))
+                .thenReturn(new Processes.Result(0, ""));
+        when(workload.execute(anyList(), eq(60), eq(PiCodingRuntime.EVENT_STREAM_LIMIT), any()))
+                .thenReturn(new Processes.Result(0, output));
+        var runtime = new PiCodingRuntime(new DevRuntimeProperties.Pi("pi:image", "p", "m", null, null, "secret-key",
+                null, null, null));
+        return runtime.code(workload, request(), 60, event -> { }, CodingTranscripts.NONE);
     }
 
     @Test void markerMentionedLaterInSuccessfulSummaryCompletesNormally() {

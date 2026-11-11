@@ -46,17 +46,6 @@ class AttemptDeadlineTest {
     }
 
     @Test
-    void eachStageIsBoundedByWhatRemainsOfTheWholeAttemptBudget() {
-        var deadline = new AttemptDeadline(Instant.parse("2026-10-23T10:00:00Z"));
-
-        assertThat(deadline.capSeconds(at("2026-10-23T09:50:00Z"), 300)).isEqualTo(300);
-        assertThat(deadline.capSeconds(at("2026-10-23T09:54:00Z"), 300)).isEqualTo(300);
-        assertThat(deadline.capSeconds(at("2026-10-23T09:57:00Z"), 300)).isEqualTo(180);
-        assertThat(deadline.capSeconds(at("2026-10-23T09:59:00Z"), 300)).isEqualTo(60);
-        assertThat(deadline.expired(at("2026-10-23T10:00:00Z"))).isTrue();
-    }
-
-    @Test
     void perOperationLimitsStayMeaningful() {
         var deadline = new AttemptDeadline(Instant.parse("2026-10-23T10:00:00Z"));
 

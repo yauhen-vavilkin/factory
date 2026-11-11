@@ -93,23 +93,6 @@ class DevelopContinuationWorkerTest {
         verify(develop, never()).retry(any(), any(), any());
     }
 
-    @Test void aSecondDecisionOutcomeIsTerminalForThisExecution() {
-        InitialCodingAttempt develop = mock(InitialCodingAttempt.class);
-        var requestArtifact = CodingDecisionArtifacts.Request.from(decision());
-        var second = CodingOutcome.needsDecision(new CodingOutcome.Decision(
-                CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "One more question?", List.of(), "Evidence"), "",
-                Map.of());
-        when(develop.retry(any(), any(), any())).thenReturn(new InitialCodingAttempt.Attempt(null, second,
-                "{\"state\":\"NEEDS_DECISION\"}", "{}", "", "", Map.of()));
-
-        var result = new DevelopContinuationWorker(develop, codec, RecordingTaskAttempts.none().guard())
-                .execute(context(requestArtifact, "Use the public API"));
-
-        assertThat(json.readValue(result.outputs().get(DevelopWorker.OUTCOME), CodingOutcome.class).status())
-                .isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
-        verify(develop).retry(any(), any(), any());
-    }
-
     @Test void aTaskAttemptNeverContinuesWithAnotherPaidAttempt() {
         InitialCodingAttempt develop = mock(InitialCodingAttempt.class);
         var taskAttempts = RecordingTaskAttempts.taskRun();

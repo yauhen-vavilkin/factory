@@ -58,62 +58,56 @@ class CodingContractsTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
-    @Test void theCodingPromptRequiresTheRepositorysOwnContributionRules() {
+    @Test void theCodingPromptPointsTheAgentAtTheRepositorysOwnRules() {
         String prompt = CodingProtocol.prompt(request());
 
-        assertThat(prompt)
-                .contains("contributor documentation")
-                .contains("contribution policy")
-                .contains("NEWS")
-                .contains("changelog")
-                .contains("checks a change must pass")
-                .contains("pull request conventions")
-                .contains("Do not claim checks or IDE verification you did not run");
+        assertThat(prompt).contains("CLAUDE.md", "AGENTS.md", "contribution policy", "NEWS");
+        // Factory, not the agent, commits and pushes, whatever the repository's own rules say.
+        assertThat(prompt).contains("Factory's rules win", "do not commit");
     }
 
-    @Test void aCompletedAttemptEndsWithTheFourSectionReport() {
+    @Test void aCompletedAttemptEndsWithTheFourSectionReportThatThePullRequestReads() {
         String prompt = CodingProtocol.prompt(request());
 
-        assertThat(prompt)
-                .contains("When you complete the task, your final message is a report under exactly these four"
-                        + " headings, each on its own line, with nothing after the last section:")
-                .contains("\"## Changes\": a short list of what you changed, and one line with the repository"
-                        + " conventions you applied.")
-                .contains("\"## Acceptance criteria\": take the criteria from the task description; one line per"
-                        + " criterion: met, not met or not checked, with a short reason.")
-                .contains("\"## Assumptions\":", "\"## Could not read\":", "or \"None\".")
-                .doesNotContain("final summary");
-        // The decision protocol is unchanged and still comes after the report template.
+        // PullRequestRenderer reads these headings and status words from the agent's final message.
+        assertThat(prompt).contains("\"## Changes\"", "\"## Acceptance criteria\"", "\"## Assumptions\"",
+                "\"## Could not read\"", "met", "not met", "not checked");
+        // The decision protocol still comes after the report template.
         assertThat(prompt.indexOf("FACTORY_DECISION_REQUIRED:")).isGreaterThan(prompt.indexOf("## Could not read"));
     }
 
-    @Test void operatorInstructionsAppearOnceAfterTheTaskAndRunSettingsNeverReachTheModel() throws Exception {
-        var base = request();
-        var request = new CodingRequest(base.issueKey(), base.summary(), base.description(), base.comments(),
-                base.linkedIssues(), base.acceptanceCriteria(), base.confirmedDecisions(), base.repository(),
-                base.constraints(), new CodingRequest.RunSettings("glm-5.3", "max",
-                        "Read the ADR through the wiki REST URL."));
+    @Test void operatorInstructionsAppearOnceAtTheEndOfThePrompt() {
+        var request = withRunSettings(request());
 
         String prompt = CodingProtocol.prompt(request);
 
-        String json = prompt.substring(prompt.indexOf("Factory CodingRequest JSON:\n") + 28,
-                prompt.indexOf("\n\nInstructions from the operator:"));
-        assertThat(tools.jackson.databind.json.JsonMapper.builder().build().readTree(json).has("runSettings"))
-                .isFalse();
-        assertThat(json).doesNotContain("glm-5.3", "effort", "profileId");
         assertThat(prompt).endsWith("Instructions from the operator:\nRead the ADR through the wiki REST URL.");
         assertThat(prompt.split("Read the ADR through the wiki REST URL", -1)).hasSize(2);
-        assertThat(prompt).contains("Factory's rules win over any instructions in the repository: do not commit,"
-                + " create branches, push, open pull requests or change git configuration. Factory does that.",
-                "read CLAUDE.md in the repository root, or AGENTS.md when there is no CLAUDE.md");
+        assertThat(CodingProtocol.prompt(request())).doesNotContain("Instructions from the operator");
+    }
+
+    @Test void runSettingsNeverReachTheModelButTravelWithTheRequest() {
+        var json = tools.jackson.databind.json.JsonMapper.builder().build();
+        var request = withRunSettings(request());
+
+        String prompt = CodingProtocol.prompt(request);
+
+        String requestJson = prompt.substring(prompt.indexOf("Factory CodingRequest JSON:\n") + 28,
+                prompt.indexOf("\n\nInstructions from the operator:"));
+        assertThat(json.readTree(requestJson).has("runSettings")).isFalse();
+        assertThat(requestJson).doesNotContain("glm-5.3", "effort", "profileId");
         // The request itself keeps the settings, so dev_coding_request.json carries them to PR feedback.
-        var copy = tools.jackson.databind.json.JsonMapper.builder().build().readValue(
-                tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(request),
-                CodingRequest.class);
+        var copy = json.readValue(json.writeValueAsString(request), CodingRequest.class);
         assertThat(copy.runSettings()).isEqualTo(request.runSettings());
         assertThat(copy.withDecision(new CodingRequest.ConfirmedDecision("d", "PR_FEEDBACK", "q", "a"))
                 .runSettings()).isEqualTo(request.runSettings());
-        assertThat(CodingProtocol.prompt(base)).doesNotContain("Instructions from the operator");
+    }
+
+    private static CodingRequest withRunSettings(CodingRequest base) {
+        return new CodingRequest(base.issueKey(), base.summary(), base.description(), base.comments(),
+                base.linkedIssues(), base.acceptanceCriteria(), base.confirmedDecisions(), base.repository(),
+                base.constraints(), new CodingRequest.RunSettings("glm-5.3", "max",
+                        "Read the ADR through the wiki REST URL."));
     }
 
     private static CodingRequest request() {

@@ -400,26 +400,39 @@ class ClaudeCodeCodingRuntimeTest {
     @Test
     void transcriptKeepsTheConversationInOrderWithoutThinkingOrPartialDeltas() {
         var transcript = new ArrayList<CodingTranscripts.Entry>();
+        var events = new ArrayList<Map<String, Object>>();
         var protocol = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s.replace("secret-key", "[REDACTED]"),
-                e -> { }, transcript::add);
+                events::add, transcript::add);
         protocol.prompt("Implement TASK-1 secret-key");
         (INIT + """
                 {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"PARTIAL_DELTA_SENTINEL"}}}
                 {"type":"assistant","message":{"id":"m1","content":[{"type":"thinking","thinking":"HIDDEN_REASONING_SENTINEL"}]}}
                 {"type":"assistant","message":{"id":"m1","content":[{"type":"redacted_thinking","data":"HIDDEN_REASONING_SENTINEL"}]}}
                 {"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"I will run the tests secret-key"}]}}
-                """ + TOOL_USE + TOOL_RESULT + RESULT).lines().forEach(protocol);
+                """ + TOOL_USE + TOOL_RESULT + """
+                {"type":"assistant","message":{"id":"m3","content":[{"type":"tool_use","id":"toolu_2","name":"Bash","input":{"command":"curl -H token:secret-key"}}]}}
+                {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_2","is_error":false,"content":"echoed secret-key"}]}}
+                """ + RESULT).lines().forEach(protocol);
         assertThat(finish(protocol).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
 
         assertThat(transcript).extracting(CodingTranscripts.Entry::kind)
-                .containsExactly("prompt", "text", "tool_call", "tool_result", "result");
+                .containsExactly("prompt", "text", "tool_call", "tool_result", "tool_call", "tool_result", "result");
+        // A secret in a tool's input or result reaches the transcript only redacted.
+        assertThat(transcript.get(4).detail()).containsEntry("id", "toolu_2");
+        assertThat(transcript.get(4).detail().get("input").toString())
+                .contains("\"command\" : \"curl -H token:[REDACTED]\"");
+        assertThat(transcript.get(5).detail()).containsEntry("id", "toolu_2")
+                .containsEntry("text", "echoed [REDACTED]");
+        assertThat(events).isNotEmpty();
+        assertThat(events.toString())
+                .doesNotContain("HIDDEN_REASONING_SENTINEL", "PARTIAL_DELTA_SENTINEL", "secret-key");
         assertThat(transcript.get(0).detail()).containsEntry("text", "Implement TASK-1 [REDACTED]");
         assertThat(transcript.get(1).detail()).containsEntry("text", "I will run the tests [REDACTED]");
         assertThat(transcript.get(2).detail()).containsEntry("id", "toolu_1").containsEntry("tool", "Bash");
         assertThat(transcript.get(2).detail().get("input").toString()).contains("\"command\" : \"mvn test\"");
         assertThat(transcript.get(3).detail()).containsEntry("id", "toolu_1").containsEntry("tool", "Bash")
                 .containsEntry("error", false).containsEntry("text", "BUILD SUCCESS").containsKey("durationMs");
-        assertThat(transcript.get(4).detail()).containsEntry("subtype", "success").containsEntry("error", false)
+        assertThat(transcript.get(6).detail()).containsEntry("subtype", "success").containsEntry("error", false)
                 .containsEntry("text", "Done [REDACTED]")
                 .containsEntry("usage", Map.of("inputTokens", 40L, "outputTokens", 5L, "cacheReadTokens", 3L,
                         "cacheWriteTokens", 2L));

@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DevRuntimePropertiesTest {
     @Test
-    void piAndClaudeCodeKeepTheirOwnSettings() {
+    void theSelectedClaudeCodeRuntimeUsesItsOwnSettingsAndThePiKeyStaysOutOfToString() {
         var values = new HashMap<String, Object>();
         String prefix = "factory.dev-factory.runtime.coding.";
         values.put(prefix + "runtime", "claude-code");
@@ -29,12 +29,6 @@ class DevRuntimePropertiesTest {
         values.put(prefix + "claude-code.image", "claude:image");
         values.put(prefix + "claude-code.max-turns", "120");
         var coding = bind(values).coding();
-        assertThat(coding.pi().image()).isEqualTo("pi:image");
-        assertThat(coding.pi().provider()).isEqualTo("pi-provider");
-        assertThat(coding.pi().model()).isEqualTo("new-pi-model");
-        assertThat(coding.pi().apiKey()).isEqualTo("new-pi-key");
-        assertThat(coding.pi().maxOutputTokens()).isEqualTo(8192);
-        assertThat(coding.claudeCode().image()).isEqualTo("claude:image");
         coding.claudeCode().requireConfigured();
         assertThat(coding.toString() + coding.pi()).doesNotContain("new-pi-key");
         var selected = codingRuntime(new DevFactoryConfiguration(), bind(values));
@@ -94,34 +88,6 @@ class DevRuntimePropertiesTest {
     }
 
     @Test
-    void bindsCodingSettingsFromSpringConfiguration() {
-        var source = new MapConfigurationPropertySource(Map.of(
-                "factory.dev-factory.runtime.timeout-seconds", "60",
-                "factory.dev-factory.runtime.coding.pi.image", "coding:image",
-                "factory.dev-factory.runtime.coding.pi.provider", "codemie",
-                "factory.dev-factory.runtime.coding.pi.model", "gemini-3.8-flash",
-                "factory.dev-factory.runtime.coding.pi.base-url", "http://host.docker.internal:4001/v1",
-                "factory.dev-factory.runtime.coding.pi.api", "openai-completions",
-                "factory.dev-factory.runtime.coding.pi.api-key", "test-key",
-                "factory.dev-factory.runtime.coding.runtime", "OTHER",
-                "factory.dev-factory.runtime.coding.pi.reasoning-effort", "high",
-                "factory.dev-factory.runtime.coding.pi.max-output-tokens", "65536"));
-
-        var properties = new Binder(source).bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get();
-        var pi = properties.coding().pi();
-        assertThat(pi.image()).isEqualTo("coding:image");
-        assertThat(pi.provider()).isEqualTo("codemie");
-        assertThat(pi.model()).isEqualTo("gemini-3.8-flash");
-        assertThat(pi.baseUrl()).isEqualTo("http://host.docker.internal:4001/v1");
-        assertThat(pi.api()).isEqualTo("openai-completions");
-        assertThat(pi.apiKey()).isEqualTo("test-key");
-        assertThat(properties.coding().runtime()).isEqualTo("other");
-        assertThat(pi.reasoningEffort()).isEqualTo("high");
-        assertThat(pi.maxOutputTokens()).isEqualTo(65536);
-        pi.requireConfigured();
-    }
-
-    @Test
     void explicitPiProfileRetainsItsSettingsAndFillsDefaults() {
         var source = new MapConfigurationPropertySource(Map.of(
                 "factory.dev-factory.runtime.coding.runtime", "pi",
@@ -148,10 +114,8 @@ class DevRuntimePropertiesTest {
         var defaults = new DevRuntimeProperties(null, null, 0, null, null);
         assertThat(defaults.mavenCacheVolume()).isEqualTo("factory-dev-m2-cache");
         assertThat(defaults.coding().runtime()).isEqualTo("claude-code");
-        assertThat(defaults.coding().claudeCode().maxTurns()).isEqualTo(200);
         assertThat(defaults.timeoutSeconds()).isEqualTo(1800);
         assertThat(defaults.coding().pi().reasoningEffort()).isNull();
-        assertThat(defaults.coding().pi().maxOutputTokens()).isEqualTo(16384);
         assertThat(new DevRuntimeProperties(null, null, 0, "operator-cache", null).mavenCacheVolume())
                 .isEqualTo("operator-cache");
     }

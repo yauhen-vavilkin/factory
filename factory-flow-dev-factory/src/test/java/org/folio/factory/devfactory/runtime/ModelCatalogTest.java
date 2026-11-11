@@ -20,77 +20,115 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ModelCatalogTest {
 
-    private static final Map<String, String> SECRETS = Map.of("FACTORY_CODEMIE_PROXY_TOKEN", "proxy-secret",
-            "FACTORY_ZAI_API_KEY", "zai-secret", "FACTORY_PI_API_KEY", "pi-secret");
+    private static final Map<String, String> SECRETS = Map.of("PROXY_TOKEN", "proxy-secret",
+            "ZAI_KEY", "zai-secret", "PI_KEY", "pi-secret");
+
+    /**
+     * Shaped like config/developer-models.yaml, but owned by this test so that a new model or price in the
+     * committed file does not break it: two proxy models share one secret, two entries share one model string,
+     * one entry's secret is unset and one entry uses an API that Claude Code cannot run.
+     */
+    private static final ModelCatalog.Properties FIXTURE = file(
+            anthropic("proxy-sonnet", "bearer-token", "PROXY_TOKEN", "claude-sonnet", "high",
+                    price("2.00", "10.00")),
+            anthropic("proxy-opus", "bearer-token", "PROXY_TOKEN", "claude-opus", "medium", price("4.00", "20.00")),
+            anthropic("direct-sonnet", "api-key", "ANTHROPIC_KEY", "claude-sonnet", "high", price("2.00", "10.00")),
+            new ModelEntry("glm", "anthropic-messages", "https://api.z.ai/api/anthropic", "bearer-token", "ZAI_KEY",
+                    "glm", List.of("low", "high", "max"), "max", null, price("1.40", "4.40")),
+            new ModelEntry("glm-flash", "anthropic-messages", "https://api.z.ai/api/anthropic", "bearer-token",
+                    "ZAI_KEY", "glm-flash", List.of("low", "high", "max"), "max", null, null),
+            new ModelEntry("gemini", "openai-completions", "http://host.docker.internal:4001/v1", "api-key", "PI_KEY",
+                    "gemini-flash", List.of("low", "medium", "high"), "medium", null, price("0.75", "3.75")));
 
     @Test
-    void theCommittedFileOffersTheClaudeCodeModelsWhoseSecretIsSet() throws Exception {
-        var catalog = new ModelCatalog(committedFile(), "claude-code", SECRETS::get);
+    void theCommittedFileBindsAndEveryEntryIsValid() throws Exception {
+        var file = committedFile();
 
-        assertThat(catalog.all()).extracting(Model::id).containsExactly("codemie-sonnet-5.5", "codemie-opus-5.5",
-                "codemie-haiku-5.5", "anthropic-sonnet-5.5", "glm-5.3", "glm-5.3-flash", "codemie-gemini-3.8-flash",
-                "codemie-gpt-5.6-luna");
-        assertThat(catalog.ready()).extracting(Model::id).containsExactly("codemie-sonnet-5.5", "codemie-opus-5.5",
-                "codemie-haiku-5.5", "glm-5.3", "glm-5.3-flash");
-        assertThat(catalog.defaultModel().orElseThrow().id()).isEqualTo("codemie-sonnet-5.5");
-        var glm = catalog.find("glm-5.3").orElseThrow();
+        // The constructor checks every entry and the default model, and throws on the first mistake.
+        var catalog = new ModelCatalog(file, "claude-code", name -> null);
+
+        assertThat(file.models()).isNotEmpty();
+        assertThat(catalog.all()).hasSameSizeAs(file.models());
+        assertThat(catalog.defaultModel()).isPresent();
+    }
+
+    @Test
+    void everySecretOfTheCommittedFileIsRedacted() throws Exception {
+        var names = committedFile().models().stream().map(ModelEntry::secretEnv).distinct().toList();
+        var values = new java.util.LinkedHashMap<String, String>();
+        names.forEach(name -> values.put(name, "value-" + values.size() + "-of-" + name));
+
+        var catalog = new ModelCatalog(committedFile(), "claude-code", values::get);
+
+        assertThat(names).isNotEmpty();
+        String all = String.join(" ", values.values());
+        assertThat(catalog.redact(all)).isEqualTo(String.join(" ", java.util.Collections.nCopies(names.size(),
+                "[REDACTED]")));
+        assertThat(catalog.all().toString()).doesNotContain(values.values().toArray(String[]::new));
+    }
+
+    @Test
+    void theCatalogOffersTheClaudeCodeModelsWhoseSecretIsSet() {
+        var catalog = new ModelCatalog(FIXTURE, "claude-code", SECRETS::get);
+
+        assertThat(catalog.all()).extracting(Model::id).containsExactly("proxy-sonnet", "proxy-opus",
+                "direct-sonnet", "glm", "glm-flash", "gemini");
+        assertThat(catalog.ready()).extracting(Model::id).containsExactly("proxy-sonnet", "proxy-opus", "glm",
+                "glm-flash");
+        assertThat(catalog.defaultModel().orElseThrow().id()).isEqualTo("proxy-sonnet");
+        var glm = catalog.find("glm").orElseThrow();
         assertThat(glm.baseUrl()).isEqualTo("https://api.z.ai/api/anthropic");
         assertThat(glm.endpointOrigin()).isEqualTo("https://api.z.ai");
-        assertThat(glm.secretVariable()).isEqualTo("FACTORY_ZAI_API_KEY");
+        assertThat(glm.secretVariable()).isEqualTo("ZAI_KEY");
         assertThat(glm.efforts()).containsExactly("low", "high", "max");
         assertThat(glm.defaultEffort()).isEqualTo("max");
         assertThat(glm.maxOutputTokens()).isEqualTo(16384);
-        var sonnet = catalog.find("codemie-sonnet-5.5").orElseThrow().price();
-        assertThat(sonnet.asOf()).isEqualTo(LocalDate.of(2026, 11, 3));
-        assertThat(sonnet.cacheWrite5mPerMillion()).isEqualByComparingTo("2.50");
-        assertThat(sonnet.cacheWritePerMillion()).isNull();
         assertThat(catalog.all().toString()).doesNotContain("proxy-secret", "zai-secret", "pi-secret");
         // Every secret is hidden, also those of models that Claude Code cannot run.
         assertThat(catalog.redact("proxy-secret zai-secret pi-secret")).isEqualTo("[REDACTED] [REDACTED] [REDACTED]");
     }
 
     @Test
-    void aModelThatCannotRunSaysWhatToFix() throws Exception {
-        var catalog = new ModelCatalog(committedFile(), "claude-code", SECRETS::get);
+    void aModelThatCannotRunSaysWhatToFix() {
+        var catalog = new ModelCatalog(FIXTURE, "claude-code", SECRETS::get);
 
-        assertThat(catalog.problem(catalog.find("anthropic-sonnet-5.5").orElseThrow())).contains("Model"
-                + " anthropic-sonnet-5.5 is not configured: set FACTORY_ANTHROPIC_API_KEY in .env. If docker-compose.yml"
-                + " does not pass FACTORY_ANTHROPIC_API_KEY to the factory service yet, add it there. Then run docker"
+        assertThat(catalog.problem(catalog.find("direct-sonnet").orElseThrow())).contains("Model"
+                + " direct-sonnet is not configured: set ANTHROPIC_KEY in .env. If docker-compose.yml"
+                + " does not pass ANTHROPIC_KEY to the factory service yet, add it there. Then run docker"
                 + " compose up -d again.");
-        assertThat(catalog.problem(catalog.find("codemie-gemini-3.8-flash").orElseThrow())).contains("Model"
-                + " codemie-gemini-3.8-flash uses api openai-completions, but Claude Code understands only"
-                + " anthropic-messages.");
+        assertThat(catalog.problem(catalog.find("gemini").orElseThrow())).contains("Model"
+                + " gemini uses api openai-completions, but Claude Code understands only anthropic-messages.");
         var odd = new ModelCatalog(file(entry("odd", List.of("low", "minimal"), "low")), "claude-code", SECRETS::get);
         assertThat(odd.problem(odd.find("odd").orElseThrow())).contains("Model odd lists effort minimal, but Claude"
                 + " Code accepts only low, medium, high, xhigh, max.");
-        assertThatThrownBy(() -> catalog.choose("anthropic-sonnet-5.5", null, null))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("set FACTORY_ANTHROPIC_API_KEY");
+        assertThatThrownBy(() -> catalog.choose("direct-sonnet", null, null))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("set ANTHROPIC_KEY");
     }
 
     @Test
-    void withPiNoModelIsOfferedAndThereIsNoDefault() throws Exception {
-        var catalog = new ModelCatalog(committedFile(), "pi", SECRETS::get);
+    void withPiNoModelIsOfferedAndThereIsNoDefault() {
+        var catalog = new ModelCatalog(FIXTURE, "pi", SECRETS::get);
 
         assertThat(catalog.ready()).isEmpty();
         assertThat(catalog.defaultModel()).isEmpty();
-        assertThat(catalog.problem(catalog.find("glm-5.3").orElseThrow()))
+        assertThat(catalog.problem(catalog.find("glm").orElseThrow()))
                 .contains("Pi takes its model from FACTORY_PI_MODEL; this file gives Pi only prices.");
     }
 
     @Test
-    void theRunFormIsCheckedAgainstTheChosenModel() throws Exception {
-        var catalog = new ModelCatalog(committedFile(), "claude-code", SECRETS::get);
+    void theRunFormIsCheckedAgainstTheChosenModel() {
+        var catalog = new ModelCatalog(FIXTURE, "claude-code", SECRETS::get);
 
         var defaults = catalog.choose("", "", "  ");
-        assertThat(defaults.model().id()).isEqualTo("codemie-sonnet-5.5");
+        assertThat(defaults.model().id()).isEqualTo("proxy-sonnet");
         assertThat(defaults.effort()).isEqualTo("high");
         assertThat(defaults.instructions()).isNull();
-        var glm = catalog.choose("glm-5.3", "low", " Use the REST URL. ");
-        assertThat(glm.model().id()).isEqualTo("glm-5.3");
+        var glm = catalog.choose("glm", "low", " Use the REST URL. ");
+        assertThat(glm.model().id()).isEqualTo("glm");
         assertThat(glm.effort()).isEqualTo("low");
         assertThat(glm.instructions()).isEqualTo("Use the REST URL.");
-        assertThatThrownBy(() -> catalog.choose("glm-5.3", "medium", null))
-                .hasMessage("Effort medium is not available for model glm-5.3. Choose one of: low, high, max.");
+        assertThatThrownBy(() -> catalog.choose("glm", "medium", null))
+                .hasMessage("Effort medium is not available for model glm. Choose one of: low, high, max.");
         assertThatThrownBy(() -> catalog.choose("other", null, null))
                 .hasMessage("There is no model other. Reload the page and choose a model from the list.");
         assertThatThrownBy(() -> catalog.choose(null, null, "x".repeat(8001)))
@@ -99,13 +137,13 @@ class ModelCatalogTest {
     }
 
     @Test
-    void theDefaultModelIsTheNamedOneOrTheFirstThatClaudeCodeCanRun() throws Exception {
-        var models = committedFile().models();
-        var named = new ModelCatalog(new ModelCatalog.Properties(models, "glm-5.3"), "claude-code", name -> null);
-        assertThat(named.defaultModel().orElseThrow().id()).isEqualTo("glm-5.3");
+    void theDefaultModelIsTheNamedOneOrTheFirstThatClaudeCodeCanRun() {
+        var models = FIXTURE.models();
+        var named = new ModelCatalog(new ModelCatalog.Properties(models, "glm"), "claude-code", name -> null);
+        assertThat(named.defaultModel().orElseThrow().id()).isEqualTo("glm");
         // Readiness does not move the default: without secrets it stays the first Claude Code model.
         var blank = new ModelCatalog(new ModelCatalog.Properties(models, " "), "claude-code", name -> null);
-        assertThat(blank.defaultModel().orElseThrow().id()).isEqualTo("codemie-sonnet-5.5");
+        assertThat(blank.defaultModel().orElseThrow().id()).isEqualTo("proxy-sonnet");
         assertThatThrownBy(() -> new ModelCatalog(new ModelCatalog.Properties(models, "glm-6"), "claude-code",
                 name -> null))
                 .hasMessage("FACTORY_DEV_FACTORY_DEFAULT_MODEL is glm-6, but config/developer-models.yaml has no"
@@ -143,22 +181,22 @@ class ModelCatalogTest {
     }
 
     @Test
-    void runsResolveTheirModelOrFailWithAReasonThatNamesIt() throws Exception {
-        var catalog = new ModelCatalog(committedFile(), "claude-code", SECRETS::get);
+    void runsResolveTheirModelOrFailWithAReasonThatNamesIt() {
+        var catalog = new ModelCatalog(FIXTURE, "claude-code", SECRETS::get);
 
-        assertThat(catalog.resolve(null).model().id()).isEqualTo("codemie-sonnet-5.5");
+        assertThat(catalog.resolve(null).model().id()).isEqualTo("proxy-sonnet");
         // Runs from before the models file name the old env-default profile and may store no effort.
         var legacy = catalog.resolve(new CodingRequest.RunSettings("env-default", null, null));
-        assertThat(legacy.model().id()).isEqualTo("codemie-sonnet-5.5");
+        assertThat(legacy.model().id()).isEqualTo("proxy-sonnet");
         assertThat(legacy.effort()).isEqualTo("high");
-        var run = catalog.resolve(new CodingRequest.RunSettings("glm-5.3-flash", null, "Note"));
+        var run = catalog.resolve(new CodingRequest.RunSettings("glm-flash", null, "Note"));
         assertThat(run.effort()).isEqualTo("max");
         assertThat(run.instructions()).isEqualTo("Note");
         assertThatThrownBy(() -> catalog.resolve(new CodingRequest.RunSettings("removed", null, null)))
                 .isInstanceOf(ModelCatalog.ModelException.class)
                 .hasMessage("This run uses model removed, which is not in config/developer-models.yaml any more."
                         + " Add it back, or retry the task with another model.");
-        assertThatThrownBy(() -> catalog.resolve(new CodingRequest.RunSettings("glm-5.3", "medium", null)))
+        assertThatThrownBy(() -> catalog.resolve(new CodingRequest.RunSettings("glm", "medium", null)))
                 .isInstanceOf(ModelCatalog.ModelException.class).hasMessageContaining("no longer allows effort");
     }
 
@@ -174,22 +212,21 @@ class ModelCatalogTest {
     }
 
     @Test
-    void thePriceIsFoundByEntryOrByAModelStringThatOnlyOneEntryHas() throws Exception {
-        var catalog = new ModelCatalog(committedFile(), "claude-code", SECRETS::get);
+    void thePriceIsFoundByEntryOrByAModelStringThatOnlyOneEntryHas() {
+        var catalog = new ModelCatalog(FIXTURE, "claude-code", SECRETS::get);
 
-        assertThat(catalog.pricedEntry("codemie-opus-5.5", "anything").orElseThrow().price().outputPerMillion())
+        assertThat(catalog.pricedEntry("proxy-opus", "anything").orElseThrow().price().outputPerMillion())
                 .isEqualByComparingTo("20.00");
-        assertThat(catalog.pricedEntry(null, "glm-5.3").orElseThrow().id()).isEqualTo("glm-5.3");
-        assertThat(catalog.pricedEntry(null, "gemini-3.8-flash").orElseThrow().id())
-                .isEqualTo("codemie-gemini-3.8-flash");
-        // Two entries run claude-sonnet-5-5 at different providers: without the entry id the price is unknown.
-        assertThat(catalog.pricedEntry(null, "claude-sonnet-5-5")).isEmpty();
-        assertThat(catalog.pricedEntry("removed", "claude-sonnet-5-5")).isEmpty();
+        assertThat(catalog.pricedEntry(null, "glm").orElseThrow().id()).isEqualTo("glm");
+        assertThat(catalog.pricedEntry(null, "gemini-flash").orElseThrow().id()).isEqualTo("gemini");
+        // An entry without a price is not priced, by id or by its model string.
+        assertThat(catalog.pricedEntry("glm-flash", "glm-flash")).isEmpty();
+        assertThat(catalog.pricedEntry(null, "glm-flash")).isEmpty();
+        // Two entries run claude-sonnet at different providers: without the entry id the price is unknown.
+        assertThat(catalog.pricedEntry(null, "claude-sonnet")).isEmpty();
+        assertThat(catalog.pricedEntry("removed", "claude-sonnet")).isEmpty();
         // A removed entry is not priced as another entry that happens to have the same model string.
-        assertThat(catalog.pricedEntry("removed", "glm-5.3")).isEmpty();
-        var unpriced = new ModelCatalog(file(entry("glm", List.of("max"), "max")), "claude-code", name -> null);
-        assertThat(unpriced.pricedEntry("glm", "glm")).isEmpty();
-        assertThat(unpriced.pricedEntry(null, "glm")).isEmpty();
+        assertThat(catalog.pricedEntry("removed", "glm")).isEmpty();
     }
 
     private static void assertInvalid(ModelEntry entry, String message) {
@@ -206,6 +243,17 @@ class ModelCatalogTest {
     private static ModelEntry withPrice(ModelPrice price) {
         return new ModelEntry("glm", "anthropic-messages", "https://api.z.ai", "bearer-token", "FACTORY_ZAI_API_KEY",
                 "glm", List.of("max"), "max", null, price);
+    }
+
+    private static ModelEntry anthropic(String id, String authentication, String secretEnv, String model,
+                                        String defaultEffort, ModelPrice price) {
+        return new ModelEntry(id, "anthropic-messages", "http://host.docker.internal:4001", authentication, secretEnv,
+                model, List.of("low", "medium", "high", "xhigh", "max"), defaultEffort, null, price);
+    }
+
+    private static ModelPrice price(String input, String output) {
+        return new ModelPrice("USD", LocalDate.of(2026, 11, 3), java.net.URI.create("https://prices.example.org"),
+                new BigDecimal(input), null, null, null, null, new BigDecimal(output));
     }
 
     private static ModelCatalog.Properties file(ModelEntry... entries) {
