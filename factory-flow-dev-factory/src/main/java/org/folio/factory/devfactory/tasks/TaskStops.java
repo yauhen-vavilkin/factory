@@ -23,6 +23,23 @@ public final class TaskStops {
     /** Coding-runtime failure codes that indicate a shared provider or runtime outage. */
     public static final Set<String> SHARED_PROVIDER_FAILURE_CODES =
             Set.of("PROVIDER_FAILED", "RUNTIME_ERROR", "RUNTIME_VERSION");
+    /** Why a coding attempt stopped when a command printed more than the output limit of Factory. */
+    public static final String OUTPUT_LIMIT_REASON = "A command run by the agent printed more output than Factory"
+            + " accepts, so Factory stopped the attempt. Start a new attempt and tell the agent to limit command"
+            + " output, for example with \"| tail -n 100\".";
+
+    /** Why a coding attempt stopped when the agent did not finish in time. */
+    public static String timeLimitReason(long minutes) {
+        return "The agent did not finish in " + minutes + (minutes == 1 ? " minute" : " minutes")
+                + ", so Factory stopped it. Start a new attempt with a lower effort or narrower instructions,"
+                + " or raise the time limit (see Configuration).";
+    }
+
+    /** Why a coding attempt stopped when the agent used all of its turns. */
+    public static String turnLimitReason(long turns) {
+        return "The agent reached its limit of " + turns + " turns before it finished."
+                + " Start a new attempt with narrower instructions.";
+    }
 
     /** True when the recorded stop reason, "stage: reason", is the agent's question. */
     public static boolean asksForAnswer(String reason) {

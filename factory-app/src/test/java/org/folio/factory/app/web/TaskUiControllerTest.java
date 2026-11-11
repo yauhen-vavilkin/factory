@@ -193,7 +193,8 @@ class TaskUiControllerTest {
                 .containsEntry("chipLabel", "Failed")
                 .containsEntry("chipClass", "chip chip-danger")
                 .containsEntry("chipUrl", null)
-                .containsEntry("detail", "Verification failed: 2 tests failed")
+                .containsEntry("detail", "Verification failed: 2 tests failed.")
+                .containsEntry("detailTitle", "Verification failed: 2 tests failed.")
                 .containsEntry("action", RunAction.RETRY)
                 .containsEntry("actionUrl", "/tasks/" + OTHER_TASK_ID + "#retry")
                 .containsEntry("markStoppedAttemptId", null);
@@ -393,8 +394,9 @@ class TaskUiControllerTest {
                 .containsEntry("ordinal", 1)
                 .containsEntry("executionId", EXECUTION_ID)
                 .containsEntry("chipLabel", "Failed")
-                // The reason keeps what to do.
-                .containsEntry("result", "Implementation failed: " + turnLimit.substring(0, turnLimit.length() - 1));
+                // A reason stored by an older run reads like the reason a run stores now, with what to do.
+                .containsEntry("result", "The agent reached its limit of 40 turns before it finished."
+                        + " Start a new attempt with narrower instructions.");
     }
 
     @Test
@@ -473,7 +475,10 @@ class TaskUiControllerTest {
                 .containsEntry("spentNote", "spent in 2 attempts")
                 .containsEntry("project", "MODBAR")
                 .containsEntry("destination", "folio-org/mod-bar · base master");
-        assertThat((String) detail(result).get("headline")).endsWith("No pull request was created.");
+        assertThat(detail(result))
+                .containsEntry("headline", "Attempt 2 failed")
+                .containsEntry("reason", "Verification failed: 2 tests failed.")
+                .containsEntry("reasonNote", "No pull request was created.");
         // Newest first: a new attempt is added at the top.
         assertThat(rows(result.getModelAndView().getModel(), "attempts"))
                 .extracting(row -> row.get("ordinal") + " · " + row.get("kind"))

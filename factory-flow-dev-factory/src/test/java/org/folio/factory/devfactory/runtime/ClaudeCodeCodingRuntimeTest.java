@@ -257,7 +257,9 @@ class ClaudeCodeCodingRuntimeTest {
                 });
         var timedOut = runtime("api-key").code(workload, request(), 1800, event -> {}, CodingTranscripts.NONE);
         assertThat(timedOut.failure().code()).isEqualTo("TIME_LIMIT");
-        assertThat(timedOut.failure().message()).contains("time limit of 30 minutes", "Retry with a lower effort");
+        assertThat(timedOut.failure().message()).isEqualTo("The agent did not finish in 30 minutes, so Factory"
+                + " stopped it. Start a new attempt with a lower effort or narrower instructions, or raise the time"
+                + " limit (see Configuration).");
 
         when(workload.stream(anyList(), eq(60), any(), any()))
                 .thenReturn(new Processes.Streamed(137, false, true, "", false));
@@ -309,8 +311,8 @@ class ClaudeCodeCodingRuntimeTest {
                 """, 1, 10);
         assertThat(turnLimit.failure().code()).isEqualTo("TURN_LIMIT");
         assertThat(turnLimit.failure().message())
-                .isEqualTo("Claude Code reached the 10-turn limit before it finished the task."
-                        + " Retry with another model or effort.");
+                .isEqualTo("The agent reached its limit of 10 turns before it finished."
+                        + " Start a new attempt with narrower instructions.");
 
         var budget = parse(INIT + """
                 {"type":"result","subtype":"error_max_budget_usd","is_error":true,"errors":["Budget exceeded"]}

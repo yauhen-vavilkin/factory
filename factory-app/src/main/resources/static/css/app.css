@@ -1204,6 +1204,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   font-size: 12px;
   color: hsl(var(--muted-foreground));
 }
+.dev-row-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dev-row-action { display: flex; justify-content: flex-end; }
 .dev-row .task-check { margin: 0; flex: 0 0 auto; }
 .key-link {
@@ -1240,23 +1241,30 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .progress-strip-run { margin-left: auto; color: hsl(var(--soft-foreground)); }
 
 /* ---------- Task page: one status card, then plain sections with a heading and a thin line ---------- */
+/* Chip | headline and the lines under it | amount and buttons. The chip and the side never wrap under the
+   headline; long text wraps inside the middle column. */
 .status-card {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px 16px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px 12px;
   padding: 14px 18px;
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
 }
-.status-card-main { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
-.status-card-headline { font-size: 16px; font-weight: 600; }
-.status-card-side { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.status-card-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.status-card-headline { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.status-card-reason { font-size: 14px; overflow-wrap: anywhere; }
+.status-card-label { margin-right: 6px; color: hsl(var(--muted-foreground)); }
+.status-card-side { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: baseline; gap: 10px 16px; }
 .status-card-money { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .status-card-note { font-size: 13px; color: hsl(var(--muted-foreground)); }
-.status-card-reasons { flex-basis: 100%; font-size: 13px; }
+.status-card-reasons { margin-top: 4px; font-size: 13px; }
 .status-card-reasons ul { padding-left: 20px; }
+@media (max-width: 720px) {
+  .status-card { grid-template-columns: auto minmax(0, 1fr); }
+  .status-card-side { grid-column: 1 / -1; justify-content: flex-start; }
+}
 .dev-section { display: flex; flex-direction: column; gap: 14px; }
 .dev-section-head {
   padding-bottom: 10px;

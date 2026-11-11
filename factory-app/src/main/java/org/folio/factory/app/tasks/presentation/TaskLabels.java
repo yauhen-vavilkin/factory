@@ -24,8 +24,6 @@ final class TaskLabels {
     private static final String COST_UNKNOWN_TITLE =
             "The runtime did not report usage, or the usage has no price, so the cost is not known.";
     private static final Pattern PULL_NUMBER = Pattern.compile("/pull/(\\d+)");
-    private static final Pattern LEADING_STAGE =
-            Pattern.compile("^(?:shared: )?([A-Za-z][A-Za-z_-]*): (.+)$", Pattern.DOTALL);
 
     static String stateLabel(TaskView view) {
         return switch (view.state()) {
@@ -81,9 +79,9 @@ final class TaskLabels {
                     view.stageStartedAt() == null ? null
                             : minutes(Duration.between(view.stageStartedAt(), Instant.now()).getSeconds()));
             case PR_READY -> null;
-            case STOPPED -> view.needsAnswer() ? null : failureText(view.reason());
+            case STOPPED -> view.needsAnswer() ? null : AttemptFailure.reason(view.reason());
             case UNCERTAIN, PROCESSING_PAUSED -> "outcome not confirmed";
-            default -> failureText(view.reason());
+            default -> AttemptFailure.reason(view.reason());
         };
     }
 
@@ -94,13 +92,13 @@ final class TaskLabels {
             case RESERVED -> "Queued";
             case QUEUED, RUNNING -> "In progress";
             case WITHDRAWN -> "Withdrawn before start";
-            default -> failureText(attempt.reason());
+            default -> AttemptFailure.reason(attempt.reason());
         };
     }
 
     static String resultSentence(TaskView view) {
         if (view.attempts().isEmpty()) {
-            return view.state() == TaskView.TaskState.UNSUPPORTED ? sentence(view.reason())
+            return view.state() == TaskView.TaskState.UNSUPPORTED ? AttemptFailure.reason(view.reason())
                     : "Not started yet. Select it in My tasks and press Run.";
         }
         return switch (view.state()) {
@@ -110,10 +108,14 @@ final class TaskLabels {
                     : stageLabel(view.stage()) == null ? "The run is starting."
                     : stageLabel(view.stage()) + " is running.";
             case UNCERTAIN, PROCESSING_PAUSED -> "Factory could not confirm how the last run ended.";
-            default -> view.reason() != null && view.reason().contains(TaskOutcomeService.PULL_REQUEST_MAY_EXIST)
-                    ? sentence(failureText(view.reason())) + " Check the repository before you retry."
-                    : sentence(failureText(view.reason())) + " No pull request was created.";
+            default -> AttemptFailure.reason(view.reason()) + " " + pullRequestNote(view.reason());
         };
+    }
+
+    /** What a failed attempt left behind: no pull request, or perhaps one whose response was lost. */
+    static String pullRequestNote(String reason) {
+        return reason != null && reason.contains(TaskOutcomeService.PULL_REQUEST_MAY_EXIST)
+                ? "Check the repository before you start a new attempt." : "No pull request was created.";
     }
 
     /** "next in line" or "3rd in line" for a queued task. */
@@ -139,28 +141,6 @@ final class TaskLabels {
             case "publish", "initialize-pr-feedback", "pr-follow-up", "DELIVERY_BLOCKED" -> "Publication";
             default -> null;
         };
-    }
-
-    /**
-     * "VERIFICATION_FAILED: 2 tests in error" and "verify: 2 tests in error" read
-     * as "Verification failed: 2 tests in error"; other reasons pass through.
-     */
-    static String failureText(String reason) {
-        if (reason == null || reason.isBlank()) {
-            return "No reason was recorded";
-        }
-        String text = reason.strip();
-        String stage = null;
-        Matcher prefix = LEADING_STAGE.matcher(text);
-        if (prefix.matches() && (stageLabel(prefix.group(1)) != null || prefix.group(1).matches("[A-Z_]+"))) {
-            stage = "VERIFIED".equals(prefix.group(1)) ? null : stageLabel(prefix.group(1));
-            text = prefix.group(2).strip();
-        }
-        if (text.endsWith(".")) {
-            text = text.substring(0, text.length() - 1);
-        }
-        return stage == null ? Character.toUpperCase(text.charAt(0)) + text.substring(1)
-                : stage + " failed: " + text;
     }
 
     static String pullRequestLabel(String url) {
@@ -232,14 +212,6 @@ final class TaskLabels {
         }
         long days = hours / 24;
         return days + (days == 1 ? " day ago" : " days ago");
-    }
-
-    private static String sentence(String text) {
-        if (text == null || text.isBlank()) {
-            return "No reason was recorded.";
-        }
-        String stripped = text.strip();
-        return stripped.endsWith(".") ? stripped : stripped + ".";
     }
 
     private static String joinNonNull(String first, String second) {

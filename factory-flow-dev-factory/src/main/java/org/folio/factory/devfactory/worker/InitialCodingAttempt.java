@@ -16,11 +16,13 @@ import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.tasks.Stop;
 import org.folio.factory.devfactory.tasks.TaskExecutionContext;
 import org.folio.factory.devfactory.tasks.TaskGuard;
+import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.runtime.ModelCatalog;
+import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.runtime.TokenUsage;
 
 import tools.jackson.databind.JsonNode;
@@ -258,10 +260,13 @@ public final class InitialCodingAttempt {
         return Optional.empty();
     }
 
+    /** The stage already says that development stopped, so the reason is only the cause. */
     private Stop developmentStopped(RuntimeException e) {
+        if (Processes.OUTPUT_LIMIT_EXCEEDED.equals(e.getMessage())) {
+            return new Stop("DEVELOPMENT_FAILED", TaskStops.OUTPUT_LIMIT_REASON);
+        }
         var reason = safeRedact(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
-        return new Stop("DEVELOPMENT_FAILED",
-                "Development stopped: " + reason.substring(0, Math.min(2000, reason.length())));
+        return new Stop("DEVELOPMENT_FAILED", reason.substring(0, Math.min(2000, reason.length())));
     }
 
     private Attempt failedAttempt(Stop stop, RunState state) {

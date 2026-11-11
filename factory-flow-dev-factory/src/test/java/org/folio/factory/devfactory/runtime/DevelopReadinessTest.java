@@ -510,6 +510,35 @@ class DevelopReadinessTest {
     }
 
     @Test
+    void aCommandOverTheOutputLimitStopsTheAttemptWithOnePlainReason() {
+        var harness = taskHarness(RecordingTaskAttempts.taskRun("repo"));
+        when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any()))
+                .thenReturn(CodingOutcome.completed("Done", Map.of()));
+        when(harness.freezer().freeze(anyString(), anyString(), anyString(), any(), anyBoolean()))
+                .thenThrow(new IllegalStateException(Processes.OUTPUT_LIMIT_EXCEEDED));
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains("DEVELOPMENT_FAILED", "A command run by the agent printed more output than Factory accepts")
+                .doesNotContain("Development stopped", Processes.OUTPUT_LIMIT_EXCEEDED);
+    }
+
+    @Test
+    void anUnexpectedErrorIsTheWholeReasonWithoutALayerPrefix() {
+        var harness = taskHarness(RecordingTaskAttempts.taskRun("repo"));
+        when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any()))
+                .thenReturn(CodingOutcome.completed("Done", Map.of()));
+        when(harness.freezer().freeze(anyString(), anyString(), anyString(), any(), anyBoolean()))
+                .thenThrow(new IllegalStateException("Candidate contains no changes"));
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains("Candidate contains no changes").doesNotContain("Development stopped");
+    }
+
+    @Test
     void aFailedActivityWriteDuringCodingReachesTheRuntimeAndTheAttemptGoesOn() {
         var audit = mock(AuditLog.class);
         doThrow(new IllegalStateException("database down"))

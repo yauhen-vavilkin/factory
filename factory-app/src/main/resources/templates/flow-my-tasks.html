@@ -118,7 +118,8 @@
                     <a class="key-link ext-link" th:href="${row.jiraUrl()}" th:text="${row.key()}">KEY-1</a>
                     <span th:if="${row.cost() != null}" th:title="${row.costTitle()}" th:text="${row.cost()}">$0.00</span>
                     <span th:title="${row.whenTitle()}" th:text="${row.when()}">5 min ago</span>
-                    <span th:if="${row.detail() != null}" th:title="${row.detail()}" th:text="${row.detail()}">detail</span>
+                    <span class="dev-row-detail" th:if="${row.detail() != null}" th:title="${row.detailTitle()}"
+                          th:text="${row.detail()}">detail</span>
                 </div>
             </div>
             <a th:if="${row.chipUrl() != null}" th:class="${row.chipClass()} + ' ext-link'" th:href="${row.chipUrl()}"

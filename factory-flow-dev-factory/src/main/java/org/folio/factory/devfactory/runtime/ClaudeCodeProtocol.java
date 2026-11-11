@@ -3,6 +3,7 @@ package org.folio.factory.devfactory.runtime;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.folio.factory.devfactory.tasks.TaskStops;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -406,10 +407,7 @@ final class ClaudeCodeProtocol implements Consumer<String> {
     CodingOutcome outcome(Processes.Streamed run, int timeoutSeconds) {
         if (run.timedOut()) {
             long minutes = Math.max(1, Math.round(timeoutSeconds / 60.0));
-            return fail("TIME_LIMIT", "Claude Code did not finish within the time limit of " + minutes
-                    + (minutes == 1 ? " minute" : " minutes") + ", so Factory stopped it. Retry with a lower effort"
-                    + " or a smaller task, or raise the limit (FACTORY_DEV_FACTORY_TIMEOUT_SECONDS,"
-                    + " FACTORY_TASKS_EXECUTION_DEADLINE).");
+            return fail("TIME_LIMIT", TaskStops.timeLimitReason(minutes));
         }
         if (run.lineTooLarge() && failure == null) {
             return fail("FRAME_TOO_LARGE", "Claude Code wrote one output line larger than "
@@ -442,8 +440,7 @@ final class ClaudeCodeProtocol implements Consumer<String> {
         var subtype = clip(result.path("subtype").asString(""), 80);
         var text = String.join("; ", errorsOrResult(result));
         return switch (subtype) {
-            case "error_max_turns" -> fail("TURN_LIMIT", "Claude Code reached the " + maxTurns
-                    + "-turn limit before it finished the task. Retry with another model or effort.");
+            case "error_max_turns" -> fail("TURN_LIMIT", TaskStops.turnLimitReason(maxTurns));
             case "error_max_budget_usd" -> fail("BUDGET_LIMIT", "Claude Code reached its spending limit"
                     + " before it finished the task. Retry with a lower effort or a smaller task."
                     + detail("CLI message", text, false));

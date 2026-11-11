@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -31,6 +32,7 @@ import static org.folio.factory.app.tasks.presentation.TaskLabels.costNoteTitle;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.incompleteCostNote;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.minutes;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.pullRequestLabel;
+import static org.folio.factory.app.tasks.presentation.TaskLabels.pullRequestNote;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.resultSentence;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.stateClass;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.stateLabel;
@@ -84,9 +86,13 @@ public class TaskRows {
         var latest = view.attempts().isEmpty() ? null : view.attempts().getLast();
         var stateLabel = label != null ? label
                 : view.state() == TaskView.TaskState.UNSUPPORTED ? "Not eligible" : "Not started";
+        var failure = failure(view);
         return new TaskDetail(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(), repository(view),
                 view.version(), view.inputFingerprint(), view.destinationFingerprint(), stateLabel,
-                stateClass(label), headline(view), view.draftReasons(), costLabel(view.usage()), spentNote(view),
+                stateClass(label), failure.map(AttemptFailure::headline).orElseGet(() -> headline(view)),
+                failure.map(AttemptFailure::reason).orElse(null),
+                failure.map(found -> pullRequestNote(view.reason())).orElse(null),
+                view.draftReasons(), costLabel(view.usage()), spentNote(view),
                 view.allowedActions().retry(), view.attempts().size() + 1, runUrl(view, latest), runLabel(view),
                 view.pullRequestUrl(), view.pullRequestUrl() == null ? null
                         : "Open p" + pullRequestLabel(view.pullRequestUrl()).substring(1),
@@ -103,13 +109,15 @@ public class TaskRows {
                 attempt.executionId());
     }
 
-    /** The run page's link back to its task: key, Jira link and the state of the attempt behind this run. */
+    /**
+     * The run page's link back to its task: key, Jira link and the state of the attempt behind this run, and
+     * "failure" (an {@link AttemptFailure}, null unless that attempt failed) for its status card.
+     */
     public static Map<String, Object> runContext(TaskView view, UUID executionId) {
-        String label = view.attempts().stream()
-                .filter(attempt -> executionId.equals(attempt.executionId()))
-                .findFirst()
-                .map(TaskLabels::attemptLabel)
-                .orElseGet(() -> stateLabel(view));
+        var attempt = view.attempts().stream()
+                .filter(entry -> executionId.equals(entry.executionId()))
+                .findFirst();
+        String label = attempt.map(TaskLabels::attemptLabel).orElseGet(() -> stateLabel(view));
         Map<String, Object> run = new LinkedHashMap<>();
         run.put("taskId", view.taskId());
         run.put("key", view.displayKey());
@@ -117,6 +125,8 @@ public class TaskRows {
         run.put("jiraUrl", view.jiraUrl());
         run.put("stateLabel", label);
         run.put("stateClass", stateClass(label));
+        run.put("failure", attempt.filter(TaskRows::failed)
+                .map(entry -> AttemptFailure.of(entry.ordinal(), entry.reason())).orElse(null));
         return run;
     }
 
@@ -127,6 +137,18 @@ public class TaskRows {
         waiting.put("taskId", attempt.getTaskId());
         waiting.put("attemptId", attempt.getId());
         return waiting;
+    }
+
+    /** The failure of the latest attempt, when the task stopped without a question. */
+    private static Optional<AttemptFailure> failure(TaskView view) {
+        if (view.state() != TaskView.TaskState.STOPPED || view.needsAnswer() || view.attempts().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(AttemptFailure.of(view.attempts().getLast().ordinal(), view.reason()));
+    }
+
+    private static boolean failed(TaskView.AttemptHistoryEntry attempt) {
+        return attempt.state() == TaskAttempt.State.STOPPED && !attempt.asked();
     }
 
     /** Same notes as Triggered; a queued attempt already says "not started" in Started. */

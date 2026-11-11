@@ -22,6 +22,8 @@ public final class Processes {
     public static final int OUTPUT_LIMIT = 2 * 1024 * 1024;
     public static final int STREAM_LINE_LIMIT = 8 * 1024 * 1024;
     public static final int STDERR_TAIL = 64 * 1024;
+    /** The message of a command stopped at its output limit. */
+    public static final String OUTPUT_LIMIT_EXCEEDED = "Command exceeded output limit";
 
     /** How long the line reader may still work after the command ended, for example on slow best-effort writes. */
     static final java.time.Duration READER_DRAIN = java.time.Duration.ofMinutes(2);
@@ -271,7 +273,7 @@ public final class Processes {
         stdoutReader.join(5000);
         stderrReader.join(5000);
         if (stdoutReader.isAlive() || stderrReader.isAlive() || budget.exceeded()) {
-            throw new IllegalStateException("Command exceeded output limit");
+            throw new IllegalStateException(OUTPUT_LIMIT_EXCEEDED);
         }
         return new Result(process.exitValue(), stdout.toString(StandardCharsets.UTF_8),
                 stderr.toString(StandardCharsets.UTF_8));

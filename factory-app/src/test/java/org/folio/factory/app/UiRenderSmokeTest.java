@@ -610,17 +610,25 @@ class UiRenderSmokeTest {
                 "shared: DEVELOPMENT_FAILED: Claude Code stopped with an error (subtype success, API status 429)."
                         + " Check the provider and the Developer Flow settings, then retry. Error: API Error: 429");
 
-        String expected = "Implementation failed: " + turnLimit.substring(0, turnLimit.length() - 1);
+        // A reason stored by an older run reads like the reason a run stores now: no layer prefix, what to do.
+        String expected = "The agent reached its limit of 40 turns before it finished."
+                + " Start a new attempt with narrower instructions.";
+        String providerError = "Claude Code stopped with an error (subtype success, API status 429).";
         String list = assertRendered("/flows/dev-factory", "Ready to run");
+        // The Runs row shows the first sentence on one line, with the whole reason in the title.
         assertThat(list)
-                .contains(expected, "Implementation failed: Claude Code stopped with an error"
-                        + " (subtype success, API status 429). Check the provider and the Developer Flow settings,"
-                        + " then retry. Error: API Error: 429");
-        // The Runs row shows the whole reason, with the full text in the title.
-        assertThat(list).containsPattern("<span title=\"" + Pattern.quote(expected)
-                + "\">" + Pattern.quote(expected) + "</span>");
+                .contains("<span class=\"dev-row-detail\" title=\"" + expected + "\">The agent reached its limit of"
+                        + " 40 turns before it finished.</span>")
+                .contains("<span class=\"dev-row-detail\" title=\"" + providerError + " Check the provider and the"
+                        + " Developer Flow settings, then retry. Error: API Error: 429.\">" + providerError + "</span>")
+                .doesNotContain("Implementation failed", "shared: ", "DEVELOPMENT_FAILED");
         String task = assertRendered("/tasks/" + stopped.getId(), "Failed");
-        assertThat(task).contains(expected + ". No pull request was created.");
+        assertThat(task)
+                .contains("<p class=\"status-card-headline\">Attempt 1 failed</p>")
+                .containsPattern("<span class=\"status-card-label\">Reason</span>\\s*<span>" + Pattern.quote(expected)
+                        + "</span>")
+                .containsPattern("<p class=\"status-card-note\">\\s*No pull request was created.</p>")
+                .doesNotContain("Implementation failed", "DEVELOPMENT_FAILED");
         // The attempt chip keeps the reason and what to do in its title.
         assertThat(task.substring(task.indexOf("id=\"attempts-title\"")))
                 .contains("title=\"" + expected + "\">Failed</span>");
@@ -1244,8 +1252,9 @@ class UiRenderSmokeTest {
         assertThat(body)
                 .contains("<a href=\"/flows/dev-factory\">Developer Flow</a>",
                         "<span class=\"chip chip-danger\">Failed</span>",
-                        "<span class=\"status-card-headline\">Verification failed: 2 tests in error."
-                                + " No pull request was created.</span>")
+                        "<p class=\"status-card-headline\">Attempt 1 failed</p>")
+                .containsPattern("<span class=\"status-card-label\">Reason</span>\\s*"
+                        + "<span>Verification failed: 2 tests in error.</span>")
                 .contains("<span class=\"status-card-money\">$0.02</span>", "spent in 1 attempt", "120,000",
                         "Input (uncached)", "Output", ">Estimated cost</dt>")
                 .containsPattern("<details class=\"disclosure tech-disclosure\">\\s*<summary>Technical details</summary>")
@@ -1355,7 +1364,7 @@ class UiRenderSmokeTest {
         String body = assertRendered("/tasks/" + asked.getId(), "The agent's question");
         assertThat(body)
                 .contains("<span class=\"chip chip-warning\">Needs your answer</span>",
-                        "<span class=\"status-card-headline\">The agent stopped with a question</span>",
+                        "<p class=\"status-card-headline\">The agent stopped with a question</p>",
                         "<p class=\"answer-question\">Remove &lt;old&gt; routes too?</p>",
                         "removeRoutes runs only on a new event.",
                         "role=\"radiogroup\" aria-label=\"Your answer\"",

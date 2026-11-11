@@ -19,7 +19,6 @@ import java.util.stream.Stream;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.ago;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costNoteTitle;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.failureText;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.incompleteCostNote;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.minutes;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.queued;
@@ -40,10 +39,12 @@ public final class RunRows {
         var when = latest.startedAt() != null ? latest.startedAt() : latest.createdAt();
         var action = action(view, latest);
         var costTitle = working(view) ? null : costNoteTitle(incompleteCostNote(view.usage()));
+        var detail = detail(view);
         return new TriggeredRow(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(),
                 pullRequest ? shortPullRequestLabel(view.pullRequestUrl(), view.draftReasons() != null) : label,
                 pullRequest ? pullRequestClass(view) : stateClass(label), pullRequest ? view.pullRequestUrl() : null,
-                detail(view), cost(view, latest), costTitle, ago(when),
+                detail == null ? null : AttemptFailure.firstSentence(detail), detail, cost(view, latest), costTitle,
+                ago(when),
                 UiFormat.format(when), action,
                 actionUrl(view, latest, action), action == RunAction.MARK_STOPPED ? latest.attemptId() : null);
     }
@@ -132,6 +133,6 @@ public final class RunRows {
         if (row.problem() == TaskRoutingReason.Problem.SEVERAL_REPOSITORIES) {
             return "the project maps to several repositories";
         }
-        return row.problemReason() == null ? "not eligible" : failureText(row.problemReason());
+        return row.problemReason() == null ? "not eligible" : AttemptFailure.reason(row.problemReason());
     }
 }

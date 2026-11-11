@@ -1,0 +1,54 @@
+package org.folio.factory.app.tasks.presentation;
+
+import org.folio.factory.devfactory.tasks.TaskStops;
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class AttemptFailureTest {
+
+    @Test
+    void theHeadlineNamesTheAttemptAndTheReasonHasNoLayerPrefixes() {
+        var failure = AttemptFailure.of(3, "shared: DEVELOPMENT_FAILED: Development stopped: docker exited with 125");
+
+        assertThat(failure.headline()).isEqualTo("Attempt 3 failed");
+        assertThat(failure.reason()).isEqualTo("Docker exited with 125.");
+    }
+
+    @Test
+    void reasonsStoredByOlderRunsLoseTheirPrefixesAndSayTheKnownCauseInPlainWords() {
+        assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: Implementation failed: Development stopped:"
+                + " Command exceeded output limit")).isEqualTo(TaskStops.OUTPUT_LIMIT_REASON);
+        assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: Claude Code did not finish within the time limit of"
+                + " 30 minutes, so Factory stopped it. Retry with a lower effort or a smaller task, or raise the limit"
+                + " (FACTORY_DEV_FACTORY_TIMEOUT_SECONDS, FACTORY_TASKS_EXECUTION_DEADLINE)."))
+                .isEqualTo("The agent did not finish in 30 minutes, so Factory stopped it. Start a new attempt with"
+                        + " a lower effort or narrower instructions, or raise the time limit (see Configuration).")
+                .doesNotContain("FACTORY_");
+        assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: Claude Code reached the 200-turn limit before it"
+                + " finished the task. Retry with another model or effort."))
+                .isEqualTo(TaskStops.turnLimitReason(200));
+    }
+
+    @Test
+    void aStageOtherThanImplementationStaysInTheReason() {
+        assertThat(AttemptFailure.reason("VERIFICATION_FAILED: 2 tests in error"))
+                .isEqualTo("Verification failed: 2 tests in error.");
+        assertThat(AttemptFailure.reason("VERIFIED: the change has no diff")).isEqualTo("The change has no diff.");
+    }
+
+    @Test
+    void anUnknownReasonPassesThroughAsASentence() {
+        assertThat(AttemptFailure.reason("Marked as stopped by the operator: Error: boom"))
+                .isEqualTo("Marked as stopped by the operator: Error: boom.");
+        assertThat(AttemptFailure.reason("Done!")).isEqualTo("Done!");
+        assertThat(AttemptFailure.reason(null)).isEqualTo("No reason was recorded.");
+    }
+
+    @Test
+    void theFirstSentenceIsWhatARowWithOneLineShows() {
+        assertThat(AttemptFailure.firstSentence(TaskStops.timeLimitReason(30)))
+                .isEqualTo("The agent did not finish in 30 minutes, so Factory stopped it.");
+        assertThat(AttemptFailure.firstSentence("next in line")).isEqualTo("next in line");
+    }
+}
