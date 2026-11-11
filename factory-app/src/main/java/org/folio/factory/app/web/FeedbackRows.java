@@ -44,20 +44,18 @@ final class FeedbackRows {
     }
 
     /**
-     * One round: what it fixed, its commit, checks, a short summary of the agent's report, the full report
-     * and Factory's comment on the PR.
+     * One round: what it fixed, its commit, the first sentence of the agent's changes, the report as text, the
+     * checks and Factory's comment on the PR. Values the round does not have are null.
      */
-    public record Round(String title, String comments, String commit, String commitSha, String commitUrl, String meta,
+    public record Round(String title, String comments, String commit, String commitUrl, String meta,
                         String summary, String report, String reason, String commentUrl, String cost, Chip chip,
-                        boolean manual,
-                        List<Selected> selected, Map<String, Object> usage, String runtime,
-                        VerificationReceipt verification, List<Map<String, String>> activity) {
+                        List<Selected> selected, String checks, String checksOutput) {
     }
 
     public record Chip(String label, String cssClass) {
     }
 
-    /** The round's usage, activity and the URL of Factory's comment, read from the audit trail. */
+    /** The round's usage and the URL of Factory's comment, read from the audit trail. */
     record RoundFacts(AttemptUsageSummary.Projection projection, boolean live, Map<Integer, String> commentUrls) {
     }
 
@@ -103,17 +101,17 @@ final class FeedbackRows {
     }
 
     private static Round round(String title, int round, FeedbackState state, RoundFacts facts) {
-        var usage = facts.projection().summary(round, facts.live());
-        var sha = state.commitSha().isBlank() ? null : state.commitSha();
+        var sha = blankToNull(state.commitSha());
         var shortSha = sha == null ? null : sha.substring(0, Math.min(SHORT_SHA, sha.length()));
         var selected = state.selected().stream()
                 .map(comment -> new Selected(comment.author(), comment.body()))
                 .toList();
-        return new Round(title, commentCount(state), shortSha, sha, commitUrl(state.pr(), sha), meta(state),
-                RoundReport.brief(state.summary()), state.summary(), state.reason(), facts.commentUrls().get(round),
-                String.valueOf(usage.get("cost")),
-                chip(state), state.manual(), selected, usage, state.runtimeName(), state.verification(),
-                facts.projection().activity(round));
+        var report = state.manual() ? null : blankToNull(RoundReport.text(state.summary()));
+        var verification = state.verification();
+        return new Round(title, commentCount(state), shortSha, commitUrl(state.pr(), sha), blankToNull(meta(state)),
+                blankToNull(RoundReport.firstSentence(state.summary())), report, blankToNull(state.reason()),
+                facts.commentUrls().get(round), String.valueOf(facts.projection().summary(round, facts.live())
+                .get("cost")), chip(state), selected, checks(verification), checksOutput(verification));
     }
 
     private static String commentCount(FeedbackState state) {
@@ -159,6 +157,32 @@ final class FeedbackRows {
         return verification.testCount() + " tests, " + failures + " failed";
     }
 
+    /** "Checks passed: 300 tests." or "Checks failed: 2 of 300 tests failed."; null when no checks ran. */
+    private static String checks(VerificationReceipt verification) {
+        if (verification == null) {
+            return null;
+        }
+        var passed = "PASS".equals(verification.result());
+        var count = verification.testCount();
+        if (count == null) {
+            return passed ? "Checks passed." : "Checks failed.";
+        }
+        if (passed) {
+            return "Checks passed: " + count + (count == 1 ? " test." : " tests.");
+        }
+        var failed = Objects.requireNonNullElse(verification.failureCount(), 0)
+                + Objects.requireNonNullElse(verification.errorCount(), 0);
+        return failed == 0 ? "Checks failed." : "Checks failed: " + failed + " of " + count + " tests failed.";
+    }
+
+    /** The output of checks that did not pass; passed checks need no output. */
+    private static String checksOutput(VerificationReceipt verification) {
+        if (verification == null || "PASS".equals(verification.result())) {
+            return null;
+        }
+        return blankToNull(verification.output());
+    }
+
     private static Chip chip(FeedbackState state) {
         return switch (state.phase()) {
             case READY -> !state.commitSha().isBlank() ? new Chip("Published", "chip chip-success")
@@ -168,6 +192,10 @@ final class FeedbackRows {
             case FAILURE, INTERRUPTED, CLEANUP_BLOCKED -> new Chip(FeedbackUi.label(state.phase()), "chip chip-danger");
             default -> new Chip(FeedbackUi.label(state.phase()), "chip chip-info");
         };
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
     }
 
     private static Instant instant(String value) {

@@ -2,27 +2,27 @@
 <html xmlns:th="http://www.thymeleaf.org"><body>
 <div th:fragment="feedback" id="pr-feedback" class="feedback-section">
   <div class="alert alert-error" role="alert" th:if="${feedbackError}" th:text="${feedbackError}"></div>
-  <p class="feedback-reason" th:if="${!#strings.isEmpty(feedback['reason'])}" th:text="${feedback['reason']}"></p>
+  <p class="feedback-reason" th:if="${feedback.reason() != null}" th:text="${feedback.reason()}"></p>
 
-  <section class="dev-list" aria-labelledby="comments-title" th:if="${feedback['fix'] or feedback['refresh']}"
-           th:with="count=${#lists.size(feedback['comments'])}">
+  <section class="dev-list" aria-labelledby="comments-title" th:if="${feedback.fix() or feedback.refresh()}"
+           th:with="count=${#lists.size(feedback.comments())}">
     <div class="dev-list-head">
       <h2 class="dev-section-title" id="comments-title">New PR comments <span class="dev-count" th:text="${count}">1</span></h2>
-      <form class="dev-list-tools" th:if="${feedback['refresh']}" method="post"
+      <form class="dev-list-tools" th:if="${feedback.refresh()}" method="post"
             th:action="@{'/executions/'+${execution.id}+'/pr-feedback/refresh'}">
-        <input type="hidden" name="stateVersion" th:value="${feedback['version']}">
+        <input type="hidden" name="stateVersion" th:value="${feedback.version()}">
         <button class="btn btn-secondary btn-sm" type="submit">Check PR comments</button>
       </form>
     </div>
-    <p class="dev-empty" th:if="${count == 0}">No new comments.</p>
-    <form th:if="${feedback['fix'] and count > 0}" method="post"
+    <p class="dev-empty" th:if="${count == 0}" th:text="${feedback.emptyNote()}">No new comments.</p>
+    <form th:if="${feedback.fix() and count > 0}" method="post"
           th:action="@{'/executions/'+${execution.id}+'/pr-feedback/actions'}"
           data-selection="selectedIds" data-selection-verb="Fix" data-selection-noun="comment">
-      <input type="hidden" name="reviewId" th:value="${feedback['reviewId']}">
-      <input type="hidden" name="stateVersion" th:value="${feedback['version']}">
-      <input type="hidden" name="snapshotId" th:value="${feedback['snapshotId']}">
+      <input type="hidden" name="reviewId" th:value="${feedback.reviewId()}">
+      <input type="hidden" name="stateVersion" th:value="${feedback.version()}">
+      <input type="hidden" name="snapshotId" th:value="${feedback.snapshotId()}">
       <input type="hidden" name="action" value="FIX">
-      <label class="dev-row feedback-comment" th:each="comment, state : ${feedback['comments']}"
+      <label class="dev-row feedback-comment" th:each="comment, state : ${feedback.comments()}"
              th:for="'comment-' + ${state.index}">
         <input type="checkbox" class="task-check" name="selectedIds" th:id="'comment-' + ${state.index}"
                th:value="${comment.id()}" th:attr="aria-labelledby='comment-' + ${state.index} + '-text'" checked>
@@ -40,18 +40,18 @@
       </label>
       <div class="dev-list-foot">
         <button type="submit" data-run-selected
-                th:class="${feedback['answer']} ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm'"
+                th:class="${feedback.answer()} ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm'"
                 th:text="'Fix ' + ${count} + (${count == 1} ? ' comment' : ' comments')">Fix 1 comment</button>
         <span class="dev-form-note">Starts a new round and adds to the cost.</span>
       </div>
     </form>
   </section>
 
-  <section class="dev-section" aria-labelledby="feedback-answer-title" th:if="${feedback['answer']}">
+  <section class="dev-section" aria-labelledby="feedback-answer-title" th:if="${feedback.answer()}">
     <h2 class="dev-section-head" id="feedback-answer-title">The agent's question</h2>
     <form class="dev-form" method="post" th:action="@{'/executions/'+${execution.id}+'/pr-feedback/actions'}">
-      <input type="hidden" name="reviewId" th:value="${feedback['reviewId']}">
-      <input type="hidden" name="stateVersion" th:value="${feedback['version']}">
+      <input type="hidden" name="reviewId" th:value="${feedback.reviewId()}">
+      <input type="hidden" name="stateVersion" th:value="${feedback.version()}">
       <input type="hidden" name="action" value="ANSWER">
       <label class="dev-field"><span>Your answer</span>
         <textarea class="textarea" name="answer" required maxlength="16000" rows="3"></textarea></label>
@@ -59,61 +59,55 @@
     </form>
   </section>
 
-  <section class="dev-list" aria-labelledby="rounds-title" th:unless="${#lists.isEmpty(feedback['rounds'])}">
+  <section class="dev-list" aria-labelledby="rounds-title" th:unless="${#lists.isEmpty(feedback.rounds())}">
     <div class="dev-list-head">
       <h2 class="dev-section-title" id="rounds-title">Rounds <span class="dev-count"
-              th:text="${#lists.size(feedback['rounds'])}">1</span></h2>
+              th:text="${#lists.size(feedback.rounds())}">1</span></h2>
     </div>
-    <div class="dev-row feedback-round" th:each="round : ${feedback['rounds']}">
+    <div class="dev-row feedback-round" th:each="round : ${feedback.rounds()}">
       <div class="dev-row-main">
         <div class="feedback-round-head"><strong th:text="${round.title()}">Round 1</strong>
           <span th:text="${round.comments()}">2 comments</span>
           <a class="ext-link feedback-sha" th:if="${round.commitUrl() != null}" th:href="${round.commitUrl()}"
              th:text="${round.commit()}">c58ab6e</a><span class="feedback-sha"
               th:if="${round.commitUrl() == null and round.commit() != null}" th:text="${round.commit()}">c58ab6e</span></div>
-        <div class="dev-row-meta" th:unless="${#strings.isEmpty(round.meta())}" th:text="${round.meta()}">Nov 10, 18:22</div>
-        <p class="feedback-round-summary" th:unless="${#strings.isEmpty(round.summary())}"
-           th:text="${round.manual()} ? ${round.summary()} : 'Agent: ' + ${round.summary()}">Agent: summary</p>
-        <p class="feedback-reason" th:unless="${#strings.isEmpty(round.reason())}" th:text="${round.reason()}">reason</p>
+        <div class="dev-row-meta" th:if="${round.meta() != null}" th:text="${round.meta()}">Nov 10, 18:22</div>
+        <p class="feedback-round-summary" th:if="${round.summary() != null}" th:text="${round.summary()}">Added
+          minProperties to the items object.</p>
+        <p class="feedback-reason" th:if="${round.reason() != null}" th:text="${round.reason()}">reason</p>
         <a class="ext-link feedback-round-link" th:if="${round.commentUrl() != null}" th:href="${round.commentUrl()}">Factory's comment on the PR</a>
-        <details class="disclosure feedback-round-details">
+        <details class="disclosure feedback-round-details"
+                 th:if="${!#lists.isEmpty(round.selected()) or round.report() != null or round.checks() != null}">
           <summary>Round details</summary>
-          <dl class="tech-grid">
-            <th:block th:unless="${round.manual()}">
-              <th:block th:unless="${#strings.isEmpty(round.runtime())}"><dt>Runtime</dt><dd th:text="${round.runtime()}"></dd></th:block>
-              <dt>Models</dt><dd th:text="${round.usage()['models']}"></dd>
-              <dt>Attempts</dt><dd th:text="${round.usage()['attempts']}"></dd>
-              <dt>Tokens reported</dt><dd th:text="${round.usage()['tokensDisplay']}"></dd>
-            </th:block>
-            <th:block th:if="${round.commitSha() != null}"><dt>Commit</dt><dd class="feedback-sha" th:text="${round.commitSha()}"></dd></th:block>
-          </dl>
-          <div class="feedback-report" th:unless="${#strings.isEmpty(round.report())}"><strong>Agent's report</strong>
-            <p th:text="${round.report()}">## Changes</p></div>
-          <div class="feedback-selected" th:each="item : ${round.selected()}"><strong th:text="${item.author()}"></strong>
-            <p th:text="${item.body()}"></p></div>
-          <th:block th:if="${round.verification() != null}">
-            <p><strong th:text="${round.verification().result()}"></strong> · <span th:text="${round.verification().testCount()}"></span> tests
-              · <span th:text="${round.verification().failureCount()}"></span> failures</p>
-            <pre class="feedback-diagnostics" th:text="${round.verification().output()}"></pre>
-          </th:block>
-          <ol class="developer-recent" th:unless="${#lists.isEmpty(round.activity())}">
-            <li th:each="item : ${round.activity()}"><time th:text="${item['time']}"></time><span th:text="${item['text']}"></span></li>
-          </ol>
+          <div class="feedback-detail" th:unless="${#lists.isEmpty(round.selected())}">
+            <strong>Comments sent to the agent</strong>
+            <div class="feedback-selected" th:each="item : ${round.selected()}"><span class="feedback-author"
+                    th:text="${item.author()}">reviewer</span>
+              <p th:text="${item.body()}">Comment</p></div>
+          </div>
+          <div class="feedback-detail" th:if="${round.report() != null}"><strong>Agent's report</strong>
+            <p class="feedback-report" th:text="${round.report()}">Changes</p></div>
+          <p th:if="${round.checks() != null}" th:text="${round.checks()}">Checks passed: 300 tests.</p>
+          <pre class="feedback-diagnostics" th:if="${round.checksOutput() != null}"
+               th:text="${round.checksOutput()}">output</pre>
         </details>
       </div>
-      <span class="attempt-cost" th:text="${round.cost()}">$0.38</span>
-      <span th:class="${round.chip().cssClass()}" th:text="${round.chip().label()}">Published</span>
+      <div class="row-cluster">
+        <span class="row-amount" th:text="${round.cost()}">$0.38</span>
+        <span th:class="${round.chip().cssClass()}" th:text="${round.chip().label()}">Published</span>
+        <div class="dev-row-action"></div>
+      </div>
     </div>
   </section>
 
-  <div class="feedback-actions" th:unless="${#lists.isEmpty(feedback['actions'])}">
-    <form method="post" th:each="action : ${feedback['actions']}"
+  <div class="feedback-actions" th:unless="${#lists.isEmpty(feedback.actions())}">
+    <form method="post" th:each="action : ${feedback.actions()}"
           th:action="@{'/executions/'+${execution.id}+'/pr-feedback/actions'}">
-      <input type="hidden" name="reviewId" th:value="${feedback['reviewId']}">
-      <input type="hidden" name="stateVersion" th:value="${feedback['version']}">
-      <button class="btn btn-secondary btn-sm" type="submit" name="action" th:value="${action['value']}"
-              th:text="${action['label']}">Verify my manual changes</button>
-      <span class="dev-form-note" th:unless="${#strings.isEmpty(action['note'])}" th:text="${action['note']}">note</span>
+      <input type="hidden" name="reviewId" th:value="${feedback.reviewId()}">
+      <input type="hidden" name="stateVersion" th:value="${feedback.version()}">
+      <button class="btn btn-secondary btn-sm" type="submit" name="action" th:value="${action.value()}"
+              th:text="${action.label()}">Verify my manual changes</button>
+      <span class="dev-form-note" th:if="${action.note() != null}" th:text="${action.note()}">note</span>
     </form>
   </div>
 </div>

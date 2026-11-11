@@ -10,7 +10,6 @@ import tools.jackson.databind.json.JsonMapper;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
@@ -54,7 +53,6 @@ public final class AttemptUsageSummary {
     static final class Projection {
         private final Group all = new Group();
         private final Map<Integer, Group> rounds = new LinkedHashMap<>();
-        private final Map<Integer, List<Map<String, String>>> activities = new LinkedHashMap<>();
 
         Projection(List<AuditEvent> events) {
             for (var event : events) {
@@ -62,16 +60,6 @@ public final class AttemptUsageSummary {
                 int round = detail.path("round").asInt(-1);
                 all.record(event, detail);
                 rounds.computeIfAbsent(round, key -> new Group()).record(event, detail);
-                String text = detail.path("message").asString(detail.path("activity").asString(""));
-                if (!text.isBlank() && !text.equals("coding_usage") && !text.equals("pi_usage"))
-                    activities
-                            .computeIfAbsent(round, key -> new ArrayList<>())
-                            .add(
-                                    Map.of(
-                                            "time",
-                                            UiFormat.format(event.getOccurredAt()),
-                                            "text",
-                                            text));
             }
         }
 
@@ -86,10 +74,6 @@ public final class AttemptUsageSummary {
         /** The typed totals of one round, of the first implementation (-1), or of the whole run (null). */
         Totals totals(Integer round, boolean live) {
             return (round == null ? all : rounds.getOrDefault(round, new Group())).totals(live);
-        }
-
-        List<Map<String, String>> activity(int round) {
-            return List.copyOf(activities.getOrDefault(round, List.of()));
         }
     }
 

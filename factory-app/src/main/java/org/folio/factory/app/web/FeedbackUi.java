@@ -14,18 +14,18 @@ import org.springframework.ui.Model;
 
 import java.util.Comparator;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
 public class FeedbackUi {
-    private static final String MANUAL_NOTE = "Runs the tests on commits you pushed to the PR branch yourself.";
+    private static final String MANUAL_NOTE =
+            "Runs the checks on commits you pushed to the PR branch yourself. No agent, no cost.";
 
     private final FeedbackActions actions;
 
@@ -46,14 +46,11 @@ public class FeedbackUi {
         }
         boolean live = execution.getStatus() == ExecutionStatus.RUNNING;
         var history = History.from(artifacts);
-        var data = feedbackControls(view);
         var rounds = FeedbackRows.rounds(history.rounds(),
                 new FeedbackRows.RoundFacts(projection, live, FeedbackRows.commentUrls(events)));
-        data.put("comments", FeedbackRows.newComments(view.snapshot(), history.processed()));
-        data.put("rounds", rounds);
-        model.addAttribute("feedback", data);
-        return Optional.of(new Summary(String.valueOf(data.get("phase")), phase == FeedbackState.Phase.READY,
-                !rounds.isEmpty()));
+        var feedback = feedback(view, FeedbackRows.newComments(view.snapshot(), history.processed()), rounds);
+        model.addAttribute("feedback", feedback);
+        return Optional.of(new Summary(feedback.phase(), phase == FeedbackState.Phase.READY, !rounds.isEmpty()));
     }
 
     /**
@@ -63,28 +60,46 @@ public class FeedbackUi {
     public record Summary(String headline, boolean waiting, boolean rounds) {
     }
 
-    private static Map<String, Object> feedbackControls(FeedbackActions.View view) {
+    /**
+     * The PR feedback part of the run page: the phase in words and its reason, which forms it offers, the new PR
+     * comments and the rounds. {@code reason} is null when there is none.
+     */
+    public record Feedback(int version, UUID reviewId, String phase, String reason, boolean refresh, boolean fix,
+                           boolean answer, String snapshotId, List<ActionButton> actions,
+                           List<FeedbackRows.Comment> comments, List<FeedbackRows.Round> rounds) {
+
+        /** Says how to get new comments when the page offers to check for them. */
+        public String emptyNote() {
+            return refresh ? "No new comments. Add review comments on GitHub, then press Check PR comments."
+                    : "No new comments.";
+        }
+    }
+
+    /** A button that sends one feedback action; {@code note} is null when the button needs none. */
+    public record ActionButton(String value, String label, String note) {
+    }
+
+    private static Feedback feedback(FeedbackActions.View view, List<FeedbackRows.Comment> comments,
+                                     List<FeedbackRows.Round> rounds) {
         var state = view.state();
-        var data = new LinkedHashMap<String, Object>();
-        data.put("version", view.version());
-        data.put("reviewId", view.reviewId());
-        data.put("phase", state.phase() == FeedbackState.Phase.FINISHED
-                && !"MERGED".equals(state.completionReason()) ? "Task finished" : label(state.phase()));
-        data.put("reason", state.phase() == FeedbackState.Phase.FINISHED
-                ? state.taskSummary() : state.reason());
-        data.put("refresh", view.reviewId() != null && state.pr() != null
-                && !view.actions().isEmpty()
-                && !view.actions().contains(FeedbackActions.Action.RETRY_CLEANUP));
-        data.put("fix", view.actions().contains(FeedbackActions.Action.FIX));
-        data.put("answer", view.actions().contains(FeedbackActions.Action.ANSWER));
-        data.put("snapshotId", view.snapshot() == null ? "" : view.snapshot().id());
-        data.put("actions", view.actions().stream()
-                .filter(action -> action != FeedbackActions.Action.FIX
-                        && action != FeedbackActions.Action.ANSWER)
-                .map(action -> Map.of("value", action.name(), "label", actionLabel(action),
-                        "note", action == FeedbackActions.Action.MANUAL_CONTINUE ? MANUAL_NOTE : ""))
-                .toList());
-        return data;
+        var finished = state.phase() == FeedbackState.Phase.FINISHED;
+        var phase = finished && !"MERGED".equals(state.completionReason()) ? "Task finished" : label(state.phase());
+        var reason = finished ? state.taskSummary() : state.reason();
+        var refresh = view.reviewId() != null && state.pr() != null && !view.actions().isEmpty()
+                && !view.actions().contains(FeedbackActions.Action.RETRY_CLEANUP);
+        return new Feedback(view.version(), view.reviewId(), phase, reason == null || reason.isBlank() ? null : reason,
+                refresh, view.actions().contains(FeedbackActions.Action.FIX),
+                view.actions().contains(FeedbackActions.Action.ANSWER),
+                view.snapshot() == null ? "" : view.snapshot().id(), buttons(view.actions()), comments, rounds);
+    }
+
+    /** Fix and Answer have forms of their own, so they get no button here. */
+    private static List<ActionButton> buttons(List<FeedbackActions.Action> actions) {
+        return actions.stream()
+                .filter(action -> action != FeedbackActions.Action.FIX && action != FeedbackActions.Action.ANSWER)
+                .map(action -> new ActionButton(action.name(), actionLabel(action),
+                        action == FeedbackActions.Action.MANUAL_CONTINUE ? MANUAL_NOTE : null))
+                .toList();
     }
 
     private record History(Set<String> processed, TreeMap<Integer, FeedbackState> rounds) {

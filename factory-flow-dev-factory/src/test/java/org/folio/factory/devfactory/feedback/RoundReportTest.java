@@ -26,28 +26,54 @@ class RoundReportTest {
     }
 
     @Test
-    void briefIsPlainTextOfAtMost280Characters() throws IOException {
-        var brief = RoundReport.brief(report());
+    void firstSentenceIsPlainTextCutAtAWord() throws IOException {
+        var first = RoundReport.firstSentence(report());
 
-        assertThat(brief).startsWith("Added a one-line \"description\": \"A single attribute entry")
-                .doesNotContain("`", "#", "- ").hasSizeLessThanOrEqualTo(280).endsWith("…");
+        assertThat(first).startsWith("Added a one-line \"description\": \"A single attribute entry")
+                .doesNotContain("`", "#").hasSizeLessThanOrEqualTo(200).endsWith("…");
+        var kept = first.substring(0, first.length() - 1);
+        assertThat(kept).doesNotEndWith(" ");
+        assertThat(RoundReport.text(report())).contains("• " + kept + " ");
     }
 
     @Test
-    void briefTakesAtMostTwoSentences() {
+    void theStoredReportAsTextHasNoMarkdownMarks() throws IOException {
+        assertThat(RoundReport.text(report())).startsWith("Changes\n• Added a one-line \"description\"")
+                .contains("\nAssumptions\n").doesNotContain("## ", "`", "inline:");
+    }
+
+    @Test
+    void firstSentenceTakesOneSentenceOfTheChanges() {
         var report = "## Changes\n- Renamed the test. It matches the class.\n- Fixed the [link](https://x).\n\n"
                 + "## Assumptions\n- None (PR feedback inline:123).";
 
-        assertThat(RoundReport.brief(report)).isEqualTo("Renamed the test. It matches the class.");
+        assertThat(RoundReport.firstSentence(report)).isEqualTo("Renamed the test.");
+        assertThat(RoundReport.firstSentence("## Changes\n- Added `minProperties` (PR feedback inline:1)"))
+                .isEqualTo("Added minProperties.");
         assertThat(RoundReport.changes(report)).isEqualTo("- Renamed the test. It matches the class.\n"
                 + "- Fixed the [link](https://x).");
+    }
+
+    @Test
+    void aReportWithoutAChangesSectionHasNoFirstSentence() {
+        assertThat(RoundReport.firstSentence("Manual changes independently verified")).isEmpty();
+        assertThat(RoundReport.firstSentence("## Assumptions\n- None.")).isEmpty();
+        assertThat(RoundReport.firstSentence("")).isEmpty();
+        assertThat(RoundReport.firstSentence(null)).isEmpty();
+    }
+
+    @Test
+    void textLeavesOutMarkdownMarksAndInternalIds() {
+        var report = "## Changes\n- Added `minProperties` to **items** (PR feedback inline:1).\n\n"
+                + "## Assumptions\n- See [the docs](https://x).";
+
+        assertThat(RoundReport.text(report)).isEqualTo("Changes\n• Added minProperties to items.\n\n"
+                + "Assumptions\n• See the docs.");
     }
 
     @Test
     void aReportWithoutHeadingsIsUsedAsItIsAndInternalIdsAreRemoved() {
         assertThat(RoundReport.changes("Corrected selected feedback (PR feedback inline:42).\n"))
                 .isEqualTo("Corrected selected feedback.");
-        assertThat(RoundReport.brief("Corrected selected feedback")).isEqualTo("Corrected selected feedback.");
-        assertThat(RoundReport.brief("")).isEmpty();
     }
 }

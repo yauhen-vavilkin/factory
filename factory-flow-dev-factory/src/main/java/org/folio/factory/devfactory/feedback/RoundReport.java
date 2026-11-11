@@ -7,13 +7,12 @@ import java.util.regex.Pattern;
 
 /**
  * Reads the agent's report of a feedback round. The report is Markdown with sections such as
- * "## Changes" and "## Assumptions"; the run page shows a short plain brief of the changes, and
- * Factory's comment on the pull request carries the changes section only.
+ * "## Changes" and "## Assumptions"; the run page shows the first sentence of the changes and the report as
+ * plain text, and Factory's comment on the pull request carries the changes section only.
  */
 public final class RoundReport {
 
-    private static final int BRIEF = 280;
-    private static final int SENTENCES = 2;
+    private static final int FIRST_SENTENCE = 200;
     private static final Pattern HEADING = Pattern.compile("^\\s{0,3}#{1,6}\\s*(.*?)\\s*#*\\s*$");
     /** "(PR feedback inline:4530617972)": Factory's own comment ids mean nothing on GitHub. */
     private static final Pattern INTERNAL_ID = Pattern.compile(
@@ -37,16 +36,33 @@ public final class RoundReport {
         return INTERNAL_ID.matcher(text).replaceAll("").strip();
     }
 
-    /** One or two plain sentences of the changes, at most 280 characters. */
-    public static String brief(String report) {
-        var sentences = new ArrayList<String>();
-        for (var line : changes(report).lines().toList()) {
-            var plain = plain(line);
-            if (!plain.isEmpty()) {
-                sentences.addAll(List.of(SENTENCE_END.split(plain.endsWith(".") ? plain : plain + ".")));
-            }
+    /**
+     * The first sentence of the "Changes" section as plain text, cut at a word with "…" when it is long. Empty
+     * when the report has no such section: a guess from other text could say what the agent did not do.
+     */
+    public static String firstSentence(String report) {
+        var lines = report == null ? List.<String>of() : report.strip().lines().toList();
+        var first = section(lines, "changes").stream()
+                .map(line -> INTERNAL_ID.matcher(plain(line)).replaceAll("").strip())
+                .filter(line -> !line.isEmpty())
+                .findFirst();
+        if (first.isEmpty()) {
+            return "";
         }
-        return fit(sentences);
+        var sentence = SENTENCE_END.split(first.get(), 2)[0];
+        return cutAtWord(sentence.matches(".*[.!?]$") ? sentence : sentence + ".");
+    }
+
+    /** The report without Markdown marks or internal ids: headings and list items keep their own lines. */
+    public static String text(String report) {
+        var lines = report == null ? List.<String>of() : report.strip().lines().toList();
+        var text = new ArrayList<String>();
+        for (var line : lines) {
+            var heading = HEADING.matcher(line);
+            var plain = heading.matches() ? plain(heading.group(1)) : plain(line);
+            text.add(LIST_MARKER.matcher(line).find() ? "• " + plain : plain);
+        }
+        return INTERNAL_ID.matcher(String.join("\n", text)).replaceAll("").strip();
     }
 
     private static List<String> section(List<String> lines, String name) {
@@ -76,20 +92,12 @@ public final class RoundReport {
         return text.replace("`", "").replace("**", "").replace("__", "").strip();
     }
 
-    /** The first sentences while they fit; a first sentence that is too long is cut at a word. */
-    private static String fit(List<String> sentences) {
-        var brief = new StringBuilder();
-        for (var sentence : sentences.subList(0, Math.min(SENTENCES, sentences.size()))) {
-            if (brief.length() + sentence.length() + 1 > BRIEF) {
-                break;
-            }
-            brief.append(brief.isEmpty() ? "" : " ").append(sentence);
+    private static String cutAtWord(String sentence) {
+        if (sentence.length() <= FIRST_SENTENCE) {
+            return sentence;
         }
-        if (!brief.isEmpty() || sentences.isEmpty()) {
-            return brief.toString();
-        }
-        var first = sentences.getFirst().substring(0, BRIEF - 1);
-        var space = first.lastIndexOf(' ');
-        return (space > BRIEF / 2 ? first.substring(0, space) : first) + "…";
+        var cut = sentence.substring(0, FIRST_SENTENCE - 1);
+        var space = cut.lastIndexOf(' ');
+        return (space > 0 ? cut.substring(0, space) : cut).stripTrailing() + "…";
     }
 }

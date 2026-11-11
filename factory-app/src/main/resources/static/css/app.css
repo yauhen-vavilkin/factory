@@ -1081,15 +1081,16 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .dev-row.feedback-comment .task-check { top: 0; }
 .feedback-comment-body { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 .feedback-location { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.dev-row.feedback-round { align-items: flex-start; }
 .feedback-round-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .feedback-round-summary { margin-top: 8px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .feedback-round-link { display: inline-flex; margin-top: 6px; font-size: 12px; }
 .feedback-round-details { margin-top: 8px; font-size: 13px; }
 .feedback-round-details[open] { display: flex; flex-direction: column; gap: 10px; }
 .feedback-round-details > summary { align-self: flex-start; }
+.feedback-detail { display: flex; flex-direction: column; gap: 6px; }
+.feedback-author { font-size: 12px; color: hsl(var(--muted-foreground)); }
 .feedback-selected p,
-.feedback-report p { white-space: pre-wrap; overflow-wrap: anywhere; margin: .25rem 0 0; }
+.feedback-report { white-space: pre-wrap; overflow-wrap: anywhere; margin: .25rem 0 0; }
 .feedback-sha { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .feedback-actions { display: flex; flex-direction: column; gap: 10px; }
 .feedback-actions form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; }
@@ -1266,5 +1267,4 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .answer-options label:last-child { border-bottom: 1px solid hsl(var(--border)); }
 .answer-options input { flex: 0 0 auto; width: 16px; height: 16px; margin: 0; accent-color: hsl(var(--primary)); }
 .attempt-title { font-weight: 600; }
-.attempt-cost { min-width: 60px; text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; }
 

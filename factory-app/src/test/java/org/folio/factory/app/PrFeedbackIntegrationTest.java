@@ -181,10 +181,12 @@ class PrFeedbackIntegrationTest {
         assertThat(git(bare,"for-each-ref","--format=%(refname)","refs/heads").lines()).containsExactly("refs/heads/"+branch);
         var html=RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class);
         // While it waits for comments the card names the pull request and shows the total of the attempt and its rounds.
-        assertThat(html).contains("Round 1","Round 12","fixture-model","second-fixture-model","Rounds",
+        // Round rows name no models: the header has the settings of the attempt.
+        assertThat(html).contains(">Round 1</strong>",">Round 12</strong>","Rounds",
                 "<span class=\"status-card-note\">total</span>")
                 .containsPattern("<p class=\"status-card-headline\">[^<]* is (open as a draft|ready for review)</p>")
-                .doesNotContain("Waiting for your review","so far");
+                .doesNotContain("Waiting for your review","so far","<dt>Models</dt>","second-fixture-model");
+        assertThat(html.indexOf(">Round 1</strong>")).isLessThan(html.indexOf(">Round 12</strong>"));
         assertThat(html).doesNotContain("Download current patch", "Download diagnostics", "Rate-card estimate", "Finish task");
         assertThatThrownBy(()->action(FINISH)).isInstanceOf(IllegalArgumentException.class);
         merged=true; actions.reconcilePr(id); drive(); assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);

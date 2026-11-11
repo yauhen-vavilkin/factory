@@ -472,10 +472,13 @@ class UiRenderSmokeTest {
                 + "\"line\":214,\"outdated\":false,\"updatedAt\":\"\",\"url\":\"https://github.com/o/mgr-applications/pull/6#discussion_r2\"}";
         var round = "\"round\":1,\"pr\":" + pr + ",\"selected\":[" + done + "],\"roundStartedAt\":\"2026-11-10T18:22:00Z\"";
         artifactStore.put(id, "dev_pr_state.json", "{" + round + ",\"phase\":\"CODE\"}", "application/json", "test");
+        var checks = "{\"executionId\":\"" + id + "\",\"argv\":[],\"exitCode\":0,\"surefireReportCount\":1,"
+                + "\"testCount\":300,\"failureCount\":0,\"errorCount\":0,\"result\":\"PASS\","
+                + "\"output\":\"BUILD SUCCESS from the checks\",\"failsafeReportCount\":0}";
         artifactStore.put(id, "dev_pr_state.json", "{" + round + ",\"phase\":\"READY\",\"commitSha\":\"" + "c".repeat(40)
                 + "\",\"summary\":\"## Changes\\n- Added `minProperties` to the items object (PR feedback inline:1)."
-                + "\\n\\n## Assumptions\\n- None.\",\"finishedAt\":\"2026-11-10T18:28:00Z\"}",
-                "application/json", "test");
+                + "\\n\\n## Assumptions\\n- None.\",\"finishedAt\":\"2026-11-10T18:28:00Z\",\"runtimeName\":\"Pi\","
+                + "\"verification\":" + checks + "}", "application/json", "test");
         artifactStore.put(id, "dev_pr_comments.json", "{\"id\":\"s1\",\"pr\":" + pr + ",\"comments\":[" + done + "," + fresh + "]}",
                 "application/json", "test");
         artifactStore.put(id, "dev_delivery.json", "{\"state\":\"DELIVERED\",\"pullRequestUrl\":"
@@ -497,15 +500,28 @@ class UiRenderSmokeTest {
                         "data-selection=\"selectedIds\"", ">Fix 1 comment</button>", "Starts a new round and adds to the cost.",
                         ">Round 1</strong>", "<span>1 comment</span>",
                         "href=\"https://github.com/o/mgr-applications/pull/6/commits/" + "c".repeat(40) + "\">ccccccc</a>",
-                        "Nov 10, 18:22 · 6 min", ">Agent: Added minProperties to the items object.</p>",
-                        "<strong>Agent's report</strong>", "## Assumptions",
+                        "Nov 10, 18:22 · 6 min · 300 tests passed",
+                        "<p class=\"feedback-round-summary\">Added minProperties to the items object.</p>",
+                        "<strong>Comments sent to the agent</strong>", "<p>Add minProperties</p>",
+                        "<strong>Agent's report</strong>",
+                        "<p class=\"feedback-report\">Changes\n• Added minProperties to the items object.\n\n"
+                                + "Assumptions\n• None.</p>", "<p>Checks passed: 300 tests.</p>",
                         "href=\"https://github.com/o/mgr-applications/pull/6#issuecomment-9\">Factory's comment on the PR</a>",
-                        "<summary>Round details</summary>", "class=\"chip chip-success\">Published</span>",
-                        ">Verify my manual changes</button>", "Runs the tests on commits you pushed to the PR branch yourself.",
+                        "<summary>Round details</summary>", ">Verify my manual changes</button>",
+                        "Runs the checks on commits you pushed to the PR branch yourself. No agent, no cost.",
                         "<summary>Activity and usage</summary>")
-                .doesNotContain(">Add minProperties</span>", "Work on feedback");
+                .containsPattern("<div class=\"row-cluster\">\\s*<span class=\"row-amount\">\\$0\\.00</span>"
+                        + "\\s*<span class=\"chip chip-success\">Published</span>\\s*<div class=\"dev-row-action\"></div>")
+                .doesNotContain(">Add minProperties</span>", "Work on feedback", "Agent: ", "## ", "inline:1",
+                        "BUILD SUCCESS from the checks", "<dt>Models</dt>", "<dt>Runtime</dt>", "<dt>Attempts</dt>",
+                        "attempt-cost");
         // One filled button on the page: Fix N comments.
         assertThat(body.split("btn btn-primary", -1)).hasSize(2);
+
+        artifactStore.put(id, "dev_pr_comments.json", "{\"id\":\"s2\",\"pr\":" + pr + ",\"comments\":[" + done + "]}",
+                "application/json", "test");
+        assertThat(assertRendered("/executions/" + id, "New PR comments")).contains("<p class=\"dev-empty\">"
+                + "No new comments. Add review comments on GitHub, then press Check PR comments.</p>");
     }
 
     @Test
