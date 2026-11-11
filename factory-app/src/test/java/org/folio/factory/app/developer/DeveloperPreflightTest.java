@@ -200,6 +200,25 @@ class DeveloperPreflightTest {
         assertThat(JSON.writeValueAsString(report)).doesNotContain("coding-fixture-secret");
     }
 
+    @Test
+    void aModelClaudeCodeCannotSpeakToSaysOnlyThatInWords() {
+        var piOnly = new ModelEntry("codemie-gpt-5.6-luna", "openai-responses", "http://host.docker.internal:4001/v1",
+                "api-key", "FACTORY_PI_API_KEY", "gpt-5.6-luna", List.of("low", "medium", "high"), "medium", null,
+                PRICE);
+        var catalog = new ModelCatalog(new ModelCatalog.Properties(List.of(defaultModel, piOnly), null),
+                settings.coding().runtime(), secrets::get);
+
+        var row = new ModelChecks(catalog, probe).rows(true).get(1);
+
+        // Its key and efforts do not matter while Claude Code cannot run it at all.
+        assertThat(row.ready()).isFalse();
+        assertThat(row.checks()).filteredOn(check -> check.status() == FAIL)
+                .extracting(DeveloperPreflight.Check::message).containsExactly("This model uses the OpenAI Responses"
+                        + " API; Claude Code needs the Anthropic Messages API. Point it at an Anthropic-compatible"
+                        + " endpoint, or switch the coding agent to Pi (FACTORY_DEV_FACTORY_CODING_RUNTIME).");
+        assertThat(checks(row)).doesNotContainKeys("secret", "efforts", "endpoint");
+    }
+
     private static Map<String, DeveloperPreflight.Status> checks(ModelChecks.ModelRow row) {
         var checks = new java.util.LinkedHashMap<String, DeveloperPreflight.Status>();
         row.checks().forEach(check -> checks.put(check.name(), check.status()));

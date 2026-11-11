@@ -54,9 +54,14 @@ public class ModelChecks {
                 summary(model, defaultModel), checks(model, ready, reachable));
     }
 
-    /** Only a model that can run gets the TCP probe: the endpoint of the others does not matter yet. */
+    /**
+     * Only a model that can run gets the TCP probe: the endpoint of the others does not matter yet. A model whose
+     * API Claude Code cannot speak gets no efforts or secret check either: its fix is the API alone.
+     */
     private List<Check> checks(Model model, boolean ready, Map<String, Boolean> reachable) {
-        var checks = new ArrayList<>(List.of(apiCheck(model), effortsCheck(model), secretCheck(model)));
+        var api = apiCheck(model);
+        var checks = new ArrayList<>(api.status() == Status.FAIL ? List.of(api)
+                : List.of(api, effortsCheck(model), secretCheck(model)));
         if (ready) {
             checks.add(endpointCheck(model.endpointOrigin(), reachable));
         }
@@ -80,10 +85,20 @@ public class ModelChecks {
 
     private static Check apiCheck(Model model) {
         return ClaudeCodeCodingRuntime.API.equals(model.api())
-                ? new Check("api", Status.PASS, model.api() + ": Claude Code can run this model.")
-                : new Check("api", Status.FAIL, "Claude Code understands only api " + ClaudeCodeCodingRuntime.API
-                        + ", but this model uses " + model.api() + ". Point it at an endpoint with that API, or"
-                        + " remove it from " + ModelCatalog.FILE + ".");
+                ? new Check("api", Status.PASS, "Claude Code can run this model: it uses the Anthropic Messages API.")
+                : new Check("api", Status.FAIL, "This model uses " + apiName(model.api()) + "; Claude Code needs"
+                        + " the Anthropic Messages API. Point it at an Anthropic-compatible endpoint, or switch the"
+                        + " coding agent to Pi (FACTORY_DEV_FACTORY_CODING_RUNTIME).");
+    }
+
+    /** The API in words: "the OpenAI Chat Completions API" for openai-completions. */
+    private static String apiName(String api) {
+        return switch (api) {
+            case "openai-completions" -> "the OpenAI Chat Completions API";
+            case "openai-responses" -> "the OpenAI Responses API";
+            case "google-generative-ai" -> "the Google Gemini API";
+            default -> "the " + api + " API";
+        };
     }
 
     private static Check effortsCheck(Model model) {
