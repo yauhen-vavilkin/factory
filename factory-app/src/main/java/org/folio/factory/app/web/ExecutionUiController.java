@@ -20,6 +20,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -98,16 +99,26 @@ public class ExecutionUiController {
         var events = auditLog.forExecution(id);
         var chain = flowRegistry.find(execution.getFlowId()).map(FlowDescriptor::agentChain).orElse(List.of());
         var detail = new ExecutionDetail(id, execution, artifactStore.allForExecution(id), events, chain);
+        model.addAttribute("execution", execution);
+        if (DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId())) {
+            return developerRunPage.render(detail, pendingReview(execution, id), model);
+        }
         var steps = stepStates(execution, chain);
         model.addAttribute("auditCount", events.size());
         model.addAttribute("artifactCount", detail.artifacts().size());
         populateDetail(model, detail, steps);
         model.addAttribute("pollUrl", execution.getStatus().isTerminal() ? null : "/api/executions/" + id);
-        if (DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId())) {
-            return developerRunPage.render(detail, steps, model);
-        }
         populateEngineRun(model, detail, steps);
         return "execution";
+    }
+
+    /** The revision a Developer Flow run page polls: it reloads when this changes. */
+    @GetMapping("/executions/{id}/poll")
+    @ResponseBody
+    public Map<String, Object> poll(@PathVariable("id") UUID id) {
+        var execution = findExecution(id);
+        return Map.of("revision", developerRunPage.revision(execution, auditLog.forExecution(id).size(),
+                artifactStore.allForExecution(id).size()));
     }
 
     private PipelineExecution findExecution(UUID id) {
@@ -119,7 +130,7 @@ public class ExecutionUiController {
         addStepTokens(steps, detail.chain(), usage);
         model.addAttribute("displayStatus", detail.execution().getStatus());
         model.addAttribute("progressSteps", steps);
-        populateUsage(model, usage);
+        model.addAttribute("tokenTotals", usage.tokenTotals(false));
         model.addAttribute("artifactGroups", artifactGroups(detail.artifacts()));
         model.addAttribute("events",
                 detail.events().stream().map(event -> UiFormat.auditRow(event, jsonMapper)).toList());
@@ -127,16 +138,9 @@ public class ExecutionUiController {
 
     private void populateDetail(Model model, ExecutionDetail detail, List<Map<String, Object>> steps) {
         var execution = detail.execution();
-        model.addAttribute("execution", execution);
         model.addAttribute("steps", steps);
         model.addAttribute("children", childRows(execution, detail.id()));
         model.addAttribute("pendingReview", pendingReview(execution, detail.id()));
-    }
-
-    private static void populateUsage(Model model, StepUsageSummary usage) {
-        model.addAttribute("estimatedCost", null);
-        model.addAttribute("usageIncomplete", usage.incomplete());
-        model.addAttribute("tokenTotals", usage.tokenTotals(false));
     }
 
     private ExecutionRow executionRow(PipelineExecution execution) {

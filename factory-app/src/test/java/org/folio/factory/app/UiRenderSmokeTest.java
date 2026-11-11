@@ -402,38 +402,59 @@ class UiRenderSmokeTest {
         execution.setErrorMessage("Starting build hit a network/download failure");
         executions.save(execution);
         assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
-                .contains("Retry pending: Starting build hit a network/download failure")
-                .doesNotContain("Stop reason: Starting build");
+                .contains("<p class=\"status-card-headline\">Implementing changes</p>")
+                .containsPattern("<span class=\"status-card-label\">Retry pending</span>\\s*<span>Starting build hit a"
+                        + " network/download failure")
+                .doesNotContain("Stop reason", "Previous attempt");
 
         execution = executions.findById(execution.getId()).orElseThrow();
         execution.setStatus(ExecutionStatus.FAILED_ESCALATED);
         executions.save(execution);
         assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
-                .contains("Stop reason: Starting build hit a network/download failure")
+                .contains("<p class=\"status-card-headline\">This run failed</p>")
+                .containsPattern("<span class=\"status-card-label\">Reason</span>\\s*<span>Starting build hit a"
+                        + " network/download failure")
                 .doesNotContain("Retry pending");
 
         execution = executions.findById(execution.getId()).orElseThrow();
         execution.setStatus(ExecutionStatus.RUNNING);
         executions.save(execution);
+        // Running again after the failure: the card says what the step retries after, until coding starts.
+        assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
+                .contains("<p class=\"status-card-headline\">Implementing changes</p>")
+                .containsPattern("<span class=\"status-card-label\">Retrying after</span>\\s*<span>Starting build hit a"
+                        + " network/download failure")
+                .doesNotContain("Retry pending");
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "pi_starting", "provider", "test-provider", "model", "test-model"));
         assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
-                .doesNotContain("Starting build hit a network/download failure", "Retry pending", "Stop reason:");
+                .doesNotContain("Starting build hit a network/download failure", "Retry pending", "Retrying after");
     }
 
     @Test
-    void aRunThatStoppedOnAQuestionShowsVerifyAndPullRequestAsNotStarted() {
+    void aRunThatStoppedOnAQuestionShowsTheQuestionAndVerifyAndPullRequestAsNotStarted() {
         var execution = new PipelineExecution("dev-factory", "0.9.0", "{}");
         execution.setStatus(ExecutionStatus.COMPLETED);
         execution.setCurrentStepIndex(10);
         execution = executions.save(execution);
         artifactStore.put(execution.getId(), "dev_verification.json", "{\"state\":\"NOT_RUN\"}", "application/json", "test");
         artifactStore.put(execution.getId(), "dev_delivery.json", "{\"state\":\"NOT_RUN\"}", "application/json", "test");
+        artifactStore.put(execution.getId(), "dev_coding_outcome.json",
+                "{\"status\":\"NEEDS_DECISION\",\"decision\":{\"question\":\"Keep the old endpoint?\"}}",
+                "application/json", "test");
 
         String body = assertRendered("/executions/" + execution.getId(), "Verify changes");
-        var stages = body.substring(body.indexOf("class=\"run-stages\""));
-        assertThat(stages.substring(stages.indexOf("Verify changes"), stages.indexOf("</ol>")))
-                .contains("<span>Not started</span>").doesNotContain("Passed");
+        assertThat(body)
+                .contains("class=\"chip chip-warning\">Asked a question</span>",
+                        "<p class=\"status-card-headline\">The agent stopped with a question</p>",
+                        "Keep the old endpoint?")
+                .containsPattern("data-state=\"question\">\\s*<span class=\"run-step-title\">2 · Implement changes</span>"
+                        + "\\s*<span class=\"run-step-state\"><span>Stopped with a question</span>")
+                .containsPattern("data-state=\"pending\">\\s*<span class=\"run-step-title\">3 · Verify changes</span>"
+                        + "\\s*<span class=\"run-step-state\"><span>Not started</span>")
+                .containsPattern("data-state=\"pending\">\\s*<span class=\"run-step-title\">4 · Create pull request"
+                        + "</span>\\s*<span class=\"run-step-state\"><span>Not started</span>")
+                .doesNotContain("run-stages", "NEEDS_DECISION", "NOT_RUN");
     }
 
     @Test
@@ -457,12 +478,19 @@ class UiRenderSmokeTest {
                 "application/json", "test");
         artifactStore.put(id, "dev_pr_comments.json", "{\"id\":\"s1\",\"pr\":" + pr + ",\"comments\":[" + done + "," + fresh + "]}",
                 "application/json", "test");
+        artifactStore.put(id, "dev_delivery.json", "{\"state\":\"DELIVERED\",\"pullRequestUrl\":"
+                + "\"https://github.com/o/mgr-applications/pull/6\",\"pullRequestDraft\":true}", "application/json", "test");
         reviews.save(new HitlReview(id, "pr-feedback", execution.getCurrentStepIndex(), "{}"));
         auditLog.record(id, AuditEventType.CONNECTOR_ACTION, "pr-follow-up", Map.of("action", "pr-round-comment",
                 "round", 1, "commentUrl", "https://github.com/o/mgr-applications/pull/6#issuecomment-9"));
 
         String body = assertRendered("/executions/" + id, "New PR comments");
-        assertThat(body).contains("Waiting for your review", ">Check PR comments</button>",
+        // While Factory waits for comments, the card names the pull request and nothing ticks.
+        assertThat(body.substring(body.indexOf("class=\"status-card\""), body.indexOf("class=\"run-steps\"")))
+                .contains("<a class=\"chip chip-neutral ext-link\" href=\"https://github.com/o/mgr-applications/pull/6\">"
+                        + "Draft PR #6</a>", "<p class=\"status-card-headline\">Pull request #6 is open as a draft</p>")
+                .doesNotContain("Waiting for your review", "so far", "data-elapsed-start");
+        assertThat(body).contains(">Check PR comments</button>",
                         "id=\"comment-0\"", "aria-labelledby=\"comment-0-text\"", "for=\"comment-0\"",
                         "id=\"comment-0-text\">Rename the test</span>",
                         "href=\"https://github.com/o/mgr-applications/pull/6#discussion_r2\">AppTest.java:214</a>",
@@ -481,19 +509,20 @@ class UiRenderSmokeTest {
     }
 
     @Test
-    void developerExecutionShowsPullRequestTitleOrUrlAsLink() {
-        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+    void developerExecutionShowsThePullRequestAsALinkedChipAndHeadline() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        execution.setCurrentStepIndex(6);
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        execution = executions.save(execution);
         String url = "https://github.com/user/repo/pull/42";
-        for (String title : List.of("", "TASK-1: Fix <routing> & permissions")) {
-            artifactStore.putMarkdown(execution.getId(), "dev_delivery.json",
-                    "{\"state\":\"DELIVERED\",\"pullRequestUrl\":\"" + url
-                            + "\",\"pullRequestTitle\":\"" + title + "\"}", "publish");
-            String body = assertRendered("/executions/" + execution.getId(), "Pull request");
-            String label = title.isEmpty() ? url : "TASK-1: Fix &lt;routing&gt; &amp; permissions";
-            assertThat(body).contains("href=\"" + url + "\">" + label + "</a>",
-                    "class=\"chip chip-neutral ext-link\" href=\"" + url + "\">PR #42</a>")
-                    .doesNotContain("Open pull request", "<routing>");
-        }
+        artifactStore.putMarkdown(execution.getId(), "dev_delivery.json",
+                "{\"state\":\"DELIVERED\",\"pullRequestUrl\":\"" + url
+                        + "\",\"pullRequestTitle\":\"TASK-1: Fix <routing> & permissions\"}", "publish");
+
+        String body = assertRendered("/executions/" + execution.getId(), "Pull request #42");
+        assertThat(body).contains("<a class=\"chip chip-success ext-link\" href=\"" + url + "\">PR #42</a>",
+                        "<p class=\"status-card-headline\">Pull request #42 is ready for review</p>")
+                .doesNotContain("Open pull request", "<routing>", "DELIVERED");
     }
 
     @Test
@@ -517,37 +546,54 @@ class UiRenderSmokeTest {
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "tool_execution_end", "tool", "Read", "path", "/workspace/src/Foo.java",
                         "error", false, "durationMs", 6));
+        // A heredoc body and the error output of a command stay in the transcript.
+        var heredoc = "cat > Notes.java <<'EOF'\nHIDDEN_HEREDOC_SENTINEL\nEOF";
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "tool_execution_start", "tool", "Bash", "command", heredoc));
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                Map.of("activity", "tool_execution_end", "tool", "Bash", "command", heredoc, "error", true,
+                        "errorText", "Exit code 2\nHIDDEN_STDERR_SENTINEL"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "turn_start", "message", "HIDDEN_MESSAGE_SENTINEL",
                         "reasoning", "HIDDEN_REASONING_SENTINEL"));
         auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of("costUsd", 0));
         String body = assertRendered("/executions/" + execution.getId(), "Developer Flow");
-        String activityPanel = body.substring(body.indexOf("<section class=\"run-panel run-activity\""),
-                body.indexOf("<section class=\"run-panel run-usage\""));
-        assertThat(activityPanel)
-                .contains("Runtime log, oldest first · last 20 events",
-                        "href=\"/executions/" + execution.getId() + "/transcript\">Transcript</a>",
-                        "href=\"/audit?executionId=" + execution.getId() + "\">Audit events</a>",
-                        "aria-label=\"Runtime activity, oldest first\"", "Running mvn test")
-                .containsPattern("<time title=\"\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\">\\d{2}:\\d{2}:\\d{2}</time>")
-                // One row per tool call, and its duration says "took".
-                .contains("<span>Read Foo.java · took 6 ms</span>")
-                .doesNotContain("newest first", ">full log<", "Reading Foo.java", "completed in");
-        // Technical details start closed.
-        assertThat(body).contains("<details class=\"tech-details disclosure\">")
-                .doesNotContain("<details class=\"tech-details disclosure\" open");
-        assertThat(body).contains("MODSIDECAR-196", "17 tests executed", "mvn test", "DELIVERY_BLOCKED",
-                "Safe destination missing", "class=\"task-key\">MODSIDECAR-196</span>",
-                "auditTrail.length,artifacts.length", "Prepare task", "Implement changes", "Verify changes",
-                "Create pull request", "Technical details", "Prepare task checkout", "Starting build output",
-                "Compiling 42 source files", "transfer failed", "Artifacts", "Execution history",
-                "Full audit log", "Now · updates live");
-        assertThat(body).containsOnlyOnce("class=\"run-stages\"")
-                .contains("Engine steps", "Implementation", "Waiting")
-                .doesNotContain("class=\"developer-runtime-facts\"", "Coding runtime-reported cost", "Cost evidence", "class=\"stepper\"",
-                        "SOURCE_CONTENT_SENTINEL", "HIDDEN_MESSAGE_SENTINEL",
-                        "HIDDEN_REASONING_SENTINEL", ">Baseline<",
-                        "Baseline output tail", "Pinned base SHA", "Run starting build and Pi");
+        String activity = body.substring(body.indexOf("<section class=\"dev-list run-activity\""),
+                body.indexOf("<section class=\"dev-list run-usage\""));
+        assertThat(activity)
+                .contains("Activity <span class=\"dev-count\">3</span>",
+                        "href=\"/executions/" + execution.getId() + "/transcript\">Full transcript</a>")
+                .containsPattern("data-tone=\"live\">\\s*<time title=\"\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\">"
+                        + "\\d{2}:\\d{2}:\\d{2}</time>\\s*<span class=\"activity-verb\">Running</span>\\s*"
+                        + "<code class=\"activity-target\" title=\"mvn test\">mvn test</code>\\s*"
+                        + "<span class=\"activity-result\">running now</span>")
+                .containsPattern("<span class=\"activity-verb\">Read</span>\\s*<code class=\"activity-target\""
+                        + " title=\"/workspace/src/Foo.java\">/workspace/src/Foo.java</code>\\s*"
+                        + "<span class=\"activity-result\">took 6 ms</span>")
+                .containsPattern("data-tone=\"failed\">[\\s\\S]*?<span class=\"activity-verb\">Ran</span>\\s*"
+                        + "<code class=\"activity-target\" title=\"cat &gt; Notes.java &lt;&lt;&#39;EOF&#39;\">"
+                        + "cat &gt; Notes.java &lt;&lt;&#39;EOF&#39;</code>\\s*<span class=\"activity-result\">failed · exit 2</span>")
+                .doesNotContain("Runtime log, oldest first", "Audit events", "Reading", "data-earlier");
+        // The usage column and the technical details: closed, the checks that ran, the starting build output.
+        assertThat(body).containsPattern("<details class=\"disclosure\">\\s*<summary>Technical details</summary>")
+                .doesNotContain("<details class=\"disclosure\" open")
+                .contains("MODSIDECAR-196", "<code>mvn test</code> · exit code 0", "1 · Prepare task",
+                        "2 · Implement changes", "3 · Verify changes", "4 · Create pull request",
+                        "<summary>Starting build output</summary>", "Compiling 42 source files", "transfer failed",
+                        "<summary>Artifacts (4)</summary>", ">Audit log</a>", "No usage reported yet.");
+        assertThat(body).doesNotContain("SOURCE_CONTENT_SENTINEL", "HIDDEN_MESSAGE_SENTINEL",
+                "HIDDEN_REASONING_SENTINEL", "HIDDEN_HEREDOC_SENTINEL", "HIDDEN_STDERR_SENTINEL", "run-stages",
+                "Engine steps", "Execution history", "Now · updates live", "class=\"task-key\"", "class=\"stepper\"",
+                "DELIVERY_BLOCKED", "BASELINE_FAILED", "CANDIDATE_UNVERIFIED", "Prepare task checkout", "Pinned base SHA");
+        assertThat(visibleText(body.substring(body.indexOf("<div class=\"dev-page\""))))
+                .doesNotContainIgnoringCase("execution").doesNotContainIgnoringCase("engine");
+
+        execution = executions.findById(execution.getId()).orElseThrow();
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        executions.save(execution);
+        assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
+                .contains("class=\"chip chip-danger\">Failed</span>", "Safe destination missing")
+                .doesNotContain("running now", "DELIVERY_BLOCKED");
     }
 
     @Test
@@ -572,7 +618,9 @@ class UiRenderSmokeTest {
 
         String body = assertRendered("/executions/" + execution.getId() + "/transcript", "Transcript");
         assertThat(body)
-                .contains("Run 1 · Implementation", "Started 2026-10-27 09:15:30 UTC",
+                .contains("<title>Transcript — AI FOLIO</title>", "/ Transcript</nav>",
+                        ">run " + execution.getId().toString().substring(0, 4) + "…</a>",
+                        "<details class=\"disclosure\">", "Run 1 · Implementation", "Started 2026-10-27 09:15:30 UTC",
                         "<summary>Prompt sent to the agent</summary>", "Implement MODBAR-1 &lt;now&gt;",
                         "I will run the tests", "<strong>Bash</strong>", "failed", "3 s",
                         "{ &quot;command&quot; : &quot;mvn test&quot; }", "BUILD FAILURE",
@@ -581,7 +629,7 @@ class UiRenderSmokeTest {
                         "Transcript cut at 5 MB; the attempt went on.",
                         "<time title=\"2026-10-27 09:15:32\">09:15:32</time>",
                         "href=\"/executions/" + execution.getId() + "\"")
-                .doesNotContain("<details open", "HIDDEN_REASONING_SENTINEL", "<now>");
+                .doesNotContain("<details open", "HIDDEN_REASONING_SENTINEL", "<now>", "run-panel");
 
         var empty = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
         assertThat(assertRendered("/executions/" + empty.getId() + "/transcript", "Transcript"))
@@ -634,8 +682,17 @@ class UiRenderSmokeTest {
         // The attempt chip keeps the reason and what to do in its title.
         assertThat(task.substring(task.indexOf("id=\"attempts-title\"")))
                 .contains("title=\"" + expected + "\">Failed</span>");
-        assertThat(assertRendered("/executions/" + execution.getId(), "Developer Flow"))
-                .contains("Stop reason: " + turnLimit);
+        // The run page says it in the same words, and links back to its task and attempt.
+        String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
+        assertThat(run)
+                .contains("<title>MODBAR-781 · attempt 1 — AI FOLIO</title>",
+                        "href=\"/tasks/" + stopped.getId() + "\">MODBAR-781</a>", "<span>Attempt 1</span>",
+                        "<p class=\"status-card-headline\">Attempt 1 failed</p>")
+                .containsPattern("<div class=\"status-card-main\">\\s*<span class=\"chip chip-danger\">Failed</span>")
+                .containsPattern("<span class=\"status-card-label\">Reason</span>\\s*<span>" + Pattern.quote(expected)
+                        + "</span>")
+                .containsPattern("<p class=\"status-card-note\">\\s*No pull request was created.</p>")
+                .doesNotContain("Stop reason", "DEVELOPMENT_FAILED", "Implementation failed");
     }
 
     @Test
@@ -648,31 +705,21 @@ class UiRenderSmokeTest {
                 Map.of("activity", "pi_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
                         "cacheWriteTokens", 0, "outputTokens", 10_000, "costUsd", 0));
 
-        String body = assertRendered("/executions/" + execution.getId(), "<summary>Pricing</summary>");
-        String currentPanel = body.substring(body.indexOf("<section class=\"run-panel run-activity\""),
-                body.indexOf("<section class=\"run-panel run-usage\""));
-        String usagePanel = body.substring(body.indexOf("<section class=\"run-panel run-usage\""),
-                body.indexOf("<details class=\"tech-details disclosure\">"));
-        assertThat(currentPanel).doesNotContain("run-facts", "<dt>Model</dt>", "<dt>Provider</dt>",
-                "<dt>Runtime</dt>", "<dt>Image</dt>");
-        assertThat(usagePanel).contains("Runtime and usage", "<dt>Model</dt>", ">glm-5.3-flash</dd>",
-                        "<dt>Provider</dt>", ">test-provider</dd>", "<dt>Runtime</dt>", ">pi</dd>",
-                        "<dt>Image</dt>", ">factory-dev-pi:0.85.1-java21</code>",
-                        "tokens so far", "Input (uncached)", "Cache read",
-                        "Cache write", "Output", ">Estimated cost</dt>", "$0.02")
-                .doesNotContain("Configured rate card ·", "Actual provider or proxy charges may differ");
-        assertThat(body)
-                .containsOnlyOnce("<dt>Model</dt>").containsOnlyOnce("<dt>Provider</dt>")
-                .containsOnlyOnce("<dt>Runtime</dt>").containsOnlyOnce("<dt>Image</dt>")
-                .contains("$0.02 so far", "2026-09-19",
-                        "href=\"https://docs.z.ai/guides/overview/pricing\"",
-                        ">https://docs.z.ai/guides/overview/pricing</a>",
-                        "Rate-card estimate;")
-                .doesNotContain("Coding runtime-reported cost", "<dt>Coding runtime</dt>", "<dt>Coding image</dt>");
+        String body = assertRendered("/executions/" + execution.getId(), "<dt>Pricing</dt>");
+        assertThat(usageColumn(body)).contains("<h2 class=\"dev-section-title\" id=\"usage-title\">Usage</h2>",
+                        "<dt>Input</dt>", "<dt>Cache read</dt>", "<dt>Cache write</dt>", "<dt>Output</dt>",
+                        "<dt>Total tokens</dt>", ">Estimated cost</dt>", "$0.02")
+                .doesNotContain("<dt>Model</dt>", "<dt>Provider</dt>", "<dt>Runtime</dt>", "<dt>Image</dt>");
+        // Model and effort are in the header; provider, runtime and image are not on the page.
+        assertThat(body).contains("<span>glm-5.3-flash</span>", "2026-09-19", "docs.z.ai",
+                        "Real provider charges may differ.")
+                .containsPattern("<span class=\"status-card-money\">\\$0.02</span>\\s*"
+                        + "<span class=\"status-card-note\">so far</span>")
+                .doesNotContain("test-provider", "factory-dev-pi", "Runtime and usage", "Coding runtime-reported cost");
     }
 
     @Test
-    void developerExecutionShowsConfiguredModelAcrossStagesAndActivityInLeftPanel() {
+    void developerExecutionShowsTheConfiguredModelAcrossStepsAndTheRunningBuild() {
         var execution = executions.save(new PipelineExecution("dev-factory", "0.8.0", "{}"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "read-task",
                 Map.of("activity", "coding_configured", "model", "planned-model", "provider", "test-provider",
@@ -684,18 +731,20 @@ class UiRenderSmokeTest {
             execution.setStatus(ExecutionStatus.RUNNING);
             execution = executions.save(execution);
             String body = assertRendered("/executions/" + execution.getId(), "planned-model");
-            String currentPanel = body.substring(body.indexOf("<section class=\"run-panel run-activity\""),
-                    body.indexOf("<section class=\"run-panel run-usage\""));
-            assertThat(currentPanel).contains("class=\"run-log\"", "<span>Building the project</span>")
+            String activity = body.substring(body.indexOf("<section class=\"dev-list run-activity\""),
+                    body.indexOf("<section class=\"dev-list run-usage\""));
+            assertThat(activity).containsPattern("<span class=\"activity-verb\">Building</span>\\s*"
+                            + "<code class=\"activity-target\" title=\"the project\">the project</code>\\s*"
+                            + "<span class=\"activity-result\">running now</span>")
                     .doesNotContain("Starting build started");
-            assertThat(body).containsOnlyOnce("class=\"run-log\"")
-                    .contains("No token usage reported yet.", ">coding-image</code>")
-                    .doesNotContain("Latest reported activity", "Recent meaningful activity", "coding configured");
+            assertThat(body).containsOnlyOnce("id=\"activity-title\"")
+                    .contains("<span>planned-model</span>", "No usage reported yet.")
+                    .doesNotContain("coding-image", "test-provider", "coding configured");
         }
     }
 
     @Test
-    void developerExecutionShowsTheModelEffortAndMaxTurns() {
+    void developerExecutionShowsTheModelAndEffortInTheHeader() {
         var execution = executions.save(new PipelineExecution("dev-factory", "0.9.0", "{}"));
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "coding_starting", "runtime", "claude-code", "provider", "anthropic-messages",
@@ -708,36 +757,40 @@ class UiRenderSmokeTest {
                         "profile", "glm-5.3", "profileLabel", "GLM-5.3 (Z.ai)", "model", "glm-5.3",
                         "effort", "max", "maxTurns", 100));
 
-        assertThat(usagePanel(assertRendered("/executions/" + execution.getId(), "Runtime and usage")))
-                .containsSubsequence("<dt>Model</dt>", ">codemie-sonnet-5.5<", "<dt>Model ID</dt>",
-                        ">claude-sonnet-5-5<", "<dt>Effort</dt>", ">high<", "<dt>Max turns</dt>", ">200<");
-        assertThat(usagePanel(assertRendered("/executions/" + legacy.getId(), "Runtime and usage")))
-                .containsSubsequence("<dt>Model</dt>", ">GLM-5.3 (Z.ai)<", "<dt>Model ID</dt>", ">glm-5.3<",
-                        "<dt>Effort</dt>", ">max<", "<dt>Max turns</dt>", ">100<");
+        assertThat(header(assertRendered("/executions/" + execution.getId(), "Developer Flow")))
+                .contains("<span>codemie-sonnet-5.5 · high</span>")
+                .doesNotContain("claude-sonnet-5-5", "Max turns", "200");
+        assertThat(header(assertRendered("/executions/" + legacy.getId(), "Developer Flow")))
+                .contains("<span>GLM-5.3 (Z.ai) · max</span>");
     }
 
-    private static String usagePanel(String body) {
-        return body.substring(body.indexOf("<section class=\"run-panel run-usage\""),
-                body.indexOf("<details class=\"tech-details disclosure\">"));
+    private static String usageColumn(String body) {
+        return body.substring(body.indexOf("<section class=\"dev-list run-usage\""),
+                body.indexOf("<div class=\"run-disclosures\">"));
+    }
+
+    private static String header(String body) {
+        return body.substring(body.indexOf("<div class=\"dev-heading\">"), body.indexOf("class=\"status-card\""));
+    }
+
+    /** The text a person reads: tags and their attributes left out. */
+    private static String visibleText(String html) {
+        return html.replaceAll("<script[\\s\\S]*?</script>", " ").replaceAll("<[^>]+>", " ");
     }
 
     @Test
-    void developerExecutionShowsPartialRuntimeIdentityBeforeUsage() {
+    void developerExecutionShowsOnlyTheModelOfAPartialRuntimeIdentity() {
         var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
         for (String field : List.of("model", "provider", "runtime", "image")) {
             auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                     Map.of("activity", "coding_starting", field, "reported-" + field));
-            String body = assertRendered("/executions/" + execution.getId(), "Runtime and usage");
-            String usagePanel = body.substring(body.indexOf("<section class=\"run-panel run-usage\""),
-                    body.indexOf("<details class=\"tech-details disclosure\">"));
-            assertThat(usagePanel).contains("class=\"run-facts\"", ">reported-" + field + "<",
-                            "No token usage reported yet.")
-                    .doesNotContain("tokens so far", "Estimated cost");
-            for (String absent : List.of("model", "provider", "runtime", "image")) {
-                if (!absent.equals(field))
-                    assertThat(usagePanel).doesNotContain("<dt>" + Character.toUpperCase(absent.charAt(0))
-                            + absent.substring(1) + "</dt>");
-            }
+            String body = assertRendered("/executions/" + execution.getId(), "Usage");
+            assertThat(usageColumn(body)).contains("No usage reported yet.")
+                    .doesNotContain("Total tokens", "Estimated cost");
+            if (field.equals("model"))
+                assertThat(header(body)).contains("<span>reported-model</span>");
+            else
+                assertThat(body).doesNotContain("reported-" + field);
         }
     }
 
@@ -750,9 +803,10 @@ class UiRenderSmokeTest {
                 Map.of("activity", "coding_usage", "inputTokens", 100_000, "cacheReadTokens", 10_000,
                         "cacheWriteTokens", 0, "outputTokens", 10_000, "usageIncomplete", true));
 
-        String body = assertRendered("/executions/" + execution.getId(), "Runtime and usage");
-        assertThat(body).contains("Cost estimate unavailable: the runtime did not report enough usage for every response.")
-                .doesNotContain("<summary>Pricing</summary>", "No matching configured rate card.", ">Estimated cost</dt>");
+        String body = assertRendered("/executions/" + execution.getId(), "Usage");
+        assertThat(usageColumn(body)).contains("Some usage was not reported, so the real cost may be higher.")
+                .doesNotContain("No price is set", ">Estimated cost</dt>");
+        assertThat(body).doesNotContain("<dt>Pricing</dt>");
     }
 
     @Test
@@ -778,14 +832,15 @@ class UiRenderSmokeTest {
                 Map.of("inputTokens", 100_000, "cacheReadTokens", 200_000, "cacheWriteTokens", 0,
                         "outputTokens", 10_000, "provider", "test-provider", "model", "glm-5.3-flash"));
 
-        String body = assertRendered("/executions/" + execution.getId(), "Provider diagnostics");
-        assertThat(body).contains("Stop reason: Pi provider request failed: HTTP 429 (rate limited)",
-                        "310k", "$0.03", "Coding runtime retrying request (1/3) · HTTP 429 (rate limited)")
-                .doesNotContain("Coding runtime-reported cost");
+        String body = assertRendered("/executions/" + execution.getId(), "Activity");
+        assertThat(body).contains("<p class=\"status-card-headline\">This run failed</p>", "HTTP 429 (rate limited)",
+                        "310k", "$0.03", "Coding runtime retrying request (1/3) · HTTP 429 (rate limited)",
+                        "Provider request failed · HTTP 429 (rate limited)")
+                .doesNotContain("Provider diagnostics", "Coding runtime-reported cost", "PROVIDER_RETRIES_EXHAUSTED");
     }
 
     @Test
-    void developerAuditVolumeStaysBehindClosedDebugDisclosure() {
+    void developerAuditVolumeOfRowlessEventsLeavesActivityEmpty() {
         var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
         execution.setCurrentStepIndex(3);
         execution.setStatus(ExecutionStatus.RUNNING);
@@ -794,17 +849,33 @@ class UiRenderSmokeTest {
             auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                     Map.of("activity", "turn_start"));
 
-        String body = assertRendered("/executions/" + execution.getId(), "Execution history (0)");
+        String body = assertRendered("/executions/" + execution.getId(), "Technical details");
 
         assertThat(body)
-                .containsOnlyOnce("data-developer-history")
                 .containsOnlyOnce("id=\"activity-title\"")
-                .contains("No activity reported yet.", "Full audit log")
-                .doesNotContain("Raw audit history", "data-developer-history open");
+                .contains("Activity <span class=\"dev-count\">0</span>", "No activity reported yet.",
+                        "href=\"/audit?executionId=" + execution.getId() + "\">Audit log</a>")
+                .doesNotContain("Execution history", "data-developer-history", "Raw audit history");
     }
 
     @Test
-    void completedDeveloperExecutionsRenderProductOutcomeInHeaderAndList() {
+    void activityShowsTheNewestTwentyRowsAndKeepsTheRestBehindShowEarlier() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.9.0", "{}"));
+        for (int i = 1; i <= 25; i++)
+            auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
+                    Map.of("activity", "tool_execution_start", "tool", "Read", "path", "Foo" + i + ".java"));
+
+        String body = assertRendered("/executions/" + execution.getId(), "Activity");
+
+        assertThat(body).contains("Activity <span class=\"dev-count\">25</span>",
+                        "data-show-earlier>Show 5 earlier</button>")
+                .containsPattern("data-earlier=\"true\" hidden=\"hidden\">[\\s\\S]*?title=\"Foo5.java\"");
+        assertThat(body.split("data-earlier=\"true\"", -1)).hasSize(6);
+        assertThat(body.indexOf("title=\"Foo25.java\"")).isLessThan(body.indexOf("title=\"Foo1.java\""));
+    }
+
+    @Test
+    void completedDeveloperExecutionsRenderProductOutcomeInWordsAndInTheList() {
         for (String outcome : List.of("DEVELOPMENT_FAILED", "DELIVERED")) {
             var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
             execution.setCurrentStepIndex(6);
@@ -820,12 +891,13 @@ class UiRenderSmokeTest {
                 auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", Map.of());
             }
             String detail = assertRendered("/executions/" + execution.getId(), "Developer Flow");
-            assertThat(detail).contains("badge-status-" + outcome, ">" + outcome + "</span>",
-                            "<dt>Engine status</dt>", ">COMPLETED</dd>", "id=\"now-title\">Result</h2>")
-                    .doesNotContain("badge-status-COMPLETED");
+            var chip = outcome.equals("DELIVERED") ? "class=\"chip chip-success\">Finished</span>"
+                    : "class=\"chip chip-danger\">Failed</span>";
+            assertThat(detail).contains(chip)
+                    .doesNotContain("badge-status-", ">" + outcome + "<", ">COMPLETED<", "Engine status", "now-title");
             if (outcome.equals("DEVELOPMENT_FAILED"))
-                assertThat(detail).contains(">16</strong>", "<span>tokens</span>", "Input (uncached)",
-                                "Cache read", "Cache write", ">Output</dt>")
+                assertThat(usageColumn(detail)).containsSubsequence("<dt>Input</dt>", "<dt>Cache read</dt>",
+                                "<dt>Cache write</dt>", "<dt>Output</dt>", "<dt>Total tokens</dt><dd>16</dd>")
                         .doesNotContain("pi usage", "Coding runtime-reported cost");
             String list = assertRendered("/executions?flow=dev-factory", "Executions");
             assertThat(list).contains("badge-status-" + outcome, ">" + outcome + "</span>")
@@ -1524,9 +1596,11 @@ class UiRenderSmokeTest {
 
         String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(run)
-                .contains("class=\"chip chip-neutral\">Draft PR #8</span>", ">Draft PR #8</a>",
-                        "Draft pull request created")
-                .doesNotContain(">PR ready</span>", "Pull request created");
+                .contains("<a class=\"chip chip-neutral ext-link\" href=\"https://github.com/folio-org/mod-bar/pull/8\">"
+                        + "Draft PR #8</a>", "<p class=\"status-card-headline\">Pull request #8 is open as a draft</p>")
+                .containsPattern("data-state=\"done\">\\s*<span class=\"run-step-title\">4 · Create pull request</span>"
+                        + "\\s*<span class=\"run-step-state\"><span>Passed</span> · <span>draft</span>")
+                .doesNotContain(">PR ready</span>", "is ready for review");
     }
 
     @Test
@@ -1590,13 +1664,22 @@ class UiRenderSmokeTest {
         attempt.setExecutionId(execution.getId());
         taskAttempts.save(attempt);
 
-        String body = assertRendered("/executions/" + execution.getId(), "Now · updates live");
-        assertThat(body)
+        String body = assertRendered("/executions/" + execution.getId(), "Activity");
+        assertThat(header(body))
                 .contains(">Running task</h1>", "href=\"/flows/dev-factory\">Developer Flow</a>",
-                        "href=\"/tasks/" + task.getId() + "\">MODBAR-771</a>",
-                        "href=\"https://jira.example.org/browse/MODBAR-771\"",
-                        "class=\"chip chip-info\">In progress</span>", "Runtime and usage", "Engine steps")
-                .doesNotContain("badge-status-RUNNING");
+                        "href=\"/tasks/" + task.getId() + "\">MODBAR-771</a>", "<span>Attempt 1</span>",
+                        "<a class=\"key-link ext-link\" href=\"https://jira.example.org/browse/MODBAR-771\">MODBAR-771</a>")
+                .doesNotContain("chip");
+        assertThat(body)
+                .contains("<title>MODBAR-771 · attempt 1 — AI FOLIO</title>", "class=\"chip chip-info\">In progress</span>",
+                        "data-poll-url=\"/executions/" + execution.getId() + "/poll\"",
+                        "<p class=\"dev-poll-notice\" role=\"status\" data-poll-notice hidden>")
+                .containsPattern("href=\"/flows\"[^>]*aria-current=\"page\"")
+                .doesNotContain("badge-status-RUNNING", "Engine steps", "Runtime and usage", "Now · updates live");
+        // While it works, the time ticks and is measured against the attempt time limit.
+        assertThat(body.substring(body.indexOf("class=\"status-card-side\"")))
+                .containsPattern("<span class=\"status-card-money\" data-elapsed-start=\"[^\"]+\">\\d+ s</span>\\s*"
+                        + "<span class=\"status-card-note\">of 60</span>");
     }
 
     private String assertRendered(String path, String marker) {

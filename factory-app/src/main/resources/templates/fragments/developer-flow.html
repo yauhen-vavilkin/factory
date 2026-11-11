@@ -54,67 +54,46 @@
 </div>
 
 
-<!-- Activity and Runtime and usage of a run; the run page closes them in a disclosure once the run has a PR. -->
-    <div class="run-panels" th:fragment="runPanels">
-        <section class="run-panel run-activity" aria-labelledby="activity-title">
-            <div class="run-panel-head">
-                <h2 class="dev-section-title" id="activity-title">Activity</h2>
-                <span>Runtime log, oldest first · last 20 events · <a
-                        th:href="@{'/executions/' + ${execution.id} + '/transcript'}">Transcript</a> · <a
-                        th:href="@{/audit(executionId=${execution.id})}">Audit events</a></span>
+<!-- Activity and Usage of a run; the run page closes them in a disclosure once the run has a PR. -->
+    <div class="run-columns" th:fragment="runColumns(activity, usage, transcriptUrl)">
+        <section class="dev-list run-activity" aria-labelledby="activity-title">
+            <div class="dev-list-head">
+                <h2 class="dev-section-title" id="activity-title">Activity <span class="dev-count"
+                        th:text="${activity.total()}">0</span></h2>
+                <a class="dev-list-tools" th:href="${transcriptUrl}">Full transcript</a>
             </div>
-            <p class="run-log-empty" th:if="${#lists.isEmpty(developer['activity'])}">No activity reported yet.</p>
-            <div class="run-log" tabindex="0" role="region" aria-label="Runtime activity, oldest first"
-                 th:unless="${#lists.isEmpty(developer['activity'])}">
-                <ol>
-                    <li th:each="activity : ${developer['activity']}">
-                        <time th:title="${activity['timeTitle']}" th:text="${activity['time']}">00:00:00</time>
-                        <span th:text="${activity['text']}">activity</span>
-                    </li>
-                </ol>
+            <p class="dev-empty" th:if="${#lists.isEmpty(activity.rows())}">No activity reported yet.</p>
+            <div class="activity-row" th:each="row, state : ${activity.rows()}"
+                 th:attr="data-tone=${row.toneName()}, data-earlier=${activity.hiddenAt(state.index)} ? 'true' : null"
+                 th:hidden="${activity.hiddenAt(state.index)}">
+                <time th:title="${row.timeTitle()}" th:text="${row.time()}">17:53:12</time>
+                <span class="activity-verb" th:text="${row.verb()}">Ran</span>
+                <code class="activity-target" th:if="${row.code()}" th:title="${row.target()}"
+                      th:text="${row.target()}">mvn test</code>
+                <span class="activity-target" th:unless="${row.code()}" th:title="${row.target()}"
+                      th:text="${row.target()}">Coding agent started</span>
+                <span class="activity-result" th:text="${row.result()}">took 9 ms</span>
             </div>
-            <p class="run-log-empty" th:if="${!#strings.isEmpty(developer['activityNotice'])}"
-               th:text="${developer['activityNotice']}"></p>
+            <div class="dev-list-foot" th:if="${activity.earlier() > 0}">
+                <button type="button" class="btn btn-secondary btn-sm" data-show-earlier
+                        th:text="'Show ' + ${activity.earlier()} + ' earlier'">Show 35 earlier</button>
+            </div>
+            <p class="dev-note" th:if="${activity.notice() != null}" th:text="${activity.notice()}">notice</p>
         </section>
-
-        <section class="run-panel run-usage" aria-labelledby="usage-title">
-            <div class="run-panel-head">
-                <h2 class="dev-section-title" id="usage-title">Runtime and usage</h2>
+        <section class="dev-list run-usage" aria-labelledby="usage-title">
+            <div class="dev-list-head">
+                <h2 class="dev-section-title" id="usage-title" th:text="${usage.title()}">Usage</h2>
             </div>
-            <div class="run-usage-body">
-                <dl class="run-facts" th:unless="${#lists.isEmpty(developer['runtimeFields'])}">
-                    <th:block th:each="field : ${developer['runtimeFields']}">
-                        <dt th:text="${field['label']}">Model</dt>
-                        <dd th:if="${field['label'] == 'Image'}"><code th:text="${field['value']}">image</code></dd>
-                        <dd th:unless="${field['label'] == 'Image'}" th:text="${field['value']}">value</dd>
-                    </th:block>
-                </dl>
-                <div class="run-tokens" th:if="${tokenTotals['present']}">
-                    <strong th:text="${tokenTotals['total']}">0</strong>
-                    <span th:text="${pollUrl != null} ? 'tokens so far' : 'tokens'">tokens</span>
-                </div>
-                <p class="muted" th:unless="${tokenTotals['present']}">No token usage reported yet.</p>
-                <dl class="usage-figures" th:if="${tokenTotals['present'] or initialUsage != null or estimatedCost != null}">
-                    <th:block th:if="${tokenTotals['present'] and tokenTotals['coding'] == true}">
-                        <th:block th:each="category : ${tokenCategories}" th:if="${tokenTotals[category.key] != null}"><dt
-                                th:text="${category.value}">Input</dt><dd th:text="${tokenTotals[category.key]}"></dd></th:block>
-                    </th:block>
-                    <th:block th:if="${tokenTotals['present'] and tokenTotals['coding'] != true}">
-                        <dt>Prompt</dt><dd th:text="${tokenTotals['prompt']}"></dd>
-                        <dt>Completion</dt><dd th:text="${tokenTotals['completion']}"></dd>
-                    </th:block>
-                    <th:block th:if="${initialUsage != null}">
-                        <dt class="usage-total">Estimated cost</dt><dd class="usage-total" th:text="${initialUsage['cost']}"></dd>
-                    </th:block>
-                    <th:block th:if="${initialUsage == null and estimatedCost != null}">
-                        <dt class="usage-total">Estimated cost</dt>
-                        <dd class="usage-total" th:text="${estimatedCost.label()}"></dd>
-                    </th:block>
-                </dl>
-                <p class="dev-note" th:if="${attemptUsage == null and tokenTotals['present'] and estimatedCost == null and usageIncomplete}">Cost estimate unavailable: the runtime did not report enough usage for every response.</p>
-                <p class="dev-note" th:if="${attemptUsage == null and tokenTotals['present'] and estimatedCost == null and !usageIncomplete}">No matching configured rate card.</p>
-                <p class="dev-note" th:if="${attemptUsage != null and attemptUsage['partial']}">Totals include reported usage and available rates; some attempts have incomplete data.</p>
-            </div>
+            <p class="dev-empty" th:unless="${usage.reported()}">No usage reported yet.</p>
+            <dl class="usage-figures" th:if="${usage.reported()}">
+                <th:block th:each="figure : ${usage.figures()}"><dt th:text="${figure.label()}">Input</dt><dd
+                        th:text="${figure.value()}">0</dd></th:block>
+                <th:block th:if="${usage.total() != null}"><dt>Total tokens</dt><dd
+                        th:text="${usage.total()}">0</dd></th:block>
+                <th:block th:if="${usage.cost() != null}"><dt class="usage-total">Estimated cost</dt><dd
+                        class="usage-total" th:text="${usage.cost()}">$0.00</dd></th:block>
+            </dl>
+            <p class="dev-note" th:if="${usage.note() != null}" th:text="${usage.note()}">note</p>
         </section>
     </div>
 </body>

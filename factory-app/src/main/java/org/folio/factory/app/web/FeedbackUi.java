@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 
@@ -28,43 +29,38 @@ public class FeedbackUi {
 
     private final FeedbackActions actions;
 
-    public void populate(
-            PipelineExecution execution,
-            List<Artifact> artifacts,
-            List<AuditEvent> events,
-            Model model) {
-        var projection = new AttemptUsageSummary.Projection(events);
-        if (!VERSION.equals(execution.getFlowVersion())) return;
-
-        boolean live = execution.getStatus() == ExecutionStatus.RUNNING;
-        populateUsage(projection, live, model);
-        if (artifacts.stream().noneMatch(artifact -> artifact.getName().equals(STATE))) return;
+    /**
+     * Puts the PR feedback part of the run page into the model; empty when the run has no PR feedback, so the
+     * page shows no such part.
+     */
+    public Optional<Summary> populate(PipelineExecution execution, List<Artifact> artifacts, List<AuditEvent> events,
+                                      AttemptUsageSummary.Projection projection, Model model) {
+        if (!VERSION.equals(execution.getFlowVersion())
+                || artifacts.stream().noneMatch(artifact -> artifact.getName().equals(STATE))) {
+            return Optional.empty();
+        }
         var view = actions.view(execution.getId());
-        if (view.state().phase() == FeedbackState.Phase.SKIPPED) return;
-
+        var phase = view.state().phase();
+        if (phase == FeedbackState.Phase.SKIPPED) {
+            return Optional.empty();
+        }
+        boolean live = execution.getStatus() == ExecutionStatus.RUNNING;
         var history = History.from(artifacts);
         var data = feedbackControls(view);
+        var rounds = FeedbackRows.rounds(history.rounds(),
+                new FeedbackRows.RoundFacts(projection, live, FeedbackRows.commentUrls(events)));
         data.put("comments", FeedbackRows.newComments(view.snapshot(), history.processed()));
-        data.put("rounds", FeedbackRows.rounds(history.rounds(),
-                new FeedbackRows.RoundFacts(projection, live, FeedbackRows.commentUrls(events))));
+        data.put("rounds", rounds);
         model.addAttribute("feedback", data);
+        return Optional.of(new Summary(String.valueOf(data.get("phase")), phase == FeedbackState.Phase.READY,
+                !rounds.isEmpty()));
     }
 
-    private static void populateUsage(
-            AttemptUsageSummary.Projection projection, boolean live, Model model) {
-        var initial = projection.summary(-1, live);
-        model.addAttribute("attemptUsage", projection.summary(null, live));
-        model.addAttribute("initialUsage", initial);
-        var totals = new LinkedHashMap<String, Object>();
-        totals.put("present", initial.get("present"));
-        totals.put("coding", true);
-        totals.put("total", initial.get("tokensDisplay"));
-        ((Map<?, ?>) initial.get("breakdown")).forEach(
-                (category, count) -> totals.put(
-                        category.toString(), UiFormat.count(((Number) count).longValue())));
-        model.addAttribute("tokenTotals", totals);
-        model.addAttribute("estimatedCost", null);
-        model.addAttribute("usageIncomplete", initial.get("partial"));
+    /**
+     * What the status card says about PR feedback: the phase in words, whether it waits for new comments (the card
+     * then names the pull request), and whether rounds ran, so the amount is the total.
+     */
+    public record Summary(String headline, boolean waiting, boolean rounds) {
     }
 
     private static Map<String, Object> feedbackControls(FeedbackActions.View view) {

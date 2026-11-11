@@ -73,14 +73,15 @@
     });
   });
 
-  // A reload must not drop what the developer is doing: a selection, a picked model or effort, a half-typed key
-  // or text typed for the agent.
+  // A reload must not drop what the developer is doing: a selection, a PR comment left out, a picked model or
+  // effort, a half-typed key or text typed for the agent.
   function applyUpdate() {
     var notice = document.querySelector('[data-poll-notice]');
     var typedKey = document.querySelector('input[name="key"]');
     var typedText = Array.prototype.some.call(document.querySelectorAll('textarea'),
       function (textarea) { return textarea.value.trim(); });
     var busy = document.querySelector('input[name="taskId"]:checked') || document.querySelector('[data-effort-picked]')
+      || document.querySelector('input[name="selectedIds"]:not(:checked)')
       || document.querySelector('[data-model-picked]') || (typedKey && typedKey.value.trim()) || typedText;
     if (notice && busy) {
       notice.hidden = false;

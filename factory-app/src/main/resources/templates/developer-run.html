@@ -1,210 +1,146 @@
 <!DOCTYPE html>
-<html th:replace="~{fragments/layout :: page(title='Execution', activeNav='executions', content=~{:: .dev-page}, scripts=~{})}"
+<html th:replace="~{fragments/layout :: page(title=${run.header().pageTitle()}, activeNav='flows', content=~{:: .dev-page}, scripts=~{})}"
       xmlns:th="http://www.thymeleaf.org" lang="en">
 <body>
-<div class="dev-page"
-     th:with="live=${developer['livePhase']}, repo=${developer['repository']}"
-     th:attr="data-poll-url=${pollUrl},
-              data-poll-fields=${pollUrl != null} ? 'execution.status,execution.currentStepIndex,auditTrail.length,artifacts.length' : null,
-              data-poll-baseline=${pollUrl != null} ? (${execution.status} + ',' + ${execution.currentStepIndex} + ',' + ${auditCount} + ',' + ${artifactCount}) : null">
+<div class="dev-page" data-poll-fields="revision"
+     th:attr="data-poll-url=${pollUrl}, data-poll-baseline=${pollBaseline}"
+     th:with="header=${run.header()}, status=${run.status()}, standing=${run.standing()}">
     <div class="dev-heading">
         <nav class="dev-breadcrumb" aria-label="Breadcrumb"><a th:href="@{/flows/dev-factory}">Developer Flow</a>
-            /
-            <a th:if="${taskRun != null}" th:href="@{'/tasks/' + ${taskRun.taskId()}}" th:text="${taskRun.key()}">KEY-1</a><span
-                    th:if="${taskRun == null}" th:text="${#strings.isEmpty(developer['taskKey'])} ? 'Task' : ${developer['taskKey']}">KEY-1</span>
-            / <span th:text="'run ' + ${#strings.substring(execution.id.toString(), 0, 4)} + '…'">run</span></nav>
-        <h1 class="dev-title" th:text="${taskRun != null ? taskRun.title() : developer['summary']}">Developer task</h1>
-        <div class="dev-meta">
-            <a class="task-key" th:if="${taskRun != null}" th:href="${taskRun.jiraUrl()}" th:text="${taskRun.key()}">KEY-1</a>
-            <span class="task-key" th:if="${taskRun == null and !#strings.isEmpty(developer['taskKey'])}"
-                  th:text="${developer['taskKey']}">KEY-1</span>
-            <span th:if="${taskRun != null}" th:class="${taskRun.chipClass()}" th:text="${taskRun.chipLabel()}">State</span>
-            <th:block th:if="${taskRun == null}">
-                <span th:replace="~{fragments/components :: statusBadge(${displayStatus})}"></span>
-            </th:block>
-            <span th:if="${!#strings.isEmpty(repo)}"
-                  th:text="'→ ' + (${#strings.contains(repo, '/')} ? ${#strings.substringAfter(repo, '/')} : ${repo})">→ repository</span>
+            <th:block th:if="${header.key() != null}">/ <a th:if="${header.taskId() != null}"
+                    th:href="@{'/tasks/' + ${header.taskId()}}" th:text="${header.key()}">KEY-1</a><span
+                    th:if="${header.taskId() == null}" th:text="${header.key()}">KEY-1</span></th:block>
+            / <span th:text="${header.crumb()}">Attempt 1</span></nav>
+        <h1 class="dev-title" th:text="${header.title()}">Task</h1>
+        <div class="dev-meta dev-meta-dots">
+            <a class="key-link ext-link" th:if="${header.jiraUrl() != null}" th:href="${header.jiraUrl()}"
+               th:text="${header.key()}">KEY-1</a>
+            <span th:if="${header.repository() != null}" th:text="${header.repository()}">repository</span>
+            <span th:if="${header.settings() != null}" th:text="${header.settings()}">model · effort</span>
         </div>
     </div>
 
-    <section class="result-card" aria-labelledby="now-title">
-        <div class="result-head">
-            <h2 class="dev-label-title run-now-title" id="now-title"><th:block th:if="${pollUrl != null}"><span
-                    class="run-live-dot" aria-hidden="true"></span>Now · updates live</th:block><th:block
-                    th:if="${pollUrl == null}">Result</th:block></h2>
-            <p class="result-sentence">
-                <th:block th:if="${feedback != null}" th:text="${feedback['phase']}"></th:block>
-                <th:block th:if="${feedback == null and live != null}"><span th:text="${live['label']}">Stage</span>
-                    · <span th:attr="data-elapsed-start=${live['elapsedStart']}" th:text="${live['sublabel']}">0s</span></th:block>
-                <th:block th:if="${feedback == null and live == null and !#strings.isEmpty(developer['reason'])}"
-                          th:text="${developer['reasonLabel']} + ': ' + ${developer['reason']}"></th:block>
-                <th:block th:if="${feedback == null and live == null and #strings.isEmpty(developer['reason'])}"
-                          th:text="${#strings.isEmpty(developer['pullRequestUrl'])} ? ${developer['currentPhase']} : (${developer['pullRequestDraft']} ? 'Draft pull request created' : 'Pull request created')"></th:block>
-            </p>
-            <p class="source-card-problem" th:if="${(feedback != null or live != null) and !#strings.isEmpty(developer['reason'])}"
-               th:text="${developer['reasonLabel']} + ': ' + ${developer['reason']}"></p>
+    <p class="dev-poll-notice" role="status" data-poll-notice hidden>This run changed. Copy what you typed or
+        selected, then reload the page to see the change.</p>
+
+    <section class="status-card" aria-label="Status">
+        <div class="status-card-main">
+            <a th:if="${status.chipUrl() != null}" th:class="${status.chipClass()} + ' ext-link'" th:href="${status.chipUrl()}" th:text="${status.chipLabel()}">Draft PR #6</a>
+            <span th:if="${status.chipUrl() == null}" th:class="${status.chipClass()}"
+                  th:text="${status.chipLabel()}">In progress</span>
+            <div class="status-card-body">
+                <p class="status-card-headline" th:text="${status.headline()}">Implementing changes</p>
+                <p class="status-card-reason" th:if="${status.reason() != null}"><span class="status-card-label" th:text="${status.reasonLabel()}">Reason</span>
+                    <span th:text="${status.reason()}">Why the attempt failed.</span></p>
+                <p class="status-card-reason" th:if="${status.question() != null}" th:text="${status.question()}">
+                    The agent's question.</p>
+                <p class="status-card-note" th:if="${status.note() != null}" th:text="${status.note()}">
+                    No pull request was created.</p>
+            </div>
         </div>
-        <div class="result-chips">
-            <th:block th:with="cost=${attemptUsage != null ? attemptUsage['cost'] : (estimatedCost != null ? estimatedCost.label() : null)}">
-                <span th:if="${cost != null}" th:text="${cost} + (${pollUrl != null} ? ' so far' : ' total')">$0.00</span>
-            </th:block>
-            <span><span th:attr="data-elapsed-start=${factoryTimeStart}" th:text="${factoryTime}">0s</span> active</span>
-            <span th:if="${#strings.isEmpty(developer['pullRequestUrl'])}">PR not created yet</span>
-            <a class="chip chip-neutral ext-link" th:unless="${#strings.isEmpty(developer['pullRequestUrl'])}" th:href="${developer['pullRequestUrl']}"
-               th:text="(${developer['pullRequestDraft']} ? 'Draft PR' : 'PR') + (${#strings.contains(developer['pullRequestUrl'], '/pull/')} ? ' #' + ${#strings.substringAfter(developer['pullRequestUrl'], '/pull/')} : '')">PR</a>
-        </div>
-        <div class="result-actions" th:if="${pendingReview != null and feedback == null}">
-            <a class="btn btn-primary btn-md btn-roomy" th:href="@{'/reviews/' + ${pendingReview.id}}">Open review</a>
+        <div class="status-card-side">
+            <span th:if="${status.amount() != null}"><span class="status-card-money" th:title="${status.amountTitle()}"
+                    th:text="${status.amount()}">$0.23</span>
+                <span class="status-card-note" th:if="${status.amountNote() != null}"
+                      th:text="${status.amountNote()}">so far</span></span>
+            <span><span class="status-card-money" th:attr="data-elapsed-start=${status.timeStart()}"
+                    th:text="${status.time()}">5 min</span>
+                <span class="status-card-note" th:if="${status.timeLimit() != null}"
+                      th:text="${status.timeLimit()}">of 60</span></span>
+            <a class="btn btn-primary btn-sm" th:if="${status.actionUrl() != null}" th:href="${status.actionUrl()}"
+               th:text="${status.actionLabel()}">Answer on the task page</a>
         </div>
     </section>
 
-    <ol class="run-stages" aria-label="Attempt stages">
-        <li th:each="phase, phaseStat : ${developer['phases']}" th:attr="data-state=${phase['state']}">
-            <span class="run-stage-marker" aria-hidden="true" th:text="${phaseStat.count}">1</span>
-            <span class="run-stage-copy">
-                <strong th:text="${phase['label']}">Stage</strong>
-                <span th:if="${phase['state'] == 'pending'}" th:text="${phase['stateLabel']}">Waiting</span>
-                <span th:unless="${phase['state'] == 'pending'}"><strong th:text="${phase['stateLabel']}">Passed</strong>
-                    · <span th:attr="data-elapsed-start=${phase['elapsedStart']}" th:text="${phase['sublabel']}">0s</span></span>
-            </span>
+    <div class="run-standing" th:if="${standing != null}">
+        <p th:if="${standing.lead() != null}"><th:block th:text="${standing.lead()}">Attempt 1 of 3. Latest: </th:block><a
+                th:if="${standing.latestUrl() != null}" th:href="${standing.latestUrl()}"
+                th:text="${standing.latestText()}">attempt 3</a><th:block th:if="${standing.latestUrl() == null}"
+                th:text="${standing.latestText()}">attempt 3</th:block><th:block
+                th:text="${standing.tail()}">, Draft PR #14.</th:block></p>
+        <a class="btn btn-secondary btn-sm" th:if="${standing.retryUrl() != null}" th:href="${standing.retryUrl()}"
+           th:text="${standing.retryLabel()}">Start attempt 2</a>
+    </div>
+
+    <ol class="run-steps" aria-label="Steps">
+        <li class="run-step" th:each="step : ${run.steps()}" th:attr="data-state=${step.tone()}">
+            <span class="run-step-title" th:text="${step.title()}">1 · Prepare task</span>
+            <span class="run-step-state"><span th:text="${step.stateLabel()}">Passed</span><th:block
+                    th:if="${step.detail() != null}"> · <span th:attr="data-elapsed-start=${step.elapsedStart()}"
+                    th:text="${step.detail()}">2 s</span></th:block></span>
         </li>
     </ol>
 
     <th:block th:if="${feedback != null}"><th:block th:replace="~{fragments/pr-feedback :: feedback}"></th:block></th:block>
 
-    <th:block th:if="${feedback == null}"><th:block th:replace="~{fragments/developer-flow :: runPanels}"></th:block></th:block>
-    <details class="disclosure run-disclosure" th:if="${feedback != null}">
-        <summary>Activity and usage</summary>
-        <th:block th:replace="~{fragments/developer-flow :: runPanels}"></th:block>
-    </details>
+    <th:block th:if="${feedback == null}"><th:block th:replace="~{fragments/developer-flow :: runColumns(${run.activity()}, ${run.usage()}, ${run.links().transcriptUrl()})}"></th:block></th:block>
 
-    <details class="tech-details disclosure" th:with="facts=${developer['techFacts']}">
-        <summary>Technical details</summary>
-        <div class="run-tech">
-            <dl class="run-tech-facts">
-                <dt>Repository</dt>
-                <dd th:text="${#strings.isEmpty(repo)} ? 'Not selected' : ${repo}">repository</dd>
-                <dt>Base branch</dt>
-                <dd th:text="${#strings.isEmpty(developer['branch'])} ? 'Not selected' : ${developer['branch']}">branch</dd>
-                <th:block th:if="${facts['Starting commit'] != null}">
-                    <dt>Starting commit</dt>
-                    <dd><code th:text="${facts['Starting commit']}">sha</code></dd>
+    <div class="run-disclosures">
+        <details class="disclosure" th:if="${feedback != null}">
+            <summary>Activity and usage</summary>
+            <th:block th:replace="~{fragments/developer-flow :: runColumns(${run.activity()}, ${run.usage()}, ${run.links().transcriptUrl()})}"></th:block>
+        </details>
+        <details class="disclosure" th:with="tech=${run.technical()}, links=${run.links()}">
+            <summary>Technical details</summary>
+            <dl class="tech-facts">
+                <th:block th:if="${tech.checkout() != null}">
+                    <dt>Checkout</dt>
+                    <dd><code th:text="${tech.checkout()}">repo@branch</code><th:block
+                            th:if="${tech.startingCommit() != null}"> at <code
+                            th:text="${tech.startingCommit()}">sha</code></th:block></dd>
                 </th:block>
-                <dt>Starting build</dt>
-                <dd><span th:text="${developer['startingBuild']}">Waiting</span><th:block
-                        th:if="${facts['Starting build command'] != null}"> · <code
-                        th:text="${facts['Starting build command']}">command</code></th:block></dd>
-                <th:block th:with="plan=${facts['Verification plan'] ?: facts['Expected verification plan']}">
-                    <th:block th:if="${plan != null or facts['Verification command'] != null}">
-                        <dt>Verification plan</dt>
-                        <dd><span th:if="${plan != null}" th:text="${plan}">plan</span><th:block
-                                th:if="${plan != null and facts['Verification command'] != null}"> · </th:block><code
-                                th:if="${facts['Verification command'] != null}"
-                                th:text="${facts['Verification command']}">command</code></dd>
-                    </th:block>
+                <th:block th:if="${tech.buildCommand() != null or tech.buildResult() != null}">
+                    <dt>Starting build</dt>
+                    <dd><span th:if="${tech.buildResult() != null}" th:text="${tech.buildResult()}">Passed</span><th:block
+                            th:if="${tech.buildResult() != null and tech.buildCommand() != null}"> · </th:block><code
+                            th:if="${tech.buildCommand() != null}" th:text="${tech.buildCommand()}">command</code></dd>
                 </th:block>
-                <th:block th:if="${!#strings.isEmpty(developer['testCount'])}">
-                    <dt>Verification</dt>
-                    <dd th:text="${developer['verification']} + ' · ' + ${developer['testCount']} + ' tests executed'">result</dd>
+                <th:block th:if="${tech.checksCommand() != null or tech.checksExitCode() != null}">
+                    <dt>Checks</dt>
+                    <dd><span th:if="${tech.checksPlan() != null}" th:text="${tech.checksPlan()}">plan</span><th:block
+                            th:if="${tech.checksPlan() != null and tech.checksCommand() != null}"> · </th:block><code
+                            th:if="${tech.checksCommand() != null}" th:text="${tech.checksCommand()}">command</code><th:block
+                            th:if="${tech.checksExitCode() != null}"
+                            th:text="' · exit code ' + ${tech.checksExitCode()}"> · exit code 0</th:block></dd>
                 </th:block>
-                <dt>Pull request</dt>
-                <dd><a class="dev-link" th:unless="${#strings.isEmpty(developer['pullRequestUrl'])}"
-                       th:href="${developer['pullRequestUrl']}" th:text="${developer['pullRequestLabel']}">pull request</a><span
-                        class="muted" th:if="${#strings.isEmpty(developer['pullRequestUrl'])}"
-                        th:text="${developer['delivery'] matches '[A-Z_]+'} ? 'Not created · ' + ${developer['delivery']} : 'Not created yet'">Not
-                    created yet</span></dd>
-                <th:block th:if="${!#strings.isEmpty(developer['deliveryRepository'])}">
-                    <dt>Delivery repository</dt>
-                    <dd th:text="${developer['deliveryRepository']}">repository</dd>
+                <th:block th:if="${tech.deliveredRepository() != null}">
+                    <dt>Delivered to</dt>
+                    <dd><code th:text="${tech.deliveredRepository()}">owner/repository</code></dd>
                 </th:block>
-                <th:block th:if="${!#strings.isEmpty(developer['deliveryBranch'])}">
-                    <dt>Delivery branch</dt>
-                    <dd><code th:text="${developer['deliveryBranch']}">branch</code></dd>
+                <th:block th:if="${tech.deliveredBranch() != null}">
+                    <dt>Delivered branch</dt>
+                    <dd><code th:text="${tech.deliveredBranch()}">branch</code><th:block
+                            th:if="${tech.deliveredCommit() != null}"> at <code
+                            th:text="${tech.deliveredCommit()}">sha</code></th:block></dd>
                 </th:block>
-                <th:block th:if="${!#strings.isEmpty(developer['deliveryCommit'])}">
-                    <dt>Delivered commit</dt>
-                    <dd><code th:text="${developer['deliveryCommit']}">sha</code></dd>
+                <th:block th:unless="${#lists.isEmpty(links.pricing())}">
+                    <dt>Pricing</dt>
+                    <dd><th:block th:text="${#strings.listJoin(links.pricing(), ', ')}">docs.z.ai (2026-09-19)</th:block>.
+                        Real provider charges may differ.</dd>
                 </th:block>
-                <th:block th:each="field : ${developer['technicalFields']}"
-                          th:unless="${#lists.contains({'Repository key', 'Starting commit', 'Expected verification plan', 'Starting build command', 'Verification plan', 'Verification command'}, field['label'])}">
-                    <dt th:text="${field['label']}">label</dt>
-                    <dd th:text="${field['value']}">value</dd>
-                </th:block>
-                <dt>Engine status</dt>
-                <dd th:text="${execution.status}">RUNNING</dd>
             </dl>
-
-            <section class="run-steps" aria-labelledby="steps-title">
-                <h3 id="steps-title">Engine steps</h3>
-                <div class="run-steps-grid">
-                    <th:block th:each="step : ${steps}">
-                        <span th:attr="data-state=${step['state']}"><th:block th:text="${step['label']}">Step</th:block><th:block
-                                th:if="${step['attempts'] != null and step['attempts'] > 0}"
-                                th:text="' · retry ×' + ${step['attempts']}"></th:block></span>
-                        <span class="run-step-state" th:attr="data-state=${step['state']}"
-                              th:text="${step['state'] == 'done'} ? 'completed' : (${step['state'] == 'current' and execution.status.name() == 'RUNNING'} ? 'running' : ${step['state']})">pending</span>
-                        <span th:attr="data-state=${step['state']}, data-elapsed-start=${step['elapsedStart']}"
-                              th:text="${step['state'] == 'pending'} ? '' : ${step['sublabel']}"></span>
-                    </th:block>
-                </div>
-            </section>
-
+            <details class="disclosure" th:if="${tech.buildOutput() != null}">
+                <summary>Starting build output</summary>
+                <pre class="code-block" th:text="${tech.buildOutput()}">output</pre>
+            </details>
             <div class="run-links">
-                <details class="run-extra">
-                    <summary th:text="'Artifacts (' + ${artifactCount} + ')'">Artifacts</summary>
-                    <p class="muted" th:if="${#lists.isEmpty(artifactGroups)}">No artifacts produced.</p>
-                    <div class="table-wrap" th:unless="${#lists.isEmpty(artifactGroups)}">
-                        <table aria-label="Developer Flow artifacts">
-                            <thead><tr><th scope="col">Artifact</th><th scope="col">Versions</th></tr></thead>
-                            <tbody>
-                            <tr th:each="group : ${artifactGroups}">
-                                <td th:text="${group['name']}"></td>
-                                <td class="developer-artifact-links">
-                                    <a th:each="v : ${group['versions']}" th:href="@{'/artifacts/' + ${v['id']}}"
-                                       th:text="'v' + ${v['version']}"></a>
-                                </td>
-                            </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                <a th:href="${links.transcriptUrl()}">Transcript</a>
+                <a th:href="${links.auditUrl()}">Audit log</a>
+                <details class="disclosure">
+                    <summary th:text="'Artifacts (' + ${links.artifactCount()} + ')'">Artifacts (0)</summary>
+                    <p class="dev-note" th:if="${#lists.isEmpty(links.artifacts())}">This run has no artifacts.</p>
+                    <dl class="tech-facts" th:unless="${#lists.isEmpty(links.artifacts())}">
+                        <th:block th:each="group : ${links.artifacts()}">
+                            <dt th:text="${group.name()}">dev_result.json</dt>
+                            <dd class="artifact-links"><a th:each="version : ${group.versions()}"
+                                    th:href="${version.url()}" th:text="${version.label()}">v1</a></dd>
+                        </th:block>
+                    </dl>
                 </details>
-                <details class="run-extra" data-developer-history>
-                    <summary th:text="'Execution history (' + ${developer['historyCount']} + ')'">Execution history</summary>
-                    <ol class="developer-history">
-                        <li th:each="item : ${developer['history']}" th:attr="data-tone=${item['tone']}">
-                            <time th:text="${item['time']}"></time><span th:text="${item['text']}"></span>
-                        </li>
-                    </ol>
-                </details>
-                <details class="run-extra" th:unless="${#lists.isEmpty(developer['providerDiagnostics'])}">
-                    <summary th:text="'Provider diagnostics (' + ${#lists.size(developer['providerDiagnostics'])} + ')'">Provider diagnostics</summary>
-                    <ol class="developer-history">
-                        <li th:each="diagnostic : ${developer['providerDiagnostics']}">
-                            <time th:title="${diagnostic['timeTitle']}" th:text="${diagnostic['time']}"></time><span
-                                th:text="${diagnostic['text']}"></span>
-                        </li>
-                    </ol>
-                </details>
-                <details class="run-extra" th:if="${!#strings.isEmpty(developer['startingBuildOutput'])}">
-                    <summary>Starting build output</summary>
-                    <pre class="code-block" th:text="${developer['startingBuildOutput']}"></pre>
-                </details>
-                <details class="run-extra"
-                         th:if="${(attemptUsage != null and !#lists.isEmpty(attemptUsage['sources'])) or (attemptUsage == null and estimatedCost != null)}">
-                    <summary>Pricing</summary>
-                    <p class="dev-note" th:if="${attemptUsage != null}">Costs use rates captured when each coding
-                        attempt started; actual provider charges may differ.</p>
-                    <ul class="dev-note" th:if="${attemptUsage != null}">
-                        <li th:each="source : ${attemptUsage['sources']}" th:text="${source}"></li>
-                    </ul>
-                    <p class="dev-note" th:if="${attemptUsage == null and estimatedCost != null}">Rate-card estimate;
-                        actual provider or proxy charges may differ. Rates dated <span th:text="${estimatedCost.asOf}"></span>
-                        · <a class="dev-link" th:href="${estimatedCost.source}" th:text="${estimatedCost.source}">rate source</a></p>
-                </details>
-                <a th:href="@{/audit(executionId=${execution.id})}">Full audit log</a>
             </div>
-        </div>
-    </details>
+        </details>
+    </div>
+
 </div>
 </body>
 </html>

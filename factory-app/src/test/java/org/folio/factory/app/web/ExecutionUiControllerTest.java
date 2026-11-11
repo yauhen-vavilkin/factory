@@ -1,6 +1,8 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.app.developer.CodingTranscriptStore;
+import org.folio.factory.app.tasks.execution.TaskExecutionProperties;
+import org.folio.factory.app.tasks.presentation.RunContext;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -80,13 +82,16 @@ class ExecutionUiControllerTest {
 
     private MockMvc mvc;
 
+    private org.folio.factory.app.tasks.presentation.TaskQuery taskQuery;
+
     @BeforeEach
     void setUp() {
         var estimator = DeveloperCostEstimatorTest.estimatorFor("glm-5.3-flash", "https://example.test/pricing",
                 "0.15", "0.03", "0.50");
-        var taskQuery = mock(org.folio.factory.app.tasks.presentation.TaskQuery.class);
+        taskQuery = mock(org.folio.factory.app.tasks.presentation.TaskQuery.class);
         var runPage = new DeveloperRunPage(json, estimator,
-                new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class)), taskQuery);
+                new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class)), taskQuery,
+                new TaskExecutionProperties(null, false));
         mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(
                         new EngineRecords(executions, artifactStore, flowRegistry), auditLog, reviews, json, runPage),
                         new TranscriptUiController(executions, taskQuery, transcripts))
@@ -239,12 +244,12 @@ class ExecutionUiControllerTest {
                                 + "\"cacheWriteTokens\":5000,\"outputTokens\":10000,\"costUsd\":0.3}"),
                 new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine", "{}")));
 
-        mvc.perform(get("/executions/{id}", EXECUTION_ID))
-                .andExpect(status().isOk())
-                .andExpect(model().attribute("tokenTotals", Map.of(
-                        "present", true, "coding", true, "total", "130k", "input", "80k",
-                        "cacheRead", "35k", "cacheWrite", "5k", "output", "10k")))
-                .andExpect(model().attributeDoesNotExist("reportedCost"));
+        var usage = run(mvc.perform(get("/executions/{id}", EXECUTION_ID)).andExpect(status().isOk()).andReturn())
+                .usage();
+
+        assertThat(usage.figures()).containsExactly(figure("Input", "80k"), figure("Cache read", "35k"),
+                figure("Cache write", "5k"), figure("Output", "10k"));
+        assertThat(usage.total()).isEqualTo("130k");
     }
 
     @Test
@@ -258,12 +263,12 @@ class ExecutionUiControllerTest {
                         "{\"inputTokens\":30,\"cacheReadTokens\":10,\"outputTokens\":9,"
                                 + "\"promptTokens\":40,\"completionTokens\":9,\"costUsd\":0.4}")));
 
-        mvc.perform(get("/executions/{id}", EXECUTION_ID))
-                .andExpect(status().isOk())
-                .andExpect(model().attribute("tokenTotals", Map.of(
-                        "present", true, "coding", true, "total", "49", "input", "30",
-                        "cacheRead", "10", "output", "9")))
-                .andExpect(model().attributeDoesNotExist("reportedCost"));
+        var usage = run(mvc.perform(get("/executions/{id}", EXECUTION_ID)).andExpect(status().isOk()).andReturn())
+                .usage();
+
+        assertThat(usage.figures()).containsExactly(figure("Input", "30"), figure("Cache read", "10"),
+                figure("Output", "9"));
+        assertThat(usage.total()).isEqualTo("49");
     }
 
     @Test
@@ -277,12 +282,16 @@ class ExecutionUiControllerTest {
                         "{\"activity\":\"pi_usage\",\"inputTokens\":71200,\"cacheReadTokens\":2500000,"
                                 + "\"cacheWriteTokens\":0,\"outputTokens\":35100,\"costUsd\":0}")));
 
-        mvc.perform(get("/executions/{id}", EXECUTION_ID))
+        var run = run(mvc.perform(get("/executions/{id}", EXECUTION_ID))
                 .andExpect(status().isOk())
                 .andExpect(view().name("developer-run"))
-                .andExpect(model().attribute("estimatedCost", new DeveloperCostEstimator.Estimate(
-                        "0.10323", "USD", LocalDate.parse("2026-09-19"), "https://example.test/pricing")))
-                .andExpect(model().attributeDoesNotExist("reportedCost"));
+                .andReturn());
+
+        var cost = new DeveloperCostEstimator.Estimate(
+                "0.10323", "USD", LocalDate.parse("2026-09-19"), "https://example.test/pricing").label();
+        assertThat(run.usage().cost()).isEqualTo(cost);
+        assertThat(run.status().amount()).isEqualTo(cost);
+        assertThat(run.links().pricing()).containsExactly("https://example.test/pricing (2026-09-19)");
     }
 
     @Test
@@ -346,18 +355,18 @@ class ExecutionUiControllerTest {
                                 + "\"outputTokens\":10000,\"provider\":\"openai-compatible\","
                                 + "\"model\":\"glm-5.3-flash\"}")));
 
-        var result = mvc.perform(get("/executions/{id}", EXECUTION_ID))
-                .andExpect(status().isOk())
-                .andExpect(model().attribute("tokenTotals", Map.of(
-                        "present", true, "coding", true, "total", "310k", "input", "100k",
-                        "cacheRead", "200k", "cacheWrite", "0", "output", "10k")))
-                .andExpect(model().attribute("estimatedCost", new DeveloperCostEstimator.Estimate(
-                        "0.026", "USD", LocalDate.parse("2026-09-19"), "https://example.test/pricing")))
-                .andReturn();
-        @SuppressWarnings("unchecked")
-        var developer = (Map<String, Object>) result.getModelAndView().getModel().get("developer");
-        assertThat(developer).containsEntry("reason", "Pi provider request failed: HTTP 429 (rate limited)");
-        assertThat(developer.get("activity").toString()).contains("Provider request failed · HTTP 429 (rate limited)");
+        var run = run(mvc.perform(get("/executions/{id}", EXECUTION_ID)).andExpect(status().isOk()).andReturn());
+
+        assertThat(run.usage().figures()).containsExactly(figure("Input", "100k"), figure("Cache read", "200k"),
+                figure("Cache write", "0"), figure("Output", "10k"));
+        assertThat(run.usage().total()).isEqualTo("310k");
+        assertThat(run.usage().cost()).isEqualTo(new DeveloperCostEstimator.Estimate(
+                "0.026", "USD", LocalDate.parse("2026-09-19"), "https://example.test/pricing").label());
+        assertThat(run.status().chipLabel()).isEqualTo("Failed");
+        assertThat(run.status().headline()).isEqualTo("This run failed");
+        assertThat(run.status().reason()).contains("HTTP 429 (rate limited)");
+        assertThat(run.activity().rows()).extracting(DeveloperRunView.ActivityRow::target)
+                .contains("Provider request failed · HTTP 429 (rate limited)");
     }
 
     @Test
@@ -370,13 +379,14 @@ class ExecutionUiControllerTest {
                         "{\"activity\":\"coding_usage\",\"inputTokens\":1000,\"cacheReadTokens\":0,"
                                 + "\"cacheWriteTokens\":0,\"outputTokens\":100,\"usageIncomplete\":true}")));
 
-        mvc.perform(get("/executions/{id}", EXECUTION_ID))
-                .andExpect(status().isOk())
-                .andExpect(model().attribute("estimatedCost", (Object) null))
-                .andExpect(model().attribute("usageIncomplete", true))
-                .andExpect(model().attribute("tokenTotals", Map.of(
-                        "present", true, "coding", true, "total", "1.1k", "input", "1k",
-                        "cacheRead", "0", "cacheWrite", "0", "output", "100")));
+        var run = run(mvc.perform(get("/executions/{id}", EXECUTION_ID)).andExpect(status().isOk()).andReturn());
+
+        assertThat(run.usage().cost()).isNull();
+        assertThat(run.usage().note()).isEqualTo("Some usage was not reported, so the real cost may be higher.");
+        assertThat(run.status().amount()).isNull();
+        assertThat(run.usage().figures()).containsExactly(figure("Input", "1k"), figure("Cache read", "0"),
+                figure("Cache write", "0"), figure("Output", "100"));
+        assertThat(run.usage().total()).isEqualTo("1.1k");
     }
 
     @Test
@@ -388,29 +398,28 @@ class ExecutionUiControllerTest {
                         "{\"inputTokens\":20,\"outputTokens\":5,\"promptTokens\":20,"
                                 + "\"completionTokens\":5}")));
 
-        mvc.perform(get("/executions/{id}", EXECUTION_ID))
-                .andExpect(status().isOk())
-                .andExpect(model().attribute("tokenTotals", Map.of(
-                        "present", true, "coding", true, "total", "25", "input", "20", "output", "5")));
+        var usage = run(mvc.perform(get("/executions/{id}", EXECUTION_ID)).andExpect(status().isOk()).andReturn())
+                .usage();
+
+        assertThat(usage.figures()).containsExactly(figure("Input", "20"), figure("Output", "5"));
+        assertThat(usage.total()).isEqualTo("25");
     }
 
     @Test
     void execution_detail_developerUsageDoesNotDoubleCountPartialNormalizedMetrics() throws Exception {
         PipelineExecution execution = developerExecution();
         when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(execution));
-        when(flowRegistry.find("dev-factory")).thenReturn(Optional.of(developerDescriptor()));
         when(auditLog.forExecution(EXECUTION_ID)).thenReturn(List.of(
                 new AuditEvent(EXECUTION_ID, AuditEventType.STEP_COMPLETED, "implement", "engine",
                         "{\"promptTokens\":100,\"completionTokens\":20,\"cacheReadTokens\":40}")));
 
         var result = mvc.perform(get("/executions/{id}", EXECUTION_ID))
                 .andExpect(status().isOk())
-                .andExpect(model().attribute("tokenTotals", Map.of(
-                        "present", true, "coding", true, "total", "120", "cacheRead", "40")))
+                .andExpect(model().attributeDoesNotExist("steps", "tokenTotals"))
                 .andReturn();
 
-        // The Developer Flow page has no stepper, so its engine steps carry no token label.
-        assertThat(steps(result).get(3)).doesNotContainKey("tokens");
+        assertThat(run(result).usage().figures()).containsExactly(figure("Cache read", "40"));
+        assertThat(run(result).usage().total()).isEqualTo("120");
     }
 
     @Test
@@ -425,12 +434,58 @@ class ExecutionUiControllerTest {
                                 + "\"promptTokens\":30,\"completionTokens\":9,\"provider\":\"openai-compatible\","
                                 + "\"model\":\"glm-5.3-flash\"}")));
 
+        var usage = run(mvc.perform(get("/executions/{id}", EXECUTION_ID)).andExpect(status().isOk()).andReturn())
+                .usage();
+
+        assertThat(usage.figures()).containsExactly(figure("Input", "30"), figure("Cache read", "0"),
+                figure("Cache write", "0"), figure("Output", "9"));
+        assertThat(usage.total()).isEqualTo("159");
+        assertThat(usage.cost()).isNull();
+    }
+
+    // ----- run page: polling while the run or its attempt is in flight -----
+
+    @Test
+    void execution_detail_runThatEndedPollsWhileItsAttemptIsStillInFlight() throws Exception {
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(developerExecution()));
+        when(taskQuery.runContext(EXECUTION_ID)).thenReturn(Optional.of(runContext("In progress", true)));
+
         mvc.perform(get("/executions/{id}", EXECUTION_ID))
                 .andExpect(status().isOk())
-                .andExpect(model().attribute("tokenTotals", Map.of(
-                        "present", true, "coding", true, "total", "159", "input", "30",
-                        "cacheRead", "0", "cacheWrite", "0", "output", "9")))
-                .andExpect(model().attribute("estimatedCost", (Object) null));
+                .andExpect(model().attribute("pollUrl", "/executions/" + EXECUTION_ID + "/poll"))
+                .andExpect(model().attributeExists("pollBaseline"));
+    }
+
+    @Test
+    void execution_detail_runWhoseAttemptOpenedItsPullRequestDoesNotPoll() throws Exception {
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(developerExecution()));
+        when(taskQuery.runContext(EXECUTION_ID)).thenReturn(Optional.of(runContext("Draft PR #7", false)));
+
+        var run = run(mvc.perform(get("/executions/{id}", EXECUTION_ID))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("pollUrl", (Object) null))
+                .andReturn());
+
+        assertThat(run.status().chipLabel()).isEqualTo("Draft PR #7");
+        assertThat(run.header().pageTitle()).isEqualTo("TASK-1 · attempt 2");
+        assertThat(run.header().crumb()).isEqualTo("Attempt 2");
+    }
+
+    @Test
+    void poll_revisionChangesWhenTheAttemptEndsAfterTheRun() throws Exception {
+        when(executions.findById(EXECUTION_ID)).thenReturn(Optional.of(developerExecution()));
+        when(taskQuery.runContext(EXECUTION_ID)).thenReturn(Optional.of(runContext("In progress", true)));
+        var page = mvc.perform(get("/executions/{id}", EXECUTION_ID)).andReturn();
+        var baseline = page.getModelAndView().getModel().get("pollBaseline");
+
+        var unchanged = mvc.perform(get("/executions/{id}/poll", EXECUTION_ID)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        when(taskQuery.runContext(EXECUTION_ID)).thenReturn(Optional.of(runContext("Draft PR #7", false)));
+        var ended = mvc.perform(get("/executions/{id}/poll", EXECUTION_ID)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(unchanged).isEqualTo("{\"revision\":\"" + baseline + "\"}");
+        assertThat(ended).doesNotContain(baseline.toString()).startsWith("{\"revision\":\"");
     }
 
     @Test
@@ -593,6 +648,19 @@ class ExecutionUiControllerTest {
         return steps;
     }
 
+    private static DeveloperRunView run(org.springframework.test.web.servlet.MvcResult result) {
+        return (DeveloperRunView) result.getModelAndView().getModel().get("run");
+    }
+
+    private static DeveloperRunView.Figure figure(String label, String value) {
+        return new DeveloperRunView.Figure(label, value);
+    }
+
+    private static RunContext runContext(String chip, boolean inFlight) {
+        return new RunContext(UUID.fromString("00000000-0000-0000-0000-0000000000aa"), "TASK-1", "Fix route", null,
+                2, "glm-5.3 · max", chip, "chip chip-info", null, null, null, null, null, null, null, inFlight);
+    }
+
     private static PipelineExecution execution(ExecutionStatus status, int stepIndex, String retryCounts) {
         PipelineExecution execution = new PipelineExecution("test-factory", "1", "{}");
         execution.setStatus(status);
@@ -643,12 +711,5 @@ class ExecutionUiControllerTest {
                 null, null, null, null, null);
         return new FlowDescriptor("test-factory", "Test Factory", "1", null, null, null,
                 List.of(triage, gate, finalizer), null);
-    }
-
-    private static FlowDescriptor developerDescriptor() {
-        return new FlowDescriptor("dev-factory", "Developer Flow", "0.6.0", null, null, null,
-                List.of("read-task", "select-repository", "prepare-task", "implement", "verify", "publish")
-                        .stream().map(stepId -> new StepDescriptor(stepId, StepType.AGENT, "worker",
-                                null, null, null, null, null)).toList(), null);
     }
 }

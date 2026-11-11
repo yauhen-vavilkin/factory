@@ -17,6 +17,13 @@ import java.util.UUID;
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 final class DeveloperTranscriptView {
 
+    private static final Map<String, String> STEPS = Map.of(
+            "implement", "Implementation",
+            "clarify-implementation", "Clarify implementation",
+            "continue-implementation", "Continue implementation",
+            "verify", "Verification",
+            "pr-follow-up", "PR feedback");
+
     static List<Map<String, Object>> runs(List<CodingTranscriptStore.Entry> entries) {
         Map<UUID, Map<String, Object>> runs = new LinkedHashMap<>();
         Map<String, Map<String, Object>> calls = new HashMap<>();
@@ -38,8 +45,7 @@ final class DeveloperTranscriptView {
     }
 
     private static Map<String, Object> runRow(CodingTranscriptStore.Entry first, int number) {
-        var step = "pr-follow-up".equals(first.stepId())
-                ? "PR feedback" : DeveloperExecutionView.technicalStepLabel(first.stepId());
+        var step = STEPS.getOrDefault(first.stepId(), first.stepId());
         Map<String, Object> run = new LinkedHashMap<>();
         run.put("label", "Run " + number + " · " + step);
         run.put("started", UiFormat.format(first.at()));

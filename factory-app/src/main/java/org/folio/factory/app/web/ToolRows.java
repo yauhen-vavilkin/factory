@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * Pairs the end of a tool call with its start, so Activity shows one row per call with the time it
@@ -18,16 +19,16 @@ import java.util.Optional;
  */
 final class ToolRows {
 
-    private static final List<String[]> PAST = List.of(
-            new String[] {"Running ", "Ran "}, new String[] {"Reading ", "Read "},
-            new String[] {"Writing ", "Wrote "}, new String[] {"Editing ", "Edited "},
-            new String[] {"Finding files", "Found files"}, new String[] {"Listing ", "Listed "},
-            new String[] {"Searching ", "Searched "}, new String[] {"Fetching ", "Fetched "});
+    private static final Pattern EXIT_CODE = Pattern.compile("(?i)exit code:? (-?\\d+)");
 
     private final Map<String, Tool> tools = new HashMap<>();
 
+    /** How a call ended: "took 9 ms", or "failed · exit 1" without the error text, which stays in the transcript. */
+    record Ending(int row, String result, boolean failed) {
+    }
+
     /** A call that started and has not ended yet, at its row in the activity list. */
-    private record Open(int row, String subject, String past, Instant startedAt) {
+    private record Open(int row, String subject, Instant startedAt) {
     }
 
     private static final class Tool {
@@ -35,14 +36,14 @@ final class ToolRows {
         private final List<Open> open = new ArrayList<>();
     }
 
-    void started(JsonNode detail, int row, String text, Instant at) {
+    void started(JsonNode detail, int row, Instant at) {
         var tool = tools.computeIfAbsent(toolKey(detail), key -> new Tool());
         tool.active++;
-        tool.open.add(new Open(row, subject(detail), past(text), at));
+        tool.open.add(new Open(row, subject(detail), at));
     }
 
-    /** The row to replace and its merged text, when this end belongs to one known start. */
-    Optional<Map.Entry<Integer, String>> ended(JsonNode detail, Instant at) {
+    /** The row this end belongs to and how the call ended, when the end belongs to one known start. */
+    Optional<Ending> ended(JsonNode detail, Instant at) {
         var tool = tools.computeIfAbsent(toolKey(detail), key -> new Tool());
         var match = match(tool, subject(detail));
         tool.active = Math.max(0, tool.active - 1);
@@ -50,7 +51,27 @@ final class ToolRows {
             tool.open.clear();
         }
         match.ifPresent(tool.open::remove);
-        return match.map(open -> Map.entry(open.row(), merged(open, detail, at)));
+        return match.map(open -> new Ending(open.row(), result(detail, elapsed(detail, open, at)),
+                detail.path("error").asBoolean(false)));
+    }
+
+    /** The rows of calls that have not ended: they run now, while the run works. */
+    List<Integer> openRows() {
+        return tools.values().stream().flatMap(tool -> tool.open.stream()).map(Open::row).toList();
+    }
+
+    /** "took 2 min", "failed · exit 1", or "failed"; null when nothing says how long the call took. */
+    static String result(JsonNode detail, Long millis) {
+        if (detail.path("error").asBoolean(false)) {
+            var exit = EXIT_CODE.matcher(detail.path("errorText").asString(""));
+            return exit.find() ? "failed · exit " + exit.group(1) : "failed";
+        }
+        return millis == null ? null : "took " + UiFormat.milliseconds(millis);
+    }
+
+    private static Long elapsed(JsonNode detail, Open open, Instant at) {
+        return detail.path("durationMs").isIntegralNumber() ? detail.path("durationMs").asLong()
+                : Math.max(0, Duration.between(open.startedAt(), at).toMillis());
     }
 
     private static Optional<Open> match(Tool tool, String subject) {
@@ -59,21 +80,6 @@ final class ToolRows {
         }
         var same = tool.open.stream().filter(open -> !subject.isBlank() && open.subject().equals(subject)).toList();
         return same.size() == 1 ? Optional.of(same.getFirst()) : Optional.empty();
-    }
-
-    private static String merged(Open open, JsonNode detail, Instant at) {
-        var failed = detail.path("error").asBoolean(false);
-        var millis = detail.path("durationMs").isIntegralNumber() ? detail.path("durationMs").asLong()
-                : Math.max(0, Duration.between(open.startedAt(), at).toMillis());
-        var text = open.past() + (failed ? " · failed" : "") + " · took " + UiFormat.milliseconds(millis);
-        var errorText = detail.path("errorText").asString("").strip();
-        return failed && !errorText.isBlank() ? text + " · " + errorText : text;
-    }
-
-    private static String past(String startText) {
-        return PAST.stream().filter(pair -> startText.startsWith(pair[0])).findFirst()
-                .map(pair -> pair[1] + startText.substring(pair[0].length()))
-                .orElse(startText);
     }
 
     private static String toolKey(JsonNode detail) {

@@ -161,6 +161,34 @@ test('a model the developer picked holds the reload too', async () => {
   assert.equal(notice.hidden, false);
 });
 
+test('a PR comment the developer left out holds the run page reload', async () => {
+  for (const leftOut of [true, false]) {
+    let ready, tick, reloads = 0;
+    const notice = { hidden: true };
+    const attributes = { 'data-poll-url': '/executions/id/poll', 'data-poll-fields': 'revision', 'data-poll-baseline': 'a1' };
+    const elements = { '[data-poll-url]': { getAttribute: key => attributes[key] }, '[data-poll-notice]': notice };
+    if (leftOut) elements['input[name="selectedIds"]:not(:checked)'] = {};
+    vm.runInNewContext(POLL_JS, {
+      window: {},
+      document: {
+        hidden: false,
+        addEventListener: (event, callback) => { if (event === 'DOMContentLoaded') ready = callback; },
+        querySelector: selector => elements[selector] || null,
+        querySelectorAll: () => []
+      },
+      setTimeout: callback => { tick = callback; },
+      location: { reload: () => { reloads++; } },
+      fetch: async () => ({ ok: true, json: async () => ({ revision: 'b2' }) })
+    });
+    ready();
+    tick();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(reloads, leftOut ? 0 : 1);
+    assert.equal(notice.hidden, !leftOut);
+  }
+});
+
 function selectionForm(field, attributes, count) {
   function box(checked) {
     const listeners = {};

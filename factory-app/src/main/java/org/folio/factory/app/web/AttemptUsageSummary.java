@@ -83,6 +83,11 @@ public final class AttemptUsageSummary {
             return all.totals(live);
         }
 
+        /** The typed totals of one round, of the first implementation (-1), or of the whole run (null). */
+        Totals totals(Integer round, boolean live) {
+            return (round == null ? all : rounds.getOrDefault(round, new Group())).totals(live);
+        }
+
         List<Map<String, String>> activity(int round) {
             return List.copyOf(activities.getOrDefault(round, List.of()));
         }
