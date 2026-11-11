@@ -25,6 +25,14 @@
                         th:selected="${f.id() == selectedFlow}"></option>
             </select>
         </div>
+        <div class="filter-field">
+            <label class="label" for="filter-started">Started</label>
+            <select class="select" id="filter-started" name="days">
+                <option value="" th:selected="${selectedDays == ''}">Any time</option>
+                <option th:each="p : ${periods}" th:value="${p.days()}" th:text="'In the last ' + ${p.label()}"
+                        th:selected="${'' + p.days() == selectedDays}"></option>
+            </select>
+        </div>
         <button class="btn btn-outline" type="submit">Apply</button>
     </form>
 

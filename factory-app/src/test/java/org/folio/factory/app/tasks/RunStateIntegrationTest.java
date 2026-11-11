@@ -20,6 +20,9 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.web.client.RestClient;
 
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -39,6 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class RunStateIntegrationTest {
 
     private static final String ASKED_REASON = "clarify-implementation: " + TaskStops.DECISION_REASON + "Which API?";
+    private static final OffsetDateTime ANY_TIME = Instant.EPOCH.atOffset(ZoneOffset.UTC);
     private static final Pattern CHIP = Pattern.compile("<td><span class=\"chip [a-z-]+\">([^<]+)</span></td>");
 
     @LocalServerPort
@@ -109,20 +113,20 @@ class RunStateIntegrationTest {
     private void assertTheFilterAndTheDashboardCountTheSameStateOfEveryRun() {
         for (var state : RunState.values()) {
             var found = new HashSet<UUID>();
-            runStates.search(state.name(), "", PageRequest.of(0, 50))
+            runStates.search(state.name(), "", ANY_TIME, PageRequest.of(0, 50))
                     .forEach(row -> found.add(row.getId()));
             assertThat(found).as(state.getLabel()).isEqualTo(idsIn(state));
         }
         Map<RunState, Long> counts = new EnumMap<>(RunState.class);
         expected.values().forEach(state -> counts.merge(state, 1L, Long::sum));
-        assertThat(dashboard.countByState()).isEqualTo(counts);
+        assertThat(dashboard.countByState(1)).isEqualTo(counts);
         assertThat(expected.get(attemptRunWith(ASKED_REASON)))
                 .isEqualTo(TaskStops.asksForAnswer(ASKED_REASON) ? RunState.ASKED : RunState.FAILED);
 
-        var all = runStates.search("", "", PageRequest.of(0, 50));
+        var all = runStates.search("", "", ANY_TIME, PageRequest.of(0, 50));
         assertThat(all.getTotalElements()).isEqualTo(expected.size());
         all.forEach(row -> assertThat(RunState.valueOf(row.getState())).isEqualTo(expected.get(row.getId())));
-        assertThat(runStates.search("", "dev-factory", PageRequest.of(0, 50)).getTotalElements()).isEqualTo(10);
+        assertThat(runStates.search("", "dev-factory", ANY_TIME, PageRequest.of(0, 50)).getTotalElements()).isEqualTo(10);
     }
 
     private void assertEveryChipOfAFilteredListSaysTheFilter() {

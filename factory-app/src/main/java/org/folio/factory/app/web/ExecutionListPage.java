@@ -15,6 +15,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.ui.Model;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +33,7 @@ import java.util.stream.Collectors;
 class ExecutionListPage {
 
     private static final int DEFAULT_SIZE = 20;
+    private static final OffsetDateTime ANY_TIME = Instant.EPOCH.atOffset(ZoneOffset.UTC);
 
     private final EngineRecords engine;
     private final RunStateRepository runStates;
@@ -44,8 +48,15 @@ class ExecutionListPage {
         this.developerView = new DeveloperExecutionView(jsonMapper);
     }
 
-    /** The filter of the list; {@code state} is null for all runs, {@code flow} blank for every flow. */
-    record Filter(RunState state, String flow, int page, int size) {
+    /**
+     * The filter of the list; {@code state} is null for all runs, {@code flow} blank for every flow and
+     * {@code period} null for runs started at any time.
+     */
+    record Filter(RunState state, String flow, RunPeriod period, int page, int size) {
+
+        OffsetDateTime since() {
+            return period == null ? ANY_TIME : period.since(Instant.now());
+        }
     }
 
     /** A Flow filter choice: the flow's name, with its id as the value. */
@@ -63,7 +74,7 @@ class ExecutionListPage {
     String render(Filter filter, Model model) {
         var size = PageValidation.clampSize(filter.size(), DEFAULT_SIZE);
         var result = runStates.search(filter.state() == null ? "" : filter.state().name(), filter.flow(),
-                PageRequest.of(Math.max(filter.page(), 0), size));
+                filter.since(), PageRequest.of(Math.max(filter.page(), 0), size));
         var flowNames = engine.flows().all().stream()
                 .collect(Collectors.toMap(FlowDescriptor::id, FlowDescriptor::name, (one, other) -> one,
                         LinkedHashMap::new));
@@ -72,6 +83,7 @@ class ExecutionListPage {
         model.addAttribute("showStep", rows.stream().anyMatch(row -> row.step() != null));
         model.addAttribute("page", rows);
         model.addAttribute("states", RunState.values());
+        model.addAttribute("periods", RunPeriod.values());
         model.addAttribute("flows", flowNames.entrySet().stream()
                 .map(entry -> new FlowOption(entry.getKey(), entry.getValue())).toList());
         addFilter(filter, size, model);
@@ -80,11 +92,14 @@ class ExecutionListPage {
 
     private static void addFilter(Filter filter, int size, Model model) {
         var selectedState = filter.state() == null ? "" : filter.state().name();
+        var selectedDays = filter.period() == null ? "" : String.valueOf(filter.period().days());
         model.addAttribute("selectedStatus", selectedState);
         model.addAttribute("selectedFlow", filter.flow());
-        model.addAttribute("filtersActive", filter.state() != null || !filter.flow().isEmpty());
+        model.addAttribute("selectedDays", selectedDays);
+        model.addAttribute("filtersActive", filter.state() != null || !filter.flow().isEmpty()
+                || filter.period() != null);
         model.addAttribute("baseUrl", "/executions?status=" + UiFormat.encode(selectedState)
-                + "&flow=" + UiFormat.encode(filter.flow()) + "&size=" + size);
+                + "&flow=" + UiFormat.encode(filter.flow()) + "&days=" + selectedDays + "&size=" + size);
     }
 
     /** The rows of the page, with the runs and their attempts read in one query each. */

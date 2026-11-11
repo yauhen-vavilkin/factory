@@ -5,41 +5,20 @@
 <section class="page-body">
     <div class="page-header">
         <h1>Dashboard</h1>
-        <p class="page-description">What the runs of every flow came to, and the work waiting for a person.</p>
+        <p class="page-description">What the runs started in the chosen period came to. Runs, tokens, step failures
+            and connector actions count only those runs; Reviews also shows what waits for a person now.</p>
     </div>
 
-    <nav class="tabs" aria-label="Time range">
-        <a th:each="d : ${ {1, 7, 14, 30, 90} }" th:href="@{/(days=${d})}"
-           th:text="${d == 1 ? '24 hours' : d + ' days'}"
-           th:attrappend="aria-current=${d == days} ? 'page'">14d</a>
+    <nav class="tabs" aria-label="Period">
+        <a th:each="p : ${periods}" th:href="@{/(days=${p.days()})}" th:text="${p.label()}"
+           th:attrappend="aria-current=${p.days() == days} ? 'page'">14 days</a>
     </nav>
 
     <div class="kpi-grid">
-        <div class="kpi">
-            <span class="kpi-value" th:text="${totalRuns}">0</span>
-            <span class="kpi-label">Total runs</span>
-        </div>
-        <div class="kpi">
-            <span class="kpi-value" th:text="${completedCount}">0</span>
-            <span class="kpi-label">Completed</span>
-        </div>
-        <div class="kpi">
-            <span class="kpi-value" th:text="${pullRequestCount}">0</span>
-            <span class="kpi-label">Pull request opened</span>
-        </div>
-        <div class="kpi">
-            <span class="kpi-value" th:text="${awaitingHitlCount}">0</span>
-            <span class="kpi-label">Waiting for review</span>
-            <span class="kpi-trend" th:text="${pendingReviews} + ' open in Reviews'">0 open in Reviews</span>
-        </div>
-        <div class="kpi">
-            <span class="kpi-value" th:text="${failedCount}">0</span>
-            <span class="kpi-label">Failed</span>
-        </div>
-        <div class="kpi">
-            <span class="kpi-value" th:text="${cancelledOrRejectedCount}">0</span>
-            <span class="kpi-label">Cancelled or rejected</span>
-        </div>
+        <a class="kpi" th:each="tile : ${runTiles}" th:href="${tile.url()}">
+            <span class="kpi-value" th:text="${tile.count()}">0</span>
+            <span class="kpi-label" th:text="${tile.label()}">Total runs</span>
+        </a>
         <div class="kpi">
             <span class="kpi-value">
                 <span class="chip chip-success" th:if="${engineEnabled}">Running</span>
@@ -71,22 +50,22 @@
         </div>
 
         <div class="chart-card card" data-chart="chart-status-mix">
-            <div class="card-header"><h2 class="card-title">All runs by state</h2></div>
+            <div class="card-header"><h2 class="card-title">Runs by state</h2></div>
             <div class="card-content">
                 <div class="chart-region">
                     <canvas id="chart-status-mix" role="img"
-                            aria-label="Doughnut chart of all runs by state"></canvas>
+                            aria-label="Doughnut chart of the runs started in this period, by state"></canvas>
                 </div>
                 <p class="empty-state" data-empty hidden>No data in this range.</p>
             </div>
         </div>
 
         <div class="chart-card card" data-chart="chart-throughput">
-            <div class="card-header"><h2 class="card-title">All runs per flow</h2></div>
+            <div class="card-header"><h2 class="card-title">Runs per flow</h2></div>
             <div class="card-content">
                 <div class="chart-region">
                     <canvas id="chart-throughput" role="img"
-                            aria-label="Horizontal bar chart of all runs per flow"></canvas>
+                            aria-label="Horizontal bar chart of the runs started in this period, per flow"></canvas>
                 </div>
                 <p class="empty-state" data-empty hidden>No data in this range.</p>
             </div>
@@ -133,7 +112,7 @@
         <div class="chart-card card grid-span-full">
             <div class="card-header">
                 <h2 class="card-title">Token spend by step</h2>
-                <p class="card-description">Where LLM tokens go across flows in this range.</p>
+                <p class="card-description">Where the tokens of these runs went, by flow and step.</p>
             </div>
             <div class="card-content">
                 <p class="empty-state" th:if="${#lists.isEmpty(stepTokens)}">No token usage in this range.</p>

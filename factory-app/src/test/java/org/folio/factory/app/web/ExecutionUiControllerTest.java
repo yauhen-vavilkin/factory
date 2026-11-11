@@ -119,14 +119,14 @@ class ExecutionUiControllerTest {
 
     @Test
     void executions_noFilters_listsEveryRunNewestFirstFromTheQuery() throws Exception {
-        when(runStates.search(eq(""), eq(""), any())).thenReturn(emptyRows());
+        when(runStates.search(eq(""), eq(""), any(), any())).thenReturn(emptyRows());
 
         mvc.perform(get("/executions"))
                 .andExpect(status().isOk())
                 .andExpect(view().name("executions"))
                 .andExpect(model().attributeExists("executions", "page", "states", "flows"));
 
-        verify(runStates).search(eq(""), eq(""), pageableCaptor.capture());
+        verify(runStates).search(eq(""), eq(""), any(), pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(20);
         // The query orders the runs itself, so the page asks for no sort of its own.
         assertThat(pageableCaptor.getValue().getSort().isUnsorted()).isTrue();
@@ -136,7 +136,7 @@ class ExecutionUiControllerTest {
     void executions_engineRowsShowTheirStepAndStateAndNeedNoAttemptLookup() throws Exception {
         var execution = new PipelineExecution("test-factory", "1", "{}");
         execution.setCurrentStepIndex(2);
-        when(runStates.search(eq(""), eq(""), any()))
+        when(runStates.search(eq(""), eq(""), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(new Row(execution.getId(), "FAILED")), PageRequest.of(0, 20), 1));
         when(executions.findAllById(List.of(execution.getId()))).thenReturn(List.of(execution));
         when(flowRegistry.all()).thenReturn(List.of(new FlowDescriptor("test-factory", "Test Factory", "1", null,
@@ -157,45 +157,66 @@ class ExecutionUiControllerTest {
 
     @Test
     void executions_statusFilter_asksTheQueryForThatState() throws Exception {
-        when(runStates.search(eq("FAILED"), eq(""), any())).thenReturn(emptyRows());
+        when(runStates.search(eq("FAILED"), eq(""), any(), any())).thenReturn(emptyRows());
 
         mvc.perform(get("/executions").param("status", "failed"))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("selectedStatus", "FAILED"));
 
-        verify(runStates).search(eq("FAILED"), eq(""), any());
+        verify(runStates).search(eq("FAILED"), eq(""), any(), any());
     }
 
     @Test
     void executions_flowFilter_asksTheQueryForThatFlow() throws Exception {
-        when(runStates.search(eq(""), eq("test-factory"), any())).thenReturn(emptyRows());
+        when(runStates.search(eq(""), eq("test-factory"), any(), any())).thenReturn(emptyRows());
 
         mvc.perform(get("/executions").param("flow", "test-factory"))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("selectedFlow", "test-factory"));
 
-        verify(runStates).search(eq(""), eq("test-factory"), any());
+        verify(runStates).search(eq(""), eq("test-factory"), any(), any());
     }
 
     @Test
     void executions_statusAndFlow_filterTogether() throws Exception {
-        when(runStates.search(eq("COMPLETED"), eq("test-factory"), any())).thenReturn(emptyRows());
+        when(runStates.search(eq("COMPLETED"), eq("test-factory"), any(), any())).thenReturn(emptyRows());
 
         mvc.perform(get("/executions").param("status", "COMPLETED").param("flow", "test-factory"))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("filtersActive", true));
 
-        verify(runStates).search(eq("COMPLETED"), eq("test-factory"), any());
+        verify(runStates).search(eq("COMPLETED"), eq("test-factory"), any(), any());
+    }
+
+    @Test
+    void executions_startedFilter_countsBackFromNowAndAnyOtherValueMeansAnyTime() throws Exception {
+        when(runStates.search(eq("COMPLETED"), eq(""), any(), any())).thenReturn(emptyRows());
+        var since = ArgumentCaptor.forClass(java.time.OffsetDateTime.class);
+
+        // The link of a Dashboard tile: the state and the period of the tile.
+        mvc.perform(get("/executions").param("status", "COMPLETED").param("days", "7"))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("selectedDays", "7"))
+                .andExpect(model().attribute("filtersActive", true))
+                .andExpect(model().attribute("baseUrl", "/executions?status=COMPLETED&flow=&days=7&size=20"));
+        mvc.perform(get("/executions").param("status", "COMPLETED").param("days", "5"))
+                .andExpect(model().attribute("selectedDays", ""));
+
+        verify(runStates, org.mockito.Mockito.times(2)).search(eq("COMPLETED"), eq(""), since.capture(), any());
+        var weekAgo = Instant.now().minus(java.time.Duration.ofDays(7));
+        assertThat(since.getAllValues().get(0).toInstant())
+                .isBetween(weekAgo.minusSeconds(60), weekAgo.plusSeconds(60));
+        assertThat(since.getAllValues().get(1).toInstant()).isEqualTo(Instant.EPOCH);
     }
 
     @Test
     void executions_anEngineStatusOrAnUnknownStateListsEveryRun() throws Exception {
-        when(runStates.search(eq(""), eq(""), any())).thenReturn(emptyRows());
+        when(runStates.search(eq(""), eq(""), any(), any())).thenReturn(emptyRows());
 
         mvc.perform(get("/executions").param("status", "FAILED_ESCALATED")).andExpect(status().isOk());
         mvc.perform(get("/executions").param("status", "NONSENSE")).andExpect(status().isOk());
 
-        verify(runStates, org.mockito.Mockito.times(2)).search(eq(""), eq(""), any());
+        verify(runStates, org.mockito.Mockito.times(2)).search(eq(""), eq(""), any(), any());
     }
 
     // ----- detail: stepper state mapping -----
@@ -666,7 +687,7 @@ class ExecutionUiControllerTest {
 
     @Test
     void executions_baseUrl_urlEncodesFilterValues() throws Exception {
-        when(runStates.search(eq(""), eq("a b&c"), any())).thenReturn(emptyRows());
+        when(runStates.search(eq(""), eq("a b&c"), any(), any())).thenReturn(emptyRows());
 
         var result = mvc.perform(get("/executions").param("flow", "a b&c"))
                 .andExpect(status().isOk())

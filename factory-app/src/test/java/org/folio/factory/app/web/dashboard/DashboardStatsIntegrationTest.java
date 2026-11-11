@@ -81,10 +81,15 @@ class DashboardStatsIntegrationTest {
 
         DashboardStats stats = dashboardStatsService.compute(7);
 
-        // Runs are counted by the state the Executions list filters by, with its words for the charts.
+        // Runs are counted by the state the Executions list filters by, with its words for the charts, and only
+        // the runs started in the window: the 10-day-old pending run is not in the 7-day counts.
         assertThat(stats.executionsByStatus())
                 .anySatisfy(s -> assertThat(s).isEqualTo(new DashboardStats.StatusCount("COMPLETED", "Completed", 1)))
-                .anySatisfy(s -> assertThat(s.state()).isEqualTo(RunState.IN_PROGRESS.name()));
+                .anySatisfy(s -> assertThat(s).isEqualTo(
+                        new DashboardStats.StatusCount("IN_PROGRESS", "In progress", 2)));
+        assertThat(dashboardStatsService.countByState(7)).isEqualTo(Map.of(RunState.COMPLETED, 1L,
+                RunState.IN_PROGRESS, 2L, RunState.CANCELLED_OR_REJECTED, 1L));
+        assertThat(dashboardStatsService.countByState(30)).containsEntry(RunState.IN_PROGRESS, 3L);
 
         // A registered flow carries its name for the chart; a flow no longer registered keeps its id.
         assertThat(stats.executionsByFlowAndStatus())
@@ -129,7 +134,8 @@ class DashboardStatsIntegrationTest {
         assertThat(stats.hitl().pending()).isEqualTo(1);
         assertThat(stats.hitl().decidedInWindow()).isEqualTo(1);
 
-        // 734 + 810 prompt, 110 + 660 completion; the '{}' completion adds nothing.
+        // 734 + 810 prompt, 110 + 660 completion; the '{}' completion adds nothing, and the tokens the old run
+        // spent today belong to a run started before the window.
         assertThat(stats.tokens().promptTokens()).isEqualTo(1544);
         assertThat(stats.tokens().completionTokens()).isEqualTo(770);
         assertThat(stats.tokens().totalTokens()).isEqualTo(2314);
@@ -149,6 +155,7 @@ class DashboardStatsIntegrationTest {
         assertThat(stats30.stepFailures())
                 .as("the 10-day-old step failure is included in the 30-day window")
                 .anySatisfy(f -> assertThat(f.stepId()).isEqualTo("legacy-step"));
+        assertThat(stats30.tokens().totalTokens()).isEqualTo(2314 + 50);
 
         // Same data over HTTP: charts.js string-joins on this exact shape
         // (r.day + '|' + r.state), so the day must serialize as a plain
@@ -199,7 +206,7 @@ class DashboardStatsIntegrationTest {
         stateManager.transition(completed.getId(), ExecutionStatus.COMPLETED, Map.of());
 
         // A 10-day-old execution and audit row: excluded from a 7-day window but
-        // counted all-time. The audit_event table is append-only (UPDATE/DELETE are
+        // counted in a 30-day one. The audit_event table is append-only (UPDATE/DELETE are
         // blocked by a trigger), so the row is inserted already-backdated.
         // '240 hours', not '10 days': Postgres counts days in the session time zone, so across a DST change
         // '10 days' moves the row by one hour more or less, and near midnight UTC it lands on another day.
@@ -211,6 +218,9 @@ class DashboardStatsIntegrationTest {
                         VALUES (:id, 'STEP_FAILED', 'legacy-step', 'system', '{}'::jsonb, now() - interval '240 hours')
                         """)
                 .param("id", old.getId()).update();
+        // The old run spends tokens today: they count with the run, in the window it started in.
+        auditLog.record(old.getId(), AuditEventType.STEP_COMPLETED, "late-step",
+                Map.of("promptTokens", 30, "completionTokens", 20));
         return old.getId();
     }
 }

@@ -69,11 +69,12 @@ public class ExecutionUiController {
     public String executions(
             @RequestParam(name = "status", required = false) String status,
             @RequestParam(name = "flow", required = false) String flow,
+            @RequestParam(name = "days", required = false) String days,
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "20") int size,
             Model model) {
         var filter = new ExecutionListPage.Filter(UiFormat.enumOrNull(RunState.class, status),
-                flow == null ? "" : flow.strip(), page, size);
+                flow == null ? "" : flow.strip(), RunPeriod.of(days).orElse(null), page, size);
         return listPage.render(filter, model);
     }
 

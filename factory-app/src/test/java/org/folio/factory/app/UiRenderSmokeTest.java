@@ -8,6 +8,7 @@ import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.TaskFixture;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskRunSettings;
+import org.folio.factory.app.tasks.persistence.RunState;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
@@ -155,12 +156,23 @@ class UiRenderSmokeTest {
                 .contains("class=\"charts-grid\"")
                 .containsPattern("<span class=\"chip chip-(success|neutral)\">(Running|Disabled)</span>")
                 .doesNotContain("badge-success", "badge-muted")
-                // The cards count runs by the states the Executions list filters by, in its words.
-                .containsPattern("<span class=\"kpi-label\">Completed</span>\\s*</div>")
-                .contains("<span class=\"kpi-label\">Pull request opened</span>",
-                        "<span class=\"kpi-label\">Waiting for review</span>", "<span class=\"kpi-label\">Failed</span>",
-                        "<span class=\"kpi-label\">Cancelled or rejected</span>", "Runs started per day, by state")
-                .doesNotContain("Ran to the end", "Failed / escalated", "Awaiting review", "HITL reviews");
+                .contains("Runs started per day, by state", "<h2 class=\"card-title\">Runs by state</h2>",
+                        "<h2 class=\"card-title\">Runs per flow</h2>")
+                .doesNotContain("Ran to the end", "Failed / escalated", "Awaiting review", "HITL reviews",
+                        "open in Reviews", "All runs");
+        // One tile per state of the Executions Status filter, in its order and words, after Total runs; each opens
+        // the list with that state and the chosen period. The page says what the counts count.
+        var tiles = Pattern.compile("<a class=\"kpi\" href=\"([^\"]+)\">\\s*<span class=\"kpi-value\">\\d+</span>\\s*"
+                + "<span class=\"kpi-label\">([^<]+)</span>").matcher(body).results()
+                .map(tile -> tile.group(2) + " " + tile.group(1).replace("&amp;", "&")).toList();
+        var expectedTiles = new java.util.ArrayList<>(List.of("Total runs /executions?days=14"));
+        for (var state : RunState.values()) {
+            expectedTiles.add(state.getLabel() + " /executions?status=" + state.name() + "&days=14");
+        }
+        assertThat(tiles).isEqualTo(expectedTiles);
+        assertThat(body.indexOf("Cancelled or rejected</span>")).isLessThan(body.indexOf(">Execution engine<"));
+        assertThat(body).contains("What the runs started in the chosen period came to. Runs, tokens, step failures"
+                + "\n            and connector actions count only those runs");
         // Runs, reviews and time ranges in plain words, as on the other pages.
         assertThat(body).contains("<span class=\"kpi-label\">Total runs</span>", "<h2 class=\"card-title\">Reviews</h2>",
                         "<dt>Waiting now</dt>", "<dt>Longest wait now</dt>", "<dt>Decided in this period</dt>",
@@ -403,6 +415,12 @@ class UiRenderSmokeTest {
                         "<td class=\"muted nowrap\">" + timeTag(PageTime.day(stored.getCreatedAt())) + "</td>",
                         "<td class=\"muted nowrap\">" + timeTag(PageTime.day(stored.getUpdatedAt())) + "</td>")
                 .doesNotContain("<th>Execution</th>", ">FAILED_ESCALATED<", "Pipeline runs");
+        // The period of a Dashboard tile is a filter of its own, Started.
+        assertThat(assertRendered("/executions?flow=test-factory&days=7", "Executions"))
+                .contains("<label class=\"label\" for=\"filter-started\">Started</label>",
+                        "<option value=\"\">Any time</option>", "<option value=\"1\">In the last 24 hours</option>",
+                        "<option value=\"7\" selected=\"selected\">In the last 7 days</option>",
+                        "<a class=\"table-link\" href=\"/executions/" + execution.getId() + "\">");
     }
 
     @Test

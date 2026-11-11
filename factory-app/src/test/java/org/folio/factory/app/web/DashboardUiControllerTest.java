@@ -1,19 +1,18 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.app.tasks.persistence.RunState;
+import org.folio.factory.app.web.DashboardUiController.RunTile;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.TokenUsage;
 import org.folio.factory.app.web.dashboard.DashboardStatsService;
 import org.folio.factory.connectors.ConnectorHealth;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
-import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.engine.EngineProperties;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.repository.AuditEventRepository;
 import org.folio.factory.core.repository.FlowRegistryEntryRepository;
-import org.folio.factory.core.repository.HitlReviewRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -60,9 +59,6 @@ class DashboardUiControllerTest {
     private FlowRegistryEntryRepository flowRegistryEntries;
 
     @Mock
-    private HitlReviewRepository reviews;
-
-    @Mock
     private AuditEventRepository audit;
 
     @Mock
@@ -84,17 +80,16 @@ class DashboardUiControllerTest {
     private MockMvc mvcWithConnectors(List<ConnectorHealth> connectors) {
         EngineProperties engine = new EngineProperties(true, 2000L, 5, 4, 1800L, 30, true);
         DashboardUiController controller = new DashboardUiController(
-                connectors, flowRegistry, engine, flowRegistryEntries, reviews, audit, json, dashboardStats);
+                connectors, flowRegistry, engine, flowRegistryEntries, audit, json, dashboardStats);
         return MockMvcBuilders.standaloneSetup(controller)
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
 
     private void stubKpiCounts() {
-        when(dashboardStats.countByState()).thenReturn(new EnumMap<>(Map.of(
+        when(dashboardStats.countByState(anyInt())).thenReturn(new EnumMap<>(Map.of(
                 RunState.IN_PROGRESS, 3L, RunState.WAITING_FOR_REVIEW, 3L, RunState.PULL_REQUEST, 2L,
                 RunState.COMPLETED, 10L, RunState.FAILED, 4L, RunState.CANCELLED_OR_REJECTED, 3L)));
-        when(reviews.countByStatus(HitlReviewStatus.PENDING)).thenReturn(5L);
         when(dashboardStats.tokenUsage(anyInt())).thenReturn(new TokenUsage(1234, 567));
         when(dashboardStats.stepTokens(anyInt())).thenReturn(List.of(
                 new StepTokenCount("test-factory", "test-automation", 1000, 400),
@@ -109,13 +104,16 @@ class DashboardUiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(view().name("dashboard"))
                 .andExpect(model().attribute("days", 14))
-                .andExpect(model().attribute("totalRuns", 25L))
-                .andExpect(model().attribute("completedCount", 10L))
-                .andExpect(model().attribute("pullRequestCount", 2L))
-                .andExpect(model().attribute("awaitingHitlCount", 3L))
-                .andExpect(model().attribute("pendingReviews", 5L))
-                .andExpect(model().attribute("failedCount", 4L))
-                .andExpect(model().attribute("cancelledOrRejectedCount", 3L))
+                .andExpect(model().attribute("runTiles", List.of(
+                        new RunTile("Total runs", "25", "/executions?days=14"),
+                        new RunTile("In progress", "3", "/executions?status=IN_PROGRESS&days=14"),
+                        new RunTile("Waiting for review", "3", "/executions?status=WAITING_FOR_REVIEW&days=14"),
+                        new RunTile("Pull request opened", "2", "/executions?status=PULL_REQUEST&days=14"),
+                        new RunTile("Completed", "10", "/executions?status=COMPLETED&days=14"),
+                        new RunTile("Asked a question", "0", "/executions?status=ASKED&days=14"),
+                        new RunTile("Needs inspection", "0", "/executions?status=NEEDS_INSPECTION&days=14"),
+                        new RunTile("Failed", "4", "/executions?status=FAILED&days=14"),
+                        new RunTile("Cancelled or rejected", "3", "/executions?status=CANCELLED_OR_REJECTED&days=14"))))
                 .andExpect(model().attribute("engineEnabled", true))
                 .andExpect(model().attribute("connectorsConfigured", 1))
                 .andExpect(model().attribute("connectorsTotal", 2))
@@ -140,15 +138,17 @@ class DashboardUiControllerTest {
     }
 
     @Test
-    void dashboard_scopesTokenQueriesToTheClampedWindow() throws Exception {
+    void dashboard_scopesRunAndTokenQueriesToTheClampedWindow() throws Exception {
         stubKpiCounts();
 
         mvc.perform(get("/?days=999")).andExpect(status().isOk());
+        mvc.perform(get("/?days=abc")).andExpect(status().isOk());
 
-        // The unknown range falls back to 14, and the token queries must use that
+        // An unknown range falls back to 14, and the run and token queries must use that
         // same clamped value rather than the raw request parameter.
-        verify(dashboardStats).tokenUsage(14);
-        verify(dashboardStats).stepTokens(14);
+        verify(dashboardStats, org.mockito.Mockito.times(2)).countByState(14);
+        verify(dashboardStats, org.mockito.Mockito.times(2)).tokenUsage(14);
+        verify(dashboardStats, org.mockito.Mockito.times(2)).stepTokens(14);
     }
 
     @Test
@@ -168,6 +168,7 @@ class DashboardUiControllerTest {
         mvc.perform(get("/").param("days", "30"))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("days", 30));
+        verify(dashboardStats).countByState(30);
     }
 
     @Test

@@ -28,7 +28,10 @@ import java.util.Map;
  * Aggregates execution/audit/HITL metrics for the dashboard charts in one payload.
  * Uses native Postgres SQL through {@link JdbcClient}: {@code date_trunc},
  * {@code FILTER (WHERE ...)} and {@code detail->>'connector'} are inexpressible in
- * JPQL, and the project is Postgres-only.
+ * JPQL, and the project is Postgres-only. Runs, tokens, step failures and connector
+ * actions count only the runs started in the window; the reviews say what waits now
+ * and what was decided in the window. An event comes after the start of its run, so
+ * the bound on the event's own time changes no count but lets the query use its index.
  */
 @Service
 @RequiredArgsConstructor
@@ -46,7 +49,7 @@ public class DashboardStatsService {
                 decided.count(), decided.avgSeconds());
 
         return new DashboardStats(Instant.now(), days,
-                executionsByStatus(), executionsByFlowAndStatus(), executionsPerDay(since),
+                executionsByStatus(since), executionsByFlowAndStatus(since), executionsPerDay(since),
                 stepFailures(since), hitl, connectorOutcomes(since),
                 tokenUsage(since), stepTokens(since));
     }
@@ -61,10 +64,10 @@ public class DashboardStatsService {
     // all-empty window at 0 rather than null.
     private TokenUsage tokenUsage(OffsetDateTime since) {
         return jdbc.sql("""
-                        SELECT coalesce(sum((detail->>'promptTokens')::bigint), 0) AS prompt,
-                               coalesce(sum((detail->>'completionTokens')::bigint), 0) AS completion
-                        FROM audit_event
-                        WHERE event_type = 'STEP_COMPLETED' AND occurred_at >= :since
+                        SELECT coalesce(sum((a.detail->>'promptTokens')::bigint), 0) AS prompt,
+                               coalesce(sum((a.detail->>'completionTokens')::bigint), 0) AS completion
+                        FROM audit_event a JOIN pipeline_execution e ON e.id = a.execution_id
+                        WHERE a.event_type = 'STEP_COMPLETED' AND e.created_at >= :since AND a.occurred_at >= :since
                         """)
                 .param("since", since)
                 .query((rs, n) -> new TokenUsage(rs.getLong("prompt"), rs.getLong("completion")))
@@ -78,11 +81,11 @@ public class DashboardStatsService {
 
     private List<StepTokenCount> stepTokens(OffsetDateTime since) {
         return jdbc.sql("""
-                        SELECT coalesce(e.flow_id, '(purged)') AS flow_id, a.step_id,
+                        SELECT e.flow_id, a.step_id,
                                coalesce(sum((a.detail->>'promptTokens')::bigint), 0) AS prompt,
                                coalesce(sum((a.detail->>'completionTokens')::bigint), 0) AS completion
-                        FROM audit_event a LEFT JOIN pipeline_execution e ON e.id = a.execution_id
-                        WHERE a.event_type = 'STEP_COMPLETED' AND a.occurred_at >= :since
+                        FROM audit_event a JOIN pipeline_execution e ON e.id = a.execution_id
+                        WHERE a.event_type = 'STEP_COMPLETED' AND e.created_at >= :since AND a.occurred_at >= :since
                         -- jsonb_exists, not the `?` operator: JDBC would bind `?` as a parameter.
                           AND a.step_id IS NOT NULL AND jsonb_exists(a.detail, 'promptTokens')
                         -- Output aliases are only usable bare in ORDER BY, not inside an
@@ -102,24 +105,27 @@ public class DashboardStatsService {
     }
 
     /**
-     * All runs by {@link RunState}, the states the Executions list filters by: a failed Developer Flow attempt is
-     * Failed, not Completed, though its engine run ran to the end.
+     * The runs started in the window by {@link RunState}, the states the Executions list filters by: a failed
+     * Developer Flow attempt is Failed, not Completed, though its engine run ran to the end.
      */
-    public Map<RunState, Long> countByState() {
+    public Map<RunState, Long> countByState(int days) {
         Map<RunState, Long> counts = new EnumMap<>(RunState.class);
-        executionsByStatus().forEach(row -> counts.put(RunState.valueOf(row.state()), row.count()));
+        executionsByStatus(since(days)).forEach(row -> counts.put(RunState.valueOf(row.state()), row.count()));
         return counts;
     }
 
-    private List<StatusCount> executionsByStatus() {
-        return jdbc.sql("SELECT " + RunState.SQL + " AS state, count(*) AS c FROM " + RunState.FROM + " GROUP BY 1")
+    private List<StatusCount> executionsByStatus(OffsetDateTime since) {
+        return jdbc.sql("SELECT " + RunState.SQL + " AS state, count(*) AS c FROM " + RunState.FROM
+                        + " WHERE e.created_at >= :since GROUP BY 1")
+                .param("since", since)
                 .query((rs, n) -> new StatusCount(rs.getString("state"), label(rs.getString("state")), rs.getLong("c")))
                 .list();
     }
 
-    private List<FlowStatusCount> executionsByFlowAndStatus() {
+    private List<FlowStatusCount> executionsByFlowAndStatus(OffsetDateTime since) {
         return jdbc.sql("SELECT e.flow_id, " + RunState.SQL + " AS state, count(*) AS c FROM " + RunState.FROM
-                        + " GROUP BY 1, 2 ORDER BY 1")
+                        + " WHERE e.created_at >= :since GROUP BY 1, 2 ORDER BY 1")
+                .param("since", since)
                 .query((rs, n) -> new FlowStatusCount(rs.getString("flow_id"),
                         UiFormat.flowName(flows, rs.getString("flow_id")), rs.getString("state"), rs.getLong("c")))
                 .list();
@@ -141,12 +147,12 @@ public class DashboardStatsService {
 
     private List<StepFailureCount> stepFailures(OffsetDateTime since) {
         return jdbc.sql("""
-                        SELECT coalesce(e.flow_id, '(purged)') AS flow_id, a.step_id,
+                        SELECT e.flow_id, a.step_id,
                                count(*) FILTER (WHERE a.event_type = 'STEP_FAILED') AS failures,
                                count(*) FILTER (WHERE a.event_type = 'RETRY_SCHEDULED') AS retries
-                        FROM audit_event a LEFT JOIN pipeline_execution e ON e.id = a.execution_id
-                        WHERE a.event_type IN ('STEP_FAILED', 'RETRY_SCHEDULED') AND a.occurred_at >= :since
-                          AND a.step_id IS NOT NULL
+                        FROM audit_event a JOIN pipeline_execution e ON e.id = a.execution_id
+                        WHERE a.event_type IN ('STEP_FAILED', 'RETRY_SCHEDULED')
+                          AND e.created_at >= :since AND a.occurred_at >= :since AND a.step_id IS NOT NULL
                         GROUP BY 1, 2 ORDER BY failures DESC
                         """)
                 .param("since", since)
@@ -163,9 +169,10 @@ public class DashboardStatsService {
 
     private List<ConnectorOutcome> connectorOutcomes(OffsetDateTime since) {
         return jdbc.sql("""
-                        SELECT detail->>'connector' AS connector, event_type, count(*) AS c
-                        FROM audit_event
-                        WHERE event_type IN ('CONNECTOR_ACTION', 'CONNECTOR_SKIPPED') AND occurred_at >= :since
+                        SELECT a.detail->>'connector' AS connector, a.event_type, count(*) AS c
+                        FROM audit_event a JOIN pipeline_execution e ON e.id = a.execution_id
+                        WHERE a.event_type IN ('CONNECTOR_ACTION', 'CONNECTOR_SKIPPED')
+                          AND e.created_at >= :since AND a.occurred_at >= :since
                         GROUP BY 1, 2
                         """)
                 .param("since", since)

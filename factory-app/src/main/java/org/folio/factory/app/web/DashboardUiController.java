@@ -9,13 +9,11 @@ import org.folio.factory.connectors.ConnectorHealth;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.FlowRegistryEntry;
-import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.engine.EngineProperties;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.repository.AuditEventRepository;
 import org.folio.factory.core.repository.FlowRegistryEntryRepository;
-import org.folio.factory.core.repository.HitlReviewRepository;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
@@ -32,7 +30,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 
@@ -46,26 +43,27 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class DashboardUiController {
 
-    private static final int DEFAULT_DAYS = 14;
     private static final int DEFAULT_AUDIT_SIZE = 50;
-    private static final Set<Integer> ALLOWED_DAYS = Set.of(1, 7, 14, 30, 90);
 
     private final List<ConnectorHealth> connectors;
     private final FlowRegistry flowRegistry;
     private final EngineProperties engineProperties;
     private final FlowRegistryEntryRepository flowRegistryEntries;
-    private final HitlReviewRepository reviews;
     private final AuditEventRepository audit;
     private final JsonMapper jsonMapper;
     private final DashboardStatsService dashboardStats;
 
-    @GetMapping("/")
-    public String dashboard(@RequestParam(name = "days", defaultValue = "14") int days, Model model) {
-        int window = ALLOWED_DAYS.contains(days) ? days : DEFAULT_DAYS;
-        model.addAttribute("days", window);
+    /** A run tile: the runs started in the period that are in one state, or all of them, linked to that list. */
+    public record RunTile(String label, String count, String url) {
+    }
 
-        addExecutionCounts(model);
-        model.addAttribute("pendingReviews", reviews.countByStatus(HitlReviewStatus.PENDING));
+    @GetMapping("/")
+    public String dashboard(@RequestParam(name = "days", defaultValue = "14") String days, Model model) {
+        var period = RunPeriod.of(days).orElse(RunPeriod.DEFAULT);
+        int window = period.days();
+        model.addAttribute("days", window);
+        model.addAttribute("periods", RunPeriod.values());
+        model.addAttribute("runTiles", runTiles(window));
 
         model.addAttribute("engineEnabled", engineProperties.enabled());
         Map<String, Boolean> connectorConfig = connectorConfiguration();
@@ -73,7 +71,6 @@ public class DashboardUiController {
         model.addAttribute("connectorsConfigured", configured);
         model.addAttribute("connectorsTotal", connectorConfig.size());
 
-        // Unlike the all-time KPIs above, token spend is scoped to the selected window.
         TokenUsage tokens = dashboardStats.tokenUsage(window);
         model.addAttribute("tokenTotal", UiFormat.count(tokens.totalTokens()));
         model.addAttribute("tokenBreakdown",
@@ -82,15 +79,20 @@ public class DashboardUiController {
         return "dashboard";
     }
 
-    /** All-time run counts: the total and one count per state the Executions list filters by. */
-    private void addExecutionCounts(Model model) {
-        var byState = dashboardStats.countByState();
-        model.addAttribute("totalRuns", byState.values().stream().mapToLong(Long::longValue).sum());
-        model.addAttribute("completedCount", byState.getOrDefault(RunState.COMPLETED, 0L));
-        model.addAttribute("pullRequestCount", byState.getOrDefault(RunState.PULL_REQUEST, 0L));
-        model.addAttribute("awaitingHitlCount", byState.getOrDefault(RunState.WAITING_FOR_REVIEW, 0L));
-        model.addAttribute("failedCount", byState.getOrDefault(RunState.FAILED, 0L));
-        model.addAttribute("cancelledOrRejectedCount", byState.getOrDefault(RunState.CANCELLED_OR_REJECTED, 0L));
+    /**
+     * The runs started in the window: the total, then one tile per state in the order and words of the Executions
+     * Status filter, so the states add up to the total. Each opens the list with the same filters.
+     */
+    private List<RunTile> runTiles(int days) {
+        var byState = dashboardStats.countByState(days);
+        var tiles = new ArrayList<RunTile>();
+        var total = byState.values().stream().mapToLong(Long::longValue).sum();
+        tiles.add(new RunTile("Total runs", UiFormat.count(total), "/executions?days=" + days));
+        for (var state : RunState.values()) {
+            tiles.add(new RunTile(state.getLabel(), UiFormat.count(byState.getOrDefault(state, 0L)),
+                    "/executions?status=" + state.name() + "&days=" + days));
+        }
+        return List.copyOf(tiles);
     }
 
     private StepTokenRow stepTokenRow(StepTokenCount step) {

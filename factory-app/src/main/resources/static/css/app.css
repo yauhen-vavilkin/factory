@@ -621,10 +621,11 @@ tbody tr:hover { background: hsl(var(--secondary-hover) / 0.4); }
 .step-sublabel { font-size: 0.8125rem; color: hsl(var(--muted-foreground)); }
 
 /* ---------- kpi ---------- */
-/* The cards of a row stretch to one height, so a card with a second line does not stand out. */
+/* The cards of a row stretch to one height, so a card with a second line does not stand out. Six fit in a row
+   of the widest page. */
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 1rem;
 }
 .kpi-grid > * { min-width: 0; }
@@ -638,8 +639,10 @@ tbody tr:hover { background: hsl(var(--secondary-hover) / 0.4); }
   border-radius: var(--radius);
   box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
 }
-/* The value shrinks with its card, so a seven-figure token total stays inside a narrow card (5 cards at 1280 px). */
+/* The value shrinks with its card, so a seven-figure token total stays inside a narrow card (160 px). */
 .kpi { container-type: inline-size; }
+a.kpi { color: inherit; }
+a.kpi:hover { text-decoration: none; border-color: hsl(var(--strong-border)); }
 .kpi-value {
   font-size: clamp(1.25rem, 16cqi, 1.875rem);
   font-weight: 600;
