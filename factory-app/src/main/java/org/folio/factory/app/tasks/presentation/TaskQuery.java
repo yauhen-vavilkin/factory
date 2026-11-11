@@ -97,7 +97,7 @@ public class TaskQuery {
     }
 
     private TaskInstallation installation() {
-        return installations.findById(1).orElse(null);
+        return installations.findById(TaskInstallation.ID).orElse(null);
     }
 
     /** 1-based place of each waiting attempt in the order the dispatcher starts them. */

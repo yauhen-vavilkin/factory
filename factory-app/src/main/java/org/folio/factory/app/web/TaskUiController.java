@@ -204,7 +204,7 @@ public class TaskUiController {
     }
 
     private TaskInstallation installation() {
-        return installations.findById(1).orElseThrow(TaskInstallation::missing);
+        return installations.findById(TaskInstallation.ID).orElseThrow(TaskInstallation::missing);
     }
 
     private String queueWaiting(TaskInstallation installation, List<TaskView> triggered) {

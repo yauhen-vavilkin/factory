@@ -7,6 +7,7 @@ import org.folio.factory.app.developer.DeveloperPreflight.Report;
 import org.folio.factory.app.developer.DeveloperPreflight.Status;
 import org.folio.factory.app.developer.ModelChecks.ModelRow;
 import org.folio.factory.app.tasks.execution.TaskExecutionProperties;
+import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.presentation.SourceCard;
 import org.folio.factory.app.tasks.presentation.TaskRows;
@@ -130,7 +131,7 @@ public class DeveloperConfigurationPage {
     }
 
     private Source source() {
-        return installations.findById(1).map(rows::sourceCard).map(this::source)
+        return installations.findById(TaskInstallation.ID).map(rows::sourceCard).map(this::source)
                 .orElseGet(() -> new Source(List.of(new Fact("My tasks", "Not set up: the database has no My"
                         + " tasks row. Restart Factory so that its migration V12 creates it.", null)), null, null));
     }
