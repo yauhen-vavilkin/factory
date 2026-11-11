@@ -509,7 +509,7 @@ class UiRenderSmokeTest {
                         "href=\"https://github.com/o/mgr-applications/pull/6#issuecomment-9\">Factory's comment on the PR</a>",
                         "<summary>Round details</summary>", ">Verify my manual changes</button>",
                         "Runs the checks on commits you pushed to the PR branch yourself. No agent, no cost.",
-                        "<summary>Activity and usage</summary>")
+                        "<summary>Activity and usage</summary>", "id=\"usage-title\">First implementation</h2>")
                 .containsPattern("<div class=\"row-cluster\">\\s*<span class=\"row-amount\">\\$0\\.00</span>"
                         + "\\s*<span class=\"chip chip-success\">Published</span>\\s*<div class=\"dev-row-action\"></div>")
                 .doesNotContain(">Add minProperties</span>", "Work on feedback", "Agent: ", "## ", "inline:1",
@@ -522,6 +522,30 @@ class UiRenderSmokeTest {
                 "application/json", "test");
         assertThat(assertRendered("/executions/" + id, "New PR comments")).contains("<p class=\"dev-empty\">"
                 + "No new comments. Add review comments on GitHub, then press Check PR comments.</p>");
+    }
+
+    @Test
+    void aRoundWithFailedChecksShowsHowManyFailedAndTheirOutput() {
+        var execution = new PipelineExecution("dev-factory",
+                org.folio.factory.devfactory.feedback.FeedbackArtifacts.VERSION, "{}");
+        execution.setStatus(ExecutionStatus.AWAITING_HITL);
+        execution = executions.save(execution);
+        var id = execution.getId();
+        var pr = "{\"repository\":\"o/mgr-applications\",\"number\":6,\"branch\":\"factory/x\",\"baseBranch\":\"master\","
+                + "\"headSha\":\"" + "c".repeat(40) + "\",\"url\":\"https://github.com/o/mgr-applications/pull/6\",\"open\":true}";
+        var round = "\"round\":1,\"pr\":" + pr + ",\"selected\":[],\"roundStartedAt\":\"2026-11-10T18:22:00Z\"";
+        var checks = "{\"executionId\":\"" + id + "\",\"argv\":[],\"exitCode\":1,\"surefireReportCount\":1,"
+                + "\"testCount\":300,\"failureCount\":2,\"errorCount\":0,\"result\":\"FAIL\","
+                + "\"output\":\"AppTest.renames failed\",\"failsafeReportCount\":0}";
+        artifactStore.put(id, "dev_pr_state.json", "{" + round + ",\"phase\":\"CODE\"}", "application/json", "test");
+        artifactStore.put(id, "dev_pr_state.json", "{" + round + ",\"phase\":\"FAILURE\",\"verification\":" + checks
+                + "}", "application/json", "test");
+
+        String body = assertRendered("/executions/" + id, "Rounds");
+        assertThat(body).contains(">Round 1</strong>", "Nov 10, 18:22 · 300 tests, 2 failed",
+                        "<p>Checks failed: 2 of 300 tests failed.</p>", "class=\"chip chip-danger\">Action needed</span>")
+                .containsPattern("<pre class=\"feedback-diagnostics\"\\s*>AppTest.renames failed</pre>")
+                .doesNotContain("Checks passed");
     }
 
     @Test

@@ -21,6 +21,8 @@ public final class RoundReport {
     private static final Pattern LIST_MARKER = Pattern.compile("^\\s*(?:[-*+]|\\d+[.)])\\s+");
     private static final Pattern LINK = Pattern.compile("\\[([^\\]]*)]\\([^)]*\\)");
     private static final Pattern SENTENCE_END = Pattern.compile("(?<=[.!?])\\s+");
+    /** A heading inside a line: a round without changes puts a sentence of Factory's before the report. */
+    private static final Pattern INLINE_HEADING = Pattern.compile("\\s+(?=#{2,6}\\s)");
 
     private RoundReport() {
     }
@@ -41,8 +43,7 @@ public final class RoundReport {
      * when the report has no such section: a guess from other text could say what the agent did not do.
      */
     public static String firstSentence(String report) {
-        var lines = report == null ? List.<String>of() : report.strip().lines().toList();
-        var first = section(lines, "changes").stream()
+        var first = section(headingLines(report), "changes").stream()
                 .map(line -> INTERNAL_ID.matcher(plain(line)).replaceAll("").strip())
                 .filter(line -> !line.isEmpty())
                 .findFirst();
@@ -55,14 +56,19 @@ public final class RoundReport {
 
     /** The report without Markdown marks or internal ids: headings and list items keep their own lines. */
     public static String text(String report) {
-        var lines = report == null ? List.<String>of() : report.strip().lines().toList();
         var text = new ArrayList<String>();
-        for (var line : lines) {
+        for (var line : headingLines(report)) {
             var heading = HEADING.matcher(line);
             var plain = heading.matches() ? plain(heading.group(1)) : plain(line);
             text.add(LIST_MARKER.matcher(line).find() ? "• " + plain : plain);
         }
         return INTERNAL_ID.matcher(String.join("\n", text)).replaceAll("").strip();
+    }
+
+    /** The lines of the report, with a heading that follows text on its line moved to a line of its own. */
+    private static List<String> headingLines(String report) {
+        var lines = report == null ? List.<String>of() : report.strip().lines().toList();
+        return lines.stream().flatMap(INLINE_HEADING::splitAsStream).toList();
     }
 
     private static List<String> section(List<String> lines, String name) {

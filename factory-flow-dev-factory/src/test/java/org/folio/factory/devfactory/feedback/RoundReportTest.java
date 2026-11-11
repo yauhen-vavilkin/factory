@@ -72,6 +72,17 @@ class RoundReportTest {
     }
 
     @Test
+    void aRoundWithoutChangesKeepsItsReportReadable() {
+        // FeedbackWorker puts its own sentence in front of the report of a round that changed nothing.
+        var report = "No code changes were needed; current code verified. ## Changes\n- None: the test already passes."
+                + "\n\n## Assumptions\n- None.";
+
+        assertThat(RoundReport.firstSentence(report)).isEqualTo("None: the test already passes.");
+        assertThat(RoundReport.text(report)).isEqualTo("No code changes were needed; current code verified.\n"
+                + "Changes\n• None: the test already passes.\n\nAssumptions\n• None.");
+    }
+
+    @Test
     void aReportWithoutHeadingsIsUsedAsItIsAndInternalIdsAreRemoved() {
         assertThat(RoundReport.changes("Corrected selected feedback (PR feedback inline:42).\n"))
                 .isEqualTo("Corrected selected feedback.");
