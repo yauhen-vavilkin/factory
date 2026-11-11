@@ -1,5 +1,7 @@
 package org.folio.factory.core.engine;
 
+import org.folio.factory.core.EngineDriver;
+import org.folio.factory.core.FakeRejectingPostProcessor;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReviewStatus;
@@ -12,16 +14,18 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 
+import static java.time.temporal.ChronoUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
+import static org.assertj.core.api.Assertions.within;
 
 @SpringBootTest(properties = "spring.jpa.hibernate.ddl-auto=create-drop")
 @Testcontainers
@@ -31,6 +35,9 @@ class ExecutionEngineIntegrationTest {
     @Container
     @ServiceConnection
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
+
+    @Autowired
+    EngineDriver driver;
 
     @Autowired
     ExecutionEngine engine;
@@ -50,34 +57,14 @@ class ExecutionEngineIntegrationTest {
     @Autowired
     HitlReviewRepository reviews;
 
-    /**
-     * Simulates the poller synchronously: claim and advance until the execution
-     * reaches the expected quiescent state. Condition-based like
-     * SubFlowIntegrationTest#driveUntilTerminal: a freshly (re)scheduled row can be
-     * momentarily unclaimable while its JVM-clock next_run_at is ahead of the
-     * database clock under load, so a fixed number of sleepless rounds races that
-     * skew instead of absorbing it.
-     */
-    private void driveUntil(UUID executionId, ExecutionStatus expected) {
-        await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(50)).untilAsserted(() -> {
-            claimService.claim(10).forEach(engine::advance);
-            assertThat(stateManager.get(executionId).getStatus()).isEqualTo(expected);
-        });
-    }
-
-    /** Claims (without advancing) until the execution is RUNNING, absorbing the same skew. */
-    private void claimUntilRunning(UUID executionId) {
-        await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(50)).untilAsserted(() -> {
-            claimService.claim(10);
-            assertThat(stateManager.get(executionId).getStatus()).isEqualTo(ExecutionStatus.RUNNING);
-        });
-    }
+    @Autowired
+    JdbcTemplate jdbc;
 
     @Test
     void runsTwoStepFlowToCompletionThroughArtifacts() {
         PipelineExecution execution = stateManager.createExecution(
                 "fake-simple", "1.0.0", "{\"issueKey\":\"ERM-1\"}");
-        driveUntil(execution.getId(), ExecutionStatus.COMPLETED);
+        driver.driveUntil(execution.getId(), ExecutionStatus.COMPLETED);
 
         PipelineExecution finished = stateManager.get(execution.getId());
         assertThat(finished.getCompletedAt()).isNotNull();
@@ -85,7 +72,8 @@ class ExecutionEngineIntegrationTest {
         var first = artifactStore.getLatest(execution.getId(), "first.md").orElseThrow();
         var second = artifactStore.getLatest(execution.getId(), "second.md").orElseThrow();
         assertThat(first.getContent()).contains("$trigger").contains("ERM-1");
-        assertThat(second.getContent()).contains("first.md:");
+        // Only a step that declares $trigger gets the payload: FakeEchoWorker puts it first.
+        assertThat(second.getContent()).startsWith("echo[second.md] <- first.md:");
         assertThat(first.getCreatedBy()).isEqualTo("first");
 
         var eventTypes = auditLog.forExecution(execution.getId()).stream()
@@ -104,7 +92,7 @@ class ExecutionEngineIntegrationTest {
     @Test
     void undeclaredOutputIsRejectedAndNothingPersisted() {
         PipelineExecution execution = stateManager.createExecution("fake-rogue", "1.0.0", null);
-        driveUntil(execution.getId(), ExecutionStatus.FAILED_ESCALATED);
+        driver.driveUntil(execution.getId(), ExecutionStatus.FAILED_ESCALATED);
 
         assertThat(artifactStore.getLatest(execution.getId(), "rogue.md")).isEmpty();
         assertThat(artifactStore.getLatest(execution.getId(), "expected.md")).isEmpty();
@@ -118,7 +106,7 @@ class ExecutionEngineIntegrationTest {
     @Test
     void exhaustedRetryBudgetEscalatesToHumanReview() {
         PipelineExecution execution = stateManager.createExecution("fake-failing", "1.0.0", null);
-        driveUntil(execution.getId(), ExecutionStatus.FAILED_ESCALATED);
+        driver.driveUntil(execution.getId(), ExecutionStatus.FAILED_ESCALATED);
 
         assertThat(stateManager.retryCount(execution.getId(), "doomed")).isEqualTo(2);
 
@@ -144,7 +132,7 @@ class ExecutionEngineIntegrationTest {
     @Test
     void guardedAdvanceRefusesStaleDrivers() {
         PipelineExecution execution = stateManager.createExecution("fake-simple", "1.0.0", null);
-        claimUntilRunning(execution.getId());
+        driver.claimUntilRunning(execution.getId());
 
         // Wrong index (stale duplicate driver) → refused; correct index → advances.
         assertThat(stateManager.advanceStep(execution.getId(), 5, ExecutionStatus.RUNNING)).isFalse();
@@ -158,7 +146,7 @@ class ExecutionEngineIntegrationTest {
     @Test
     void guardedHeartbeatRejectsChangedStepStatusAndReclaimedLease() {
         PipelineExecution execution = stateManager.createExecution("fake-simple", "1.0.0", null);
-        claimUntilRunning(execution.getId());
+        driver.claimUntilRunning(execution.getId());
         PipelineExecution running = stateManager.get(execution.getId());
         long version = running.getVersion();
 
@@ -170,7 +158,7 @@ class ExecutionEngineIntegrationTest {
         claimService.release(execution.getId());
         assertThat(stateManager.heartbeat(execution.getId(), 0,
                 stateManager.get(execution.getId()).getVersion())).isFalse();
-        claimUntilRunning(execution.getId());
+        driver.claimUntilRunning(execution.getId());
         assertThat(stateManager.heartbeat(execution.getId(), 0, version + 1)).isFalse();
         assertThat(stateManager.advanceStep(execution.getId(), 0, ExecutionStatus.RUNNING, version + 1)).isFalse();
         assertThat(stateManager.heartbeat(execution.getId(), 0,
@@ -180,13 +168,71 @@ class ExecutionEngineIntegrationTest {
     }
 
     @Test
-    void reaperReturnsStaleRunningExecutionsToPending() {
-        PipelineExecution execution = stateManager.createExecution("fake-simple", "1.0.0", null);
-        claimUntilRunning(execution.getId());
+    void reaperLeavesFreshLeaseAloneAndReturnsStaleLeaseToPending() {
+        UUID id = stateManager.createExecution("fake-simple", "1.0.0", null).getId();
+        driver.claimUntilRunning(id);
+        long version = stateManager.get(id).getVersion();
+        assertThat(stateManager.heartbeat(id, 0, version)).isTrue();
 
-        int reaped = claimService.reapStale(0);
+        claimService.reapStale(3600);
+        assertThat(stateManager.get(id).getStatus()).isEqualTo(ExecutionStatus.RUNNING);
 
-        assertThat(reaped).isGreaterThanOrEqualTo(1);
-        assertThat(stateManager.get(execution.getId()).getStatus()).isEqualTo(ExecutionStatus.PENDING);
+        jdbc.update("UPDATE pipeline_execution SET updated_at = now() - interval '2 hours' WHERE id = ?", id);
+        assertThat(claimService.reapStale(3600)).isEqualTo(1);
+        assertThat(stateManager.get(id).getStatus()).isEqualTo(ExecutionStatus.PENDING);
+        assertThat(stateManager.heartbeat(id, 0, version + 1)).isFalse();
+    }
+
+    @Test
+    void postProcessorRejectionStoresNothingAndEscalatesAfterRetries() {
+        UUID id = stateManager.createExecution("fake-post-rejected", "1.0.0", null).getId();
+        driver.driveUntil(id, ExecutionStatus.FAILED_ESCALATED);
+
+        assertThat(artifactStore.allForExecution(id)).isEmpty();
+        assertThat(stateManager.retryCount(id, "gated")).isEqualTo(2);
+        var failures = auditLog.forExecution(id).stream()
+                .filter(e -> e.getEventType() == AuditEventType.STEP_FAILED)
+                .toList();
+        assertThat(failures).hasSize(2)
+                .allSatisfy(failure -> assertThat(failure.getDetail()).contains(FakeRejectingPostProcessor.MESSAGE));
+        assertThat(auditLog.forExecution(id)).noneMatch(e -> e.getEventType() == AuditEventType.ARTIFACT_WRITTEN);
+    }
+
+    @Test
+    void missingDeclaredOutputFailsStepAndStoresNothing() {
+        UUID id = stateManager.createExecution("fake-silent", "1.0.0", null).getId();
+        driver.driveUntil(id, ExecutionStatus.FAILED_ESCALATED);
+
+        assertThat(artifactStore.allForExecution(id)).isEmpty();
+        var failure = auditLog.forExecution(id).stream()
+                .filter(e -> e.getEventType() == AuditEventType.STEP_FAILED)
+                .findFirst().orElseThrow();
+        assertThat(failure.getDetail()).contains("did not produce declared output artifact 'expected.md'");
+    }
+
+    @Test
+    void stepSeesOnlyItsDeclaredInputArtifacts() {
+        UUID id = stateManager.createExecution("fake-scoped", "1.0.0", "{\"issueKey\":\"ERM-4\"}").getId();
+        driver.driveUntil(id, ExecutionStatus.COMPLETED);
+
+        var third = artifactStore.getLatest(id, "scoped-third.md").orElseThrow();
+        assertThat(third.getContent())
+                .startsWith("echo[scoped-third.md] <- scoped-first.md:")
+                .doesNotContain("scoped-second.md");
+    }
+
+    @Test
+    void retryWithLongBackoffIsNotClaimableBeforeItsTime() {
+        UUID id = stateManager.createExecution("fake-backoff", "1.0.0", null).getId();
+        driver.claimUntilRunning(id);
+
+        engine.advance(id);
+
+        PipelineExecution retrying = stateManager.get(id);
+        assertThat(retrying.getStatus()).isEqualTo(ExecutionStatus.PENDING);
+        assertThat(stateManager.retryCount(id, "doomed")).isEqualTo(1);
+        assertThat(retrying.getNextRunAt()).isCloseTo(Instant.now().plusSeconds(3600), within(60, SECONDS));
+        assertThat(claimService.claim(10)).doesNotContain(id);
+        assertThat(stateManager.get(id).getStatus()).isEqualTo(ExecutionStatus.PENDING);
     }
 }

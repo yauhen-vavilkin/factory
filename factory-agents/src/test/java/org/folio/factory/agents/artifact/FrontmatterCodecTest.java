@@ -30,16 +30,13 @@ class FrontmatterCodecTest {
 
     @Test
     void parsesHumanEditedContentWithWindowsLineEndingsInBody() {
-        String content = """
-                ---
-                issue_key: ERM-9
-                ---
+        // Not a text block: javac would normalise the line endings to \n.
+        String content = "---\r\nissue_key: ERM-9\r\n---\r\n\r\nEdited by a reviewer.\r\n";
 
-                Edited by a reviewer.
-                """;
         Frontmatter parsed = codec.parse(content);
+
         assertThat(parsed.metadata().get("issue_key").asString()).isEqualTo("ERM-9");
-        assertThat(parsed.body()).isEqualTo("Edited by a reviewer.\n");
+        assertThat(parsed.body()).isEqualTo("Edited by a reviewer.\r\n");
     }
 
     @Test

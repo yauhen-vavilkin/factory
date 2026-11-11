@@ -93,12 +93,15 @@ class DailyBudgetIntegrationTest {
     }
 
     @Test
-    void routeManual_budgetExhausted_throws() {
+    void routeManual_budgetExhausted_throwsAndCreatesNothing() {
         stateManager.createExecution("fake-simple", "1.0.0", "{}");
         stateManager.createExecution("fake-simple", "1.0.0", "{}");
+        long before = executions.count();
 
         assertThatThrownBy(() -> router.routeManual("fake-simple", json.readTree("{}"), null))
                 .isInstanceOf(DailyBudgetExceededException.class);
+
+        assertThat(executions.count()).isEqualTo(before);
     }
 
     @Test

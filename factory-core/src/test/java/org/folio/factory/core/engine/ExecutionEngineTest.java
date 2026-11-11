@@ -208,6 +208,8 @@ class ExecutionEngineTest {
         PipelineExecution running = executionIn(ExecutionStatus.RUNNING);
         AgentWorker worker = prepareAgent(running);
         when(stateManager.heartbeat(eq(running.getId()), eq(0), anyLong())).thenReturn(true);
+        when(stateManager.advanceStep(eq(running.getId()), eq(0), eq(ExecutionStatus.RUNNING), anyLong()))
+                .thenReturn(false);
         when(worker.execute(any())).thenReturn(AgentResult.of("result.md", "done"));
 
         engine.advance(executionId);

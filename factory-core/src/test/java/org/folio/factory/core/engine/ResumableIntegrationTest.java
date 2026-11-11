@@ -1,4 +1,5 @@
 package org.folio.factory.core.engine;
+import org.folio.factory.core.EngineDriver;
 import org.folio.factory.core.agent.*;
 import org.folio.factory.core.domain.*;
 import org.folio.factory.core.hitl.*;
@@ -24,7 +25,7 @@ import static org.awaitility.Awaitility.await;
 @DirtiesContext
 class ResumableIntegrationTest {
     @Container @ServiceConnection static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
-    @Autowired ExecutionEngine engine;
+    @Autowired EngineDriver driver;
     @Autowired ExecutionClaimService claims;
     @Autowired StateManager state;
     @Autowired ArtifactStore artifacts;
@@ -36,41 +37,33 @@ class ResumableIntegrationTest {
     @Autowired AgentLeaseHeartbeat heartbeat;
 
     UUID create(String trigger) { return state.createExecution("fake-resumable", "1.0.0", trigger).getId(); }
-    void drive(UUID id, ExecutionStatus status) {
-        await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(20)).untilAsserted(() -> {
-            claims.claim(100).forEach(engine::advance);
-            assertThat(state.get(id).getStatus()).isEqualTo(status);
-        });
-    }
-    HitlReview pending(UUID id) { return reviews.findByExecutionIdOrderByCreatedAtAsc(id).stream()
-            .filter(r -> r.getStatus() == HitlReviewStatus.PENDING).findFirst().orElseThrow(); }
 
     @Test void twelveRoundsUseSameExecutionAndRejectPreviousReviews() {
         UUID id = create(null);
         for (int n = 1; n <= 12; n++) {
-            drive(id, ExecutionStatus.AWAITING_HITL);
+            driver.driveUntil(id, ExecutionStatus.AWAITING_HITL);
             assertThat(state.get(id).getCurrentStepIndex()).isEqualTo(1);
             assertThat(artifacts.getLatest(id, "counter").orElseThrow().getContent()).isEqualTo("" + n * 2);
-            var review = pending(id);
+            var review = driver.pendingReview(id);
             decisions.decide(review.getId(), HitlDecision.APPROVE, "operator", null, null);
             assertThatThrownBy(() -> decisions.decide(review.getId(), HitlDecision.APPROVE, "operator", null, null))
                     .isInstanceOf(IllegalStateException.class);
         }
-        drive(id, ExecutionStatus.COMPLETED);
+        driver.driveUntil(id, ExecutionStatus.COMPLETED);
         assertThat(reviews.findByExecutionIdOrderByCreatedAtAsc(id)).hasSize(12);
     }
     @Test void genericDecisionsCannotBypassPolicy() {
         UUID id = create("{\"protected\":true}");
-        drive(id, ExecutionStatus.AWAITING_HITL);
-        var review = pending(id);
+        driver.driveUntil(id, ExecutionStatus.AWAITING_HITL);
+        var review = driver.pendingReview(id);
         for (var decision : HitlDecision.values())
             assertThatThrownBy(() -> decisions.decide(review.getId(), decision, "operator", null, Map.of("counter", "99")))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Typed command");
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.AWAITING_HITL);
     }
     @Test void concurrentDecisionsConsumeReviewOnlyOnce() throws Exception {
-        UUID id = create(null); drive(id, ExecutionStatus.AWAITING_HITL);
-        var review = pending(id);
+        UUID id = create(null); driver.driveUntil(id, ExecutionStatus.AWAITING_HITL);
+        var review = driver.pendingReview(id);
         try (var executor = Executors.newFixedThreadPool(2)) {
             var barrier = new CyclicBarrier(2);
             Callable<Boolean> action = () -> {

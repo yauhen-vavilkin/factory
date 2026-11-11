@@ -1,5 +1,6 @@
 package org.folio.factory.core.engine;
 
+import org.folio.factory.core.EngineDriver;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
@@ -35,6 +36,9 @@ class SubFlowIntegrationTest {
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16");
 
     @Autowired
+    EngineDriver driver;
+
+    @Autowired
     ExecutionEngine engine;
 
     @Autowired
@@ -62,25 +66,9 @@ class SubFlowIntegrationTest {
     FlowRegistry flowRegistry;
 
     /**
-     * Pumps the engine (claim + advance) until {@code executionId} reaches a terminal
-     * state, polling with a real time budget. Condition-based rather than a fixed number
-     * of sleepless rounds: a just-(re)scheduled row can be momentarily unclaimable when
-     * its next_run_at — set from this JVM's clock — is briefly ahead of the database
-     * clock under load (claimRunnable gates on next_run_at <= DB now()). Waiting for the
-     * target state, as the continuous production poller would, absorbs that skew instead
-     * of racing it.
-     */
-    private void driveUntilTerminal(UUID executionId) {
-        await().atMost(Duration.ofSeconds(20)).pollInterval(Duration.ofMillis(50)).untilAsserted(() -> {
-            claimService.claim(10).forEach(engine::advance);
-            assertThat(stateManager.get(executionId).getStatus().isTerminal()).isTrue();
-        });
-    }
-
-    /**
      * Advances ONLY the parent until it parks at the sub-flow invocation, leaving the
      * created child unadvanced for the test to manipulate. Same clock-skew rationale
-     * as {@link #driveUntilTerminal}: a one-shot claim can miss the freshly created
+     * as {@link EngineDriver#driveUntilTerminal}: a one-shot claim can miss the freshly created
      * parent row.
      */
     private void driveParentToAwaitSubflow(UUID parentId) {
@@ -96,7 +84,7 @@ class SubFlowIntegrationTest {
 
         // Parent runs its first step, reaches SUB_FLOW and waits; the child is created
         // PENDING, picked up, driven to completion, and the parent then resumes.
-        driveUntilTerminal(parent.getId());
+        driver.driveUntilTerminal(parent.getId());
 
         PipelineExecution finishedParent = stateManager.get(parent.getId());
         assertThat(finishedParent.getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
@@ -183,7 +171,7 @@ class SubFlowIntegrationTest {
         assertThat(stateManager.get(parent.getId()).getStatus()).isEqualTo(ExecutionStatus.AWAITING_SUBFLOW);
 
         subFlowInvoker.reconcileCompletedChildren();
-        driveUntilTerminal(parent.getId());
+        driver.driveUntilTerminal(parent.getId());
 
         assertThat(stateManager.get(parent.getId()).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
         assertThat(artifactStore.getLatest(parent.getId(), "collected.md").orElseThrow().getContent())

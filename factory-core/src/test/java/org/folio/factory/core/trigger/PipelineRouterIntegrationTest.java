@@ -108,7 +108,7 @@ class PipelineRouterIntegrationTest {
     }
 
     @Test
-    void manualRouteStillDedupesOnExplicitKeyAfterPreparedSplit() {
+    void manualRouteWithExplicitKeyCollapsesOntoExistingExecution() {
         var payload = json.readTree("{\"issueKey\": \"ERM-9\"}");
 
         UUID first = router.routeManual("fake-webhook", payload, "manual-key");

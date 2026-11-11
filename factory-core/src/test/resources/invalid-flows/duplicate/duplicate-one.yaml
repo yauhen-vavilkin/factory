@@ -1,0 +1,8 @@
+id: duplicate-flow
+name: Duplicate Flow One
+version: 1.0.0
+agent_chain:
+  - step_id: work
+    type: AGENT
+    worker_id: echo-worker
+    outputs: [doc.md]

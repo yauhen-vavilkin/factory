@@ -1,0 +1,11 @@
+id: fake-backoff
+name: Fake Long Backoff Flow
+version: 1.0.0
+retry_policy:
+  max_attempts: 2
+  backoff_seconds: [3600]
+agent_chain:
+  - step_id: doomed
+    type: AGENT
+    worker_id: failing-worker
+    outputs: [never.md]

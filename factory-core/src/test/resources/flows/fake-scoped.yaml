@@ -1,0 +1,19 @@
+id: fake-scoped
+name: Fake Read Scope Flow
+version: 1.0.0
+agent_chain:
+  - step_id: first
+    type: AGENT
+    worker_id: echo-worker
+    inputs: ["$trigger"]
+    outputs: [scoped-first.md]
+  - step_id: second
+    type: AGENT
+    worker_id: echo-worker
+    inputs: [scoped-first.md]
+    outputs: [scoped-second.md]
+  - step_id: third
+    type: AGENT
+    worker_id: echo-worker
+    inputs: [scoped-first.md]
+    outputs: [scoped-third.md]

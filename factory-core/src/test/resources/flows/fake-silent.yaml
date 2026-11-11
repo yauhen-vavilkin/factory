@@ -1,0 +1,11 @@
+id: fake-silent
+name: Fake Silent Flow
+version: 1.0.0
+retry_policy:
+  max_attempts: 1
+  backoff_seconds: [0]
+agent_chain:
+  - step_id: silent
+    type: AGENT
+    worker_id: silent-worker
+    outputs: [expected.md]

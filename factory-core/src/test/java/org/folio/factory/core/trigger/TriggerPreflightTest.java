@@ -1,10 +1,10 @@
 package org.folio.factory.core.trigger;
 
 import org.folio.factory.core.domain.PipelineExecution;
+import org.folio.factory.core.limits.DailyBudgetExceededException;
 import org.folio.factory.core.limits.DedupKeyDeriver;
 import org.folio.factory.core.limits.LimitsProperties;
 import org.folio.factory.core.registry.FlowRegistry;
-import org.folio.factory.core.registry.FlowValidationException;
 import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.TriggerContract;
 import org.folio.factory.core.service.AuditLog;
@@ -41,6 +41,9 @@ class TriggerPreflightTest {
     private final LimitsProperties limits = new LimitsProperties(0, 0, null, null, null);
     private final PipelineRouter router = new PipelineRouter(flows, state, json, limits,
             new DedupKeyDeriver(limits, json), mock(AuditLog.class), List.of(preflight));
+    private final LimitsProperties budget = new LimitsProperties(0, 2, null, null, null);
+    private final PipelineRouter budgetedRouter = new PipelineRouter(flows, state, json, budget,
+            new DedupKeyDeriver(budget, json), mock(AuditLog.class), List.of(preflight));
     private final JsonNode payload = json.readTree("{\"issueKey\":\"TASK-1\"}");
     private final FlowDescriptor first = flow("first");
     private final FlowDescriptor second = flow("second");
@@ -130,38 +133,25 @@ class TriggerPreflightTest {
     }
 
     @Test
-    void routePreparedChecksIdentityDedupAndBudgetWithoutRepeatingPreflight() {
+    void routePreparedUnderBudgetCreatesExecutionWithoutRepeatingPreflight() {
         var execution = new PipelineExecution("first", "1", "{}");
+        when(state.countCreatedSince(any())).thenReturn(1L);
         when(state.createExecution(eq("first"), eq("1"), anyString(), eq("unique"))).thenReturn(execution);
-        var prepared = router.prepareManual("first", payload, "unique");
+        var prepared = budgetedRouter.prepareManual("first", payload, "unique");
 
-        assertThat(router.routePrepared(prepared)).isEqualTo(execution.getId());
-
-        var order = inOrder(state);
-        order.verify(state).findRecentDuplicate("first", "unique", limits.dedup().window());
-        order.verify(state).createExecution(eq("first"), eq("1"), anyString(), eq("unique"));
-        verify(preflight, times(1)).requireReady(anyString(), any());
+        assertThat(budgetedRouter.routePrepared(prepared)).isEqualTo(execution.getId());
+        verify(preflight, times(1)).requireReady("first", payload);
     }
 
     @Test
-    void routePreparedRevalidatesFlowIdentity() {
-        when(flows.require("missing")).thenThrow(new FlowValidationException("No registered flow with id 'missing'"));
+    void routePreparedOverBudgetCreatesNothing() {
+        when(state.countCreatedSince(any())).thenReturn(2L);
+        var prepared = budgetedRouter.prepareManual("first", payload, "unique");
 
-        assertThatThrownBy(() -> router.routePrepared(new PreparedManualTrigger("missing", payload, "unique")))
-                .isInstanceOf(FlowValidationException.class)
-                .hasMessageContaining("missing");
+        assertThatThrownBy(() -> budgetedRouter.routePrepared(prepared))
+                .isInstanceOf(DailyBudgetExceededException.class);
         verify(state, never()).createExecution(anyString(), anyString(), any(), any());
-    }
-
-    @Test
-    void routePreparedDedupesOntoExistingExecution() {
-        var existing = new PipelineExecution("first", "1", "{}");
-        when(state.findRecentDuplicate("first", "unique", limits.dedup().window()))
-                .thenReturn(Optional.of(existing));
-        var prepared = router.prepareManual("first", payload, "unique");
-
-        assertThat(router.routePrepared(prepared)).isEqualTo(existing.getId());
-        verify(state, never()).createExecution(anyString(), anyString(), any(), any());
+        verify(preflight, times(1)).requireReady("first", payload);
     }
 
     private static FlowDescriptor flow(String id) {

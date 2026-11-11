@@ -199,7 +199,7 @@ class JiraRestConnectorTest {
     }
 
     @Test
-    void searchIssuesReadsAllPagesUntilExhausted() {
+    void searchIssuesFollowsCursorAndMapsDiscoveredIssues() {
         server.expect(requestTo("https://jira.example.org/rest/api/2/search/jql"))
                 .andExpect(method(POST))
                 .andExpect(content().json("""

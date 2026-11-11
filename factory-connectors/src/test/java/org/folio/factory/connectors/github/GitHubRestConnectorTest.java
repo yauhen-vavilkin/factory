@@ -91,33 +91,29 @@ class GitHubRestConnectorTest {
     }
 
     @Test
-    void createPullRequestReturnsHtmlUrl() {
-        server.expect(requestTo("https://api.github.com/repos/o/r/pulls"))
-                .andExpect(method(POST))
-                .andExpect(jsonPath("$.head").value("feature"))
-                .andExpect(jsonPath("$.base").value("main"))
-                .andExpect(jsonPath("$.draft").value(false))
-                .andRespond(withSuccess("{\"html_url\": \"https://github.com/o/r/pull/7\"}",
-                        MediaType.APPLICATION_JSON));
-
-        String url = connector.createPullRequest("o/r", "feature", "main", "Title", "Body");
-        assertThat(url).isEqualTo("https://github.com/o/r/pull/7");
-    }
-
-    @Test
-    void createPullRequestSendsTheDraftFlag() {
+    void createPullRequestSendsBranchesAndDraftFlagAndReturnsHtmlUrl() {
         for (boolean draft : new boolean[] {true, false}) {
-            server.expect(requestTo("https://api.github.com/repos/o/r/pulls"))
-                    .andExpect(method(POST))
-                    .andExpect(jsonPath("$.draft").value(draft))
-                    .andExpect(jsonPath("$.title").value("Title"))
-                    .andRespond(withSuccess("{\"html_url\": \"https://github.com/o/r/pull/8\"}",
-                            MediaType.APPLICATION_JSON));
+            expectPullRequest(draft);
             assertThat(connector.createPullRequest("o/r", "feature", "main", "Title", "Body", draft))
                     .isEqualTo("https://github.com/o/r/pull/8");
             server.verify();
             server.reset();
         }
+        expectPullRequest(false);
+        assertThat(connector.createPullRequest("o/r", "feature", "main", "Title", "Body"))
+                .isEqualTo("https://github.com/o/r/pull/8");
+        server.verify();
+    }
+
+    private void expectPullRequest(boolean draft) {
+        server.expect(requestTo("https://api.github.com/repos/o/r/pulls"))
+                .andExpect(method(POST))
+                .andExpect(jsonPath("$.head").value("feature"))
+                .andExpect(jsonPath("$.base").value("main"))
+                .andExpect(jsonPath("$.title").value("Title"))
+                .andExpect(jsonPath("$.draft").value(draft))
+                .andRespond(withSuccess("{\"html_url\": \"https://github.com/o/r/pull/8\"}",
+                        MediaType.APPLICATION_JSON));
     }
 
     @Test
