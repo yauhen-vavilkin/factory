@@ -44,6 +44,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+    restoreView();
     initTaskSelection();
     initModelChoice();
     var clocks = document.querySelectorAll('[data-elapsed-start]');
@@ -87,7 +88,60 @@
       notice.hidden = false;
       return;
     }
+    saveView();
     location.reload();
+  }
+
+  // A self-reload keeps the developer's place too: the scroll position, the open <details> and the Activity rows
+  // shown with "Show N earlier". They are saved for this URL just before the reload and read once after it, so
+  // a later visit to the page starts from the top as usual.
+  var VIEW_KEY = 'factory.view:';
+  var VIEW_MAX_AGE_MS = 10000;
+
+  function viewKey() {
+    return VIEW_KEY + location.pathname + location.search;
+  }
+
+  // A <details> is known by its id or its summary text, with a count for repeated texts.
+  function namedDetails() {
+    var seen = {};
+    return Array.prototype.map.call(document.querySelectorAll('details'), function (details) {
+      var summary = details.querySelector('summary');
+      var name = details.id || (summary ? summary.textContent.replace(/\s+/g, ' ').trim() : '');
+      seen[name] = (seen[name] || 0) + 1;
+      return { element: details, name: name + '#' + seen[name] };
+    });
+  }
+
+  function saveView() {
+    var open = {};
+    namedDetails().forEach(function (entry) { open[entry.name] = entry.element.open; });
+    var earlier = [];
+    Array.prototype.forEach.call(document.querySelectorAll('.run-activity'), function (list, index) {
+      if (list.querySelector('[data-earlier]') && !list.querySelector('[data-show-earlier]')) earlier.push(index);
+    });
+    try {
+      sessionStorage.setItem(viewKey(), JSON.stringify({ at: Date.now(), scrollY: window.scrollY || 0,
+        open: open, earlier: earlier }));
+    } catch (e) { /* Storage is off: the page reloads at the top. */ }
+  }
+
+  function restoreView() {
+    var saved;
+    try {
+      saved = JSON.parse(sessionStorage.getItem(viewKey()));
+      sessionStorage.removeItem(viewKey());
+    } catch (e) { return; }
+    if (!saved || !(Date.now() - saved.at < VIEW_MAX_AGE_MS)) return;
+    namedDetails().forEach(function (entry) {
+      if (Object.prototype.hasOwnProperty.call(saved.open, entry.name)) entry.element.open = saved.open[entry.name];
+    });
+    var lists = document.querySelectorAll('.run-activity');
+    saved.earlier.forEach(function (index) {
+      var button = lists[index] && lists[index].querySelector('[data-show-earlier]');
+      if (button) button.click();
+    });
+    window.scrollTo(0, saved.scrollY);
   }
 
   // Run forms: Effort offers only the chosen model's levels. A model change gives every Effort choice the new

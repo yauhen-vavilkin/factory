@@ -318,3 +318,94 @@ test('a ticking time uses the same words as the server: s, min, then h and min',
   assert.equal(window.formatDuration(4830), '1 h 20 min');
   assert.equal(window.formatDuration(-3), '0 s');
 });
+
+function storage() {
+  const items = new Map();
+  return {
+    items,
+    getItem: key => (items.has(key) ? items.get(key) : null),
+    setItem: (key, value) => items.set(key, String(value)),
+    removeItem: key => items.delete(key)
+  };
+}
+
+// A run page with one Activity list and two <details>: "Round 1 · PR feedback" and "Full transcript".
+function runPage(sessionStorage, pathname, { open, expanded, scrollY }) {
+  let ready, tick, reloads = 0;
+  const clicks = [];
+  const scrolls = [];
+  const details = ['Round 1 · PR feedback', 'Full transcript'].map((text, index) => ({
+    id: '', open: open[index], querySelector: selector => (selector === 'summary' ? { textContent: '\n  ' + text + ' ' } : null)
+  }));
+  const button = { click: () => clicks.push('show earlier') };
+  const list = {
+    querySelector: selector => {
+      if (selector === '[data-earlier]') return {};
+      return selector === '[data-show-earlier]' && !expanded ? button : null;
+    }
+  };
+  const attributes = { 'data-poll-url': pathname + '/poll', 'data-poll-fields': 'revision', 'data-poll-baseline': 'a1' };
+  const window = { scrollY, scrollTo: (x, y) => scrolls.push(y) };
+  vm.runInNewContext(POLL_JS, {
+    window,
+    sessionStorage,
+    document: {
+      hidden: false,
+      addEventListener: (event, callback) => { if (event === 'DOMContentLoaded') ready = callback; },
+      querySelector: selector => (selector === '[data-poll-url]' ? { getAttribute: key => attributes[key] } : null),
+      querySelectorAll: selector => (selector === 'details' ? details : selector === '.run-activity' ? [list] : [])
+    },
+    setTimeout: callback => { tick = callback; },
+    location: { pathname, search: '', reload: () => { reloads++; } },
+    fetch: async () => ({ ok: true, json: async () => ({ revision: 'a2' }) })
+  });
+  return {
+    details, clicks, scrolls,
+    load: () => ready(),
+    poll: async () => { tick(); await new Promise(resolve => setImmediate(resolve)); return reloads; }
+  };
+}
+
+test('a self-reload keeps the scroll position, the open details and the earlier Activity rows, once', async () => {
+  const session = storage();
+  const before = runPage(session, '/executions/r1', { open: [false, true], expanded: true, scrollY: 640 });
+  before.load();
+  assert.equal(await before.poll(), 1);
+  assert.equal(session.items.size, 1);
+
+  const after = runPage(session, '/executions/r1', { open: [true, false], expanded: false, scrollY: 0 });
+  after.load();
+  assert.deepEqual(after.details.map(details => details.open), [false, true]);
+  assert.deepEqual(after.clicks, ['show earlier']);
+  assert.deepEqual(after.scrolls, [640]);
+  // The saved place is used once: the next visit starts as the server renders it.
+  assert.equal(session.items.size, 0);
+  const next = runPage(session, '/executions/r1', { open: [true, false], expanded: false, scrollY: 0 });
+  next.load();
+  assert.deepEqual(next.details.map(details => details.open), [true, false]);
+  assert.deepEqual(next.scrolls, []);
+});
+
+test('a saved place belongs to its URL and goes stale; a page without storage still reloads', async () => {
+  const session = storage();
+  const before = runPage(session, '/executions/r1', { open: [true, true], expanded: true, scrollY: 300 });
+  before.load();
+  await before.poll();
+
+  const other = runPage(session, '/executions/r2', { open: [false, false], expanded: false, scrollY: 0 });
+  other.load();
+  assert.deepEqual(other.scrolls, []);
+  assert.deepEqual(other.clicks, []);
+
+  const key = [...session.items.keys()][0];
+  session.setItem(key, JSON.stringify({ ...JSON.parse(session.getItem(key)), at: Date.now() - 60000 }));
+  const late = runPage(session, '/executions/r1', { open: [false, false], expanded: false, scrollY: 0 });
+  late.load();
+  assert.deepEqual(late.scrolls, []);
+  assert.equal(session.items.size, 0);
+
+  const blocked = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } };
+  const noStorage = runPage(blocked, '/executions/r1', { open: [true, false], expanded: true, scrollY: 10 });
+  noStorage.load();
+  assert.equal(await noStorage.poll(), 1);
+});
