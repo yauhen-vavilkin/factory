@@ -9,10 +9,11 @@
   --accent: 240 4.8% 95.9%;        --accent-foreground: 240 5.9% 10%;
   --destructive: 0 73.7% 41.8%;        --destructive-foreground: 0 0% 98%;
   --success: 142.4 71.8% 27%;          --success-foreground: 0 0% 98%;
-  --warning: 33 92% 29%;           --warning-foreground: 0 0% 98%;
+  --warning: 33 92% 29%;
   --info: 215 80% 40%;
   --border: 240 5.9% 90%;          --input: 240 4.9% 83.9%;
   --ring: 240 10% 3.9%;            --radius: 0.5rem;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --chart-1: 220 70% 50%; --chart-2: 160 60% 45%; --chart-3: 30 80% 55%;
   --chart-4: 280 65% 60%; --chart-5: 340 75% 55%;
   --sidebar: 240 4.8% 97%;         --sidebar-foreground: 240 5.9% 10%;
@@ -37,7 +38,6 @@ html[data-theme="dark"] {
   --sidebar: 240 6% 7%;            --sidebar-foreground: 0 0% 98%;
   --destructive-foreground: 0 0% 98%;
   --success-foreground: 144 76% 9%;
-  --warning-foreground: 38 95% 9%;
   --subtle: 240 5% 9%;             --strong-border: 240 4% 30%;
   --soft-foreground: 240 5% 84%;   --quiet-foreground: 240 5% 72%;
   --notice: 22 55% 10%;            --notice-border: 25 55% 30%;

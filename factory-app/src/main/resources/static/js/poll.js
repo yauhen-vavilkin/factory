@@ -185,7 +185,6 @@
     });
   }
 
-  // A red chip opens the dialog that says how to fix its task; without a script it links to the task page.
   // A selection button counts the checked boxes: "Run 2 tasks", "Fix 1 comment", disabled while none is checked.
   // The form names its checkbox field in data-selection, and the button's verb and noun.
   function initTaskSelection() {

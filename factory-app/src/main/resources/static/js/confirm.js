@@ -28,22 +28,9 @@
       dialog.showModal();
     }
 
-    // Form-level confirm: any submission of the form is guarded.
-    document.querySelectorAll('form[data-confirm]').forEach(function (form) {
-      form.addEventListener('submit', function (e) {
-        var message = form.getAttribute('data-confirm');
-        if (!supported) {
-          if (!window.confirm(message)) e.preventDefault();
-          return;
-        }
-        e.preventDefault();
-        confirmThen(message, function () { form.submit(); }, form);
-      });
-    });
-
     // Control-level confirm: guards only this submitter, preserving its name/value
     // (so a multi-button form still posts the clicked button's decision).
-    document.querySelectorAll('button[data-confirm], input[type="submit"][data-confirm]')
+    document.querySelectorAll('button[data-confirm]')
       .forEach(function (btn) {
         btn.addEventListener('click', function (e) {
           var form = btn.form || btn.closest('form');

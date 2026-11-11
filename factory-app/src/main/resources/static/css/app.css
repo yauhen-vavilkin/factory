@@ -16,7 +16,7 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-code, pre, kbd, samp { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+code, pre, kbd, samp { font-family: var(--font-mono); }
 h1, h2, h3, h4 { font-weight: 600; letter-spacing: -0.025em; line-height: 1.25; }
 /* One section heading size; a heading class may set its own. */
 h2 { font-size: 16px; }
@@ -242,11 +242,6 @@ html[data-menu="collapsed"] .sidebar-brand strong {
   color: hsl(var(--destructive-foreground));
 }
 .btn-destructive:hover { background: hsl(var(--destructive) / 0.9); }
-.btn-sm {
-  height: 30px;
-  padding: 0 12px;
-  font-size: 13px;
-}
 /* The buttons of one column of a list have one width. */
 .btn-col { width: 96px; padding-inline: 8px; }
 
@@ -465,7 +460,7 @@ tbody tr:hover { background: hsl(var(--secondary-hover) / 0.4); }
 .input::placeholder, .textarea::placeholder { color: hsl(var(--muted-foreground)); }
 .input:disabled, .select:disabled, .textarea:disabled { opacity: 0.5; cursor: not-allowed; }
 .textarea-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   min-height: 20rem;
   tab-size: 2;
@@ -687,9 +682,8 @@ a.kpi:hover { text-decoration: none; border-color: hsl(var(--strong-border)); }
   padding: 1.5rem;
 }
 .chart-card [hidden] { display: none !important; }
-.timeline { display: flex; flex-direction: column; }
 .code-block {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.55;
   background: hsl(var(--muted));
@@ -770,10 +764,8 @@ a.kpi:hover { text-decoration: none; border-color: hsl(var(--strong-border)); }
 /* Model and Effort of a run form: one compact row that wraps on narrow screens. */
 .run-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .run-setting { display: flex; align-items: center; gap: 6px; font-size: 13px; color: hsl(var(--foreground)); }
-.run-setting > span { font-weight: 500; white-space: nowrap; }
 .run-setting .select { width: auto; max-width: 16rem; }
-.run-setting > span { color: hsl(var(--muted-foreground)); font-weight: 400; }
-.input-sm, .select-sm { height: 30px; font-size: 13px; }
+.run-setting > span { color: hsl(var(--muted-foreground)); font-weight: 400; white-space: nowrap; }
 .run-setting-problem { font-size: 13px; color: hsl(var(--destructive)); }
 /* Effort: one radio button per level of the model, drawn as a segmented control with the select's border. */
 .effort-toggle {
@@ -824,7 +816,6 @@ a.kpi:hover { text-decoration: none; border-color: hsl(var(--strong-border)); }
 .dev-list > .queue-waiting { margin-top: 12px; }
 .dev-list > .queue-waiting + .queue-waiting { margin-top: 8px; }
 .dev-list > .queue-waiting + .dev-row { margin-top: 4px; }
-.queue-waiting form { margin-left: auto; }
 /* A button that changes the state of a task after a confirmation, next to buttons that only open a page. */
 .btn-notice {
   border-color: hsl(var(--notice-accent));
@@ -912,7 +903,7 @@ a.kpi:hover { text-decoration: none; border-color: hsl(var(--strong-border)); }
 .activity-verb:empty { display: none; }
 .activity-verb:empty + .activity-target { grid-column: 2 / 4; }
 .activity-target { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+code.activity-target { font-family: var(--font-mono); font-size: 12px; }
 .activity-result {
   text-align: right;
   color: hsl(var(--muted-foreground));
@@ -965,7 +956,7 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .transcript-list > li { display: grid; grid-template-columns: minmax(72px, max-content) minmax(0, 1fr); gap: 12px; }
 .transcript-list time {
   padding-top: 2px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: hsl(var(--muted-foreground));
   white-space: nowrap;
@@ -977,7 +968,7 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .transcript-label { font-size: 12px; color: hsl(var(--muted-foreground)); }
 
 @media (max-width: 720px) {
-  .source-details-grid, .tech-facts { grid-template-columns: 1fr; gap: 4px; }
+  .tech-facts { grid-template-columns: 1fr; gap: 4px; }
 }
 
 /* ---------- card grid ---------- */
@@ -1033,7 +1024,7 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .feedback-comment .task-check { margin-top: 3px; }
 .dev-row.feedback-comment .task-check { top: 0; }
 .feedback-comment-body { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
-.feedback-location { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.feedback-location { font-family: var(--font-mono); }
 /* Rounds: one card per round. All cards share one grid, so the amounts and the chips stand in straight columns;
    under the head line each reply says who it comes from: the reviewer on GitHub, the coding agent, Factory. The
    amount and chip columns are as wide as those of a row in Attempts and Started tasks. */
@@ -1069,13 +1060,13 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 }
 .said > .src { align-self: start; padding-top: 3px; }
 .said-agent { background: hsl(var(--agent-background)); }
-.said-agent .feedback-report { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.6; }
+.said-agent .feedback-report { margin: 0; font-family: var(--font-mono); font-size: 12px; line-height: 1.6; }
 .said-lines { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .said-quote { padding-left: 10px; border-left: 2px solid hsl(var(--strong-border)); white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 560px) { .said { grid-template-columns: minmax(0, 1fr); } }
 .feedback-author { font-size: 12px; color: hsl(var(--muted-foreground)); }
 .feedback-report { white-space: pre-wrap; overflow-wrap: anywhere; }
-.feedback-sha { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.feedback-sha { overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; }
 .feedback-actions { display: flex; flex-direction: column; gap: 10px; }
 .feedback-actions form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; }
 .feedback-diagnostics {
@@ -1101,7 +1092,6 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
   padding-bottom: 10px;
   border-bottom: 1px solid hsl(var(--border));
 }
-.dev-list-head .dev-section-title { font-size: 16px; }
 .dev-list-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 13px; }
 a.dev-list-tools { color: hsl(var(--quiet-foreground)); text-decoration: underline; }
 a.dev-list-tools:hover { color: hsl(var(--foreground)); }
@@ -1232,7 +1222,7 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 /* Words in place of a figure ("cost unknown") are a note, so they are as quiet as the other notes. */
 .row-amount-note { color: hsl(var(--muted-foreground)); }
 .key-link {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
   color: hsl(var(--foreground));

@@ -29,7 +29,6 @@
       destructive: hsl('--destructive'),
       muted: hsl('--muted-foreground'),
       border: hsl('--border'),
-      foreground: hsl('--foreground'),
       card: hsl('--card')
     };
   }
