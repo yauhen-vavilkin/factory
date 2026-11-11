@@ -808,6 +808,7 @@ a.kpi:hover { text-decoration: none; border-color: hsl(var(--strong-border)); }
   background: hsl(var(--notice));
   color: hsl(var(--notice-foreground));
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 .queue-waiting strong { font-weight: 600; }
 .queue-waiting form { margin-left: auto; }
@@ -1157,6 +1158,15 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .row-cluster-ready { grid-template-columns: auto 96px; }
 .row-cluster-ready > .run-setting { grid-column: 1; }
 .row-cluster-ready > .dev-row-action { grid-column: 2; }
+/* On a phone the page is never wider than the screen: the effort choice of a Ready to run row gets its own line
+   under the title with Remove under it, and Add by key takes a full line with Scan Jira under it. */
+@container (max-width: 28rem) {
+  .row-cluster-ready { display: flex; flex-wrap: wrap; justify-content: flex-end; max-width: 100%; height: auto; row-gap: 8px; }
+  .row-cluster-ready > .run-setting { flex-wrap: wrap; justify-content: flex-end; }
+  .row-cluster-ready > .dev-row-action { flex-basis: 100%; }
+  .add-key { flex: 1 1 100%; }
+  .add-key-input { flex: 1 1 0; width: auto; min-width: 0; }
+}
 .row-amount { justify-self: end; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .key-link {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
