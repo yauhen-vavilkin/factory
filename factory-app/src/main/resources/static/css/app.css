@@ -393,6 +393,8 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
 .table-wrap table { margin: 0; }
 /* A cell that must stay on one line, such as a run name or a date; the table scrolls in its box instead. */
 td.nowrap { white-space: nowrap; }
+/* The action column of a list: as wide as its button and at the right edge of the row, as on My tasks. */
+.cell-action { width: 1%; white-space: nowrap; text-align: right; }
 table {
   width: 100%;
   border-collapse: collapse;

@@ -49,7 +49,7 @@
                                th:text="'↳ sub-flow of ' + ${e['parentShort']}"></a>
                         </div>
                     </td>
-                    <td th:text="${e.flowName()}"></td>
+                    <td class="nowrap" th:text="${e.flowName()}"></td>
                     <td><span th:class="${e.statusClass()}" th:text="${e.statusLabel()}">Failed</span></td>
                     <td th:if="${showStep}" th:text="${e.step()}"></td>
                     <td class="muted nowrap"><time th:replace="~{fragments/components :: pageTime(${e.createdAt()})}"></time></td>

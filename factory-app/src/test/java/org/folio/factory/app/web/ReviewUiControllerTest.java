@@ -5,6 +5,8 @@ import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.hitl.HitlDecision;
 import org.folio.factory.core.hitl.HitlDecisionService;
+import org.folio.factory.core.registry.FlowRegistry;
+import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,6 +61,9 @@ class ReviewUiControllerTest {
     @Mock
     private PipelineExecutionRepository executions;
 
+    @Mock
+    private FlowRegistry flowRegistry;
+
     @Captor
     private ArgumentCaptor<Map<String, String>> amendmentsCaptor;
 
@@ -67,7 +72,7 @@ class ReviewUiControllerTest {
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders
-                .standaloneSetup(new ReviewUiController(reviews, decisionService, json, executions))
+                .standaloneSetup(new ReviewUiController(reviews, decisionService, json, executions, flowRegistry))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
@@ -221,6 +226,8 @@ class ReviewUiControllerTest {
                 "{\"title\":\"PR feedback\",\"flowId\":\"dev-factory\"}");
         when(reviews.findByStatusOrderByCreatedAtAsc(HitlReviewStatus.PENDING)).thenReturn(List.of(review));
         when(executions.findAllById(java.util.Set.of(run.getId()))).thenReturn(List.of(run));
+        when(flowRegistry.find("dev-factory")).thenReturn(Optional.of(
+                new FlowDescriptor("dev-factory", "Developer Flow", "0.9.0", null, null, null, null, null)));
 
         var result = mvc.perform(get("/reviews")).andExpect(status().isOk()).andReturn();
 
@@ -228,6 +235,9 @@ class ReviewUiControllerTest {
         var rows = (List<ReviewUiController.ReviewRow>) result.getModelAndView().getModel().get("reviews");
         assertThat(rows).singleElement().satisfies(row -> {
             assertThat(row.title()).isEqualTo("Waiting for PR comments: MGRAPPS-21");
+            // The flow by its name and the gate in words, not their ids.
+            assertThat(row.flowName()).isEqualTo("Developer Flow");
+            assertThat(row.gate()).isEqualTo("PR feedback");
             assertThat(row.url()).isEqualTo("/executions/" + run.getId() + "#pr-feedback");
             assertThat(row.action()).isEqualTo("PR feedback");
         });

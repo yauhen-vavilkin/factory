@@ -134,7 +134,7 @@ class RunStateIntegrationTest {
         }
         var failed = rest.get().uri("/executions?status=FAILED").retrieve().body(String.class);
         assertThat(failed).contains("<option value=\"FAILED\" selected=\"selected\">Failed</option>",
-                "<option value=\"COMPLETED\">Completed</option>", "<th>Run</th>", "<td>Developer Flow</td>",
+                "<option value=\"COMPLETED\">Completed</option>", "<th>Run</th>", "<td class=\"nowrap\">Developer Flow</td>",
                 ">Developer Flow</option>");
     }
 

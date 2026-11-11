@@ -362,7 +362,7 @@ class UiRenderSmokeTest {
 
     @Test
     void reviewsListRenders() {
-        assertRendered("/reviews", "Human-in-the-loop gates and their decisions.");
+        assertRendered("/reviews", "Steps that wait for a person's decision, and the decisions made.");
     }
 
     @Test
@@ -374,12 +374,17 @@ class UiRenderSmokeTest {
         var qaReview = reviews.save(new HitlReview(gate.getId(), "qa-gate-1", 2,
                 "{\"title\":\"QA review: manual test cases\",\"flowId\":\"test-factory\"}"));
 
-        String body = assertRendered("/reviews", "Human-in-the-loop gates and their decisions.");
+        String body = assertRendered("/reviews", "Steps that wait for a person's decision, and the decisions made.");
 
-        assertThat(body).contains(">Waiting for PR comments: MGRAPPS-21</td>",
+        assertThat(body).contains("<td>Waiting for PR comments: MGRAPPS-21</td>",
                         "href=\"/executions/" + execution.getId() + "#pr-feedback\">PR feedback</a>",
-                        ">QA review: manual test cases</td>", "href=\"/reviews/" + qaReview.getId() + "\">Review</a>")
-                .doesNotContain(">PR feedback</td>", "MGRAPPS-22");
+                        "<td>QA review: manual test cases</td>", "href=\"/reviews/" + qaReview.getId() + "\">Review</a>")
+                .doesNotContain("<td>PR feedback</td>", "MGRAPPS-22");
+        // Each flow by its name and each gate in words, on one line; the action sits at the right edge of the row.
+        assertThat(body).contains("<td class=\"nowrap\">Developer Flow</td>", "<td class=\"nowrap\">PR feedback</td>",
+                        "<td class=\"nowrap\">Test Factory</td>", "<td class=\"nowrap\">QA gate 1</td>",
+                        "<td class=\"cell-action\">", "<th class=\"cell-action\">")
+                .doesNotContain(">dev-factory<", ">pr-feedback<", ">qa-gate-1<", "Human-in-the-loop");
     }
 
     @Test
@@ -390,7 +395,7 @@ class UiRenderSmokeTest {
         // The list says its runs and its Status filter in words, names each flow, and shows its times without seconds.
         assertThat(assertRendered("/executions?flow=test-factory", "The runs of every flow, newest first."))
                 .contains("<a class=\"table-link\" href=\"/executions/" + execution.getId() + "\">", "<th>Run</th>",
-                        "<th>Step</th>", "<td>0</td>", "<td>Test Factory</td>", "class=\"chip chip-info\">In progress</span>",
+                        "<th>Step</th>", "<td>0</td>", "<td class=\"nowrap\">Test Factory</td>", "class=\"chip chip-info\">In progress</span>",
                         "<option value=\"FAILED\">Failed</option>", "<option value=\"PULL_REQUEST\">Pull request opened</option>",
                         "<option value=\"test-factory\" selected=\"selected\">Test Factory</option>",
                         "<td class=\"muted nowrap\">" + timeTag(PageTime.day(stored.getCreatedAt())) + "</td>",
@@ -409,7 +414,7 @@ class UiRenderSmokeTest {
         // The ALL tab is not the PENDING path: it must render the decided review and
         // the decision columns (only shown when showDecision is true), catching a
         // regression that fell back to the pending-only view.
-        String body = assertRendered("/reviews?status=ALL", "Human-in-the-loop gates and their decisions.");
+        String body = assertRendered("/reviews?status=ALL", "Steps that wait for a person's decision, and the decisions made.");
         var stored = reviews.findById(review.getId()).orElseThrow();
         assertThat(body).contains("Signed-off plan").contains("Decided")
                 // Each time is short UTC text with its instant, which time.js turns into the browser's local time.
@@ -419,7 +424,9 @@ class UiRenderSmokeTest {
     @Test
     void promptsListShowsReadOnlyView() {
         String body = assertRendered("/prompts", "Bundled prompt templates");
-        assertThat(body).contains(">View<").doesNotContain("Overridden");
+        // The View action sits at the right edge of its row.
+        assertThat(body).contains(">View<", "<th class=\"cell-action\">", "<td class=\"cell-action\">")
+                .doesNotContain("Overridden");
     }
 
     @Test
@@ -482,7 +489,11 @@ class UiRenderSmokeTest {
     void workersListRenders() {
         assertThat(assertRendered("/workers", "agent worker library"))
                 .contains("href=\"/flows/dev-factory?view=definition\">dev-factory · read-task</a>",
-                        "href=\"/flows/test-factory\">test-factory · triage</a>");
+                        "href=\"/flows/test-factory\">test-factory · triage</a>",
+                        // An id stays on one line, and every worker names its class.
+                        "<td class=\"nowrap\">dev-coding-decision-gate</td>", "<code>FeedbackInitializer</code>",
+                        "<td class=\"cell-action\">")
+                .doesNotContain("<code></code>");
     }
 
     @Test

@@ -5,8 +5,6 @@ import org.folio.factory.connectors.github.GitHubConnector;
 import org.folio.factory.connectors.github.GitHubProperties;
 import org.folio.factory.connectors.jira.JiraConnector;
 import org.folio.factory.connectors.jira.JiraProperties;
-import org.folio.factory.core.agent.AgentContext;
-import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.engine.HitlGateOpener;
 import org.folio.factory.core.hitl.HitlDecisionService;
@@ -23,7 +21,7 @@ import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import org.folio.factory.devfactory.delivery.DeliveryServices;
 import org.folio.factory.devfactory.feedback.AttemptPricing;
 import org.folio.factory.devfactory.feedback.FeedbackActions;
-import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
+import org.folio.factory.devfactory.feedback.FeedbackInitializer;
 import org.folio.factory.devfactory.feedback.FeedbackDecisionPolicy;
 import org.folio.factory.devfactory.feedback.FeedbackGit;
 import org.folio.factory.devfactory.feedback.FeedbackPrMonitor;
@@ -272,15 +270,7 @@ public class DevFactoryConfiguration {
 
     @Bean
     public AgentWorker feedbackInitializer() {
-        return new AgentWorker() {
-            public String id() {
-                return "dev-pr-initialize";
-            }
-
-            public AgentResult execute(AgentContext context) {
-                return new AgentResult(FeedbackArtifacts.initial(), Map.of());
-            }
-        };
+        return new FeedbackInitializer();
     }
 
     @Bean

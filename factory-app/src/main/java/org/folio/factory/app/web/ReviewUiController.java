@@ -6,6 +6,7 @@ import org.folio.factory.core.domain.HitlReviewStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.hitl.HitlDecision;
 import org.folio.factory.core.hitl.HitlDecisionService;
+import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.devfactory.DevFactoryConfiguration;
@@ -51,12 +52,14 @@ public class ReviewUiController {
     private final HitlDecisionService decisionService;
     private final JsonMapper jsonMapper;
     private final PipelineExecutionRepository executions;
+    private final FlowRegistry flowRegistry;
 
     /**
      * One inbox row. A Developer Flow run that waits for PR comments is named by its task key and opens its run
-     * page, where its PR feedback is worked; every other review opens the review page.
+     * page, where its PR feedback is worked; every other review opens the review page. {@code flowName} is the
+     * name the Executions list shows, {@code gate} the gate id in the words the Definition tab uses for an id.
      */
-    public record ReviewRow(UUID id, String title, String flowId, String gateId, PageTime createdAt,
+    public record ReviewRow(UUID id, String title, String flowName, String gate, PageTime createdAt,
                             HitlReviewStatus status, String decision, String reviewer, PageTime decidedAt, String url,
                             String action) {
     }
@@ -149,7 +152,8 @@ public class ReviewUiController {
         var title = taskKey == null ? reviewPackage.path("title").asString() : "Waiting for PR comments: " + taskKey;
         var url = taskKey == null ? "/reviews/" + review.getId()
                 : "/executions/" + review.getExecutionId() + "#pr-feedback";
-        return new ReviewRow(review.getId(), title, flowId, review.getGateId(),
+        return new ReviewRow(review.getId(), title, UiFormat.flowName(flowRegistry, flowId),
+                UiFormat.inWords(review.getGateId()),
                 PageTime.day(review.getCreatedAt()), review.getStatus(), review.getDecision(),
                 review.getReviewer(), PageTime.day(review.getDecidedAt()), url,
                 taskKey == null ? "Review" : "PR feedback");
