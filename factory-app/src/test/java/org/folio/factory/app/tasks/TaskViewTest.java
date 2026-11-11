@@ -224,7 +224,7 @@ class TaskViewTest {
     }
 
     @Test
-    void uncertainPausedAndPrReadyStatesStayDistinct() {
+    void aRunWhoseCleanupFailedPausesProcessingUntilTheCleanupSucceeds() {
         Task paused = eligibleTask("90031", "MODBAR-931");
         fixture.admit(paused, "run-931");
         UUID pausedExecution = dispatcher.dispatchNext().orElseThrow();
@@ -247,7 +247,10 @@ class TaskViewTest {
         assertThat(outcomes.refresh(pausedAttempt.getId()).state())
                 .isEqualTo(TaskOutcomeService.AttemptOutcome.State.STOPPED);
         assertThat(query.detail(paused.getId()).state()).isEqualTo(TaskView.TaskState.STOPPED);
+    }
 
+    @Test
+    void aDeliveredRunIsPrReadyWithItsPullRequestAndNoControls() {
         Task ready = eligibleTask("90032", "MODBAR-932");
         fixture.admit(ready, "run-932");
         UUID readyExecution = dispatcher.dispatchNext().orElseThrow();
@@ -262,7 +265,10 @@ class TaskViewTest {
                 .isEqualTo("https://github.com/folio-org/mod-bar/pull/7");
         assertThat(readyView.allowedActions().retry()).isFalse();
         assertThat(readyView.allowedActions().select()).isFalse();
+    }
 
+    @Test
+    void anAttemptOfUnknownOutcomeThatHoldsNoSlotIsUncertain() {
         Task uncertain = eligibleTask("90033", "MODBAR-933");
         fixture.admit(uncertain, "run-933");
         fixture.forceState(uncertain, TaskAttempt.State.NEEDS_INSPECTION,

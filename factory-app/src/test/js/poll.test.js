@@ -76,33 +76,35 @@ test('a hidden run page still polls, slower, and reloads when the round ends; sh
   assert.equal(reloads, 1);
 });
 
-test('a picked effort holds the live reload and shows the notice instead', async () => {
-  let ready, tick, reloads = 0;
-  const notice = { hidden: true };
-  const attributes = { 'data-poll-url': '/tasks/poll', 'data-poll-fields': 'revision', 'data-poll-baseline': 'old' };
-  const elements = {
-    '[data-poll-url]': { getAttribute: key => attributes[key] },
-    '[data-poll-notice]': notice,
-    '[data-effort-picked]': {}
-  };
-  vm.runInNewContext(POLL_JS, {
-    window: {},
-    document: {
-      hidden: false,
-      addEventListener: (event, callback) => { ready = callback; },
-      querySelector: selector => elements[selector] || null,
-      querySelectorAll: () => []
-    },
-    setTimeout: callback => { tick = callback; },
-    location: { reload: () => { reloads++; } },
-    fetch: async () => ({ ok: true, json: async () => ({ revision: 'new' }) })
-  });
-  ready();
-  tick();
-  await new Promise(resolve => setImmediate(resolve));
+test('a picked effort or model holds the live reload and shows the notice instead', async () => {
+  for (const picked of ['[data-effort-picked]', '[data-model-picked]']) {
+    let ready, tick, reloads = 0;
+    const notice = { hidden: true };
+    const attributes = { 'data-poll-url': '/tasks/poll', 'data-poll-fields': 'revision', 'data-poll-baseline': 'old' };
+    const elements = {
+      '[data-poll-url]': { getAttribute: key => attributes[key] },
+      '[data-poll-notice]': notice,
+      [picked]: {}
+    };
+    vm.runInNewContext(POLL_JS, {
+      window: {},
+      document: {
+        hidden: false,
+        addEventListener: (event, callback) => { if (event === 'DOMContentLoaded') ready = callback; },
+        querySelector: selector => elements[selector] || null,
+        querySelectorAll: () => []
+      },
+      setTimeout: callback => { tick = callback; },
+      location: { reload: () => { reloads++; } },
+      fetch: async () => ({ ok: true, json: async () => ({ revision: 'new' }) })
+    });
+    ready();
+    tick();
+    await new Promise(resolve => setImmediate(resolve));
 
-  assert.equal(reloads, 0);
-  assert.equal(notice.hidden, false);
+    assert.equal(reloads, 0, picked);
+    assert.equal(notice.hidden, false, picked);
+  }
 });
 
 test('text typed for the agent holds the task page reload; an empty text field does not', async () => {
@@ -130,35 +132,6 @@ test('text typed for the agent holds the task page reload; an empty text field d
     assert.equal(reloads, typed.trim() ? 0 : 1);
     assert.equal(notice.hidden, !typed.trim());
   }
-});
-
-test('a model the developer picked holds the reload too', async () => {
-  let ready, tick, reloads = 0;
-  const notice = { hidden: true };
-  const attributes = { 'data-poll-url': '/tasks/poll', 'data-poll-fields': 'revision', 'data-poll-baseline': 'old' };
-  const elements = {
-    '[data-poll-url]': { getAttribute: key => attributes[key] },
-    '[data-poll-notice]': notice,
-    '[data-model-picked]': {}
-  };
-  vm.runInNewContext(POLL_JS, {
-    window: {},
-    document: {
-      hidden: false,
-      addEventListener: (event, callback) => { if (event === 'DOMContentLoaded') ready = callback; },
-      querySelector: selector => elements[selector] || null,
-      querySelectorAll: () => []
-    },
-    setTimeout: callback => { tick = callback; },
-    location: { reload: () => { reloads++; } },
-    fetch: async () => ({ ok: true, json: async () => ({ revision: 'new' }) })
-  });
-  ready();
-  tick();
-  await new Promise(resolve => setImmediate(resolve));
-
-  assert.equal(reloads, 0);
-  assert.equal(notice.hidden, false);
 });
 
 test('a PR comment the developer left out holds the run page reload', async () => {

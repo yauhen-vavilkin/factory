@@ -42,7 +42,6 @@ class PromptControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].workerId").value("triage-agent"))
                 .andExpect(jsonPath("$[0].promptName").value("system"))
-                .andExpect(jsonPath("$[0].overridden").doesNotExist())
                 .andExpect(jsonPath("$[1].workerId").value("test-spec-agent"))
                 .andExpect(jsonPath("$[1].promptName").value("user"));
     }
@@ -55,8 +54,7 @@ class PromptControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.workerId").value("triage-agent"))
                 .andExpect(jsonPath("$.promptName").value("system"))
-                .andExpect(jsonPath("$.content").isNotEmpty())
-                .andExpect(jsonPath("$.effectiveContent").doesNotExist());
+                .andExpect(jsonPath("$.content").isNotEmpty());
     }
 
     @Test

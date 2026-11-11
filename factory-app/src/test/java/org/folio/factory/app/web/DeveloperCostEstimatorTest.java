@@ -56,26 +56,22 @@ class DeveloperCostEstimatorTest {
     }
 
     @Test
-    void aModelStringThatTwoEntriesShareIsPricedOnlyByTheEntryId() throws Exception {
-        var committed = new DeveloperCostEstimator(loadCatalog());
+    void aModelStringThatTwoEntriesShareIsPricedOnlyByTheEntryId() {
+        var twoSonnets = new DeveloperCostEstimator(catalogOf(sonnetEntry(SONNET), sonnetEntry("anthropic-sonnet-5.5")));
 
-        assertThat(committed.estimate(List.of(new DeveloperCostEstimator.Usage(
+        assertThat(twoSonnets.estimate(List.of(new DeveloperCostEstimator.Usage(
                 null, SONNET_MODEL, 1_000_000L, 0L, 0L, 100_000L)))).isNull();
-        assertThat(committed.estimate(List.of(new DeveloperCostEstimator.Usage(
+        assertThat(twoSonnets.estimate(List.of(new DeveloperCostEstimator.Usage(
                 SONNET, SONNET_MODEL, 1_000_000L, 0L, 0L, 100_000L))).amount()).isEqualTo("3");
     }
 
     @Test
-    void estimatesGeminiWithCacheHitsAndSuppressesMissingUsage() throws Exception {
-        var catalog = loadCatalog();
-        var configured = catalog.find("codemie-gemini-3.8-flash").orElseThrow();
-        assertThat(configured.model()).isEqualTo("gemini-3.8-flash");
-        assertThat(configured.price().inputPerMillion()).isEqualByComparingTo("0.75");
-        assertThat(configured.price().cacheReadPerMillion()).isEqualByComparingTo("0.075");
-        assertThat(configured.price().outputPerMillion()).isEqualByComparingTo("3.75");
-        assertThat(configured.price().cacheWritePerMillion()).isNull();
+    void estimatesCacheHitsWithoutACacheWriteRateAndSuppressesMissingUsage() {
+        var price = new ModelPrice("USD", LocalDate.parse("2026-09-21"), URI.create("https://example.test/gemini"),
+                new BigDecimal("0.75"), new BigDecimal("0.075"), null, null, null, new BigDecimal("3.75"));
+        var gemini = new DeveloperCostEstimator(catalogOf(entry("codemie-gemini-3.8-flash", "gemini-3.8-flash",
+                price)));
 
-        var gemini = new DeveloperCostEstimator(catalog);
         var estimate = gemini.estimate(List.of(new DeveloperCostEstimator.Usage(
                 null, "gemini-3.8-flash", 1_000_000L, 2_000_000L, 0L, 100_000L)));
         assertThat(estimate).isNotNull();
@@ -90,18 +86,14 @@ class DeveloperCostEstimatorTest {
     }
 
     @Test
-    void sonnetYamlUsesLiteralModelAndSeparateCacheTtlRates() throws Exception {
-        var configured = loadCatalog().find(SONNET).orElseThrow().price();
+    void theCommittedModelsFileLoadsAndPricesSonnetCacheWritesPerTtl() throws Exception {
+        var configured = loadCatalog().find(SONNET).orElseThrow();
 
-        assertThat(configured.asOf()).isEqualTo(LocalDate.parse("2026-11-03"));
-        assertThat(configured.source()).isEqualTo(URI.create(
-                "https://platform.claude.com/docs/en/about-claude/pricing"));
-        assertThat(configured.inputPerMillion()).isEqualByComparingTo("2.00");
-        assertThat(configured.outputPerMillion()).isEqualByComparingTo("10.00");
-        assertThat(configured.cacheReadPerMillion()).isEqualByComparingTo("0.10");
-        assertThat(configured.cacheWrite5mPerMillion()).isEqualByComparingTo("2.50");
-        assertThat(configured.cacheWrite1hPerMillion()).isEqualByComparingTo("4.00");
-        assertThat(configured.cacheWritePerMillion()).isNull();
+        // The prices themselves change with the provider; the file only has to bind them.
+        assertThat(configured.model()).isEqualTo(SONNET_MODEL);
+        assertThat(configured.price().cacheWrite5mPerMillion()).isNotNull();
+        assertThat(configured.price().cacheWrite1hPerMillion()).isNotNull();
+        assertThat(configured.price().cacheWritePerMillion()).isNull();
     }
 
     @ParameterizedTest
@@ -184,7 +176,7 @@ class DeveloperCostEstimatorTest {
 
     @Test
     void historicalAggregateRateSnapshotStillPricesUsageWithoutCacheTtl() throws Exception {
-        ObjectNode snapshot = JSON.valueToTree(new AttemptRateSnapshot(loadCatalog()).snapshot(SONNET, SONNET_MODEL));
+        ObjectNode snapshot = (ObjectNode) sonnetSnapshot();
         snapshot.remove("cacheWrite5mPerMillion");
         snapshot.remove("cacheWrite1hPerMillion");
         snapshot.put("cacheWritePerMillion", new BigDecimal("2.50"));
@@ -199,8 +191,8 @@ class DeveloperCostEstimatorTest {
     }
 
     @Test
-    void aggregateEstimatorCannotAssumeACacheTtlForSonnet() throws Exception {
-        var sonnetEstimator = new DeveloperCostEstimator(loadCatalog());
+    void aggregateEstimatorCannotAssumeACacheTtlForSonnet() {
+        var sonnetEstimator = new DeveloperCostEstimator(catalogOf(sonnetEntry(SONNET)));
         var usage = new DeveloperCostEstimator.Usage(
                 SONNET, SONNET_MODEL, 1_000_000L, 2_000_000L, 3_000_000L, 100_000L);
 
@@ -208,19 +200,12 @@ class DeveloperCostEstimatorTest {
     }
 
     @Test
-    void estimatesLunaMaxReasoningOutputAndCacheWritesAtOfficialRates() throws Exception {
-        var catalog = loadCatalog();
-        var entry = catalog.find("codemie-gpt-5.6-luna").orElseThrow();
-        var configured = entry.price();
-        assertThat(entry.model()).isEqualTo("gpt-5.6-luna-2026-07-09");
-        assertThat(configured.inputPerMillion()).isEqualByComparingTo("0.20");
-        assertThat(configured.cacheReadPerMillion()).isEqualByComparingTo("0.02");
-        assertThat(configured.cacheWritePerMillion()).isEqualByComparingTo("0.25");
-        assertThat(configured.outputPerMillion()).isEqualByComparingTo("1.20");
-        assertThat(configured.source()).isEqualTo(URI.create(
-                "https://developers.openai.com/api/docs/models/gpt-5.6-luna"));
-
-        var luna = new DeveloperCostEstimator(catalog);
+    void estimatesOutputAndCacheWritesAtOneAggregateCacheWriteRate() {
+        var price = new ModelPrice("USD", LocalDate.parse("2026-09-21"), URI.create("https://example.test/luna"),
+                new BigDecimal("0.20"), new BigDecimal("0.02"), new BigDecimal("0.25"), null, null,
+                new BigDecimal("1.20"));
+        var luna = new DeveloperCostEstimator(catalogOf(entry("codemie-gpt-5.6-luna", "gpt-5.6-luna-2026-07-09",
+                price)));
         var estimate = luna.estimate(List.of(new DeveloperCostEstimator.Usage(
                 null, "gpt-5.6-luna-2026-07-09", 1_000_000L, 2_000_000L, 3_000_000L, 100_000L)));
         assertThat(estimate).isNotNull();
@@ -239,6 +224,23 @@ class DeveloperCostEstimatorTest {
                 "claude-code", name -> null));
     }
 
+    /** Sonnet with separate cache write rates for the 5 minute and the 1 hour cache. */
+    private static ModelEntry sonnetEntry(String id) {
+        var price = new ModelPrice("USD", LocalDate.parse("2026-11-03"), URI.create("https://example.test/sonnet"),
+                new BigDecimal("2.00"), new BigDecimal("0.10"), null, new BigDecimal("2.50"), new BigDecimal("4.00"),
+                new BigDecimal("10.00"));
+        return entry(id, SONNET_MODEL, price);
+    }
+
+    private static ModelEntry entry(String id, String model, ModelPrice price) {
+        return new ModelEntry(id, "anthropic-messages", "https://gateway.example.test", "api-key", "PRICED_KEY",
+                model, List.of("low"), "low", null, price);
+    }
+
+    private static ModelCatalog catalogOf(ModelEntry... entries) {
+        return new ModelCatalog(new ModelCatalog.Properties(List.of(entries), null), "claude-code", name -> null);
+    }
+
     private static ModelCatalog loadCatalog() throws Exception {
         Path directory = Path.of("").toAbsolutePath();
         Path models = directory.resolve("config/developer-models.yaml");
@@ -252,8 +254,8 @@ class DeveloperCostEstimatorTest {
         return new ModelCatalog(file, "claude-code", name -> null);
     }
 
-    private static JsonNode sonnetSnapshot() throws Exception {
-        return JSON.valueToTree(new AttemptRateSnapshot(loadCatalog()).snapshot(SONNET, SONNET_MODEL));
+    private static JsonNode sonnetSnapshot() {
+        return JSON.valueToTree(new AttemptRateSnapshot(catalogOf(sonnetEntry(SONNET))).snapshot(SONNET, SONNET_MODEL));
     }
 
     private static ObjectNode sonnetUsage(long fiveMinuteTokens, long oneHourTokens) {

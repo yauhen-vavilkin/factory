@@ -170,7 +170,7 @@ class FlowUiControllerTest {
     }
 
     @Test
-    void trigger_passesDedupKeyBlankAsNull() throws Exception {
+    void trigger_trimsTheDedupKey() throws Exception {
         when(router.routeManual(eq("test-factory"), any(JsonNode.class), eq("k1")))
                 .thenReturn(UUID.randomUUID());
 

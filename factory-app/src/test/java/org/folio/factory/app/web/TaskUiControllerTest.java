@@ -3,6 +3,8 @@ package org.folio.factory.app.web;
 import org.folio.factory.app.tasks.presentation.AgentQuestion;
 import org.folio.factory.app.tasks.presentation.AttemptClock;
 import org.folio.factory.app.tasks.presentation.AttemptStatus;
+import org.folio.factory.app.tasks.presentation.FeedbackStanding;
+import org.folio.factory.app.tasks.presentation.Turn;
 import org.folio.factory.app.tasks.presentation.RunLimits;
 import org.folio.factory.app.tasks.presentation.TaskDetail;
 import org.folio.factory.app.tasks.presentation.TaskAnswers;
@@ -31,7 +33,6 @@ import org.folio.factory.app.tasks.presentation.InProgressStrip;
 import org.folio.factory.app.tasks.presentation.RunAction;
 import org.folio.factory.app.tasks.presentation.SourceCard;
 import org.folio.factory.app.tasks.presentation.TaskRevisions;
-import org.folio.factory.app.tasks.presentation.RunContext;
 import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.app.tasks.presentation.TaskUsage;
 import org.folio.factory.app.tasks.presentation.TaskView;
@@ -146,6 +147,9 @@ class TaskUiControllerTest {
 
     private final CodingRuntime coding = org.mockito.Mockito.mock(CodingRuntime.class);
 
+    /** Where PR feedback stands; NONE unless a test says otherwise. */
+    private final FeedbackUi feedback = org.mockito.Mockito.mock(FeedbackUi.class);
+
     @BeforeEach
     void setUp() {
         lenient().when(coding.id()).thenReturn("claude-code");
@@ -162,9 +166,7 @@ class TaskUiControllerTest {
                         List.of("MODBAR"), List.of(), new DeliveryTarget("folio-org/mod-bar", null)))));
         var limits = org.mockito.Mockito.mock(RunLimits.class);
         lenient().when(limits.limits()).thenReturn(new AttemptClock.Limits(1800, java.time.Duration.ofMinutes(60)));
-        var feedback = org.mockito.Mockito.mock(FeedbackUi.class);
-        lenient().when(feedback.standing(org.mockito.ArgumentMatchers.any()))
-                .thenReturn(org.folio.factory.app.tasks.presentation.FeedbackStanding.NONE);
+        lenient().when(feedback.standing(any())).thenReturn(FeedbackStanding.NONE);
         var rows = new TaskRows(new TaskSourceProperties("Jane Developer"), jira, repositories, limits, feedback);
         var revisions = new TaskRevisions(attempts, executions, dispatcher, taskQuery);
         var controller = new TaskUiController(taskQuery, installations, attempts, admissions,
@@ -186,7 +188,20 @@ class TaskUiControllerTest {
     // ----- GET routes are read-only -----
 
     @Test
-    void myTasks_rendersAvailableAndTriggeredFromQueryOnly() throws Exception {
+    void myTasks_isReadOnly() throws Exception {
+        TaskView stopped = taskView(OTHER_TASK_ID, "MODBAR-911", "In Progress",
+                TaskView.TaskState.STOPPED, false, true, attempt("STOPPED", "MANUAL"));
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), stopped));
+
+        mvc.perform(get(FLOW_PAGE)).andExpect(status().isOk());
+
+        verifyNoInteractions(admissions, outcomes);
+        verify(dispatcher, never()).dispatchNext();
+        verify(dispatcher, never()).dispatchNextQuietly();
+    }
+
+    @Test
+    void myTasks_buildsRowsSourceAndRunFormFromTheQuery() throws Exception {
         TaskView available = taskView(TASK_ID, "MODBAR-901", "Open",
                 TaskView.TaskState.AWAITING_SELECTION, true, false);
         TaskView stopped = taskView(OTHER_TASK_ID, "MODBAR-911", "In Progress",
@@ -230,9 +245,6 @@ class TaskUiControllerTest {
                 .containsExactly("codemie-sonnet-5.5", "glm-5.3");
         assertThat(runForm.selected().id()).isEqualTo("codemie-sonnet-5.5");
         assertThat(runForm.effort()).isEqualTo("high");
-        verifyNoInteractions(admissions, outcomes);
-        verify(dispatcher, never()).dispatchNext();
-        verify(dispatcher, never()).dispatchNextQuietly();
     }
 
     @Test
@@ -271,7 +283,7 @@ class TaskUiControllerTest {
     }
 
     @Test
-    void myTasks_showsTheRunningTaskInTheStripAndOffersOpenRun() throws Exception {
+    void myTasks_showsTheRunningTaskInTheStripAndItsRowIsNotYourTurn() throws Exception {
         TaskView running = taskView(TASK_ID, "MODBAR-931", "Open", TaskView.TaskState.WORKING, false, false,
                 attempt("RUNNING", "MANUAL", 1,
                         "{\"profileId\":\"glm-5.3\",\"effort\":\"max\"}"));
@@ -288,10 +300,11 @@ class TaskUiControllerTest {
                 .containsEntry("chipClass", "chip chip-info")
                 .containsEntry("detail", null)
                 .containsEntry("action", RunAction.OPEN_RUN);
+        assertThat(RunAction.OPEN_RUN.yours()).isFalse();
     }
 
     @Test
-    void myTasks_aRunThatAskedNeedsYourAnswerAndOffersAnswer() throws Exception {
+    void myTasks_aRunThatAskedNeedsYourAnswerAndIsYourTurn() throws Exception {
         var reason = "clarify-implementation: " + TaskStops.DECISION_REASON + "Which API should change?";
         var stopped = taskView(TASK_ID, "MODBAR-941", "Open", TaskView.TaskState.STOPPED, false, true,
                 attempt("STOPPED", "MANUAL"));
@@ -309,6 +322,7 @@ class TaskUiControllerTest {
                 .containsEntry("chipClass", "chip chip-warning")
                 .containsEntry("detail", null)
                 .containsEntry("action", RunAction.ANSWER);
+        assertThat(RunAction.ANSWER.yours()).isTrue();
     }
 
     @Test
@@ -381,15 +395,6 @@ class TaskUiControllerTest {
                 .containsEntry("chipLabel", "Draft PR #7")
                 .containsEntry("chipClass", "chip chip-neutral")
                 .containsEntry("result", "Pull request #7 opened as a draft");
-        // The run page chip names the attempt's pull request and links it.
-        assertThat(RunContext.of(draft, EXECUTION_ID).orElseThrow().status())
-                .returns("Draft PR #7", AttemptStatus::chipLabel)
-                .returns("chip chip-neutral", AttemptStatus::chipClass)
-                .returns(draft.pullRequestUrl(), AttemptStatus::chipUrl)
-                .returns("Pull request #7 is open as a draft", AttemptStatus::headline);
-        assertThat(RunContext.of(ready, EXECUTION_ID).orElseThrow().status())
-                .returns("PR #7", AttemptStatus::chipLabel)
-                .returns("chip chip-success", AttemptStatus::chipClass);
     }
 
     @Test
@@ -425,9 +430,11 @@ class TaskUiControllerTest {
                         + " Start a new attempt with narrower instructions.");
     }
 
+    private static final String UNKNOWN_COST_TITLE =
+            "The runtime did not report usage, or the usage has no price, so the cost is not known.";
+
     @Test
-    void costNoteSaysSoFarWhileRunningAndCostUnknownWithoutACostFigure() throws Exception {
-        String unknownTitle = "The runtime did not report usage, or the usage has no price, so the cost is not known.";
+    void aStoppedTaskWithoutReportedUsageHasNoCostAndSaysItIsUnknown() throws Exception {
         // A paid start that stopped before the runtime reported any usage, for example on a Docker error.
         TaskView stopped = withUsage(taskView(TASK_ID, "MODBAR-911", "Open", TaskView.TaskState.STOPPED,
                 false, true, attempt("STOPPED", 1, unreportedUsage())), unreportedUsage());
@@ -436,8 +443,11 @@ class TaskUiControllerTest {
         Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
         assertThat(rows(model, "triggered").getFirst())
                 .containsEntry("cost", null)
-                .containsEntry("costTitle", unknownTitle);
+                .containsEntry("costTitle", UNKNOWN_COST_TITLE);
+    }
 
+    @Test
+    void aRetryThatWorksCostsZeroSoFarAndTheEarlierAttemptCostIsUnknown() throws Exception {
         // The retry is running and has not reported usage yet: $0.00 so far, as the run card says.
         TaskView working = withUsage(taskView(TASK_ID, "MODBAR-911", "Open", TaskView.TaskState.WORKING,
                 false, false, attempt("STOPPED", 1, unreportedUsage()), attempt("RUNNING", 2, unreportedUsage())),
@@ -451,37 +461,189 @@ class TaskUiControllerTest {
                 .containsEntry("cost", "$0.00")
                 .containsEntry("costNoteTitle", null)
                 .containsEntry("costText", "$0.00 so far");
+        assertThat(attempts.get(1))
+                .containsEntry("cost", null)
+                .containsEntry("costText", "cost unknown")
+                .containsEntry("costNoteTitle", UNKNOWN_COST_TITLE);
         assertThat(((TaskDetail) taskModel.get("task")).spent()).isEqualTo("$0.00");
+    }
 
-        // In Runs a working task shows the cost of the attempt that works now, not the total of the earlier ones.
+    @Test
+    void aWorkingTaskInRunsShowsTheCostOfTheAttemptThatWorksNow() throws Exception {
+        // Not the total of the earlier attempts.
         TaskView retrying = withUsage(taskView(TASK_ID, "MODBAR-911", "Open", TaskView.TaskState.WORKING,
                 false, false, attempt("STOPPED", 1, incompleteUsage()), attempt("RUNNING", 2, unreportedUsage())),
                 incompleteUsage());
         when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), retrying));
+
         assertThat(rows(mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel(), "triggered").getFirst())
                 .containsEntry("cost", "$0.00 so far")
                 .containsEntry("costTitle", null);
-        assertThat(attempts.get(1))
-                .containsEntry("cost", null)
-                .containsEntry("costText", "cost unknown")
-                .containsEntry("costNoteTitle", unknownTitle);
+    }
 
-        // Tokens without a price keep the dash while the attempt works: their cost is not known.
+    @Test
+    void tokensWithoutAPriceKeepTheDashWhileTheAttemptWorks() throws Exception {
         TaskView unpriced = withUsage(taskView(TASK_ID, "MODBAR-911", "Open", TaskView.TaskState.WORKING,
                 false, false, attempt("RUNNING", 1, unpricedUsage())), unpricedUsage());
         when(taskQuery.detail(TASK_ID)).thenReturn(unpriced);
+
         assertThat(rows(mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn().getModelAndView().getModel(),
                 "attempts").getFirst())
                 .containsEntry("cost", null)
                 .containsEntry("costText", "—");
+    }
 
-        // A queued attempt has no cost note: its Started cell already says "not started".
+    @Test
+    void aQueuedAttemptHasNoCostNote() throws Exception {
+        // Its Started cell already says "not started".
         when(taskQuery.detail(OTHER_TASK_ID)).thenReturn(taskView(OTHER_TASK_ID, "MODBAR-912", "Open",
                 TaskView.TaskState.WORKING, false, false, attempt("RESERVED", 1, emptyUsage())));
+
         assertThat(rows(mvc.perform(get("/tasks/{taskId}", OTHER_TASK_ID)).andReturn().getModelAndView().getModel(),
                 "attempts").getFirst())
                 .containsEntry("costText", "—")
                 .containsEntry("costNoteTitle", null);
+    }
+
+    // ----- PR feedback standing and whose turn it is -----
+
+    @Test
+    void aMergedPullRequestReadsAsMergedInRunsAndOnTheTaskPage() throws Exception {
+        TaskView delivered = taskView(TASK_ID, "MODBAR-921", "Open", TaskView.TaskState.PR_READY,
+                false, false, prAttempt(null));
+        givenStanding(delivered, FeedbackStanding.MERGED);
+
+        assertThat(rows(myTasksModel(delivered), "triggered").getFirst())
+                .containsEntry("chipLabel", "Merged PR #7")
+                .containsEntry("chipClass", "chip chip-success")
+                .containsEntry("chipUrl", "https://github.com/folio-org/mod-bar/pull/7");
+        var task = taskPage();
+        assertThat(task.status().chipLabel()).isEqualTo("Merged PR #7");
+        assertThat(task.status().headline()).isEqualTo("Pull request #7 is merged");
+        assertThat(task.turn()).isEqualTo(Turn.NONE);
+    }
+
+    @Test
+    void aPullRequestClosedWithoutMergeReadsAsClosedInRunsAndOnTheTaskPage() throws Exception {
+        TaskView delivered = taskView(TASK_ID, "MODBAR-921", "Open", TaskView.TaskState.PR_READY,
+                false, false, prAttempt(null));
+        givenStanding(delivered, FeedbackStanding.CLOSED);
+
+        assertThat(rows(myTasksModel(delivered), "triggered").getFirst())
+                .containsEntry("chipLabel", "Closed PR #7")
+                .containsEntry("chipClass", "chip chip-neutral");
+        var task = taskPage();
+        assertThat(task.status().chipLabel()).isEqualTo("Closed PR #7");
+        assertThat(task.status().headline()).isEqualTo("Pull request #7 was closed without merge");
+    }
+
+    @Test
+    void prFeedbackThatWaitsForYouIsYourTurnInRunsAndOnTheTaskPage() throws Exception {
+        TaskView delivered = taskView(TASK_ID, "MODBAR-921", "Open", TaskView.TaskState.PR_READY,
+                false, false, prAttempt(null));
+        givenStanding(delivered, FeedbackStanding.WAITS_FOR_YOU);
+
+        assertThat(rows(myTasksModel(delivered), "triggered").getFirst())
+                .containsEntry("chipLabel", "PR #7")
+                .containsEntry("detail", "PR feedback waits for you")
+                .containsEntry("action", RunAction.PR_WAITING);
+        assertThat(RunAction.PR_WAITING.yours()).isTrue();
+        var task = taskPage();
+        assertThat(task.reasonNote()).isEqualTo("PR feedback waits for you.");
+        assertThat(task.run()).isEqualTo(new TaskDetail.RunLink("Open PR feedback",
+                "/executions/" + EXECUTION_ID + "#pr-feedback", true));
+        assertThat(task.turn()).isEqualTo(Turn.YOURS);
+        assertThat(task.turn().label()).isEqualTo("Your turn");
+    }
+
+    @Test
+    void aPrFeedbackRoundThatWorksIsFactorysTurn() throws Exception {
+        TaskView delivered = taskView(TASK_ID, "MODBAR-921", "Open", TaskView.TaskState.PR_READY,
+                false, false, prAttempt(null));
+        givenStanding(delivered, FeedbackStanding.WORKING);
+
+        assertThat(rows(myTasksModel(delivered), "triggered").getFirst())
+                .containsEntry("detail", "The agent works on PR feedback")
+                .containsEntry("action", RunAction.PR_FEEDBACK);
+        var task = taskPage();
+        assertThat(task.reasonNote()).isEqualTo("The agent works on PR feedback.");
+        assertThat(task.run()).isEqualTo(new TaskDetail.RunLink("Open run",
+                "/executions/" + EXECUTION_ID + "#pr-feedback", false));
+        assertThat(task.turn()).isEqualTo(Turn.WORKING);
+    }
+
+    @Test
+    void aQueuedTaskWaitsInTheQueue() throws Exception {
+        when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-912", "Open",
+                TaskView.TaskState.WORKING, false, false, attempt("RESERVED", 1, emptyUsage())));
+
+        var task = taskPage();
+
+        assertThat(task.turn()).isEqualTo(Turn.QUEUED);
+        assertThat(task.turn().label()).isEqualTo("Waiting in the queue");
+    }
+
+    @Test
+    void aRunningTaskIsFactorysTurn() throws Exception {
+        when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-931", "Open",
+                TaskView.TaskState.WORKING, false, false, attempt("RUNNING", 1, emptyUsage())));
+
+        var task = taskPage();
+
+        assertThat(task.turn()).isEqualTo(Turn.WORKING);
+        assertThat(task.turn().label()).isEqualTo("Factory is working");
+    }
+
+    @Test
+    void aPullRequestWithoutFeedbackToActOnNeedsNothingFromYou() throws Exception {
+        when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-921", "Open",
+                TaskView.TaskState.PR_READY, false, false, prAttempt(null)));
+
+        var task = taskPage();
+
+        assertThat(task.turn()).isEqualTo(Turn.NONE);
+        assertThat(task.turn().label()).isEqualTo("Nothing needed from you");
+    }
+
+    @Test
+    void aFailedTaskThatCanRetryIsYourTurn() throws Exception {
+        when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-911", "Open",
+                TaskView.TaskState.STOPPED, false, true, attempt("STOPPED", "MANUAL")));
+
+        assertThat(taskPage().turn()).isEqualTo(Turn.YOURS);
+    }
+
+    @Test
+    void aTaskWhoseRunNeedsInspectionIsYourTurn() throws Exception {
+        when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-921", "Open",
+                TaskView.TaskState.PROCESSING_PAUSED, false, false, attempt("NEEDS_INSPECTION", "MANUAL")));
+
+        var task = taskPage();
+
+        assertThat(task.turn()).isEqualTo(Turn.YOURS);
+        assertThat(task.markStoppedAttemptId()).isEqualTo(ATTEMPT_ID);
+    }
+
+    @Test
+    void aQuestionThatWaitsForItsAnswerIsYourTurn() throws Exception {
+        when(taskQuery.detail(TASK_ID)).thenReturn(askedView());
+
+        assertThat(taskPage().turn()).isEqualTo(Turn.YOURS);
+    }
+
+    private void givenStanding(TaskView view, FeedbackStanding standing) {
+        when(feedback.standing(view)).thenReturn(standing);
+        when(taskQuery.detail(TASK_ID)).thenReturn(view);
+    }
+
+    private Map<String, Object> myTasksModel(TaskView... triggered) throws Exception {
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), triggered));
+        return mvc.perform(get(FLOW_PAGE)).andExpect(status().isOk()).andReturn().getModelAndView().getModel();
+    }
+
+    private TaskDetail taskPage() throws Exception {
+        return (TaskDetail) mvc.perform(get("/tasks/{taskId}", TASK_ID)).andExpect(status().isOk()).andReturn()
+                .getModelAndView().getModel().get("task");
     }
 
     @Test
@@ -576,18 +738,6 @@ class TaskUiControllerTest {
     }
 
     @Test
-    void poll_reportsRevisionWithoutCommandServices() throws Exception {
-        when(attempts.count()).thenReturn(2L);
-
-        mvc.perform(get("/tasks/poll"))
-                .andExpect(status().isOk());
-
-        verifyNoInteractions(admissions, outcomes);
-        verify(dispatcher, never()).dispatchNext();
-        verify(dispatcher, never()).dispatchNextQuietly();
-    }
-
-    @Test
     void poll_changesWhenTheRunningTaskShowsAnotherCostAndStaysWhenItShowsTheSame() throws Exception {
         runningExecutionOf(TaskAttempt.State.RUNNING);
         TaskView before = taskView(TASK_ID, "MODBAR-931", "Open", TaskView.TaskState.WORKING, false, false,
@@ -602,7 +752,10 @@ class TaskUiControllerTest {
 
         assertThat(same).isEqualTo(first);
         assertThat(grown).isNotEqualTo(first);
+        // The poll only reads: it never admits, settles or dispatches a task.
         verifyNoInteractions(admissions, outcomes);
+        verify(dispatcher, never()).dispatchNext();
+        verify(dispatcher, never()).dispatchNextQuietly();
     }
 
     @Test

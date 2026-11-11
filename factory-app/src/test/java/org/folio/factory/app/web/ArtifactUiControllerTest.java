@@ -20,6 +20,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.SliceImpl;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.view.InternalResourceViewResolver;
@@ -94,7 +95,10 @@ class ArtifactUiControllerTest {
         when(artifacts.findAllByOrderByCreatedAtDescIdDesc(any(Pageable.class)))
                 .thenReturn(sliceOf(artifact("test_plan.md", 2)));
         PipelineExecution execution = new PipelineExecution("test-factory", "1", "{}");
+        ReflectionTestUtils.setField(execution, "id", EXECUTION_ID);
         when(executions.findAllById(List.of(EXECUTION_ID))).thenReturn(List.of(execution));
+        when(flowRegistry.find("test-factory")).thenReturn(Optional.of(
+                new FlowDescriptor("test-factory", "Test Factory", "1", null, null, null, List.of(), null)));
 
         var result = mvc.perform(get("/artifacts"))
                 .andExpect(status().isOk())
@@ -112,10 +116,26 @@ class ArtifactUiControllerTest {
                 .containsEntry("version", 2)
                 .containsEntry("createdBy", "test-spec")
                 .containsEntry("executionId", EXECUTION_ID);
-        // The stubbed execution entity has another id than the artifact's run, so the lookup legitimately
-        // misses: no flow name, rendered as a muted dash, and the run keeps its short id.
+        // A run of no task attempt keeps its short id; its flow is named as on Executions.
         assertThat(rows.get(0).get("runName")).isEqualTo("00000000-0...");
+        assertThat(rows.get(0).get("flowName")).isEqualTo("Test Factory");
+    }
+
+    @Test
+    void artifacts_ofARunThatIsGoneHaveNoFlowName() throws Exception {
+        stubFlowRegistry();
+        when(artifacts.findAllByOrderByCreatedAtDescIdDesc(any(Pageable.class)))
+                .thenReturn(sliceOf(artifact("test_plan.md", 2)));
+        when(executions.findAllById(List.of(EXECUTION_ID))).thenReturn(List.of());
+
+        var result = mvc.perform(get("/artifacts")).andExpect(status().isOk()).andReturn();
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> rows =
+                (List<Map<String, Object>>) result.getModelAndView().getModel().get("artifacts");
+        // Rendered as a muted dash; the run keeps its short id.
         assertThat(rows.get(0).get("flowName")).isNull();
+        assertThat(rows.get(0).get("runName")).isEqualTo("00000000-0...");
     }
 
     @Test

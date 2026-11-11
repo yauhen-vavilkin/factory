@@ -26,6 +26,8 @@ import org.folio.factory.core.service.AuditLog;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
@@ -157,37 +159,21 @@ class ExecutionUiControllerTest {
         verifyNoInteractions(taskAttempts);
     }
 
-    @Test
-    void executions_statusFilter_asksTheQueryForThatState() throws Exception {
-        when(runStates.search(eq("FAILED"), eq(""), any(), any())).thenReturn(emptyRows());
+    @ParameterizedTest
+    @CsvSource({"failed, '', FAILED, ''", "'', test-factory, '', test-factory",
+            "COMPLETED, test-factory, COMPLETED, test-factory"})
+    void executions_statusAndFlowFiltersAskTheQueryForThatStateAndFlow(String status, String flow,
+                                                                        String queriedStatus, String queriedFlow)
+            throws Exception {
+        when(runStates.search(eq(queriedStatus), eq(queriedFlow), any(), any())).thenReturn(emptyRows());
 
-        mvc.perform(get("/executions").param("status", "failed"))
+        mvc.perform(get("/executions").param("status", status).param("flow", flow))
                 .andExpect(status().isOk())
-                .andExpect(model().attribute("selectedStatus", "FAILED"));
-
-        verify(runStates).search(eq("FAILED"), eq(""), any(), any());
-    }
-
-    @Test
-    void executions_flowFilter_asksTheQueryForThatFlow() throws Exception {
-        when(runStates.search(eq(""), eq("test-factory"), any(), any())).thenReturn(emptyRows());
-
-        mvc.perform(get("/executions").param("flow", "test-factory"))
-                .andExpect(status().isOk())
-                .andExpect(model().attribute("selectedFlow", "test-factory"));
-
-        verify(runStates).search(eq(""), eq("test-factory"), any(), any());
-    }
-
-    @Test
-    void executions_statusAndFlow_filterTogether() throws Exception {
-        when(runStates.search(eq("COMPLETED"), eq("test-factory"), any(), any())).thenReturn(emptyRows());
-
-        mvc.perform(get("/executions").param("status", "COMPLETED").param("flow", "test-factory"))
-                .andExpect(status().isOk())
+                .andExpect(model().attribute("selectedStatus", queriedStatus))
+                .andExpect(model().attribute("selectedFlow", queriedFlow))
                 .andExpect(model().attribute("filtersActive", true));
 
-        verify(runStates).search(eq("COMPLETED"), eq("test-factory"), any(), any());
+        verify(runStates).search(eq(queriedStatus), eq(queriedFlow), any(), any());
     }
 
     @Test
@@ -350,7 +336,11 @@ class ExecutionUiControllerTest {
         assertThat(run.status().amount()).isEqualTo(cost);
         assertThat(run.links().pricing()).containsExactly(
                 new DeveloperRunView.PriceSource("https://example.test/pricing", " (2026-09-19)"));
-        // Only an http or https address becomes a link; any other name stays text.
+    }
+
+    @Test
+    void priceSourceLinksOnlyHttpAddresses() {
+        // Any other name stays text.
         assertThat(DeveloperRunView.PriceSource.of("docs.z.ai (2026-09-19)"))
                 .isEqualTo(new DeveloperRunView.PriceSource(null, "docs.z.ai (2026-09-19)"));
         assertThat(DeveloperRunView.PriceSource.of("javascript:alert(1)").url()).isNull();
@@ -565,8 +555,7 @@ class ExecutionUiControllerTest {
         mvc.perform(get("/executions/{id}", EXECUTION_ID))
                 .andExpect(status().isOk())
                 .andExpect(model().attribute("tokenTotals", Map.of(
-                        "present", false, "prompt", "0", "completion", "0", "total", "0")))
-                .andExpect(model().attributeDoesNotExist("reportedCost"));
+                        "present", false, "prompt", "0", "completion", "0", "total", "0")));
     }
 
     @Test

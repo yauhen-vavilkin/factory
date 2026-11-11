@@ -141,24 +141,15 @@ class DashboardUiControllerTest {
     void dashboard_scopesRunAndTokenQueriesToTheClampedWindow() throws Exception {
         stubKpiCounts();
 
-        mvc.perform(get("/?days=999")).andExpect(status().isOk());
-        mvc.perform(get("/?days=abc")).andExpect(status().isOk());
+        mvc.perform(get("/?days=999")).andExpect(status().isOk()).andExpect(view().name("dashboard"))
+                .andExpect(model().attribute("days", 14));
+        mvc.perform(get("/?days=abc")).andExpect(status().isOk()).andExpect(model().attribute("days", 14));
 
         // An unknown range falls back to 14, and the run and token queries must use that
         // same clamped value rather than the raw request parameter.
         verify(dashboardStats, org.mockito.Mockito.times(2)).countByState(14);
         verify(dashboardStats, org.mockito.Mockito.times(2)).tokenUsage(14);
         verify(dashboardStats, org.mockito.Mockito.times(2)).stepTokens(14);
-    }
-
-    @Test
-    void dashboard_clampsUnknownDaysToDefault() throws Exception {
-        stubKpiCounts();
-
-        mvc.perform(get("/").param("days", "999"))
-                .andExpect(status().isOk())
-                .andExpect(view().name("dashboard"))
-                .andExpect(model().attribute("days", 14));
     }
 
     @Test
