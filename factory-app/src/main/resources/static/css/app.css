@@ -181,7 +181,8 @@ html[data-menu="collapsed"] .sidebar-brand strong {
 .card-header + .card-content { padding-top: 0; }
 .card-header .badge { align-self: flex-start; }
 .card-title { font-size: 1rem; font-weight: 600; line-height: 24px; }
-.card-description { font-size: 0.875rem; color: hsl(var(--muted-foreground)); }
+/* A long name such as FACTORY_CONNECTORS_JIRA_API_TOKEN wraps inside the card instead of running out of it. */
+.card-description { font-size: 0.875rem; color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
 .card-content { padding: 1.25rem 1.5rem; }
 .card-footer {
   display: flex;
@@ -251,9 +252,11 @@ html[data-menu="collapsed"] .sidebar-brand strong {
 .btn-col { width: 96px; padding-inline: 8px; }
 
 /* ---------- chip: one shape for every state; only the tone changes ---------- */
+/* As wide as its text, also as the child of a flex column or a grid cell, which would stretch it. */
 .chip {
   --chip-tone: var(--muted-foreground);
   display: inline-flex;
+  width: fit-content;
   align-items: center;
   gap: 6px;
   padding: 2px 10px;

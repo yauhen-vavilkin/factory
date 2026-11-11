@@ -438,6 +438,10 @@ class UiRenderSmokeTest {
                         "href=\"/developer/configuration\">Developer Flow configuration</a>",
                         "href=\"/flows/dev-factory?view=definition\">dev-factory</a>",
                         "href=\"/flows/test-factory\">test-factory</a>");
+        // The Actuator endpoints are a list of links that says what they are, not tabs over an empty panel.
+        assertThat(body).contains("Raw health and metrics endpoints of the app",
+                        "<dt>Health</dt><dd><a class=\"dev-link\" href=\"/actuator/health\">/actuator/health</a></dd>")
+                .doesNotContain("aria-label=\"Actuator endpoints\"");
     }
 
     @Test

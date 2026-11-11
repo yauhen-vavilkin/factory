@@ -76,12 +76,17 @@
                 <h2 class="card-title">Actuator</h2>
             </div>
             <div class="card">
+                <div class="card-header">
+                    <p class="card-description">Raw health and metrics endpoints of the app, for monitoring tools.
+                        Each link opens what the endpoint returns.</p>
+                </div>
                 <div class="card-content">
-                    <nav class="tabs" aria-label="Actuator endpoints">
-                        <a th:href="@{/actuator/health}">Health</a>
-                        <a th:href="@{/actuator/metrics}">Metrics</a>
-                        <a th:href="@{/actuator/prometheus}">Prometheus</a>
-                    </nav>
+                    <dl class="def-list">
+                        <dt>Health</dt><dd><a class="dev-link" th:href="@{/actuator/health}">/actuator/health</a></dd>
+                        <dt>Metrics</dt><dd><a class="dev-link" th:href="@{/actuator/metrics}">/actuator/metrics</a></dd>
+                        <dt>Prometheus</dt><dd><a class="dev-link"
+                                th:href="@{/actuator/prometheus}">/actuator/prometheus</a></dd>
+                    </dl>
                 </div>
             </div>
         </section>
