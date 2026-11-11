@@ -74,11 +74,13 @@
                 run.</p>
             <p class="dev-list-note config-note" th:text="${config.routes().token()}">Factory opens pull requests.</p>
             <p class="dev-list-note">To add a Jira project, add a repository to
-                <code>config/developer-repositories.yaml</code> (or the file in
-                <code>FACTORY_DEV_FACTORY_REPOSITORIES_FILE</code>), then run <code>docker compose restart factory</code>.
+                <code>config/developer-repositories.yaml</code>, or to the file
+                <code>FACTORY_DEV_FACTORY_REPOSITORIES_FILE</code> points to, then run
+                <code>docker compose restart factory</code>.
                 To open pull requests in your fork, set <code>&lt;REPO&gt;_SOURCE_REPO</code> and
                 <code>&lt;REPO&gt;_DELIVERY_REPO</code> in <code>.env</code> (for example
-                <code>FACTORY_SIDECAR_SOURCE_REPO</code> and <code>FACTORY_SIDECAR_DELIVERY_REPO</code>), then run
+                <code>FACTORY_SIDECAR_SOURCE_REPO</code> and <code>FACTORY_SIDECAR_DELIVERY_REPO</code> for the
+                sidecar), then run
                 <code>docker compose up -d</code>.</p>
         </section>
 

@@ -42,7 +42,7 @@ public class DeveloperRunSetup {
         var rows = repositories.repositories().entrySet().stream()
                 .map(entry -> route(entry.getKey(), entry.getValue())).toList();
         var token = github.isConfigured()
-                ? "Factory opens pull requests with the token in FACTORY_CONNECTORS_GITHUB_TOKEN."
+                ? "FACTORY_CONNECTORS_GITHUB_TOKEN is set, so Factory can open pull requests."
                 : "FACTORY_CONNECTORS_GITHUB_TOKEN is not set, so Factory cannot open pull requests. Set it in"
                         + " .env to a token that can push to the repositories above, then run docker compose up -d.";
         return new Routes(rows, token);

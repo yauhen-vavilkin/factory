@@ -84,7 +84,8 @@ class UiRenderSmokeTest {
             + " Anthropic Messages API. Point it at an Anthropic-compatible endpoint, or run it with Pi: set"
             + " FACTORY_DEV_FACTORY_CODING_RUNTIME to pi, and FACTORY_PI_MODEL and the other FACTORY_PI_* settings to"
             + " this model.";
-    private static final String LIMITS_LINK = "<p class=\"status-card-note\"><a class=\"dev-link\"\\s+"
+    private static final String LONG_NAME_THEN_PUNCTUATION = "[A-Z][A-Z0-9_]{11,}(</code>)?[.,;:)]";
+    private static final String LIMITS_LINK ="<p class=\"status-card-note\"><a class=\"dev-link\"\\s+"
             + "href=\"/developer/configuration#limits\">Limits in Configuration</a></p>";
 
     @LocalServerPort
@@ -261,6 +262,7 @@ class UiRenderSmokeTest {
         assertThat(body).contains(">Tasks come from</h2>", "jira.example.org", "Jane Developer",
                         "assignee = &quot;Jane Developer&quot; AND statusCategory != Done ORDER BY updated DESC",
                         "href=\"https://jira.example.org/issues/?jql=", ">Jira sign-in</dt>");
+        assertThat(body).doesNotContainPattern(LONG_NAME_THEN_PUNCTUATION);
         // Only the failing Factory checks, each as its fix; no raw check rows.
         assertThat(body).contains(">Factory cannot start runs</h2>", "Docker daemon is unavailable. Start Docker")
                 .doesNotContain("Selected runtime", "Effective repositories", "NOT_RUN", ">PASS<", "FAIL ·",
@@ -442,11 +444,14 @@ class UiRenderSmokeTest {
                 .doesNotContain("badge-success", "badge-outline");
 
         // Jira without sign-in still serves My tasks; the Developer Flow opens on its Definition here.
-        assertThat(body).contains("Not configured for Test Factory sync, which needs FACTORY_CONNECTORS_JIRA_EMAIL",
+        assertThat(body).contains("Not configured for Test Factory sync: set FACTORY_CONNECTORS_JIRA_EMAIL",
+                        "FACTORY_CONNECTORS_JIRA_API_TOKEN in .env to turn it on.",
                         "My tasks reads Jira with FACTORY_CONNECTORS_JIRA_BASE_URL alone",
                         "href=\"/developer/configuration\">Developer Flow configuration</a>",
                         "href=\"/flows/dev-factory?view=definition\">dev-factory</a>",
                         "href=\"/flows/test-factory\">test-factory</a>");
+        // A long variable name breaks anywhere in a narrow card, so no full stop or bracket follows one.
+        assertThat(body).doesNotContainPattern(LONG_NAME_THEN_PUNCTUATION);
         // The Actuator endpoints are a list of links that says what they are, not tabs over an empty panel.
         assertThat(body).contains("Raw health and metrics endpoints of the app",
                         "<dt>Health</dt><dd><a class=\"dev-link\" href=\"/actuator/health\">/actuator/health</a></dd>")

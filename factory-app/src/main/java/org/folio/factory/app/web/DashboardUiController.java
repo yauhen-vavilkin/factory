@@ -175,12 +175,12 @@ public class DashboardUiController {
             return new ConnectorRow(name, true, null, null);
         }
         return "jira".equals(name)
-                ? new ConnectorRow(name, false, "Not configured for Test Factory sync, which needs"
-                        + " FACTORY_CONNECTORS_JIRA_EMAIL and FACTORY_CONNECTORS_JIRA_API_TOKEN. My tasks reads Jira"
-                        + " with FACTORY_CONNECTORS_JIRA_BASE_URL alone and sees public issues without them.",
-                        "/developer/configuration")
+                ? new ConnectorRow(name, false, "Not configured for Test Factory sync: set"
+                        + " FACTORY_CONNECTORS_JIRA_EMAIL and FACTORY_CONNECTORS_JIRA_API_TOKEN in .env to turn it on."
+                        + " My tasks reads Jira with FACTORY_CONNECTORS_JIRA_BASE_URL alone and sees public issues"
+                        + " without them.", "/developer/configuration")
                 : new ConnectorRow(name, false,
-                        "Sync actions run in advisory mode and are audited as CONNECTOR_SKIPPED.", null);
+                        "Sync actions run in advisory mode and show as Connector skipped in the audit log.", null);
     }
 
     private FlowRow flowRow(FlowDescriptor flow) {

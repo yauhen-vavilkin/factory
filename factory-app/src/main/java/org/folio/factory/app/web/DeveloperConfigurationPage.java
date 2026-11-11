@@ -42,9 +42,9 @@ public class DeveloperConfigurationPage {
      * not need, so Models shows it instead.
      */
     private static final Set<String> START_CHECKS = Set.of("runtime", "docker", "coding-image");
-    private static final String MODELS_NOTE = "From " + ModelCatalog.FILE + ", or the file in"
-            + " FACTORY_DEV_FACTORY_MODELS_FILE. The run forms offer the models under Ready to run and Endpoint not"
-            + " reachable. After a change to the file, run docker compose restart factory.";
+    private static final String MODELS_NOTE = "From " + ModelCatalog.FILE + ", or from the file"
+            + " FACTORY_DEV_FACTORY_MODELS_FILE points to. The run forms offer the models under Ready to run and"
+            + " Endpoint not reachable. After a change to the file, run docker compose restart factory.";
     private static final String ENDPOINT_CHECK = "endpoint";
     private static final String PI_NOTE = "Runs use Pi, which takes its model from FACTORY_PI_MODEL in .env; "
             + ModelCatalog.FILE + " gives Pi only prices.";
@@ -149,7 +149,7 @@ public class DeveloperConfigurationPage {
     private Fact signIn() {
         return jira.isConfigured()
                 ? new Fact("Jira sign-in", "Factory signs in with FACTORY_CONNECTORS_JIRA_EMAIL and"
-                        + " FACTORY_CONNECTORS_JIRA_API_TOKEN.", null)
+                        + " FACTORY_CONNECTORS_JIRA_API_TOKEN from .env.", null)
                 : new Fact("Jira sign-in", "Not set: Factory reads Jira without signing in, so it sees only public"
                         + " issues. To read other issues, set FACTORY_CONNECTORS_JIRA_EMAIL and"
                         + " FACTORY_CONNECTORS_JIRA_API_TOKEN in .env.", null);

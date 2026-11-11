@@ -179,7 +179,7 @@ class DeveloperConfigurationPageTest {
                 tuple("Jira", "jira.example.org", "FACTORY_CONNECTORS_JIRA_BASE_URL"),
                 tuple("Assignee", "Jane", "FACTORY_TASKS_ASSIGNEE"),
                 tuple("Jira sign-in", "Factory signs in with"
-                        + " FACTORY_CONNECTORS_JIRA_EMAIL and FACTORY_CONNECTORS_JIRA_API_TOKEN.", null));
+                        + " FACTORY_CONNECTORS_JIRA_EMAIL and FACTORY_CONNECTORS_JIRA_API_TOKEN from .env.", null));
         assertThat(view.source().searchUrl()).isEqualTo("https://jira.example.org/issues/?jql=x");
         assertThat(view.toString()).doesNotContain("jira-secret-token", "github-secret-token");
     }
