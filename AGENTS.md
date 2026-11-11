@@ -187,7 +187,9 @@ Conventions that are easy to violate silently:
   render instead of showing an empty cell. A row record carries every key its template
   reads (nullable where the old `Map` left a key out). Older pages still build `Map`
   rows; convert them when you rework the page. Shared row/format helpers live in
-  `UiFormat` (timestamps, audit rows, event labels/tones, step labels).
+  `UiFormat` (audit rows, event labels/tones, step labels). A time on a page is a
+  `PageTime` in its row, rendered by `components :: pageTime` (or `ago`) as a UTC
+  `<time>` that `time.js` rewrites to the browser's local time.
 - **Slice, not Page, for unbounded tables** — audit and artifact feeds page
   with `Slice`/`slicePagination`/`SliceResponse` so no per-request `count(*)`
   runs against append-only tables. Bounded lists (executions, reviews) use
