@@ -108,7 +108,8 @@ class DeveloperRunPage {
 
     private static DeveloperRunView.Links links(ExecutionDetail detail, RunUsage usage) {
         var id = detail.id();
-        return new DeveloperRunView.Links(usage.pricing(), "/executions/" + id + "/transcript",
+        var pricing = usage.pricing().stream().map(DeveloperRunView.PriceSource::of).toList();
+        return new DeveloperRunView.Links(pricing, "/executions/" + id + "/transcript",
                 "/audit?executionId=" + id, detail.artifacts().size(), artifactGroups(detail.artifacts()));
     }
 

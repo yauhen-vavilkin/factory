@@ -101,8 +101,24 @@ public record DeveloperRunView(Header header, Status status, Standing standing, 
     }
 
     /** The pricing sources and the links line: Transcript, Audit log and the artifacts of the run. */
-    public record Links(List<String> pricing, String transcriptUrl, String auditUrl, int artifactCount,
+    public record Links(List<PriceSource> pricing, String transcriptUrl, String auditUrl, int artifactCount,
                         List<ArtifactGroup> artifacts) {
+    }
+
+    /**
+     * Where a price comes from, as the models file names it: {@code url} is set only for an http or https address,
+     * which the page links, and {@code text} is what follows it, such as " (2026-09-19)", or the whole name.
+     */
+    public record PriceSource(String url, String text) {
+
+        static PriceSource of(String source) {
+            if (!source.startsWith("https://") && !source.startsWith("http://")) {
+                return new PriceSource(null, source);
+            }
+            var end = source.indexOf(' ');
+            return end < 0 ? new PriceSource(source, "") : new PriceSource(source.substring(0, end),
+                    source.substring(end));
+        }
     }
 
     public record ArtifactGroup(String name, List<ArtifactLink> versions) {

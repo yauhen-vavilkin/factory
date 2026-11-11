@@ -292,7 +292,12 @@ class ExecutionUiControllerTest {
                 "0.10323", "USD", LocalDate.parse("2026-09-19"), "https://example.test/pricing").label();
         assertThat(run.usage().cost()).isEqualTo(cost);
         assertThat(run.status().amount()).isEqualTo(cost);
-        assertThat(run.links().pricing()).containsExactly("https://example.test/pricing (2026-09-19)");
+        assertThat(run.links().pricing()).containsExactly(
+                new DeveloperRunView.PriceSource("https://example.test/pricing", " (2026-09-19)"));
+        // Only an http or https address becomes a link; any other name stays text.
+        assertThat(DeveloperRunView.PriceSource.of("docs.z.ai (2026-09-19)"))
+                .isEqualTo(new DeveloperRunView.PriceSource(null, "docs.z.ai (2026-09-19)"));
+        assertThat(DeveloperRunView.PriceSource.of("javascript:alert(1)").url()).isNull();
     }
 
     @Test

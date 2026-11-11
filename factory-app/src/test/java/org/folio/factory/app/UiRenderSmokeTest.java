@@ -835,6 +835,9 @@ class UiRenderSmokeTest {
         // Model and effort are in the header; provider, runtime and image are not on the page.
         assertThat(body).contains("<span>glm-5.3-flash</span>", "2026-09-19", "docs.z.ai",
                         "Real provider charges may differ.")
+                // A price source that is a web address opens in a new tab.
+                .containsPattern("<a class=\"dev-link ext-link\" href=\"(https://[^\"]+)\" target=\"_blank\""
+                        + " rel=\"noopener noreferrer\">\\1</a>")
                 .containsPattern("<span class=\"status-card-money\">\\$0.02</span>\\s*"
                         + "<span class=\"status-card-note\">so far</span>")
                 .doesNotContain("test-provider", "factory-dev-pi", "Runtime and usage", "Coding runtime-reported cost");
