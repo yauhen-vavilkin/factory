@@ -210,12 +210,14 @@ class DeveloperPreflightTest {
 
         var row = new ModelChecks(catalog, probe).rows(true).get(1);
 
-        // Its key and efforts do not matter while Claude Code cannot run it at all.
+        // Its key and efforts do not matter while Claude Code cannot run it at all. Pi takes its model from
+        // FACTORY_PI_MODEL, not from this file, so switching the coding agent alone would not run it.
         assertThat(row.ready()).isFalse();
         assertThat(row.checks()).filteredOn(check -> check.status() == FAIL)
                 .extracting(DeveloperPreflight.Check::message).containsExactly("This model uses the OpenAI Responses"
                         + " API; Claude Code needs the Anthropic Messages API. Point it at an Anthropic-compatible"
-                        + " endpoint, or switch the coding agent to Pi (FACTORY_DEV_FACTORY_CODING_RUNTIME).");
+                        + " endpoint, or run it with Pi: set FACTORY_DEV_FACTORY_CODING_RUNTIME to pi, and"
+                        + " FACTORY_PI_MODEL and the other FACTORY_PI_* settings to this model.");
         assertThat(checks(row)).doesNotContainKeys("secret", "efforts", "endpoint");
     }
 

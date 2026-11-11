@@ -80,6 +80,10 @@ class UiRenderSmokeTest {
 
     static final String ZAI_KEY = "smoke-zai-secret-key";
     static final String PROXY_TOKEN = "smoke-proxy-secret-token";
+    private static final String LUNA_FIX = "This model uses the OpenAI Responses API; Claude Code needs the"
+            + " Anthropic Messages API. Point it at an Anthropic-compatible endpoint, or run it with Pi: set"
+            + " FACTORY_DEV_FACTORY_CODING_RUNTIME to pi, and FACTORY_PI_MODEL and the other FACTORY_PI_* settings to"
+            + " this model.";
     private static final String LIMITS_LINK = "<p class=\"status-card-note\"><a class=\"dev-link\"\\s+"
             + "href=\"/developer/configuration#limits\">Configuration</a></p>";
 
@@ -226,8 +230,8 @@ class UiRenderSmokeTest {
                         "codemie-haiku-4.5",
                         "default · host.docker.internal:4001 · effort low, medium, high, xhigh, max · price from"
                                 + " platform.claude.com, 2026-11-03",
-                        "Cannot run <span class=\"dev-count\">(1)</span>", "glm-5.3",
-                        "FACTORY_ZAI_API_KEY is empty. Set it in .env.")
+                        "Cannot run <span class=\"dev-count\">(2)</span>", "glm-5.3",
+                        "FACTORY_ZAI_API_KEY is empty. Set it in .env.", "codemie-gpt-5.6-luna", LUNA_FIX)
                 .containsOnlyOnce("Factory cannot open a connection to http://host.docker.internal:4001. Runs with"
                         + " these models fail if the coding container cannot reach it either. Start the service at"
                         + " that address, or fix base-url in config/developer-models.yaml.")
@@ -305,10 +309,14 @@ class UiRenderSmokeTest {
                 List.of(new DeveloperPreflight.Check("secret", DeveloperPreflight.Status.FAIL,
                         "FACTORY_ZAI_API_KEY is empty. Set it in .env. If docker-compose.yml does not pass it to the"
                                 + " factory service yet, add it there. Then run docker compose up -d.")));
+        var luna = new ModelChecks.ModelRow("codemie-gpt-5.6-luna", false, false, "gpt-5.6-luna", "openai-responses",
+                "http://host.docker.internal:4001", "api-key", "low, medium, high; default medium",
+                "host.docker.internal:4001 · effort low, medium, high",
+                List.of(new DeveloperPreflight.Check("api", DeveloperPreflight.Status.FAIL, LUNA_FIX)));
         var checks = issueKey == null ? List.of(docker, inferenceCheck) : List.of(deliveryCheck, inferenceCheck);
         var report = new DeveloperPreflight.Report(deliveryStatus == DeveloperPreflight.Status.PASS,
                 issueKey == null ? "" : issueKey, Map.of("runtime", "claude-code"), List.of(), checks,
-                List.of(sonnet, haiku, opus, glm));
+                List.of(sonnet, haiku, opus, glm, luna));
         when(developerPreflight.check(issueKey)).thenReturn(report);
 
         String path = "/developer/configuration";
@@ -585,6 +593,11 @@ class UiRenderSmokeTest {
                 + "\",\"summary\":\"## Changes\\n- Added `minProperties` to the items object (PR feedback inline:1)."
                 + "\\n\\n## Assumptions\\n- None.\",\"finishedAt\":\"2026-11-10T18:28:00Z\",\"runtimeName\":\"Pi\","
                 + "\"verification\":" + checks + "}", "application/json", "test");
+        // Round 2 stored Factory's own summary, which has no Changes section and so is no report of the agent.
+        var second = "\"round\":2,\"pr\":" + pr + ",\"selected\":[" + done + "],\"roundStartedAt\":\"2026-11-10T18:40:00Z\"";
+        artifactStore.put(id, "dev_pr_state.json", "{" + second + ",\"phase\":\"CODE\"}", "application/json", "test");
+        artifactStore.put(id, "dev_pr_state.json", "{" + second + ",\"phase\":\"READY\",\"commitSha\":\"" + "d".repeat(40)
+                + "\",\"summary\":\"Verified changes published to the same PR\"}", "application/json", "test");
         artifactStore.put(id, "dev_pr_comments.json", "{\"id\":\"s1\",\"pr\":" + pr + ",\"comments\":[" + done + "," + fresh + "]}",
                 "application/json", "test");
         artifactStore.put(id, "dev_delivery.json", "{\"state\":\"DELIVERED\",\"pullRequestUrl\":"
@@ -627,11 +640,29 @@ class UiRenderSmokeTest {
                         "attempt-cost");
         // One filled button on the page: Fix N comments.
         assertThat(body.split("btn btn-primary", -1)).hasSize(2);
+        assertThat(body).contains(">Round 2</strong>").containsOnlyOnce("<strong>Agent's report</strong>")
+                .doesNotContain("Verified changes published to the same PR");
+
+        // The transcript names its sections as the page names the work: the implementation, then each round.
+        transcriptRun(id, "implement", Instant.parse("2026-11-10T18:00:00Z"));
+        transcriptRun(id, "pr-follow-up", Instant.parse("2026-11-10T18:23:00Z"));
+        transcriptRun(id, "pr-follow-up", Instant.parse("2026-11-10T18:41:00Z"));
+        assertThat(assertRendered("/executions/" + id + "/transcript", "Transcript"))
+                .contains("<h2 class=\"dev-section-title\">Implementation</h2>",
+                        "<h2 class=\"dev-section-title\">Round 1 · PR feedback</h2>",
+                        "<h2 class=\"dev-section-title\">Round 2 · PR feedback</h2>")
+                .doesNotContain("Run 2", "Run 3");
 
         artifactStore.put(id, "dev_pr_comments.json", "{\"id\":\"s2\",\"pr\":" + pr + ",\"comments\":[" + done + "]}",
                 "application/json", "test");
         assertThat(assertRendered("/executions/" + id, "New PR comments")).contains("<p class=\"dev-empty\">"
                 + "No new comments. Add review comments on GitHub, then press Check PR comments.</p>");
+    }
+
+    private void transcriptRun(UUID executionId, String step, Instant at) {
+        try (var sink = transcripts.open(executionId, UUID.randomUUID(), step)) {
+            sink.add(new CodingTranscripts.Entry("prompt", at, Map.of("text", "Work on " + step)));
+        }
     }
 
     @Test
@@ -821,6 +852,10 @@ class UiRenderSmokeTest {
         String expected = "The agent reached its limit of 40 turns before it finished."
                 + " Start a new attempt with narrower instructions.";
         String providerError = "Claude Code stopped with an error (subtype success, API status 429).";
+        Task unchanged = seedTask("70083", "MODBAR-783", "Unchanged task", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+        seedAttempt(unchanged, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
+                "DEVELOPMENT_FAILED: Candidate contains no changes");
         String list = assertRendered("/flows/dev-factory", "Ready to run");
         // The Runs row shows the first sentence on one line, with the whole reason in the title.
         assertThat(list)
@@ -863,6 +898,10 @@ class UiRenderSmokeTest {
                 .doesNotContain("Stop reason", "DEVELOPMENT_FAILED", "Implementation failed");
         // A failure that is not a limit has no such link.
         assertThat(assertRendered("/tasks/" + provider.getId(), "Failed")).doesNotContain("configuration#limits");
+        assertThat(assertRendered("/tasks/" + unchanged.getId(), "Failed"))
+                .containsPattern("<span class=\"status-card-label\">Reason</span>\\s*<span>The agent finished without"
+                        + " changing any file. Start a new attempt with clearer instructions.</span>")
+                .doesNotContain("Candidate contains no changes");
     }
 
     @Test

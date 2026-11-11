@@ -87,8 +87,9 @@ public class ModelChecks {
         return ClaudeCodeCodingRuntime.API.equals(model.api())
                 ? new Check("api", Status.PASS, "Claude Code can run this model: it uses the Anthropic Messages API.")
                 : new Check("api", Status.FAIL, "This model uses " + apiName(model.api()) + "; Claude Code needs"
-                        + " the Anthropic Messages API. Point it at an Anthropic-compatible endpoint, or switch the"
-                        + " coding agent to Pi (FACTORY_DEV_FACTORY_CODING_RUNTIME).");
+                        + " the Anthropic Messages API. Point it at an Anthropic-compatible endpoint, or run it"
+                        + " with Pi: set FACTORY_DEV_FACTORY_CODING_RUNTIME to pi, and FACTORY_PI_MODEL and the"
+                        + " other FACTORY_PI_* settings to this model.");
     }
 
     /** The API in words: "the OpenAI Chat Completions API" for openai-completions. */
