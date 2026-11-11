@@ -22,6 +22,7 @@ public record AttemptFailure(String headline, String reason) {
     private static final String MARKED_STOPPED = "You marked the attempt as stopped";
     private static final String IMPLEMENTATION = "Implementation";
     private static final String OLD_NO_CHANGES = "Candidate contains no changes";
+    private static final String LIMITS_URL = "/developer/configuration#limits";
     private static final List<String> LAYER_PREFIXES =
             List.of("shared: ", "Development stopped: ", "Implementation failed: ");
     private static final Pattern LEADING_STAGE = Pattern.compile("^([A-Za-z][A-Za-z_-]*): (.+)$", Pattern.DOTALL);
@@ -56,6 +57,16 @@ public record AttemptFailure(String headline, String reason) {
             return sentence(knownCause(cause));
         }
         return cause.isEmpty() ? label + " failed." : label + " failed: " + withFullStop(cause);
+    }
+
+    /**
+     * The Limits of the Configuration tab for a reason of {@link #reason} that says the agent ran out of time or
+     * turns, so the page can link to where they are set; null for any other reason.
+     */
+    public static String limitsUrl(String reason) {
+        var limit = reason != null
+                && (reason.startsWith(TaskStops.TIME_LIMIT_START) || reason.startsWith(TaskStops.TURN_LIMIT_START));
+        return limit ? LIMITS_URL : null;
     }
 
     /** The first sentence of the reason, for a list row that has room for one line. */

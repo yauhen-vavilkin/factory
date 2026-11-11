@@ -61,6 +61,15 @@ class AttemptFailureTest {
     }
 
     @Test
+    void aReasonThatSaysTheAgentRanOutOfTimeOrTurnsLinksToTheLimits() {
+        assertThat(AttemptFailure.limitsUrl(TaskStops.timeLimitReason(30))).isEqualTo("/developer/configuration#limits");
+        assertThat(AttemptFailure.limitsUrl(AttemptFailure.reason("DEVELOPMENT_FAILED: Claude Code reached the"
+                + " 200-turn limit before it finished the task."))).isEqualTo("/developer/configuration#limits");
+        assertThat(AttemptFailure.limitsUrl(TaskStops.OUTPUT_LIMIT_REASON)).isNull();
+        assertThat(AttemptFailure.limitsUrl(null)).isNull();
+    }
+
+    @Test
     void theReasonOfAQuestionIsTheQuestion() {
         assertThat(AttemptFailure.reason("clarify-implementation: " + TaskStops.DECISION_REASON
                 + "Remove old routes too?")).isEqualTo("Remove old routes too?");

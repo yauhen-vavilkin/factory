@@ -26,11 +26,12 @@ public record DeveloperRunView(Header header, Status status, Standing standing, 
     /**
      * Chip and headline with the lines under them, then the amount, the time and the button of the next step.
      * Every field but the chip, the headline and the clock is null when the card does not show it;
-     * {@code draftReasons} says why the pull request is a draft, as the task page says it.
+     * {@code draftReasons} says why the pull request is a draft, as the task page says it; {@code reasonUrl} opens the
+     * limits when the reason is that the agent ran out of time or turns.
      */
     public record Status(String chipLabel, String chipClass, String chipUrl, String headline, String reasonLabel,
-                         String reason, String question, String note, List<String> draftReasons, String amount,
-                         String amountNote, String amountTitle, AttemptClock clock, String actionLabel,
+                         String reason, String reasonUrl, String question, String note, List<String> draftReasons,
+                         String amount, String amountNote, String amountTitle, AttemptClock clock, String actionLabel,
                          String actionUrl) {
     }
 

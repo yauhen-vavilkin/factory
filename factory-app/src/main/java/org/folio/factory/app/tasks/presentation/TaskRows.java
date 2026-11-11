@@ -68,11 +68,12 @@ public class TaskRows {
     public TaskDetail detail(TaskView view) {
         var latest = view.attempts().isEmpty() ? null : view.attempts().getLast();
         var failure = failure(view);
+        var reason = failure.map(AttemptFailure::reason).orElse(null);
         var pullRequest = view.pullRequestUrl();
         return new TaskDetail(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(),
                 repositoryLine(view.destinationRepository()), view.version(), view.inputFingerprint(),
-                view.destinationFingerprint(), status(view), failure.map(AttemptFailure::reason).orElse(null),
-                failure.map(found -> pullRequestNote(view.reason())).orElse(null),
+                view.destinationFingerprint(), status(view), reason,
+                failure.map(found -> pullRequestNote(view.reason())).orElse(null), AttemptFailure.limitsUrl(reason),
                 view.draftReasons(), costLabel(view.usage()), spentNote(view), usageNote(view.usage()), clock(view),
                 view.allowedActions().retry(), view.attempts().size() + 1, runLink(view, pullRequest != null),
                 pullRequest, pullRequest == null ? null : "Open p" + pullRequestLabel(pullRequest).substring(1),

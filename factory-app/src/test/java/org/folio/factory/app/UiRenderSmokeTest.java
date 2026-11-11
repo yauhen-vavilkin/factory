@@ -80,6 +80,8 @@ class UiRenderSmokeTest {
 
     static final String ZAI_KEY = "smoke-zai-secret-key";
     static final String PROXY_TOKEN = "smoke-proxy-secret-token";
+    private static final String LIMITS_LINK = "<p class=\"status-card-note\"><a class=\"dev-link\"\\s+"
+            + "href=\"/developer/configuration#limits\">Configuration</a></p>";
 
     @LocalServerPort
     int port;
@@ -235,7 +237,8 @@ class UiRenderSmokeTest {
                         "mvn -B -ntp test in maven:3.9-eclipse-temurin-21", "docker compose restart factory",
                         "FACTORY_SIDECAR_DELIVERY_REPO")
                 .doesNotContain("Jira projects configured:");
-        assertThat(body).contains(">Limits for every run</h2>", ">Time per step</dt>",
+        assertThat(body).contains("<section class=\"dev-list\" id=\"limits\" aria-labelledby=\"limits-title\">",
+                        ">Limits for every run</h2>", ">Time per step</dt>",
                         "30 min each for the first build, the coding and the checks",
                         "FACTORY_DEV_FACTORY_TIMEOUT_SECONDS", ">Time per attempt</dt>", "1 h from Prepare task",
                         "FACTORY_TASKS_EXECUTION_DEADLINE", ">Agent turns</dt>", "FACTORY_CLAUDE_CODE_MAX_TURNS",
@@ -837,6 +840,8 @@ class UiRenderSmokeTest {
                 .containsPattern("<span class=\"status-card-label\">Reason</span>\\s*<span>" + Pattern.quote(expected)
                         + "</span>")
                 .containsPattern("<p class=\"status-card-note\">\\s*No pull request was created.</p>")
+                // A limit says where it is set, as a link under the reason, not inside the sentence.
+                .containsPattern(LIMITS_LINK)
                 .doesNotContain("Implementation failed", "DEVELOPMENT_FAILED");
         // The attempt chip keeps the reason and what to do in its title; the meta line has its start time for
         // time.js, and no title in UTC, since the line itself shows the local time.
@@ -854,7 +859,10 @@ class UiRenderSmokeTest {
                 .containsPattern("<span class=\"status-card-label\">Reason</span>\\s*<span>" + Pattern.quote(expected)
                         + "</span>")
                 .containsPattern("<p class=\"status-card-note\">\\s*No pull request was created.</p>")
+                .containsPattern(LIMITS_LINK)
                 .doesNotContain("Stop reason", "DEVELOPMENT_FAILED", "Implementation failed");
+        // A failure that is not a limit has no such link.
+        assertThat(assertRendered("/tasks/" + provider.getId(), "Failed")).doesNotContain("configuration#limits");
     }
 
     @Test
@@ -1933,8 +1941,9 @@ class UiRenderSmokeTest {
     private String assertRendered(String path, String marker) {
         ResponseEntity<String> response = rest.get().uri(path).retrieve().toEntity(String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        // Every page names its icon, so a browser does not ask for /favicon.ico, a 404 on the first page it opens.
         assertThat(response.getBody())
-                .contains("app-shell")
+                .contains("app-shell", "<link rel=\"icon\" type=\"image/svg+xml\" href=\"data:image/svg+xml,")
                 .contains(marker);
         return response.getBody();
     }

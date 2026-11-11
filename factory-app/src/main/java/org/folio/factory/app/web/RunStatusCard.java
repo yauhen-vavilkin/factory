@@ -89,7 +89,7 @@ final class RunStatusCard {
         var amountNote = amount == null ? null : in.live() ? "so far" : rounds ? "total" : null;
         var action = action(in);
         return new Status(chip.label(), chip.cssClass(), chip.url(), headline.text(), headline.reasonLabel(),
-                headline.reason(), headline.question(), headline.note(),
+                headline.reason(), AttemptFailure.limitsUrl(headline.reason()), headline.question(), headline.note(),
                 in.context().map(RunContext::draftReasons).orElse(null), amount, amountNote,
                 usage.partial() ? RunUsage.INCOMPLETE : null, in.clock(), action.label(), action.url());
     }

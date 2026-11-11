@@ -31,16 +31,21 @@ public final class TaskStops {
     public static final String NO_CHANGES_REASON = "The agent finished without changing any file. Start a new"
             + " attempt with clearer instructions.";
 
+    /** The start of {@link #timeLimitReason}, by which a page knows the cause is a limit it can link to. */
+    public static final String TIME_LIMIT_START = "The agent did not finish in ";
+    /** The start of {@link #turnLimitReason}. */
+    public static final String TURN_LIMIT_START = "The agent reached its limit of ";
+
     /** Why a coding attempt stopped when the agent did not finish in time. */
     public static String timeLimitReason(long minutes) {
-        return "The agent did not finish in " + minutes + (minutes == 1 ? " minute" : " minutes")
+        return TIME_LIMIT_START + minutes + (minutes == 1 ? " minute" : " minutes")
                 + ", so Factory stopped it. Start a new attempt with a lower effort or narrower instructions,"
                 + " or raise the time limit (see Configuration).";
     }
 
     /** Why a coding attempt stopped when the agent used all of its turns. */
     public static String turnLimitReason(long turns) {
-        return "The agent reached its limit of " + turns + (turns == 1 ? " turn" : " turns") + " before it finished."
+        return TURN_LIMIT_START + turns + (turns == 1 ? " turn" : " turns") + " before it finished."
                 + " Start a new attempt with narrower instructions.";
     }
 
