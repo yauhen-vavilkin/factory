@@ -252,16 +252,20 @@ The question flow, the in-progress strip and Factory's comment on the pull reque
   address, so My tasks and the task page do not run it; only the Configuration tab probes, and it
   keeps the model under Ready to run with the warning, because the run forms still offer it. A
   cached probe result could reach the forms later.
-- **The run list and the task page can word one run differently.** `/executions` words a
-  Developer Flow run by its product status (`RunStatusCard.chip`); the task page and the run page
-  word it by its task attempt, so an attempt that is Withdrawn or Needs inspection, for example,
-  reads otherwise in the list.
 - **The README still says to trigger the Developer Flow from its page.** "Wait for Factory to
   become healthy" ends with "choose **Trigger flow**" on `/flows/dev-factory`, which refuses
   manual triggers; runs start from My tasks.
 - **Not in this work** (fix list of 2026-11-11), each still as the owner found it:
-  - Dashboard counters and charts.
   - Audit page.
   - Artifacts pages.
   - Prompts pages.
   - Pull request text and commit titles.
+
+## Left after the second console audit (2026-11-11)
+
+- **The run list lags the task page for up to 30 s after a pull request opens.** `/executions` and the Dashboard read the attempt (`RunState`), which the dispatcher closes a little later; the task page already shows the pull request.
+- **Runs without a task attempt are classified by a LIKE on artifact JSON.** `RunState.SQL` matches `"state":"DELIVERED"` and `"status":"NEEDS_DECISION"` in compact JSON; a stored state would make it exact.
+- **Activity rows stored before the first-line fix keep their joined heredoc target.** Only new runs store the first line of a shell command.
+- **`DeveloperExecutionView.ListFacts.productStatus` is read only by tests.** The run list now takes its state from `RunState`.
+- **The whole-attempt deadline reason is still internal wording.** "the whole-attempt deadline expired before …; queue and human-review waiting are excluded from the budget" (`TaskGuard`) has no plain-words mapping and no Configuration link.
+- **The run form's model refusal still names the config API word.** `ModelCatalog.problem` says "uses api openai-completions"; only the Configuration tab says the API in words.
