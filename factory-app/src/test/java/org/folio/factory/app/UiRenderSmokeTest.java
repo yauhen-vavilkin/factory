@@ -160,6 +160,12 @@ class UiRenderSmokeTest {
                         "<span class=\"kpi-label\">Waiting for review</span>", "<span class=\"kpi-label\">Failed</span>",
                         "<span class=\"kpi-label\">Cancelled or rejected</span>", "Runs started per day, by state")
                 .doesNotContain("Ran to the end", "Failed / escalated", "Awaiting review", "HITL reviews");
+        // Runs, reviews and time ranges in plain words, as on the other pages.
+        assertThat(body).contains("<span class=\"kpi-label\">Total runs</span>", "<h2 class=\"card-title\">Reviews</h2>",
+                        "<dt>Waiting now</dt>", "<dt>Longest wait now</dt>", "<dt>Decided in this period</dt>",
+                        "<dt>Average time to a decision</dt>", ">24 hours</a>", "aria-current=\"page\">14 days</a>")
+                .doesNotContain("Total executions", "HITL review latency", "Human-in-the-loop", "Avg decision time",
+                        "Decided in window", ">24h<", ">14d<");
         Matcher chart = Pattern.compile("src=\"(/webjars/chart\\.js/[^\"]+/chart\\.umd-[0-9a-f]{32}\\.js)\"")
                 .matcher(body);
         assertThat(chart.find()).as("hashed chart.js link").isTrue();
@@ -336,10 +342,12 @@ class UiRenderSmokeTest {
 
         String body = assertRendered("/", "LLM tokens");
         assertThat(body)
-                .contains("Token spend by step")
-                // Grouped thousands, and the per-step row reached the table body.
+                .contains("Token spend by step", "<th>Tokens in</th>", "<th>Tokens out</th>")
+                // Grouped thousands, and the per-step row reached the table body: the flow by its name, the step
+                // in the words of the Definition tab.
                 .contains("2,139")
-                .contains("test-automation");
+                .contains("<td class=\"nowrap\">Test Factory</td>", "<td>Test automation</td>")
+                .doesNotContain(">test-automation<", ">test-factory<", "<th>Prompt</th>", "<th>Completion</th>");
     }
 
     @Test

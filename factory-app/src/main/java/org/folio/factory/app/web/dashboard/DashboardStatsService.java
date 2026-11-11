@@ -2,6 +2,7 @@ package org.folio.factory.app.web.dashboard;
 
 import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.tasks.persistence.RunState;
+import org.folio.factory.app.web.UiFormat;
 import org.folio.factory.app.web.dashboard.DashboardStats.ConnectorOutcome;
 import org.folio.factory.app.web.dashboard.DashboardStats.DailyCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.FlowStatusCount;
@@ -10,6 +11,7 @@ import org.folio.factory.app.web.dashboard.DashboardStats.StatusCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepFailureCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.TokenUsage;
+import org.folio.factory.core.registry.FlowRegistry;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 
@@ -33,6 +35,7 @@ import java.util.Map;
 public class DashboardStatsService {
 
     private final JdbcClient jdbc;
+    private final FlowRegistry flows;
 
     public DashboardStats compute(int days) {
         OffsetDateTime since = since(days);
@@ -117,7 +120,8 @@ public class DashboardStatsService {
     private List<FlowStatusCount> executionsByFlowAndStatus() {
         return jdbc.sql("SELECT e.flow_id, " + RunState.SQL + " AS state, count(*) AS c FROM " + RunState.FROM
                         + " GROUP BY 1, 2 ORDER BY 1")
-                .query((rs, n) -> new FlowStatusCount(rs.getString("flow_id"), rs.getString("state"), rs.getLong("c")))
+                .query((rs, n) -> new FlowStatusCount(rs.getString("flow_id"),
+                        UiFormat.flowName(flows, rs.getString("flow_id")), rs.getString("state"), rs.getLong("c")))
                 .list();
     }
 
@@ -147,8 +151,14 @@ public class DashboardStatsService {
                         """)
                 .param("since", since)
                 .query((rs, n) -> new StepFailureCount(rs.getString("flow_id"), rs.getString("step_id"),
+                        stepLabel(rs.getString("flow_id"), rs.getString("step_id")),
                         rs.getLong("failures"), rs.getLong("retries")))
                 .list();
+    }
+
+    /** "Test Factory · Triage": the flow by its name and the step in the words of the Definition tab. */
+    private String stepLabel(String flowId, String stepId) {
+        return UiFormat.flowName(flows, flowId) + " · " + UiFormat.inWords(stepId);
     }
 
     private List<ConnectorOutcome> connectorOutcomes(OffsetDateTime since) {

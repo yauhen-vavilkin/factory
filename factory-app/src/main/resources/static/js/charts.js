@@ -57,12 +57,10 @@
     'WAITING_FOR_REVIEW', 'IN_PROGRESS'];
   var FLOW_PALETTE = ['chart1', 'chart2', 'chart3', 'chart4', 'chart5'];
 
+  // The words of every other time span in the console: formatDuration (poll.js) says them as UiFormat.duration does.
   function fmtSeconds(s) {
     if (s === null || s === undefined) return '—';
-    s = Math.round(s);
-    if (s < 60) return s + 's';
-    if (s < 3600) return Math.floor(s / 60) + 'm ' + (s % 60) + 's';
-    return Math.floor(s / 3600) + 'h ' + Math.floor((s % 3600) / 60) + 'm';
+    return window.formatDuration(Math.round(s));
   }
 
   // ---------- transforms (from the DashboardStats payload shape) ----------
@@ -119,8 +117,10 @@
 
   function throughputByFlow(data) {
     var totals = {};
+    var names = {};
     data.executionsByFlowAndStatus.forEach(function (r) {
       totals[r.flowId] = (totals[r.flowId] || 0) + r.count;
+      names[r.flowId] = r.flowName;
     });
     var flows = Object.keys(totals).sort();
     var labels = [];
@@ -129,7 +129,7 @@
     var other = 0;
     flows.forEach(function (flow, i) {
       if (i < FLOW_PALETTE.length) {
-        labels.push(flow);
+        labels.push(names[flow]);
         values.push(totals[flow]);
         colors.push(T[FLOW_PALETTE[i]]);
       } else {
@@ -147,7 +147,7 @@
   function stepFailures(data) {
     var rows = data.stepFailures;
     return {
-      labels: rows.map(function (r) { return r.flowId + ' · ' + r.stepId; }),
+      labels: rows.map(function (r) { return r.label; }),
       failures: rows.map(function (r) { return r.failures; }),
       retries: rows.map(function (r) { return r.retriesScheduled; })
     };

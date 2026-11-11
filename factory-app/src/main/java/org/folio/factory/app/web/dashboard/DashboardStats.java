@@ -13,13 +13,15 @@ public record DashboardStats(Instant generatedAt, int days,
     public record StatusCount(String state, String label, long count) {
     }
 
-    public record FlowStatusCount(String flowId, String state, long count) {
+    /** Runs of one flow in one state; {@code flowName} is the name the Executions list shows for the flow. */
+    public record FlowStatusCount(String flowId, String flowName, String state, long count) {
     }
 
     public record DailyCount(LocalDate day, String state, String label, long count) {
     }
 
-    public record StepFailureCount(String flowId, String stepId, long failures, long retriesScheduled) {
+    /** Failures and retries of one step; {@code label} names the flow and the step in words for the chart. */
+    public record StepFailureCount(String flowId, String stepId, String label, long failures, long retriesScheduled) {
     }
 
     public record HitlStats(long pending, Double oldestPendingAgeSeconds, long decidedInWindow,

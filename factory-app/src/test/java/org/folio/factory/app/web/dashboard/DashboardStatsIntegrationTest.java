@@ -86,10 +86,16 @@ class DashboardStatsIntegrationTest {
                 .anySatisfy(s -> assertThat(s).isEqualTo(new DashboardStats.StatusCount("COMPLETED", "Completed", 1)))
                 .anySatisfy(s -> assertThat(s.state()).isEqualTo(RunState.IN_PROGRESS.name()));
 
+        // A registered flow carries its name for the chart; a flow no longer registered keeps its id.
         assertThat(stats.executionsByFlowAndStatus())
                 .anySatisfy(s -> {
                     assertThat(s.flowId()).isEqualTo(FLOW_B);
+                    assertThat(s.flowName()).isEqualTo(FLOW_B);
                     assertThat(s.state()).isEqualTo(RunState.IN_PROGRESS.name());
+                })
+                .anySatisfy(s -> {
+                    assertThat(s.flowId()).isEqualTo(FLOW_A);
+                    assertThat(s.flowName()).isEqualTo("Test Factory");
                 });
 
         assertThat(stats.executionsPerDay())
@@ -105,6 +111,7 @@ class DashboardStatsIntegrationTest {
         assertThat(stats.stepFailures())
                 .anySatisfy(f -> {
                     assertThat(f.stepId()).isEqualTo("triage");
+                    assertThat(f.label()).isEqualTo("Test Factory · Triage");
                     assertThat(f.failures()).isEqualTo(1);
                     assertThat(f.retriesScheduled()).isEqualTo(1);
                 });

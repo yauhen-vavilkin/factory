@@ -4,6 +4,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.AccessLevel;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.registry.FlowRegistry;
+import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.StepDescriptor;
 import org.folio.factory.devfactory.DevFactoryConfiguration;
 import tools.jackson.databind.JsonNode;
@@ -14,9 +16,11 @@ import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -29,6 +33,7 @@ public final class UiFormat {
     /** Longest message carried in a redirect; a remote error body could otherwise overflow the headers. */
     static final int MAX_REDIRECT_MESSAGE = 300;
     private static final BigDecimal CENT = new BigDecimal("0.01");
+    private static final Set<String> ACRONYMS = Set.of("pr", "qa", "api", "hitl");
 
     static String abbreviate(String value) {
         return value.length() <= 13 ? value : value.substring(0, 10) + "...";
@@ -73,7 +78,10 @@ public final class UiFormat {
         return NumberFormat.getIntegerInstance(Locale.US).format(value);
     }
 
-    /** "9 s", "5 min", "1 h 20 min": the words the run page uses, and poll.js ticks in, for a time span. */
+    /**
+     * "9 s", "5 min", "1 h 20 min", "5 d 5 h": the words the run page uses, and poll.js ticks in, for a time span.
+     * From one day up the minutes are left out.
+     */
     public static String duration(long seconds) {
         long safe = Math.max(0, seconds);
         if (safe < 60) {
@@ -83,8 +91,12 @@ public final class UiFormat {
         if (minutes < 60) {
             return minutes + " min";
         }
+        long hours = minutes / 60;
+        if (hours >= 24) {
+            return hours / 24 + " d" + (hours % 24 == 0 ? "" : " " + hours % 24 + " h");
+        }
         long remainingMinutes = minutes % 60;
-        return minutes / 60 + " h" + (remainingMinutes == 0 ? "" : " " + remainingMinutes + " min");
+        return hours + " h" + (remainingMinutes == 0 ? "" : " " + remainingMinutes + " min");
     }
 
     /** Milliseconds under one second, the compact duration from one second up. */
@@ -105,6 +117,19 @@ public final class UiFormat {
     static String flowDefinitionUrl(String flowId) {
         return DevFactoryConfiguration.FLOW_ID.equals(flowId) ? "/flows/" + flowId + "?view=definition"
                 : "/flows/" + flowId;
+    }
+
+    /** The name a page shows for a flow: its registered name, or the id of a flow that is no longer registered. */
+    public static String flowName(FlowRegistry flows, String flowId) {
+        return flows.find(flowId).map(FlowDescriptor::name).orElse(flowId);
+    }
+
+    /** A step or gate id in words, as the Definition tab names a step: "read-task" → "Read task". */
+    public static String inWords(String id) {
+        var words = Arrays.stream(id.split("[-_]+"))
+                .map(word -> ACRONYMS.contains(word) ? word.toUpperCase(Locale.ROOT) : word).toList();
+        var text = String.join(" ", words);
+        return text.isEmpty() ? id : Character.toUpperCase(text.charAt(0)) + text.substring(1);
     }
 
     static String stepLabel(StepDescriptor step) {

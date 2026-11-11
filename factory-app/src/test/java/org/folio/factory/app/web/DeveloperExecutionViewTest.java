@@ -540,6 +540,10 @@ class DeveloperExecutionViewTest {
         assertThat(UiFormat.duration(1_209)).isEqualTo("20 min");
         assertThat(UiFormat.duration(7_205)).isEqualTo("2 h");
         assertThat(UiFormat.duration(4_830)).isEqualTo("1 h 20 min");
+        assertThat(UiFormat.duration(86_399)).isEqualTo("23 h 59 min");
+        // From one day up: days and hours, as the Dashboard says how long a review has waited.
+        assertThat(UiFormat.duration(86_400)).isEqualTo("1 d");
+        assertThat(UiFormat.duration(451_500)).isEqualTo("5 d 5 h");
         assertThat(UiFormat.milliseconds(9)).isEqualTo("9 ms");
     }
 

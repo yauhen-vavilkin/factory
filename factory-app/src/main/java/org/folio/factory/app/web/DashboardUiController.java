@@ -78,15 +78,14 @@ public class DashboardUiController {
         model.addAttribute("tokenTotal", UiFormat.count(tokens.totalTokens()));
         model.addAttribute("tokenBreakdown",
                 UiFormat.count(tokens.promptTokens()) + " in · " + UiFormat.count(tokens.completionTokens()) + " out");
-        model.addAttribute("stepTokens", dashboardStats.stepTokens(window).stream()
-                .map(DashboardUiController::stepTokenRow).toList());
+        model.addAttribute("stepTokens", dashboardStats.stepTokens(window).stream().map(this::stepTokenRow).toList());
         return "dashboard";
     }
 
     /** All-time run counts: the total and one count per state the Executions list filters by. */
     private void addExecutionCounts(Model model) {
         var byState = dashboardStats.countByState();
-        model.addAttribute("totalExecutions", byState.values().stream().mapToLong(Long::longValue).sum());
+        model.addAttribute("totalRuns", byState.values().stream().mapToLong(Long::longValue).sum());
         model.addAttribute("completedCount", byState.getOrDefault(RunState.COMPLETED, 0L));
         model.addAttribute("pullRequestCount", byState.getOrDefault(RunState.PULL_REQUEST, 0L));
         model.addAttribute("awaitingHitlCount", byState.getOrDefault(RunState.WAITING_FOR_REVIEW, 0L));
@@ -94,14 +93,10 @@ public class DashboardUiController {
         model.addAttribute("cancelledOrRejectedCount", byState.getOrDefault(RunState.CANCELLED_OR_REJECTED, 0L));
     }
 
-    private static Map<String, Object> stepTokenRow(StepTokenCount step) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("flowId", step.flowId());
-        row.put("stepId", step.stepId());
-        row.put("prompt", UiFormat.count(step.promptTokens()));
-        row.put("completion", UiFormat.count(step.completionTokens()));
-        row.put("total", UiFormat.count(step.totalTokens()));
-        return row;
+    private StepTokenRow stepTokenRow(StepTokenCount step) {
+        return new StepTokenRow(UiFormat.flowName(flowRegistry, step.flowId()), UiFormat.inWords(step.stepId()),
+                UiFormat.count(step.promptTokens()), UiFormat.count(step.completionTokens()),
+                UiFormat.count(step.totalTokens()));
     }
 
     @GetMapping("/status")
@@ -193,6 +188,10 @@ public class DashboardUiController {
                 .map(entry -> PageTime.day(entry.getRegisteredAt()))
                 .orElse(null);
         return new FlowRow(flow.id(), flow.name(), flow.version(), registeredAt, UiFormat.flowDefinitionUrl(flow.id()));
+    }
+
+    /** The tokens of one step: the flow by its name, the step in the words of the Definition tab, grouped counts. */
+    public record StepTokenRow(String flow, String step, String tokensIn, String tokensOut, String total) {
     }
 
     /** A connector card; {@code configurationUrl} links the page that shows its other use, or is null. */

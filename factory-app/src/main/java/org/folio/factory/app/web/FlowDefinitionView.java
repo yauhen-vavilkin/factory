@@ -9,10 +9,8 @@ import org.folio.factory.core.registry.model.TriggerContract;
 import tools.jackson.databind.JsonNode;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -24,7 +22,6 @@ import java.util.stream.IntStream;
  */
 public record FlowDefinitionView(List<Step> steps, List<Trigger> triggers, String retries) {
 
-    private static final Set<String> ACRONYMS = Set.of("pr", "qa", "api", "hitl");
     /** Step config keys the engine reads, in words; any other key shows as "key: value". */
     private static final Map<String, String> CONFIG_WORDS = Map.of(
             "resumable: true", "can pause and go on where it stopped");
@@ -66,7 +63,7 @@ public record FlowDefinitionView(List<Step> steps, List<Trigger> triggers, Strin
 
     private static Step step(int number, StepDescriptor step) {
         return switch (step.type()) {
-            case AGENT -> new Step(number, words(step.stepId()), agentKind(step), null, null,
+            case AGENT -> new Step(number, UiFormat.inWords(step.stepId()), agentKind(step), null, null,
                     names(step.inputs()) + " → " + names(step.outputs()), null);
             case HITL_GATE -> gateStep(number, step.gate());
             case SUB_FLOW -> subFlowStep(number, step.stepId(), step.subFlow());
@@ -88,7 +85,7 @@ public record FlowDefinitionView(List<Step> steps, List<Trigger> triggers, Strin
 
     private static Step subFlowStep(int number, String stepId, SubFlowSpec subFlow) {
         var data = "Passes " + mapping(subFlow.inputMapping()) + "; gets back " + mapping(subFlow.outputMapping());
-        return new Step(number, words(stepId), "Sub-flow, runs", subFlow.flowId(),
+        return new Step(number, UiFormat.inWords(stepId), "Sub-flow, runs", subFlow.flowId(),
                 UiFormat.flowDefinitionUrl(subFlow.flowId()), data, null);
     }
 
@@ -109,8 +106,8 @@ public record FlowDefinitionView(List<Step> steps, List<Trigger> triggers, Strin
         return new Trigger(event(trigger.eventType()), parts.isEmpty() ? "Any payload" : String.join("; ", parts));
     }
 
-    /** "manual" → "Manual start", "jira.issue.transitioned" → "Jira: issue transitioned". */
-    private static String event(String type) {
+    /** "manual" → "Manual start", "jira.issue.transitioned" → "Jira: issue transitioned"; also the Flows list. */
+    static String event(String type) {
         if ("manual".equals(type)) {
             return "Manual start";
         }
@@ -161,13 +158,5 @@ public record FlowDefinitionView(List<Step> steps, List<Trigger> triggers, Strin
             return items.getFirst();
         }
         return String.join(", ", items.subList(0, items.size() - 1)) + last + items.getLast();
-    }
-
-    /** "read-task" → "Read task", "pr-follow-up" → "PR follow up". */
-    private static String words(String stepId) {
-        var words = Arrays.stream(stepId.split("[-_]+"))
-                .map(word -> ACRONYMS.contains(word) ? word.toUpperCase() : word).toList();
-        var text = String.join(" ", words);
-        return text.isEmpty() ? stepId : Character.toUpperCase(text.charAt(0)) + text.substring(1);
     }
 }

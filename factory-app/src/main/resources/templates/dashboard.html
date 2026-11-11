@@ -10,14 +10,14 @@
 
     <nav class="tabs" aria-label="Time range">
         <a th:each="d : ${ {1, 7, 14, 30, 90} }" th:href="@{/(days=${d})}"
-           th:text="${d == 1 ? '24h' : d + 'd'}"
+           th:text="${d == 1 ? '24 hours' : d + ' days'}"
            th:attrappend="aria-current=${d == days} ? 'page'">14d</a>
     </nav>
 
     <div class="kpi-grid">
         <div class="kpi">
-            <span class="kpi-value" th:text="${totalExecutions}">0</span>
-            <span class="kpi-label">Total executions</span>
+            <span class="kpi-value" th:text="${totalRuns}">0</span>
+            <span class="kpi-label">Total runs</span>
         </div>
         <div class="kpi">
             <span class="kpi-value" th:text="${completedCount}">0</span>
@@ -94,15 +94,16 @@
 
         <div class="chart-card card">
             <div class="card-header">
-                <h2 class="card-title">HITL review latency</h2>
-                <p class="card-description">Human-in-the-loop gate load and decision timing.</p>
+                <h2 class="card-title">Reviews</h2>
+                <p class="card-description">How many reviews wait for a person now and for how long, and how fast
+                    the reviews of this period were decided.</p>
             </div>
             <div class="card-content">
                 <dl class="def-list">
-                    <dt>Pending</dt><dd id="hitl-pending">—</dd>
-                    <dt>Avg decision time</dt><dd id="hitl-avg">—</dd>
-                    <dt>Oldest pending</dt><dd id="hitl-oldest">—</dd>
-                    <dt>Decided in window</dt><dd id="hitl-decided">—</dd>
+                    <dt>Waiting now</dt><dd id="hitl-pending">—</dd>
+                    <dt>Longest wait now</dt><dd id="hitl-oldest">—</dd>
+                    <dt>Decided in this period</dt><dd id="hitl-decided">—</dd>
+                    <dt>Average time to a decision</dt><dd id="hitl-avg">—</dd>
                 </dl>
             </div>
         </div>
@@ -139,15 +140,15 @@
                 <div class="table-wrap" th:unless="${#lists.isEmpty(stepTokens)}">
                     <table>
                         <thead>
-                        <tr><th>Flow</th><th>Step</th><th>Prompt</th><th>Completion</th><th>Total</th></tr>
+                        <tr><th>Flow</th><th>Step</th><th>Tokens in</th><th>Tokens out</th><th>Total</th></tr>
                         </thead>
                         <tbody>
                         <tr th:each="t : ${stepTokens}">
-                            <td th:text="${t['flowId']}"></td>
-                            <td th:text="${t['stepId']}"></td>
-                            <td class="muted" th:text="${t['prompt']}"></td>
-                            <td class="muted" th:text="${t['completion']}"></td>
-                            <td th:text="${t['total']}"></td>
+                            <td class="nowrap" th:text="${t.flow()}"></td>
+                            <td th:text="${t.step()}"></td>
+                            <td class="muted" th:text="${t.tokensIn()}"></td>
+                            <td class="muted" th:text="${t.tokensOut()}"></td>
+                            <td th:text="${t.total()}"></td>
                         </tr>
                         </tbody>
                     </table>

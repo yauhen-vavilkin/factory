@@ -34,6 +34,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -108,7 +109,7 @@ class DashboardUiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(view().name("dashboard"))
                 .andExpect(model().attribute("days", 14))
-                .andExpect(model().attribute("totalExecutions", 25L))
+                .andExpect(model().attribute("totalRuns", 25L))
                 .andExpect(model().attribute("completedCount", 10L))
                 .andExpect(model().attribute("pullRequestCount", 2L))
                 .andExpect(model().attribute("awaitingHitlCount", 3L))
@@ -125,18 +126,17 @@ class DashboardUiControllerTest {
     @Test
     void dashboard_tokenRowsCarryGroupedCountsHeaviestFirst() throws Exception {
         stubKpiCounts();
+        when(flowRegistry.find("test-factory")).thenReturn(Optional.of(
+                new FlowDescriptor("test-factory", "Test Factory", "1.0.0", null, null, null, null, null)));
 
         MvcResult result = mvc.perform(get("/")).andExpect(status().isOk()).andReturn();
 
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> rows =
-                (List<Map<String, Object>>) result.getModelAndView().getModel().get("stepTokens");
-        assertThat(rows).hasSize(2);
-        assertThat(rows.get(0)).containsEntry("stepId", "test-automation")
-                .containsEntry("prompt", "1,000")
-                .containsEntry("completion", "400")
-                .containsEntry("total", "1,400");
-        assertThat(rows.get(1)).containsEntry("stepId", "triage").containsEntry("total", "401");
+        var rows = (List<DashboardUiController.StepTokenRow>) result.getModelAndView().getModel().get("stepTokens");
+        // The flow by its registered name, the step in the words of the Definition tab.
+        assertThat(rows).containsExactly(
+                new DashboardUiController.StepTokenRow("Test Factory", "Test automation", "1,000", "400", "1,400"),
+                new DashboardUiController.StepTokenRow("Test Factory", "Triage", "234", "167", "401"));
     }
 
     @Test

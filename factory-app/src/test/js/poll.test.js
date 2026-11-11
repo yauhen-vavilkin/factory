@@ -307,7 +307,7 @@ test('Effort offers the chosen model levels and a model change keeps only a leve
   assert.deepEqual(checked(pickedMedium), ['max']);
 });
 
-test('a ticking time uses the same words as the server: s, min, then h and min', () => {
+test('a ticking time uses the same words as the server: s, min, h and min, then d and h', () => {
   const window = {};
   vm.runInNewContext(POLL_JS, { window, document: { addEventListener: () => {} } });
   assert.equal(window.formatDuration(9), '9 s');
@@ -316,6 +316,9 @@ test('a ticking time uses the same words as the server: s, min, then h and min',
   assert.equal(window.formatDuration(1209), '20 min');
   assert.equal(window.formatDuration(7205), '2 h');
   assert.equal(window.formatDuration(4830), '1 h 20 min');
+  assert.equal(window.formatDuration(86399), '23 h 59 min');
+  assert.equal(window.formatDuration(86400), '1 d');
+  assert.equal(window.formatDuration(451500), '5 d 5 h');
   assert.equal(window.formatDuration(-3), '0 s');
 });
 

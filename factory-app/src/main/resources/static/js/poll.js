@@ -32,8 +32,10 @@
     if (safe < 60) return safe + ' s';
     var minutes = Math.floor(safe / 60);
     if (minutes < 60) return minutes + ' min';
+    var hours = Math.floor(minutes / 60);
+    if (hours >= 24) return Math.floor(hours / 24) + ' d' + (hours % 24 ? ' ' + (hours % 24) + ' h' : '');
     var remainingMinutes = minutes % 60;
-    return Math.floor(minutes / 60) + ' h' + (remainingMinutes ? ' ' + remainingMinutes + ' min' : '');
+    return hours + ' h' + (remainingMinutes ? ' ' + remainingMinutes + ' min' : '');
   }
   window.formatDuration = formatDuration;
 
