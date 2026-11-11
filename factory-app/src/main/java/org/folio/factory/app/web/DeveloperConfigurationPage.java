@@ -97,8 +97,8 @@ public class DeveloperConfigurationPage {
         runnable.stream().filter(DeveloperConfigurationPage::unreachable).forEach(row -> byOrigin
                 .computeIfAbsent(row.endpointOrigin(), origin -> new ArrayList<>()).add(readyModel(row)));
         return byOrigin.entrySet().stream()
-                .map(entry -> new UnreachableEndpoint(entry.getKey(),
-                        unreachableWarning(entry.getKey(), entry.getValue().size()), List.copyOf(entry.getValue())))
+                .map(entry -> new UnreachableEndpoint(unreachableWarning(entry.getKey(), entry.getValue().size()),
+                        List.copyOf(entry.getValue())))
                 .toList();
     }
 

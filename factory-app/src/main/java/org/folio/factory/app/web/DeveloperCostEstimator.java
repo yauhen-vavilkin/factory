@@ -11,6 +11,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.Collection;
+import java.util.stream.Stream;
 
 @Component
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
@@ -21,41 +22,58 @@ final class DeveloperCostEstimator {
     Estimate estimate(Collection<Usage> usages) {
         BigDecimal total = BigDecimal.ZERO;
         ModelPrice selected = null;
-        boolean observed = false;
         for (Usage usage : usages) {
-            if (!usage.present() || usage.model() == null) return null;
-            // Pi can normalize absent provider usage to four zeros. Do not show that as a free run.
-            if (usage.input() == 0
-                    && usage.cacheRead() == 0
-                    && usage.cacheWrite() == 0
-                    && usage.output() == 0) return null;
-            var rate = models.pricedEntry(usage.modelId(), usage.model()).map(Model::price).orElse(null);
-            if (rate == null
-                    || selected != null
-                            && (!selected.currency().equals(rate.currency())
-                                    || !selected.asOf().equals(rate.asOf())
-                                    || !selected.source().equals(rate.source()))) return null;
+            var rate = rate(usage, selected);
+            var amount = rate == null ? null : charge(usage, rate);
+            if (amount == null) {
+                return null;
+            }
             selected = rate;
-            BigDecimal amount = charge(usage.input(), rate.inputPerMillion());
-            if (amount == null) return null;
             total = total.add(amount);
-            amount = charge(usage.cacheRead(), rate.cacheReadPerMillion());
-            if (amount == null) return null;
-            total = total.add(amount);
-            amount = charge(usage.cacheWrite(), rate.cacheWritePerMillion());
-            if (amount == null) return null;
-            total = total.add(amount);
-            amount = charge(usage.output(), rate.outputPerMillion());
-            if (amount == null) return null;
-            total = total.add(amount);
-            observed = true;
         }
-        if (!observed || selected == null) return null;
+        if (selected == null) {
+            return null;
+        }
         return new Estimate(
                 total.setScale(6, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString(),
                 selected.currency(),
                 selected.asOf(),
                 selected.source().toString());
+    }
+
+    /**
+     * The price of one usage; null when its figures are missing or all zero, when its model has no price, or when
+     * the price comes from another source than the one {@code selected} by the usages before it.
+     */
+    private ModelPrice rate(Usage usage, ModelPrice selected) {
+        if (!usage.present() || usage.model() == null || zeroUsage(usage)) {
+            return null;
+        }
+        var rate = models.pricedEntry(usage.modelId(), usage.model()).map(Model::price).orElse(null);
+        return rate == null || selected != null && !sameSource(selected, rate) ? null : rate;
+    }
+
+    /** Pi can normalize absent provider usage to four zeros. Do not show that as a free run. */
+    private static boolean zeroUsage(Usage usage) {
+        return usage.input() == 0
+                && usage.cacheRead() == 0
+                && usage.cacheWrite() == 0
+                && usage.output() == 0;
+    }
+
+    private static boolean sameSource(ModelPrice selected, ModelPrice rate) {
+        return selected.currency().equals(rate.currency())
+                && selected.asOf().equals(rate.asOf())
+                && selected.source().equals(rate.source());
+    }
+
+    /** The four categories of one usage summed; null when any one of them has no price. */
+    private static BigDecimal charge(Usage usage, ModelPrice rate) {
+        var amounts = Stream.of(charge(usage.input(), rate.inputPerMillion()),
+                charge(usage.cacheRead(), rate.cacheReadPerMillion()),
+                charge(usage.cacheWrite(), rate.cacheWritePerMillion()),
+                charge(usage.output(), rate.outputPerMillion())).toList();
+        return amounts.contains(null) ? null : amounts.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private static BigDecimal charge(Long tokens, BigDecimal perMillion) {

@@ -14,28 +14,30 @@ class AttemptUsageSummaryTest {
         d.put("rate",Map.of("currency",currency,"inputPerMillion",2,"outputPerMillion",10));
         return new AuditEvent(UUID.randomUUID(),end?AuditEventType.STEP_COMPLETED:AuditEventType.RUNTIME_PROGRESS,"pr-follow-up","test",JSON.writeValueAsString(d));
     }
-    static Map<String,Object> summary(List<AuditEvent> events,Integer round,boolean live) {
-        return new AttemptUsageSummary.Projection(events).summary(round,live);
+    static AttemptUsageSummary.Totals totals(List<AuditEvent> events,Integer round,boolean live) {
+        return new AttemptUsageSummary.Projection(events).totals(round,live);
     }
     @Test void finalReplacesStreamsAndSeparateAttemptsAndModelsAreSummed() {
         var events=List.of(event("1","coding_starting",false,"a","USD",0,0),event("1","coding_usage",false,"a","USD",50,20),
                 event("1","",true,"a","USD",100,30),event("1","coding_usage",false,"a","USD",150,50),
                 event("2","",true,"b","USD",200,40));
-        var result=summary(events,null,false);
-        assertThat(result).containsEntry("attempts",2).containsEntry("tokensDisplay","370").containsEntry("cost","<$0.01")
-                .containsEntry("partial",false).containsEntry("models","a, b");
+        var result=totals(events,null,false);
+        assertThat(result.attempts()).isEqualTo(2); assertThat(result.tokens()).isEqualTo(370);
+        assertThat(result.costLabel()).isEqualTo("<$0.01"); assertThat(result.partial()).isFalse();
+        assertThat(result.models()).containsExactly("a","b");
     }
     @Test void interruptedUsageIsIncludedAndCurrenciesStaySeparate() {
-        var result=summary(List.of(event("1","",true,"a","USD",100,0),event("2","",true,"b","EUR",100,0),
+        var result=totals(List.of(event("1","",true,"a","USD",100,0),event("2","",true,"b","EUR",100,0),
                 event("3","coding_usage",false,"c","USD",200,20)),null,false);
-        assertThat(result).containsEntry("cost","<0.01 EUR + <$0.01").containsEntry("partial",true)
-                .containsEntry("tokensDisplay","420");
-        assertThat(summary(List.of(event("4","coding_starting",false,"d","",0,0)),null,false))
-                .containsEntry("cost","—").containsEntry("partial",true).containsEntry("tokensDisplay","—");
-        assertThat(summary(List.of(event("5","",true,"a","USD",0,0)),null,false)).containsEntry("cost","$0.00");
+        assertThat(result.costLabel()).isEqualTo("<0.01 EUR + <$0.01"); assertThat(result.partial()).isTrue();
+        assertThat(result.tokens()).isEqualTo(420);
+        var unreported=totals(List.of(event("4","coding_starting",false,"d","",0,0)),null,false);
+        assertThat(unreported.costLabel()).isEqualTo("—"); assertThat(unreported.partial()).isTrue();
+        assertThat(unreported.present()).isTrue(); assertThat(unreported.tokensReported()).isFalse();
+        assertThat(totals(List.of(event("5","",true,"a","USD",0,0)),null,false).costLabel()).isEqualTo("$0.00");
         // While the attempt works and has reported nothing yet, it has cost nothing so far.
-        assertThat(summary(List.of(event("6","coding_starting",false,"d","USD",0,0)),null,true))
-                .containsEntry("cost","$0.00");
+        assertThat(totals(List.of(event("6","coding_starting",false,"d","USD",0,0)),null,true).costLabel())
+                .isEqualTo("$0.00");
     }
     @Test void waitingAfterAbandonedAttemptIsNotCountedAsActiveWork() {
         Instant start=Instant.parse("2026-09-23T12:00:00Z");
@@ -47,10 +49,9 @@ class AttemptUsageSummaryTest {
     @Test void runningAttemptShowsEstimateFromStreamAndCapturedRate() {
         var events=List.of(event("live","coding_starting",false,"a","USD",0,0),
                 event("live","coding_usage",false,"a","USD",100,20));
-        assertThat(summary(events,null,false)).containsEntry("cost","<$0.01");
-        assertThat(summary(events,null,true))
-                .containsEntry("cost","<$0.01")
-                .containsEntry("tokensDisplay","120");
+        assertThat(totals(events,null,false).costLabel()).isEqualTo("<$0.01");
+        assertThat(totals(events,null,true).costLabel()).isEqualTo("<$0.01");
+        assertThat(totals(events,null,true).tokens()).isEqualTo(120);
         assertThat(AttemptUsageSummary.totals(events,true).provisional()).isTrue();
     }
     @Test void incompleteUsageKeepsPricedSubtotalAndReportedTokens() {
@@ -58,33 +59,32 @@ class AttemptUsageSummaryTest {
                 {"attemptId":"partial","activity":"coding_usage","inputTokens":100,"outputTokens":20,
                  "usageIncomplete":true,"rate":{"currency":"USD","inputPerMillion":2}}
                 """);
-        assertThat(summary(List.of(incomplete),null,true))
-                .containsEntry("cost","<$0.01").containsEntry("tokensDisplay","120").containsEntry("partial",true);
+        assertThat(totals(List.of(incomplete),null,true)).extracting(AttemptUsageSummary.Totals::costLabel,
+                AttemptUsageSummary.Totals::tokens,AttemptUsageSummary.Totals::partial).containsExactly("<$0.01",120L,true);
         var unpriced=new AuditEvent(UUID.randomUUID(),AuditEventType.RUNTIME_PROGRESS,"implement","test","""
                 {"attemptId":"unpriced","activity":"coding_usage","inputTokens":100,"outputTokens":0,
                  "cacheReadTokens":0,"cacheWriteTokens":0,"rate":{"currency":"USD"}}
                 """);
-        assertThat(summary(List.of(unpriced),null,false))
-                .containsEntry("cost","—").containsEntry("tokensDisplay","100").containsEntry("partial",true);
+        assertThat(totals(List.of(unpriced),null,false)).extracting(AttemptUsageSummary.Totals::costLabel,
+                AttemptUsageSummary.Totals::tokens,AttemptUsageSummary.Totals::partial).containsExactly("—",100L,true);
     }
     @Test void restartedAttemptDoesNotEraseEarlierSpendAndRoundFilterIsPreserved() {
         var events=List.of(event("old","coding_usage",false,"a","USD",100,20),
                 event("new","coding_starting",false,"a","USD",0,0),
                 event("new","coding_usage",false,"a","USD",50,10));
-        assertThat(summary(events,1,true))
-                .containsEntry("cost","<$0.01").containsEntry("tokensDisplay","180");
-        assertThat(summary(events,-1,true))
-                .containsEntry("cost","$0.00").containsEntry("tokensDisplay","0").containsEntry("present",false);
+        assertThat(totals(events,1,true)).extracting(AttemptUsageSummary.Totals::costLabel,
+                AttemptUsageSummary.Totals::tokens).containsExactly("<$0.01",180L);
+        assertThat(totals(events,-1,true)).extracting(AttemptUsageSummary.Totals::costLabel,
+                AttemptUsageSummary.Totals::tokens,AttemptUsageSummary.Totals::present).containsExactly("$0.00",0L,false);
     }
-    @Test void typedTotalsReproduceTheFormattedSummaryOnTheSameFixtures() {
+    @Test void typedTotalsCountTokensAttemptsAndTheBreakdown() {
         var events=List.of(event("1","coding_starting",false,"a","USD",0,0),event("1","coding_usage",false,"a","USD",50,20),
                 event("1","",true,"a","USD",100,30),event("2","",true,"b","USD",200,40));
-        var formatted=summary(events,null,false);
         var totals=AttemptUsageSummary.totals(events,false);
-        assertThat(formatted).containsEntry("tokensDisplay",UiFormat.count(totals.tokens()));
-        assertThat(totals.attempts()).isEqualTo(((Number) formatted.get("attempts")).intValue());
-        assertThat(totals.present()).isEqualTo(formatted.get("present"));
-        assertThat(totals.partial()).isEqualTo(formatted.get("partial"));
+        assertThat(totals.tokens()).isEqualTo(370);
+        assertThat(totals.attempts()).isEqualTo(2);
+        assertThat(totals.present()).isTrue();
+        assertThat(totals.partial()).isFalse();
         assertThat(totals.tokensReported()).isTrue();
         assertThat(totals.costByCurrency().get("USD")).isEqualByComparingTo("0.0013");
         assertThat(totals.breakdown()).containsEntry(AttemptCharge.Category.INPUT,300L)
@@ -141,7 +141,7 @@ class AttemptUsageSummaryTest {
         assertThat(withFeedbackTotals.rateSources()).containsExactly("anthropic-pricing (2026-09-19)");
         assertThat(withFeedbackTotals.models()).containsExactly("claude-haiku-5-5");
         assertThat(withFeedbackTotals.partial()).isFalse();
-        assertThat(summary(List.of(initial,feedback),1,false)).containsEntry("cost","<$0.01");
+        assertThat(totals(List.of(initial,feedback),1,false).costLabel()).isEqualTo("<$0.01");
     }
 
     @Test void projectionKeepsRoundsSeparateAndUsesCapturedRates() {
@@ -157,10 +157,13 @@ class AttemptUsageSummaryTest {
                 new AuditEvent(initial.getExecutionId(), initial.getEventType(), "implement", "test", JSON.writeValueAsString(initialDetail)),
                 event("round", "", true, "b", "EUR", 200, 30));
         var projection = new AttemptUsageSummary.Projection(events);
-        assertThat(projection.summary(-1, false)).containsEntry("cost", "<$0.01").containsEntry("attempts", 1);
-        assertThat(projection.summary(1, false)).containsEntry("cost", "<0.01 EUR").containsEntry("tokensDisplay", "230");
-        assertThat(projection.summary(null, false)).containsEntry("cost", "<0.01 EUR + <$0.01")
-                .containsEntry("tokensDisplay", "350").containsEntry("attempts", 2);
+        assertThat(projection.totals(-1, false)).extracting(AttemptUsageSummary.Totals::costLabel,
+                AttemptUsageSummary.Totals::attempts).containsExactly("<$0.01", 1);
+        assertThat(projection.totals(1, false)).extracting(AttemptUsageSummary.Totals::costLabel,
+                AttemptUsageSummary.Totals::tokens).containsExactly("<0.01 EUR", 230L);
+        assertThat(projection.totals(null, false)).extracting(AttemptUsageSummary.Totals::costLabel,
+                AttemptUsageSummary.Totals::tokens, AttemptUsageSummary.Totals::attempts)
+                .containsExactly("<0.01 EUR + <$0.01", 350L, 2);
     }
 
     @Test void anAmountUnderOneCentIsNeverShownAsFreeAndATotalAddsWhatItsPartsShow() {

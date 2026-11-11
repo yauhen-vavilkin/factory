@@ -32,7 +32,7 @@ public record DeveloperConfigurationView(Models models, Routes routes, List<Fact
     }
 
     /** An endpoint Factory cannot connect to: the warning once, then the models that use it. */
-    public record UnreachableEndpoint(String origin, String warning, List<ReadyModel> models) {
+    public record UnreachableEndpoint(String warning, List<ReadyModel> models) {
     }
 
     /** A model the run forms leave out, with the fix sentence of each failing check. */

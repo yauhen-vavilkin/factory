@@ -1,11 +1,9 @@
 package org.folio.factory.app.tasks.presentation;
 
 import org.folio.factory.app.web.PageTime;
+import org.folio.factory.app.web.UiFormat;
 
-import java.util.Objects;
 import java.util.UUID;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * One task under Runs: its latest attempt as a chip, cost and age, and the one action its state allows.
@@ -15,10 +13,10 @@ import java.util.stream.Stream;
 public record TriggeredRow(UUID taskId, String key, String jiraUrl, String title, String chipLabel,
                            String chipClass, String chipUrl, String detail, String detailTitle, String cost,
                            String costTitle, String when,
-                           PageTime whenAt, RunAction action, String actionUrl, UUID markStoppedAttemptId) {
+                           PageTime whenAt, RunAction action, UUID markStoppedAttemptId) {
 
     /** The whole meta line, for its title when a narrow row cuts it. */
     public String metaTitle() {
-        return Stream.of(key, when, detailTitle).filter(Objects::nonNull).collect(Collectors.joining(" · "));
+        return UiFormat.joinNonNull(key, when, detailTitle);
     }
 }

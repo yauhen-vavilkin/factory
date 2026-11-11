@@ -87,7 +87,7 @@
             <div class="run-settings">
                 <th:block th:if="${retryForm != null}" th:insert="~{fragments/developer-flow :: runChoice(${retryForm})}"></th:block>
                 <button type="submit" class="btn btn-primary btn-sm"
-                        th:text="'Start attempt ' + ${task.nextAttempt()} + ' with this answer'">Start attempt 2 with this answer</button>
+                        th:text="${task.startLabel()} + ' with this answer'">Start attempt 2 with this answer</button>
             </div>
             <p class="dev-form-note">A new attempt starts from a clean checkout and adds to the cost.<th:block
                     th:if="${retryForm != null and retryForm.selected() != null}"
@@ -98,7 +98,7 @@
     <section class="dev-section" id="retry" aria-labelledby="retry-title"
              th:if="${task.retryAllowed() and question == null}"
              th:classappend="${task.turn().yours()} ? 'your-part'">
-        <h2 class="dev-section-head" id="retry-title" th:text="'Start attempt ' + ${task.nextAttempt()}">Start attempt 2</h2>
+        <h2 class="dev-section-head" id="retry-title" th:text="${task.startLabel()}">Start attempt 2</h2>
         <form class="dev-form" method="post" th:action="@{'/tasks/' + ${task.taskId()} + '/retry'}">
             <input type="hidden" name="expectedVersion" th:value="${task.version()}">
             <input type="hidden" name="inputFingerprint" th:value="${task.inputFingerprint()}">
@@ -112,7 +112,7 @@
             <div class="run-settings">
                 <th:block th:if="${retryForm != null}" th:insert="~{fragments/developer-flow :: runChoice(${retryForm})}"></th:block>
                 <button type="submit" class="btn btn-primary btn-sm"
-                        th:text="'Start attempt ' + ${task.nextAttempt()}">Start attempt 2</button>
+                        th:text="${task.startLabel()}">Start attempt 2</button>
             </div>
             <p class="dev-form-note">A new attempt starts from a clean checkout and adds to the cost.<th:block
                     th:if="${retryForm != null and retryForm.selected() != null}"

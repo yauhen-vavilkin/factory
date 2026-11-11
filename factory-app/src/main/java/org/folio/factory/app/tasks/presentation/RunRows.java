@@ -6,6 +6,7 @@ import org.folio.factory.app.tasks.admission.TaskRunSettings;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskRoutingReason;
 import org.folio.factory.app.web.PageTime;
+import org.folio.factory.app.web.UiFormat;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -13,8 +14,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static org.folio.factory.app.tasks.presentation.TaskLabels.ago;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costLabel;
@@ -42,8 +41,7 @@ public final class RunRows {
                 status.chipLabel(), status.chipClass(), status.chipUrl(),
                 detail == null ? null : AttemptFailure.firstSentence(detail), detail, cost(view, latest), costTitle,
                 ago(when),
-                PageTime.timestamp(when), action,
-                actionUrl(view, latest, action), action == RunAction.MARK_STOPPED ? latest.attemptId() : null);
+                PageTime.timestamp(when), action, action == RunAction.MARK_STOPPED ? latest.attemptId() : null);
     }
 
     /** The task's total, or the cost so far of the attempt that works now ($0.00 before it reports usage). */
@@ -52,7 +50,7 @@ public final class RunRows {
             return costLabel(view.usage());
         }
         var soFar = costSoFar(latest.usage());
-        return soFar == null ? null : soFar + " so far";
+        return soFar == null ? null : soFar + " " + UiFormat.SO_FAR;
     }
 
     /** The running task, when one runs: the strip above Ready to run is a shortcut to its run. */
@@ -78,9 +76,8 @@ public final class RunRows {
         var latest = view.attempts().getLast();
         var started = latest.startedAt() != null ? latest.startedAt() : latest.createdAt();
         var elapsed = minutes(Duration.between(started, Instant.now()).getSeconds());
-        var run = Stream.of(TaskRunSettings.label(latest.runSettings()), elapsed)
-                .filter(part -> part != null).collect(Collectors.joining(" · "));
-        return new InProgressStrip(view.displayKey(), view.jiraUrl(), view.title(), run, elapsed,
+        var run = UiFormat.joinNonNull(TaskRunSettings.label(latest.runSettings()), elapsed);
+        return new InProgressStrip(view.displayKey(), view.jiraUrl(), view.title(), run,
                 "/executions/" + latest.executionId());
     }
 
@@ -102,16 +99,6 @@ public final class RunRows {
             return RunAction.OPEN_RUN;
         }
         return view.allowedActions().retry() ? RunAction.RETRY : RunAction.NONE;
-    }
-
-    private static String actionUrl(TaskView view, TaskView.AttemptHistoryEntry latest, RunAction action) {
-        return switch (action) {
-            case PR_FEEDBACK, PR_WAITING -> "/executions/" + latest.executionId() + "#pr-feedback";
-            case OPEN_RUN -> "/executions/" + latest.executionId();
-            case ANSWER -> "/tasks/" + view.taskId() + "#answer";
-            case RETRY -> "/tasks/" + view.taskId() + "#retry";
-            case MARK_STOPPED, NONE -> null;
-        };
     }
 
     private static Optional<String> feedbackDetail(FeedbackStanding standing) {

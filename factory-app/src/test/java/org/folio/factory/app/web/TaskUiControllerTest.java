@@ -287,8 +287,7 @@ class TaskUiControllerTest {
                 .containsEntry("chipLabel", "In progress")
                 .containsEntry("chipClass", "chip chip-info")
                 .containsEntry("detail", null)
-                .containsEntry("action", RunAction.OPEN_RUN)
-                .containsEntry("actionUrl", "/executions/" + EXECUTION_ID);
+                .containsEntry("action", RunAction.OPEN_RUN);
     }
 
     @Test
@@ -309,8 +308,7 @@ class TaskUiControllerTest {
                 .containsEntry("chipLabel", "Needs your answer")
                 .containsEntry("chipClass", "chip chip-warning")
                 .containsEntry("detail", null)
-                .containsEntry("action", RunAction.ANSWER)
-                .containsEntry("actionUrl", "/tasks/" + TASK_ID + "#answer");
+                .containsEntry("action", RunAction.ANSWER);
     }
 
     @Test
@@ -328,8 +326,8 @@ class TaskUiControllerTest {
 
         Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
 
-        assertThat(model.get("queueWaiting")).isEqualTo(Map.of("key", "MODBAR-921", "taskId", TASK_ID,
-                "attemptId", ATTEMPT_ID));
+        assertThat(model.get("queueWaiting")).isEqualTo("MODBAR-921 needs inspection: Factory could not confirm"
+                + " how its run ended. It rechecks every minute.");
         assertThat(rows(model, "triggered").getFirst())
                 .containsEntry("chipLabel", "Needs inspection")
                 .containsEntry("action", RunAction.MARK_STOPPED)
@@ -366,8 +364,7 @@ class TaskUiControllerTest {
                 .containsEntry("chipClass", "chip chip-neutral")
                 .containsEntry("chipUrl", "https://github.com/folio-org/mod-bar/pull/7")
                 .containsEntry("detail", null)
-                .containsEntry("action", RunAction.PR_FEEDBACK)
-                .containsEntry("actionUrl", "/executions/" + EXECUTION_ID + "#pr-feedback");
+                .containsEntry("action", RunAction.PR_FEEDBACK);
         assertThat(rows(model, "triggered").get(1))
                 .containsEntry("chipLabel", "PR #7")
                 .containsEntry("chipClass", "chip chip-success");
@@ -417,7 +414,7 @@ class TaskUiControllerTest {
         Map<String, Object> detail = mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn().getModelAndView()
                 .getModel();
         assertThat(rows(detail, "attempts").getFirst())
-                .containsEntry("costNote", "cost may be higher")
+                .containsEntry("costText", "$0.32")
                 .containsEntry("costNoteTitle",
                         "Some usage was not reported by the runtime or has no price, so the real cost may be higher.")
                 .containsEntry("ordinal", 1)
@@ -452,7 +449,6 @@ class TaskUiControllerTest {
         // Newest first.
         assertThat(attempts.get(0))
                 .containsEntry("cost", "$0.00")
-                .containsEntry("costNote", "so far")
                 .containsEntry("costNoteTitle", null)
                 .containsEntry("costText", "$0.00 so far");
         assertThat(((TaskDetail) taskModel.get("task")).spent()).isEqualTo("$0.00");
@@ -467,7 +463,7 @@ class TaskUiControllerTest {
                 .containsEntry("costTitle", null);
         assertThat(attempts.get(1))
                 .containsEntry("cost", null)
-                .containsEntry("costNote", "cost unknown")
+                .containsEntry("costText", "cost unknown")
                 .containsEntry("costNoteTitle", unknownTitle);
 
         // Tokens without a price keep the dash while the attempt works: their cost is not known.
@@ -484,7 +480,7 @@ class TaskUiControllerTest {
                 TaskView.TaskState.WORKING, false, false, attempt("RESERVED", 1, emptyUsage())));
         assertThat(rows(mvc.perform(get("/tasks/{taskId}", OTHER_TASK_ID)).andReturn().getModelAndView().getModel(),
                 "attempts").getFirst())
-                .containsEntry("costNote", null)
+                .containsEntry("costText", "—")
                 .containsEntry("costNoteTitle", null);
     }
 

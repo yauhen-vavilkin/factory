@@ -8,7 +8,7 @@ package org.folio.factory.app.tasks.presentation;
  */
 public record AttemptStatus(String chipLabel, String chipClass, String chipUrl, String headline) {
 
-    static final String STARTING = "Starting the run";
+    public static final String STARTING = "Starting the run";
     private static final String NEEDS_INSPECTION = "Needs inspection";
 
     /**

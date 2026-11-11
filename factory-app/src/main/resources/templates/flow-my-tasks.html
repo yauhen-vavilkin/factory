@@ -30,7 +30,7 @@
                 </form>
                 <form method="post" th:action="@{/flows/dev-factory/scan}">
                     <button type="submit" class="btn btn-secondary btn-sm btn-col"
-                            th:title="${source.lastScan() != null} ? 'Last scan ' + ${source.lastScan()} : 'Not scanned yet'">Scan Jira</button>
+                            th:title="${source.scanTitle()}">Scan Jira</button>
                 </form>
             </div>
         </div>
@@ -70,8 +70,7 @@
                 </div>
             </div>
             <p class="dev-empty" th:if="${#lists.isEmpty(available)}"
-               th:text="${source.lastScan() == null} ? 'Press Scan Jira to load the tasks assigned to you.'
-                        : 'No tasks to run. Press Scan Jira to check for new tasks assigned to you, or add one by its key.'">No tasks.</p>
+               th:text="${source.emptyText()}">No tasks.</p>
 
             <div class="dev-list-foot" th:unless="${#lists.isEmpty(available) and #lists.isEmpty(cannotRun)}">
                 <p class="dev-list-note" th:each="group : ${cannotRun}" th:text="${group.line()}">
@@ -94,7 +93,7 @@
 
         <div class="queue-waiting" role="status" th:if="${queueWaiting != null}">
             <strong>Queue is waiting.</strong>
-            <span th:text="${queueWaiting['key']} + ' needs inspection: Factory could not confirm how its run ended. It rechecks every minute.'">
+            <span th:text="${queueWaiting}">
                 KEY needs inspection.</span>
         </div>
 
@@ -115,9 +114,7 @@
             </div>
             <div class="row-cluster row-cluster-status">
                 <span class="row-amount" th:title="${row.costTitle()}" th:text="${row.cost()}">$0.00</span>
-                <a th:if="${row.chipUrl() != null}" th:class="${row.chipClass()} + ' ext-link'" th:href="${row.chipUrl()}"
-                   th:text="${row.chipLabel()}">PR #1</a>
-                <span th:unless="${row.chipUrl() != null}" th:class="${row.chipClass()}" th:text="${row.chipLabel()}">State</span>
+                <th:block th:replace="~{fragments/developer-flow :: statusChip(${row})}"></th:block>
                 <div class="dev-row-action" th:if="${row.markStoppedAttemptId() != null}">
                     <form method="post"
                           th:action="@{'/tasks/' + ${row.taskId()} + '/attempts/' + ${row.markStoppedAttemptId()} + '/mark-stopped'}">

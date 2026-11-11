@@ -501,7 +501,7 @@ class DeveloperExecutionViewTest {
         var delivery = artifact("dev_delivery.json", 1,
                 "{\"state\":\"DELIVERED\",\"deliveryRepository\":\"user/repo\",\"deliveryBranch\":\"dev/task\",\"deliveryCommitSha\":\"def456\",\"pullRequestUrl\":\"https://github.com/user/repo/pull/1\"}");
         var facts = view.build(execution, List.of(brief, verification, delivery), List.of(), Instant.now());
-        assertThat(facts.task()).isEqualTo(new RunFacts.Task("TASK-1", "Fix route", "folio/sidecar", "master"));
+        assertThat(facts.task()).isEqualTo(new RunFacts.Task("TASK-1", "Fix route", "folio/sidecar"));
         assertThat(facts.pullRequest()).isEqualTo(new RunFacts.PullRequest("https://github.com/user/repo/pull/1", false));
         assertThat(facts.technical()).isEqualTo(new DeveloperRunView.Technical("folio/sidecar@master", "abc123",
                 null, null, null, "maven-test", "mvn test", "0", "user/repo", "dev/task", "def456"));

@@ -14,6 +14,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
+import static org.folio.factory.app.web.UiFormat.blankToNull;
+
 /**
  * The words of the run page's status card, its header and the line under it. A run that a task attempt started
  * takes its chip and failure from the attempt, as the task page does; any other run takes them from its product
@@ -23,7 +25,6 @@ final class RunStatusCard {
 
     private static final String NO_FIGURE = "—";
     private static final Pattern PULL_NUMBER = Pattern.compile("/pull/(\\d+)");
-    private static final String STARTING = "Starting the run";
     private static final Map<String, String> WORKING = Map.of(
             "Prepare task", "Preparing the task", "Implement changes", "Implementing changes",
             "Verify changes", "Verifying changes", "Create pull request", "Creating the pull request");
@@ -89,7 +90,7 @@ final class RunStatusCard {
         var usage = in.usage();
         var amount = amount(in);
         var rounds = in.feedback().map(FeedbackUi.Summary::rounds).orElse(false);
-        var amountNote = amount == null ? unknownCost(in) : in.live() ? "so far" : rounds ? "total" : null;
+        var amountNote = amount == null ? unknownCost(in) : in.live() ? UiFormat.SO_FAR : rounds ? "total" : null;
         var action = action(in);
         return new Status(chip.label(), chip.cssClass(), chip.url(), headline.text(), headline.reasonLabel(),
                 headline.reason(), AttemptFailure.limitsUrl(headline.reason()), headline.question(), headline.note(),
@@ -103,12 +104,12 @@ final class RunStatusCard {
         if (reported != null) {
             return NO_FIGURE.equals(reported) ? null : reported;
         }
-        return in.live() && !in.usage().column().reported() ? "$0.00" : null;
+        return in.live() && !in.usage().column().reported() ? UiFormat.ZERO_COST : null;
     }
 
     /** Says in words that tokens were reported and have no price, in place of a figure. */
     private static String unknownCost(Input in) {
-        return NO_FIGURE.equals(in.usage().amount()) || in.usage().column().reported() ? "cost unknown" : null;
+        return NO_FIGURE.equals(in.usage().amount()) || in.usage().column().reported() ? UiFormat.COST_UNKNOWN : null;
     }
 
     /**
@@ -169,7 +170,8 @@ final class RunStatusCard {
         }
         if (in.live()) {
             var current = facts.steps().current();
-            return current == null ? Headline.of(STARTING) : retrying(WORKING.getOrDefault(current, current), facts);
+            return current == null ? Headline.of(AttemptStatus.STARTING)
+                    : retrying(WORKING.getOrDefault(current, current), facts);
         }
         if (facts.asked()) {
             return new Headline("The agent stopped with a question", null, null, facts.reason(), null);
@@ -242,7 +244,4 @@ final class RunStatusCard {
         return new Chip(label, pullRequest.draft() ? "chip chip-neutral" : "chip chip-success", pullRequest.url());
     }
 
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
-    }
 }

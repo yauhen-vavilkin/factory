@@ -342,7 +342,6 @@ class DashboardUiControllerTest {
                 (List<Map<String, Object>>) result.getModelAndView().getModel().get("events");
         assertThat(events).hasSize(1);
         Map<String, Object> row = events.get(0);
-        assertThat(row.get("eventType")).isEqualTo("STEP_COMPLETED");
         assertThat(row.get("eventLabel")).isEqualTo("Step completed");
         assertThat(row.get("eventTone")).isNull();
         assertThat(row.get("executionId")).isEqualTo(executionId);

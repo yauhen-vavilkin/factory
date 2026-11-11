@@ -49,7 +49,7 @@
                     </th:block>
                 </p>
             </div>
-            <ol th:replace="~{fragments/components :: stepper(${progressSteps})}"></ol>
+            <ol th:replace="~{fragments/components :: stepper(${steps})}"></ol>
         </section>
 
         <section th:unless="${#lists.isEmpty(children)}">

@@ -38,7 +38,7 @@ import java.util.stream.Collectors;
 import static org.folio.factory.devfactory.DevFactoryConfiguration.FLOW_ID;
 
 /**
- * My tasks on the Developer Flow page and the task summary. The list shows the
+ * My tasks on the Developer Flow page. The list shows the
  * developer's own Jira tasks (Available) and everything already started
  * (Triggered); POST routes delegate to the task services, which revalidate every
  * submission against the server-rendered version and fingerprints, and redirect
@@ -207,14 +207,14 @@ public class TaskUiController {
         return installations.findById(1).orElseThrow(TaskInstallation::missing);
     }
 
-    private Map<String, Object> queueWaiting(TaskInstallation installation, List<TaskView> triggered) {
+    private String queueWaiting(TaskInstallation installation, List<TaskView> triggered) {
         UUID active = installation.getActiveAttemptId();
         if (active == null) {
             return null;
         }
         return attempts.findById(active)
                 .filter(attempt -> attempt.getState() == TaskAttempt.State.NEEDS_INSPECTION)
-                .map(attempt -> TaskRows.queueWaiting(displayKey(attempt.getTaskId(), triggered), attempt))
+                .map(attempt -> TaskRows.queueWaiting(displayKey(attempt.getTaskId(), triggered)))
                 .orElse(null);
     }
 

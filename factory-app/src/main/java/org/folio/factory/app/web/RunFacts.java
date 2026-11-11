@@ -8,8 +8,8 @@ record RunFacts(String productStatus, Task task, String settings, String reason,
                 PullRequest pullRequest, DeveloperRunView.Activity activity, RunSteps steps,
                 DeveloperRunView.Technical technical) {
 
-    /** The Jira key and summary from the task brief, and the repository and branch the run checked out. */
-    record Task(String key, String summary, String repository, String branch) {
+    /** The Jira key and summary from the task brief, and the repository the run checked out. */
+    record Task(String key, String summary, String repository) {
     }
 
     /** {@code url} is empty until the run opened a pull request. */

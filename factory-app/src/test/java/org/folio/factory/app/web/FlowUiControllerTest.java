@@ -1,7 +1,6 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.agents.llm.AbstractLlmAgentWorker;
-import org.folio.factory.agents.prompt.PromptCatalog;
 import org.folio.factory.core.agent.AgentContext;
 import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
@@ -65,15 +64,12 @@ class FlowUiControllerTest {
     @Mock
     private AgentWorkerRegistry workers;
 
-    @Mock
-    private PromptCatalog promptCatalog;
-
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders
-                .standaloneSetup(new FlowUiController(flowRegistry, mirror, router, workers, promptCatalog, json))
+                .standaloneSetup(new FlowUiController(flowRegistry, mirror, router, workers, json))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
@@ -250,8 +246,6 @@ class FlowUiControllerTest {
         AgentWorker plain = new PlainTestWorker();
         when(workers.all()).thenReturn(Map.of("triage-agent", llm, "finalizer", plain));
         when(flowRegistry.all()).thenReturn(List.of(descriptor()));
-        when(promptCatalog.promptsFor("triage-agent")).thenReturn(List.of("system", "user"));
-        when(promptCatalog.promptsFor("finalizer")).thenReturn(List.of());
 
         var result = mvc.perform(get("/workers"))
                 .andExpect(status().isOk())
@@ -272,7 +266,6 @@ class FlowUiControllerTest {
                 .containsEntry("id", "triage-agent")
                 .containsEntry("className", "LlmTestWorker")
                 .containsEntry("llm", true);
-        assertThat((List<String>) rows.get(1).get("prompts")).containsExactly("system", "user");
         List<Map<String, Object>> usedBy = (List<Map<String, Object>>) rows.get(1).get("usedBy");
         assertThat(usedBy).hasSize(1);
         assertThat(usedBy.get(0)).containsEntry("flowId", "test-factory").containsEntry("stepId", "triage")

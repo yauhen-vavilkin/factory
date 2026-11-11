@@ -7,7 +7,7 @@
 
   <section class="dev-list" aria-labelledby="comments-title" th:if="${feedback.fix() or feedback.refresh()}"
            th:with="count=${#lists.size(feedback.comments())}"
-           th:classappend="${feedback.fix() and count > 0} ? 'your-part'">
+           th:classappend="${feedback.fixPending()} ? 'your-part'">
     <div class="dev-list-head">
       <h3 class="dev-section-title" id="comments-title">New PR comments <span class="dev-count" th:text="${count}">1</span></h3>
       <form class="dev-list-tools" th:if="${feedback.refresh()}" method="post"
@@ -17,7 +17,7 @@
       </form>
     </div>
     <p class="dev-empty" th:if="${count == 0}" th:text="${feedback.emptyNote()}">No new comments.</p>
-    <form th:if="${feedback.fix() and count > 0}" method="post"
+    <form th:if="${feedback.fixPending()}" method="post"
           th:action="@{'/executions/'+${execution.id}+'/pr-feedback/actions'}"
           data-selection="selectedIds" data-selection-verb="Fix" data-selection-noun="comment">
       <input type="hidden" name="reviewId" th:value="${feedback.reviewId()}">
@@ -41,7 +41,7 @@
       </label>
       <div class="dev-list-foot">
         <button type="submit" data-run-selected
-                th:class="${feedback.answer()} ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm'"
+                th:class="${feedback.fixButtonClass()}"
                 th:text="'Fix ' + ${count} + (${count == 1} ? ' comment' : ' comments')">Fix 1 comment</button>
         <span class="dev-form-note">Starts a new round and adds to the cost.</span>
         <span class="src src-you">You decide</span>

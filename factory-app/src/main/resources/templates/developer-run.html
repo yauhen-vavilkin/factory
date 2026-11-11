@@ -55,13 +55,13 @@
             <a class="btn btn-primary btn-sm" th:if="${status.actionUrl() != null}" th:href="${status.actionUrl()}"
                th:text="${status.actionLabel()}">Answer on the task page</a>
             <a class="btn btn-primary btn-sm"
-               th:if="${status.actionUrl() == null and standing != null and standing.retryUrl() != null}"
+               th:if="${run.offersRetry()}"
                th:href="${standing.retryUrl()}" th:text="${standing.retryLabel()}">Start attempt 2</a>
         </div>
     </section>
 
     <div class="run-standing" th:if="${standing != null and standing.lead() != null}">
-        <p th:if="${standing.lead() != null}"><th:block th:text="${standing.lead()}">Attempt 1 of 3. Latest: </th:block><a
+        <p><th:block th:text="${standing.lead()}">Attempt 1 of 3. Latest: </th:block><a
                 th:if="${standing.latestUrl() != null}" th:href="${standing.latestUrl()}"
                 th:text="${standing.latestText()}">attempt 3</a><th:block th:if="${standing.latestUrl() == null}"
                 th:text="${standing.latestText()}">attempt 3</th:block><th:block

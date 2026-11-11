@@ -36,9 +36,9 @@ import java.util.function.Function;
 import org.folio.factory.devfactory.DevFactoryConfiguration;
 
 /**
- * Server-rendered execution views: a filterable, paged run list and a per-execution detail page
- * (step progress, artifact versions, child runs, audit timeline). All view state is computed here
- * so the templates stay dumb.
+ * Server-rendered execution views: the run list, which {@link ExecutionListPage} builds, and a
+ * per-execution detail page (step progress, artifact versions, child runs, audit timeline). All view
+ * state is computed here so the templates stay dumb.
  */
 @Controller
 public class ExecutionUiController {
@@ -115,7 +115,6 @@ public class ExecutionUiController {
         var usage = StepUsageSummary.from(detail.events(), false, jsonMapper);
         addStepTokens(steps, detail.chain(), usage);
         model.addAttribute("displayStatus", detail.execution().getStatus());
-        model.addAttribute("progressSteps", steps);
         model.addAttribute("tokenTotals", usage.tokenTotals(false));
         model.addAttribute("artifactGroups", artifactGroups(detail.artifacts()));
         model.addAttribute("events",
@@ -189,7 +188,6 @@ public class ExecutionUiController {
 
     private static Map<String, Object> artifactVersion(Artifact artifact, String panelId, boolean latest) {
         Map<String, Object> version = new LinkedHashMap<>();
-        version.put("id", artifact.getId());
         version.put("version", artifact.getVersion());
         version.put("content", artifact.getContent());
         version.put("label", "v" + artifact.getVersion() + " · " + artifact.getCreatedBy() + " · ");

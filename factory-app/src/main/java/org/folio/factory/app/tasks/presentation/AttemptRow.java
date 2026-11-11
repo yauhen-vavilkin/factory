@@ -11,7 +11,6 @@ import java.util.UUID;
  * shows, the other cost fields its parts; {@code status} is the chip, the same as on the run page.
  */
 public record AttemptRow(int ordinal, String kind, String meta, String settings, PageTime started,
-                         AttemptClock clock, String note, String quote, String cost, String costNote,
-                         String costNoteTitle, String costText, AttemptStatus status, String result,
-                         UUID executionId) {
+                         AttemptClock clock, String note, String quote, String cost, String costNoteTitle,
+                         String costText, AttemptStatus status, String result, UUID executionId) {
 }

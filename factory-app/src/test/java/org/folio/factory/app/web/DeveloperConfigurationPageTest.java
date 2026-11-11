@@ -104,7 +104,6 @@ class DeveloperConfigurationPageTest {
         assertThat(view.models().ready()).isEmpty();
         assertThat(view.models().unreachableCount()).isEqualTo(2);
         assertThat(view.models().unreachable()).singleElement().satisfies(endpoint -> {
-            assertThat(endpoint.origin()).isEqualTo("http://proxy:4001");
             assertThat(endpoint.warning()).isEqualTo("Factory cannot open a connection to http://proxy:4001. Runs"
                     + " with these models fail if the coding container cannot reach it either. Start the service"
                     + " at that address, or fix base-url in config/developer-models.yaml.");

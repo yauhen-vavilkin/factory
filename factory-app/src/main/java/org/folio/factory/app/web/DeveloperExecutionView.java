@@ -22,6 +22,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
+import static org.folio.factory.app.web.UiFormat.blankToNull;
+
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class DeveloperExecutionView {
     private static final String STARTING_BUILD_NETWORK_FAILURE =
@@ -196,12 +198,15 @@ final class DeveloperExecutionView {
 
     private RunFacts.Task task(PipelineExecution execution, Evidence evidence) {
         var brief = evidence.brief();
-        var repo = brief.path("repository");
         return new RunFacts.Task(
                 first(brief.path("issue_key"), UiFormat.parse(execution.getTriggerPayload(), json).path("issueKey")),
-                brief.path("issue").path("summary").asString(""),
-                first(repo.path("source_repo"), repo.path("key"), evidence.candidate().path("repository")),
-                repo.path("base_branch").asString(""));
+                brief.path("issue").path("summary").asString(""), repository(evidence));
+    }
+
+    /** The repository the run checked out, as the brief or the candidate names it. */
+    private static String repository(Evidence evidence) {
+        var repo = evidence.brief().path("repository");
+        return first(repo.path("source_repo"), repo.path("key"), evidence.candidate().path("repository"));
     }
 
     private static RunFacts.PullRequest pullRequest(JsonNode delivery) {
@@ -213,7 +218,7 @@ final class DeveloperExecutionView {
     /** The checkout, the starting build, the checks when they ran and what was delivered, without raw states. */
     private static DeveloperRunView.Technical technical(Evidence evidence) {
         var repo = evidence.brief().path("repository");
-        var repository = first(repo.path("source_repo"), repo.path("key"), evidence.candidate().path("repository"));
+        var repository = repository(evidence);
         var branch = repo.path("base_branch").asString("");
         var readiness = evidence.readiness();
         var checks = checksRan(evidence.verification()) ? evidence.verification() : MISSING;
@@ -312,9 +317,6 @@ final class DeveloperExecutionView {
         return String.join(" ", words);
     }
 
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
-    }
 
     /** The latest version of each artifact the run page reads, parsed. */
     record Evidence(JsonNode brief, JsonNode readiness, JsonNode candidate, JsonNode codingOutcome,

@@ -19,9 +19,7 @@ final class TaskLabels {
     static final String NEEDS_ANSWER = "Needs your answer";
     /** The stage of an attempt in flight whose run ended before the dispatcher closed the attempt. */
     static final String RUN_ENDED = "run-ended";
-    private static final String ZERO_COST = "$0.00";
     private static final String COST_MAY_BE_HIGHER = "cost may be higher";
-    private static final String COST_UNKNOWN = "cost unknown";
     private static final String COST_MAY_BE_HIGHER_TITLE =
             "Some usage was not reported by the runtime or has no price, so the real cost may be higher.";
     private static final String COST_UNKNOWN_TITLE =
@@ -138,17 +136,17 @@ final class TaskLabels {
     /** The cost of work that runs now: "$0.00" until it reports tokens, null when its tokens have no price. */
     static String costSoFar(TaskUsage usage) {
         var cost = costLabel(usage);
-        return cost == null && usage.tokensByCategory().isEmpty() ? ZERO_COST : cost;
+        return cost == null && usage.tokensByCategory().isEmpty() ? UiFormat.ZERO_COST : cost;
     }
 
     /** Why a finished cost is missing or may be too low; null when all usage was reported and priced. */
     static String incompleteCostNote(TaskUsage usage) {
-        return usage.complete() ? null : costLabel(usage) == null ? COST_UNKNOWN : COST_MAY_BE_HIGHER;
+        return usage.complete() ? null : costLabel(usage) == null ? UiFormat.COST_UNKNOWN : COST_MAY_BE_HIGHER;
     }
 
     static String costNoteTitle(String costNote) {
         return COST_MAY_BE_HIGHER.equals(costNote) ? COST_MAY_BE_HIGHER_TITLE
-                : COST_UNKNOWN.equals(costNote) ? COST_UNKNOWN_TITLE : null;
+                : UiFormat.COST_UNKNOWN.equals(costNote) ? COST_UNKNOWN_TITLE : null;
     }
 
     static String usageNote(TaskUsage usage) {

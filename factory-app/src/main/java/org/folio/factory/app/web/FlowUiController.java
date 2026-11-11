@@ -2,7 +2,6 @@ package org.folio.factory.app.web;
 
 import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.llm.AbstractLlmAgentWorker;
-import org.folio.factory.agents.prompt.PromptCatalog;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.core.agent.AgentWorkerRegistry;
 import org.folio.factory.core.domain.FlowRegistryEntry;
@@ -54,7 +53,6 @@ public class FlowUiController {
     private final FlowRegistryEntryRepository mirror;
     private final PipelineRouter router;
     private final AgentWorkerRegistry workers;
-    private final PromptCatalog promptCatalog;
     private final JsonMapper jsonMapper;
     private final PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
     private volatile Map<String, List<Map<String, Object>>> samplesByFlow;
@@ -210,7 +208,6 @@ public class FlowUiController {
         row.put("id", worker.id());
         row.put("className", worker.getClass().getSimpleName());
         row.put("llm", worker instanceof AbstractLlmAgentWorker);
-        row.put("prompts", promptCatalog.promptsFor(worker.id()));
         row.put("usedBy", usedBy);
         return row;
     }

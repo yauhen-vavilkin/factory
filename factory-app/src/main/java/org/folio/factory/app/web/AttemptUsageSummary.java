@@ -52,7 +52,7 @@ public final class AttemptUsageSummary {
             if (cost != null) {
                 return cost;
             }
-            return !present || provisional && !tokensReported ? "$0.00" : "—";
+            return !present || provisional && !tokensReported ? UiFormat.ZERO_COST : "—";
         }
 
         Totals withCosts(SortedMap<String, BigDecimal> costs) {
@@ -78,10 +78,6 @@ public final class AttemptUsageSummary {
                 all.record(event, detail);
                 rounds.computeIfAbsent(round, key -> new Group()).record(event, detail);
             }
-        }
-
-        Map<String, Object> summary(Integer round, boolean live) {
-            return Group.summary(totals(round, live));
         }
 
         public Totals totals(boolean live) {
@@ -162,27 +158,6 @@ public final class AttemptUsageSummary {
                 return source;
             }
             return source + " (" + asOf + ")";
-        }
-
-        static Map<String, Object> summary(Totals t) {
-            var tokensDisplay = t.tokensReported() || !t.present() ? UiFormat.count(t.tokens()) : "—";
-            return Map.of(
-                    "present", t.present(),
-                    "cost", t.costLabel(),
-                    "partial", t.partial(),
-                    "tokensDisplay", tokensDisplay,
-                    "models", String.join(", ", t.models()),
-                    "attempts", t.attempts(),
-                    "sources", t.rateSources(),
-                    "breakdown", breakdownCounts(t.breakdown()));
-        }
-
-        private static Map<String, Long> breakdownCounts(Map<AttemptCharge.Category, Long> breakdown) {
-            Map<String, Long> counts = new LinkedHashMap<>();
-            for (var category : AttemptCharge.Category.values()) {
-                counts.put(category.key(), breakdown.getOrDefault(category, 0L));
-            }
-            return counts;
         }
     }
 

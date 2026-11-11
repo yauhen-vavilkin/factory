@@ -127,16 +127,17 @@ public class TaskQuery {
     private AttemptProgress attemptProgress(List<TaskAttempt> history,
                                             Map<UUID, PipelineExecution> executionsById, Instant now) {
         var rows = history.stream().map(attempt -> attemptRow(attempt, executionsById, now)).toList();
-        var usageMissingAfterPaidStart = rows.stream().anyMatch(AttemptRow::usageMissingAfterPaidStart);
-        var usage = TaskUsage.aggregate(rows.stream().map(AttemptRow::totals).toList(),
+        var usageMissingAfterPaidStart = rows.stream().anyMatch(AttemptProjection::usageMissingAfterPaidStart);
+        var usage = TaskUsage.aggregate(rows.stream().map(AttemptProjection::totals).toList(),
                 usageMissingAfterPaidStart);
-        var lastLive = rows.stream().filter(AttemptRow::live).reduce((first, second) -> second);
-        return new AttemptProgress(rows.stream().map(AttemptRow::entry).toList(), usage,
+        var lastLive = rows.stream().filter(AttemptProjection::live).reduce((first, second) -> second);
+        return new AttemptProgress(rows.stream().map(AttemptProjection::entry).toList(), usage,
                 lastLive.map(row -> row.entry().stage()).orElse(null),
-                lastLive.map(AttemptRow::stageStartedAt).orElse(null));
+                lastLive.map(AttemptProjection::stageStartedAt).orElse(null));
     }
 
-    private AttemptRow attemptRow(TaskAttempt attempt, Map<UUID, PipelineExecution> executionsById, Instant now) {
+    private AttemptProjection attemptRow(TaskAttempt attempt, Map<UUID, PipelineExecution> executionsById,
+                                         Instant now) {
         var execution = attempt.getExecutionId() == null ? null : executionsById.get(attempt.getExecutionId());
         List<AuditEvent> events = execution == null ? List.of() : auditLog.forExecution(execution.getId());
         var totals = AttemptUsageSummary.totals(events,
@@ -151,7 +152,7 @@ public class TaskQuery {
                 : TaskOutcomeService.stageOf(attempt.getResultReason());
         var entry = historyEntry(attempt, stage, AttemptUsageSummary.activeSeconds(events, now),
                 TaskUsage.aggregate(List.of(totals), usageMissingAfterPaidStart));
-        return new AttemptRow(entry, totals, usageMissingAfterPaidStart, inFlight,
+        return new AttemptProjection(entry, totals, usageMissingAfterPaidStart, inFlight,
                 stageStart == null ? null : stageStart.getOccurredAt());
     }
 
@@ -278,8 +279,8 @@ public class TaskQuery {
         return base.strip() + "/browse/" + displayKey;
     }
 
-    private record AttemptRow(TaskView.AttemptHistoryEntry entry, AttemptUsageSummary.Totals totals,
-                              boolean usageMissingAfterPaidStart, boolean live, Instant stageStartedAt) {
+    private record AttemptProjection(TaskView.AttemptHistoryEntry entry, AttemptUsageSummary.Totals totals,
+                                     boolean usageMissingAfterPaidStart, boolean live, Instant stageStartedAt) {
     }
 
     /** The history entries, the task usage, and the stage of the last running attempt. */

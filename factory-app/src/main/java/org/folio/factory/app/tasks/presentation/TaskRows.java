@@ -9,18 +9,15 @@ import org.folio.factory.app.tasks.source.TaskJiraInstance;
 import org.folio.factory.app.tasks.source.TaskSourceProperties;
 import org.folio.factory.app.web.FeedbackUi;
 import org.folio.factory.app.web.PageTime;
+import org.folio.factory.app.web.UiFormat;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static org.folio.factory.app.tasks.presentation.TaskLabels.ago;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.attemptResult;
@@ -34,6 +31,8 @@ import static org.folio.factory.app.tasks.presentation.TaskLabels.pullRequestNot
 import static org.folio.factory.app.tasks.presentation.TaskLabels.notStartedSentence;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.usageNote;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.working;
+import static org.folio.factory.app.web.UiFormat.COST_UNKNOWN;
+import static org.folio.factory.app.web.UiFormat.SO_FAR;
 
 /**
  * Page rows of My tasks, the task summary and the run page header, built from the
@@ -46,7 +45,6 @@ public class TaskRows {
     static final String FEEDBACK_WAITS = "PR feedback waits for you";
     static final String FEEDBACK_WORKS = "The agent works on PR feedback";
     private static final int QUOTE = 80;
-    private static final String SO_FAR = "so far";
 
     private final TaskSourceProperties source;
     private final TaskJiraInstance jira;
@@ -138,7 +136,7 @@ public class TaskRows {
         var started = PageTime.day(attempt.startedAt());
         return new AttemptRow(attempt.ordinal(), attemptKind(attempt), attemptMeta(attempt),
                 TaskRunSettings.label(attempt.runSettings()), started, attemptClock(attempt),
-                started == null ? "not started" : null, quote(attempt), cost, costNote, costNoteTitle(costNote),
+                started == null ? "not started" : null, quote(attempt), cost, costNoteTitle(costNote),
                 costText(cost, costNote), status, attemptResult(attempt, status), attempt.executionId());
     }
 
@@ -185,13 +183,9 @@ public class TaskRows {
                 : new TaskDetail.RunLink("Open run", pullRequest ? url + "#pr-feedback" : url, false);
     }
 
-    /** The notice that the queue waits on an attempt that needs inspection. */
-    public static Map<String, Object> queueWaiting(String key, TaskAttempt attempt) {
-        Map<String, Object> waiting = new LinkedHashMap<>();
-        waiting.put("key", key);
-        waiting.put("taskId", attempt.getTaskId());
-        waiting.put("attemptId", attempt.getId());
-        return waiting;
+    /** The notice that the queue waits on the attempt of task {@code key}, which needs inspection. */
+    public static String queueWaiting(String key) {
+        return key + " needs inspection: Factory could not confirm how its run ended. It rechecks every minute.";
     }
 
     /** The failure of the latest attempt, when the task stopped without a question. */
@@ -236,7 +230,7 @@ public class TaskRows {
     private static String spentNote(TaskView view) {
         int count = view.attempts().size();
         if (spent(view) == null) {
-            return view.attempts().stream().anyMatch(attempt -> attempt.startedAt() != null) ? "cost unknown" : null;
+            return view.attempts().stream().anyMatch(attempt -> attempt.startedAt() != null) ? COST_UNKNOWN : null;
         }
         return "spent in " + count + (count == 1 ? " attempt" : " attempts");
     }
@@ -269,9 +263,9 @@ public class TaskRows {
      */
     private static String attemptMeta(TaskView.AttemptHistoryEntry attempt) {
         var clock = attemptClock(attempt);
-        return Stream.of(TaskRunSettings.label(attempt.runSettings()), attempt.startedAt() == null ? "not started"
-                        : null, clock == null || clock.start() != null ? null : clock.time(), quote(attempt))
-                .filter(Objects::nonNull).collect(Collectors.joining(" · "));
+        return UiFormat.joinNonNull(TaskRunSettings.label(attempt.runSettings()),
+                attempt.startedAt() == null ? "not started" : null,
+                clock == null || clock.start() != null ? null : clock.time(), quote(attempt));
     }
 
     /** The time the attempt worked: ticking while it is in flight, null before its paid start. */

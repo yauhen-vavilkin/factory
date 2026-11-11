@@ -18,8 +18,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+
+import static org.folio.factory.app.web.UiFormat.blankToNull;
 
 /** Page rows of the PR feedback part of the run page: the new PR comments and the rounds. */
 final class FeedbackRows {
@@ -129,11 +129,11 @@ final class FeedbackRows {
         var verification = state.verification();
         var started = PageTime.day(instant(state.roundStartedAt()));
         var meta = blankToNull(meta(state));
-        var metaTitle = blankToNull(joined(started == null ? null : started.text(), meta));
+        var metaTitle = blankToNull(UiFormat.joinNonNull(started == null ? null : started.text(), meta));
         return new Round(title, commentCount(state), shortSha, commitUrl(state.pr(), sha), started, meta, metaTitle,
                 summary(state, report), report, blankToNull(state.reason()),
-                facts.commentUrls().get(round), String.valueOf(facts.projection().summary(round, facts.live())
-                .get("cost")), chip(state), selected, checks(verification), checksOutput(verification));
+                facts.commentUrls().get(round), facts.projection().totals(round, facts.live()).costLabel(), chip(state),
+                selected, checks(verification), checksOutput(verification));
     }
 
     /** The first sentence of the agent's changes; a round that changed nothing and has no other line says so. */
@@ -163,12 +163,9 @@ final class FeedbackRows {
     private static String meta(FeedbackState state) {
         var started = instant(state.roundStartedAt());
         var finished = instant(state.finishedAt());
-        return joined(started == null || finished == null ? null : minutes(Duration.between(started, finished)),
+        return UiFormat.joinNonNull(
+                started == null || finished == null ? null : minutes(Duration.between(started, finished)),
                 tests(state.verification()));
-    }
-
-    private static String joined(String... parts) {
-        return Stream.of(parts).filter(Objects::nonNull).collect(Collectors.joining(" · "));
     }
 
     /** "6 min", as the task page writes the time of an attempt. */
@@ -225,9 +222,6 @@ final class FeedbackRows {
         };
     }
 
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value;
-    }
 
     private static Instant instant(String value) {
         try {

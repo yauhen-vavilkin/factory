@@ -16,6 +16,11 @@ import java.util.UUID;
 public record DeveloperRunView(Header header, Status status, Turn turn, Standing standing, List<Step> steps,
                                Activity activity, Usage usage, Technical technical, Links links) {
 
+    /** The status card offers the next attempt when it has no button of its own and the attempt can be retried. */
+    public boolean offersRetry() {
+        return status.actionUrl() == null && standing != null && standing.retryUrl() != null;
+    }
+
     /**
      * Breadcrumb, h1 and meta line. {@code taskId} and {@code jiraUrl} are null for a run that no task attempt
      * started; {@code key}, {@code repository} and {@code settings} are null when the run does not know them.

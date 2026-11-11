@@ -20,8 +20,10 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Shared formatting and request-parsing helpers for the server-rendered views.
@@ -30,10 +32,25 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class UiFormat {
 
+    /** {@code money(ZERO, "USD")}: the cost of work that has reported no usage yet. */
+    public static final String ZERO_COST = "$0.00";
+    /** Beside the cost of work that runs now. */
+    public static final String SO_FAR = "so far";
+    /** In place of a cost figure when usage has no price or was not reported. */
+    public static final String COST_UNKNOWN = "cost unknown";
     /** Longest message carried in a redirect; a remote error body could otherwise overflow the headers. */
     static final int MAX_REDIRECT_MESSAGE = 300;
     private static final BigDecimal CENT = new BigDecimal("0.01");
     private static final Set<String> ACRONYMS = Set.of("pr", "qa", "api", "hitl");
+
+    static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    /** The parts that are not null, joined with " · ". */
+    public static String joinNonNull(String... parts) {
+        return Stream.of(parts).filter(Objects::nonNull).collect(Collectors.joining(" · "));
+    }
 
     static String abbreviate(String value) {
         return value.length() <= 13 ? value : value.substring(0, 10) + "...";
@@ -168,7 +185,6 @@ public final class UiFormat {
     static Map<String, Object> auditRow(AuditEvent event, JsonMapper jsonMapper) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("occurredAt", PageTime.timestamp(event.getOccurredAt()));
-        row.put("eventType", event.getEventType().name());
         row.put("eventLabel", eventLabel(event.getEventType()));
         row.put("eventTone", eventTone(event.getEventType()));
         row.put("stepId", event.getStepId());

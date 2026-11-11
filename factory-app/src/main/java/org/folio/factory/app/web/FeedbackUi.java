@@ -129,7 +129,17 @@ public class FeedbackUi {
 
         /** The agent's question or new PR comments wait for the developer. */
         public boolean yourTurn() {
-            return answer || fix && !comments.isEmpty();
+            return answer || fixPending();
+        }
+
+        /** New PR comments wait for the developer to choose the ones to fix. */
+        public boolean fixPending() {
+            return fix && !comments.isEmpty();
+        }
+
+        /** Fix is the primary button, unless the agent's question waits for an answer too. */
+        public String fixButtonClass() {
+            return answer ? "btn btn-secondary btn-sm" : "btn btn-primary btn-sm";
         }
 
         /** Says how to get new comments when the page offers to check for them. */
