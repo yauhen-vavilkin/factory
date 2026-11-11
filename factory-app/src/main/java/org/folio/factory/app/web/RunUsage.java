@@ -36,8 +36,8 @@ record RunUsage(DeveloperRunView.Usage column, String amount, boolean partial, L
         }
         var total = !first.present() ? null : first.tokensReported() ? UiFormat.count(first.tokens()) : "—";
         var column = new DeveloperRunView.Usage(rounds ? "First implementation" : "Usage", List.copyOf(figures),
-                total, cost(first), first.partial() ? INCOMPLETE : null);
-        return new RunUsage(column, all.present() ? cost(all) : null, all.partial(), all.rateSources());
+                total, first.costLabel(), first.partial() ? INCOMPLETE : null);
+        return new RunUsage(column, all.present() ? all.costLabel() : null, all.partial(), all.rateSources());
     }
 
     /** Runs of older flow versions have no attempt identities, so their usage is summed per step. */
@@ -73,10 +73,5 @@ record RunUsage(DeveloperRunView.Usage column, String amount, boolean partial, L
             }
         }
         return List.copyOf(figures);
-    }
-
-    private static String cost(AttemptUsageSummary.Totals totals) {
-        var cost = UiFormat.money(totals.costByCurrency());
-        return cost != null ? cost : totals.present() ? "—" : "$0.00";
     }
 }

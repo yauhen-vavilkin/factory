@@ -1100,7 +1100,8 @@ class UiRenderSmokeTest {
                 .containsOnlyOnce("id=\"activity-title\"")
                 .contains("Activity <span class=\"dev-count\">0</span>", "No activity reported yet.",
                         "href=\"/audit?executionId=" + execution.getId() + "\">Audit log</a>")
-                .doesNotContain("Execution history", "data-developer-history", "Raw audit history");
+                // Nothing to read yet: Full transcript waits for the first activity row.
+                .doesNotContain("Execution history", "data-developer-history", "Raw audit history", "Full transcript");
     }
 
     @Test
@@ -2015,6 +2016,13 @@ class UiRenderSmokeTest {
                 .containsPattern("<span title=\"The whole attempt may take 1 h.\"><span\\s+class=\"status-card-money\""
                         + " data-elapsed-start=\"[^\"]+\">\\d+ s</span>\\s*"
                         + "<span class=\"status-card-note\">of 30 min</span></span>");
+        // The coding agent started and has reported no usage yet: the run has cost nothing so far.
+        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement", "smoke",
+                Map.of("activity", "coding_starting", "attemptId", "attempt-1"));
+        String agent = assertRendered("/executions/" + execution.getId(), "Implementing changes</p>");
+        assertThat(agent.substring(agent.indexOf("class=\"status-card-side\"")))
+                .containsPattern("class=\"status-card-money\"[^>]*>\\$0.00</span>\\s*"
+                        + "<span class=\"status-card-note\">so far</span>");
     }
 
     /** The {@code pageTime} fragment of a time, as the page renders it. */

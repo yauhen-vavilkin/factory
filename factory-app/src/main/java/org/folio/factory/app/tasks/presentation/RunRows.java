@@ -19,6 +19,7 @@ import java.util.stream.Stream;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.ago;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costNoteTitle;
+import static org.folio.factory.app.tasks.presentation.TaskLabels.costSoFar;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.incompleteCostNote;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.minutes;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.queued;
@@ -44,12 +45,12 @@ public final class RunRows {
                 actionUrl(view, latest, action), action == RunAction.MARK_STOPPED ? latest.attemptId() : null);
     }
 
-    /** The task's total, or the cost so far of the attempt that works now (none before it reports usage). */
+    /** The task's total, or the cost so far of the attempt that works now ($0.00 before it reports usage). */
     private static String cost(TaskView view, TaskView.AttemptHistoryEntry latest) {
         if (!working(view)) {
             return costLabel(view.usage());
         }
-        var soFar = costLabel(latest.usage());
+        var soFar = costSoFar(latest.usage());
         return soFar == null ? null : soFar + " so far";
     }
 

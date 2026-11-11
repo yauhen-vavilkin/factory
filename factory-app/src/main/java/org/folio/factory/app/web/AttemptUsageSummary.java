@@ -43,6 +43,18 @@ public final class AttemptUsageSummary {
             List<String> models,
             List<String> rateSources) {
 
+        /**
+         * The amount in words: "$0.00" before any usage and while the attempt that works has not reported tokens
+         * yet; "—" when the reported usage has no price.
+         */
+        public String costLabel() {
+            var cost = UiFormat.money(costByCurrency);
+            if (cost != null) {
+                return cost;
+            }
+            return !present || provisional && !tokensReported ? "$0.00" : "—";
+        }
+
         Totals withCosts(SortedMap<String, BigDecimal> costs) {
             return new Totals(present, tokens, tokensReported, breakdown, Collections.unmodifiableSortedMap(costs),
                     partial, provisional, attempts, models, rateSources);
@@ -156,21 +168,13 @@ public final class AttemptUsageSummary {
             var tokensDisplay = t.tokensReported() || !t.present() ? UiFormat.count(t.tokens()) : "—";
             return Map.of(
                     "present", t.present(),
-                    "cost", costDisplay(t),
+                    "cost", t.costLabel(),
                     "partial", t.partial(),
                     "tokensDisplay", tokensDisplay,
                     "models", String.join(", ", t.models()),
                     "attempts", t.attempts(),
                     "sources", t.rateSources(),
                     "breakdown", breakdownCounts(t.breakdown()));
-        }
-
-        private static String costDisplay(Totals t) {
-            var cost = UiFormat.money(t.costByCurrency());
-            if (cost != null) {
-                return cost;
-            }
-            return t.present() ? "—" : "$0.00";
         }
 
         private static Map<String, Long> breakdownCounts(Map<AttemptCharge.Category, Long> breakdown) {

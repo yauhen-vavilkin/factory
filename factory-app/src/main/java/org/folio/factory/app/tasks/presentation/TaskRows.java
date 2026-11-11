@@ -25,6 +25,7 @@ import static org.folio.factory.app.tasks.presentation.TaskLabels.ago;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.attemptResult;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costLabel;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costNoteTitle;
+import static org.folio.factory.app.tasks.presentation.TaskLabels.costSoFar;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.incompleteCostNote;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.minutes;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.pullRequestLabel;
@@ -42,6 +43,7 @@ import static org.folio.factory.app.tasks.presentation.TaskLabels.working;
 public class TaskRows {
 
     private static final int QUOTE = 80;
+    private static final String SO_FAR = "so far";
 
     private final TaskSourceProperties source;
     private final TaskJiraInstance jira;
@@ -74,7 +76,7 @@ public class TaskRows {
                 repositoryLine(view.destinationRepository()), view.version(), view.inputFingerprint(),
                 view.destinationFingerprint(), status(view), reason,
                 failure.map(found -> pullRequestNote(view.reason())).orElse(null), AttemptFailure.limitsUrl(reason),
-                view.draftReasons(), costLabel(view.usage()), spentNote(view), usageNote(view.usage()), clock(view),
+                view.draftReasons(), spent(view), spentNote(view), usageNote(view.usage()), clock(view),
                 view.allowedActions().retry(), view.attempts().size() + 1, runLink(view, pullRequest != null),
                 pullRequest, pullRequest == null ? null : "Open p" + pullRequestLabel(pullRequest).substring(1),
                 latest == null ? null : markStoppedAttemptId(latest));
@@ -83,13 +85,12 @@ public class TaskRows {
     public static AttemptRow attemptRow(TaskView view, TaskView.AttemptHistoryEntry attempt) {
         var status = AttemptStatus.of(view, attempt);
         var costNote = attemptCostNote(attempt);
+        var cost = SO_FAR.equals(costNote) ? costSoFar(attempt.usage()) : costLabel(attempt.usage());
         var started = PageTime.day(attempt.startedAt());
         return new AttemptRow(attempt.ordinal(), attemptKind(attempt), attemptMeta(attempt),
                 TaskRunSettings.label(attempt.runSettings()), started, attemptClock(attempt),
-                started == null ? "not started" : null, quote(attempt),
-                costLabel(attempt.usage()), costNote, costNoteTitle(costNote),
-                costText(costLabel(attempt.usage()), costNote), status, attemptResult(attempt, status),
-                attempt.executionId());
+                started == null ? "not started" : null, quote(attempt), cost, costNote, costNoteTitle(costNote),
+                costText(cost, costNote), status, attemptResult(attempt, status), attempt.executionId());
     }
 
     /**
@@ -156,7 +157,7 @@ public class TaskRows {
     private static String attemptCostNote(TaskView.AttemptHistoryEntry attempt) {
         return switch (attempt.state()) {
             case RESERVED -> null;
-            case QUEUED, RUNNING -> "so far";
+            case QUEUED, RUNNING -> SO_FAR;
             default -> incompleteCostNote(attempt.usage());
         };
     }
@@ -169,9 +170,14 @@ public class TaskRows {
     /** "$0.02", "$0.02 so far", or the note when there is no cost figure; a new attempt shows "—". */
     private static String costText(String cost, String costNote) {
         if (cost == null) {
-            return costNote == null || "so far".equals(costNote) ? "—" : costNote;
+            return costNote == null || SO_FAR.equals(costNote) ? "—" : costNote;
         }
-        return "so far".equals(costNote) ? cost + " so far" : cost;
+        return SO_FAR.equals(costNote) ? cost + " " + SO_FAR : cost;
+    }
+
+    /** What the task cost; "$0.00" while its first attempt works and has not reported usage yet. */
+    private static String spent(TaskView view) {
+        return working(view) ? costSoFar(view.usage()) : costLabel(view.usage());
     }
 
     /** "spent in 2 attempts"; null before the first attempt. Why the amount may be too low is its title. */

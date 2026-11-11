@@ -19,6 +19,7 @@ final class TaskLabels {
     static final String NEEDS_ANSWER = "Needs your answer";
     /** The stage of an attempt in flight whose run ended before the dispatcher closed the attempt. */
     static final String RUN_ENDED = "run-ended";
+    private static final String ZERO_COST = "$0.00";
     private static final String COST_MAY_BE_HIGHER = "cost may be higher";
     private static final String COST_UNKNOWN = "cost unknown";
     private static final String COST_MAY_BE_HIGHER_TITLE =
@@ -132,6 +133,12 @@ final class TaskLabels {
 
     static String costLabel(TaskUsage usage) {
         return UiFormat.money(usage.estimatesByCurrency());
+    }
+
+    /** The cost of work that runs now: "$0.00" until it reports tokens, null when its tokens have no price. */
+    static String costSoFar(TaskUsage usage) {
+        var cost = costLabel(usage);
+        return cost == null && usage.tokensByCategory().isEmpty() ? ZERO_COST : cost;
     }
 
     /** Why a finished cost is missing or may be too low; null when all usage was reported and priced. */

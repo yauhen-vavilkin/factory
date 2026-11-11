@@ -439,20 +439,21 @@ class TaskUiControllerTest {
                 .containsEntry("cost", null)
                 .containsEntry("costTitle", unknownTitle);
 
-        // The retry is running and has not reported usage yet: its cost is "so far", like Working in Triggered.
+        // The retry is running and has not reported usage yet: $0.00 so far, as the run card says.
         TaskView working = withUsage(taskView(TASK_ID, "MODBAR-911", "Open", TaskView.TaskState.WORKING,
                 false, false, attempt("STOPPED", 1, unreportedUsage()), attempt("RUNNING", 2, unreportedUsage())),
                 unreportedUsage());
         when(taskQuery.detail(TASK_ID)).thenReturn(working);
 
-        List<Map<String, Object>> attempts = rows(mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn()
-                .getModelAndView().getModel(), "attempts");
+        var taskModel = mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn().getModelAndView().getModel();
+        List<Map<String, Object>> attempts = rows(taskModel, "attempts");
         // Newest first.
         assertThat(attempts.get(0))
-                .containsEntry("cost", null)
+                .containsEntry("cost", "$0.00")
                 .containsEntry("costNote", "so far")
                 .containsEntry("costNoteTitle", null)
-                .containsEntry("costText", "—");
+                .containsEntry("costText", "$0.00 so far");
+        assertThat(((TaskDetail) taskModel.get("task")).spent()).isEqualTo("$0.00");
 
         // In Runs a working task shows the cost of the attempt that works now, not the total of the earlier ones.
         TaskView retrying = withUsage(taskView(TASK_ID, "MODBAR-911", "Open", TaskView.TaskState.WORKING,
@@ -460,12 +461,21 @@ class TaskUiControllerTest {
                 incompleteUsage());
         when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), retrying));
         assertThat(rows(mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel(), "triggered").getFirst())
-                .containsEntry("cost", null)
+                .containsEntry("cost", "$0.00 so far")
                 .containsEntry("costTitle", null);
         assertThat(attempts.get(1))
                 .containsEntry("cost", null)
                 .containsEntry("costNote", "cost unknown")
                 .containsEntry("costNoteTitle", unknownTitle);
+
+        // Tokens without a price keep the dash while the attempt works: their cost is not known.
+        TaskView unpriced = withUsage(taskView(TASK_ID, "MODBAR-911", "Open", TaskView.TaskState.WORKING,
+                false, false, attempt("RUNNING", 1, unpricedUsage())), unpricedUsage());
+        when(taskQuery.detail(TASK_ID)).thenReturn(unpriced);
+        assertThat(rows(mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn().getModelAndView().getModel(),
+                "attempts").getFirst())
+                .containsEntry("cost", null)
+                .containsEntry("costText", "—");
 
         // A queued attempt has no cost note: its Started cell already says "not started".
         when(taskQuery.detail(OTHER_TASK_ID)).thenReturn(taskView(OTHER_TASK_ID, "MODBAR-912", "Open",
@@ -1071,6 +1081,12 @@ class TaskUiControllerTest {
     /** A paid start with no reported usage: no cost figure, and the total is incomplete. */
     private static TaskUsage unreportedUsage() {
         return new TaskUsage(0, Map.of(), new TreeMap<>(), false, false, List.of());
+    }
+
+    /** Tokens reported for a model without a price. */
+    private static TaskUsage unpricedUsage() {
+        return new TaskUsage(1_000, Map.of(AttemptCharge.Category.INPUT, 1_000L), new TreeMap<>(), false, true,
+                List.of());
     }
 
     /** $0.32 so far, but some usage was not reported, so the total is incomplete. */

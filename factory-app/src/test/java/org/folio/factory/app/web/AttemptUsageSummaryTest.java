@@ -33,6 +33,9 @@ class AttemptUsageSummaryTest {
         assertThat(summary(List.of(event("4","coding_starting",false,"d","",0,0)),null,false))
                 .containsEntry("cost","—").containsEntry("partial",true).containsEntry("tokensDisplay","—");
         assertThat(summary(List.of(event("5","",true,"a","USD",0,0)),null,false)).containsEntry("cost","$0.00");
+        // While the attempt works and has reported nothing yet, it has cost nothing so far.
+        assertThat(summary(List.of(event("6","coding_starting",false,"d","USD",0,0)),null,true))
+                .containsEntry("cost","$0.00");
     }
     @Test void waitingAfterAbandonedAttemptIsNotCountedAsActiveWork() {
         Instant start=Instant.parse("2026-09-23T12:00:00Z");
