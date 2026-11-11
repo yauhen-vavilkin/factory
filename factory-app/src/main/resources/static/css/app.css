@@ -1201,11 +1201,14 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   border-bottom: 1px solid hsl(var(--border));
 }
 .dev-row-main { flex: 1 1 200px; min-width: 0; }
+/* At most two lines, so a narrow screen shows the start of a long title; its title attribute has it all. */
 .dev-row-title {
-  display: block;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   text-decoration: underline;
   text-decoration-color: hsl(var(--strong-border));
   text-underline-offset: 3px;
