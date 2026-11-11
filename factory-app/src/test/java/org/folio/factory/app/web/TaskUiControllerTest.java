@@ -553,6 +553,51 @@ class TaskUiControllerTest {
         verify(dispatcher, never()).dispatchNextQuietly();
     }
 
+    @Test
+    void poll_changesWhenTheRunningTaskShowsAnotherCostAndStaysWhenItShowsTheSame() throws Exception {
+        TaskInstallation installation = TaskInstallations.seeded();
+        installation.setActiveAttemptId(ATTEMPT_ID);
+        when(installations.findById(1)).thenReturn(Optional.of(installation));
+        TaskAttempt attempt = new TaskAttempt(TASK_ID, 1, TaskAttempt.Kind.INITIAL, "run#1", TaskAttempt.State.RUNNING);
+        ReflectionTestUtils.setField(attempt, "id", ATTEMPT_ID);
+        when(attempts.findById(ATTEMPT_ID)).thenReturn(Optional.of(attempt));
+        TaskView before = taskView(TASK_ID, "MODBAR-931", "Open", TaskView.TaskState.WORKING, false, false,
+                attempt("RUNNING", 1, emptyUsage()));
+        TaskView later = taskView(TASK_ID, "MODBAR-931", "Open", TaskView.TaskState.WORKING, false, false,
+                attempt("RUNNING", 1, incompleteUsage()));
+        when(taskQuery.detail(TASK_ID)).thenReturn(before, before, later);
+
+        String first = mvc.perform(get("/tasks/poll")).andReturn().getResponse().getContentAsString();
+        String same = mvc.perform(get("/tasks/poll")).andReturn().getResponse().getContentAsString();
+        String grown = mvc.perform(get("/tasks/poll")).andReturn().getResponse().getContentAsString();
+
+        assertThat(same).isEqualTo(first);
+        assertThat(grown).isNotEqualTo(first);
+        verifyNoInteractions(admissions, outcomes);
+    }
+
+    @Test
+    void taskPoll_startsFromThePageAndChangesWhenAnAttemptStarts() throws Exception {
+        TaskView stopped = taskView(TASK_ID, "MODBAR-911", "Open", TaskView.TaskState.STOPPED, false, true,
+                attempt("STOPPED", "MANUAL", 1));
+        TaskView started = taskView(TASK_ID, "MODBAR-911", "Open", TaskView.TaskState.WORKING, false, false,
+                attempt("STOPPED", "MANUAL", 1), attempt("RUNNING", "MANUAL", 2));
+        when(taskQuery.detail(TASK_ID)).thenReturn(stopped, stopped, started);
+
+        var page = mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn().getModelAndView().getModel();
+        String baseline = (String) page.get("pollBaseline");
+        String unchanged = mvc.perform(get("/tasks/{taskId}/poll", TASK_ID)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String changed = mvc.perform(get("/tasks/{taskId}/poll", TASK_ID)).andReturn().getResponse()
+                .getContentAsString();
+
+        assertThat(page).containsEntry("pollUrl", "/tasks/" + TASK_ID + "/poll");
+        assertThat(baseline).matches("[0-9a-f]+");
+        assertThat(unchanged).isEqualTo("{\"revision\":\"" + baseline + "\"}");
+        assertThat(changed).doesNotContain(baseline);
+        verifyNoInteractions(admissions, outcomes);
+    }
+
     // ----- run selected -----
 
     @Test

@@ -12,6 +12,7 @@ import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.presentation.AvailableRow;
+import org.folio.factory.app.tasks.presentation.InProgressStrip;
 import org.folio.factory.app.tasks.presentation.RunRows;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
 import org.folio.factory.app.tasks.presentation.TaskRows;
@@ -36,6 +37,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import static org.folio.factory.devfactory.DevFactoryConfiguration.FLOW_ID;
@@ -259,6 +261,25 @@ public class TaskUiController {
         String problem = installation.getSyncProblem() == null ? "none" : "present";
         return installation.isSyncComplete() + "|" + problem + "|" + installation.getUpdatedAt()
                 + "|" + attempts.findLatestUpdate().map(Instant::toString).orElse("none")
-                + "|" + attempts.count() + "|" + (dispatcher.queueProblem() == null ? "moving" : "stuck");
+                + "|" + attempts.count() + "|" + (dispatcher.queueProblem() == null ? "moving" : "stuck")
+                + "|" + running(installation);
+    }
+
+    /**
+     * What the strip and the Runs row of the running task show: its cost so far, its age and its minutes. Usage
+     * events do not change the attempt row, so without this part the numbers would stand still until the run ends.
+     */
+    private String running(TaskInstallation installation) {
+        return Optional.ofNullable(installation.getActiveAttemptId())
+                .flatMap(attempts::findById)
+                .map(attempt -> taskQuery.detail(attempt.getTaskId()))
+                .map(TaskUiController::shownWhileRunning)
+                .map(shown -> Integer.toHexString(shown.hashCode()))
+                .orElse("idle");
+    }
+
+    private static String shownWhileRunning(TaskView view) {
+        var row = RunRows.row(view);
+        return row.cost() + "|" + row.when() + "|" + RunRows.strip(List.of(view)).map(InProgressStrip::run).orElse("");
     }
 }

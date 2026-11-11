@@ -1436,6 +1436,50 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void theCostOfATaskIncludesItsPrFeedbackRounds() {
+        resetTaskData();
+        Task delivered = seedTask("70033", "MODBAR-733", "Task with a round",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        PipelineExecution execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        TaskAttempt attempt = seedAttempt(delivered, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.PR_READY, null);
+        attempt.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/9");
+        attempt.setExecutionId(execution.getId());
+        taskAttempts.save(attempt);
+        // The first implementation and one PR feedback round, each $0.15.
+        for (var coding : List.of(Map.entry("implement", -1), Map.entry("pr-follow-up", 1))) {
+            auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, coding.getKey(), "smoke",
+                    Map.of("attemptId", coding.getKey() + "-attempt", "round", coding.getValue(), "model", "test-model",
+                            "inputTokens", 1_000_000, "cacheReadTokens", 0, "cacheWriteTokens", 0, "outputTokens", 0,
+                            "rate", Map.of("currency", "USD", "source", "card", "inputPerMillion", 0.15,
+                                    "cacheReadPerMillion", 0.03, "outputPerMillion", 0.5)));
+        }
+
+        String list = assertRendered("/flows/dev-factory", "Runs");
+        assertThat(list.substring(list.indexOf(">MODBAR-733</a>")))
+                .containsPattern("<span class=\"row-amount\"[^>]*>\\$0.30</span>");
+        assertThat(assertRendered("/tasks/" + delivered.getId(), "Pull request #9"))
+                .contains("<span class=\"status-card-money\">$0.30</span>");
+    }
+
+    @Test
+    void theTaskPageRefreshesItselfFromItsOwnPoll() {
+        resetTaskData();
+        Task stopped = seedTask("70034", "MODBAR-734", "Polled task", Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
+                "VERIFICATION_FAILED: 2 tests in error");
+
+        String body = assertRendered("/tasks/" + stopped.getId(), "Failed");
+        assertThat(body).contains("data-poll-fields=\"revision\"",
+                "data-poll-url=\"/tasks/" + stopped.getId() + "/poll\"",
+                "<p class=\"dev-poll-notice\" role=\"status\" data-poll-notice hidden>This task changed.");
+        Matcher baseline = Pattern.compile("data-poll-baseline=\"([0-9a-f]+)\"").matcher(body);
+        assertThat(baseline.find()).isTrue();
+        // Nothing changed since the page was built: the poll gives the page's own baseline.
+        assertThat(rest.get().uri("/tasks/" + stopped.getId() + "/poll").retrieve().toEntity(String.class).getBody())
+                .isEqualTo("{\"revision\":\"" + baseline.group(1) + "\"}");
+    }
+
+    @Test
     void draftPrShowsItsReasonsOnTheTaskPageAndDraftOnTheRunPage() {
         resetTaskData();
         Task delivered = seedTask("70032", "MODBAR-732", "Draft task",

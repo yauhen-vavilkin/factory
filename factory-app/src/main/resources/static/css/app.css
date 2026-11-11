@@ -1187,6 +1187,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .dev-list-head .dev-section-title { font-size: 16px; }
 .dev-list-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; }
 .dev-list-tools [data-poll-notice] { color: hsl(var(--notice-foreground)); }
+.dev-poll-notice { font-size: 13px; color: hsl(var(--notice-foreground)); }
 .add-key { display: flex; align-items: center; gap: 10px; }
 .add-key-input { width: 280px; }
 /* The right part of a row lines up with the title line, also in rows of two or three lines. On a narrow

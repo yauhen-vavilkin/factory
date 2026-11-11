@@ -2,7 +2,8 @@
 <html th:replace="~{fragments/layout :: page(title=${task.key()}, activeNav='flows', content=~{:: .dev-page}, scripts=~{})}"
       xmlns:th="http://www.thymeleaf.org" lang="en">
 <body>
-<div class="dev-page">
+<div class="dev-page" data-poll-fields="revision"
+     th:attr="data-poll-url=${pollUrl}, data-poll-baseline=${pollBaseline}">
     <div class="dev-heading">
         <nav class="dev-breadcrumb" aria-label="Breadcrumb"><a th:href="@{/flows/dev-factory}">Developer Flow</a>
             / <span th:text="${task.key()}">KEY-1</span></nav>
@@ -12,6 +13,9 @@
             <span th:if="${task.repository() != null}" th:text="${task.repository()}">repository</span>
         </div>
     </div>
+
+    <p class="dev-poll-notice" role="status" data-poll-notice hidden>This task changed. Copy what you typed,
+        then reload the page to see the change.</p>
 
     <section class="status-card" aria-label="Status">
         <span th:class="${task.stateClass()}" th:text="${task.stateLabel()}">State</span>

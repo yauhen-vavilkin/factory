@@ -105,6 +105,62 @@ test('a picked effort holds the live reload and shows the notice instead', async
   assert.equal(notice.hidden, false);
 });
 
+test('text typed for the agent holds the task page reload; an empty text field does not', async () => {
+  for (const typed of ['Keep the public API.', '  ']) {
+    let ready, tick, reloads = 0;
+    const notice = { hidden: true };
+    const attributes = { 'data-poll-url': '/tasks/id/poll', 'data-poll-fields': 'revision', 'data-poll-baseline': 'a1' };
+    const elements = { '[data-poll-url]': { getAttribute: key => attributes[key] }, '[data-poll-notice]': notice };
+    vm.runInNewContext(POLL_JS, {
+      window: {},
+      document: {
+        hidden: false,
+        addEventListener: (event, callback) => { if (event === 'DOMContentLoaded') ready = callback; },
+        querySelector: selector => elements[selector] || null,
+        querySelectorAll: selector => selector === 'textarea' ? [{ value: typed }] : []
+      },
+      setTimeout: callback => { tick = callback; },
+      location: { reload: () => { reloads++; } },
+      fetch: async () => ({ ok: true, json: async () => ({ revision: 'b2' }) })
+    });
+    ready();
+    tick();
+    await new Promise(resolve => setImmediate(resolve));
+
+    assert.equal(reloads, typed.trim() ? 0 : 1);
+    assert.equal(notice.hidden, !typed.trim());
+  }
+});
+
+test('a model the developer picked holds the reload too', async () => {
+  let ready, tick, reloads = 0;
+  const notice = { hidden: true };
+  const attributes = { 'data-poll-url': '/tasks/poll', 'data-poll-fields': 'revision', 'data-poll-baseline': 'old' };
+  const elements = {
+    '[data-poll-url]': { getAttribute: key => attributes[key] },
+    '[data-poll-notice]': notice,
+    '[data-model-picked]': {}
+  };
+  vm.runInNewContext(POLL_JS, {
+    window: {},
+    document: {
+      hidden: false,
+      addEventListener: (event, callback) => { if (event === 'DOMContentLoaded') ready = callback; },
+      querySelector: selector => elements[selector] || null,
+      querySelectorAll: () => []
+    },
+    setTimeout: callback => { tick = callback; },
+    location: { reload: () => { reloads++; } },
+    fetch: async () => ({ ok: true, json: async () => ({ revision: 'new' }) })
+  });
+  ready();
+  tick();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(reloads, 0);
+  assert.equal(notice.hidden, false);
+});
+
 function selectionForm(field, attributes, count) {
   function box(checked) {
     const listeners = {};
@@ -191,6 +247,7 @@ test('Effort offers the chosen model levels and a model change keeps only a leve
   const pickedMedium = toggle('effort-c', five, 'medium');
   const toggles = [untouched, pickedLow, pickedMedium];
   const select = { selectedIndex: 0, addEventListener(event, callback) { this.change = callback; },
+    setAttribute(key, value) { this[key] = value; },
     options: [option('codemie-sonnet-5.5', five.join(' '), 'high'), option('glm-5.3', 'low high max', 'max')],
     form: { querySelectorAll: selector => selector === '[data-effort-toggle]' ? toggles : [] } };
   let ready;
@@ -209,6 +266,7 @@ test('Effort offers the chosen model levels and a model change keeps only a leve
 
   select.selectedIndex = 1;
   select.change();
+  assert.equal(select['data-model-picked'], 'true');
 
   for (const [element, name] of [[untouched, 'effort-a'], [pickedLow, 'effort-b'], [pickedMedium, 'effort-c']]) {
     assert.deepEqual(element.children.map(label => input(label).value), ['low', 'high', 'max']);

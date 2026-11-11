@@ -72,12 +72,15 @@
     });
   });
 
-  // A reload must not drop what the developer is doing: a selection, a picked effort or a half-typed key.
+  // A reload must not drop what the developer is doing: a selection, a picked model or effort, a half-typed key
+  // or text typed for the agent.
   function applyUpdate() {
     var notice = document.querySelector('[data-poll-notice]');
     var typedKey = document.querySelector('input[name="key"]');
+    var typedText = Array.prototype.some.call(document.querySelectorAll('textarea'),
+      function (textarea) { return textarea.value.trim(); });
     var busy = document.querySelector('input[name="taskId"]:checked') || document.querySelector('[data-effort-picked]')
-      || (typedKey && typedKey.value.trim());
+      || document.querySelector('[data-model-picked]') || (typedKey && typedKey.value.trim()) || typedText;
     if (notice && busy) {
       notice.hidden = false;
       return;
@@ -94,6 +97,7 @@
         toggle.addEventListener('change', function () { toggle.setAttribute('data-effort-picked', 'true'); });
       });
       select.addEventListener('change', function () {
+        select.setAttribute('data-model-picked', 'true');
         var chosen = select.options[select.selectedIndex];
         var efforts = chosen.getAttribute('data-efforts').split(' ');
         var preferred = chosen.getAttribute('data-default-effort');

@@ -5,9 +5,12 @@ import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.admission.TaskRunSettings;
+import org.folio.factory.app.tasks.presentation.AttemptRow;
 import org.folio.factory.app.tasks.presentation.TaskAnswers;
+import org.folio.factory.app.tasks.presentation.TaskDetail;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
 import org.folio.factory.app.tasks.presentation.TaskRows;
+import org.folio.factory.app.tasks.presentation.TaskView;
 import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -15,8 +18,10 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -40,14 +45,26 @@ public class TaskPageController {
     public String task(@PathVariable("taskId") UUID taskId,
                        @RequestParam(name = "error", required = false) String error, Model model) {
         var view = taskQuery.detail(taskId);
-        model.addAttribute("task", rows.detail(view));
+        var task = rows.detail(view);
+        var attempts = attemptRows(view);
+        model.addAttribute("task", task);
         model.addAttribute("question", answers.question(view).orElse(null));
-        model.addAttribute("attempts", view.attempts().reversed().stream().map(TaskRows::attemptRow).toList());
+        model.addAttribute("attempts", attempts);
+        model.addAttribute("pollUrl", "/tasks/" + taskId + "/poll");
+        model.addAttribute("pollBaseline", revision(task, attempts));
         // A new attempt starts from the configured model and effort, not from the previous attempt's.
         model.addAttribute("retryForm", runSettings.form());
         model.addAttribute("instructionsLimit", ModelCatalog.MAX_INSTRUCTIONS);
         model.addAttribute("error", error);
         return "task";
+    }
+
+    /** The task page's live refresh, like the run page's; a read-only projection, never an action. */
+    @GetMapping("/tasks/{taskId}/poll")
+    @ResponseBody
+    public Map<String, Object> poll(@PathVariable("taskId") UUID taskId) {
+        var view = taskQuery.detail(taskId);
+        return Map.of("revision", revision(rows.detail(view), attemptRows(view)));
     }
 
     /**
@@ -75,6 +92,19 @@ public class TaskPageController {
             return "redirect:" + back;
         }
         return refused(back, result.explanation(), form, redirect);
+    }
+
+    /** Newest first: a new attempt is added at the top. */
+    private static List<AttemptRow> attemptRows(TaskView view) {
+        return view.attempts().reversed().stream().map(TaskRows::attemptRow).toList();
+    }
+
+    /**
+     * Changes whenever the page would show other text: the state, the reason, a cost, an attempt or its minutes.
+     * Hex, so it has no comma for poll.js to split on.
+     */
+    private static String revision(TaskDetail task, List<AttemptRow> attempts) {
+        return Integer.toHexString((task + "|" + attempts).hashCode());
     }
 
     /** The page shows the text the developer typed again; it goes through the session, never into the URL. */
