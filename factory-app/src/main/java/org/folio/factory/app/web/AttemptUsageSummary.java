@@ -42,6 +42,11 @@ public final class AttemptUsageSummary {
             int attempts,
             List<String> models,
             List<String> rateSources) {
+
+        Totals withCosts(SortedMap<String, BigDecimal> costs) {
+            return new Totals(present, tokens, tokensReported, breakdown, Collections.unmodifiableSortedMap(costs),
+                    partial, provisional, attempts, models, rateSources);
+        }
     }
 
     /** Typed totals across every coding attempt in the events, priced exactly once each. */
@@ -64,16 +69,25 @@ public final class AttemptUsageSummary {
         }
 
         Map<String, Object> summary(Integer round, boolean live) {
-            return (round == null ? all : rounds.getOrDefault(round, new Group())).summary(live);
+            return Group.summary(totals(round, live));
         }
 
         public Totals totals(boolean live) {
-            return all.totals(live);
+            return totals(null, live);
         }
 
-        /** The typed totals of one round, of the first implementation (-1), or of the whole run (null). */
+        /**
+         * The typed totals of one round, of the first implementation (-1), or of the whole run (null). The cost of
+         * the whole run is the sum of the amounts its first implementation and its rounds show.
+         */
         Totals totals(Integer round, boolean live) {
-            return (round == null ? all : rounds.getOrDefault(round, new Group())).totals(live);
+            if (round != null) {
+                return rounds.getOrDefault(round, new Group()).totals(live);
+            }
+            var costs = new TreeMap<String, BigDecimal>();
+            rounds.values().forEach(group -> group.totals(live).costByCurrency().forEach(
+                    (currency, amount) -> costs.merge(currency, UiFormat.shownAmount(amount), BigDecimal::add)));
+            return all.totals(live).withCosts(costs);
         }
     }
 
@@ -138,8 +152,7 @@ public final class AttemptUsageSummary {
             return source + " (" + asOf + ")";
         }
 
-        Map<String, Object> summary(boolean live) {
-            var t = totals(live);
+        static Map<String, Object> summary(Totals t) {
             var tokensDisplay = t.tokensReported() || !t.present() ? UiFormat.count(t.tokens()) : "—";
             return Map.of(
                     "present", t.present(),

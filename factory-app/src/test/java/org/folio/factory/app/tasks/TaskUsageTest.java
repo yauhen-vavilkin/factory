@@ -3,6 +3,7 @@ package org.folio.factory.app.tasks;
 import org.folio.factory.app.tasks.presentation.TaskUsage;
 import org.folio.factory.app.web.AttemptCharge;
 import org.folio.factory.app.web.AttemptUsageSummary;
+import org.folio.factory.app.web.UiFormat;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.junit.jupiter.api.Test;
@@ -157,5 +158,19 @@ class TaskUsageTest {
 
         assertThat(paidStartWithoutUsage.estimatesByCurrency()).isEmpty();
         assertThat(paidStartWithoutUsage.complete()).isFalse();
+    }
+
+    @Test
+    void theTaskTotalAddsTheAmountsItsAttemptRowsShow() {
+        var attempts = new java.util.ArrayList<AttemptUsageSummary.Totals>();
+        for (int i = 0; i < 3; i++) {
+            attempts.add(totals(List.of(usageEvent(UUID.randomUUID(), AuditEventType.STEP_COMPLETED, "a" + i, -1,
+                    USD_RATE, Map.of("inputTokens", 2_000, "outputTokens", 0,
+                            "cacheReadTokens", 0, "cacheWriteTokens", 0)))));
+        }
+        var task = TaskUsage.aggregate(attempts, false);
+
+        assertThat(UiFormat.money(attempts.getFirst().costByCurrency())).isEqualTo("<$0.01");
+        assertThat(UiFormat.money(task.estimatesByCurrency())).isEqualTo("$0.01");
     }
 }

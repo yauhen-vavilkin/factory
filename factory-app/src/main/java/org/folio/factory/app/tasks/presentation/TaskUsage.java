@@ -2,6 +2,7 @@ package org.folio.factory.app.tasks.presentation;
 
 import org.folio.factory.app.web.AttemptCharge;
 import org.folio.factory.app.web.AttemptUsageSummary;
+import org.folio.factory.app.web.UiFormat;
 
 import java.math.BigDecimal;
 import java.util.Collections;
@@ -38,8 +39,9 @@ public record TaskUsage(
         for (var totals : contributions) {
             tokens += totals.tokens();
             totals.breakdown().forEach((category, count) -> categories.merge(category, count, Long::sum));
-            totals.costByCurrency().forEach(
-                    (currency, amount) -> estimates.merge(currency, amount, BigDecimal::add));
+            // A total is the sum of the amounts the attempt rows show, so the card and the rows never disagree.
+            totals.costByCurrency().forEach((currency, amount) -> estimates.merge(currency,
+                    UiFormat.shownAmount(amount), BigDecimal::add));
             complete &= !totals.partial();
             provisional |= totals.provisional();
             models.addAll(totals.models());

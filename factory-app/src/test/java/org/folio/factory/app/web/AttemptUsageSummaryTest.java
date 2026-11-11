@@ -22,13 +22,13 @@ class AttemptUsageSummaryTest {
                 event("1","",true,"a","USD",100,30),event("1","coding_usage",false,"a","USD",150,50),
                 event("2","",true,"b","USD",200,40));
         var result=summary(events,null,false);
-        assertThat(result).containsEntry("attempts",2).containsEntry("tokensDisplay","370").containsEntry("cost","$0.00")
+        assertThat(result).containsEntry("attempts",2).containsEntry("tokensDisplay","370").containsEntry("cost","<$0.01")
                 .containsEntry("partial",false).containsEntry("models","a, b");
     }
     @Test void interruptedUsageIsIncludedAndCurrenciesStaySeparate() {
         var result=summary(List.of(event("1","",true,"a","USD",100,0),event("2","",true,"b","EUR",100,0),
                 event("3","coding_usage",false,"c","USD",200,20)),null,false);
-        assertThat(result).containsEntry("cost","0.00 EUR + $0.00").containsEntry("partial",true)
+        assertThat(result).containsEntry("cost","<0.01 EUR + <$0.01").containsEntry("partial",true)
                 .containsEntry("tokensDisplay","420");
         assertThat(summary(List.of(event("4","coding_starting",false,"d","",0,0)),null,false))
                 .containsEntry("cost","—").containsEntry("partial",true).containsEntry("tokensDisplay","—");
@@ -44,9 +44,9 @@ class AttemptUsageSummaryTest {
     @Test void runningAttemptShowsEstimateFromStreamAndCapturedRate() {
         var events=List.of(event("live","coding_starting",false,"a","USD",0,0),
                 event("live","coding_usage",false,"a","USD",100,20));
-        assertThat(summary(events,null,false)).containsEntry("cost","$0.00");
+        assertThat(summary(events,null,false)).containsEntry("cost","<$0.01");
         assertThat(summary(events,null,true))
-                .containsEntry("cost","$0.00")
+                .containsEntry("cost","<$0.01")
                 .containsEntry("tokensDisplay","120");
         assertThat(AttemptUsageSummary.totals(events,true).provisional()).isTrue();
     }
@@ -56,7 +56,7 @@ class AttemptUsageSummaryTest {
                  "usageIncomplete":true,"rate":{"currency":"USD","inputPerMillion":2}}
                 """);
         assertThat(summary(List.of(incomplete),null,true))
-                .containsEntry("cost","$0.00").containsEntry("tokensDisplay","120").containsEntry("partial",true);
+                .containsEntry("cost","<$0.01").containsEntry("tokensDisplay","120").containsEntry("partial",true);
         var unpriced=new AuditEvent(UUID.randomUUID(),AuditEventType.RUNTIME_PROGRESS,"implement","test","""
                 {"attemptId":"unpriced","activity":"coding_usage","inputTokens":100,"outputTokens":0,
                  "cacheReadTokens":0,"cacheWriteTokens":0,"rate":{"currency":"USD"}}
@@ -69,7 +69,7 @@ class AttemptUsageSummaryTest {
                 event("new","coding_starting",false,"a","USD",0,0),
                 event("new","coding_usage",false,"a","USD",50,10));
         assertThat(summary(events,1,true))
-                .containsEntry("cost","$0.00").containsEntry("tokensDisplay","180");
+                .containsEntry("cost","<$0.01").containsEntry("tokensDisplay","180");
         assertThat(summary(events,-1,true))
                 .containsEntry("cost","$0.00").containsEntry("tokensDisplay","0").containsEntry("present",false);
     }
@@ -122,7 +122,7 @@ class AttemptUsageSummaryTest {
                 +"\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"outputTokens\":4000,\"rate\":"+rate+"}");
 
         var legacyEstimate=StepUsageSummary.from(List.of(initial),true,JSON).estimate(estimator);
-        var initialTotals=AttemptUsageSummary.totals(List.of(initial),false);
+        var initialTotals=new AttemptUsageSummary.Projection(List.of(initial)).totals(-1,false);
         var withFeedbackTotals=AttemptUsageSummary.totals(List.of(initial,feedback),false);
 
         assertThat(legacyEstimate).isNotNull();
@@ -130,13 +130,15 @@ class AttemptUsageSummaryTest {
         assertThat(initialTotals.costByCurrency().get("USD")).isEqualByComparingTo(legacyEstimate.amount());
         assertThat(initialTotals.breakdown()).containsEntry(AttemptCharge.Category.INPUT,100_000L)
                 .containsEntry(AttemptCharge.Category.OUTPUT,20_000L);
-        assertThat(withFeedbackTotals.costByCurrency().get("USD")).isEqualByComparingTo("0.033");
+        // The run total adds what each part shows: $0.03 for the first implementation and the exact 0.008 of a
+        // round that shows <$0.01.
+        assertThat(withFeedbackTotals.costByCurrency().get("USD")).isEqualByComparingTo("0.038");
         assertThat(withFeedbackTotals.breakdown()).containsEntry(AttemptCharge.Category.INPUT,140_000L)
                 .containsEntry(AttemptCharge.Category.OUTPUT,24_000L);
         assertThat(withFeedbackTotals.rateSources()).containsExactly("anthropic-pricing (2026-09-19)");
         assertThat(withFeedbackTotals.models()).containsExactly("claude-haiku-5-5");
         assertThat(withFeedbackTotals.partial()).isFalse();
-        assertThat(summary(List.of(initial,feedback),1,false)).containsEntry("cost","$0.01");
+        assertThat(summary(List.of(initial,feedback),1,false)).containsEntry("cost","<$0.01");
     }
 
     @Test void projectionKeepsRoundsSeparateAndUsesCapturedRates() {
@@ -152,9 +154,32 @@ class AttemptUsageSummaryTest {
                 new AuditEvent(initial.getExecutionId(), initial.getEventType(), "implement", "test", JSON.writeValueAsString(initialDetail)),
                 event("round", "", true, "b", "EUR", 200, 30));
         var projection = new AttemptUsageSummary.Projection(events);
-        assertThat(projection.summary(-1, false)).containsEntry("cost", "$0.00").containsEntry("attempts", 1);
-        assertThat(projection.summary(1, false)).containsEntry("cost", "0.00 EUR").containsEntry("tokensDisplay", "230");
-        assertThat(projection.summary(null, false)).containsEntry("cost", "0.00 EUR + $0.00")
+        assertThat(projection.summary(-1, false)).containsEntry("cost", "<$0.01").containsEntry("attempts", 1);
+        assertThat(projection.summary(1, false)).containsEntry("cost", "<0.01 EUR").containsEntry("tokensDisplay", "230");
+        assertThat(projection.summary(null, false)).containsEntry("cost", "<0.01 EUR + <$0.01")
                 .containsEntry("tokensDisplay", "350").containsEntry("attempts", 2);
+    }
+
+    @Test void anAmountUnderOneCentIsNeverShownAsFreeAndATotalAddsWhatItsPartsShow() {
+        assertThat(UiFormat.money(new java.math.BigDecimal("0.004"),"USD")).isEqualTo("<$0.01");
+        assertThat(UiFormat.money(new java.math.BigDecimal("0.004"),"EUR")).isEqualTo("<0.01 EUR");
+        assertThat(UiFormat.money(java.math.BigDecimal.ZERO,"USD")).isEqualTo("$0.00");
+        assertThat(UiFormat.money(new java.math.BigDecimal("0.01"),"USD")).isEqualTo("$0.01");
+        assertThat(runTotal("0.004","0.004","0.004")).isEqualTo("$0.01");
+        assertThat(runTotal("0.005","0.005","0.005")).isEqualTo("$0.02");
+        assertThat(runTotal("0.425","0.425")).isEqualTo("$0.86");
+        assertThat(runTotal("0.003")).isEqualTo("<$0.01");
+    }
+    /** The cost of a run whose first implementation and rounds cost these amounts, one group each. */
+    static String runTotal(String... amounts) {
+        var events=new ArrayList<AuditEvent>();
+        for (int i=0;i<amounts.length;i++) {
+            var tokens=new java.math.BigDecimal(amounts[i]).movePointRight(6).longValueExact();
+            events.add(new AuditEvent(UUID.randomUUID(),AuditEventType.STEP_COMPLETED,"implement","test",
+                    "{\"attemptId\":\"a"+i+"\",\"round\":"+(i==0?-1:i)+",\"inputTokens\":"+tokens
+                    +",\"cacheReadTokens\":0,\"cacheWriteTokens\":0,\"outputTokens\":0,"
+                    +"\"rate\":{\"currency\":\"USD\",\"inputPerMillion\":1,\"outputPerMillion\":1}}"));
+        }
+        return UiFormat.money(new AttemptUsageSummary.Projection(events).totals(null,false).costByCurrency());
     }
 }

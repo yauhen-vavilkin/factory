@@ -28,15 +28,22 @@ public final class UiFormat {
 
     /** Longest message carried in a redirect; a remote error body could otherwise overflow the headers. */
     static final int MAX_REDIRECT_MESSAGE = 300;
+    private static final BigDecimal CENT = new BigDecimal("0.01");
 
     static String abbreviate(String value) {
         return value.length() <= 13 ? value : value.substring(0, 10) + "...";
     }
 
-    /** One cost format for every page: {@code $0.70} for USD, {@code 0.70 EUR} for other currencies. */
+    /**
+     * One cost format for every page: {@code $0.70} for USD, {@code 0.70 EUR} for other currencies. An amount above
+     * zero and under one cent is {@code <$0.01}, so a run that cost something never reads as free.
+     */
     public static String money(BigDecimal amount, String currency) {
-        var rounded = amount.setScale(2, RoundingMode.HALF_UP).toPlainString();
-        return "USD".equals(currency) ? "$" + rounded : rounded + " " + currency;
+        var text = underOneCent(amount) ? "<0.01" : amount.setScale(2, RoundingMode.HALF_UP).toPlainString();
+        if (!"USD".equals(currency)) {
+            return text + " " + currency;
+        }
+        return text.startsWith("<") ? "<$0.01" : "$" + text;
     }
 
     /** Costs in several currencies joined with " + "; null when there is no cost. */
@@ -47,6 +54,18 @@ public final class UiFormat {
         return amountsByCurrency.entrySet().stream()
                 .map(entry -> money(entry.getValue(), entry.getKey()))
                 .collect(Collectors.joining(" + "));
+    }
+
+    /**
+     * The amount a part adds to a total, so a total is the sum of the amounts its parts show: the amount in cents,
+     * or the exact amount of a part that shows {@code <$0.01}.
+     */
+    public static BigDecimal shownAmount(BigDecimal amount) {
+        return underOneCent(amount) ? amount : amount.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static boolean underOneCent(BigDecimal amount) {
+        return amount.signum() > 0 && amount.compareTo(CENT) < 0;
     }
 
     /** Groups a count with thousands separators — token totals reach seven figures. */
