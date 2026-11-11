@@ -289,8 +289,8 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
 }
 /* A disclosure looks like a small secondary button with a chevron that points right when closed and down
    when open. The opened content is one indented box tied to its summary, never loose page text. The
-   .run-extra and .details-inline disclosures share the look. */
-.disclosure > summary, .run-extra > summary, .details-inline > summary {
+   .details-inline disclosures share the look. */
+.disclosure > summary, .details-inline > summary {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -310,12 +310,11 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
   user-select: none;
   transition: background-color 150ms ease;
 }
-.disclosure > summary:hover, .run-extra > summary:hover, .details-inline > summary:hover {
+.disclosure > summary:hover, .details-inline > summary:hover {
   background: hsl(var(--secondary-hover));
 }
-.disclosure > summary::-webkit-details-marker, .run-extra > summary::-webkit-details-marker,
-.details-inline > summary::-webkit-details-marker { display: none; }
-.disclosure > summary::before, .run-extra > summary::before, .details-inline > summary::before {
+.disclosure > summary::-webkit-details-marker, .details-inline > summary::-webkit-details-marker { display: none; }
+.disclosure > summary::before, .details-inline > summary::before {
   content: "";
   flex: none;
   display: block;
@@ -326,18 +325,16 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
   transition: transform 150ms ease;
 }
-.disclosure[open] > summary::before, .run-extra[open] > summary::before,
-.details-inline[open] > summary::before { transform: rotate(90deg); }
+.disclosure[open] > summary::before, .details-inline[open] > summary::before { transform: rotate(90deg); }
 /* The content box of an open details element; browsers without ::details-content show it unboxed. */
-.disclosure[open]::details-content, .run-extra[open]::details-content, .details-inline[open]::details-content {
+.disclosure[open]::details-content, .details-inline[open]::details-content {
   margin-top: 6px;
   padding: 10px 12px;
   border: 1px solid hsl(var(--border));
   border-radius: 6px;
   background: hsl(var(--subtle));
 }
-.disclosure[open] > :not(summary) + :not(summary),
-.run-extra[open] > :not(summary) + :not(summary) { margin-top: 8px; }
+.disclosure[open] > :not(summary) + :not(summary) { margin-top: 8px; }
 
 /* ---------- badge ---------- */
 .badge {
@@ -711,92 +708,6 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .def-list dt { color: hsl(var(--muted-foreground)); }
 .def-list dd { margin: 0; font-variant-numeric: tabular-nums; }
 
-/* ---------- Developer Flow execution ---------- */
-.developer-execution { overflow: hidden; }
-.developer-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1.5rem;
-  padding: 1rem 1.5rem 0.875rem;
-  border-bottom: 1px solid hsl(var(--border));
-}
-.developer-flow-label {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.375rem 0.75rem;
-  color: hsl(var(--muted-foreground));
-  font-size: 0.8125rem;
-}
-.developer-title {
-  max-width: 52rem;
-  margin-top: 0.1875rem;
-  font-size: 1.125rem;
-  letter-spacing: -0.02em;
-}
-.developer-content { padding: 1rem 1.5rem 1.25rem; }
-.developer-content > .alert { margin-bottom: 1rem; }
-.developer-live-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.45fr) minmax(18rem, 0.75fr);
-  gap: 1rem;
-  margin-top: 1rem;
-}
-.developer-panel {
-  min-width: 0;
-  padding: 0.875rem 1rem;
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
-  background: hsl(var(--muted) / 0.22);
-}
-.developer-panel h3,
-.developer-recent h4 {
-  color: hsl(var(--muted-foreground));
-  font-size: 0.75rem;
-  font-weight: 500;
-}
-.developer-runtime-facts {
-  display: grid;
-  gap: 0.375rem;
-  margin: 0.75rem 0;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid hsl(var(--border));
-}
-.developer-runtime-facts div {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
-  align-items: baseline;
-  gap: 0.5rem;
-}
-.developer-runtime-facts div { grid-template-columns: max-content minmax(0, 1fr); font-size: 0.8125rem; }
-.developer-runtime-facts dt { color: hsl(var(--muted-foreground)); }
-.developer-runtime-facts dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
-.developer-recent time { color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
-.developer-recent { margin-top: 1rem; }
-.developer-recent ol {
-  display: grid;
-  gap: 0.25rem;
-  max-height: 14rem;
-  overflow-y: auto;
-  margin-top: 0.375rem;
-  padding: 0;
-  list-style: none;
-}
-.developer-recent li {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 0.75rem;
-  overflow-wrap: anywhere;
-  font-size: 0.8125rem;
-}
-.developer-artifact-links { display: flex; flex-wrap: wrap; gap: 0.375rem 0.75rem; }
-.developer-artifact-links a { font-variant-numeric: tabular-nums; }
-.developer-history { display: grid; gap: 0.375rem; padding: 0; list-style: none; }
-.developer-history li { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.75rem; font-size: 0.8125rem; }
-.developer-history li[data-tone="failed"] span { color: hsl(var(--destructive)); }
-.developer-history time { color: hsl(var(--muted-foreground)); font-variant-numeric: tabular-nums; }
-
 /* ---------- Developer Flow: My tasks, task summary, run ----------
    Page-scoped so the shared components keep their look elsewhere; sizes follow
    docs/superpowers/mockups/my-tasks-v3. */
@@ -804,17 +715,13 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .dev-page { display: flex; flex-direction: column; gap: 24px; max-width: 1040px; }
 .dev-page-head { margin-bottom: 24px; }
 .dev-page form { margin: 0; }
-.dev-title, .dev-card-title, .dev-section-title, .dev-label-title { line-height: 1.5; letter-spacing: normal; }
+.dev-title, .dev-section-title { line-height: 1.5; letter-spacing: normal; }
 .dev-title { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
-.dev-card-title { font-size: 18px; font-weight: 600; }
 .dev-section-title { font-size: 16px; font-weight: 600; }
-.dev-label-title { font-size: 13px; font-weight: 500; color: hsl(var(--muted-foreground)); }
 .dev-count { color: hsl(var(--muted-foreground)); font-weight: 400; }
 .dev-link { text-decoration: underline; }
 .dev-note { font-size: 12px; color: hsl(var(--muted-foreground)); }
 .dev-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 20px; }
-.btn-md { font-size: 13px; padding: 0 14px; }
-.btn-md.btn-roomy { padding: 0 16px; }
 /* One weight in both states, so the tabs do not move; the selected tab has colour and an underline. */
 .dev-tabs { display: flex; gap: 16px; }
 .dev-tabs a {
@@ -906,17 +813,6 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .usage-figures dt { color: hsl(var(--muted-foreground)); }
 .usage-figures dd { margin: 0; text-align: right; }
 .usage-figures .usage-total { padding-top: 6px; border-top: 1px solid hsl(var(--muted)); color: hsl(var(--foreground)); font-weight: 600; }
-.tech-grid {
-  display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
-  gap: 8px 16px;
-  padding-top: 12px;
-  font-size: 13px;
-}
-.tech-grid dt { color: hsl(var(--muted-foreground)); }
-.tech-grid dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-.tech-grid dd > code:only-child { display: block; }
-.tech-grid code { font-size: 12px; }
 
 /* ---------- Run page: status card, four step cards, Activity | Usage, closed disclosures (mockups 2 and 5) */
 .run-standing {
@@ -1020,7 +916,7 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .transcript-label { font-size: 12px; color: hsl(var(--muted-foreground)); }
 
 @media (max-width: 720px) {
-  .source-details-grid, .tech-grid, .tech-facts { grid-template-columns: 1fr; gap: 4px; }
+  .source-details-grid, .tech-facts { grid-template-columns: 1fr; gap: 4px; }
 }
 
 /* ---------- card grid ---------- */
@@ -1065,11 +961,6 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
   }
   .sidebar-footer { margin-top: 0; margin-left: auto; }
   .main { padding: 1.25rem; }
-  .developer-header { flex-direction: column; gap: 0.5rem; padding-inline: 1rem; }
-  .developer-content { padding-inline: 1rem; }
-  .developer-live-grid { grid-template-columns: 1fr; }
-  .developer-recent li,
-  .developer-history li { grid-template-columns: 1fr; gap: 0.0625rem; }
 }
 
 /* PR feedback on the run page: new comments and rounds are plain rows, like My tasks. */
