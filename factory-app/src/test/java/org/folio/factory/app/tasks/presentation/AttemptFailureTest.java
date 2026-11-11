@@ -52,6 +52,21 @@ class AttemptFailureTest {
     }
 
     @Test
+    void anAttemptThatChangedNoFileSaysSoAlsoInAReasonStoredBeforeTheNewWords() {
+        assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: " + TaskStops.NO_CHANGES_REASON))
+                .isEqualTo("The agent finished without changing any file. Start a new attempt with clearer"
+                        + " instructions.");
+        assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: Implementation failed: Candidate contains no changes"))
+                .isEqualTo(TaskStops.NO_CHANGES_REASON);
+    }
+
+    @Test
+    void theReasonOfAQuestionIsTheQuestion() {
+        assertThat(AttemptFailure.reason("clarify-implementation: " + TaskStops.DECISION_REASON
+                + "Remove old routes too?")).isEqualTo("Remove old routes too?");
+    }
+
+    @Test
     void aStageOtherThanImplementationStaysInTheReason() {
         assertThat(AttemptFailure.reason("VERIFICATION_FAILED: 2 tests in error"))
                 .isEqualTo("Verification failed: 2 tests in error.");

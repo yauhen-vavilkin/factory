@@ -2,6 +2,7 @@ package org.folio.factory.devfactory.candidate;
 
 import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.devfactory.runtime.Git;
+import org.folio.factory.devfactory.tasks.TaskStops;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -44,7 +45,7 @@ public class CandidateFreezer {
             String tree = git(trusted, "write-tree").strip();
             String baseTree = git(trusted, "rev-parse", baseSha + "^{tree}").strip();
             if (!allowUnchanged && tree.equals(baseTree))
-                throw new IllegalStateException("Candidate contains no changes");
+                throw new IllegalStateException(TaskStops.NO_CHANGES_REASON);
             String patch = git(trusted, "diff", "--cached", "--binary", "--full-index", "--no-ext-diff",
                     "--no-textconv", baseSha, "--");
             if (!allowUnchanged && patch.isEmpty()) throw new IllegalStateException("Candidate contains no patch");

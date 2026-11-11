@@ -21,6 +21,7 @@ public record AttemptFailure(String headline, String reason) {
             + " where it stopped, then start a new attempt.";
     private static final String MARKED_STOPPED = "You marked the attempt as stopped";
     private static final String IMPLEMENTATION = "Implementation";
+    private static final String OLD_NO_CHANGES = "Candidate contains no changes";
     private static final List<String> LAYER_PREFIXES =
             List.of("shared: ", "Development stopped: ", "Implementation failed: ");
     private static final Pattern LEADING_STAGE = Pattern.compile("^([A-Za-z][A-Za-z_-]*): (.+)$", Pattern.DOTALL);
@@ -88,11 +89,8 @@ public record AttemptFailure(String headline, String reason) {
         if (text.startsWith(Processes.OUTPUT_LIMIT_EXCEEDED)) {
             return TaskStops.OUTPUT_LIMIT_REASON;
         }
-        if (text.startsWith(TaskOutcomeService.RUN_ENDED)) {
-            return RUN_ENDED;
-        }
-        if (text.startsWith(TaskOutcomeService.MARKED_STOPPED)) {
-            return MARKED_STOPPED + text.substring(TaskOutcomeService.MARKED_STOPPED.length());
+        if (text.startsWith(OLD_NO_CHANGES)) {
+            return TaskStops.NO_CHANGES_REASON;
         }
         Matcher time = OLD_TIME_LIMIT.matcher(text);
         if (time.find()) {
@@ -100,10 +98,24 @@ public record AttemptFailure(String headline, String reason) {
         }
         Matcher turns = OLD_TURN_LIMIT.matcher(text);
         if (!turns.find()) {
-            return text;
+            return factoryCause(text);
         }
         var count = turns.group(1) != null ? turns.group(1) : turns.group(2) != null ? turns.group(2) : turns.group(3);
         return TaskStops.turnLimitReason(Long.parseLong(count));
+    }
+
+    /** The causes Factory stores in its own words; the reason of a question is the question alone. */
+    private static String factoryCause(String text) {
+        if (text.startsWith(TaskStops.DECISION_REASON)) {
+            return text.substring(TaskStops.DECISION_REASON.length());
+        }
+        if (text.startsWith(TaskOutcomeService.RUN_ENDED)) {
+            return RUN_ENDED;
+        }
+        if (text.startsWith(TaskOutcomeService.MARKED_STOPPED)) {
+            return MARKED_STOPPED + text.substring(TaskOutcomeService.MARKED_STOPPED.length());
+        }
+        return text;
     }
 
     private static String sentence(String text) {

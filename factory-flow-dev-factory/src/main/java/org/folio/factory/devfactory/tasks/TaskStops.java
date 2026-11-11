@@ -27,6 +27,9 @@ public final class TaskStops {
     public static final String OUTPUT_LIMIT_REASON = "A command printed more output than Factory accepts, so"
             + " Factory stopped the attempt. Start a new attempt with narrower instructions, and tell the agent to keep"
             + " the change small and to limit command output.";
+    /** Why a coding attempt stopped when the agent changed no file, so there is nothing to verify or deliver. */
+    public static final String NO_CHANGES_REASON = "The agent finished without changing any file. Start a new"
+            + " attempt with clearer instructions.";
 
     /** Why a coding attempt stopped when the agent did not finish in time. */
     public static String timeLimitReason(long minutes) {

@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.candidate;
 
+import org.folio.factory.devfactory.tasks.TaskStops;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
@@ -52,6 +53,6 @@ class CandidateFreezerTest {
         Files.writeString(source.resolve("ignored.txt"), "generated residue");
 
         assertThatThrownBy(() -> new CandidateFreezer().freeze("fixture", source.toString(), base, source, false))
-                .hasMessageContaining("no changes");
+                .hasMessage(TaskStops.NO_CHANGES_REASON);
     }
 }

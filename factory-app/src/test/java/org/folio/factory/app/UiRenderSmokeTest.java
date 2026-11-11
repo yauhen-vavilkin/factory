@@ -1694,8 +1694,10 @@ class UiRenderSmokeTest {
                         + "aria-labelledby=\"answer-own-text\"\\s*>")
                 .doesNotContain("id=\"retry\"", "What should the agent do differently?", "I read the code.");
         // The attempt row has the chip of the status card: the question of the latest attempt waits for an answer.
+        // Its title is the question, without the words the flow stores before it.
         assertThat(body.substring(body.indexOf("id=\"attempts-title\"")))
-                .contains(">Needs your answer</span>");
+                .contains("title=\"Remove &lt;old&gt; routes too?\">Needs your answer</span>")
+                .doesNotContainIgnoringCase("human decision");
     }
 
     @Test
