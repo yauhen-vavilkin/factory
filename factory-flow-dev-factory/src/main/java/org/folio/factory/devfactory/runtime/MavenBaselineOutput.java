@@ -8,6 +8,8 @@ import java.util.regex.Pattern;
 
 /** Bounded, sanitized Maven activity and one actionable dependency-transfer failure. */
 public final class MavenBaselineOutput implements Consumer<String> {
+    /** The readiness artifact keeps this many characters from the end of the starting build output. */
+    public static final int KEPT_TAIL = 16000;
     static final int EVENT_LIMIT = 120;
     private static final Pattern ANSI = Pattern.compile("\\u001B\\[[;\\d]*m");
     private static final Pattern URI_CREDENTIALS = Pattern.compile("(https?://)[^/@\\s]+@", Pattern.CASE_INSENSITIVE);

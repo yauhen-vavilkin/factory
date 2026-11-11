@@ -7,6 +7,7 @@ import org.folio.factory.app.web.DeveloperRunView.StepState;
 import org.folio.factory.core.domain.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import tools.jackson.databind.json.JsonMapper;
 import java.time.Instant;
 import java.util.List;
@@ -634,7 +635,24 @@ class DeveloperExecutionViewTest {
         assertThat(facts.steps().current()).isNull();
         assertThat(facts.technical().buildResult()).isEqualTo("Passed");
         assertThat(facts.technical().buildCommand()).isEqualTo("mvn test");
-        assertThat(facts.technical().buildOutput()).isEqualTo("ok");
+        // A build that passed needs no output on the page.
+        assertThat(facts.technical().buildOutput()).isNull();
+    }
+
+    @Test void aFailedBuildShowsItsOutputAndACutOutputStartsAtAWholeLine() {
+        var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
+        var partial = "g.junit.platform.commons.Exception\n";
+        var output = (partial + "[ERROR] failed\n".repeat(MavenBaselineOutput.KEPT_TAIL / 15))
+                .substring(0, MavenBaselineOutput.KEPT_TAIL);
+        var cut = artifact("dev_readiness.json", 1, JsonMapper.builder().build().writeValueAsString(
+                Map.of("state", "BASELINE_FAILED", "output", output)));
+        var whole = artifact("dev_readiness.json", 1,
+                "{\"state\":\"BASELINE_FAILED\",\"output\":\"first line\\n[ERROR] failed\"}");
+
+        assertThat(view.build(execution, List.of(cut), List.of(), Instant.now()).technical().buildOutput())
+                .isEqualTo(output.substring(partial.length())).startsWith("[ERROR] failed\n");
+        assertThat(view.build(execution, List.of(whole), List.of(), Instant.now()).technical().buildOutput())
+                .isEqualTo("first line\n[ERROR] failed");
     }
 
     @Test void pendingRetryPreservesCompletedStepsAndCurrentCursor() {

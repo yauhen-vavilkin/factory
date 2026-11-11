@@ -8,6 +8,7 @@ import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
+import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.MissingNode;
@@ -222,7 +223,7 @@ final class DeveloperExecutionView {
                 blankToNull(branch.isBlank() || repository.isBlank() ? repository : repository + "@" + branch),
                 blankToNull(first(repo.path("base_sha"), evidence.candidate().path("baseSha"))),
                 blankToNull(words(readiness.path("command"))), buildResult(readiness.path("state").asString("")),
-                blankToNull(readiness.path("output").asString("")),
+                buildOutput(readiness),
                 blankToNull(first(checks.path("planId"))), blankToNull(words(checks.path("argv"))),
                 blankToNull(first(checks.path("exitCode"))),
                 deliveredRepository.equals(repository) ? null : blankToNull(deliveredRepository),
@@ -233,6 +234,20 @@ final class DeveloperExecutionView {
     private static boolean checksRan(JsonNode verification) {
         return !"NOT_RUN".equals(verification.path("state").asString(""))
                 && (verification.hasNonNull("exitCode") || verification.path("argv").isArray());
+    }
+
+    /**
+     * The starting build output, only when the build did not pass. A cut output starts in the middle of a line, so
+     * it starts at the next whole line.
+     */
+    private static String buildOutput(JsonNode readiness) {
+        if ("BASELINE_PASSED".equals(readiness.path("state").asString(""))) {
+            return null;
+        }
+        var output = readiness.path("output").asString("");
+        var newline = output.indexOf('\n');
+        var cut = output.length() >= MavenBaselineOutput.KEPT_TAIL && newline >= 0;
+        return blankToNull(cut ? output.substring(newline + 1) : output);
     }
 
     private static String buildResult(String state) {

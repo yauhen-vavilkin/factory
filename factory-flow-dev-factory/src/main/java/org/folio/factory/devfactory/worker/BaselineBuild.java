@@ -67,6 +67,6 @@ final class BaselineBuild {
     record Result(Processes.Result process, Map<String, Object> readiness, String summary) {}
 
     private static String tail(String value) {
-        return value.substring(Math.max(0, value.length() - 16000));
+        return value.substring(Math.max(0, value.length() - MavenBaselineOutput.KEPT_TAIL));
     }
 }
