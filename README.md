@@ -326,10 +326,11 @@ the catalog.
 
 ### Checking configuration before a task
 
-The Developer Flow page links to **Check configuration** at
-<http://localhost:8080/developer/configuration>. It displays effective runtime,
-model and repository policy without credentials. Supply the intended issue key
-for task-specific checks. The same read-only report is available as JSON:
+The **Configuration** tab of the Developer Flow page
+(<http://localhost:8080/developer/configuration>) shows which models can run and why the
+others cannot, where runs go, the limits of every run, where tasks come from and whether
+Factory can start runs, each with the file or variable that changes it and never a secret.
+Enter an issue key under Check one task for the task-specific checks. The same read-only report is available as JSON:
 
 ```bash
 curl --fail 'http://localhost:8080/api/developer/preflight?issueKey=MODSIDECAR-196'
@@ -397,7 +398,7 @@ add a model whose `base-url` is the prefix before `/v1/messages` reachable from 
 coding container. Do not append `/v1`: the CLI adds `/v1/messages`. Confirm that your
 gateway supports the literal `model` of the entry. A Chat Completions or Responses
 endpoint cannot be used with Claude Code: such a model is not offered in the run forms,
-and Check configuration says why. Factory does not translate API protocols or rename
+and the Configuration tab says why. Factory does not translate API protocols or rename
 model IDs. Endpoint/model capabilities, streaming and tool support remain your
 responsibility. Live CodeMie integration requires a separately authorized test; the
 local contract tests make no paid calls. Model IDs are literal, including names such as
@@ -457,8 +458,8 @@ and the prices of two Pi models.
 
 - The run forms offer the models that Claude Code can run (`api: anthropic-messages`,
   efforts from `low`, `medium`, `high`, `xhigh`, `max`) and whose secret is set. With one
-  such model the list is hidden. **Check configuration** lists every model with its own
-  checks and the reason a model is not offered.
+  such model the list is hidden. The **Configuration** tab lists every model: the
+  ones that can run, and for the others the fix of each failing check.
 - Compose passes only the variables it lists to Factory, so a model with a new
   `secret-env` variable also needs that variable in the `environment` of the `factory`
   service in `docker-compose.yml`, next to `FACTORY_ZAI_API_KEY`.
@@ -550,7 +551,7 @@ see [Models](#models-claude-code). A failed task's **Retry** opens the form on i
 page, where you can also add instructions for the agent.
 A task can run when its Jira project maps to exactly one repository in
 `config/developer-repositories.yaml`; otherwise a red chip on its row opens the steps to
-fix it. **Check configuration** shows the Jira query, the assignee and which repository
+fix it. The **Configuration** tab shows the Jira query, the assignee and which repository
 each Jira project goes to. Before a task is queued, Factory checks that
 your token can push to its delivery repository: folio-org by default, or your
 fork when you set both `<REPO>_SOURCE_REPO` and `<REPO>_DELIVERY_REPO`.

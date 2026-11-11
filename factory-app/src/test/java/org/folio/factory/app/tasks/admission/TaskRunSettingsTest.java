@@ -58,7 +58,7 @@ class TaskRunSettingsTest {
         var form = settings.form();
 
         assertThat(form.selected()).isNull();
-        assertThat(form.problem()).isEqualTo("No model can run now. Check configuration lists the models in"
+        assertThat(form.problem()).isEqualTo("No model can run now. The Configuration tab lists the models in"
                 + " config/developer-models.yaml and what each one needs.");
         assertThatThrownBy(() -> settings.snapshot(null, null, null)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Model codemie-sonnet-5.5 is not configured");

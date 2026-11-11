@@ -113,7 +113,7 @@ class ModelCatalogTest {
         var none = new ModelCatalog(file(), "claude-code", name -> null);
         assertThatThrownBy(() -> none.choose(null, null, null))
                 .hasMessage("No model in config/developer-models.yaml can run with Claude Code. Add a model with api"
-                        + " anthropic-messages; Check configuration shows what each model needs.");
+                        + " anthropic-messages; the Configuration tab shows what each model needs.");
     }
 
     @Test

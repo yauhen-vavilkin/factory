@@ -202,57 +202,81 @@ class UiRenderSmokeTest {
     }
 
     @Test
-    void developerConfigurationOverviewRequestsAnIssueKey() {
+    void developerConfigurationTabShowsModelsRoutesLimitsAndTheTaskSource() {
         String body = renderDeveloperConfiguration(null, DeveloperPreflight.Status.NOT_RUN);
 
-        assertThat(body).contains("Configuration overview. Enter an issue key for task readiness.")
-                .doesNotContain("Ready for the requested task.");
+        // The Developer Flow header with its tabs instead of an own title and a way back.
+        assertThat(body).contains("aria-current=\"page\">Configuration</a>", ">Definition</a>")
+                .doesNotContain("<h1>Developer Flow configuration</h1>", "Back to flow");
+        assertThat(body).contains("Ready to run <span class=\"dev-count\">(1)</span>", "codemie-sonnet-5.5",
+                        "default · host.docker.internal:4001 · effort low, medium, high, xhigh, max · price from"
+                                + " platform.claude.com, 2026-11-03",
+                        "Endpoint not reachable: Factory cannot open a connection to http://host.docker.internal:4001.",
+                        "Cannot run <span class=\"dev-count\">(1)</span>", "glm-5.3",
+                        "FACTORY_ZAI_API_KEY is empty. Set it in .env.");
+        assertThat(body).contains(">Where runs go</h2>", ">Jira project</th>", ">Pull requests to</th>",
+                        ">MODSIDECAR</span>", "folio-org/folio-module-sidecar, branch master",
+                        "mvn -B -ntp test in maven:3.9-eclipse-temurin-21", "docker compose restart factory",
+                        "FACTORY_SIDECAR_DELIVERY_REPO")
+                .doesNotContain("Jira projects configured:");
+        assertThat(body).contains(">Limits for every run</h2>", ">Time per step</dt>",
+                        "30 min each for the first build, the coding and the checks",
+                        "FACTORY_DEV_FACTORY_TIMEOUT_SECONDS", ">Time per attempt</dt>", "1 h from Prepare task",
+                        "FACTORY_TASKS_EXECUTION_DEADLINE", ">Agent turns</dt>", "FACTORY_CLAUDE_CODE_MAX_TURNS",
+                        ">Coding image</dt>", "FACTORY_CLAUDE_CODE_IMAGE");
+        assertThat(body).contains(">Tasks come from</h2>", "jira.example.org", "Jane Developer",
+                        "assignee = &quot;Jane Developer&quot; AND statusCategory != Done ORDER BY updated DESC",
+                        "href=\"https://jira.example.org/issues/?jql=", ">Jira sign-in</dt>");
+        // Only the failing Factory checks, each as its fix; no raw check rows.
+        assertThat(body).contains(">Factory cannot start runs</h2>", "Docker daemon is unavailable. Start Docker")
+                .doesNotContain("Selected runtime", "Effective repositories", "NOT_RUN", ">PASS<", "FAIL ·",
+                        "No model call made.");
+        assertThat(body).contains(">Check one task</h2>", "It makes no model call and changes nothing.")
+                .doesNotContain("class=\"config-verdict\"");
     }
 
     @Test
-    void blockedDeveloperConfigurationExplainsReadinessFailure() {
+    void developerConfigurationSaysWhyATaskCannotRun() {
         String body = renderDeveloperConfiguration("MODSIDECAR-196", DeveloperPreflight.Status.FAIL);
 
-        assertThat(body).contains("Resolve failed checks before triggering this task.")
-                .doesNotContain("Ready for the requested task.");
+        assertThat(body).contains("MODSIDECAR-196 cannot run yet. Fix the failed checks below, then check again.",
+                        "chip-danger\">Failed</span>",
+                        "Push permission check &lt;read-only&gt; &amp; base alignment.", "value=\"MODSIDECAR-196\"")
+                .doesNotContain("check <read-only>", "No model call made.");
     }
 
     @Test
-    void readyDeveloperConfigurationKeepsProviderCoverageExplicit() {
+    void developerConfigurationListsThePassedChecksOfATask() {
         String body = renderDeveloperConfiguration("MODSIDECAR-196", DeveloperPreflight.Status.PASS);
 
-        assertThat(body).contains("Ready for the requested task.",
-                        "Provider inference and coding-container connectivity remain untested.")
-                .doesNotContain("Resolve failed checks", "Configuration overview.");
+        assertThat(body).contains("chip-success\">Passed</span>", "base alignment.")
+                .doesNotContain("cannot run yet");
     }
 
     private String renderDeveloperConfiguration(String issueKey, DeveloperPreflight.Status deliveryStatus) {
-        Map<String, Object> runtime = Map.of(
-                "runtime", "claude-code",
-                "model", "claude-sonnet-5-5",
-                "image", "factory-dev-claude-code:2.1.287-java21");
-        Map<String, Object> repository = Map.of(
-                "key", "sidecar",
-                "source", "owner/folio-module-sidecar",
-                "baseBranch", "master",
-                "buildImage", "maven:3.9-eclipse-temurin-21",
-                "verificationPlan", "java21-unit",
-                "jiraProjects", List.of("MODSIDECAR"),
-                "delivery", "owner/folio-module-sidecar");
+        var docker = new DeveloperPreflight.Check("docker", DeveloperPreflight.Status.FAIL,
+                "Docker daemon is unavailable. Start Docker; when Factory runs in Compose, check that"
+                        + " /var/run/docker.sock is mounted into the factory service.");
         var deliveryCheck = new DeveloperPreflight.Check("delivery:sidecar", deliveryStatus,
                 "Push permission check <read-only> & base alignment.");
         var inferenceCheck = new DeveloperPreflight.Check("inference", DeveloperPreflight.Status.NOT_RUN,
                 "No model call made.");
         var sonnet = new ModelChecks.ModelRow("codemie-sonnet-5.5", true, true, "claude-sonnet-5-5",
                 "anthropic-messages", "http://host.docker.internal:4001", "bearer-token",
-                "low, medium, high, xhigh, max; default high", List.of());
+                "low, medium, high, xhigh, max; default high",
+                "default · host.docker.internal:4001 · effort low, medium, high, xhigh, max · price from"
+                        + " platform.claude.com, 2026-11-03",
+                List.of(new DeveloperPreflight.Check("endpoint", DeveloperPreflight.Status.WARN,
+                        "Endpoint not reachable: Factory cannot open a connection to http://host.docker.internal:4001."
+                                + " Start the service at that address.")));
         var glm = new ModelChecks.ModelRow("glm-5.3", false, false, "glm-5.3", "anthropic-messages",
-                "https://api.z.ai", "bearer-token", "low, high, max; default max",
+                "https://api.z.ai", "bearer-token", "low, high, max; default max", "api.z.ai · effort low, high, max",
                 List.of(new DeveloperPreflight.Check("secret", DeveloperPreflight.Status.FAIL,
-                        "Set FACTORY_ZAI_API_KEY in .env. If docker-compose.yml does not pass it to the factory"
-                                + " service yet, add it there. Then run docker compose up -d.")));
+                        "FACTORY_ZAI_API_KEY is empty. Set it in .env. If docker-compose.yml does not pass it to the"
+                                + " factory service yet, add it there. Then run docker compose up -d.")));
+        var checks = issueKey == null ? List.of(docker, inferenceCheck) : List.of(deliveryCheck, inferenceCheck);
         var report = new DeveloperPreflight.Report(deliveryStatus == DeveloperPreflight.Status.PASS,
-                issueKey == null ? "" : issueKey, runtime, List.of(repository), List.of(deliveryCheck, inferenceCheck),
+                issueKey == null ? "" : issueKey, Map.of("runtime", "claude-code"), List.of(), checks,
                 List.of(sonnet, glm));
         when(developerPreflight.check(issueKey)).thenReturn(report);
 
@@ -261,19 +285,7 @@ class UiRenderSmokeTest {
             path += "?issueKey=" + issueKey;
         }
         String body = assertRendered(path, "Developer Flow configuration");
-        assertThat(body).contains("claude-sonnet-5-5", "sidecar", "java21-unit", "owner/folio-module-sidecar",
-                        "NOT_RUN", "No model call made.", "Push permission check &lt;read-only&gt; &amp; base alignment.")
-                .doesNotContain("check <read-only>");
-        assertThat(body).contains("<h2>Models</h2>", "codemie-sonnet-5.5", "ready · default for runs",
-                "low, medium, high, xhigh, max; default high", "not ready",
-                "anthropic-messages · https://api.z.ai · bearer-token", "low, high, max; default max",
-                "FAIL · secret: Set FACTORY_ZAI_API_KEY in .env");
-        // Where My tasks come from: moved here from the My tasks page.
-        assertThat(body).contains("My tasks source", "Jane Developer", "jira.example.org",
-                        "assignee = &quot;Jane Developer&quot; AND statusCategory != Done ORDER BY updated DESC",
-                        "href=\"https://jira.example.org/issues/?jql=", "Jira projects configured:",
-                        "docker compose restart factory")
-                .doesNotContain(ZAI_KEY, PROXY_TOKEN);
+        assertThat(body).doesNotContain(ZAI_KEY, PROXY_TOKEN);
         return body;
     }
 
@@ -1313,7 +1325,7 @@ class UiRenderSmokeTest {
         var none = new TaskRunSettings(codingRuntime, new ModelCatalog(modelsFile, "claude-code", name -> null));
         doAnswer(call -> none.form()).when(runSettings).form();
         assertThat(assertRendered("/flows/dev-factory", "Ready to run"))
-                .contains("No model can run now. Check configuration lists the models in config/developer-models.yaml")
+                .contains("No model can run now. The Configuration tab lists the models in config/developer-models.yaml")
                 .doesNotContain("name=\"modelId\"", "name=\"effort-");
     }
 

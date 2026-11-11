@@ -160,8 +160,6 @@ Spec: `docs/superpowers/specs/2026-11-03-models-config-and-run-form.md`.
     refuse it. Check with a real CodeMie run before changing it.
   - `flow-my-tasks.html` compares `row.problem().name()` with the string `'NO_REPOSITORY'`; a
     boolean on the row would keep enum names out of the template.
-  - Check configuration probes the endpoint of every model over TCP, also of models that the
-    installed harness cannot run.
   - `TaskUiController` and `TaskListController` both define `FLOW_PAGE`.
 
 ## Seen in the live run of 2026-11-10

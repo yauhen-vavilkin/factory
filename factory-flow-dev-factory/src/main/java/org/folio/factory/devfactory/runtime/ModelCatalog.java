@@ -194,6 +194,6 @@ public final class ModelCatalog {
 
     private static String noDefaultMessage() {
         return "No model in " + FILE + " can run with Claude Code. Add a model with api "
-                + ClaudeCodeCodingRuntime.API + "; Check configuration shows what each model needs.";
+                + ClaudeCodeCodingRuntime.API + "; the Configuration tab shows what each model needs.";
     }
 }

@@ -179,13 +179,24 @@ class DeveloperPreflightTest {
         assertThat(fixture.endpointOrigin()).isEqualTo("http://gateway.fixture.invalid:4001");
         assertThat(checks(fixture)).containsEntry("api", PASS).containsEntry("efforts", PASS)
                 .containsEntry("secret", PASS).containsEntry("endpoint", PASS).containsEntry("price", PASS);
+        assertThat(fixture.summary()).startsWith("default · gateway.fixture.invalid:4001 · effort ")
+                .contains(" · price from ");
         var glm = report.models().get(1);
         assertThat(glm.defaultModel()).isFalse();
         assertThat(glm.ready()).isFalse();
         assertThat(glm.efforts()).isEqualTo("low, high, max; default max");
         assertThat(glm.endpointOrigin()).isEqualTo("https://api.z.ai");
-        assertThat(checks(glm)).containsEntry("secret", FAIL).containsEntry("endpoint", PASS)
+        assertThat(glm.summary()).isEqualTo("api.z.ai · effort low, high, max · no price");
+        // A model that cannot run gets no TCP probe; its failing checks say the fix.
+        assertThat(checks(glm)).containsEntry("secret", FAIL).doesNotContainKey("endpoint")
                 .containsEntry("price", WARN).containsEntry("efforts", PASS);
+        assertThat(glm.checks()).filteredOn(check -> check.status() != PASS)
+                .extracting(DeveloperPreflight.Check::message).containsExactly(
+                        "FACTORY_ZAI_API_KEY is empty. Set it in .env. If docker-compose.yml does not pass it to the"
+                                + " factory service yet, add it there. Then run docker compose up -d.",
+                        "No price, so the cost of its runs shows as unknown. To see costs, add a price to this"
+                                + " model in config/developer-models.yaml.");
+        verify(probe, never()).gatewayReachable(URI.create("https://api.z.ai"));
         assertThat(JSON.writeValueAsString(report)).doesNotContain("coding-fixture-secret");
     }
 

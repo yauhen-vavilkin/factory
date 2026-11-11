@@ -2,99 +2,130 @@
 <html th:replace="~{fragments/layout :: page(title='Developer Flow configuration', activeNav='flows', content=~{:: .page-body}, scripts=~{})}"
       xmlns:th="http://www.thymeleaf.org" lang="en">
 <body>
-<section class="page-body">
-    <div class="page-header">
-        <h1>Developer Flow configuration</h1>
-        <a class="btn btn-outline btn-sm" th:href="@{/flows/dev-factory}">Back to flow</a>
-    </div>
-    <div class="stack">
-        <section class="card">
-            <div class="card-content">
-                <p>Check the effective configuration before starting a task. This check makes no model call and publishes nothing.</p>
-                <form method="get" th:action="@{/developer/configuration}">
-                    <div class="field">
-                        <label class="label" for="issue-key">Jira issue key</label>
-                        <input class="input" id="issue-key" name="issueKey" th:value="${report.issueKey}" placeholder="MODSIDECAR-196">
+<section class="page-body" th:with="config=${configuration}">
+    <div class="dev-page">
+        <th:block th:replace="~{fragments/developer-flow :: header(${flow}, 'configuration')}"></th:block>
+
+        <section class="dev-list" aria-labelledby="models-title">
+            <div class="dev-list-head">
+                <h2 class="dev-section-title" id="models-title">Models</h2>
+            </div>
+            <p class="dev-list-note config-note" th:text="${config.models().note()}">From config/developer-models.yaml.</p>
+            <th:block th:if="${config.models().listed()}">
+                <h3 class="config-subtitle">Ready to run <span class="dev-count"
+                        th:text="'(' + ${#lists.size(config.models().ready())} + ')'">(1)</span></h3>
+                <div class="dev-row" th:each="model : ${config.models().ready()}">
+                    <div class="dev-row-main">
+                        <div class="config-name" th:text="${model.id()}">glm-5.3</div>
+                        <div class="config-detail" th:text="${model.summary()}">default · api.z.ai</div>
+                        <p class="config-warning" th:each="warning : ${model.warnings()}" th:text="${warning}">No price.</p>
                     </div>
-                    <button class="btn btn-primary" type="submit">Check readiness</button>
+                </div>
+                <p class="dev-empty" th:if="${#lists.isEmpty(config.models().ready())}">No model can run now. Cannot
+                    run says what each model needs.</p>
+                <h3 class="config-subtitle">Cannot run <span class="dev-count"
+                        th:text="'(' + ${#lists.size(config.models().blocked())} + ')'">(1)</span></h3>
+                <div class="dev-row" th:each="model : ${config.models().blocked()}">
+                    <div class="dev-row-main">
+                        <div class="config-name" th:text="${model.name()}">codemie-opus-5.5</div>
+                        <p class="config-fix" th:each="fix : ${model.fixes()}" th:text="${fix}">Set the secret.</p>
+                    </div>
+                </div>
+                <p class="dev-empty" th:if="${#lists.isEmpty(config.models().blocked())}">Every model can run.</p>
+            </th:block>
+        </section>
+
+        <section class="dev-list" aria-labelledby="routes-title">
+            <div class="dev-list-head">
+                <h2 class="dev-section-title" id="routes-title">Where runs go</h2>
+            </div>
+            <div class="config-table" th:unless="${#lists.isEmpty(config.routes().rows())}">
+                <table>
+                    <thead><tr><th>Jira project</th><th>Checked out from</th><th>Pull requests to</th><th>Checks</th></tr></thead>
+                    <tbody>
+                    <tr th:each="route : ${config.routes().rows()}">
+                        <td><span class="key-link" th:text="${route.projects()}">MODSIDECAR</span></td>
+                        <td th:text="${route.source()}">folio-org/folio-module-sidecar, branch master</td>
+                        <td th:text="${route.pullRequests()}">folio-org/folio-module-sidecar</td>
+                        <td><code th:text="${route.checks()}">mvn -B -ntp test</code></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="dev-empty" th:if="${#lists.isEmpty(config.routes().rows())}">No repository is set, so no task can
+                run.</p>
+            <p class="dev-list-note config-note" th:text="${config.routes().token()}">Factory opens pull requests.</p>
+            <p class="dev-list-note">To add a Jira project, add a repository to
+                <code>config/developer-repositories.yaml</code> (or the file in
+                <code>FACTORY_DEV_FACTORY_REPOSITORIES_FILE</code>), then run <code>docker compose restart factory</code>.
+                To open pull requests in your fork, set <code>&lt;REPO&gt;_SOURCE_REPO</code> and
+                <code>&lt;REPO&gt;_DELIVERY_REPO</code> in <code>.env</code> (for example
+                <code>FACTORY_SIDECAR_SOURCE_REPO</code> and <code>FACTORY_SIDECAR_DELIVERY_REPO</code>), then run
+                <code>docker compose up -d</code>.</p>
+        </section>
+
+        <section class="dev-list" aria-labelledby="limits-title">
+            <div class="dev-list-head">
+                <h2 class="dev-section-title" id="limits-title">Limits for every run</h2>
+            </div>
+            <dl class="tech-facts config-facts">
+                <th:block th:each="fact : ${config.limits()}">
+                    <dt th:text="${fact.name()}">Time per step</dt>
+                    <dd><th:block th:text="${fact.text()}">30 min</th:block> <code th:if="${fact.variable() != null}"
+                            th:text="${fact.variable()}">FACTORY_DEV_FACTORY_TIMEOUT_SECONDS</code></dd>
+                </th:block>
+            </dl>
+            <p class="dev-list-note config-note">Set these in <code>.env</code>, then run
+                <code>docker compose up -d</code>.</p>
+        </section>
+
+        <section class="dev-list" aria-labelledby="source-title">
+            <div class="dev-list-head">
+                <h2 class="dev-section-title" id="source-title">Tasks come from</h2>
+            </div>
+            <dl class="tech-facts config-facts">
+                <th:block th:each="fact : ${config.source().facts()}">
+                    <dt th:text="${fact.name()}">Jira</dt>
+                    <dd><th:block th:text="${fact.text()}">jira.example.org</th:block> <code th:if="${fact.variable() != null}"
+                            th:text="${fact.variable()}">FACTORY_CONNECTORS_JIRA_BASE_URL</code></dd>
+                </th:block>
+                <dt>Search</dt>
+                <dd th:if="${config.source().query() != null}"><code th:text="${config.source().query()}">assignee = "Jane"</code>
+                    <a class="dev-link ext-link" th:href="${config.source().searchUrl()}">Open in Jira</a></dd>
+                <dd th:if="${config.source().query() == null}">None yet: set Jira and the assignee first.</dd>
+            </dl>
+            <p class="dev-list-note config-note">Set these in <code>.env</code>, then run
+                <code>docker compose up -d</code>. Which repository a task goes to is under Where runs go.</p>
+        </section>
+
+        <section class="dev-list" aria-labelledby="start-title">
+            <div class="dev-list-head">
+                <h2 class="dev-section-title" id="start-title" th:text="${config.start().title()}">Factory can start runs</h2>
+            </div>
+            <p class="dev-empty" th:if="${config.start().detail() != null}" th:text="${config.start().detail()}">Docker
+                is running.</p>
+            <div class="dev-row" th:each="fix : ${config.start().fixes()}">
+                <div class="dev-row-main"><p class="config-fix" th:text="${fix}">Start Docker.</p></div>
+            </div>
+        </section>
+
+        <section class="dev-list" id="check-task" aria-labelledby="task-title">
+            <div class="dev-list-head">
+                <h2 class="dev-section-title" id="task-title">Check one task</h2>
+                <form class="add-key" method="get" th:action="@{/developer/configuration} + '#check-task'">
+                    <input class="input input-sm add-key-input" name="issueKey" aria-label="Jira key"
+                           th:value="${config.task().issueKey()}" placeholder="MODSIDECAR-196">
+                    <button class="btn btn-secondary btn-sm" type="submit">Check task</button>
                 </form>
-                <p th:if="${report.ready}">Ready for the requested task. Provider inference and coding-container connectivity remain untested.</p>
-                <p th:unless="${report.ready}" th:text="${report.issueKey.isEmpty()} ? 'Configuration overview. Enter an issue key for task readiness.' : 'Resolve failed checks before triggering this task.'"></p>
             </div>
-        </section>
-        <section class="card" th:if="${source != null}">
-            <div class="card-header"><h2 class="card-title">My tasks source</h2></div>
-            <div class="card-content">
-                <dl class="def-list">
-                    <dt>Assignee</dt>
-                    <dd th:text="${source.assignee() != null} ? ${source.assignee()}
-                            : 'Not set: set FACTORY_TASKS_ASSIGNEE in .env to your name as shown in Jira.'">Jane</dd>
-                    <dt>Jira</dt>
-                    <dd th:text="${source.jiraHost() != null} ? ${source.jiraHost()}
-                            : 'Not set: set FACTORY_CONNECTORS_JIRA_BASE_URL in .env.'">jira.example</dd>
-                    <dt>Query</dt>
-                    <dd><code th:text="${source.query() != null} ? ${source.query()}
-                            : 'Set the assignee and Jira first'">query</code>
-                        <a class="dev-link" th:if="${source.searchUrl() != null}" th:href="${source.searchUrl()}">Open
-                            this search in Jira</a></dd>
-                    <dt>Repositories</dt>
-                    <dd th:text="${repositoryMap}">Projects</dd>
-                    <dt>Change it</dt>
-                    <dd><code>FACTORY_TASKS_ASSIGNEE</code> in <code>.env</code>, then
-                        <code>docker compose up -d</code>. Projects: <code>config/developer-repositories.yaml</code>,
-                        then <code>docker compose restart factory</code>.</dd>
-                </dl>
+            <p class="dev-list-note config-note">Reads the task in Jira, finds its repository, and checks that Factory
+                can read the source and push the pull request. It makes no model call and changes nothing.</p>
+            <p class="config-verdict" th:if="${config.task().verdict() != null}" th:text="${config.task().verdict()}">
+                MODSIDECAR-196 can run.</p>
+            <div class="dev-row config-check" th:each="check : ${config.task().rows()}">
+                <span class="chip" th:classappend="${check.chipClass()}" th:text="${check.label()}">Passed</span>
+                <div class="dev-row-main" th:text="${check.text()}">Requested issue is readable.</div>
             </div>
-        </section>
-        <section class="card">
-            <div class="card-header"><h2 class="card-title">Selected runtime</h2></div>
-            <div class="card-content">
-                <dl class="def-list">
-                    <th:block th:each="entry : ${report.runtime}">
-                        <dt th:text="${entry.key}"></dt><dd th:text="${entry.value}"></dd>
-                    </th:block>
-                </dl>
-            </div>
-        </section>
-        <section th:unless="${#lists.isEmpty(report.models)}">
-            <h2>Models</h2>
-            <p class="muted">From config/developer-models.yaml. The run forms offer the models that are ready; the
-                checks say what each of the others needs.</p>
-            <div class="table-wrap"><table>
-                <thead><tr><th>Model</th><th>Provider model / endpoint</th><th>Effort</th><th>Checks</th></tr></thead>
-                <tbody><tr th:each="model : ${report.models}">
-                    <td><div th:text="${model.id()}"></div>
-                        <small th:text="(${model.ready()} ? 'ready' : 'not ready')
-                                + (${model.defaultModel()} ? ' · default for runs' : '')"></small></td>
-                    <td><div th:text="${model.model()}"></div>
-                        <small th:text="${model.api()} + ' · ' + ${model.endpointOrigin()} + ' · '
-                                + ${model.authentication()}"></small></td>
-                    <td th:text="${model.efforts()}"></td>
-                    <td><div th:each="check : ${model.checks()}"
-                             th:text="${check.status} + ' · ' + ${check.name} + ': ' + ${check.message}"></div></td>
-                </tr></tbody>
-            </table></div>
-        </section>
-        <section>
-            <h2>Checks</h2>
-            <div class="table-wrap"><table>
-                <thead><tr><th>Check</th><th>Status</th><th>Result</th></tr></thead>
-                <tbody><tr th:each="check : ${report.checks}">
-                    <td th:text="${check.name}"></td><td th:text="${check.status}"></td><td th:text="${check.message}"></td>
-                </tr></tbody>
-            </table></div>
-        </section>
-        <section>
-            <h2>Effective repositories</h2>
-            <div class="table-wrap"><table>
-                <thead><tr><th>Key / Jira projects</th><th>Source / base</th><th>Build / verification</th><th>Delivery</th></tr></thead>
-                <tbody><tr th:each="repo : ${report.repositories}">
-                    <td><div th:text="${repo['key']}"></div><small th:text="${repo['jiraProjects']}"></small></td>
-                    <td><div th:text="${repo['source']}"></div><small th:text="${repo['baseBranch']}"></small></td>
-                    <td><div th:text="${repo['buildImage']}"></div><small th:text="${repo['verificationPlan']}"></small></td>
-                    <td th:text="${repo['delivery']}"></td>
-                </tr></tbody>
-            </table></div>
         </section>
     </div>
 </section>

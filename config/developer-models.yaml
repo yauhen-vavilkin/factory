@@ -1,7 +1,7 @@
 # The models you can run. One entry is one model at one provider: the same model at another
 # provider is another entry with its own price. The run forms on My tasks and on the task page
-# offer the entries that the coding harness can run and whose secret is set; Check configuration
-# lists every entry and what it still needs.
+# offer the entries that the coding harness can run and whose secret is set; the Configuration
+# tab of the Developer Flow lists every entry and what it still needs.
 #
 # id                 the name in the Model list
 # api                anthropic-messages (the only one Claude Code understands) or a Pi API type

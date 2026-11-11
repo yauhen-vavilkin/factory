@@ -96,7 +96,7 @@ public class TaskRunSettings {
         ModelOption selected = find(options, models.defaultModel().map(Model::id).orElse(null))
                 .orElseGet(() -> options.isEmpty() ? null : options.getFirst());
         if (selected == null) {
-            return new Form(options, null, null, "No model can run now. Check configuration lists the models in "
+            return new Form(options, null, null, "No model can run now. The Configuration tab lists the models in "
                     + ModelCatalog.FILE + " and what each one needs.");
         }
         return new Form(options, selected, selected.defaultEffort(), null);

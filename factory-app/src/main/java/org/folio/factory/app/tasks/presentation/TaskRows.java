@@ -13,9 +13,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -61,15 +59,6 @@ public class TaskRows {
                 ready ? source.effectiveQuery() : null, ready ? source.searchUrl(base) : null,
                 ago(installation.getLastSuccessfulSyncAt()), UiFormat.format(installation.getLastSuccessfulSyncAt()),
                 installation.getSyncProblem());
-    }
-
-    /** "PROJECT → repository" for each catalog entry, the routing a scan applies. */
-    public String repositoryMap() {
-        List<String> parts = new ArrayList<>();
-        repositories.repositories().forEach((key, repository) -> repository.jiraProjects()
-                .forEach(project -> parts.add(project + " → " + repositoryName(key))));
-        return parts.size() + (parts.size() == 1 ? " Jira project" : " Jira projects") + " configured: "
-                + String.join(" · ", parts);
     }
 
     public AvailableRow availableRow(TaskView view) {

@@ -39,6 +39,10 @@ import static org.folio.factory.devfactory.DevFactoryConfiguration.FLOW_ID;
 @RequiredArgsConstructor
 public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryPreflight {
 
+    /** The checks of Factory itself, made with or without a task; every other check is about the task. */
+    public static final Set<String> FACTORY_CHECKS =
+            Set.of("runtime", "model", "gateway", "docker", "coding-image", "pricing", "inference");
+
     private static final String ISSUE_MISSING = "Jira did not return the requested issue.";
     private static final String ISSUE_UNREADABLE =
             "Cannot read the requested Jira issue; check URL, credentials and issue access.";
@@ -231,15 +235,16 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
 
     private void checkDocker(List<Check> checks) {
         if (!probe.dockerAvailable()) {
-            add(checks, "docker", Status.FAIL, "Docker daemon is unavailable.");
+            add(checks, "docker", Status.FAIL, "Docker daemon is unavailable. Start Docker; when Factory runs in"
+                    + " Compose, check that /var/run/docker.sock is mounted into the factory service.");
             return;
         }
         add(checks, "docker", Status.PASS, "Docker daemon is reachable.");
         if (probe.imageAvailable(coding.image())) {
             add(checks, "coding-image", Status.PASS, "Selected coding image exists locally.");
         } else {
-            add(checks, "coding-image", Status.FAIL,
-                    "Build the selected coding image with docker compose up -d --build.");
+            add(checks, "coding-image", Status.FAIL, "The coding image " + coding.image()
+                    + " is not on this machine. Build it with docker compose up -d --build.");
         }
     }
 

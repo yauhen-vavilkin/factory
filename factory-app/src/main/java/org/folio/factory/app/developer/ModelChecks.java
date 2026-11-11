@@ -9,13 +9,15 @@ import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * The Models table of Check configuration: every entry of config/developer-models.yaml with its own checks, so a
- * person sees which models a run form offers and what each of the others still needs.
+ * The Models of the Configuration tab: every entry of config/developer-models.yaml with its own checks, so a
+ * person sees which models a run form offers and what each of the others still needs. A FAIL or WARN message
+ * says the cause and the fix.
  */
 @Component
 @RequiredArgsConstructor
@@ -24,9 +26,13 @@ public class ModelChecks {
     private final ModelCatalog models;
     private final DeveloperPreflightProbe probe;
 
-    /** One model with its checks; ready means a run form offers it. */
+    /**
+     * One model with its checks; ready means a run form offers it. summary is the one line the page shows for a
+     * ready model: default, host, efforts and price.
+     */
     public record ModelRow(String id, boolean defaultModel, boolean ready, String model, String api,
-                           String endpointOrigin, String authentication, String efforts, List<Check> checks) {
+                           String endpointOrigin, String authentication, String efforts, String summary,
+                           List<Check> checks) {
     }
 
     /** Every model in file order; empty with Pi, whose model comes from FACTORY_PI_*. */
@@ -42,18 +48,42 @@ public class ModelChecks {
     private ModelRow row(Model model, boolean defaultModel, Map<String, Boolean> reachable) {
         // The catalog accepts only valid base URLs, so the origin always exists.
         String origin = model.endpointOrigin();
-        List<Check> checks = List.of(apiCheck(model), effortsCheck(model), secretCheck(model),
-                endpointCheck(origin, reachable), priceCheck(model));
-        return new ModelRow(model.id(), defaultModel, models.problem(model).isEmpty(), model.model(), model.api(),
-                origin, model.authentication(), String.join(", ", model.efforts()) + "; default "
-                        + model.defaultEffort(), checks);
+        boolean ready = models.problem(model).isEmpty();
+        return new ModelRow(model.id(), defaultModel, ready, model.model(), model.api(), origin,
+                model.authentication(), String.join(", ", model.efforts()) + "; default " + model.defaultEffort(),
+                summary(model, defaultModel), checks(model, ready, reachable));
+    }
+
+    /** Only a model that can run gets the TCP probe: the endpoint of the others does not matter yet. */
+    private List<Check> checks(Model model, boolean ready, Map<String, Boolean> reachable) {
+        var checks = new ArrayList<>(List.of(apiCheck(model), effortsCheck(model), secretCheck(model)));
+        if (ready) {
+            checks.add(endpointCheck(model.endpointOrigin(), reachable));
+        }
+        checks.add(priceCheck(model));
+        return List.copyOf(checks);
+    }
+
+    /** "default · api.z.ai · effort low, high, max · price from docs.z.ai, 2026-09-19". */
+    private static String summary(Model model, boolean defaultModel) {
+        var parts = new ArrayList<String>();
+        if (defaultModel) {
+            parts.add("default");
+        }
+        URI endpoint = URI.create(model.endpointOrigin());
+        parts.add(endpoint.getHost() + (endpoint.getPort() < 0 ? "" : ":" + endpoint.getPort()));
+        parts.add("effort " + String.join(", ", model.efforts()));
+        var price = model.price();
+        parts.add(price == null ? "no price" : "price from " + price.source().getHost() + ", " + price.asOf());
+        return String.join(" · ", parts);
     }
 
     private static Check apiCheck(Model model) {
         return ClaudeCodeCodingRuntime.API.equals(model.api())
                 ? new Check("api", Status.PASS, model.api() + ": Claude Code can run this model.")
-                : new Check("api", Status.FAIL, model.api() + ": Claude Code understands only "
-                        + ClaudeCodeCodingRuntime.API + ".");
+                : new Check("api", Status.FAIL, "Claude Code understands only api " + ClaudeCodeCodingRuntime.API
+                        + ", but this model uses " + model.api() + ". Point it at an endpoint with that API, or"
+                        + " remove it from " + ModelCatalog.FILE + ".");
     }
 
     private static Check effortsCheck(Model model) {
@@ -61,15 +91,17 @@ public class ModelChecks {
                 .toList();
         return unknown.isEmpty()
                 ? new Check("efforts", Status.PASS, "Claude Code accepts every level of this model.")
-                : new Check("efforts", Status.FAIL, "Claude Code does not accept " + String.join(", ", unknown)
-                        + "; it accepts " + String.join(", ", ClaudeCodeCodingRuntime.EFFORTS) + ".");
+                : new Check("efforts", Status.FAIL, "Claude Code does not accept effort " + String.join(", ", unknown)
+                        + ". Remove it from efforts in " + ModelCatalog.FILE + "; Claude Code accepts "
+                        + String.join(", ", ClaudeCodeCodingRuntime.EFFORTS) + ".");
     }
 
     private static Check secretCheck(Model model) {
         return model.hasSecret()
                 ? new Check("secret", Status.PASS, model.secretVariable() + " is set.")
-                : new Check("secret", Status.FAIL, "Set " + model.secretVariable() + " in .env. If docker-compose.yml"
-                        + " does not pass it to the factory service yet, add it there. Then run docker compose up -d.");
+                : new Check("secret", Status.FAIL, model.secretVariable() + " is empty. Set it in .env. If"
+                        + " docker-compose.yml does not pass it to the factory service yet, add it there. Then run"
+                        + " docker compose up -d.");
     }
 
     private Check endpointCheck(String origin, Map<String, Boolean> reachable) {
@@ -77,14 +109,16 @@ public class ModelChecks {
         return open
                 ? new Check("endpoint", Status.PASS, origin + " is reachable over TCP from Factory; the API itself"
                         + " is not tested.")
-                : new Check("endpoint", Status.WARN, origin + " is not reachable over TCP from Factory; check the"
-                        + " base URL and the network.");
+                : new Check("endpoint", Status.WARN, "Endpoint not reachable: Factory cannot open a connection to "
+                        + origin + ". Runs with this model fail if the coding container cannot reach it either."
+                        + " Start the service at that address, or fix base-url in " + ModelCatalog.FILE + ".");
     }
 
     private static Check priceCheck(Model model) {
         var price = model.price();
         return price == null
-                ? new Check("price", Status.WARN, "No price; runs work, but their cost shows as unknown.")
+                ? new Check("price", Status.WARN, "No price, so the cost of its runs shows as unknown. To see"
+                        + " costs, add a price to this model in " + ModelCatalog.FILE + ".")
                 : new Check("price", Status.PASS, "Price from " + price.source().getHost() + " as of "
                         + price.asOf() + ", " + price.currency() + ".");
     }
