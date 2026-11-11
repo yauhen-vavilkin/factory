@@ -842,7 +842,7 @@ class UiRenderSmokeTest {
         // time.js, and no title in UTC, since the line itself shows the local time.
         assertThat(task.substring(task.indexOf("id=\"attempts-title\"")))
                 .contains("title=\"" + expected + "\">Failed</span>",
-                        "<div class=\"dev-row-meta dev-row-meta-dots\">"
+                        "<div class=\"dev-row-meta dev-row-meta-dots dev-row-meta-quoted\">"
                                 + timeTag(PageTime.day(Instant.parse("2026-11-10T22:42:00Z"))) + "</div>");
         // The run page says it in the same words, and links back to its task and attempt.
         String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
@@ -1585,6 +1585,11 @@ class UiRenderSmokeTest {
                 .doesNotContainPattern("<option value=\"glm-5.3\"[^>]*selected=\"selected\"")
                 .contains("<span>Effort</span>", "<input type=\"radio\" name=\"effort\" value=\"high\" checked=\"checked\">")
                 .contains("glm-5.3 · low · ", "&quot;Read the ADR through the wiki &lt;REST&gt; URL.&quot;")
+                // Only the quote may end with an ellipsis on a narrow row; the facts before it stay whole.
+                .contains("<span class=\"dev-row-quote\">&quot;Read the ADR through the wiki &lt;REST&gt; URL.&quot;"
+                        + "</span></div>")
+                .containsPattern("<div class=\"dev-row-meta dev-row-meta-dots dev-row-meta-quoted\" title=\"[^\"]*\">"
+                        + "<span>glm-5.3 · low</span>")
                 .doesNotContain(ZAI_KEY)
                 .containsPattern("href=\"/executions/" + execution.getId() + "\"\\s+aria-label=\"Open run for attempt 1\""
                         + "\\s*>Open run</a>")

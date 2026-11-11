@@ -116,7 +116,7 @@
             <div class="dev-row-main">
                 <div><strong class="attempt-title" th:text="'Attempt ' + ${attempt.ordinal()}">Attempt 1</strong>
                     · <span th:text="${attempt.kind()}">first run</span></div>
-                <div class="dev-row-meta dev-row-meta-dots" th:title="${attempt.meta()}"><span
+                <div class="dev-row-meta dev-row-meta-dots dev-row-meta-quoted" th:title="${attempt.meta()}"><span
                         th:if="${attempt.settings() != null}" th:text="${attempt.settings()}">glm-5.3 · max</span><time
                         th:replace="~{fragments/components :: pageTime(${attempt.started()})}"></time><span
                         th:if="${attempt.note() != null}" th:text="${attempt.note()}">not started</span><span

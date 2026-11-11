@@ -1093,6 +1093,11 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .dev-row-meta-dots > * + * { margin-left: 0; }
 .dev-row-meta-dots > * + *::before { content: "·"; margin: 0 0.3em; }
 .dev-row-meta a:focus-visible { outline-offset: -2px; }
+/* An attempt keeps its facts whole: on a narrow row they wrap as a whole, and only the quoted instructions end
+   with an ellipsis. */
+.dev-row-meta-quoted { display: flex; flex-wrap: wrap; }
+.dev-row-meta-quoted > * { flex: none; }
+.dev-row-meta-quoted > .dev-row-quote { flex: 1 1 8em; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dev-row-action { display: flex; justify-content: flex-end; }
 /* The box of a checkbox sits on the baseline; this puts its middle on the middle of the title text. */
 .dev-row .task-check { position: relative; top: 3px; margin: 0; flex: 0 0 auto; }
