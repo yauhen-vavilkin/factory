@@ -7,6 +7,7 @@ import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskRoutingReason;
 import org.folio.factory.app.tasks.source.TaskJiraInstance;
 import org.folio.factory.app.tasks.source.TaskSourceProperties;
+import org.folio.factory.app.web.FeedbackUi;
 import org.folio.factory.app.web.PageTime;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.springframework.stereotype.Component;
@@ -42,6 +43,8 @@ import static org.folio.factory.app.tasks.presentation.TaskLabels.working;
 @RequiredArgsConstructor
 public class TaskRows {
 
+    static final String FEEDBACK_WAITS = "PR feedback waits for you";
+    static final String FEEDBACK_WORKS = "The agent works on PR feedback";
     private static final int QUOTE = 80;
     private static final String SO_FAR = "so far";
 
@@ -49,6 +52,12 @@ public class TaskRows {
     private final TaskJiraInstance jira;
     private final DevFactoryProperties repositories;
     private final RunLimits limits;
+    private final FeedbackUi feedback;
+
+    /** A row under Started tasks. */
+    public TriggeredRow triggeredRow(TaskView view) {
+        return RunRows.row(view, feedback.standing(view));
+    }
 
     public SourceCard sourceCard(TaskInstallation installation) {
         String base = jira.baseUrl();
@@ -72,14 +81,54 @@ public class TaskRows {
         var failure = failure(view);
         var reason = failure.map(AttemptFailure::reason).orElse(null);
         var pullRequest = view.pullRequestUrl();
+        var standing = feedback.standing(view);
+        var feedbackWaits = standing == FeedbackStanding.WAITS_FOR_YOU;
+        var note = failure.map(found -> pullRequestNote(view.reason())).orElse(feedbackNote(standing));
         return new TaskDetail(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(),
                 repositoryLine(view.destinationRepository()), view.version(), view.inputFingerprint(),
-                view.destinationFingerprint(), status(view), reason,
-                failure.map(found -> pullRequestNote(view.reason())).orElse(null), AttemptFailure.limitsUrl(reason),
+                view.destinationFingerprint(), status(view, standing), reason,
+                note, AttemptFailure.limitsUrl(reason),
                 view.draftReasons(), spent(view), spentNote(view), usageNote(view.usage()), clock(view),
-                view.allowedActions().retry(), view.attempts().size() + 1, runLink(view, pullRequest != null),
+                view.allowedActions().retry(), view.attempts().size() + 1,
+                runLink(view, pullRequest != null, feedbackWaits),
                 pullRequest, pullRequest == null ? null : "Open p" + pullRequestLabel(pullRequest).substring(1),
-                latest == null ? null : markStoppedAttemptId(latest));
+                latest == null ? null : markStoppedAttemptId(latest),
+                turn(view, failure.isPresent(), standing));
+    }
+
+    /** PR feedback decides first: it waits for the developer or a round works now. */
+    private static Turn turn(TaskView view, boolean failed, FeedbackStanding standing) {
+        if (standing == FeedbackStanding.WAITS_FOR_YOU) {
+            return Turn.YOURS;
+        }
+        if (standing == FeedbackStanding.WORKING) {
+            return Turn.WORKING;
+        }
+        return turn(view, failed);
+    }
+
+    /**
+     * The developer's turn when the agent asked, when the latest attempt failed and the next one can start, or
+     * when Factory could not confirm how a run ended.
+     */
+    private static Turn turn(TaskView view, boolean failed) {
+        var latest = view.attempts().isEmpty() ? null : view.attempts().getLast();
+        var retry = view.allowedActions().retry() && (failed || view.needsAnswer());
+        if (retry || latest != null && markStoppedAttemptId(latest) != null) {
+            return Turn.YOURS;
+        }
+        if (TaskLabels.queued(view)) {
+            return Turn.QUEUED;
+        }
+        return view.state() == TaskView.TaskState.WORKING ? Turn.WORKING : Turn.NONE;
+    }
+
+    private static String feedbackNote(FeedbackStanding standing) {
+        return switch (standing) {
+            case WAITS_FOR_YOU -> FEEDBACK_WAITS + ".";
+            case WORKING -> FEEDBACK_WORKS + ".";
+            default -> null;
+        };
     }
 
     public static AttemptRow attemptRow(TaskView view, TaskView.AttemptHistoryEntry attempt) {
@@ -106,10 +155,10 @@ public class TaskRows {
     }
 
     /** The chip and headline of the attempt the task stands for; the task's own words before its first attempt. */
-    private static AttemptStatus status(TaskView view) {
+    private static AttemptStatus status(TaskView view, FeedbackStanding standing) {
         var attempt = view.standingAttempt();
         if (attempt.isPresent()) {
-            return AttemptStatus.of(view, attempt.get());
+            return AttemptStatus.of(view, attempt.get(), standing);
         }
         var label = view.state() == TaskView.TaskState.UNSUPPORTED ? "Not eligible" : "Not started";
         return new AttemptStatus(label, "chip chip-neutral", null, notStartedSentence(view));
@@ -126,14 +175,14 @@ public class TaskRows {
         return AttemptClock.of(facts, limits.limits());
     }
 
-    /** "PR feedback" on the run page once the attempt has a pull request, "Open run" before. */
-    private static TaskDetail.RunLink runLink(TaskView view, boolean pullRequest) {
+    /** The run page, at its PR feedback part once the attempt has a pull request. */
+    private static TaskDetail.RunLink runLink(TaskView view, boolean pullRequest, boolean feedbackWaits) {
         var url = runUrl(view);
         if (url == null) {
             return null;
         }
-        return pullRequest ? new TaskDetail.RunLink("PR feedback", url + "#pr-feedback")
-                : new TaskDetail.RunLink("Open run", url);
+        return feedbackWaits ? new TaskDetail.RunLink("Open PR feedback", url + "#pr-feedback", true)
+                : new TaskDetail.RunLink("Open run", pullRequest ? url + "#pr-feedback" : url, false);
     }
 
     /** The notice that the queue waits on an attempt that needs inspection. */
@@ -180,11 +229,14 @@ public class TaskRows {
         return working(view) ? costSoFar(view.usage()) : costLabel(view.usage());
     }
 
-    /** "spent in 2 attempts"; null before the first attempt. Why the amount may be too low is its title. */
+    /**
+     * "spent in 2 attempts" beside the amount, or "cost unknown" when the attempts that started have no cost
+     * figure; null before that. Why the amount may be too low is its title.
+     */
     private static String spentNote(TaskView view) {
         int count = view.attempts().size();
-        if (count == 0) {
-            return null;
+        if (spent(view) == null) {
+            return view.attempts().stream().anyMatch(attempt -> attempt.startedAt() != null) ? "cost unknown" : null;
         }
         return "spent in " + count + (count == 1 ? " attempt" : " attempts");
     }

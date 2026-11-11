@@ -162,7 +162,10 @@ class TaskUiControllerTest {
                         List.of("MODBAR"), List.of(), new DeliveryTarget("folio-org/mod-bar", null)))));
         var limits = org.mockito.Mockito.mock(RunLimits.class);
         lenient().when(limits.limits()).thenReturn(new AttemptClock.Limits(1800, java.time.Duration.ofMinutes(60)));
-        var rows = new TaskRows(new TaskSourceProperties("Jane Developer"), jira, repositories, limits);
+        var feedback = org.mockito.Mockito.mock(FeedbackUi.class);
+        lenient().when(feedback.standing(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(org.folio.factory.app.tasks.presentation.FeedbackStanding.NONE);
+        var rows = new TaskRows(new TaskSourceProperties("Jane Developer"), jira, repositories, limits, feedback);
         var revisions = new TaskRevisions(attempts, executions, dispatcher, taskQuery);
         var controller = new TaskUiController(taskQuery, installations, attempts, admissions,
                 dispatcher, rows, flows, runSettings, revisions);
@@ -212,9 +215,8 @@ class TaskUiControllerTest {
                 .containsEntry("chipUrl", null)
                 .containsEntry("detail", "Verification failed: 2 tests failed.")
                 .containsEntry("detailTitle", "Verification failed: 2 tests failed.")
-                // A failed task opens its run, where it says why it failed.
-                .containsEntry("action", RunAction.OPEN_RUN)
-                .containsEntry("actionUrl", "/executions/" + EXECUTION_ID)
+                // A failed task offers Retry on its task page, where the status card says why it failed.
+                .containsEntry("action", RunAction.RETRY)
                 .containsEntry("markStoppedAttemptId", null);
         assertThat(model.get("inProgress")).isNull();
         var source = (SourceCard) model.get("source");
@@ -507,9 +509,9 @@ class TaskUiControllerTest {
         assertThat(detail(result))
                 .containsEntry("chipLabel", "Failed")
                 .containsEntry("retryAllowed", true)
-                .containsEntry("run", new TaskDetail.RunLink("Open run", "/executions/" + EXECUTION_ID))
+                .containsEntry("run", new TaskDetail.RunLink("Open run", "/executions/" + EXECUTION_ID, false))
                 .containsEntry("nextAttempt", 3)
-                .containsEntry("spentNote", "spent in 2 attempts")
+                .containsEntry("spentNote", "cost unknown")
                 .containsEntry("repository", "mod-bar → folio-org/mod-bar · master");
         assertThat(detail(result))
                 .containsEntry("headline", "Attempt 2 failed")

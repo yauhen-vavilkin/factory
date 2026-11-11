@@ -60,7 +60,7 @@ public class TaskRevisions {
     }
 
     private static String shown(TaskView view) {
-        var row = RunRows.row(view);
+        var row = RunRows.row(view, FeedbackStanding.NONE);
         return row.cost() + "|" + row.when() + "|" + RunRows.strip(List.of(view)).map(InProgressStrip::run).orElse("");
     }
 

@@ -206,7 +206,8 @@ class UiRenderSmokeTest {
     void pageLinksCarryAContentHashAndHashedFilesAreCachedForAYear() {
         ResponseEntity<String> page = rest.get().uri("/flows/dev-factory").retrieve().toEntity(String.class);
         String body = page.getBody();
-        assertThat(page.getHeaders().getCacheControl()).as("HTML pages stay uncached").isNull();
+        // A page is never stored, so the Back button loads it again and cannot repeat a one-time notice.
+        assertThat(page.getHeaders().getCacheControl()).as("HTML pages are never stored").isEqualTo("no-store");
         assertThat(body).doesNotContainPattern("\"/(css|js)/[a-z]+\\.(css|js)\"");
         for (String file : List.of("css/tokens", "css/app", "js/app", "js/theme", "js/confirm", "js/poll", "js/menu")) {
             String extension = file.substring(0, file.indexOf('/'));
@@ -391,7 +392,7 @@ class UiRenderSmokeTest {
         String body = assertRendered("/reviews", "Steps that wait for a person's decision, and the decisions made.");
 
         assertThat(body).contains("<td>Waiting for PR comments: MGRAPPS-21</td>",
-                        "href=\"/executions/" + execution.getId() + "#pr-feedback\">PR feedback</a>",
+                        "href=\"/executions/" + execution.getId() + "#pr-feedback\">Open run</a>",
                         "<td>QA review: manual test cases</td>", "href=\"/reviews/" + qaReview.getId() + "\">Review</a>")
                 .doesNotContain("<td>PR feedback</td>", "MGRAPPS-22");
         // Each flow by its name and each gate in words, on one line; the action sits at the right edge of the row.
@@ -1438,25 +1439,44 @@ class UiRenderSmokeTest {
         // Ready to run: the ways to get tasks in its header, the rows without frame or header row.
         String readyList = body.substring(body.indexOf("id=\"available-title\""), body.indexOf("id=\"triggered-title\""));
         assertThat(readyList)
+                // A task that has not started has no page worth opening: its name selects it instead.
+                .containsPattern("<label class=\"dev-row-main dev-row-select\" for=\"select-[0-9a-f-]+\">\\s*"
+                        + "<span class=\"dev-row-name\"")
+                .doesNotContain("class=\"dev-row-title\"", "href=\"/tasks/")
                 .containsPattern("Ready to run <span class=\"dev-count\"\\s*>3</span>")
                 .contains("action=\"/flows/dev-factory/add-by-key\"", "placeholder=\"Add by key, for example MGRAPPS-101\"",
                         ">Add</button>", "action=\"/flows/dev-factory/scan\"", ">Scan Jira</button>",
                         "title=\"Not scanned yet\"", "action=\"/tasks/run-selected\"",
                         "<a class=\"key-link ext-link\" href=\"https://jira.example.org/browse/MODBAR-701\">MODBAR-701</a>",
-                        "<span>Jira: Open</span>", "<span>Jira: In Review</span>", "<span>mod-bar</span>",
-                        "aria-label=\"Select MODBAR-701\"", ">Effort</span>")
+                        "<span>mod-bar</span>", "aria-label=\"Select MODBAR-701\"",
+                        "title=\"MODBAR-701 · Status in Jira: Open · mod-bar\"")
                 .contains("data-run-selected disabled>Run</button>")
                 .doesNotContain("data-status-chip", "task-grid", "data-select-all", "Select MODBAR-702",
                         "Add to list", "Not in your list?", "added by key", "fix-dialog");
+        // The Jira status is a badge right after the key, so it never reads as "open in Jira"; a screen reader
+        // hears what it is. The effort levels need no label.
+        assertThat(readyList)
+                .containsPattern("MODBAR-701</a><span\\s+class=\"badge badge-sm badge-muted\">"
+                        + "<span class=\"sr-only\">Status in Jira: </span><span>Open</span></span>")
+                .containsPattern("MODBAR-703</a><span\\s+class=\"badge badge-sm badge-muted\">"
+                        + "<span class=\"sr-only\">Status in Jira: </span><span>In Review</span></span>")
+                .doesNotContain("<span>Jira: ", ">Effort</span>");
         // Tasks that cannot run: one muted line per reason under the list, no disclosure.
         assertThat(readyList)
                 .contains("<p class=\"dev-list-note\">1 task cannot run here: MODBAR-702. Project MODBAR has no"
                         + " repository in config/developer-repositories.yaml.</p>")
                 .doesNotContain("cannot run here</summary>");
-        // The effort choice and Remove sit in the fixed columns of the row; the effort says what it means.
+        // The effort choice ends each row and says what it means on hover. Only a task added by key has Remove from
+        // list, before the effort choice, named with its visible text.
         assertThat(readyList)
                 .containsPattern("<div class=\"row-cluster row-cluster-ready\">\\s*<div class=\"run-setting\"\\s+"
-                        + "title=\"Effort is how long the model thinks at each step: higher is slower and costs more.\">");
+                        + "title=\"Effort is how long the model thinks at each step: higher is slower and costs more.\">")
+                .containsPattern("<div class=\"row-cluster row-cluster-ready\">\\s*<div class=\"dev-row-action\">\\s*"
+                        + "<button type=\"submit\" class=\"btn btn-secondary btn-sm\"\\s+formaction=\"/tasks/"
+                        + added.getId() + "/remove-from-list\"[^>]*aria-label=\"Remove from list: MODBAR-713\"[^>]*>"
+                        + "Remove from list</button>\\s*</div>\\s*<div class=\"run-setting\"")
+                .containsOnlyOnce("Remove from list</button>")
+                .doesNotContain(">Remove</button>");
         // Run: one Model for the run, the ready models only, each with its levels for the page script.
         String run = body.substring(body.indexOf("action=\"/tasks/run-selected\""), body.indexOf("data-run-selected"));
         assertThat(run).contains("<span>Model</span>", "name=\"modelId\"", "data-model-select")
@@ -1473,9 +1493,6 @@ class UiRenderSmokeTest {
                 .containsPattern("<input type=\"radio\" name=\"effort-" + awaiting.getId()
                         + "\" value=\"xhigh\">\\s*<span>xhigh</span>")
                 .doesNotContain("name=\"effort-" + unsupported.getId() + "\"");
-        // A task added by key and not run yet can leave the list again.
-        assertThat(readyList).containsPattern("<button type=\"submit\" class=\"btn btn-secondary btn-sm btn-col\"\\s+"
-                + "formaction=\"/tasks/" + added.getId() + "/remove-from-list\"");
         // Runs: title, key, cost and age, a chip, and one action per row.
         String triggered = body.substring(body.indexOf("id=\"triggered-title\""));
         assertThat(triggered)
@@ -1488,19 +1505,16 @@ class UiRenderSmokeTest {
                         + ">Draft PR #8</a>")
                 .containsPattern("<a class=\"dev-row-title\" href=\"/tasks/" + stopped.getId()
                         + "\"\\s+title=\"Stopped task\">Stopped task</a>")
-                // A failed task opens its run; one that never got a run offers Retry.
-                .containsPattern("<a class=\"btn btn-secondary btn-sm btn-col\" href=\"/executions/" + stoppedRun.getId()
-                        + "\"\\s+aria-label=\"Open run MODBAR-705\">Open run</a>")
-                .containsPattern("<a class=\"btn btn-secondary btn-sm btn-col\" href=\"/tasks/" + notStarted.getId()
-                        + "#retry\"\\s+aria-label=\"Retry MODBAR-714\">Retry</a>")
-                .doesNotContain("aria-label=\"Retry MODBAR-705\"")
-                // Amount, chip and button are the fixed columns of the row.
-                .containsPattern("<div class=\"row-cluster\">\\s*<span class=\"row-amount\"[^>]*>[^<]*</span>\\s*"
+                // A row is one link to its task and has no button of its own: a task that waits for the developer
+                // says Your turn, and its task page starts with the answer or the next attempt.
+                .doesNotContain("aria-label=\"Retry MODBAR-705\"", "aria-label=\"Retry MODBAR-714\"")
+                .doesNotContain("aria-label=\"Open run MODBAR-705\"", "aria-label=\"Open run MODBAR-709\"")
+                // The amount and the chip are the fixed columns of the row.
+                .containsPattern("<div class=\"row-cluster row-cluster-status\">\\s*<span class=\"row-amount\"[^>]*>[^<]*</span>\\s*"
                         + "<span class=\"chip chip-danger\">Failed</span>")
-                .containsPattern("href=\"/executions/" + liveExecution.getId() + "\"\\s+aria-label=\"Open run MODBAR-709\">Open run</a>")
                 .containsPattern("<form method=\"post\"\\s+action=\"/tasks/" + held.getId()
                         + "/attempts/[0-9a-f-]+/mark-stopped\">\\s*<input type=\"hidden\" name=\"returnTo\" value=\"flow\">"
-                        + "\\s*<button type=\"submit\" class=\"btn btn-secondary btn-sm\"[^>]*aria-label=\"Mark as stopped: MODBAR-707\"")
+                        + "\\s*<button type=\"submit\" class=\"btn btn-notice btn-sm\"[^>]*aria-label=\"Mark as stopped: MODBAR-707\"")
                 .contains("Queue is waiting.", "MODBAR-707 needs inspection", "data-confirm-title=\"Mark MODBAR-707 as stopped?\"",
                         "The task becomes Failed, its cost so far stays")
                 .contains("Queued tasks are not starting.", "FACTORY_TASKS_EXECUTION_ENABLED=true")
@@ -1520,14 +1534,15 @@ class UiRenderSmokeTest {
         seedAttempt(asked, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
                 "clarify-implementation: " + TaskStops.DECISION_REASON + "Which API should change?");
 
-        String body = assertRendered("/flows/dev-factory", "Runs");
+        String body = assertRendered("/flows/dev-factory", "Started tasks");
 
         String runs = body.substring(body.indexOf("id=\"triggered-title\""));
         assertThat(runs)
                 .contains("<span class=\"chip chip-warning\">Needs your answer</span>")
-                .containsPattern("href=\"/tasks/" + asked.getId() + "#answer\"\\s+aria-label=\"Answer MODBAR-720\""
-                        + "\\s*>Answer</a>")
-                .doesNotContain("Which API should change?", ">Retry</a>");
+                // The row says it waits for the developer and opens the task, whose page starts with the question.
+                .contains("<span class=\"src src-you\">Your turn</span>")
+                .containsPattern("<a class=\"dev-row-title\" href=\"/tasks/" + asked.getId() + "\"")
+                .doesNotContain("Which API should change?", ">Retry</a>", ">Answer</a>");
     }
 
     @Test
@@ -1597,7 +1612,7 @@ class UiRenderSmokeTest {
         doReturn(null).when(runSettings).form();
 
         String body = assertRendered("/tasks/" + stopped.getId(), "Failed");
-        assertThat(body).containsPattern("<section class=\"dev-section\" id=\"retry\"")
+        assertThat(body).containsPattern("<section class=\"dev-section[^\"]*\" id=\"retry\"")
                 .contains("What should the agent do differently? (optional)", "name=\"instructions\"",
                         ">Start attempt 2</button>")
                 .doesNotContain("name=\"modelId\"", "name=\"effort\"", "data-effort-toggle");
@@ -1683,8 +1698,11 @@ class UiRenderSmokeTest {
                 // Technical details are gone: the URL, the header and the status card say all they held.
                 .doesNotContain("Technical details", "tech-disclosure", "Total tokens", "Cost and usage",
                         "dev-page-narrow")
-                .containsPattern("<div class=\"dev-meta dev-meta-dots\">\\s*<a class=\"key-link ext-link\"[^>]*>MODBAR-721</a>"
-                        + "\\s*<span>mod-bar</span>")
+                // The head says what comes from Jira and what Factory adds; a failed attempt is the developer's turn.
+                .containsPattern("<span class=\"src src-jira\">Jira task</span>\\s*<a class=\"key-link ext-link\"[^>]*>"
+                        + "MODBAR-721</a>")
+                .containsPattern("<span class=\"src\">Factory</span>\\s*<span>mod-bar</span>")
+                .contains("data-turn=\"YOURS\"", "<span class=\"src src-you\">Your turn</span>")
                 .containsPattern("<a class=\"btn btn-secondary btn-sm\" href=\"/executions/" + execution.getId()
                         + "\">Open run</a>")
                 .contains(">Start attempt 2</button>", "name=\"expectedVersion\"", "name=\"inputFingerprint\"",
@@ -1692,7 +1710,7 @@ class UiRenderSmokeTest {
                         "A new attempt starts from a clean checkout and adds to the cost. Effort is how long the model"
                                 + " thinks at each step: higher is slower and costs more.")
                 // The next attempt is its own section; its text field is empty and has a name for screen readers.
-                .containsPattern("<section class=\"dev-section\" id=\"retry\"")
+                .containsPattern("<section class=\"dev-section[^\"]*\" id=\"retry\"")
                 .containsPattern("<form class=\"dev-form\" method=\"post\"\\s+action=\"/tasks/"
                         + stopped.getId() + "/retry\"")
                 .contains("<label for=\"retry-instructions\">What should the agent do differently? (optional)</label>",
@@ -1711,7 +1729,7 @@ class UiRenderSmokeTest {
                         + "<span>glm-5.3 · low</span>")
                 .doesNotContain(ZAI_KEY)
                 .containsPattern("href=\"/executions/" + execution.getId() + "\"\\s+aria-label=\"Open run for attempt 1\""
-                        + "\\s*>Open run</a>")
+                        + "\\s*><strong class=\"attempt-title\">Attempt 1</strong></a>")
                 .contains("Attempt 1</strong>", "<span>first run</span>");
 
         Task partial = seedTask("70022", "MODBAR-722", "Partial task",
@@ -1781,14 +1799,14 @@ class UiRenderSmokeTest {
         unreportedAttempt.setPaidStartAt(Instant.now());
         taskAttempts.save(unreportedAttempt);
 
-        String unknownCost = "<span class=\"row-amount\"\\s+title=\"The runtime did not report usage,"
+        String unknownCost = "<span class=\"row-amount row-amount-note\"\\s+title=\"The runtime did not report usage,"
                 + " or the usage has no price, so the cost is not known.\">cost unknown</span>";
         String unreportedBody = assertRendered("/tasks/" + unreported.getId(), "Failed");
         assertThat(unreportedBody.substring(unreportedBody.indexOf("id=\"attempts-title\"")))
                 .containsPattern(unknownCost).doesNotContain("cost may be higher");
         String unreportedList = assertRendered("/flows/dev-factory", "Ready to run");
         String unreportedRow = unreportedList.substring(unreportedList.indexOf(">MODBAR-724</a>"));
-        assertThat(unreportedRow.substring(0, unreportedRow.indexOf("class=\"dev-row-action\"")))
+        assertThat(unreportedRow.substring(0, unreportedRow.indexOf("class=\"chip")))
                 .doesNotContain("cost may be higher", "cost unknown", "—");
     }
 
@@ -1854,7 +1872,7 @@ class UiRenderSmokeTest {
                         "class=\"btn btn-primary btn-sm\" href=\"https://github.com/folio-org/mod-bar/pull/7\">"
                                 + "Open pull request #7</a>",
                         "class=\"btn btn-secondary btn-sm\" href=\"/executions/" + execution.getId()
-                                + "#pr-feedback\">PR feedback</a>")
+                                + "#pr-feedback\">Open run</a>")
                 .doesNotContain("Draft PR", "Factory opened it as a draft because:")
                 .doesNotContain("name=\"expectedVersion\"");
     }
@@ -1878,7 +1896,7 @@ class UiRenderSmokeTest {
                                     "cacheReadPerMillion", 0.03, "outputPerMillion", 0.5)));
         }
 
-        String list = assertRendered("/flows/dev-factory", "Runs");
+        String list = assertRendered("/flows/dev-factory", "Started tasks");
         assertThat(list.substring(list.indexOf(">MODBAR-733</a>")))
                 .containsPattern("<span class=\"row-amount\"[^>]*>\\$0.30</span>");
         assertThat(assertRendered("/tasks/" + delivered.getId(), "Pull request #9"))
@@ -1939,7 +1957,7 @@ class UiRenderSmokeTest {
         assertThat(body.substring(body.indexOf("id=\"attempts-title\"")))
                 .containsPattern("<a class=\"chip chip-neutral ext-link\"\\s+href=\"https://github.com/folio-org/mod-bar/pull/8\""
                         + " title=\"Pull request #8 opened as a draft\">Draft PR #8</a>")
-                .contains(">Open run</a>");
+                .contains("aria-label=\"Open run for attempt 1\"");
 
         String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(run)
@@ -1993,12 +2011,13 @@ class UiRenderSmokeTest {
                         "Verification failed: first failure", "Verification failed: second failure")
                 .contains("Failed");
         String attemptsTable = body.substring(body.indexOf("id=\"attempts-title\""));
-        // A clear Open run button replaces the small "run 1234…" link.
+        // The whole attempt row opens its run, as a row of Started tasks opens its task.
         assertThat(attemptsTable)
-                .containsPattern("<a class=\"btn btn-secondary btn-sm btn-col\"\\s+href=\"/executions/" + first.getId()
-                        + "\"\\s+aria-label=\"Open run for attempt 2\">Open run</a>")
-                .containsPattern("<a class=\"btn btn-secondary btn-sm btn-col\"\\s+href=\"/executions/" + second.getId()
-                        + "\"\\s+aria-label=\"Open run for attempt 3\">Open run</a>")
+                .containsPattern("<a class=\"dev-row-link\"\\s+href=\"/executions/" + first.getId()
+                        + "\"\\s+aria-label=\"Open run for attempt 2\">")
+                .containsPattern("<a class=\"dev-row-link\"\\s+href=\"/executions/" + second.getId()
+                        + "\"\\s+aria-label=\"Open run for attempt 3\">")
+                .doesNotContain(">Open run</a>")
                 .doesNotContainPattern(">run [0-9a-f]{4}…</a>");
         // Newest first: a new attempt is added at the top.
         assertThat(attemptsTable.indexOf("Attempt 3</strong>")).isLessThan(attemptsTable.indexOf("Attempt 2</strong>"));

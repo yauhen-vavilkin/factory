@@ -2,7 +2,9 @@ package org.folio.factory.app.web;
 
 import org.folio.factory.app.tasks.presentation.AttemptClock;
 import org.folio.factory.app.tasks.presentation.AttemptFailure;
+import org.folio.factory.app.tasks.presentation.AttemptStatus;
 import org.folio.factory.app.tasks.presentation.RunContext;
+import org.folio.factory.app.tasks.presentation.Turn;
 import org.folio.factory.app.web.DeveloperRunView.Status;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
@@ -19,6 +21,7 @@ import java.util.regex.Pattern;
  */
 final class RunStatusCard {
 
+    private static final String NO_FIGURE = "—";
     private static final Pattern PULL_NUMBER = Pattern.compile("/pull/(\\d+)");
     private static final String STARTING = "Starting the run";
     private static final Map<String, String> WORKING = Map.of(
@@ -84,9 +87,9 @@ final class RunStatusCard {
                 .orElseGet(() -> chip(in.facts().productStatus(), in.facts().pullRequest()));
         var headline = headline(in);
         var usage = in.usage();
-        var amount = usage.amount() != null ? usage.amount() : in.live() ? "$0.00" : null;
+        var amount = amount(in);
         var rounds = in.feedback().map(FeedbackUi.Summary::rounds).orElse(false);
-        var amountNote = amount == null ? null : in.live() ? "so far" : rounds ? "total" : null;
+        var amountNote = amount == null ? unknownCost(in) : in.live() ? "so far" : rounds ? "total" : null;
         var action = action(in);
         return new Status(chip.label(), chip.cssClass(), chip.url(), headline.text(), headline.reasonLabel(),
                 headline.reason(), AttemptFailure.limitsUrl(headline.reason()), headline.question(), headline.note(),
@@ -94,18 +97,33 @@ final class RunStatusCard {
                 usage.partial() ? RunUsage.INCOMPLETE : null, in.clock(), action.label(), action.url());
     }
 
+    /** The cost figure; "$0.00" while a run that works has reported nothing, null when there is no figure. */
+    private static String amount(Input in) {
+        var reported = in.usage().amount();
+        if (reported != null) {
+            return NO_FIGURE.equals(reported) ? null : reported;
+        }
+        return in.live() && !in.usage().column().reported() ? "$0.00" : null;
+    }
+
+    /** Says in words that tokens were reported and have no price, in place of a figure. */
+    private static String unknownCost(Input in) {
+        return NO_FIGURE.equals(in.usage().amount()) || in.usage().column().reported() ? "cost unknown" : null;
+    }
+
     /**
      * The developer's turn when the page waits for an answer, a review, a choice of PR comments or the start of
      * the next attempt; otherwise the page says that Factory works or that nothing is needed.
      */
-    static DeveloperRunView.Turn turn(Input in, Status status) {
+    static Turn turn(Input in, Status status) {
         var waits = status.actionUrl() != null
                 || in.feedback().map(FeedbackUi.Summary::yourTurn).orElse(false)
-                || in.context().map(RunContext::retryUrl).isPresent();
+                || in.context().map(RunContext::retryUrl).isPresent()
+                || in.context().map(RunContext::status).filter(AttemptStatus::needsInspection).isPresent();
         if (waits) {
-            return DeveloperRunView.Turn.YOURS;
+            return Turn.YOURS;
         }
-        return in.live() ? DeveloperRunView.Turn.WORKING : DeveloperRunView.Turn.NONE;
+        return in.live() ? Turn.WORKING : Turn.NONE;
     }
 
     /** The muted line under the card: where an older attempt stands, or the button to start the next attempt. */

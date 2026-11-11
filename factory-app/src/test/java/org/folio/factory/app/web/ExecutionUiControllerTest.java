@@ -105,7 +105,9 @@ class ExecutionUiControllerTest {
         var limits = mock(RunLimits.class);
         when(limits.limits()).thenReturn(new AttemptClock.Limits(1800, java.time.Duration.ofMinutes(60)));
         var runPage = new DeveloperRunPage(json, estimator,
-                new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class)), taskQuery,
+                new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class),
+                        mock(org.folio.factory.core.service.ArtifactStore.class),
+                        mock(org.folio.factory.core.repository.PipelineExecutionRepository.class)), taskQuery,
                 limits, mock(TaskRows.class));
         var engine = new EngineRecords(executions, artifactStore, flowRegistry);
         mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(engine, auditLog, reviews, json, runPage,

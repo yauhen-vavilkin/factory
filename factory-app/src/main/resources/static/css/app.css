@@ -511,6 +511,17 @@ tbody tr:hover { background: hsl(var(--secondary-hover) / 0.4); }
   transition: opacity 300ms ease;
 }
 .alert.alert-hiding { opacity: 0; }
+/* A notice that goes away by itself floats over the page, so the page does not jump when it comes and goes. */
+.alert[data-autodismiss] {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  z-index: 40;
+  max-width: min(560px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  background: linear-gradient(hsl(var(--success) / 0.08), hsl(var(--success) / 0.08)), hsl(var(--background));
+  box-shadow: 0 6px 20px hsl(240 10% 3.9% / 0.12);
+}
 .alert-error {
   border-color: hsl(var(--destructive) / 0.4);
   border-left-color: hsl(var(--destructive));
@@ -756,7 +767,7 @@ a.kpi:hover { text-decoration: none; border-color: hsl(var(--strong-border)); }
   color: hsl(var(--foreground));
 }
 
-.task-check { width: 16px; height: 16px; margin: 3px 0 0; }
+.task-check { width: 16px; height: 16px; margin: 3px 0 0; accent-color: hsl(var(--primary)); }
 /* Model and Effort of a run form: one compact row that wraps on narrow screens. */
 .run-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .run-setting { display: flex; align-items: center; gap: 6px; font-size: 13px; color: hsl(var(--foreground)); }
@@ -811,7 +822,11 @@ a.kpi:hover { text-decoration: none; border-color: hsl(var(--strong-border)); }
   overflow-wrap: anywhere;
 }
 .queue-waiting strong { font-weight: 600; }
+.dev-list > .queue-waiting { margin-top: 12px; }
+.dev-list > .queue-waiting + .queue-waiting { margin-top: 8px; }
+.dev-list > .queue-waiting + .dev-row { margin-top: 4px; }
 .queue-waiting form { margin-left: auto; }
+/* A button that changes the state of a task after a confirmation, next to buttons that only open a page. */
 .btn-notice {
   border-color: hsl(var(--notice-accent));
   background: hsl(var(--background));
@@ -926,6 +941,10 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .fold-title { font-weight: 600; }
 .fold-hint { flex: 1 1 0; min-width: 0; font-size: 13px; color: hsl(var(--muted-foreground)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fold-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 2px 16px 16px 39px; }
+/* In a row the activity column grows from 520px; in a fold that basis would be its height. */
+.fold-body .run-activity { flex: none; }
+.fold-body .dev-list-head:not(:has(.dev-list-tools)) { display: none; }
+.fold-body .dev-list-head { min-height: 0; padding: 0; border: 0; justify-content: flex-end; }
 .fold-body .run-activity .dev-section-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 @media (max-width: 560px) { .fold-body { padding-left: 16px; } }
 .tech-facts {
@@ -1017,8 +1036,9 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .feedback-comment-body { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 .feedback-location { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 /* Rounds: one card per round. All cards share one grid, so the amounts and the chips stand in straight columns;
-   under the head line each reply says who it comes from: the reviewer on GitHub, the coding agent, Factory. */
-.feedback-rounds { display: grid; grid-template-columns: minmax(0, 1fr) 88px auto; column-gap: 12px; row-gap: 10px; padding-top: 12px; }
+   under the head line each reply says who it comes from: the reviewer on GitHub, the coding agent, Factory. The
+   amount and chip columns are as wide as those of a row in Attempts and Started tasks. */
+.feedback-rounds { display: grid; grid-template-columns: minmax(0, 1fr) 88px minmax(150px, auto); column-gap: 12px; row-gap: 10px; padding-top: 12px; }
 .feedback-round {
   grid-column: 1 / -1;
   display: grid;
@@ -1036,6 +1056,7 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .feedback-round-body > .said:first-of-type { margin-top: 12px; }
 .feedback-round-body > .said:last-child { margin-bottom: -12px; }
 .feedback-round-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.feedback-round-head strong { font-weight: 600; }
 .feedback-round-summary { white-space: pre-wrap; overflow-wrap: anywhere; }
 .feedback-round-link { display: inline-flex; align-self: flex-start; }
 .said {
@@ -1082,15 +1103,16 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
   border-bottom: 1px solid hsl(var(--border));
 }
 .dev-list-head .dev-section-title { font-size: 16px; }
-.dev-list-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; }
+.dev-list-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 13px; }
 a.dev-list-tools { color: hsl(var(--quiet-foreground)); text-decoration: underline; }
 a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .dev-list-tools [data-poll-notice] { color: hsl(var(--notice-foreground)); }
 .dev-poll-notice { font-size: 13px; color: hsl(var(--notice-foreground)); }
-.add-key { display: flex; align-items: center; gap: 10px; }
+.add-key { display: flex; align-items: center; gap: 12px; }
 .add-key-input { width: 280px; }
-/* The right part of a row stands at the top, centred on the title line, also in rows of two or three lines. On
-   a narrow screen it moves under the title instead of squeezing it. */
+/* The right part of a row stands at the top, centred on the title line, also in rows of two or three lines. A
+   Ready to run row is the exception: its controls are 30px high, taller than the title line, so they are centred
+   on the whole row. On a narrow screen the right part moves under the title instead of squeezing it. */
 .dev-row {
   display: flex;
   flex-wrap: wrap;
@@ -1101,7 +1123,7 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 }
 .dev-row-main { flex: 1 1 280px; min-width: 0; }
 /* At most two lines, so a narrow screen shows the start of a long title; its title attribute has it all. */
-.dev-row-title {
+.dev-row-title, .dev-row-name {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -1109,13 +1131,45 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
   overflow: hidden;
   overflow-wrap: anywhere;
 }
-/* The link of a list row or a table row looks like a link before the pointer reaches it. */
-.dev-row-title, .table-link {
+/* The link of a list row or a table row, and a Jira key that opens Jira, look like links before the pointer
+   reaches them. */
+.dev-row-title, .table-link, a.key-link {
   text-decoration: underline;
   text-decoration-color: hsl(var(--strong-border));
   text-underline-offset: 3px;
 }
-.dev-row-title:hover, .table-link:hover { text-decoration-color: currentColor; }
+.dev-row-title:hover, .table-link:hover, a.key-link:hover { text-decoration-color: currentColor; }
+/* A row of Ready to run selects its task when its name is clicked; a task that has not started has no page worth
+   opening. */
+.dev-row-select, .task-check { cursor: pointer; }
+/* The rows of a list that reacts to clicks stand 12px inside it, like the cells of a table, so the highlight under
+   the cursor has room around the text and never leaves the list. Their dividers keep the width of the page column. */
+.dev-list-inset .dev-row,
+.dev-list-inset .dev-list-foot,
+.dev-list-inset .dev-empty { padding-left: 12px; padding-right: 12px; }
+.dev-row:has(> .dev-row-select):hover { background: hsl(var(--secondary-hover) / 0.25); }
+/* A row of Started tasks opens its task wherever it is clicked: the title link covers the row. The Jira key, the
+   chip and the button stay above it and keep their own targets. */
+.dev-row-open { position: relative; cursor: pointer; }
+.dev-row-open:hover { background: hsl(var(--secondary-hover) / 0.4); }
+.dev-row-open .dev-row-title::after,
+.dev-row-open .dev-row-link::after { content: ""; position: absolute; inset: 0; }
+.dev-row-open:hover .dev-row-title { text-decoration-color: currentColor; }
+/* The link of an attempt row: its text looks like the row's plain title, the whole row is the target. */
+.dev-row-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--strong-border));
+  text-underline-offset: 3px;
+}
+.dev-row-open:hover .dev-row-link { text-decoration-color: currentColor; }
+/* The keyboard focus ring goes around the row, since the row is the target. */
+.dev-row-link:focus-visible, .dev-row-open .dev-row-title:focus-visible { outline: none; }
+.dev-row-open:has(.dev-row-link:focus-visible),
+.dev-row-open:has(.dev-row-title:focus-visible) { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
+.dev-row-open .dev-row-meta a,
+.dev-row-open .row-cluster a,
+.dev-row-open .row-cluster button { position: relative; z-index: 1; }
 /* One line of inline parts that ends with an ellipsis when the row is narrow; its title has the whole line. The
    templates write the parts without spaces between them, so the margins alone space them. */
 .dev-row-meta {
@@ -1140,8 +1194,7 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 /* The box of a checkbox sits on the baseline; this puts its middle on the middle of the title text. */
 .dev-row .task-check { position: relative; top: 3px; margin: 0; flex: 0 0 auto; }
 /* Amount, chip and button in fixed columns, so they line up from row to row in Runs and Attempts.
-   A wider button (Mark as stopped…) widens only its own row. A Ready to run row has its effort choice
-   and, for a task added by key, Remove in the button column. */
+   A wider button (Mark as stopped…) widens only its own row. */
 .row-cluster {
   flex: none;
   display: grid;
@@ -1155,19 +1208,30 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .row-cluster > .row-amount { grid-column: 1; }
 .row-cluster > .chip { grid-column: 2; justify-self: start; }
 .row-cluster > .dev-row-action { grid-column: 3; }
-.row-cluster-ready { grid-template-columns: auto 96px; }
-.row-cluster-ready > .run-setting { grid-column: 1; }
-.row-cluster-ready > .dev-row-action { grid-column: 2; }
-/* On a phone the page is never wider than the screen: the effort choice of a Ready to run row gets its own line
-   under the title with Remove under it, and Add by key takes a full line with Scan Jira under it. */
+/* Started tasks: the amounts stand in one column and every chip ends at the right edge of the row. The rare
+   Mark as stopped button goes under them. */
+.row-cluster-status { grid-template-columns: 88px minmax(150px, auto); height: auto; min-height: 21px; row-gap: 8px; }
+.row-cluster-status > .chip { justify-self: end; }
+.row-cluster-status > .dev-row-action { grid-column: 1 / -1; justify-self: end; }
+/* Ready to run: the effort choice ends at the edge of Run in every row. Only a task added by key has Remove from
+   list, before the effort choice, so it takes no column in the other rows. */
+.row-cluster-ready { display: flex; height: auto; align-self: center; }
+/* Without a model to choose (Pi, or no model can run now) a row may have nothing on its right; the empty box would
+   take a line of its own on a narrow screen. */
+.row-cluster-ready:not(:has(> *)) { display: none; }
+/* Remove from list and five effort levels need about 750px next to the title. Below 50rem every Ready to run row
+   puts its right part under the title, so the row with Remove never moves down on its own. */
+@container (max-width: 50rem) {
+  .row-cluster-ready { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; }
+}
+/* On a phone the page is never wider than the screen: Add by key takes a full line with Scan Jira under it. */
 @container (max-width: 28rem) {
-  .row-cluster-ready { display: flex; flex-wrap: wrap; justify-content: flex-end; max-width: 100%; height: auto; row-gap: 8px; }
-  .row-cluster-ready > .run-setting { flex-wrap: wrap; justify-content: flex-end; }
-  .row-cluster-ready > .dev-row-action { flex-basis: 100%; }
   .add-key { flex: 1 1 100%; }
   .add-key-input { flex: 1 1 0; width: auto; min-width: 0; }
 }
 .row-amount { justify-self: end; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Words in place of a figure ("cost unknown") are a note, so they are as quiet as the other notes. */
+.row-amount-note { color: hsl(var(--muted-foreground)); }
 .key-link {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
@@ -1237,20 +1301,29 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .status-card {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px 16px;
-  padding: 14px 18px;
+  padding: 14px 16px;
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
 }
-.status-card-main { flex: 1 1 24rem; min-width: 0; display: flex; align-items: flex-start; gap: 12px; }
-.status-card-main > .chip { flex: none; }
-.status-card-body { flex: 1 1 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+/* The chip has a column of its own, as wide as the chip column of a row, so the text starts at the same place in
+   every state. Chip, source tag and the buttons of the side are centred on one line. */
+.status-card-main {
+  flex: 1 1 24rem;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+.status-card-main > .chip { justify-self: start; margin-top: 3px; }
+.status-card-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding-top: 7px; }
 .status-card-headline { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
 .status-card-reason { font-size: 14px; overflow-wrap: anywhere; }
 .status-card-label { margin-right: 6px; color: hsl(var(--muted-foreground)); }
-.status-card-side { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px; }
+.status-card-side { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px; margin-left: auto; }
 .status-card-money { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .status-card-note { font-size: 13px; color: hsl(var(--muted-foreground)); }
 .status-card-reasons { margin-top: 4px; font-size: 13px; }
@@ -1261,8 +1334,9 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
   border-left: 4px solid hsl(var(--notice-accent));
   border-radius: 8px;
 }
-.status-card[data-turn="YOURS"] { background: hsl(var(--notice)); }
-.your-part { padding: 14px 16px; }
+.status-card[data-turn="YOURS"] { background: hsl(var(--notice)); padding-left: 13px; }
+.your-part { padding: 14px 16px 14px 13px; }
+.status-card-note.status-card-problem { color: hsl(var(--notice-foreground)); }
 /* Source tag: says who a block comes from. Jira and GitHub are outside Factory, the coding agent writes its own
    text, and "you" marks what waits for the developer. A tag without a tone is Factory itself. */
 .src {
@@ -1281,8 +1355,21 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .src-jira, .src-github { color: hsl(var(--info)); }
 .src-agent { color: hsl(var(--agent)); }
 .src-you { color: hsl(var(--notice-accent)); }
-.run-part { display: flex; flex-direction: column; gap: 10px; }
-.run-part-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.dev-section-title > .src { margin-left: 8px; vertical-align: middle; }
+.dev-row-meta > .src { vertical-align: baseline; }
+.your-part > .dev-section-head { border-bottom: 0; padding-bottom: 0; }
+/* Steps has the heading of a list: a title over a line. */
+.run-part { display: flex; flex-direction: column; gap: 12px; }
+.run-part-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+/* PR feedback holds New PR comments and Rounds, so its heading is one step larger than theirs and has no line. */
+.feedback-section > .dev-section-head { padding-bottom: 0; border-bottom: 0; font-size: 18px; }
 .dev-section { display: flex; flex-direction: column; gap: 14px; }
 .dev-section-head {
   padding-bottom: 10px;
@@ -1296,7 +1383,7 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .dev-field > span,
 .dev-field > label { font-size: 13px; color: hsl(var(--muted-foreground)); }
 .dev-form-note { font-size: 13px; color: hsl(var(--muted-foreground)); }
-.answer-question { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.answer-question { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
 .answer-evidence { font-size: 13px; color: hsl(var(--soft-foreground)); overflow-wrap: anywhere; }
 .answer-options { display: flex; flex-direction: column; }
 .answer-options label {

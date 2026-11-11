@@ -20,13 +20,13 @@ non-linearly with the module count.
 The Factory introduces an AI-driven orchestration layer with these strategic
 objectives:
 
-| Dimension | Target outcome |
-|---|---|
-| Efficiency | 10–20% cycle-time improvement per automated SDLC phase |
-| Quality | Consistent, standardised artifacts with reduced rework |
-| Composability | Flows reuse common infrastructure and invoke each other |
-| Extensibility | New flows added via plugin registration, without re-architecting |
-| Team enablement | Engineers shift from manual executors to reviewers and approvers |
+| Dimension        | Target outcome                                                   |
+|------------------|------------------------------------------------------------------|
+| Efficiency       | 10–20% cycle-time improvement per automated SDLC phase           |
+| Quality          | Consistent, standardised artifacts with reduced rework           |
+| Composability    | Flows reuse common infrastructure and invoke each other          |
+| Extensibility    | New flows added via plugin registration, without re-architecting |
+| Team enablement  | Engineers shift from manual executors to reviewers and approvers |
 
 The platform's defining characteristic is that its capability set is **not
 fixed**: any SDLC automation (documentation, security scanning, performance

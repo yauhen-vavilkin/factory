@@ -15,7 +15,7 @@ public record AvailableRow(UUID taskId, String key, String jiraUrl, String title
 
     /** The whole meta line, for its title when a narrow row cuts it. */
     public String metaTitle() {
-        return Stream.of(key, "Jira: " + jiraStatus, repository).filter(Objects::nonNull)
+        return Stream.of(key, "Status in Jira: " + jiraStatus, repository).filter(Objects::nonNull)
                 .collect(Collectors.joining(" · "));
     }
 }

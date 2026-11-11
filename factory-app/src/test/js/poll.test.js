@@ -203,8 +203,9 @@ function selectionForm(field, attributes, count) {
     querySelector: selector => selector === '[data-run-selected]' ? button : null
   };
   let ready;
+  const shown = [];
   vm.runInNewContext(POLL_JS, {
-    window: {},
+    window: { addEventListener: (event, callback) => { if (event === 'pageshow') shown.push(callback); } },
     document: {
       addEventListener: (event, callback) => { ready = callback; },
       querySelector: () => null,
@@ -212,8 +213,18 @@ function selectionForm(field, attributes, count) {
     }
   });
   ready();
-  return { boxes, button };
+  return { boxes, button, pageshow: () => shown.forEach(callback => callback()) };
 }
+
+test('Run counts the ticks the browser put back when the page is shown again', () => {
+  const { boxes, button, pageshow } = selectionForm('taskId', {}, 2);
+
+  boxes[1].checked = true;
+  pageshow();
+
+  assert.equal(button.textContent, 'Run 1 task');
+  assert.equal(button.disabled, false);
+});
 
 test('Run counts the checked tasks and is disabled while none is checked', () => {
   const { boxes, button } = selectionForm('taskId', {}, 3);

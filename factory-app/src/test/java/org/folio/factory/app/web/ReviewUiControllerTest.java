@@ -239,7 +239,7 @@ class ReviewUiControllerTest {
             assertThat(row.flowName()).isEqualTo("Developer Flow");
             assertThat(row.gate()).isEqualTo("PR feedback");
             assertThat(row.url()).isEqualTo("/executions/" + run.getId() + "#pr-feedback");
-            assertThat(row.action()).isEqualTo("PR feedback");
+            assertThat(row.action()).isEqualTo("Open run");
         });
     }
 

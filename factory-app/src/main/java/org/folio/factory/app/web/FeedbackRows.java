@@ -24,6 +24,7 @@ import java.util.stream.Stream;
 /** Page rows of the PR feedback part of the run page: the new PR comments and the rounds. */
 final class FeedbackRows {
 
+    private static final String NO_CHANGES = "No changes";
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final int SHORT_SHA = 7;
 
@@ -130,9 +131,17 @@ final class FeedbackRows {
         var meta = blankToNull(meta(state));
         var metaTitle = blankToNull(joined(started == null ? null : started.text(), meta));
         return new Round(title, commentCount(state), shortSha, commitUrl(state.pr(), sha), started, meta, metaTitle,
-                blankToNull(RoundReport.firstSentence(state.summary())), report, blankToNull(state.reason()),
+                summary(state, report), report, blankToNull(state.reason()),
                 facts.commentUrls().get(round), String.valueOf(facts.projection().summary(round, facts.live())
                 .get("cost")), chip(state), selected, checks(verification), checksOutput(verification));
+    }
+
+    /** The first sentence of the agent's changes; a round that changed nothing and has no other line says so. */
+    private static String summary(FeedbackState state, String report) {
+        var summary = blankToNull(RoundReport.firstSentence(state.summary()));
+        var silent = summary == null && report == null && state.verification() == null
+                && blankToNull(state.reason()) == null;
+        return silent && NO_CHANGES.equals(chip(state).label()) ? "The agent changed no file." : summary;
     }
 
     private static String commentCount(FeedbackState state) {
@@ -209,7 +218,7 @@ final class FeedbackRows {
         return switch (state.phase()) {
             case READY -> !state.commitSha().isBlank() ? new Chip("Published", "chip chip-success")
                     : state.manual() ? new Chip("Verified", "chip chip-success")
-                    : new Chip("No changes", "chip chip-neutral");
+                    : new Chip(NO_CHANGES, "chip chip-neutral");
             case QUESTION, REFRESH_REQUIRED -> new Chip(FeedbackUi.label(state.phase()), "chip chip-warning");
             case FAILURE, INTERRUPTED, CLEANUP_BLOCKED -> new Chip(FeedbackUi.label(state.phase()), "chip chip-danger");
             default -> new Chip(FeedbackUi.label(state.phase()), "chip chip-info");

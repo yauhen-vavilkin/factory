@@ -9,7 +9,7 @@
   --accent: 240 4.8% 95.9%;        --accent-foreground: 240 5.9% 10%;
   --destructive: 0 73.7% 41.8%;        --destructive-foreground: 0 0% 98%;
   --success: 142.4 71.8% 27%;          --success-foreground: 0 0% 98%;
-  --warning: 33 92% 33%;           --warning-foreground: 0 0% 98%;
+  --warning: 33 92% 29%;           --warning-foreground: 0 0% 98%;
   --info: 215 80% 40%;
   --border: 240 5.9% 90%;          --input: 240 4.9% 83.9%;
   --ring: 240 10% 3.9%;            --radius: 0.5rem;
@@ -31,7 +31,7 @@ html[data-theme="dark"] {
   --secondary-hover: 240 3.7% 23%;
   --muted: 240 3.7% 15.9%;         --muted-foreground: 240 5% 64.9%;
   --accent: 240 3.7% 15.9%;        --accent-foreground: 0 0% 98%;
-  --destructive: 0 63% 60%;        --success: 142 60% 45%;  --warning: 38 92% 55%;
+  --destructive: 0 63% 66%;        --success: 142 60% 45%;  --warning: 38 92% 55%;
   --info: 213 90% 65%;
   --border: 240 3.7% 15.9%;        --input: 240 4% 30%; --ring: 240 4.9% 83.9%;
   --sidebar: 240 6% 7%;            --sidebar-foreground: 0 0% 98%;

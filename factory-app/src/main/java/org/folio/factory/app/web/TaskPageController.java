@@ -13,6 +13,7 @@ import org.folio.factory.app.tasks.presentation.TaskQuery;
 import org.folio.factory.app.tasks.presentation.TaskRevisions;
 import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.app.tasks.presentation.TaskView;
+import org.folio.factory.app.tasks.presentation.Turn;
 import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Controller;
@@ -55,6 +56,7 @@ public class TaskPageController {
         model.addAttribute("task", task);
         model.addAttribute("question", answers.question(view).orElse(null));
         model.addAttribute("attempts", attempts);
+        model.addAttribute("queueProblem", task.turn() == Turn.QUEUED ? dispatcher.queueProblem() : null);
         model.addAttribute("pollUrl", "/tasks/" + taskId + "/poll");
         model.addAttribute("pollBaseline", TaskRevisions.task(task, attempts));
         // A new attempt starts from the configured model and effort, not from the previous attempt's.

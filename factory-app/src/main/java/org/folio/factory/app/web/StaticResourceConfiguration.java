@@ -64,5 +64,14 @@ class StaticResourceConfiguration implements WebMvcConfigurer {
                 return true;
             }
         }).addPathPatterns("/css/**", "/js/**").order(1);
+        registry.addInterceptor(new HandlerInterceptor() {
+            @Override
+            public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
+                // A page shows live state and one-time notices, so the Back button must load it again: a stored
+                // copy would show an old state and repeat a notice such as "KEY is in Ready to run".
+                response.setHeader(HttpHeaders.CACHE_CONTROL, CacheControl.noStore().getHeaderValue());
+                return true;
+            }
+        }).excludePathPatterns("/css/**", "/js/**", "/api/**", "/actuator/**", "/error");
     }
 }

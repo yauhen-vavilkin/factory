@@ -3,10 +3,14 @@ package org.folio.factory.app.web;
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
 
 import lombok.RequiredArgsConstructor;
+import org.folio.factory.app.tasks.presentation.FeedbackStanding;
+import org.folio.factory.app.tasks.presentation.TaskView;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
+import org.folio.factory.core.repository.PipelineExecutionRepository;
+import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.devfactory.feedback.FeedbackActions;
 import org.folio.factory.devfactory.feedback.FeedbackState;
 import org.springframework.stereotype.Component;
@@ -28,6 +32,52 @@ public class FeedbackUi {
             "Runs the checks on commits you pushed to the PR branch yourself. No agent, no cost.";
 
     private final FeedbackActions actions;
+    private final ArtifactStore artifactStore;
+    private final PipelineExecutionRepository executions;
+
+    /**
+     * Where PR feedback stands on the run of this task's pull request, as the stored state and comments say: My
+     * tasks and the task page do not ask GitHub.
+     */
+    public FeedbackStanding standing(TaskView task) {
+        if (task.pullRequestUrl() == null || task.attempts().isEmpty()) {
+            return FeedbackStanding.NONE;
+        }
+        var executionId = task.attempts().getLast().executionId();
+        return executionId == null ? FeedbackStanding.NONE
+                : executions.findById(executionId).map(this::standing).orElse(FeedbackStanding.NONE);
+    }
+
+    private FeedbackStanding standing(PipelineExecution execution) {
+        var artifacts = artifactStore.allForExecution(execution.getId());
+        if (!hasFeedback(execution, artifacts)) {
+            return FeedbackStanding.NONE;
+        }
+        var view = actions.view(execution.getId());
+        var state = view.state();
+        return switch (state.phase()) {
+            case SKIPPED -> FeedbackStanding.NONE;
+            case STOPPED -> FeedbackStanding.CLOSED;
+            case FINISHED -> "MERGED".equals(state.completionReason()) ? FeedbackStanding.MERGED
+                    : FeedbackStanding.NONE;
+            default -> openStanding(execution, view, artifacts);
+        };
+    }
+
+    private static FeedbackStanding openStanding(PipelineExecution execution, FeedbackActions.View view,
+                                                 List<Artifact> artifacts) {
+        var comments = FeedbackRows.newComments(view.snapshot(), History.from(artifacts).processed());
+        if (feedback(view, comments, List.of()).yourTurn()) {
+            return FeedbackStanding.WAITS_FOR_YOU;
+        }
+        var works = execution.getStatus() == ExecutionStatus.RUNNING && !view.state().waiting();
+        return works ? FeedbackStanding.WORKING : FeedbackStanding.NONE;
+    }
+
+    private static boolean hasFeedback(PipelineExecution execution, List<Artifact> artifacts) {
+        return VERSION.equals(execution.getFlowVersion())
+                && artifacts.stream().anyMatch(artifact -> artifact.getName().equals(STATE));
+    }
 
     /**
      * Puts the PR feedback part of the run page into the model; empty when the run has no PR feedback, so the
@@ -35,8 +85,7 @@ public class FeedbackUi {
      */
     public Optional<Summary> populate(PipelineExecution execution, List<Artifact> artifacts, List<AuditEvent> events,
                                       AttemptUsageSummary.Projection projection, Model model) {
-        if (!VERSION.equals(execution.getFlowVersion())
-                || artifacts.stream().noneMatch(artifact -> artifact.getName().equals(STATE))) {
+        if (!hasFeedback(execution, artifacts)) {
             return Optional.empty();
         }
         var view = actions.view(execution.getId());

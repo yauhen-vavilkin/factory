@@ -1,6 +1,7 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.app.tasks.presentation.AttemptClock;
+import org.folio.factory.app.tasks.presentation.Turn;
 
 import java.time.Instant;
 import java.util.List;
@@ -33,25 +34,6 @@ public record DeveloperRunView(Header header, Status status, Turn turn, Standing
                          String reason, String reasonUrl, String question, String note, List<String> draftReasons,
                          String amount, String amountNote, String amountTitle, AttemptClock clock, String actionLabel,
                          String actionUrl) {
-    }
-
-    /** Whose move it is, said at the top of the status card so the developer knows whether the page needs them. */
-    public enum Turn {
-        YOURS("Your turn"), WORKING("Factory is working"), NONE("Nothing needed from you");
-
-        private final String label;
-
-        Turn(String label) {
-            this.label = label;
-        }
-
-        public String label() {
-            return label;
-        }
-
-        public boolean yours() {
-            return this == YOURS;
-        }
     }
 
     /** "Attempt 1 of 3. Latest: attempt 3, Draft PR #14." and the button that starts the next attempt. */

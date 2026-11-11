@@ -47,6 +47,7 @@ mvn -B -ntp -pl factory-core -am test -Dtest=SubFlowIntegrationTest -Dsurefire.f
 mvn -B -ntp -pl factory-core -am test -Dtest='SubFlowIntegrationTest#method' -Dsurefire.failIfNoSpecifiedTests=false   # one method
 node --test factory-app/src/test/js/poll.test.js   # console JS tests (not run by Maven or CI)
 mvn validate                             # Checkstyle only; it also runs first in every build
+mvn -B -ntp -o -pl factory-app -am test -Dtest=DemoConsole -Ddemo.console=true -Dsurefire.failIfNoSpecifiedTests=false   # demo console on :8090, see below
 ```
 
 Tests run under Surefire only. This repo has no Failsafe, so the workspace-level
@@ -200,6 +201,17 @@ Conventions that are easy to violate silently:
 - Page-size params: REST validates strictly (`PageValidation.pageable`, 422);
   UI clamps leniently (`PageValidation.clampSize`).
 - Every error a person sees says the cause and what to do, in plain words.
+- **Demo console: see every state before you change a page.** `DemoConsole`
+  (`factory-app/src/test/java/org/folio/factory/app/DemoConsole.java`) starts the console on
+  `http://localhost:8090/flows/dev-factory` with one seeded task in every state of My tasks, the task page and the
+  run page: ready, cannot run, queued, working, asked a question, each stop cause, several attempts, every pull
+  request and PR feedback state, needs inspection. It uses a throwaway Testcontainers database and a stopped
+  engine, so nothing runs and the local Factory is not touched. Its Javadoc lists the states. Use it for every UI
+  change: walk the pages in a real browser, because the string-matching tests show neither a state next to the
+  others nor hover and click behaviour. When you add a state or a page that depends on one, add its task to the
+  seed in the same change. Stop it (`pkill -f "Dtest=DemoConsole"`) before any Maven build and start it again
+  afterwards: templates and CSS come from `target/classes` and static files are cached. Task and run ids change on
+  every start. Pressing Run or answering in it changes no state.
 - Keep the existing visual system (`tokens.css`, `app.css`, existing fragments). Make a
   static HTML mockup only when the layout is unclear or the operator should choose
   between options; clear UI fixes go straight to code.

@@ -156,7 +156,7 @@ public class ReviewUiController {
                 UiFormat.inWords(review.getGateId()),
                 PageTime.day(review.getCreatedAt()), review.getStatus(), review.getDecision(),
                 review.getReviewer(), PageTime.day(review.getDecidedAt()), url,
-                taskKey == null ? "Review" : "PR feedback");
+                taskKey == null ? "Review" : "Open run");
     }
 
     /** The task key of each run that waits for PR comments, read in one query for the whole page. */

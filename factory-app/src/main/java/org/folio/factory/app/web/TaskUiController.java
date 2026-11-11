@@ -158,7 +158,7 @@ public class TaskUiController {
 
     private void addTriggered(Model model, TaskInstallation installation, Page<TaskView> triggered,
                               long queuedCount) {
-        model.addAttribute("triggered", triggered.getContent().stream().map(RunRows::row).toList());
+        model.addAttribute("triggered", triggered.getContent().stream().map(rows::triggeredRow).toList());
         model.addAttribute("inProgress", RunRows.strip(triggered.getContent()).orElse(null));
         model.addAttribute("page", triggered);
         model.addAttribute("baseUrl", FLOW_PAGE + "?");

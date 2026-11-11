@@ -204,6 +204,8 @@
       button.disabled = checked === 0;
     }
     boxes.forEach(function (b) { b.addEventListener('change', refresh); });
+    // The browser puts the ticks back after this script ran when the page is reloaded or reached with Back.
+    window.addEventListener('pageshow', refresh);
     refresh();
   }
 })();

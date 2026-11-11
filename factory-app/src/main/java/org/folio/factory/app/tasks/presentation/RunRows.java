@@ -30,13 +30,14 @@ import static org.folio.factory.app.tasks.presentation.TaskLabels.working;
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class RunRows {
 
-    public static TriggeredRow row(TaskView view) {
+    /** {@code standing}: where PR feedback stands on the run of the task's pull request. */
+    public static TriggeredRow row(TaskView view, FeedbackStanding standing) {
         var latest = view.attempts().getLast();
-        var status = AttemptStatus.of(view, view.standingAttempt().orElse(latest));
+        var status = AttemptStatus.of(view, view.standingAttempt().orElse(latest), standing);
         var when = latest.startedAt() != null ? latest.startedAt() : latest.createdAt();
-        var action = action(view, latest);
+        var action = standing == FeedbackStanding.WAITS_FOR_YOU ? RunAction.PR_WAITING : action(view, latest);
         var costTitle = working(view) ? null : costNoteTitle(incompleteCostNote(view.usage()));
-        var detail = detail(view);
+        var detail = feedbackDetail(standing).orElseGet(() -> detail(view));
         return new TriggeredRow(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(),
                 status.chipLabel(), status.chipClass(), status.chipUrl(),
                 detail == null ? null : AttemptFailure.firstSentence(detail), detail, cost(view, latest), costTitle,
@@ -83,7 +84,10 @@ public final class RunRows {
                 "/executions/" + latest.executionId());
     }
 
-    /** A failed task opens its run, where it says why; Retry stays for an attempt that never got a run. */
+    /**
+     * A row has a button only for what waits for the developer, so a task that works or has a pull request gets
+     * none here. A failed task offers Retry on its task page, where the status card says why it failed.
+     */
     private static RunAction action(TaskView view, TaskView.AttemptHistoryEntry latest) {
         if (delivered(view) && latest.executionId() != null) {
             return RunAction.PR_FEEDBACK;
@@ -94,7 +98,7 @@ public final class RunRows {
         if (view.needsAnswer() && view.allowedActions().retry()) {
             return RunAction.ANSWER;
         }
-        if (latest.executionId() != null && (working(view) || view.allowedActions().retry())) {
+        if (latest.executionId() != null && working(view)) {
             return RunAction.OPEN_RUN;
         }
         return view.allowedActions().retry() ? RunAction.RETRY : RunAction.NONE;
@@ -102,11 +106,19 @@ public final class RunRows {
 
     private static String actionUrl(TaskView view, TaskView.AttemptHistoryEntry latest, RunAction action) {
         return switch (action) {
-            case PR_FEEDBACK -> "/executions/" + latest.executionId() + "#pr-feedback";
+            case PR_FEEDBACK, PR_WAITING -> "/executions/" + latest.executionId() + "#pr-feedback";
             case OPEN_RUN -> "/executions/" + latest.executionId();
             case ANSWER -> "/tasks/" + view.taskId() + "#answer";
             case RETRY -> "/tasks/" + view.taskId() + "#retry";
             case MARK_STOPPED, NONE -> null;
+        };
+    }
+
+    private static Optional<String> feedbackDetail(FeedbackStanding standing) {
+        return switch (standing) {
+            case WAITS_FOR_YOU -> Optional.of(TaskRows.FEEDBACK_WAITS);
+            case WORKING -> Optional.of(TaskRows.FEEDBACK_WORKS);
+            default -> Optional.empty();
         };
     }
 
