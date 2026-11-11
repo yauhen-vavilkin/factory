@@ -1,9 +1,7 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.app.EngineRecords;
-import org.folio.factory.app.tasks.presentation.TaskQuery;
 import org.folio.factory.core.domain.Artifact;
-import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
@@ -15,7 +13,6 @@ import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
-import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Controller;
@@ -27,7 +24,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -55,29 +51,19 @@ public class ExecutionUiController {
     private final FlowRegistry flowRegistry;
     private final HitlReviewRepository reviews;
     private final JsonMapper jsonMapper;
-    private final DeveloperCostEstimator costEstimator;
-    private final FeedbackUi feedbackUi;
     private final DeveloperExecutionView developerView;
-    private final TaskQuery taskQuery;
+    private final DeveloperRunPage developerRunPage;
 
-    public ExecutionUiController(
-            EngineRecords engine,
-            AuditLog auditLog,
-            HitlReviewRepository reviews,
-            JsonMapper jsonMapper,
-            DeveloperCostEstimator costEstimator,
-            FeedbackUi feedbackUi,
-            TaskQuery taskQuery) {
+    public ExecutionUiController(EngineRecords engine, AuditLog auditLog, HitlReviewRepository reviews,
+                                 JsonMapper jsonMapper, DeveloperRunPage developerRunPage) {
         this.executions = engine.executions();
         this.artifactStore = engine.artifacts();
         this.auditLog = auditLog;
         this.flowRegistry = engine.flows();
         this.reviews = reviews;
         this.jsonMapper = jsonMapper;
-        this.costEstimator = costEstimator;
-        this.feedbackUi = feedbackUi;
         this.developerView = new DeveloperExecutionView(jsonMapper);
-        this.taskQuery = taskQuery;
+        this.developerRunPage = developerRunPage;
     }
 
     @GetMapping("/executions")
@@ -105,7 +91,7 @@ public class ExecutionUiController {
         return "executions";
     }
 
-    /** The template renders a Developer Flow run and any other run on two branches; each gets only its data. */
+    /** A Developer Flow run has its own run page; every other run shows the engine's view. */
     @GetMapping("/executions/{id}")
     public String execution(@PathVariable("id") UUID id, Model model) {
         var execution = findExecution(id);
@@ -113,15 +99,14 @@ public class ExecutionUiController {
         var chain = flowRegistry.find(execution.getFlowId()).map(FlowDescriptor::agentChain).orElse(List.of());
         var detail = new ExecutionDetail(id, execution, artifactStore.allForExecution(id), events, chain);
         var steps = stepStates(execution, chain);
-        if (DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId())) {
-            populateDeveloperRun(model, detail, steps);
-        } else {
-            populateEngineRun(model, detail, steps);
-        }
         model.addAttribute("auditCount", events.size());
         model.addAttribute("artifactCount", detail.artifacts().size());
         populateDetail(model, detail, steps);
         model.addAttribute("pollUrl", execution.getStatus().isTerminal() ? null : "/api/executions/" + id);
+        if (DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId())) {
+            return developerRunPage.render(detail, steps, model);
+        }
+        populateEngineRun(model, detail, steps);
         return "execution";
     }
 
@@ -129,66 +114,15 @@ public class ExecutionUiController {
         return executions.findById(id).orElseThrow(() -> new NoSuchElementException("No execution " + id));
     }
 
-    private void populateDeveloperRun(Model model, ExecutionDetail detail, List<Map<String, Object>> steps) {
-        var execution = detail.execution();
-        var now = Instant.now();
-        populateFactoryTime(model, detail, now);
-        var developer = developerView.build(execution, detail.artifacts(), detail.events(), now);
-        model.addAttribute("developer", developer);
-        model.addAttribute("displayStatus", developer.get("productStatus"));
-        model.addAttribute("taskRun", taskQuery.runContext(detail.id()).orElse(null));
-        model.addAttribute("artifactGroups", artifactLinks(detail.artifacts()));
-        model.addAttribute("tokenCategories", AttemptCharge.Category.LABELS);
-        labelTechnicalSteps(steps, detail, now);
-        populateDeveloperUsage(model, detail);
-    }
-
     private void populateEngineRun(Model model, ExecutionDetail detail, List<Map<String, Object>> steps) {
         var usage = StepUsageSummary.from(detail.events(), false, jsonMapper);
         addStepTokens(steps, detail.chain(), usage);
         model.addAttribute("displayStatus", detail.execution().getStatus());
         model.addAttribute("progressSteps", steps);
-        populateLegacyUsage(model, usage, false);
+        populateUsage(model, usage);
         model.addAttribute("artifactGroups", artifactGroups(detail.artifacts()));
         model.addAttribute("events",
                 detail.events().stream().map(event -> UiFormat.auditRow(event, jsonMapper)).toList());
-    }
-
-    private static void populateFactoryTime(Model model, ExecutionDetail detail, Instant now) {
-        var execution = detail.execution();
-        var end = execution.getStatus().isFinal() && execution.getCompletedAt() != null
-                ? execution.getCompletedAt()
-                : now;
-        var workSeconds = AttemptUsageSummary.activeSeconds(detail.events(), end);
-        model.addAttribute("factoryTime", UiFormat.duration(workSeconds));
-        model.addAttribute("factoryTimeStart",
-                execution.getStatus() == ExecutionStatus.RUNNING ? now.minusSeconds(workSeconds) : null);
-    }
-
-    private static void labelTechnicalSteps(List<Map<String, Object>> steps, ExecutionDetail detail, Instant now) {
-        var execution = detail.execution();
-        for (int i = 0; i < steps.size(); i++) {
-            var step = steps.get(i);
-            var stepId = detail.chain().get(i).stepId();
-            step.put("label", DeveloperExecutionView.technicalStepLabel(stepId));
-            var durationSeconds = DeveloperExecutionView.technicalStepDurationSeconds(
-                    stepId, detail.events(), execution, now);
-            step.put("sublabel", durationSeconds == null ? "Not started" : UiFormat.duration(durationSeconds));
-            if (i == execution.getCurrentStepIndex()
-                    && execution.getStatus() == ExecutionStatus.RUNNING
-                    && durationSeconds != null) {
-                step.put("elapsedStart", now.minusSeconds(durationSeconds));
-            }
-        }
-    }
-
-    private void populateDeveloperUsage(Model model, ExecutionDetail detail) {
-        var execution = detail.execution();
-        if (FeedbackArtifacts.VERSION.equals(execution.getFlowVersion())) {
-            feedbackUi.populate(execution, detail.artifacts(), detail.events(), model);
-        } else {
-            populateLegacyUsage(model, StepUsageSummary.from(detail.events(), true, jsonMapper), true);
-        }
     }
 
     private void populateDetail(Model model, ExecutionDetail detail, List<Map<String, Object>> steps) {
@@ -199,11 +133,10 @@ public class ExecutionUiController {
         model.addAttribute("pendingReview", pendingReview(execution, detail.id()));
     }
 
-    /** Compatibility for Test Factory and Developer Flow artifacts without attempt identities. */
-    private void populateLegacyUsage(Model model, StepUsageSummary usage, boolean developerFlow) {
-        model.addAttribute("estimatedCost", developerFlow ? usage.estimate(costEstimator) : null);
+    private static void populateUsage(Model model, StepUsageSummary usage) {
+        model.addAttribute("estimatedCost", null);
         model.addAttribute("usageIncomplete", usage.incomplete());
-        model.addAttribute("tokenTotals", usage.tokenTotals(developerFlow));
+        model.addAttribute("tokenTotals", usage.tokenTotals(false));
     }
 
     private ExecutionRow executionRow(PipelineExecution execution) {
@@ -261,11 +194,6 @@ public class ExecutionUiController {
         var panel = new AtomicInteger();
         return groupByName(artifacts, artifact -> artifactVersion(artifact, "artifact-" + panel.getAndIncrement(),
                 latest.get(artifact.getName()) == artifact));
-    }
-
-    /** A Developer Flow run page links each artifact version and shows no content. */
-    private static List<Map<String, Object>> artifactLinks(List<Artifact> artifacts) {
-        return groupByName(artifacts, artifact -> Map.of("id", artifact.getId(), "version", artifact.getVersion()));
     }
 
     /** One group per artifact name, in the order the names first appear; {@code version} maps each version. */
@@ -330,10 +258,5 @@ public class ExecutionUiController {
     /** One row of the run list; {@code status} is the product status for Developer Flow runs. */
     public record ExecutionRow(UUID id, String idShort, String flowId, String status, int currentStepIndex,
                                String createdAt, String updatedAt, UUID parentExecutionId, String parentShort) {
-    }
-
-    /** {@code chain} is the flow's step list, empty when the flow is no longer registered. */
-    private record ExecutionDetail(UUID id, PipelineExecution execution, List<Artifact> artifacts,
-                                   List<AuditEvent> events, List<StepDescriptor> chain) {
     }
 }

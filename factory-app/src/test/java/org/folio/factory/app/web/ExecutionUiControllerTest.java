@@ -85,9 +85,10 @@ class ExecutionUiControllerTest {
         var estimator = DeveloperCostEstimatorTest.estimatorFor("glm-5.3-flash", "https://example.test/pricing",
                 "0.15", "0.03", "0.50");
         var taskQuery = mock(org.folio.factory.app.tasks.presentation.TaskQuery.class);
+        var runPage = new DeveloperRunPage(json, estimator,
+                new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class)), taskQuery);
         mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(
-                        new EngineRecords(executions, artifactStore, flowRegistry), auditLog, reviews, json, estimator,
-                        new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class)), taskQuery),
+                        new EngineRecords(executions, artifactStore, flowRegistry), auditLog, reviews, json, runPage),
                         new TranscriptUiController(executions, taskQuery, transcripts))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
@@ -278,6 +279,7 @@ class ExecutionUiControllerTest {
 
         mvc.perform(get("/executions/{id}", EXECUTION_ID))
                 .andExpect(status().isOk())
+                .andExpect(view().name("developer-run"))
                 .andExpect(model().attribute("estimatedCost", new DeveloperCostEstimator.Estimate(
                         "0.10323", "USD", LocalDate.parse("2026-09-19"), "https://example.test/pricing")))
                 .andExpect(model().attributeDoesNotExist("reportedCost"));
