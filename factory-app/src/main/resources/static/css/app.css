@@ -1116,12 +1116,20 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .def-retries { padding-top: 12px; }
 /* Configuration: the models, where runs go, the limits, the task source, and the check of one task. */
 .config-note, .config-facts { padding-top: 12px; }
+/* Name, value, and the variable that sets it: three columns; on a narrow screen the variable goes under the value. */
+.config-facts { grid-template-columns: 140px minmax(0, 1fr) minmax(0, max-content); }
+.config-variable { color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .config-facts { grid-template-columns: minmax(0, 1fr); }
+  .config-variable:empty { display: none; }
+}
 .config-subtitle { padding: 16px 0 4px; font-size: 14px; font-weight: 600; border-bottom: 1px solid hsl(var(--border)); }
 .config-name { font-weight: 600; overflow-wrap: anywhere; }
 .config-detail { margin-top: 3px; font-size: 12px; color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
 .config-fix, .config-warning { margin-top: 6px; font-size: 13px; overflow-wrap: anywhere; }
 .config-fix { color: hsl(var(--soft-foreground)); }
 .config-warning { color: hsl(var(--notice-foreground)); }
+.config-endpoint { padding-top: 6px; }
 .config-table { overflow-x: auto; }
 .config-table th:first-child, .config-table td:first-child { padding-left: 0; }
 .config-table code { font-size: 12px; overflow-wrap: anywhere; }

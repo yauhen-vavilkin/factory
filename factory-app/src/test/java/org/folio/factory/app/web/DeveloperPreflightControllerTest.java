@@ -81,7 +81,7 @@ class DeveloperPreflightControllerTest {
         when(flows.find("dev-factory")).thenReturn(Optional.of(
                 new FlowDescriptor("dev-factory", "Developer Flow", "1", null, null, null, null, null)));
         var view = new DeveloperConfigurationView(
-                new DeveloperConfigurationView.Models(true, List.of(), List.of(), "From the models file."),
+                new DeveloperConfigurationView.Models(true, List.of(), List.of(), List.of(), "From the models file."),
                 new DeveloperConfigurationView.Routes(List.of(), "No token."), List.of(),
                 new DeveloperConfigurationView.Source(List.of(), null, null),
                 new DeveloperConfigurationView.Start("Factory can start runs", "All set.", List.of()),

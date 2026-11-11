@@ -213,12 +213,19 @@ class UiRenderSmokeTest {
         // The Developer Flow header with its tabs instead of an own title and a way back.
         assertThat(body).contains("aria-current=\"page\">Configuration</a>", ">Definition</a>")
                 .doesNotContain("<h1>Developer Flow configuration</h1>", "Back to flow");
-        assertThat(body).contains("Ready to run <span class=\"dev-count\">(1)</span>", "codemie-sonnet-5.5",
+        // Three groups: models without a warning, models whose endpoint Factory cannot reach (the warning once per
+        // endpoint, then each model by its summary), and models that cannot run with their fixes.
+        assertThat(body).contains("Ready to run <span class=\"dev-count\">(1)</span>", "codemie-opus-5.5",
+                        "Endpoint not reachable <span class=\"dev-count\">(2)</span>", "codemie-sonnet-5.5",
+                        "codemie-haiku-4.5",
                         "default · host.docker.internal:4001 · effort low, medium, high, xhigh, max · price from"
                                 + " platform.claude.com, 2026-11-03",
-                        "Endpoint not reachable: Factory cannot open a connection to http://host.docker.internal:4001.",
                         "Cannot run <span class=\"dev-count\">(1)</span>", "glm-5.3",
-                        "FACTORY_ZAI_API_KEY is empty. Set it in .env.");
+                        "FACTORY_ZAI_API_KEY is empty. Set it in .env.")
+                .containsOnlyOnce("Factory cannot open a connection to http://host.docker.internal:4001. Runs with"
+                        + " these models fail if the coding container cannot reach it either. Start the service at"
+                        + " that address, or fix base-url in config/developer-models.yaml.")
+                .doesNotContain("Endpoint not reachable: Factory");
         assertThat(body).contains(">Where runs go</h2>", ">Jira project</th>", ">Pull requests to</th>",
                         ">MODSIDECAR</span>", "folio-org/folio-module-sidecar, branch master",
                         "mvn -B -ntp test in maven:3.9-eclipse-temurin-21", "docker compose restart factory",
@@ -228,7 +235,12 @@ class UiRenderSmokeTest {
                         "30 min each for the first build, the coding and the checks",
                         "FACTORY_DEV_FACTORY_TIMEOUT_SECONDS", ">Time per attempt</dt>", "1 h from Prepare task",
                         "FACTORY_TASKS_EXECUTION_DEADLINE", ">Agent turns</dt>", "FACTORY_CLAUDE_CODE_MAX_TURNS",
-                        ">Coding image</dt>", "FACTORY_CLAUDE_CODE_IMAGE");
+                        ">Coding image</dt>", "FACTORY_CLAUDE_CODE_IMAGE")
+                // Name, value and the variable that sets it are three cells.
+                .containsPattern("<dt>Time per step</dt>\\s*<dd>30 min each for the first build[^<]*</dd>\\s*"
+                        + "<dd class=\"config-variable\"><code>FACTORY_DEV_FACTORY_TIMEOUT_SECONDS</code></dd>")
+                .containsPattern("<dt>Search</dt>\\s*<dd><code>[^<]+</code>[\\s\\S]*?</dd>\\s*"
+                        + "<dd class=\"config-variable\"></dd>");
         assertThat(body).contains(">Tasks come from</h2>", "jira.example.org", "Jane Developer",
                         "assignee = &quot;Jane Developer&quot; AND statusCategory != Done ORDER BY updated DESC",
                         "href=\"https://jira.example.org/issues/?jql=", ">Jira sign-in</dt>");
@@ -274,6 +286,13 @@ class UiRenderSmokeTest {
                 List.of(new DeveloperPreflight.Check("endpoint", DeveloperPreflight.Status.WARN,
                         "Endpoint not reachable: Factory cannot open a connection to http://host.docker.internal:4001."
                                 + " Start the service at that address.")));
+        var haiku = new ModelChecks.ModelRow("codemie-haiku-4.5", false, true, "claude-haiku-4-5",
+                "anthropic-messages", "http://host.docker.internal:4001", "bearer-token", "low; default low",
+                "host.docker.internal:4001 · effort low · no price", List.of(sonnet.checks().getFirst()));
+        var opus = new ModelChecks.ModelRow("codemie-opus-5.5", false, true, "claude-opus-5-5",
+                "anthropic-messages", "https://proxy.example.org", "bearer-token", "high; default high",
+                "proxy.example.org · effort high · price from platform.claude.com, 2026-11-03",
+                List.of(new DeveloperPreflight.Check("endpoint", DeveloperPreflight.Status.PASS, "Reachable.")));
         var glm = new ModelChecks.ModelRow("glm-5.3", false, false, "glm-5.3", "anthropic-messages",
                 "https://api.z.ai", "bearer-token", "low, high, max; default max", "api.z.ai · effort low, high, max",
                 List.of(new DeveloperPreflight.Check("secret", DeveloperPreflight.Status.FAIL,
@@ -282,7 +301,7 @@ class UiRenderSmokeTest {
         var checks = issueKey == null ? List.of(docker, inferenceCheck) : List.of(deliveryCheck, inferenceCheck);
         var report = new DeveloperPreflight.Report(deliveryStatus == DeveloperPreflight.Status.PASS,
                 issueKey == null ? "" : issueKey, Map.of("runtime", "claude-code"), List.of(), checks,
-                List.of(sonnet, glm));
+                List.of(sonnet, haiku, opus, glm));
         when(developerPreflight.check(issueKey)).thenReturn(report);
 
         String path = "/developer/configuration";

@@ -21,8 +21,26 @@
                         <p class="config-warning" th:each="warning : ${model.warnings()}" th:text="${warning}">No price.</p>
                     </div>
                 </div>
-                <p class="dev-empty" th:if="${#lists.isEmpty(config.models().ready())}">No model can run now. Cannot
-                    run says what each model needs.</p>
+                <p class="dev-empty" th:if="${#lists.isEmpty(config.models().ready()) and !config.models().runnable()}">No
+                    model can run now. Cannot run says what each model needs.</p>
+                <p class="dev-empty" th:if="${#lists.isEmpty(config.models().ready()) and config.models().runnable()}">None:
+                    every model that can run uses an endpoint that Factory cannot reach.</p>
+                <th:block th:unless="${#lists.isEmpty(config.models().unreachable())}">
+                    <h3 class="config-subtitle">Endpoint not reachable <span class="dev-count"
+                            th:text="'(' + ${config.models().unreachableCount()} + ')'">(3)</span></h3>
+                    <th:block th:each="endpoint : ${config.models().unreachable()}">
+                        <p class="config-warning config-endpoint" th:text="${endpoint.warning()}">Factory cannot open a
+                            connection to http://localhost:4001.</p>
+                        <div class="dev-row" th:each="model : ${endpoint.models()}">
+                            <div class="dev-row-main">
+                                <div class="config-name" th:text="${model.id()}">codemie-sonnet-5.5</div>
+                                <div class="config-detail" th:text="${model.summary()}">localhost:4001</div>
+                                <p class="config-warning" th:each="warning : ${model.warnings()}" th:text="${warning}">No
+                                    price.</p>
+                            </div>
+                        </div>
+                    </th:block>
+                </th:block>
                 <h3 class="config-subtitle">Cannot run <span class="dev-count"
                         th:text="'(' + ${#lists.size(config.models().blocked())} + ')'">(1)</span></h3>
                 <div class="dev-row" th:each="model : ${config.models().blocked()}">
@@ -71,7 +89,8 @@
             <dl class="tech-facts config-facts">
                 <th:block th:each="fact : ${config.limits()}">
                     <dt th:text="${fact.name()}">Time per step</dt>
-                    <dd><th:block th:text="${fact.text()}">30 min</th:block> <code th:if="${fact.variable() != null}"
+                    <dd th:text="${fact.text()}">30 min</dd>
+                    <dd class="config-variable"><code th:if="${fact.variable() != null}"
                             th:text="${fact.variable()}">FACTORY_DEV_FACTORY_TIMEOUT_SECONDS</code></dd>
                 </th:block>
             </dl>
@@ -86,13 +105,15 @@
             <dl class="tech-facts config-facts">
                 <th:block th:each="fact : ${config.source().facts()}">
                     <dt th:text="${fact.name()}">Jira</dt>
-                    <dd><th:block th:text="${fact.text()}">jira.example.org</th:block> <code th:if="${fact.variable() != null}"
+                    <dd th:text="${fact.text()}">jira.example.org</dd>
+                    <dd class="config-variable"><code th:if="${fact.variable() != null}"
                             th:text="${fact.variable()}">FACTORY_CONNECTORS_JIRA_BASE_URL</code></dd>
                 </th:block>
                 <dt>Search</dt>
                 <dd th:if="${config.source().query() != null}"><code th:text="${config.source().query()}">assignee = "Jane"</code>
                     <a class="dev-link ext-link" th:href="${config.source().searchUrl()}">Open in Jira</a></dd>
                 <dd th:if="${config.source().query() == null}">None yet: set Jira and the assignee first.</dd>
+                <dd class="config-variable"></dd>
             </dl>
             <p class="dev-list-note config-note">Set these in <code>.env</code>, then run
                 <code>docker compose up -d</code>. Which repository a task goes to is under Where runs go.</p>

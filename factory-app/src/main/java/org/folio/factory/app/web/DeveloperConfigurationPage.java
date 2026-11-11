@@ -18,12 +18,14 @@ import org.folio.factory.app.web.DeveloperConfigurationView.ReadyModel;
 import org.folio.factory.app.web.DeveloperConfigurationView.Source;
 import org.folio.factory.app.web.DeveloperConfigurationView.Start;
 import org.folio.factory.app.web.DeveloperConfigurationView.TaskCheck;
+import org.folio.factory.app.web.DeveloperConfigurationView.UnreachableEndpoint;
 import org.folio.factory.connectors.jira.JiraProperties;
 import org.folio.factory.core.retention.RetentionProperties;
 import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
 
@@ -41,8 +43,9 @@ public class DeveloperConfigurationPage {
      */
     private static final Set<String> START_CHECKS = Set.of("runtime", "docker", "coding-image");
     private static final String MODELS_NOTE = "From " + ModelCatalog.FILE + ", or the file in"
-            + " FACTORY_DEV_FACTORY_MODELS_FILE. The run forms offer the models under Ready to run. After a change"
-            + " to the file, run docker compose restart factory.";
+            + " FACTORY_DEV_FACTORY_MODELS_FILE. The run forms offer the models under Ready to run and Endpoint not"
+            + " reachable. After a change to the file, run docker compose restart factory.";
+    private static final String ENDPOINT_CHECK = "endpoint";
     private static final String PI_NOTE = "Runs use Pi, which takes its model from FACTORY_PI_MODEL in .env; "
             + ModelCatalog.FILE + " gives Pi only prices.";
 
@@ -64,22 +67,52 @@ public class DeveloperConfigurationPage {
 
     private Models models(List<ModelRow> models) {
         if (!runSetup.claudeCode()) {
-            return new Models(false, List.of(), List.of(), PI_NOTE);
+            return new Models(false, List.of(), List.of(), List.of(), PI_NOTE);
         }
-        var ready = models.stream().filter(ModelRow::ready)
-                .map(row -> new ReadyModel(row.id(), row.summary(), messages(row.checks(), Status.WARN))).toList();
+        var runnable = models.stream().filter(ModelRow::ready).toList();
+        var ready = runnable.stream().filter(row -> !unreachable(row)).map(DeveloperConfigurationPage::readyModel)
+                .toList();
         var blocked = models.stream().filter(row -> !row.ready())
                 .map(row -> new BlockedModel(row.defaultModel() ? row.id() + " · default" : row.id(),
                         messages(row.checks(), Status.FAIL)))
                 .toList();
-        return new Models(true, ready, blocked, MODELS_NOTE);
+        return new Models(true, ready, unreachableEndpoints(runnable), blocked, MODELS_NOTE);
+    }
+
+    private static boolean unreachable(ModelRow row) {
+        return row.checks().stream()
+                .anyMatch(check -> ENDPOINT_CHECK.equals(check.name()) && check.status() == Status.WARN);
+    }
+
+    /** The summary and the warnings but the endpoint one, which its group says once. */
+    private static ReadyModel readyModel(ModelRow row) {
+        var warnings = row.checks().stream()
+                .filter(check -> check.status() == Status.WARN && !ENDPOINT_CHECK.equals(check.name()))
+                .map(Check::message).toList();
+        return new ReadyModel(row.id(), row.summary(), warnings);
+    }
+
+    private static List<UnreachableEndpoint> unreachableEndpoints(List<ModelRow> runnable) {
+        var byOrigin = new LinkedHashMap<String, List<ReadyModel>>();
+        runnable.stream().filter(DeveloperConfigurationPage::unreachable).forEach(row -> byOrigin
+                .computeIfAbsent(row.endpointOrigin(), origin -> new ArrayList<>()).add(readyModel(row)));
+        return byOrigin.entrySet().stream()
+                .map(entry -> new UnreachableEndpoint(entry.getKey(),
+                        unreachableWarning(entry.getKey(), entry.getValue().size()), List.copyOf(entry.getValue())))
+                .toList();
+    }
+
+    private static String unreachableWarning(String origin, int models) {
+        return "Factory cannot open a connection to " + origin + ". Runs with " + (models == 1 ? "this model" : "these"
+                + " models") + " fail if the coding container cannot reach it either. Start the service at that"
+                + " address, or fix base-url in " + ModelCatalog.FILE + ".";
     }
 
     private Start start(Report report, Models models) {
         var fixes = new ArrayList<>(report.checks().stream()
                 .filter(check -> START_CHECKS.contains(check.name()) && check.status() == Status.FAIL)
                 .map(Check::message).toList());
-        if (models.listed() && models.ready().isEmpty()) {
+        if (models.listed() && !models.runnable()) {
             fixes.add("No model can run now. Models above says what each model needs.");
         }
         if (!execution.enabled()) {

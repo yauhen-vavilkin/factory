@@ -10,6 +10,7 @@ import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.presentation.SourceCard;
 import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.app.web.DeveloperConfigurationView.Fact;
+import org.folio.factory.app.web.DeveloperConfigurationView.ReadyModel;
 import org.folio.factory.connectors.github.GitHubProperties;
 import org.folio.factory.connectors.jira.JiraProperties;
 import org.folio.factory.core.retention.RetentionProperties;
@@ -86,6 +87,33 @@ class DeveloperConfigurationPageTest {
         assertThat(view.start().fixes()).isEmpty();
         assertThat(view.task().verdict()).isNull();
         assertThat(view.task().rows()).isEmpty();
+    }
+
+    @Test
+    void modelsWhoseEndpointFactoryCannotReachAreGroupedByEndpointAndStillCountAsRunnable() {
+        var unreachable = new Check("endpoint", Status.WARN, "Endpoint not reachable: Factory cannot open a"
+                + " connection to http://proxy:4001.");
+        var sonnet = new ModelRow("sonnet", true, true, "claude-sonnet-5-5", "anthropic-messages",
+                "http://proxy:4001", "bearer-token", "high; default high", "default · proxy:4001",
+                List.of(unreachable, new Check("price", Status.WARN, "Add a price.")));
+        var haiku = new ModelRow("haiku", false, true, "claude-haiku-4-5", "anthropic-messages",
+                "http://proxy:4001", "bearer-token", "low; default low", "proxy:4001", List.of(unreachable));
+
+        var view = view(true, false, "", List.of(), List.of(sonnet, haiku, BLOCKED));
+
+        assertThat(view.models().ready()).isEmpty();
+        assertThat(view.models().unreachableCount()).isEqualTo(2);
+        assertThat(view.models().unreachable()).singleElement().satisfies(endpoint -> {
+            assertThat(endpoint.origin()).isEqualTo("http://proxy:4001");
+            assertThat(endpoint.warning()).isEqualTo("Factory cannot open a connection to http://proxy:4001. Runs"
+                    + " with these models fail if the coding container cannot reach it either. Start the service"
+                    + " at that address, or fix base-url in config/developer-models.yaml.");
+            // The endpoint warning is said once above the models; other warnings stay with their model.
+            assertThat(endpoint.models()).extracting(ReadyModel::id, ReadyModel::warnings)
+                    .containsExactly(tuple("sonnet", List.of("Add a price.")), tuple("haiku", List.of()));
+        });
+        assertThat(view.start().fixes()).doesNotContain("No model can run now. Models above says what each model"
+                + " needs.");
     }
 
     @Test
