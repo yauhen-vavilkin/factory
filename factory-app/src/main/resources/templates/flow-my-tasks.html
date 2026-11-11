@@ -10,7 +10,7 @@
         <div class="progress-strip-line">
             <span class="progress-strip-state">In progress</span>
             <a class="key-link ext-link" th:href="${inProgress.jiraUrl()}" th:text="${inProgress.key()}">KEY-1</a>
-            <span class="progress-strip-title" th:text="${inProgress.title()}">Title</span>
+            <span class="progress-strip-title" th:title="${inProgress.title()}" th:text="${inProgress.title()}">Title</span>
             <span class="progress-strip-run" th:text="${inProgress.run()}">model · effort · 5 min</span>
         </div>
         <a class="btn btn-secondary btn-sm btn-col" th:href="${inProgress.runUrl()}">Open run</a>

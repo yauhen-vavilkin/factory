@@ -15,8 +15,8 @@
             </div>
             <div class="card">
                 <div class="card-header">
-                    <span class="badge badge-success" th:if="${engine['enabled']}">Running</span>
-                    <span class="badge badge-muted" th:unless="${engine['enabled']}">Disabled</span>
+                    <span class="chip chip-success" th:if="${engine['enabled']}">Running</span>
+                    <span class="chip chip-neutral" th:unless="${engine['enabled']}">Disabled</span>
                 </div>
                 <div class="card-content">
                     <dl class="def-list">
@@ -38,8 +38,8 @@
                 <div class="card" th:each="c : ${connectors}">
                     <div class="card-header">
                         <h3 class="card-title" th:text="${c.name()}"></h3>
-                        <span class="badge badge-success" th:if="${c.configured()}">Configured</span>
-                        <span class="badge badge-outline" th:unless="${c.configured()}">Not configured</span>
+                        <span class="chip chip-success" th:if="${c.configured()}">Configured</span>
+                        <span class="chip chip-neutral" th:unless="${c.configured()}">Not configured</span>
                         <p class="card-description" th:if="${c.note() != null}"><th:block th:text="${c.note()}">Advisory
                             mode.</th:block> <a class="dev-link" th:if="${c.configurationUrl() != null}"
                             th:href="@{${c.configurationUrl()}}">Developer Flow configuration</a></p>

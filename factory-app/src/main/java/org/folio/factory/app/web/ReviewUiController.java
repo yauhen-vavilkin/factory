@@ -150,8 +150,8 @@ public class ReviewUiController {
         var url = taskKey == null ? "/reviews/" + review.getId()
                 : "/executions/" + review.getExecutionId() + "#pr-feedback";
         return new ReviewRow(review.getId(), title, flowId, review.getGateId(),
-                PageTime.timestamp(review.getCreatedAt()), review.getStatus(), review.getDecision(),
-                review.getReviewer(), PageTime.timestamp(review.getDecidedAt()), url,
+                PageTime.day(review.getCreatedAt()), review.getStatus(), review.getDecision(),
+                review.getReviewer(), PageTime.day(review.getDecidedAt()), url,
                 taskKey == null ? "Review" : "PR feedback");
     }
 

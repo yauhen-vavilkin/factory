@@ -42,8 +42,8 @@
         </div>
         <div class="kpi">
             <span class="kpi-value">
-                <span class="badge badge-success" th:if="${engineEnabled}">Running</span>
-                <span class="badge badge-muted" th:unless="${engineEnabled}">Disabled</span>
+                <span class="chip chip-success" th:if="${engineEnabled}">Running</span>
+                <span class="chip chip-neutral" th:unless="${engineEnabled}">Disabled</span>
             </span>
             <span class="kpi-label">Execution engine</span>
         </div>

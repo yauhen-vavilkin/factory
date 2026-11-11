@@ -55,7 +55,8 @@ public class ArtifactUiController {
 
         Map<UUID, String> flowByExecution = flowIds(result.getContent());
         model.addAttribute("artifacts", result.getContent().stream()
-                .map(artifact -> summaryRow(artifact, flowByExecution)).toList());
+                .map(artifact -> summaryRow(artifact, flowByExecution, PageTime.day(artifact.getCreatedAt())))
+                .toList());
         model.addAttribute("page", result);
         model.addAttribute("names", declaredArtifactNames());
         model.addAttribute("selectedName", hasName ? name : "");
@@ -69,7 +70,8 @@ public class ArtifactUiController {
     public String artifact(@PathVariable("id") UUID id, Model model) {
         Artifact artifact = artifacts.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("No artifact " + id));
-        Map<String, Object> row = summaryRow(artifact, flowIds(List.of(artifact)));
+        Map<String, Object> row = summaryRow(artifact, flowIds(List.of(artifact)),
+                PageTime.timestamp(artifact.getCreatedAt()));
         row.put("contentType", artifact.getContentType());
         row.put("sha256", artifact.getSha256());
         row.put("artifactContent", artifact.getContent());
@@ -86,7 +88,8 @@ public class ArtifactUiController {
         return byId;
     }
 
-    private Map<String, Object> summaryRow(Artifact artifact, Map<UUID, String> flowByExecution) {
+    /** {@code createdAt} is the short time in the list and the time with seconds on the artifact page. */
+    private Map<String, Object> summaryRow(Artifact artifact, Map<UUID, String> flowByExecution, PageTime createdAt) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", artifact.getId());
         row.put("name", artifact.getName());
@@ -95,7 +98,7 @@ public class ArtifactUiController {
         row.put("executionShort", UiFormat.abbreviate(artifact.getExecutionId().toString()));
         row.put("flowId", flowByExecution.get(artifact.getExecutionId()));
         row.put("createdBy", artifact.getCreatedBy());
-        row.put("createdAt", PageTime.timestamp(artifact.getCreatedAt()));
+        row.put("createdAt", createdAt);
         return row;
     }
 

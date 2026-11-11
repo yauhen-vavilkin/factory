@@ -190,7 +190,7 @@ public class DashboardUiController {
 
     private FlowRow flowRow(FlowDescriptor flow) {
         var registeredAt = flowRegistryEntries.findById(new FlowRegistryEntry.Key(flow.id(), flow.version()))
-                .map(entry -> PageTime.timestamp(entry.getRegisteredAt()))
+                .map(entry -> PageTime.day(entry.getRegisteredAt()))
                 .orElse(null);
         return new FlowRow(flow.id(), flow.name(), flow.version(), registeredAt, UiFormat.flowDefinitionUrl(flow.id()));
     }

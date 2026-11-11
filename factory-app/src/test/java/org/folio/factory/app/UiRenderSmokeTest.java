@@ -146,6 +146,8 @@ class UiRenderSmokeTest {
         assertThat(body)
                 .containsPattern("src=\"/js/charts-[0-9a-f]{32}\\.js\"")
                 .contains("class=\"charts-grid\"")
+                .containsPattern("<span class=\"chip chip-(success|neutral)\">(Running|Disabled)</span>")
+                .doesNotContain("badge-success", "badge-muted")
                 // The cards count runs by the states the Executions list filters by, in its words.
                 .containsPattern("<span class=\"kpi-label\">Completed</span>\\s*</div>")
                 .contains("<span class=\"kpi-label\">Pull request opened</span>",
@@ -372,8 +374,8 @@ class UiRenderSmokeTest {
                         "<th>Step</th>", "<td>0</td>", "<td>Test Factory</td>", "class=\"chip chip-info\">In progress</span>",
                         "<option value=\"FAILED\">Failed</option>", "<option value=\"PULL_REQUEST\">Pull request opened</option>",
                         "<option value=\"test-factory\" selected=\"selected\">Test Factory</option>",
-                        "<td class=\"muted\">" + timeTag(PageTime.day(stored.getCreatedAt())) + "</td>",
-                        "<td class=\"muted\">" + timeTag(PageTime.day(stored.getUpdatedAt())) + "</td>")
+                        "<td class=\"muted nowrap\">" + timeTag(PageTime.day(stored.getCreatedAt())) + "</td>",
+                        "<td class=\"muted nowrap\">" + timeTag(PageTime.day(stored.getUpdatedAt())) + "</td>")
                 .doesNotContain("<th>Execution</th>", ">FAILED_ESCALATED<", "Pipeline runs");
     }
 
@@ -391,9 +393,8 @@ class UiRenderSmokeTest {
         String body = assertRendered("/reviews?status=ALL", "Human-in-the-loop gates and their decisions.");
         var stored = reviews.findById(review.getId()).orElseThrow();
         assertThat(body).contains("Signed-off plan").contains("Decided")
-                // Each time is UTC text with its instant, which time.js turns into the browser's local time.
-                .contains(timeTag(PageTime.timestamp(stored.getCreatedAt())),
-                        timeTag(PageTime.timestamp(stored.getDecidedAt())));
+                // Each time is short UTC text with its instant, which time.js turns into the browser's local time.
+                .contains(timeTag(PageTime.day(stored.getCreatedAt())), timeTag(PageTime.day(stored.getDecidedAt())));
     }
 
     @Test
@@ -405,8 +406,12 @@ class UiRenderSmokeTest {
     @Test
     void statusPageRenders() {
         String body = assertRendered("/status", "Execution engine");
+        // The registration time is short, as in every list; its title keeps the seconds.
         assertThat(body).containsPattern("<td class=\"muted\"><time datetime=\"\\d{4}-\\d{2}-\\d{2}T[\\d:]{8}Z\" "
-                + "data-local=\"timestamp\" title=\"[\\d-]{10} [\\d:]{8} UTC\">[\\d-]{10} [\\d:]{8} UTC</time></td>");
+                + "data-local=\"day\" title=\"[\\d-]{10} [\\d:]{8} UTC\">[A-Z][a-z]{2} \\d{1,2}, [\\d:]{5} UTC</time></td>")
+                .contains("class=\"chip chip-neutral\">Not configured</span>",
+                        "class=\"chip chip-neutral\">Disabled</span>")
+                .doesNotContain("badge-success", "badge-outline");
 
         // Jira without sign-in still serves My tasks; the Developer Flow opens on its Definition here.
         assertThat(body).contains("Not configured for Test Factory sync, which needs FACTORY_CONNECTORS_JIRA_EMAIL",
@@ -1112,8 +1117,9 @@ class UiRenderSmokeTest {
 
         var created = timeTag(PageTime.timestamp(artifact.getCreatedAt()));
         String list = assertRendered("/artifacts", "Immutable artifact versions");
+        // The list has the short time; the artifact page keeps the seconds.
         assertThat(list).contains("coverage_report.md").contains("test-factory")
-                .contains("<td class=\"muted\">" + created + "</td>");
+                .contains("<td class=\"muted\">" + timeTag(PageTime.day(artifact.getCreatedAt())) + "</td>");
 
         String detail = assertRendered("/artifacts/" + artifact.getId(), "All branches hit.");
         assertThat(detail).contains("coverage_report.md").contains("test-exec · " + created + " · text/markdown");
@@ -1299,7 +1305,7 @@ class UiRenderSmokeTest {
         assertThat(body)
                 .containsPattern("<span class=\"progress-strip-state\">In progress</span>\\s*"
                         + "<a class=\"key-link ext-link\" href=\"https://jira.example.org/browse/MODBAR-709\">MODBAR-709</a>"
-                        + "\\s*<span class=\"progress-strip-title\">Live task</span>")
+                        + "\\s*<span class=\"progress-strip-title\" title=\"Live task\">Live task</span>")
                 .containsPattern("<a class=\"btn btn-secondary btn-sm btn-col\" href=\"/executions/"
                         + liveExecution.getId() + "\">Open run</a>");
         // Ready to run: the ways to get tasks in its header, the rows without frame or header row.

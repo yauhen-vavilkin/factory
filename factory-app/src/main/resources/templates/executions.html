@@ -42,7 +42,7 @@
                 </thead>
                 <tbody>
                 <tr th:each="e : ${executions}">
-                    <td>
+                    <td class="nowrap">
                         <a class="table-link" th:href="@{'/executions/' + ${e.id()}}" th:text="${e.name()}"></a>
                         <div class="muted sub-tag" th:if="${e['parentExecutionId']}">
                             <a th:href="@{'/executions/' + ${e['parentExecutionId']}}"
@@ -52,8 +52,8 @@
                     <td th:text="${e.flowName()}"></td>
                     <td><span th:class="${e.statusClass()}" th:text="${e.statusLabel()}">Failed</span></td>
                     <td th:if="${showStep}" th:text="${e.step()}"></td>
-                    <td class="muted"><time th:replace="~{fragments/components :: pageTime(${e.createdAt()})}"></time></td>
-                    <td class="muted"><time th:replace="~{fragments/components :: pageTime(${e.updatedAt()})}"></time></td>
+                    <td class="muted nowrap"><time th:replace="~{fragments/components :: pageTime(${e.createdAt()})}"></time></td>
+                    <td class="muted nowrap"><time th:replace="~{fragments/components :: pageTime(${e.updatedAt()})}"></time></td>
                 </tr>
                 </tbody>
             </table>

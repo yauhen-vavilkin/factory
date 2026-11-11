@@ -109,7 +109,7 @@ html[data-menu="collapsed"] .sidebar-brand strong {
   transition: background-color 150ms ease, color 150ms ease;
 }
 .nav-item:hover {
-  background: hsl(var(--accent));
+  background: hsl(var(--secondary-hover) / 0.6);
   color: hsl(var(--accent-foreground));
   text-decoration: none;
 }
@@ -118,7 +118,9 @@ html[data-menu="collapsed"] .sidebar-brand strong {
   color: hsl(var(--secondary-foreground));
   font-weight: 600;
 }
-.sidebar-footer { margin-top: auto; padding: 0.25rem 0.25rem 0 0.5rem; }
+.sidebar-footer { margin-top: auto; padding: 0.25rem 0.25rem 0 0; }
+.sidebar-footer .btn { padding-inline: 8px; }
+.sidebar .btn-ghost:hover { background: hsl(var(--secondary-hover) / 0.6); }
 
 /* Left aligned: with the menu collapsed the content starts at the rail plus the page padding. One content width
    (1040 px) for every page and its flash messages, so the right edge does not move between pages; wide tables
@@ -130,7 +132,7 @@ html[data-menu="collapsed"] .sidebar-brand strong {
   margin: 0;
 }
 .page-header { margin-bottom: 1.5rem; }
-.page-header h1 { font-size: 1.5rem; }
+.page-header h1 { font-size: 1.5rem; line-height: 36px; }
 .page-description {
   margin-top: 0.375rem;
   font-size: 0.9375rem;
@@ -178,7 +180,7 @@ html[data-menu="collapsed"] .sidebar-brand strong {
 }
 .card-header + .card-content { padding-top: 0; }
 .card-header .badge { align-self: flex-start; }
-.card-title { font-size: 1rem; font-weight: 600; }
+.card-title { font-size: 1rem; font-weight: 600; line-height: 24px; }
 .card-description { font-size: 0.875rem; color: hsl(var(--muted-foreground)); }
 .card-content { padding: 1.25rem 1.5rem; }
 .card-footer {
@@ -380,11 +382,14 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
 
 /* ---------- table ---------- */
 .table-wrap {
+  position: relative;
   border: 1px solid hsl(var(--border));
   border-radius: var(--radius);
   overflow-x: auto;
 }
 .table-wrap table { margin: 0; }
+/* A cell that must stay on one line, such as a run name or a date; the table scrolls in its box instead. */
+td.nowrap { white-space: nowrap; }
 table {
   width: 100%;
   border-collapse: collapse;
@@ -399,7 +404,7 @@ thead th {
 }
 tbody td { padding: 0.75rem 1rem; border-top: 1px solid hsl(var(--border)); vertical-align: top; }
 tbody tr { transition: background-color 150ms ease; }
-tbody tr:hover { background: hsl(var(--muted) / 0.4); }
+tbody tr:hover { background: hsl(var(--secondary-hover) / 0.4); }
 .empty-state {
   padding: 3rem 1.5rem;
   text-align: center;
@@ -464,14 +469,15 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 /* ---------- tabs ---------- */
 .tabs {
   display: flex;
-  gap: 0.25rem;
+  gap: 16px;
   border-bottom: 1px solid hsl(var(--border));
   margin-bottom: 1.5rem;
 }
+/* The size of the Developer Flow tabs (27 px high), so the tabs of every page look the same. */
 .tabs [role="tab"], .tabs a {
   display: inline-flex;
   align-items: center;
-  padding: 0.5rem 0.875rem;
+  padding: 0 0 4px;
   margin-bottom: -1px;
   border-bottom: 2px solid transparent;
   font-size: 0.875rem;
@@ -613,6 +619,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  align-items: start;
   gap: 1rem;
 }
 .kpi-grid > * { min-width: 0; }
@@ -629,7 +636,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 /* The value shrinks with its card, so a seven-figure token total stays inside a narrow card (5 cards at 1280 px). */
 .kpi { container-type: inline-size; }
 .kpi-value {
-  font-size: clamp(1.25rem, 14cqi, 1.875rem);
+  font-size: clamp(1.25rem, 16cqi, 1.875rem);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.025em;
@@ -805,18 +812,21 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .dev-heading { display: flex; flex-direction: column; gap: 8px; }
 .dev-breadcrumb { font-size: 13px; color: hsl(var(--muted-foreground)); }
 .dev-breadcrumb a { color: hsl(var(--quiet-foreground)); text-decoration: underline; }
+.dev-breadcrumb a:hover { color: hsl(var(--foreground)); }
 .dev-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: hsl(var(--muted-foreground)); }
-.dev-meta-dots > * + *::before { content: "·"; margin-right: 8px; }
+/* One space on each side of every dot, in the meta line of a page and of a row. */
+.dev-meta-dots { gap: 0; }
+.dev-meta-dots > * + *::before { content: "·"; margin: 0 0.3em; }
 .usage-figures {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px 12px;
+  gap: 6px 0;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 .usage-figures dt { color: hsl(var(--muted-foreground)); }
-.usage-figures dd { margin: 0; text-align: right; }
-.usage-figures .usage-total { padding-top: 6px; border-top: 1px solid hsl(var(--muted)); color: hsl(var(--foreground)); font-weight: 600; }
+.usage-figures dd { margin: 0; padding-left: 12px; text-align: right; }
+.usage-figures .usage-total { padding-top: 6px; border-top: 1px solid hsl(var(--border)); color: hsl(var(--foreground)); font-weight: 600; }
 
 /* ---------- Run page: status card, four step cards, Activity | Usage, closed disclosures (mockups 2 and 5) */
 .run-standing {
@@ -972,7 +982,7 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 }
 
 /* PR feedback on the run page: new comments and rounds are plain rows, like My tasks. */
-.feedback-section { display: flex; flex-direction: column; gap: 22px; }
+.feedback-section { display: flex; flex-direction: column; gap: 24px; }
 .feedback-reason { font-size: 13px; }
 .dev-row.feedback-comment { align-items: flex-start; cursor: pointer; }
 .feedback-comment .dev-row-meta { white-space: normal; }
@@ -982,24 +992,26 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .feedback-location { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 /* Rounds: one grid for all rounds, so the amounts and the chips stand in straight columns and each chip ends at
    the right edge; what the round did takes the full width under its head line. */
-.feedback-rounds { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 12px; }
+.feedback-rounds { display: grid; grid-template-columns: minmax(0, 1fr) 88px 150px; column-gap: 12px; }
 .feedback-round {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   grid-template-columns: subgrid;
-  align-items: baseline;
+  align-items: center;
   padding: 12px 0;
   border-bottom: 1px solid hsl(var(--border));
 }
 .feedback-round > .row-amount { grid-column: 2; }
-.feedback-round > .chip { grid-column: 3; justify-self: end; }
+.feedback-round > .chip { grid-column: 3; justify-self: start; }
 .feedback-round-body { grid-column: 1 / -1; min-width: 0; }
 .feedback-round-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
 .feedback-round-summary { margin-top: 8px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .feedback-round-link { display: inline-flex; margin-top: 6px; font-size: 12px; }
-.feedback-round-details { max-width: 80ch; margin-top: 8px; font-size: 13px; }
-.feedback-round-details[open] { display: flex; flex-direction: column; gap: 10px; }
+/* The disclosure spans the row; the text in it keeps a readable width. */
+.feedback-round-details { margin-top: 8px; font-size: 13px; }
+.feedback-round-details[open] { display: flex; flex-direction: column; }
+.feedback-round-details > :not(summary) { max-width: 80ch; }
 .feedback-round-details > summary { align-self: flex-start; }
 .feedback-detail { display: flex; flex-direction: column; gap: 6px; }
 .feedback-author { font-size: 12px; color: hsl(var(--muted-foreground)); }
@@ -1033,21 +1045,23 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 }
 .dev-list-head .dev-section-title { font-size: 16px; }
 .dev-list-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; }
+a.dev-list-tools { color: hsl(var(--quiet-foreground)); text-decoration: underline; }
+a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .dev-list-tools [data-poll-notice] { color: hsl(var(--notice-foreground)); }
 .dev-poll-notice { font-size: 13px; color: hsl(var(--notice-foreground)); }
 .add-key { display: flex; align-items: center; gap: 10px; }
 .add-key-input { width: 280px; }
-/* The right part of a row lines up with the title line, also in rows of two or three lines. On a narrow
-   screen it moves under the title instead of squeezing it. */
+/* The right part of a row stands at the top, centred on the title line, also in rows of two or three lines. On
+   a narrow screen it moves under the title instead of squeezing it. */
 .dev-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: flex-start;
   gap: 14px 16px;
   padding: 12px 0;
   border-bottom: 1px solid hsl(var(--border));
 }
-.dev-row-main { flex: 1 1 200px; min-width: 0; }
+.dev-row-main { flex: 1 1 280px; min-width: 0; }
 /* At most two lines, so a narrow screen shows the start of a long title; its title attribute has it all. */
 .dev-row-title {
   display: -webkit-box;
@@ -1077,7 +1091,8 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 }
 .dev-row-meta > * + * { margin-left: 10px; }
 .dev-row-meta-dots > * + * { margin-left: 0; }
-.dev-row-meta-dots > * + *::before { content: "·"; margin: 0 6px; }
+.dev-row-meta-dots > * + *::before { content: "·"; margin: 0 0.3em; }
+.dev-row-meta a:focus-visible { outline-offset: -2px; }
 .dev-row-action { display: flex; justify-content: flex-end; }
 /* The box of a checkbox sits on the baseline; this puts its middle on the middle of the title text. */
 .dev-row .task-check { position: relative; top: 3px; margin: 0; flex: 0 0 auto; }
@@ -1088,7 +1103,9 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
   flex: none;
   display: grid;
   grid-template-columns: 88px 150px minmax(96px, auto);
-  align-items: baseline;
+  align-items: center;
+  align-content: center;
+  height: 21px;
   column-gap: 12px;
   margin-left: auto;
 }
@@ -1119,12 +1136,12 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .def-retries { padding-top: 12px; }
 /* Configuration: the models, where runs go, the limits, the task source, and the check of one task. */
 .config-note, .config-facts { padding-top: 12px; }
-/* Name, value, and the variable that sets it: three columns; on a narrow screen the variable goes under the value. */
-.config-facts { grid-template-columns: 140px minmax(0, 1fr) minmax(0, max-content); }
+/* Name, value, and the variable that sets it: three columns; on a narrow page the variable goes under the value. */
+.config-facts { grid-template-columns: 140px minmax(0, 1fr) 270px; }
 .config-variable { color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
-@media (max-width: 720px) {
-  .config-facts { grid-template-columns: minmax(0, 1fr); }
-  .config-variable:empty { display: none; }
+@container (max-width: 47rem) {
+  .config-facts { grid-template-columns: 140px minmax(0, 1fr); }
+  .config-variable { grid-column: 2; }
 }
 .config-subtitle { padding: 16px 0 4px; font-size: 14px; font-weight: 600; border-bottom: 1px solid hsl(var(--border)); }
 .config-name { font-weight: 600; overflow-wrap: anywhere; }
@@ -1176,7 +1193,7 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
 }
-.status-card-main { flex: 1 1 24rem; min-width: 0; display: flex; align-items: baseline; gap: 12px; }
+.status-card-main { flex: 1 1 24rem; min-width: 0; display: flex; align-items: flex-start; gap: 12px; }
 .status-card-main > .chip { flex: none; }
 .status-card-body { flex: 1 1 0; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .status-card-headline { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
