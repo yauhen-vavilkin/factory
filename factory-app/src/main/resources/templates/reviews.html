@@ -35,8 +35,9 @@
                 <td th:if="${showDecision}">
                     <span th:replace="~{fragments/components :: statusBadge(${r.status()})}"></span>
                 </td>
-                <td class="muted" th:text="${r.createdAt()}"></td>
-                <td class="muted" th:if="${showDecision}" th:text="${r.decidedAt()} ?: '—'"></td>
+                <td class="muted"><time th:replace="~{fragments/components :: pageTime(${r.createdAt()})}"></time></td>
+                <td class="muted" th:if="${showDecision}"><time th:replace="~{fragments/components :: pageTime(${r.decidedAt()})}"></time><th:block
+                        th:if="${r.decidedAt() == null}">—</th:block></td>
                 <td th:if="${showDecision}">
                     <span th:if="${r.decision()}" th:text="${r.decision()}"></span>
                     <span th:unless="${r.decision()}" class="muted">—</span>

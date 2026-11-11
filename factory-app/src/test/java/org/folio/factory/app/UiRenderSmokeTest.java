@@ -14,6 +14,7 @@ import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
+import org.folio.factory.app.web.PageTime;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
@@ -337,7 +338,12 @@ class UiRenderSmokeTest {
 
     @Test
     void executionsListRenders() {
-        assertRendered("/executions", "Pipeline runs across all flows, most recent first.");
+        var execution = executions.save(new PipelineExecution("test-factory", "1", "{}"));
+        var stored = executions.findById(execution.getId()).orElseThrow();
+
+        assertThat(assertRendered("/executions?flow=test-factory", "Pipeline runs across all flows, most recent first."))
+                .contains("<td class=\"muted\">" + timeTag(PageTime.timestamp(stored.getCreatedAt())) + "</td>",
+                        "<td class=\"muted\">" + timeTag(PageTime.timestamp(stored.getUpdatedAt())) + "</td>");
     }
 
     @Test
@@ -352,7 +358,11 @@ class UiRenderSmokeTest {
         // the decision columns (only shown when showDecision is true), catching a
         // regression that fell back to the pending-only view.
         String body = assertRendered("/reviews?status=ALL", "Human-in-the-loop gates and their decisions.");
-        assertThat(body).contains("Signed-off plan").contains("Decided");
+        var stored = reviews.findById(review.getId()).orElseThrow();
+        assertThat(body).contains("Signed-off plan").contains("Decided")
+                // Each time is UTC text with its instant, which time.js turns into the browser's local time.
+                .contains(timeTag(PageTime.timestamp(stored.getCreatedAt())),
+                        timeTag(PageTime.timestamp(stored.getDecidedAt())));
     }
 
     @Test
@@ -364,6 +374,8 @@ class UiRenderSmokeTest {
     @Test
     void statusPageRenders() {
         String body = assertRendered("/status", "Execution engine");
+        assertThat(body).containsPattern("<td class=\"muted\"><time datetime=\"\\d{4}-\\d{2}-\\d{2}T[\\d:]{8}Z\" "
+                + "data-local=\"timestamp\" title=\"[\\d-]{10} [\\d:]{8} UTC\">[\\d-]{10} [\\d:]{8} UTC</time></td>");
 
         // Jira without sign-in still serves My tasks; the Developer Flow opens on its Definition here.
         assertThat(body).contains("Not configured for Test Factory sync, which needs FACTORY_CONNECTORS_JIRA_EMAIL",
@@ -436,7 +448,11 @@ class UiRenderSmokeTest {
                 Map.of("promptTokens", 734, "completionTokens", 110));
 
         String body = assertRendered("/executions/" + execution.getId(), "Audit timeline");
+        var plan = artifactStore.getLatest(execution.getId(), "test_plan.md").orElseThrow();
+        var event = auditLog.forExecution(execution.getId()).getFirst();
         assertThat(body)
+                .contains("v1 · test-spec · " + timeTag(PageTime.timestamp(plan.getCreatedAt())),
+                        "<td>" + timeTag(PageTime.timestamp(event.getOccurredAt())) + "</td>")
                 .contains("LLM tokens: 844 total")
                 .contains("844 tokens (734 in / 110 out)")
                 .containsOnlyOnce("class=\"stepper\"")
@@ -1038,11 +1054,13 @@ class UiRenderSmokeTest {
         var artifact = artifactStore.putMarkdown(execution.getId(), "coverage_report.md",
                 "# Coverage\nAll branches hit.\n", "test-exec");
 
+        var created = timeTag(PageTime.timestamp(artifact.getCreatedAt()));
         String list = assertRendered("/artifacts", "Immutable artifact versions");
-        assertThat(list).contains("coverage_report.md").contains("test-factory");
+        assertThat(list).contains("coverage_report.md").contains("test-factory")
+                .contains("<td class=\"muted\">" + created + "</td>");
 
         String detail = assertRendered("/artifacts/" + artifact.getId(), "All branches hit.");
-        assertThat(detail).contains("coverage_report.md").contains("test-exec");
+        assertThat(detail).contains("coverage_report.md").contains("test-exec · " + created + " · text/markdown");
     }
 
     @Test
@@ -1796,6 +1814,12 @@ class UiRenderSmokeTest {
         assertThat(body.substring(body.indexOf("class=\"status-card-side\"")))
                 .containsPattern("<span class=\"status-card-money\" data-elapsed-start=\"[^\"]+\">\\d+ s</span>\\s*"
                         + "<span class=\"status-card-note\">of 60</span>");
+    }
+
+    /** The {@code pageTime} fragment of a time, as the page renders it. */
+    private static String timeTag(PageTime time) {
+        return "<time datetime=\"" + time.datetime() + "\" data-local=\"" + time.local() + "\" title=\""
+                + time.title() + "\">" + time.text() + "</time>";
     }
 
     private String assertRendered(String path, String marker) {

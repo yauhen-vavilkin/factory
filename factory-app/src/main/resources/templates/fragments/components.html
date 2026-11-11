@@ -6,6 +6,16 @@
 <span th:fragment="statusBadge(status)" class="chip"
       th:classappend="'chip-status-' + ${status}" th:text="${status}">STATUS</span>
 
+<!-- An absolute time (PageTime) in UTC; time.js rewrites it to the browser's local time. Nothing when null. -->
+<time th:fragment="pageTime(at)" th:if="${at != null}"
+      th:attr="datetime=${at.datetime()}, data-local=${at.local()}, title=${at.title()}"
+      th:text="${at.text()}">2026-11-10 22:42:07 UTC</time>
+
+<!-- A relative time ("5 min ago") whose title time.js rewrites to the local time; plain text without a time. -->
+<th:block th:fragment="ago(text, at)"><time th:if="${at != null}"
+        th:attr="datetime=${at.datetime()}, data-local='ago', title=${at.title()}" th:text="${text}">5 min
+    ago</time><span th:if="${at == null}" th:text="${text}">never</span></th:block>
+
 <nav th:fragment="pagination(page, baseUrl)" class="pagination" aria-label="Pagination"
      th:if="${page != null}">
     <span th:if="${page.first}" class="btn btn-outline btn-sm disabled" aria-disabled="true">Previous</span>
@@ -42,7 +52,7 @@
         </thead>
         <tbody>
         <tr th:each="ev : ${events}">
-            <td th:text="${ev['occurredAt']}"></td>
+            <td><time th:replace="~{fragments/components :: pageTime(${ev['occurredAt']})}"></time></td>
             <td th:if="${showExecution}">
                 <a th:if="${ev['executionId']}" th:href="@{'/executions/' + ${ev['executionId']}}"
                    th:text="${ev['executionShort']}"></a>

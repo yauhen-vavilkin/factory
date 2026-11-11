@@ -53,8 +53,8 @@
                               th:text="${e.statusLabel()}">Failed</span><th:block th:if="${e.statusLabel() == null}"><span
                             th:replace="~{fragments/components :: statusBadge(${e.status()})}"></span></th:block></td>
                     <td th:text="${e.step()}"></td>
-                    <td class="muted" th:text="${e['createdAt']}"></td>
-                    <td class="muted" th:text="${e['updatedAt']}"></td>
+                    <td class="muted"><time th:replace="~{fragments/components :: pageTime(${e.createdAt()})}"></time></td>
+                    <td class="muted"><time th:replace="~{fragments/components :: pageTime(${e.updatedAt()})}"></time></td>
                 </tr>
                 </tbody>
             </table>

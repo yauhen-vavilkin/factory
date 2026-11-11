@@ -210,7 +210,7 @@ class DashboardUiControllerTest {
         @SuppressWarnings("unchecked")
         var flows = (List<DashboardUiController.FlowRow>) result.getModelAndView().getModel().get("flows");
         assertThat(flows).containsExactly(
-                new DashboardUiController.FlowRow("test-factory", "Test Factory", "1.0.0", "—", "/flows/test-factory"));
+                new DashboardUiController.FlowRow("test-factory", "Test Factory", "1.0.0", null, "/flows/test-factory"));
     }
 
     @Test

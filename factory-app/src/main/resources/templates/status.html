@@ -62,7 +62,8 @@
                         <td><a th:href="@{${f.url()}}" th:text="${f.id()}"></a></td>
                         <td th:text="${f.name()}"></td>
                         <td th:text="${f.version()}"></td>
-                        <td class="muted" th:text="${f.registeredAt()}"></td>
+                        <td class="muted"><time th:replace="~{fragments/components :: pageTime(${f.registeredAt()})}"></time><th:block
+                                th:if="${f.registeredAt() == null}">—</th:block></td>
                     </tr>
                     </tbody>
                 </table>

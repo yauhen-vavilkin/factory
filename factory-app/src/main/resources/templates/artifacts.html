@@ -39,7 +39,7 @@
                         <span th:unless="${a['flowId']}" class="muted">—</span></td>
                     <td><a th:href="@{'/executions/' + ${a['executionId']}}" th:text="${a['executionShort']}"></a></td>
                     <td class="muted" th:text="${a['createdBy']}"></td>
-                    <td class="muted" th:text="${a['createdAt']}"></td>
+                    <td class="muted"><time th:replace="~{fragments/components :: pageTime(${a['createdAt']})}"></time></td>
                 </tr>
                 </tbody>
             </table>

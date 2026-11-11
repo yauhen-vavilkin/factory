@@ -95,7 +95,8 @@
                     <div th:each="v : ${group['versions']}" th:id="${v['panelId']}" role="tabpanel"
                          th:attr="hidden=${v['latest']} ? null : 'hidden',
                                   aria-labelledby=${v['panelId']} + '-tab'">
-                        <p class="card-description" th:text="${v['label']}"></p>
+                        <p class="card-description"><th:block th:text="${v['label']}">v1 · author · </th:block><time
+                                th:replace="~{fragments/components :: pageTime(${v['createdAt']})}"></time></p>
                         <pre class="code-block" th:text="${v['content']}"></pre>
                     </div>
                 </div>

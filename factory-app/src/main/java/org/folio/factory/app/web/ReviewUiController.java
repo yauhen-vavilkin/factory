@@ -56,8 +56,8 @@ public class ReviewUiController {
      * One inbox row. A Developer Flow run that waits for PR comments is named by its task key and opens its run
      * page, where its PR feedback is worked; every other review opens the review page.
      */
-    public record ReviewRow(UUID id, String title, String flowId, String gateId, String createdAt,
-                            HitlReviewStatus status, String decision, String reviewer, String decidedAt, String url,
+    public record ReviewRow(UUID id, String title, String flowId, String gateId, PageTime createdAt,
+                            HitlReviewStatus status, String decision, String reviewer, PageTime decidedAt, String url,
                             String action) {
     }
 
@@ -150,8 +150,8 @@ public class ReviewUiController {
         var url = taskKey == null ? "/reviews/" + review.getId()
                 : "/executions/" + review.getExecutionId() + "#pr-feedback";
         return new ReviewRow(review.getId(), title, flowId, review.getGateId(),
-                UiFormat.format(review.getCreatedAt()), review.getStatus(), review.getDecision(),
-                review.getReviewer(), UiFormat.format(review.getDecidedAt()), url,
+                PageTime.timestamp(review.getCreatedAt()), review.getStatus(), review.getDecision(),
+                review.getReviewer(), PageTime.timestamp(review.getDecidedAt()), url,
                 taskKey == null ? "Review" : "Open run");
     }
 

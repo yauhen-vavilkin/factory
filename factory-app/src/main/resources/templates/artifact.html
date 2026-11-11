@@ -17,9 +17,9 @@
     <div class="card">
         <div class="card-header">
             <h2 class="card-title" th:text="${artifact['name']} + ' · v' + ${artifact['version']}">artifact</h2>
-            <p class="card-description"
-               th:text="${artifact['createdBy']} + ' · ' + ${artifact['createdAt']}
-                        + ' · ' + ${artifact['contentType']}">meta</p>
+            <p class="card-description"><th:block th:text="${artifact['createdBy']} + ' · '">author · </th:block><time
+                    th:replace="~{fragments/components :: pageTime(${artifact['createdAt']})}"></time><th:block
+                    th:text="' · ' + ${artifact['contentType']}"> · text/markdown</th:block></p>
         </div>
         <div class="card-content">
             <pre class="code-block" th:text="${artifact['artifactContent']}"></pre>

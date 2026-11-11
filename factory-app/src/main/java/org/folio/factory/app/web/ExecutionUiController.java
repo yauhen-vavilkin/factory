@@ -147,8 +147,8 @@ public class ExecutionUiController {
         var idShort = UiFormat.abbreviate(execution.getId().toString());
         var parentId = execution.getParentExecutionId();
         var parentShort = parentId == null ? null : UiFormat.abbreviate(parentId.toString());
-        var created = UiFormat.format(execution.getCreatedAt());
-        var updated = UiFormat.format(execution.getUpdatedAt());
+        var created = PageTime.timestamp(execution.getCreatedAt());
+        var updated = PageTime.timestamp(execution.getUpdatedAt());
         if (!DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId())) {
             return new ExecutionRow(execution.getId(), idShort, execution.getFlowId(), execution.getStatus().name(),
                     null, null, String.valueOf(execution.getCurrentStepIndex()), created, updated, parentId,
@@ -226,8 +226,8 @@ public class ExecutionUiController {
         version.put("id", artifact.getId());
         version.put("version", artifact.getVersion());
         version.put("content", artifact.getContent());
-        version.put("label", "v" + artifact.getVersion() + " · " + artifact.getCreatedBy()
-                + " · " + UiFormat.format(artifact.getCreatedAt()));
+        version.put("label", "v" + artifact.getVersion() + " · " + artifact.getCreatedBy() + " · ");
+        version.put("createdAt", PageTime.timestamp(artifact.getCreatedAt()));
         version.put("panelId", panelId);
         version.put("latest", latest);
         return version;
@@ -273,7 +273,7 @@ public class ExecutionUiController {
      * ({@code statusLabel}, {@code statusClass}) and no {@code step}; other runs show the engine status.
      */
     public record ExecutionRow(UUID id, String name, String flowId, String status, String statusLabel,
-                               String statusClass, String step, String createdAt, String updatedAt,
+                               String statusClass, String step, PageTime createdAt, PageTime updatedAt,
                                UUID parentExecutionId, String parentShort) {
     }
 }

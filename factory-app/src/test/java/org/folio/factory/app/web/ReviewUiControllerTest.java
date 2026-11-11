@@ -206,7 +206,7 @@ class ReviewUiControllerTest {
         @SuppressWarnings("unchecked")
         var rows = (List<ReviewUiController.ReviewRow>) result.getModelAndView().getModel().get("reviews");
         assertThat(rows).hasSize(1);
-        assertThat(rows.get(0).createdAt()).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}");
+        assertThat(rows.get(0).createdAt().text()).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2} UTC");
         assertThat(rows.get(0).decidedAt()).isNull();
         assertThat(rows.get(0).url()).isEqualTo("/reviews/" + review.getId());
         assertThat(rows.get(0).action()).isEqualTo("Review");
@@ -244,7 +244,7 @@ class ReviewUiControllerTest {
 
         @SuppressWarnings("unchecked")
         var rows = (List<ReviewUiController.ReviewRow>) result.getModelAndView().getModel().get("reviews");
-        assertThat(rows.get(0).decidedAt()).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}");
+        assertThat(rows.get(0).decidedAt().text()).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2} UTC");
     }
 
     @Test

@@ -142,7 +142,7 @@ public final class UiFormat {
     /** The one row shape the {@code auditTable} fragment renders, wherever it appears. */
     static Map<String, Object> auditRow(AuditEvent event, JsonMapper jsonMapper) {
         Map<String, Object> row = new LinkedHashMap<>();
-        row.put("occurredAt", format(event.getOccurredAt()));
+        row.put("occurredAt", PageTime.timestamp(event.getOccurredAt()));
         row.put("eventType", event.getEventType().name());
         row.put("eventLabel", eventLabel(event.getEventType()));
         row.put("eventTone", eventTone(event.getEventType()));

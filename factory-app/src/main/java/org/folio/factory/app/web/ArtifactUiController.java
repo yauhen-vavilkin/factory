@@ -95,7 +95,7 @@ public class ArtifactUiController {
         row.put("executionShort", UiFormat.abbreviate(artifact.getExecutionId().toString()));
         row.put("flowId", flowByExecution.get(artifact.getExecutionId()));
         row.put("createdBy", artifact.getCreatedBy());
-        row.put("createdAt", UiFormat.format(artifact.getCreatedAt()));
+        row.put("createdAt", PageTime.timestamp(artifact.getCreatedAt()));
         return row;
     }
 

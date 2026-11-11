@@ -197,8 +197,8 @@ public class DashboardUiController {
 
     private FlowRow flowRow(FlowDescriptor flow) {
         var registeredAt = flowRegistryEntries.findById(new FlowRegistryEntry.Key(flow.id(), flow.version()))
-                .map(entry -> UiFormat.format(entry.getRegisteredAt()))
-                .orElse("—");
+                .map(entry -> PageTime.timestamp(entry.getRegisteredAt()))
+                .orElse(null);
         return new FlowRow(flow.id(), flow.name(), flow.version(), registeredAt, UiFormat.flowDefinitionUrl(flow.id()));
     }
 
@@ -207,7 +207,7 @@ public class DashboardUiController {
     }
 
     /** A registered flow; {@code url} opens its Definition. */
-    public record FlowRow(String id, String name, String version, String registeredAt, String url) {
+    public record FlowRow(String id, String name, String version, PageTime registeredAt, String url) {
     }
 
 }
