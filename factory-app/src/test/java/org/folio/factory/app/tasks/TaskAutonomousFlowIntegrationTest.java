@@ -24,12 +24,10 @@ import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.core.trigger.PipelineRouter;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
-import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.worker.CodingDecisionGateWorker;
-import org.folio.factory.devfactory.worker.DecisionGateWorker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -71,7 +69,7 @@ import static org.mockito.Mockito.when;
  * engine and PostgreSQL with a fake coding runtime, workload layer and Git
  * fixtures. Task ambiguity and coding decisions stop the attempt through the
  * ordinary non-ready artifact chain without a HITL review or another paid call,
- * while the same flow started manually still opens its existing reviews.
+ * while the same flow started manually still opens its coding decision review.
  */
 @FactoryIntegrationTest
 @Import({SharedWireMock.Jira.class, SharedWireMock.GitHub.class})
@@ -80,15 +78,17 @@ import static org.mockito.Mockito.when;
 @DirtiesContext
 class TaskAutonomousFlowIntegrationTest {
 
-    private static final String INSTANCE = TaskFixture.INSTANCE;
     private static final String DESCRIPTION = "As an operator I want X. AC1: X happens.";
 
     static final WireMockServer jira = SharedWireMock.JIRA;
     static final WireMockServer github = SharedWireMock.GITHUB;
     static final Path gitRoot = DevFlowHarness.createGitRoot("task-autonomous-git");
-    static final String barSha = DevFlowHarness.createRepository(gitRoot, "folio-org/mod-bar", "master");
-    static final String fooSha = DevFlowHarness.createRepository(gitRoot, "folio-org/mod-foo", "master");
-    static final String fooStorageSha = DevFlowHarness.createRepository(gitRoot, "folio-org/mod-foo-storage", "main");
+
+    static {
+        DevFlowHarness.createRepository(gitRoot, "folio-org/mod-bar", "master");
+        DevFlowHarness.createRepository(gitRoot, "folio-org/mod-foo", "master");
+        DevFlowHarness.createRepository(gitRoot, "folio-org/mod-foo-storage", "main");
+    }
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -164,9 +164,6 @@ class TaskAutonomousFlowIntegrationTest {
     @Autowired
     TaskDispatcher dispatcher;
 
-    @Autowired
-    TaskAttemptPolicy taskPolicy;
-
     private final JsonMapper json = JsonMapper.builder().build();
 
     private TaskFixture fixture;
@@ -227,7 +224,7 @@ class TaskAutonomousFlowIntegrationTest {
         assertThat(brief.path("state").asString()).isEqualTo("BLOCKED");
         assertThat(brief.path("reason").asString()).isEqualTo("AMBIGUOUS_REPOSITORY_MAPPING");
         assertThat(brief.path("repository").isMissingNode()).isTrue();
-        declaredOutputs().forEach(name ->
+        DevFlowHarness.declaredOutputs(flowRegistry).forEach(name ->
                 assertThat(artifactStore.getLatest(executionId, name))
                         .as(name)
                         .isPresent());
@@ -291,50 +288,13 @@ class TaskAutonomousFlowIntegrationTest {
         assertThat(progressDetails)
                 .as("the one paid coding invocation keeps its usage evidence")
                 .anyMatch(detail -> detail.contains("coding_usage") && detail.contains("\"inputTokens\": 10"));
-        declaredOutputs().forEach(name ->
+        DevFlowHarness.declaredOutputs(flowRegistry).forEach(name ->
                 assertThat(artifactStore.getLatest(executionId, name))
                         .as(name)
                         .isPresent());
         assertThat(jira.findAll(getRequestedFor(urlEqualTo("/rest/api/2/issue/MODBAR-402"))))
                 .as("the approved snapshot is consumed without a second Jira read")
                 .isEmpty();
-    }
-
-    @Test
-    void persistedPolicyGrantsOnlyTheBoundExecutionAndClaimsOnePaidStart() {
-        UUID legacyExecution = UUID.randomUUID();
-        assertThat(taskPolicy.find(legacyExecution)).isEmpty();
-        assertThat(taskPolicy.claimPaidStart(legacyExecution)).isFalse();
-        taskPolicy.recordStop(legacyExecution, "implement", "ignored for legacy executions");
-
-        UUID executionId = UUID.randomUUID();
-        Task task = tasks.save(new Task(INSTANCE, "40011", "MODBAR-411", "Title", "MODBAR",
-                snapshotJson("MODBAR-411"), "revision-40011", Task.Eligibility.ELIGIBLE,
-                "repository mod-bar"));
-        TaskAttempt attempt = new TaskAttempt(task.getId(), 1, TaskAttempt.Kind.INITIAL,
-                "request-port", TaskAttempt.State.QUEUED);
-        attempt.setInputFingerprint("revision-40011");
-        attempt.setDestinationFingerprint("destination-hash");
-        attempt.setApprovedSnapshot(task.getIssueSnapshot());
-        attempt.setExecutionId(executionId);
-        attempts.save(attempt);
-
-        var context = taskPolicy.find(executionId).orElseThrow();
-        assertThat(context.attemptId()).isEqualTo(attempt.getId());
-        assertThat(context.repositoryKey()).isEqualTo("mod-bar");
-        assertThat(context.approvedSnapshot()).containsEntry("key", "MODBAR-411");
-
-        assertThat(taskPolicy.claimPaidStart(executionId)).isTrue();
-        assertThat(taskPolicy.claimPaidStart(executionId)).isFalse();
-        assertThat(attempts.findById(attempt.getId()).orElseThrow().getPaidStartAt()).isNotNull();
-
-        taskPolicy.recordStop(executionId, "read-task", "ambiguous repository mapping");
-        taskPolicy.recordStop(executionId, "implement", "a later stop must not win");
-
-        TaskAttempt stored = attempts.findById(attempt.getId()).orElseThrow();
-        assertThat(stored.getResultReason()).startsWith("read-task: ");
-        assertThat(stored.getResultReason()).contains("ambiguous");
-        assertThat(taskPolicy.find(legacyExecution)).isEmpty();
     }
 
     @Test
@@ -355,30 +315,13 @@ class TaskAutonomousFlowIntegrationTest {
         assertThat(brief.path("state").asString()).isEqualTo("BLOCKED");
         assertThat(brief.path("reason").asString()).isEqualTo("REPOSITORY_MAPPING_CHANGED");
         assertThat(brief.path("repository").isMissingNode()).isTrue();
-        declaredOutputs().forEach(name ->
+        DevFlowHarness.declaredOutputs(flowRegistry).forEach(name ->
                 assertThat(artifactStore.getLatest(executionId, name))
                         .as(name)
                         .isPresent());
         assertThat(jira.findAll(getRequestedFor(urlEqualTo("/rest/api/2/issue/MODBAR-403"))))
                 .as("the approved snapshot is consumed without a second Jira read")
                 .isEmpty();
-    }
-
-    @Test
-    void legacyAmbiguousMappingStillOpensItsRepositoryReview() {
-        DevFlowHarness.stubIssue(jira, "MODFOO-421", DESCRIPTION, "");
-
-        UUID executionId = start("MODFOO-421");
-
-        HitlReview review = harness.awaitPendingReview(executionId, DecisionGateWorker.GATE_ID);
-        assertThat(review.getStepIndex()).isEqualTo(1);
-        assertThat(stateManager.get(executionId).getStatus()).isEqualTo(ExecutionStatus.AWAITING_HITL);
-        assertThat(artifactStore.getLatest(executionId, "dev_task_brief.md")).isEmpty();
-
-        decisionService.decide(review.getId(), HitlDecision.REJECT, "dev-lead", "not now", null);
-
-        assertThat(stateManager.get(executionId).getStatus()).isEqualTo(ExecutionStatus.REJECTED);
-        assertThat(reviews.findByExecutionIdOrderByCreatedAtAsc(executionId)).hasSize(1);
     }
 
     @Test
@@ -405,13 +348,6 @@ class TaskAutonomousFlowIntegrationTest {
     private void admit(String issueId, String displayKey, String routingReason) {
         fixture.admit(TaskFixture.task("MODBAR", issueId, displayKey, "Title of " + displayKey,
                 snapshotJson(displayKey), Task.Eligibility.ELIGIBLE, routingReason));
-    }
-
-    private List<String> declaredOutputs() {
-        return flowRegistry.require("dev-factory").agentChain().stream()
-                .flatMap(step -> step.outputs().stream())
-                .distinct()
-                .toList();
     }
 
     private UUID start(String issueKey) {

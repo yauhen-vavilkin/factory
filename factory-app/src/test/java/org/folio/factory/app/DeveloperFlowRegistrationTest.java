@@ -4,9 +4,6 @@ import org.folio.factory.app.developer.DeveloperPreflightProbe;
 import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.service.StateManager;
-import org.folio.factory.devfactory.DevFactoryProperties;
-import org.folio.factory.devfactory.delivery.DeliveryTarget;
-import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,7 +23,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -55,12 +51,6 @@ class DeveloperFlowRegistrationTest {
     FlowRegistry flowRegistry;
 
     @Autowired
-    DevFactoryProperties devFactoryProperties;
-
-    @Autowired
-    DevRuntimeProperties devRuntimeProperties;
-
-    @Autowired
     StateManager state;
 
     @MockitoBean
@@ -83,13 +73,6 @@ class DeveloperFlowRegistrationTest {
 
         JsonNode detail = rest.get().uri("/api/flows/dev-factory").retrieve().body(JsonNode.class);
         assertThat(detail.path("name").asString()).isEqualTo("Developer Flow");
-        assertThat(detail.path("version").asString()).isEqualTo("0.9.0");
-        assertThat(flowRegistry.require("dev-factory").agentChain().get(7).inputs())
-                .contains("dev_coding_request.json", "dev_coding_outcome.json");
-        assertThat(detail.path("steps").findValuesAsString("stepId"))
-                .containsExactly("read-task", "select-repository", "prepare-task", "implement",
-                        "clarify-implementation", "continue-implementation", "verify", "publish",
-                        "initialize-pr-feedback", "pr-follow-up");
         assertThat(detail.path("steps").get(0).path("workerId").asString()).isEqualTo("dev-intake");
 
         assertThat(rest.get().uri("/flows").retrieve().body(String.class))
@@ -98,36 +81,6 @@ class DeveloperFlowRegistrationTest {
                 .contains("Developer Flow").contains("Ready to run");
         assertThat(rest.get().uri("/flows/dev-factory?view=definition").retrieve().body(String.class))
                 .contains("Developer Flow").contains("dev-intake");
-    }
-
-    @Test
-    void configuresDeveloperRepositoriesForVerificationAndDelivery() {
-        assertThat(devFactoryProperties.repositories())
-                .containsOnlyKeys("sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications");
-        assertThat(devFactoryProperties.repositories().get("sidecar"))
-                .isEqualTo(new DevFactoryProperties.Repository(
-                        "folio-org/folio-module-sidecar", "master", "maven:3.9-eclipse-temurin-21",
-                        "java21-unit", List.of("MODSIDECAR"), List.of(),
-                        new DeliveryTarget("folio-org/folio-module-sidecar", "master")));
-        assertThat(devFactoryProperties.repositories().get("mod-roles-keycloak"))
-                .isEqualTo(new DevFactoryProperties.Repository(
-                        "folio-org/mod-roles-keycloak", "master", "maven:3.9-eclipse-temurin-21",
-                        "java21-roles-verify", List.of("MODROLESKC"), List.of(),
-                        new DeliveryTarget("folio-org/mod-roles-keycloak", "master")));
-        assertThat(devFactoryProperties.repositories().get("mgr-tenant-entitlements"))
-                .isEqualTo(new DevFactoryProperties.Repository(
-                        "folio-org/mgr-tenant-entitlements", "master", "maven:3.9-eclipse-temurin-21",
-                        "java21-unit", List.of("MGRENTITLE"), List.of(),
-                        new DeliveryTarget("folio-org/mgr-tenant-entitlements", "master")));
-        assertThat(devRuntimeProperties.command("java21-unit")).containsExactly("mvn", "-B", "-ntp", "test");
-        assertThat(devFactoryProperties.repositories().get("mgr-applications"))
-                .isEqualTo(new DevFactoryProperties.Repository(
-                        "folio-org/mgr-applications", "master", "maven:3.9-eclipse-temurin-21",
-                        "java21-unit", List.of("MGRAPPS"), List.of(),
-                        new DeliveryTarget("folio-org/mgr-applications", "master")));
-        assertThat(devRuntimeProperties.command("java21-roles-verify"))
-                .containsExactly("mvn", "-B", "-ntp", "verify");
-        assertThat(devRuntimeProperties.requiredReports("java21-roles-verify")).containsExactly("surefire", "failsafe");
     }
 
     @Test

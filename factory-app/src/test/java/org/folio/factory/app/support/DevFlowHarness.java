@@ -5,9 +5,11 @@ import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
+import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.StateManager;
+import org.folio.factory.devfactory.delivery.CandidateDelivery;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -107,6 +109,20 @@ public final class DevFlowHarness {
         jira.stubFor(get(urlEqualTo("/rest/api/2/issue/" + key)).willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
                 .withBody("{\"key\": \"" + key + "\", \"fields\": " + fields + "}")));
+    }
+
+    /** Every artifact the Developer Flow steps declare as outputs, each name once. */
+    public static List<String> declaredOutputs(FlowRegistry flowRegistry) {
+        return flowRegistry.require("dev-factory").agentChain().stream()
+                .flatMap(step -> step.outputs().stream())
+                .distinct()
+                .toList();
+    }
+
+    /** The delivery worker fills every request field; a stub that accepted null would hide a regression. */
+    public static boolean isComplete(CandidateDelivery.Request request) {
+        return request != null && request.executionId() != null && request.issueKey() != null
+                && request.summary() != null && request.sourceUrl() != null && request.githubToken() != null;
     }
 
     public void awaitStatus(UUID executionId, ExecutionStatus status) {

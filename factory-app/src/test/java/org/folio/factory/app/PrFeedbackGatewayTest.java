@@ -8,14 +8,28 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.*;
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 class PrFeedbackGatewayTest {
-    WireMockServer server;
+    /** One server per class: starting and stopping Jetty per test let a request meet a bare Jetty 404. */
+    static final WireMockServer server = new WireMockServer(0);
     GitHubPrFeedbackGateway gateway;
     String sha="a".repeat(40);
-    @BeforeEach void start() {
-        server=new WireMockServer(0);server.start();gateway=new GitHubPrFeedbackGateway(new GitHubProperties(server.baseUrl(),"fixture-token"),RestClient.builder());
+
+    @BeforeAll
+    static void startServer() {
+        server.start();
+    }
+
+    @AfterAll
+    static void stopServer() {
+        server.stop();
+    }
+
+    @BeforeEach
+    void resetStubsAndRequests() {
+        server.resetAll();
+        gateway = new GitHubPrFeedbackGateway(new GitHubProperties(server.baseUrl(), "fixture-token"), RestClient.builder());
         stub("/repos/fork/repo/pulls/7",pr("fork/repo","open",false));
     }
-    @AfterEach void stop() {server.stop();}
+
     @Test void paginatesAllThreeCommentSourcesAndInvalidatesEditedSnapshot() {
         stub("/repos/fork/repo/issues/7/comments?per_page=100&page=1","["+IntStream.range(1,101).mapToObj(i->comment(i,"discussion")).collect(java.util.stream.Collectors.joining(","))+"]");
         stub("/repos/fork/repo/issues/7/comments?per_page=100&page=2","["+comment(101,"last discussion")+"]");

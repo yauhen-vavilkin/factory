@@ -3,6 +3,7 @@ package org.folio.factory.app.tasks;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.folio.factory.agents.artifact.FrontmatterCodec;
 import org.folio.factory.app.developer.DeveloperPreflight;
+import org.folio.factory.app.support.DevFlowHarness;
 import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.support.SharedWireMock;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
@@ -28,7 +29,6 @@ import org.folio.factory.core.service.StateManager;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
-import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryReceipt;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.tasks.TaskAttemptPolicy;
@@ -55,7 +55,6 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -138,9 +137,6 @@ class TaskPublicationIntegrationTest {
     TaskOutcomeService outcomes;
 
     @Autowired
-    TaskAttemptPolicy taskPolicy;
-
-    @Autowired
     DeliveryWorker deliveryWorker;
 
     @Autowired
@@ -192,7 +188,7 @@ class TaskPublicationIntegrationTest {
         assertThat(output.path("state").asString()).describedAs(output.path("reason").asString())
                 .isEqualTo("DELIVERED");
         assertThat(output.path("pullRequestUrl").asString()).isEqualTo(PR_URL);
-        verify(delivery).deliver(argThat(request -> isComplete(request)
+        verify(delivery).deliver(argThat(request -> DevFlowHarness.isComplete(request)
                 && request.target().equals(new DeliveryTarget(OFFICIAL, "master"))));
 
         TaskPublicationIntent intent = intents.findByExecutionId(executionId).orElseThrow();
@@ -382,11 +378,6 @@ class TaskPublicationIntegrationTest {
                 new FrontmatterCodec(), stateManager, new TaskGuard(policy, Clock.systemUTC()));
     }
 
-    private static DevFactoryProperties.Repository repository(DeliveryTarget destination) {
-        return new DevFactoryProperties.Repository("folio-org/folio-module-sidecar", "master",
-                "maven:3.9-eclipse-temurin-21", "java21-unit", List.of("MODSIDECAR"), List.of(), destination);
-    }
-
     private static Candidate candidate() {
         String patch = "diff --git a/README.md b/README.md\n";
         return new Candidate("sidecar", "a".repeat(40), "b".repeat(40), Candidate.sha256(patch), patch,
@@ -445,11 +436,6 @@ class TaskPublicationIntegrationTest {
 
     /** Matches a request with all text fields set, as the old {@code anyString()} matchers did. */
     private static CandidateDelivery.Request completeRequest() {
-        return argThat(TaskPublicationIntegrationTest::isComplete);
-    }
-
-    private static boolean isComplete(CandidateDelivery.Request request) {
-        return request != null && request.executionId() != null && request.issueKey() != null
-                && request.summary() != null && request.sourceUrl() != null && request.githubToken() != null;
+        return argThat(DevFlowHarness::isComplete);
     }
 }

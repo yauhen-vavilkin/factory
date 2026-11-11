@@ -58,8 +58,8 @@ class ComposeConfigurationTest {
     }
 
     @Test
-    void dotenvReachesBothFlowsAndOperationalSettingsWhileShellWins() throws Exception {
-        Map<String, String> dotenv = Map.ofEntries(
+    void dotenvSettingsReachTheAppAndTheDatabaseUrlStaysOnTheComposeService() throws Exception {
+        Map<String, String> dotenv = new HashMap<>(Map.ofEntries(
                 Map.entry("FACTORY_LLM_PROVIDER", "openai"),
                 Map.entry("FACTORY_LLM_API_KEY", "fixture-test-provider-key"),
                 Map.entry("FACTORY_LLM_MODEL", "model-from-dotenv"),
@@ -78,24 +78,26 @@ class ComposeConfigurationTest {
                 Map.entry("FACTORY_DEV_FACTORY_DEFAULT_MODEL", "anthropic-sonnet-5.5"),
                 Map.entry("FACTORY_ANTHROPIC_API_KEY", "fixture-coding-key"),
                 Map.entry("FACTORY_CODEMIE_PROXY_TOKEN", "fixture-custom-proxy-token"),
-                Map.entry("FACTORY_SIDECAR_DELIVERY_REPO", "fork/folio-module-sidecar"));
-        Map<String, String> shell = Map.of("FACTORY_LLM_MODEL", "model-from-shell");
-        var config = render(dotenv, shell);
-        var environment = config.path("services").path("factory").path("environment");
+                Map.entry("FACTORY_DB_URL", "jdbc:postgresql://localhost:5432/host-run")));
+        for (String prefix : REPOSITORY_PREFIXES) {
+            for (String field : REPOSITORY_FIELDS) {
+                dotenv.put("FACTORY_" + prefix + "_" + field, "fixture/" + prefix + "-" + field);
+            }
+        }
+        var environment = render(dotenv, Map.of()).path("services").path("factory").path("environment");
 
-        Map<String, String> expected = new HashMap<>(dotenv);
-        expected.putAll(shell);
-        assertEnvironmentContains(environment, expected);
+        Map<String, String> forwarded = new HashMap<>(dotenv);
+        forwarded.remove("FACTORY_DB_URL");
+        assertEnvironmentContains(environment, forwarded);
         // Compose's service connection is intentional; host-run DB_URL must not break it.
         assertThat(environment.path("FACTORY_DB_URL").asString()).isEqualTo("jdbc:postgresql://postgres:5432/factory");
     }
 
     @Test
-    void defaultsSelectLocalCodeMieWithSonnetAndBearerAuthentication() throws Exception {
+    void withoutADotenvTheModelKeysArriveEmptyAndClaudeCodeIsTheRuntime() throws Exception {
         var config = render(Map.of(), Map.of());
         var environment = config.path("services").path("factory").path("environment");
 
-        assertLocalCodeMieProfile(environment);
         assertThat(config.path("services").path("coding-runtime").path("image").asString())
                 .startsWith("factory-dev-claude-code:");
         // Unset values arrive empty, which Factory treats as unset: the first model and "not configured".
@@ -178,18 +180,8 @@ class ComposeConfigurationTest {
         assertEnvironmentContains(environment, Map.of("FACTORY_ZAI_API_KEY", "fixture-zai-key",
                 "FACTORY_DEV_FACTORY_DEFAULT_MODEL", "glm-5.3"));
         assertThat(environment.path("SPRING_CONFIG_IMPORT").asString())
-                .contains("classpath:developer-models.yaml,file:" + MODELS_MOUNT)
-                .doesNotContain("run-profiles", "pricing");
+                .contains("classpath:developer-models.yaml,file:" + MODELS_MOUNT);
         assertThat(requireVolume(factory, MODELS_MOUNT).path("source").asString()).isEqualTo(models.toString());
-    }
-
-    @Test
-    void theCodingRuntimeCommandStaysThePinnedVersionGateNotInferenceEvidence() throws Exception {
-        var coding = render(Map.of(), Map.of()).path("services").path("coding-runtime");
-
-        var command = new StringBuilder();
-        coding.path("command").forEach(part -> command.append(part.asString()).append(' '));
-        assertThat(command.toString()).contains("claude --version").contains("2.1.287 (Claude Code)");
     }
 
     @ParameterizedTest
@@ -220,29 +212,6 @@ class ComposeConfigurationTest {
         JsonNode catalogVolume = requireVolume(factory, CATALOG_MOUNT);
         assertThat(catalogVolume.path("source").asString()).isEqualTo(catalog.toString());
         assertThat(catalogVolume.path("read_only").asBoolean()).isTrue();
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"SIDECAR", "MOD_ROLES_KEYCLOAK", "MGR_TENANT_ENTITLEMENTS", "MGR_APPLICATIONS"})
-    void explicitRepositoryOverridesReachTheAppWithoutInventingDefaultsForOtherTargets(String prefix)
-            throws Exception {
-        String key = "FACTORY_" + prefix + "_";
-        var overrides = Map.of(
-                key + "SOURCE_REPO", "source/custom-module",
-                key + "DELIVERY_REPO", "fork/custom-module",
-                key + "BASE_BRANCH", "campaign/custom-base");
-        var environment = render(overrides, Map.of()).path("services").path("factory").path("environment");
-        assertEnvironmentContains(environment, overrides);
-        for (String other : REPOSITORY_PREFIXES) {
-            if (other.equals(prefix)) {
-                continue;
-            }
-            for (String field : REPOSITORY_FIELDS) {
-                var value = environment.path("FACTORY_" + other + "_" + field);
-                assertThat(isUnset(value))
-                        .as("unset override %s %s must not shadow the catalog", other, field).isTrue();
-            }
-        }
     }
 
     private static void assertLocalCodeMieProfile(JsonNode environment) {

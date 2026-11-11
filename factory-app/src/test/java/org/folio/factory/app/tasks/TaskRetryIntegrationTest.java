@@ -12,24 +12,18 @@ import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
 import org.folio.factory.app.tasks.source.TaskDiscoveryService;
-import org.folio.factory.app.tasks.source.TaskJiraInstance;
-import org.folio.factory.app.tasks.source.TaskSource;
-import org.folio.factory.app.tasks.source.TaskSourceProperties;
 import org.folio.factory.connectors.jira.JiraIssue;
 import org.folio.factory.connectors.jira.JiraSourceConnector;
 import org.folio.factory.connectors.jira.JiraSourceModels.DiscoveredIssue;
 import org.folio.factory.connectors.jira.JiraSourceModels.IssuePage;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.StateManager;
-import org.folio.factory.devfactory.DevFactoryProperties;
-import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.transaction.PlatformTransactionManager;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -56,6 +50,7 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 @TestPropertySource(properties = {
         "factory.limits.dedup.window=PT0S",
         "factory.tasks.execution.deadline=PT30M",
+        "factory.tasks.source.assignee=Jane Developer",
         "factory.connectors.jira.base-url=https://jira.example.org",
         "factory.dev-factory.repositories.mod-bar.source-repo=folio-org/mod-bar",
         "factory.dev-factory.repositories.mod-bar.base-branch=master",
@@ -100,16 +95,9 @@ class TaskRetryIntegrationTest {
     PipelineExecutionRepository executions;
 
     @Autowired
-    TaskJiraInstance jiraInstance;
-
-    @Autowired
-    DevFactoryProperties devFactory;
-
-    @Autowired
-    PlatformTransactionManager transactionManager;
+    TaskDiscoveryService discovery;
 
     private final StubSource source = new StubSource();
-    private TaskDiscoveryService discovery;
 
     private TaskFixture fixture;
 
@@ -119,7 +107,6 @@ class TaskRetryIntegrationTest {
         fixture.reset();
         executions.deleteAll();
         source.reset();
-        discovery = discovery(devFactory);
         when(jira.searchIssues(any(), any())).thenAnswer(call -> source.searchIssues(call.getArgument(0),
                 call.getArgument(1)));
     }
@@ -218,23 +205,23 @@ class TaskRetryIntegrationTest {
         source.issues = List.of(issue("50021", "MODBAR-521", EARLIER));
         discovery.sync();
 
-        Task queued = directTask("50022", "MODBAR-522");
+        Task queued = tasks.save(TaskFixture.task("50022", "MODBAR-522"));
         admit(queued, "run-522");
-        Task running = directTask("50023", "MODBAR-523");
+        Task running = tasks.save(TaskFixture.task("50023", "MODBAR-523"));
         admit(running, "run-523");
         fixture.forceState(running, TaskAttempt.State.RUNNING, null);
-        Task inspecting = directTask("50024", "MODBAR-524");
+        Task inspecting = tasks.save(TaskFixture.task("50024", "MODBAR-524"));
         admit(inspecting, "run-524");
         fixture.forceState(inspecting, TaskAttempt.State.NEEDS_INSPECTION,
                 "publish: the candidate was delivered without a known pull-request identity");
-        Task delivered = directTask("50025", "MODBAR-525");
+        Task delivered = tasks.save(TaskFixture.task("50025", "MODBAR-525"));
         admit(delivered, "run-525");
         fixture.forceState(delivered, TaskAttempt.State.PR_READY, null);
-        Task withdrawn = directTask("50026", "MODBAR-526");
+        Task withdrawn = tasks.save(TaskFixture.task("50026", "MODBAR-526"));
         admit(withdrawn, "run-526");
         fixture.forceState(withdrawn, TaskAttempt.State.WITHDRAWN, "task left the My tasks scope before start");
-        Task neverAttempted = directTask("50027", "MODBAR-527");
-        Task unsupported = directTask("50029", "MODBAR-529");
+        Task neverAttempted = tasks.save(TaskFixture.task("50027", "MODBAR-527"));
+        Task unsupported = tasks.save(TaskFixture.task("50029", "MODBAR-529"));
         stopWithFailedInitialAttempt(unsupported, "run-529");
         Task routed = tasks.findById(unsupported.getId()).orElseThrow();
         routed.setEligibility(Task.Eligibility.INELIGIBLE);
@@ -248,7 +235,7 @@ class TaskRetryIntegrationTest {
         assertThat(retryRejected(neverAttempted, "never been attempted")).isNull();
         assertThat(retryRejected(unsupported, "not eligible")).isEqualTo(TaskAttempt.State.STOPPED);
 
-        Task stale = directTask("50030", "MODBAR-530");
+        Task stale = tasks.save(TaskFixture.task("50030", "MODBAR-530"));
         stopWithFailedInitialAttempt(stale, "run-530");
         var staleClick = admissions.retry(new TaskCommands.Retry("retry-530", stale.getId(), stale.getVersion(),
                 "stale-input-fingerprint", TaskAdmissionChecks.destinationFingerprint(stale), null));
@@ -343,7 +330,7 @@ class TaskRetryIntegrationTest {
 
     @Test
     void tokenWithoutPushAccessRefusesTheRetryBeforeAnythingIsQueued() {
-        Task task = directTask("50071", "MODBAR-571");
+        Task task = tasks.save(TaskFixture.task("50071", "MODBAR-571"));
         stopWithFailedInitialAttempt(task, "run-571");
         doThrow(new IllegalStateException("Your GitHub token cannot push to folio-org/mod-bar"))
                 .when(preflight).requirePushAccess("mod-bar");
@@ -379,12 +366,6 @@ class TaskRetryIntegrationTest {
         return click.state();
     }
 
-    private Task directTask(String issueId, String displayKey) {
-        return tasks.save(new Task(INSTANCE, issueId, displayKey, "Title of " + displayKey, "MODBAR",
-                "{\"key\": \"" + displayKey + "\"}", "revision-" + issueId,
-                Task.Eligibility.ELIGIBLE, "repository mod-bar"));
-    }
-
     private void stopWithFailedInitialAttempt(Task task, String runId) {
         admit(task, runId);
         fixture.forceState(task, TaskAttempt.State.STOPPED, "coding: verification failed");
@@ -413,11 +394,6 @@ class TaskRetryIntegrationTest {
         TaskInstallation installation = installations.findById(1).orElseThrow();
         installation.setActiveAttemptId(null);
         installations.save(installation);
-    }
-
-    private TaskDiscoveryService discovery(DevFactoryProperties repositories) {
-        return new TaskDiscoveryService(new TaskSource(source, new TaskSourceProperties("Jane Developer"), jiraInstance),
-                new RepositoryPolicy(repositories), tasks, installations, attempts, transactionManager);
     }
 
     private static DiscoveredIssue issue(String id, String key, Instant createdAt) {

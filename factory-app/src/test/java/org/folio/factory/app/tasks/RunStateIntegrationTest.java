@@ -24,8 +24,10 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.EnumMap;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -43,7 +45,8 @@ class RunStateIntegrationTest {
 
     private static final String ASKED_REASON = "clarify-implementation: " + TaskStops.DECISION_REASON + "Which API?";
     private static final OffsetDateTime ANY_TIME = Instant.EPOCH.atOffset(ZoneOffset.UTC);
-    private static final Pattern CHIP = Pattern.compile("<td><span class=\"chip [a-z-]+\">([^<]+)</span></td>");
+    private static final Pattern OPTION = Pattern.compile("<option[^>]*>([^<]*)</option>");
+    private static final Pattern SELECTED_OPTION = Pattern.compile("<option[^>]*\\bselected\\b[^>]*>([^<]*)</option>");
 
     @LocalServerPort
     int port;
@@ -133,13 +136,26 @@ class RunStateIntegrationTest {
         var rest = RestClient.builder().baseUrl("http://localhost:" + port).build();
         for (var state : Set.of(RunState.FAILED, RunState.COMPLETED, RunState.IN_PROGRESS)) {
             var body = rest.get().uri("/executions?status=" + state.name()).retrieve().body(String.class);
-            var chips = CHIP.matcher(body).results().map(match -> match.group(1)).toList();
-            assertThat(chips).as(state.getLabel()).hasSize(idsIn(state).size()).containsOnly(state.getLabel());
+            assertThat(rowTexts(body)).as(state.getLabel()).hasSize(idsIn(state).size())
+                    .allSatisfy(row -> assertThat(row).contains(state.getLabel()));
         }
         var failed = rest.get().uri("/executions?status=FAILED").retrieve().body(String.class);
-        assertThat(failed).contains("<option value=\"FAILED\" selected=\"selected\">Failed</option>",
-                "<option value=\"COMPLETED\">Completed</option>", "<th>Run</th>", "<td class=\"nowrap\">Developer Flow</td>",
-                ">Developer Flow</option>");
+        assertThat(optionLabels(OPTION, failed)).contains("Failed", "Completed", "Developer Flow");
+        assertThat(optionLabels(SELECTED_OPTION, failed)).contains("Failed");
+        assertThat(rowTexts(failed)).anySatisfy(row -> assertThat(row).contains("Developer Flow"));
+    }
+
+    /** The visible text of each row of the run table. */
+    private static List<String> rowTexts(String page) {
+        String body = page.substring(page.indexOf("<tbody>"), page.indexOf("</tbody>"));
+        return Arrays.stream(body.split("</tr>"))
+                .map(row -> row.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").strip())
+                .filter(row -> !row.isEmpty())
+                .toList();
+    }
+
+    private static List<String> optionLabels(Pattern option, String page) {
+        return option.matcher(page).results().map(match -> match.group(1).strip()).toList();
     }
 
     private Set<UUID> idsIn(RunState state) {

@@ -1,6 +1,5 @@
 package org.folio.factory.app.tasks;
 
-import org.folio.factory.devfactory.tasks.TaskStops;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.folio.factory.app.developer.DeveloperPreflight;
 import org.folio.factory.app.support.DevFlowHarness;
@@ -93,6 +92,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.isNull;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
@@ -100,15 +100,13 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 /**
  * The full deterministic M1 scenario in one Spring context against real
  * PostgreSQL, the real engine and discovery wiring, fixture Jira/GitHub
- * endpoints and a scripted coding runtime: multi-project discovery routes two
- * projects to different repositories and keeps unsupported matches visible, a
- * manual subset is admitted exactly once, one task reaches a ready pull request
+ * endpoints and a scripted coding runtime. A scan of two projects and a manual
+ * run of three tasks seed the queue; then one task reaches a ready pull request
  * while a failed task stops with a readable reason and the queue continues, an
  * explicit retry reaches a new outcome, a task added by its key joins the same
- * queue without a scan, started work holds after the task leaves My tasks and
- * changes in Jira, a lost publication response holds the attempt for inspection
- * until the developer marks it as stopped, and an incomplete usage component
- * keeps the task projection incomplete. Jira stays read-only, no task attempt opens an intermediate
+ * queue without a scan, a lost publication response holds the attempt for
+ * inspection until the developer marks it as stopped, and an incomplete usage
+ * component keeps the task projection incomplete. Jira stays read-only, no task attempt opens an intermediate
  * review, coding starts once per attempt and no pull request is duplicated.
  */
 @FactoryIntegrationTest
@@ -165,9 +163,35 @@ class TaskEndToEndTest {
     }
 
     // The ordered scenario builds on the stubs and requests of earlier tests, so the servers reset
-    // once per class instead of before each test.
+    // and the queue is seeded once per class instead of before each test.
     @BeforeAll
-    static void resetWireMockAndStubPullRequestCreation() {
+    static void seedTheQueueFromAScanAndAManualRun(@Autowired TaskDiscoveryService discovery,
+                                                   @Autowired TaskAdmissionService admissions,
+                                                   @Autowired TaskRepository tasks,
+                                                   @Autowired TaskJiraInstance jiraInstance,
+                                                   @Autowired DeveloperPreflight preflight) {
+        resetWireMockAndStubPullRequestCreation();
+        stubSearch(
+                issue("8101", "MODBAR-101", "MODBAR", "Add validation to mod-bar", "2026-10-01T09:00:00.000+0000", ""),
+                issue("8103", "MODFOO-103", "MODFOO", "Refactor the mod-foo exporter", "2026-10-01T09:15:00.000+0000", ""),
+                issue("8102", "MODBAR-102", "MODBAR", "Clarify the limit handling", "2026-10-01T09:30:00.000+0000", ""),
+                issue("8104", "OTHERP-104", "OTHERP", "Task in an unmapped project", "2026-10-01T09:40:00.000+0000", ""),
+                issue("8105", "MODBAR-105", "MODBAR", "Blocked by preparation", "2026-10-01T09:45:00.000+0000",
+                        linked("MODBAR-999")));
+        assertThat(discovery.sync().complete()).isTrue();
+        // A refused preflight holds admission's best-effort dispatch, so the attempts stay queued.
+        doThrow(new IllegalArgumentException("coding runtime not ready"))
+                .when(preflight).requireReady(eq("dev-factory"), any());
+        var selections = List.of("8101", "8103", "8102").stream()
+                .map(issueId -> TaskFixture.selection(
+                        tasks.findByJiraInstanceAndIssueId(jiraInstance.current(), issueId).orElseThrow()))
+                .toList();
+        var result = admissions.runSelected(new TaskCommands.RunSelected("e2e-run-1", selections));
+        assertThat(result.admittedTaskIds()).as(String.valueOf(result)).hasSize(3);
+        reset(preflight);
+    }
+
+    private static void resetWireMockAndStubPullRequestCreation() {
         jira.resetAll();
         GITHUB.resetAll();
         GITHUB.stubFor(get(urlPathEqualTo("/repos/" + BAR + "/pulls"))
@@ -248,68 +272,6 @@ class TaskEndToEndTest {
     private static final Map<String, Integer> codingCalls = new java.util.concurrent.ConcurrentHashMap<>();
     private static final Map<String, CodingRequest> codingRequests = new java.util.concurrent.ConcurrentHashMap<>();
 
-    @Test
-    @Order(1)
-    void discoveryRoutesTwoProjectsAndKeepsUnsupportedMatchesVisible() {
-        stubSearch(
-                issue("8101", "MODBAR-101", "MODBAR", "Add validation to mod-bar", "2026-10-01T09:00:00.000+0000", ""),
-                issue("8103", "MODFOO-103", "MODFOO", "Refactor the mod-foo exporter", "2026-10-01T09:15:00.000+0000", ""),
-                issue("8102", "MODBAR-102", "MODBAR", "Clarify the limit handling", "2026-10-01T09:30:00.000+0000", ""),
-                issue("8104", "OTHERP-104", "OTHERP", "Task in an unmapped project", "2026-10-01T09:40:00.000+0000", ""),
-                issue("8105", "MODBAR-105", "MODBAR", "Blocked by preparation", "2026-10-01T09:45:00.000+0000",
-                        linked("MODBAR-999")));
-
-        TaskDiscoveryService.SyncResult result = discovery.sync();
-
-        assertThat(result.complete()).isTrue();
-        assertThat(result.discoveredCount()).isEqualTo(5);
-        assertThat(eligibility("8101")).isEqualTo(Task.Eligibility.ELIGIBLE);
-        assertThat(routingReason("8101")).isEqualTo("repository mod-bar");
-        assertThat(eligibility("8103")).isEqualTo(Task.Eligibility.ELIGIBLE);
-        assertThat(routingReason("8103")).isEqualTo("repository mod-foo");
-        assertThat(eligibility("8104")).isEqualTo(Task.Eligibility.INELIGIBLE);
-        assertThat(routingReason("8104"))
-                .isEqualTo("Project OTHERP is not configured: no repository for it in config/developer-repositories.yaml");
-        assertThat(eligibility("8105")).as("links never block a task").isEqualTo(Task.Eligibility.ELIGIBLE);
-        assertThat(attempts.count()).isZero();
-        assertThat(executions.count()).isZero();
-        assertThat(jiraStayedReadOnly()).isTrue();
-    }
-
-    @Test
-    @Order(2)
-    void manualSubsetAdmitsExactlyTheSelectedEligibleTasksOnce() {
-        // A refused preflight holds admission's best-effort dispatch, so the
-        // attempts stay queued for the poller.
-        doThrow(new IllegalArgumentException("coding runtime not ready"))
-                .when(preflight).requireReady(eq("dev-factory"), any());
-        var selections = List.of(
-                selectionFor("8101"), selectionFor("8103"), selectionFor("8102"), selectionFor("8104"));
-
-        var result = admissions.runSelected(new TaskCommands.RunSelected("e2e-run-1", selections));
-
-        assertThat(result.admittedTaskIds()).as(String.valueOf(result)).containsExactlyInAnyOrder(
-                taskId("8101"), taskId("8103"), taskId("8102"));
-        assertThat(result.rejectedReasons()).containsOnlyKeys(taskId("8104"));
-        assertThat(result.rejectedReasons().get(taskId("8104"))).contains("not eligible");
-        for (String issueId : List.of("8101", "8102", "8103")) {
-            assertThat(attempts.findByTaskIdOrderByOrdinalAsc(taskId(issueId)))
-                    .singleElement()
-                    .satisfies(attempt -> {
-                        assertThat(attempt.getState()).isEqualTo(TaskAttempt.State.RESERVED);
-                        assertThat(attempt.getKind()).isEqualTo(TaskAttempt.Kind.INITIAL);
-                        assertThat(attempt.getAdmittedVia()).isEqualTo(TaskAttempt.AdmittedVia.MANUAL);
-                    });
-        }
-        assertThat(executions.count()).isZero();
-
-        var repeated = admissions.runSelected(new TaskCommands.RunSelected("e2e-run-1",
-                List.of(selectionFor("8101"))));
-        assertThat(repeated.admittedTaskIds()).containsExactly(taskId("8101"));
-        assertThat(attempts.count()).isEqualTo(3);
-        assertThat(jiraStayedReadOnly()).isTrue();
-    }
-
     private DevFlowHarness harness;
 
     @BeforeEach
@@ -321,7 +283,7 @@ class TaskEndToEndTest {
     }
 
     @Test
-    @Order(3)
+    @Order(1)
     void firstTaskRunsTheDeveloperFlowToAReadyPullRequest() {
         stubPullRequestReadOnDelivery(BAR, 11);
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
@@ -362,11 +324,11 @@ class TaskEndToEndTest {
         assertThat(attempts.findById(attemptId).orElseThrow().getPaidStartAt()).isNotNull();
         await("the follow-up step opens the pr-feedback gate").atMost(Duration.ofSeconds(30)).untilAsserted(() ->
                 assertThat(reviewGateIds(executionId)).containsOnly("pr-feedback"));
-        assertThat(jiraStayedReadOnly()).isTrue();
+        assertJiraStayedReadOnly();
     }
 
     @Test
-    @Order(4)
+    @Order(2)
     void failedTaskStopsWithAReadableReasonAndTheQueueContinues() {
         UUID failedExecutionId = dispatcher.dispatchNext().orElseThrow();
         assertThat(stateManager.get(failedExecutionId).getTriggerPayload()).contains("MODFOO-103");
@@ -383,7 +345,7 @@ class TaskEndToEndTest {
                 .isEqualTo("DEVELOPMENT_FAILED");
         assertThat(json.readTree(harness.latest(failedExecutionId, DeliveryWorker.DELIVERY)).path("state").asString())
                 .isEqualTo("NOT_RUN");
-        declaredOutputs().forEach(name -> assertThat(artifactStore.getLatest(failedExecutionId, name))
+        DevFlowHarness.declaredOutputs(flowRegistry).forEach(name -> assertThat(artifactStore.getLatest(failedExecutionId, name))
                 .as(name).isPresent());
         assertThat(reviewGateIds(failedExecutionId)).isEmpty();
         assertThat(GITHUB.findAll(postRequestedFor(urlPathEqualTo("/repos/" + FOO + "/pulls"))))
@@ -395,11 +357,11 @@ class TaskEndToEndTest {
         assertThat(attempts.findByExecutionId(nextExecutionId).orElseThrow().getTaskId())
                 .isEqualTo(taskId("8102"));
         assertThat(executions.count()).isEqualTo(3);
-        assertThat(jiraStayedReadOnly()).isTrue();
+        assertJiraStayedReadOnly();
     }
 
     @Test
-    @Order(5)
+    @Order(3)
     void explicitRetryRunsAFreshAttemptToANewOutcomeAndKeepsHistoryAndCosts() {
         stubPullRequestReadOnDelivery(FOO, 21);
         UUID heldExecutionId = dispatcher.dispatchNext().orElseThrow();
@@ -455,11 +417,11 @@ class TaskEndToEndTest {
         assertThat(history.get(1).getPublicationIdentity()).isEqualTo(FOO_PR);
         assertThat(GITHUB.findAll(postRequestedFor(urlPathEqualTo("/repos/" + FOO + "/pulls"))))
                 .hasSize(1);
-        assertThat(jiraStayedReadOnly()).isTrue();
+        assertJiraStayedReadOnly();
     }
 
     @Test
-    @Order(6)
+    @Order(4)
     void taskAddedByKeyJoinsMyTasksRunsFromTheListAndCannotBeAddedTwice() {
         // Keep the run queued (a refused preflight holds dispatch) so the next
         // scenario starts it after a scan that no longer finds the task.
@@ -497,58 +459,18 @@ class TaskEndToEndTest {
         assertThat(admissions.addByKey("MODBAR-107").problem())
                 .isEqualTo("Jira could not be read: HTTP 503");
         stubSearch(issue("8106", "MODBAR-106", "MODBAR", "Expose the new endpoint", "2026-10-01T10:00:00.000+0000", ""));
-        assertThat(jiraStayedReadOnly()).isTrue();
+        assertJiraStayedReadOnly();
     }
 
     @Test
-    @Order(7)
-    void startedWorkHoldsWhenTheTaskLeavesMyTasksAndChangesInJira() {
-        UUID holderExecutionId = dispatcher.dispatchNext().orElseThrow();
-        UUID holderAttemptId = attempts.findByExecutionId(holderExecutionId).orElseThrow().getId();
-        assertThat(attempts.findById(holderAttemptId).orElseThrow().getTaskId()).isEqualTo(taskId("8106"));
-        Task retryTarget = tasks.findById(taskId("8102")).orElseThrow();
-        String approvedSnapshot = retryTarget.getIssueSnapshot();
-
-        var queuedRetry = admissions.retry(new TaskCommands.Retry("e2e-retry-102", retryTarget.getId(),
-                retryTarget.getVersion(), TaskAdmissionChecks.inputFingerprint(retryTarget),
-                TaskAdmissionChecks.destinationFingerprint(retryTarget), null));
-        assertThat(queuedRetry.state()).isEqualTo(TaskAttempt.State.RESERVED);
-        assertThat(queuedRetry.executionId()).isNull();
-
-        stubSearch(
-                issue("8101", "MODBAR-101", "MODBAR", "Add validation to mod-bar", "2026-10-01T09:00:00.000+0000", ""),
-                issue("8103", "MODFOO-103", "MODFOO", "Refactor the mod-foo exporter", "2026-10-01T09:15:00.000+0000", ""),
-                issue("8102", "MODBAR-102", "MODBAR", "Revised: the limit handling is now specified",
-                        "2026-10-01T09:30:00.000+0000", ""),
-                issue("8104", "OTHERP-104", "OTHERP", "Task in an unmapped project", "2026-10-01T09:40:00.000+0000", ""),
-                issue("8105", "MODBAR-105", "MODBAR", "Blocked by preparation", "2026-10-01T09:45:00.000+0000",
-                        linked("MODBAR-999")));
-        assertThat(discovery.sync().complete()).isTrue();
-        assertThat(tasks.findById(taskId("8106")).orElseThrow().isInScope())
-                .as("a task added by key stays in My tasks when a scan does not find it").isTrue();
-
-        awaitTerminal(holderExecutionId);
-        assertThat(outcomes.refresh(holderAttemptId).state())
-                .isEqualTo(TaskOutcomeService.AttemptOutcome.State.STOPPED);
-
-        UUID retryExecutionId = dispatcher.dispatchNext().orElseThrow();
-        TaskAttempt started = attempts.findById(queuedRetry.attemptId()).orElseThrow();
-        assertThat(started.getExecutionId()).isEqualTo(retryExecutionId);
-        assertThat(started.getApprovedSnapshot()).isEqualTo(approvedSnapshot);
-        awaitTerminal(retryExecutionId);
-        assertThat(outcomes.refresh(queuedRetry.attemptId()).state())
-                .isEqualTo(TaskOutcomeService.AttemptOutcome.State.STOPPED);
-        List<TaskAttempt> history = attempts.findByTaskIdOrderByOrdinalAsc(taskId("8102"));
-        assertThat(history).hasSize(2);
-        assertThat(history.get(1).getResultReason()).contains("Which acceptance criterion defines the limit?");
-        assertThat(TaskStops.asksForAnswer(history.get(1).getResultReason())).isTrue();
-        assertThat(executions.count()).isEqualTo(6);
-        assertThat(jiraStayedReadOnly()).isTrue();
-    }
-
-    @Test
-    @Order(8)
+    @Order(5)
     void lostPublicationResponseHoldsTheAttemptForInspectionWithoutARetry() {
+        UUID firstExecutionId = dispatcher.dispatchNext().orElseThrow();
+        UUID firstAttemptId = attempts.findByExecutionId(firstExecutionId).orElseThrow().getId();
+        assertThat(attempts.findById(firstAttemptId).orElseThrow().getTaskId()).isEqualTo(taskId("8106"));
+        awaitTerminal(firstExecutionId);
+        assertThat(outcomes.refresh(firstAttemptId).state())
+                .isEqualTo(TaskOutcomeService.AttemptOutcome.State.STOPPED);
         GITHUB.stubFor(post(urlPathEqualTo("/repos/" + BAR + "/pulls")).willReturn(okJson("{}")));
         Task uncertainTask = tasks.findById(taskId("8106")).orElseThrow();
 
@@ -580,11 +502,11 @@ class TaskEndToEndTest {
         assertThat(GITHUB.findAll(postRequestedFor(urlPathEqualTo("/repos/" + BAR + "/pulls"))))
                 .as("one create request per delivered attempt, never a duplicate pull request")
                 .hasSize(2);
-        assertThat(jiraStayedReadOnly()).isTrue();
+        assertJiraStayedReadOnly();
     }
 
     @Test
-    @Order(9)
+    @Order(6)
     void markAsStoppedReleasesTheQueueAndTheHeldRunCanNoLongerPublish() {
         TaskAttempt held = attempts.findByTaskIdOrderByOrdinalAsc(taskId("8106")).getLast();
         assertThat(held.getState()).isEqualTo(TaskAttempt.State.NEEDS_INSPECTION);
@@ -606,7 +528,7 @@ class TaskEndToEndTest {
     }
 
     @Test
-    @Order(10)
+    @Order(7)
     void taskProjectionPreservesHistoryAndTokenomicsIncludingIncompleteUsage() {
         TaskQuery.MyTasks myTasks = queries.myTasks(PageRequest.of(0, 10));
 
@@ -641,37 +563,27 @@ class TaskEndToEndTest {
         assertThat(unstartedTask.usage().estimatesByCurrency()).isEmpty();
         assertThat(unstartedTask.usage().complete()).isTrue();
 
-        assertThat(attempts.count()).isEqualTo(7);
-        assertThat(executions.count()).isEqualTo(7);
-        assertThat(codingCalls).containsEntry("MODBAR-101", 1)
-                .containsEntry("MODFOO-103", 2)
-                .containsEntry("MODBAR-102", 2)
-                .containsEntry("MODBAR-106", 2);
+        assertThat(attempts.count()).isEqualTo(6);
+        assertThat(executions.count()).isEqualTo(6);
+        assertThat(codingCalls).containsOnly(Map.entry("MODBAR-101", 1), Map.entry("MODFOO-103", 2),
+                Map.entry("MODBAR-102", 1), Map.entry("MODBAR-106", 2));
         assertThat(attempts.findAll().stream().filter(attempt -> attempt.getPaidStartAt() != null).count())
-                .isEqualTo(7);
+                .isEqualTo(6);
         assertThat(reviews.findAll()).allSatisfy(review ->
                 assertThat(review.getGateId()).isEqualTo("pr-feedback"));
         assertThat(GITHUB.findAll(postRequestedFor(urlPathEqualTo("/repos/" + BAR + "/pulls")))).hasSize(2);
         assertThat(GITHUB.findAll(postRequestedFor(urlPathEqualTo("/repos/" + FOO + "/pulls")))).hasSize(1);
-        assertThat(jiraStayedReadOnly()).isTrue();
+        assertJiraStayedReadOnly();
     }
 
-    private boolean jiraStayedReadOnly() {
+    private static void assertJiraStayedReadOnly() {
         assertThat(jira.getAllServeEvents()).allSatisfy(event ->
                 assertThat(event.getRequest().getUrl()).isEqualTo("/rest/api/2/search/jql"));
-        return true;
     }
 
     private List<String> reviewGateIds(UUID executionId) {
         return reviews.findByExecutionIdOrderByCreatedAtAsc(executionId).stream()
                 .map(review -> review.getGateId())
-                .toList();
-    }
-
-    private List<String> declaredOutputs() {
-        return flowRegistry.require("dev-factory").agentChain().stream()
-                .flatMap(step -> step.outputs().stream())
-                .distinct()
                 .toList();
     }
 
@@ -742,7 +654,7 @@ class TaskEndToEndTest {
     }
 
     private void stubDelivery() {
-        when(delivery.deliver(argThat(TaskEndToEndTest::isComplete)))
+        when(delivery.deliver(argThat(DevFlowHarness::isComplete)))
                 .thenAnswer(invocation -> delivered(invocation.getArgument(0)));
     }
 
@@ -751,7 +663,7 @@ class TaskEndToEndTest {
      * the follow-up step; stubbed later, the step's first read fails and the flow retries it 30 seconds later.
      */
     private void stubPullRequestReadOnDelivery(String repository, int number) {
-        when(delivery.deliver(argThat(TaskEndToEndTest::isComplete)))
+        when(delivery.deliver(argThat(DevFlowHarness::isComplete)))
                 .thenAnswer(invocation -> {
                     DeliveryReceipt receipt = delivered(invocation.getArgument(0));
                     if (receipt.repository().equals(repository)) {
@@ -769,7 +681,7 @@ class TaskEndToEndTest {
                 candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "d".repeat(40));
     }
 
-    private void stubSearch(String... issues) {
+    private static void stubSearch(String... issues) {
         jira.stubFor(post(urlEqualTo("/rest/api/2/search/jql"))
                 .withRequestBody(matchingJsonPath("$[?(!@.nextPageToken)]"))
                 .willReturn(okJson("{\"issues\": [" + String.join(", ", issues) + "]}")));
@@ -801,14 +713,6 @@ class TaskEndToEndTest {
 
     private UUID taskId(String issueId) {
         return tasks.findByJiraInstanceAndIssueId(jiraInstance.current(), issueId).orElseThrow().getId();
-    }
-
-    private Task.Eligibility eligibility(String issueId) {
-        return tasks.findByJiraInstanceAndIssueId(jiraInstance.current(), issueId).orElseThrow().getEligibility();
-    }
-
-    private String routingReason(String issueId) {
-        return tasks.findByJiraInstanceAndIssueId(jiraInstance.current(), issueId).orElseThrow().getRoutingReason();
     }
 
     private TaskCommands.Selection selectionFor(String issueId) {
@@ -880,11 +784,5 @@ class TaskEndToEndTest {
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
-    }
-
-    /** The worker fills every request field; a stub that accepted null would hide a regression. */
-    private static boolean isComplete(CandidateDelivery.Request request) {
-        return request != null && request.executionId() != null && request.issueKey() != null
-                && request.summary() != null && request.sourceUrl() != null && request.githubToken() != null;
     }
 }

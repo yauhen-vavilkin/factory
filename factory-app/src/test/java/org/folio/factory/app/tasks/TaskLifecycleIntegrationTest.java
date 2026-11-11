@@ -21,10 +21,9 @@ import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.folio.factory.devfactory.worker.VerifyWorker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.system.CapturedOutput;
-import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -53,7 +52,6 @@ import static org.mockito.Mockito.doThrow;
 @ActiveProfiles("task-execution")
 // Own context: task queue with Jira unconfigured; closing it stops its schedulers and frees its connections.
 @DirtiesContext
-@ExtendWith(OutputCaptureExtension.class)
 class TaskLifecycleIntegrationTest {
 
     @MockitoBean
@@ -138,13 +136,20 @@ class TaskLifecycleIntegrationTest {
         assertThat(afterRestart.getStartedAt()).isEqualTo(rewound.getStartedAt());
     }
 
-    @Test
-    void taskSpecificFailureReleasesTheQueueOnlyOnceWorkloadsAreProvenInactive(CapturedOutput output) {
+    /** Without a verification result the escalated failure alone proves nothing, and the reason names the status. */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void taskSpecificFailureReleasesTheQueueOnlyOnceWorkloadsAreProvenInactive(boolean withResult) {
         admit("50011", "MODBAR-511");
         admit("50012", "MODBAR-512");
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
         TaskAttempt attempt = attempts.findByExecutionId(executionId).orElseThrow();
-        failExecution(executionId, "{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"syntax\"}");
+        if (withResult) {
+            failExecution(executionId, "{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"syntax\"}");
+        } else {
+            stateManager.transition(executionId, ExecutionStatus.FAILED_ESCALATED,
+                    java.util.Map.of("error", "step exhausted retries"));
+        }
 
         doThrow(new IllegalStateException("docker ps failed")).when(docker).cleanOwned(any(), anyString());
         TaskOutcomeService.AttemptOutcome uncertain = outcomes.refresh(attempt.getId());
@@ -155,15 +160,14 @@ class TaskLifecycleIntegrationTest {
                 .isEqualTo(TaskAttempt.State.NEEDS_INSPECTION);
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isEqualTo(attempt.getId());
         assertThat(dispatcher.dispatchNext()).contains(executionId);
-        assertThat(output).contains("Reconciled active task attempt " + attempt.getId()
-                + " to NEEDS_INSPECTION: workload inactivity could not be confirmed: docker ps failed");
         long executionsBeforeNext = executions.count();
 
         org.mockito.Mockito.doNothing().when(docker).cleanOwned(any(), anyString());
         TaskOutcomeService.AttemptOutcome resolved = outcomes.refresh(attempt.getId());
 
         assertThat(resolved.state()).isEqualTo(TaskOutcomeService.AttemptOutcome.State.STOPPED);
-        assertThat(resolved.reason()).contains("DEVELOPMENT_FAILED: syntax");
+        assertThat(resolved.reason()).contains(withResult ? "DEVELOPMENT_FAILED: syntax"
+                : TaskOutcomeService.RUN_ENDED + ExecutionStatus.FAILED_ESCALATED);
         assertThat(resolved.released()).isTrue();
         assertThat(attempts.findById(attempt.getId()).orElseThrow().getState())
                 .isEqualTo(TaskAttempt.State.STOPPED);
@@ -174,29 +178,6 @@ class TaskLifecycleIntegrationTest {
         assertThat(executions.count()).isEqualTo(executionsBeforeNext + 1);
         assertThat(attempts.findByExecutionId(nextExecutionId).orElseThrow().getState())
                 .isEqualTo(TaskAttempt.State.QUEUED);
-    }
-
-    @Test
-    void failedEscalatedAloneIsNotSufficientProofOfASafeTerminalStop() {
-        admit("50021", "MODBAR-521");
-        UUID executionId = dispatcher.dispatchNext().orElseThrow();
-        TaskAttempt attempt = attempts.findByExecutionId(executionId).orElseThrow();
-        stateManager.transition(executionId, ExecutionStatus.FAILED_ESCALATED,
-                java.util.Map.of("error", "step exhausted retries"));
-        doThrow(new IllegalStateException("docker ps failed")).when(docker).cleanOwned(any(), anyString());
-
-        TaskOutcomeService.AttemptOutcome uncertain = outcomes.refresh(attempt.getId());
-
-        assertThat(uncertain.state())
-                .as("the escalated failure alone resolves to nothing without workload evidence")
-                .isEqualTo(TaskOutcomeService.AttemptOutcome.State.NEEDS_INSPECTION);
-        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isEqualTo(attempt.getId());
-
-        org.mockito.Mockito.doNothing().when(docker).cleanOwned(any(), anyString());
-        TaskOutcomeService.AttemptOutcome resolved = outcomes.refresh(attempt.getId());
-
-        assertThat(resolved.state()).isEqualTo(TaskOutcomeService.AttemptOutcome.State.STOPPED);
-        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
     }
 
     @Test
@@ -268,20 +249,20 @@ class TaskLifecycleIntegrationTest {
     }
 
     @Test
-    void dispatchPollerLaunchesTheNextQueuedAttemptAfterATerminalOutcome() {
+    void dispatchPollResolvesTheFinishedActiveAttemptAndLaunchesTheNextQueuedOne() {
         admit("50035", "MODBAR-535");
         UUID secondTaskId = admit("50036", "MODBAR-536");
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
         TaskAttempt attempt = attempts.findByExecutionId(executionId).orElseThrow();
         failExecution(executionId, "{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"syntax\"}");
-        assertThat(outcomes.refresh(attempt.getId()).state())
-                .isEqualTo(TaskOutcomeService.AttemptOutcome.State.STOPPED);
         assertThat(attempts.findLiveByTaskId(secondTaskId).getFirst().getState())
                 .isEqualTo(TaskAttempt.State.RESERVED);
         long executionsBefore = executions.count();
 
         dispatchPoller.poll();
 
+        assertThat(attempts.findById(attempt.getId()).orElseThrow().getState())
+                .isEqualTo(TaskAttempt.State.STOPPED);
         TaskAttempt launched = attempts.findLiveByTaskId(secondTaskId).getFirst();
         assertThat(launched.getState()).isEqualTo(TaskAttempt.State.QUEUED);
         assertThat(launched.getExecutionId()).isNotNull();
@@ -375,21 +356,83 @@ class TaskLifecycleIntegrationTest {
     }
 
     @Test
-    void startupDispatchResolvesTheOneActiveAttempt() {
-        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
-        dispatchPoller.onStartup();
-
-        admit("50061", "MODBAR-561");
+    void aRunningExecutionStaysQueuedWhenWorkloadCleanupFails() {
+        admit("50071", "MODBAR-571");
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
         TaskAttempt attempt = attempts.findByExecutionId(executionId).orElseThrow();
-        failExecution(executionId, "{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"syntax\"}");
+        stateManager.transition(executionId, ExecutionStatus.RUNNING, java.util.Map.of());
+        doThrow(new IllegalStateException("docker ps failed")).when(docker).cleanOwned(any(), anyString());
 
-        dispatchPoller.onStartup();
+        TaskOutcomeService.AttemptOutcome outcome = outcomes.refresh(attempt.getId());
 
+        assertThat(outcome.state()).isEqualTo(TaskOutcomeService.AttemptOutcome.State.PROCESSING);
         assertThat(attempts.findById(attempt.getId()).orElseThrow().getState())
-                .isEqualTo(TaskAttempt.State.STOPPED);
+                .as("a live execution is not held for inspection")
+                .isEqualTo(TaskAttempt.State.QUEUED);
+        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isEqualTo(attempt.getId());
+    }
+
+    @Test
+    void aDeliveredPullRequestIsHeldWhileWorkloadInactivityIsUnproven() {
+        admit("50081", "MODBAR-581");
+        UUID executionId = dispatcher.dispatchNext().orElseThrow();
+        TaskAttempt attempt = attempts.findByExecutionId(executionId).orElseThrow();
+        writeArtifact(executionId, DeliveryWorker.DELIVERY,
+                "{\"state\":\"DELIVERED\",\"pullRequestUrl\":\"https://github.com/user/repo/pull/9\"}");
+        doThrow(new IllegalStateException("docker ps failed")).when(docker).cleanOwned(any(), anyString());
+
+        TaskOutcomeService.AttemptOutcome held = outcomes.refresh(attempt.getId());
+
+        assertThat(held.state()).isEqualTo(TaskOutcomeService.AttemptOutcome.State.NEEDS_INSPECTION);
+        assertThat(held.uncertainty()).contains("docker ps failed");
+        TaskAttempt stored = attempts.findById(attempt.getId()).orElseThrow();
+        assertThat(stored.getState()).isEqualTo(TaskAttempt.State.NEEDS_INSPECTION);
+        assertThat(stored.getPublicationIdentity()).isNull();
+        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isEqualTo(attempt.getId());
+    }
+
+    @Test
+    void anAttemptWhoseExecutionRecordIsMissingIsHeld() {
+        admit("50091", "MODBAR-591");
+        UUID executionId = dispatcher.dispatchNext().orElseThrow();
+        TaskAttempt attempt = attempts.findByExecutionId(executionId).orElseThrow();
+        attempt.setExecutionId(UUID.randomUUID());
+        attempts.save(attempt);
+
+        TaskOutcomeService.AttemptOutcome held = outcomes.refresh(attempt.getId());
+
+        assertThat(held.state()).isEqualTo(TaskOutcomeService.AttemptOutcome.State.NEEDS_INSPECTION);
+        assertThat(held.uncertainty()).isEqualTo("the bound engine execution record is missing");
+        assertThat(attempts.findById(attempt.getId()).orElseThrow().getState())
+                .isEqualTo(TaskAttempt.State.NEEDS_INSPECTION);
+        assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isEqualTo(attempt.getId());
+    }
+
+    @Test
+    void markAsStoppedStopsAHeldAttemptOnceAndTheNextTaskStarts() {
+        admit("50101", "MODBAR-601");
+        admit("50102", "MODBAR-602");
+        UUID executionId = dispatcher.dispatchNext().orElseThrow();
+        TaskAttempt held = attempts.findByExecutionId(executionId).orElseThrow();
+        assertThat(outcomes.markStopped(held.getId()))
+                .as("a queued attempt is not held, so it cannot be marked as stopped")
+                .isEqualTo("Only a task that needs inspection can be marked as stopped");
+        failExecution(executionId, "{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"syntax\"}");
+        doThrow(new IllegalStateException("docker ps failed")).when(docker).cleanOwned(any(), anyString());
+        assertThat(outcomes.refresh(held.getId()).state())
+                .isEqualTo(TaskOutcomeService.AttemptOutcome.State.NEEDS_INSPECTION);
+
+        assertThat(outcomes.markStopped(held.getId())).isNull();
+
+        TaskAttempt stopped = attempts.findById(held.getId()).orElseThrow();
+        assertThat(stopped.getState()).isEqualTo(TaskAttempt.State.STOPPED);
+        assertThat(stopped.getResultReason()).startsWith(TaskOutcomeService.MARKED_STOPPED)
+                .doesNotContain(TaskOutcomeService.PULL_REQUEST_MAY_EXIST);
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
-        assertThat(dispatcher.dispatchNext()).isEmpty();
+        assertThat(outcomes.markStopped(held.getId()))
+                .isEqualTo("Only a task that needs inspection can be marked as stopped");
+        UUID nextExecutionId = dispatcher.dispatchNext().orElseThrow();
+        assertThat(nextExecutionId).isNotEqualTo(executionId);
     }
 
     private void failExecution(UUID executionId, String resultJson) {

@@ -3,6 +3,7 @@ package org.folio.factory.app.tasks;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.support.SharedWireMock;
+import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -26,9 +28,11 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.absent;
@@ -39,6 +43,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * My tasks discovery against real PostgreSQL and a fixture Jira: one anonymous
@@ -96,10 +101,17 @@ class TaskDiscoveryIntegrationTest {
     @Autowired
     PlatformTransactionManager transactionManager;
 
+    @Autowired
+    TaskAdmissionService admissions;
+
+    @Autowired
+    JdbcClient jdbc;
+
     private final JsonMapper json = JsonMapper.builder().build();
 
     @BeforeEach
     void resetFixture() {
+        new TaskFixture(tasks, attempts, installations, admissions).reset();
         jira.resetAll();
     }
 
@@ -172,49 +184,51 @@ class TaskDiscoveryIntegrationTest {
         assertThat(links.get(0).path("key").asString()).isEqualTo("MODBAR-9");
     }
 
+    /** The scan's write waits for a dispatch-style save that holds the installation row, then completes. */
     @Test
-    void concurrentInstallationSaveDuringScanDoesNotSurfaceAsScanProblem() throws Exception {
+    void installationSaveDuringScanDoesNotSurfaceAsScanProblem() throws Exception {
         stubFullSearch();
         assertThat(discovery.sync().complete()).isTrue();
-        var concurrentSave = new TransactionTemplate(transactionManager);
-        AtomicBoolean running = new AtomicBoolean(true);
-        AtomicReference<Exception> writerFailure = new AtomicReference<>();
-        // A dispatch-style installation save (lockById then save) races every scan.
-        Thread writer = new Thread(() -> {
-            while (running.get()) {
-                try {
-                    concurrentSave.executeWithoutResult(status -> {
-                        TaskInstallation installation = installations.lockById(1).orElse(null);
-                        if (installation == null) {
-                            return;
-                        }
-                        installation.setLastSuccessfulSyncAt(Instant.now());
-                        installations.save(installation);
-                    });
-                } catch (Exception e) {
-                    writerFailure.set(e);
-                    return;
-                }
-            }
-        });
-        writer.start();
+        var locked = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
-            for (int round = 0; round < 5; round++) {
-                TaskDiscoveryService.SyncResult result = discovery.sync();
-                assertThat(result.complete())
-                        .as("scan round %d must not surface the concurrent save as a scan problem: %s",
-                                round, result.problem())
-                        .isTrue();
-            }
-        } finally {
-            running.set(false);
-            writer.join(Duration.ofSeconds(10));
-        }
+            Future<?> holder = pool.submit(() -> saveInstallationAndHoldItsLock(locked, release));
+            assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<TaskDiscoveryService.SyncResult> scan = pool.submit(discovery::sync);
+            await().atMost(Duration.ofSeconds(10)).until(this::aSessionWaitsForARowLock);
+            release.countDown();
+            holder.get(10, TimeUnit.SECONDS);
 
-        assertThat(writerFailure).hasValue(null);
+            TaskDiscoveryService.SyncResult result = scan.get(10, TimeUnit.SECONDS);
+
+            assertThat(result.complete()).as(String.valueOf(result.problem())).isTrue();
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
         TaskInstallation installation = installations.findById(1).orElseThrow();
         assertThat(installation.isSyncComplete()).isTrue();
         assertThat(installation.getSyncProblem()).isNull();
+    }
+
+    private void saveInstallationAndHoldItsLock(CountDownLatch locked, CountDownLatch release) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            TaskInstallation installation = installations.lockById(1).orElseThrow();
+            installation.setLastSuccessfulSyncAt(Instant.now());
+            installations.saveAndFlush(installation);
+            locked.countDown();
+            try {
+                release.await(20, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+    }
+
+    private boolean aSessionWaitsForARowLock() {
+        return jdbc.sql("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'"
+                + " AND datname = current_database()").query(Long.class).single() > 0;
     }
 
     @Test
@@ -328,49 +342,36 @@ class TaskDiscoveryIntegrationTest {
         discovery.sync();
         Task added = addedByKey("10002");
         Task ran = addedByKey("10005");
-        TaskAttempt ranAttempt = attempts.save(new TaskAttempt(ran.getId(), 1, TaskAttempt.Kind.INITIAL,
+        attempts.save(new TaskAttempt(ran.getId(), 1, TaskAttempt.Kind.INITIAL,
                 "ran-by-key", TaskAttempt.State.STOPPED));
-        try {
-            jira.resetAll();
-            stubSinglePageSearch(issue("10001", "MODBAR-1", "MODBAR", "Summary of MODBAR-1", ""));
-            assertThat(discovery.sync().complete()).isTrue();
+        jira.resetAll();
+        stubSinglePageSearch(issue("10001", "MODBAR-1", "MODBAR", "Summary of MODBAR-1", ""));
+        assertThat(discovery.sync().complete()).isTrue();
 
-            assertThat(tasks.findById(added.getId()).orElseThrow().isInScope()).isTrue();
-            assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10003").orElseThrow().isInScope()).isFalse();
-            assertThat(discovery.removeFromList(ran.getId()))
-                    .isEqualTo("MODBAR-5 has already run, so it stays under Triggered.");
-            assertThat(discovery.removeFromList(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow()
-                    .getId())).isEqualTo("This task is not one you added by key; reload the page.");
-            assertThat(discovery.removeFromList(added.getId())).isNull();
-            Task removed = tasks.findById(added.getId()).orElseThrow();
-            assertThat(removed.isInScope()).isFalse();
-            assertThat(removed.isAddedByKey()).isFalse();
+        assertThat(tasks.findById(added.getId()).orElseThrow().isInScope()).isTrue();
+        assertThat(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10003").orElseThrow().isInScope()).isFalse();
+        assertThat(discovery.removeFromList(ran.getId()))
+                .isEqualTo("MODBAR-5 has already run, so it stays under Triggered.");
+        assertThat(discovery.removeFromList(tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow()
+                .getId())).isEqualTo("This task is not one you added by key; reload the page.");
+        assertThat(discovery.removeFromList(added.getId())).isNull();
+        Task removed = tasks.findById(added.getId()).orElseThrow();
+        assertThat(removed.isInScope()).isFalse();
+        assertThat(removed.isAddedByKey()).isFalse();
 
-            // Found assigned to the developer, a task added by key becomes one of My tasks.
-            jira.resetAll();
-            stubSinglePageSearch(issue("10005", "MODBAR-5", "MODBAR", "Summary of MODBAR-5", ""));
-            assertThat(discovery.sync().complete()).isTrue();
-            Task assigned = tasks.findById(ran.getId()).orElseThrow();
-            assertThat(assigned.isInScope()).isTrue();
-            assertThat(assigned.isAddedByKey()).isFalse();
-        } finally {
-            // The other tests of this class share these tasks and expect them without attempts or marks.
-            attempts.delete(ranAttempt);
-            clearAddedByKey(added.getId());
-            clearAddedByKey(ran.getId());
-        }
+        // Found assigned to the developer, a task added by key becomes one of My tasks.
+        jira.resetAll();
+        stubSinglePageSearch(issue("10005", "MODBAR-5", "MODBAR", "Summary of MODBAR-5", ""));
+        assertThat(discovery.sync().complete()).isTrue();
+        Task assigned = tasks.findById(ran.getId()).orElseThrow();
+        assertThat(assigned.isInScope()).isTrue();
+        assertThat(assigned.isAddedByKey()).isFalse();
     }
 
     private Task addedByKey(String issueId) {
         Task task = tasks.findByJiraInstanceAndIssueId(INSTANCE, issueId).orElseThrow();
         task.setAddedByKey(true);
         return tasks.save(task);
-    }
-
-    private void clearAddedByKey(UUID taskId) {
-        Task task = tasks.findById(taskId).orElseThrow();
-        task.setAddedByKey(false);
-        tasks.save(task);
     }
 
     @Test

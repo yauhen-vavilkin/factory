@@ -161,16 +161,10 @@ class PrFeedbackIntegrationTest {
     void action(FeedbackActions.Action action) {var v=view(); actions.command(id,new FeedbackActions.Command(v.reviewId(),v.version(),action,v.snapshot()==null?null:v.snapshot().id(),List.of("inline:1"),"Keep both"),"operator");}
     void select() {actions.refresh(id,view().version()); action(FIX);}
     void startRound() {drive(); select(); drive();}
-    @Test void twelveRoundsUseOneExecutionOneBranchAndRenderChronologicalHistory() throws Exception {
+    @Test void twelveRoundsUseOneExecutionOneBranchAndOneTranscriptRunEach() {
         drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
         verifyNoInteractions(verifier); verify(coding,never()).code(any(), any(), anyInt(), any(), any());
-        for(int round=1;round<=12;round++) {
-            String model=round%2==0?"second-fixture-model":"fixture-model";
-            when(coding.identity(any())).thenReturn(Map.of("model",model,"runtime","scripted"));
-            usage=Map.of("model",model,"inputTokens",100L,"cacheReadTokens",0L,"cacheWriteTokens",0L,"outputTokens",20L);
-            select(); drive(); assertThat(view().state().phase()).as("round %s reason %s",round,view().state().reason()).isEqualTo(FeedbackState.Phase.READY);
-            assertThat(view().state().round()).isEqualTo(round); assertThat(pr().headSha()).isEqualTo(view().state().commitSha());
-        }
+        runRounds(12);
         assertThat(calls).isEqualTo(12); assertThat(git(bare,"rev-list","--count",branch).strip()).isEqualTo("13");
         // Each feedback round is its own transcript run of the same execution, keyed by the round's attempt id.
         var transcript=transcripts.read(id);
@@ -179,21 +173,44 @@ class PrFeedbackIntegrationTest {
         assertThat(transcript.getLast().runId().toString()).isEqualTo(view().state().attemptId());
         assertThat(transcript.getLast().detail().path("text").asString()).isEqualTo("Feedback round 12");
         assertThat(git(bare,"for-each-ref","--format=%(refname)","refs/heads").lines()).containsExactly("refs/heads/"+branch);
-        var html=RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class);
+    }
+    @Test void theRunPageListsTheRoundsInOrderWithTheTotalAndNoModels() {
+        drive();
+        runRounds(2);
+        var text=visibleText(RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class));
         // While it waits for comments the card names the pull request and shows the total of the attempt and its rounds.
         // Round rows name no models: the header has the settings of the attempt.
-        assertThat(html).contains(">Round 1</strong>",">Round 12</strong>","Rounds",
-                "<span class=\"status-card-note\">total</span>")
-                .containsPattern("<p class=\"status-card-headline\">[^<]* is (open as a draft|ready for review)</p>")
-                .doesNotContain("Waiting for your review","so far","<dt>Models</dt>","second-fixture-model");
-        assertThat(html.indexOf(">Round 1</strong>")).isLessThan(html.indexOf(">Round 12</strong>"));
-        assertThat(html).doesNotContain("Download current patch", "Download diagnostics", "Rate-card estimate", "Finish task");
+        assertThat(text).contains("Round 1","Round 2","Rounds")
+                .containsPattern("\\$\\d+\\.\\d{2} total")
+                .containsPattern(" is (open as a draft|ready for review)")
+                .doesNotContain("Waiting for your review","so far","second-fixture-model");
+        assertThat(text.indexOf("Round 1")).isLessThan(text.indexOf("Round 2"));
+        assertThat(text).doesNotContain("Download current patch", "Download diagnostics", "Rate-card estimate", "Finish task");
+    }
+    @Test void aMergedPullRequestCompletesTheRunAndKeepsTheRoundSummary() {
+        startRound();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
         assertThatThrownBy(()->action(FINISH)).isInstanceOf(IllegalArgumentException.class);
         merged=true; actions.reconcilePr(id); drive(); assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
         // The round keeps the agent's own summary.
         assertThat(view().state().summary()).isEqualTo("Corrected selected feedback");
         assertThat(view().state().taskSummary()).isEqualTo("PR merged");
         assertThat(view().state().completionReason()).isEqualTo("MERGED");
+    }
+    /** Rounds on alternating models, each ready again with the pull request at its new commit. */
+    void runRounds(int count) {
+        for(int round=1;round<=count;round++) {
+            String model=round%2==0?"second-fixture-model":"fixture-model";
+            when(coding.identity(any())).thenReturn(Map.of("model",model,"runtime","scripted"));
+            usage=Map.of("model",model,"inputTokens",100L,"cacheReadTokens",0L,"cacheWriteTokens",0L,"outputTokens",20L);
+            select(); drive(); assertThat(view().state().phase()).as("round %s reason %s",round,view().state().reason()).isEqualTo(FeedbackState.Phase.READY);
+            assertThat(view().state().round()).isEqualTo(round); assertThat(pr().headSha()).isEqualTo(view().state().commitSha());
+        }
+    }
+    /** The page text a person reads: markup removed, entities for quotes decoded, spaces collapsed. */
+    static String visibleText(String html) {
+        return html.replaceAll("(?s)<(script|style)[^>]*>.*?</\\1>"," ").replaceAll("<[^>]+>"," ")
+                .replace("&#39;","'").replace("&quot;","\"").replace("&amp;","&").replaceAll("\\s+"," ");
     }
     @Test void aPublishedRoundCommentsOnThePullRequestOnceWithTheCommitAndTheAgentsSummary() {
         when(commentWriter.configured()).thenReturn(true);
@@ -210,7 +227,8 @@ class PrFeedbackIntegrationTest {
         assertThat(roundComments(AuditEventType.CONNECTOR_ACTION)).singleElement().asString()
                 .contains("\"commentUrl\": \"https://github.com/fork/repo/pull/7#issuecomment-1\"","\"round\": 1");
         var html=RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class);
-        assertThat(html).contains("href=\"https://github.com/fork/repo/pull/7#issuecomment-1\">Factory's comment on the PR</a>");
+        // The round links Factory's comment by its URL.
+        assertThat(html).containsPattern("<a [^>]*href=\"https://github.com/fork/repo/pull/7#issuecomment-1\"[^>]*>\\s*Factory's comment on the PR\\s*</a>");
     }
     @Test void aFailedPullRequestCommentDoesNotFailTheRound() {
         when(commentWriter.configured()).thenReturn(true);
