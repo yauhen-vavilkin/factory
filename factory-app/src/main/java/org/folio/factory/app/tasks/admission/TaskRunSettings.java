@@ -22,6 +22,8 @@ import java.util.Optional;
 public class TaskRunSettings {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final String EFFORT_HINT =
+            "Effort is how long the model thinks at each step: higher is slower and costs more.";
 
     private final CodingRuntime coding;
     private final ModelCatalog models;
@@ -34,6 +36,11 @@ public class TaskRunSettings {
         /** With one ready model the list is hidden and the form sends its id. */
         public boolean modelListShown() {
             return models.size() > 1;
+        }
+
+        /** What effort means, next to every Effort choice. */
+        public String effortHint() {
+            return EFFORT_HINT;
         }
     }
 
@@ -78,29 +85,24 @@ public class TaskRunSettings {
     }
 
     /**
-     * The run form, filled from a previous snapshot when its model is still ready, otherwise from the default
-     * model, or else the first ready one. Null with the Pi harness, which shows no model choice.
+     * The run form with the default model when it is ready, or else the first ready one, and that model's default
+     * effort. Null with the Pi harness, which shows no model choice.
      */
-    public Form form(String previous) {
+    public Form form() {
         if (!modelsApply()) {
             return null;
         }
         List<ModelOption> options = models.ready().stream().map(TaskRunSettings::option).toList();
-        CodingRequest.RunSettings stored = settings(previous);
-        ModelOption selected = find(options, stored == null ? null : stored.modelId())
-                .or(() -> find(options, models.defaultModel().map(Model::id).orElse(null)))
+        ModelOption selected = find(options, models.defaultModel().map(Model::id).orElse(null))
                 .orElseGet(() -> options.isEmpty() ? null : options.getFirst());
         if (selected == null) {
             return new Form(options, null, null, "No model can run now. Check configuration lists the models in "
                     + ModelCatalog.FILE + " and what each one needs.");
         }
-        boolean sameModel = stored != null && selected.id().equals(stored.modelId());
-        String effort = sameModel && selected.efforts().contains(stored.effort()) ? stored.effort()
-                : selected.defaultEffort();
-        return new Form(options, selected, effort, null);
+        return new Form(options, selected, selected.defaultEffort(), null);
     }
 
-    /** The instructions of a previous snapshot, for the task page's Retry form. */
+    /** The instructions an attempt was started with, for its row in Attempts. */
     public static String instructions(String previous) {
         CodingRequest.RunSettings stored = settings(previous);
         return stored == null ? null : stored.instructions();

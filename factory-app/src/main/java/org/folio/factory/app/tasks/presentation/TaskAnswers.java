@@ -21,6 +21,7 @@ public class TaskAnswers {
 
     /** The value of the answer choice that takes the text field as the answer. */
     public static final String OWN_ANSWER = "own";
+    private static final String ANSWER_HEAD = "My answer to your question: ";
     private static final String CUT = "\n[cut to fit]";
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -47,9 +48,14 @@ public class TaskAnswers {
         var text = note == null ? "" : note.strip();
         var answer = answer(question, choice, text);
         var extra = OWN_ANSWER.equals(choice) || text.isEmpty() ? "" : "\n" + text;
-        var head = "My answer to your question: " + answer + extra
+        var head = ANSWER_HEAD + answer + extra
                 + "\n\nYour question was: " + question.question();
         return head + textBefore(question.textBefore(), ModelCatalog.MAX_INSTRUCTIONS - head.length());
+    }
+
+    /** True for the instructions of an attempt that answered the agent's question. */
+    public static boolean isAnswer(String instructions) {
+        return instructions != null && instructions.startsWith(ANSWER_HEAD);
     }
 
     private static String answer(AgentQuestion question, String choice, String text) {

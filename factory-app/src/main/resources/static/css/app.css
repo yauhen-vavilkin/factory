@@ -905,6 +905,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .dev-breadcrumb { font-size: 13px; color: hsl(var(--muted-foreground)); }
 .dev-breadcrumb a { color: hsl(var(--quiet-foreground)); text-decoration: underline; }
 .dev-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: hsl(var(--muted-foreground)); }
+.dev-meta-dots > * + *::before { content: "·"; margin-right: 8px; }
 .result-card {
   display: flex;
   flex-direction: column;
@@ -1275,7 +1276,8 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 }
 .dev-form { display: flex; flex-direction: column; gap: 14px; }
 .dev-field { display: flex; flex-direction: column; gap: 6px; }
-.dev-field > span { font-size: 13px; color: hsl(var(--muted-foreground)); }
+.dev-field > span,
+.dev-field > label { font-size: 13px; color: hsl(var(--muted-foreground)); }
 .dev-form-note { font-size: 13px; color: hsl(var(--muted-foreground)); }
 .answer-question { font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
 .answer-evidence { font-size: 13px; color: hsl(var(--soft-foreground)); overflow-wrap: anywhere; }

@@ -59,7 +59,8 @@
                 <button type="submit" class="btn btn-secondary btn-sm" th:if="${row.addedByKey()}"
                         th:formaction="@{'/tasks/' + ${row.taskId()} + '/remove-from-list'}" formnovalidate
                         th:attr="aria-label='Remove ' + ${row.key()} + ' from your list'">Remove</button>
-                <div class="run-setting" th:if="${runForm != null and runForm.selected() != null}">
+                <div class="run-setting" th:if="${runForm != null and runForm.selected() != null}"
+                     th:title="${runForm.effortHint()}">
                     <span>Effort</span>
                     <th:block th:insert="~{fragments/developer-flow :: effortChoice(${runForm.selected()},
                             ${runForm.selected().defaultEffort()}, 'effort-' + ${row.taskId()},

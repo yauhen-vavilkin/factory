@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
 import java.util.Map;
 import java.util.UUID;
@@ -42,10 +43,8 @@ public class TaskPageController {
         model.addAttribute("task", rows.detail(view));
         model.addAttribute("question", answers.question(view).orElse(null));
         model.addAttribute("attempts", view.attempts().reversed().stream().map(TaskRows::attemptRow).toList());
-        // The next attempt starts with the model and effort of the previous one.
-        var previous = view.attempts().isEmpty() ? null : view.attempts().getLast().runSettings();
-        model.addAttribute("retryForm", runSettings.form(previous));
-        model.addAttribute("retryInstructions", TaskRunSettings.instructions(previous));
+        // A new attempt starts from the configured model and effort, not from the previous attempt's.
+        model.addAttribute("retryForm", runSettings.form());
         model.addAttribute("instructionsLimit", ModelCatalog.MAX_INSTRUCTIONS);
         model.addAttribute("error", error);
         return "task";
@@ -60,14 +59,14 @@ public class TaskPageController {
     public String retry(@PathVariable("taskId") UUID taskId,
                         @RequestParam(name = "expectedVersion", defaultValue = "0") long expectedVersion,
                         @RequestParam Map<String, String> form,
-                        HttpServletRequest request) {
+                        HttpServletRequest request, RedirectAttributes redirect) {
         requireSameOrigin(request);
         var back = "flow".equals(form.get("returnTo")) ? FLOW_PAGE : "/tasks/" + taskId;
         String settings;
         try {
             settings = runSettings.snapshot(form.get("modelId"), form.get("effort"), instructions(taskId, form));
         } catch (IllegalArgumentException e) {
-            return UiFormat.errorRedirect(back, e.getMessage());
+            return refused(back, e.getMessage(), form, redirect);
         }
         var result = admissions.retry(new TaskCommands.Retry("ui-" + UUID.randomUUID(), taskId, expectedVersion,
                 form.get("inputFingerprint"), form.get("destinationFingerprint"), settings));
@@ -75,7 +74,20 @@ public class TaskPageController {
         if (!result.refused() && result.state() != null && result.state().isInFlight()) {
             return "redirect:" + back;
         }
-        return UiFormat.errorRedirect(back, result.explanation());
+        return refused(back, result.explanation(), form, redirect);
+    }
+
+    /** The page shows the text the developer typed again; it goes through the session, never into the URL. */
+    private static String refused(String back, String message, Map<String, String> form, RedirectAttributes redirect) {
+        keepTyped(form.get("instructions"), "typedInstructions", redirect);
+        keepTyped(form.get("note"), "typedNote", redirect);
+        return UiFormat.errorRedirect(back, message);
+    }
+
+    private static void keepTyped(String text, String attribute, RedirectAttributes redirect) {
+        if (text != null && !text.isBlank()) {
+            redirect.addFlashAttribute(attribute, text);
+        }
     }
 
     private String instructions(UUID taskId, Map<String, String> form) {

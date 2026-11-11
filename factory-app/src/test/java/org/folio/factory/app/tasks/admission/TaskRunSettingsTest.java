@@ -24,37 +24,38 @@ class TaskRunSettingsTest {
             List.of("low", "high", "max"), "max", null, null);
 
     @Test
-    void theFormOffersReadyModelsAndFallsBackToTheDefaultWhenThePreviousModelIsNotReady() {
-        var settings = settings("claude-code", "");
-        String previous = "{\"profileId\":\"glm-5.3\",\"effort\":\"low\",\"maxTurns\":7,\"instructions\":\"x\"}";
-
-        var form = settings.form(previous);
+    void theFormOffersReadyModelsAndStartsFromTheFirstWhenNoDefaultIsSet() {
+        var form = settings("claude-code", "").form();
 
         assertThat(form.models()).extracting(TaskRunSettings.ModelOption::id).containsExactly("codemie-sonnet-5.5");
         assertThat(form.modelListShown()).isFalse();
         assertThat(form.selected().id()).isEqualTo("codemie-sonnet-5.5");
         assertThat(form.effort()).isEqualTo("high");
         assertThat(form.selected().effortList()).isEqualTo("low medium high xhigh max");
+        assertThat(form.effortHint())
+                .isEqualTo("Effort is how long the model thinks at each step: higher is slower and costs more.");
     }
 
     @Test
-    void theRetryFormKeepsThePreviousModelAndItsEffort() {
-        var form = settings("claude-code", "zai-key").form("{\"profileId\":\"glm-5.3\",\"effort\":\"low\"}");
+    void theFormStartsFromTheConfiguredDefaultModelAndItsDefaultEffort() {
+        CodingRuntime coding = mock(CodingRuntime.class);
+        when(coding.id()).thenReturn("claude-code");
+        var secrets = Map.of("FACTORY_ZAI_API_KEY", "zai-key", "FACTORY_CODEMIE_PROXY_TOKEN", "codemie-proxy");
+        var settings = new TaskRunSettings(coding, new ModelCatalog(
+                new ModelCatalog.Properties(List.of(SONNET, GLM), "glm-5.3"), "claude-code", secrets::get));
+
+        var form = settings.form();
 
         assertThat(form.modelListShown()).isTrue();
         assertThat(form.selected().id()).isEqualTo("glm-5.3");
-        assertThat(form.effort()).isEqualTo("low");
-        // A run from before the models file named env-default: the form starts from the default model.
-        var legacy = settings("claude-code", "zai-key").form("{\"profileId\":\"env-default\",\"effort\":null}");
-        assertThat(legacy.selected().id()).isEqualTo("codemie-sonnet-5.5");
-        assertThat(legacy.effort()).isEqualTo("high");
+        assertThat(form.effort()).isEqualTo("max");
     }
 
     @Test
     void withoutAReadyModelTheFormSaysWhyAndARunIsRefused() {
         var settings = settings("claude-code", "", "");
 
-        var form = settings.form(null);
+        var form = settings.form();
 
         assertThat(form.selected()).isNull();
         assertThat(form.problem()).isEqualTo("No model can run now. Check configuration lists the models in"
@@ -67,7 +68,7 @@ class TaskRunSettingsTest {
     void withPiThereIsNoModelChoiceAndARunKeepsOnlyItsInstructions() {
         var settings = settings("pi", "zai-key");
 
-        assertThat(settings.form(null)).isNull();
+        assertThat(settings.form()).isNull();
         assertThat(settings.snapshot("glm-5.3", "max", null)).isNull();
         assertThat(TaskRunSettings.settings(settings.snapshot("glm-5.3", "max", " Keep the API. ")))
                 .isEqualTo(new CodingRequest.RunSettings(null, null, "Keep the API."));

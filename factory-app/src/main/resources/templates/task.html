@@ -2,12 +2,12 @@
 <html th:replace="~{fragments/layout :: page(title=${task.key()}, activeNav='flows', content=~{:: .dev-page}, scripts=~{})}"
       xmlns:th="http://www.thymeleaf.org" lang="en">
 <body>
-<div class="dev-page dev-page-narrow">
+<div class="dev-page">
     <div class="dev-heading">
         <nav class="dev-breadcrumb" aria-label="Breadcrumb"><a th:href="@{/flows/dev-factory}">Developer Flow</a>
             / <span th:text="${task.key()}">KEY-1</span></nav>
         <h1 class="dev-title" th:text="${task.title()}">Task</h1>
-        <div class="dev-meta">
+        <div class="dev-meta dev-meta-dots">
             <a class="key-link ext-link" th:href="${task.jiraUrl()}" th:text="${task.key()}">KEY-1</a>
             <span th:if="${task.repository() != null}" th:text="${task.repository()}">repository</span>
         </div>
@@ -30,13 +30,12 @@
             </div>
         </div>
         <div class="status-card-side">
-            <span th:if="${task.spentNote() != null}"><span class="status-card-money"
+            <span th:if="${task.spentNote() != null}"><span class="status-card-money" th:title="${task.spentTitle()}"
                     th:text="${task.spent() != null} ? ${task.spent()} : '—'">$0.00</span>
                 <span class="status-card-note" th:text="${task.spentNote()}">spent in 1 attempt</span></span>
             <a class="btn btn-primary btn-sm" th:if="${task.prUrl() != null}" th:href="${task.prUrl()}"
                th:text="${task.prAction()}">Open pull request</a>
-            <a class="btn btn-secondary btn-sm" th:if="${task.runUrl() != null and !task.retryAllowed()}"
-               th:href="${task.runUrl()}" th:text="${task.runLabel()}">Open last run</a>
+            <a class="btn btn-secondary btn-sm" th:if="${task.runUrl() != null}" th:href="${task.runUrl()}">Open run</a>
             <form method="post" th:if="${task.markStoppedAttemptId() != null}"
                   th:action="@{'/tasks/' + ${task.taskId()} + '/attempts/' + ${task.markStoppedAttemptId()} + '/mark-stopped'}">
                 <button type="submit" class="btn btn-secondary btn-sm"
@@ -66,16 +65,19 @@
                               aria-labelledby="answer-own-text" th:checked="${#lists.isEmpty(question.options())}"><span
                         id="answer-own-text">My own answer</span></label>
             </div>
-            <label class="dev-field">
-                <span>Anything to add for the agent? (optional)</span>
-                <textarea class="textarea" name="note" rows="2" th:maxlength="${instructionsLimit}"></textarea>
-            </label>
+            <div class="dev-field">
+                <label for="answer-note">Anything to add for the agent? (optional)</label>
+                <textarea class="textarea" id="answer-note" name="note" rows="2" th:maxlength="${instructionsLimit}"
+                          th:text="${typedNote}"></textarea>
+            </div>
             <div class="run-settings">
                 <th:block th:if="${retryForm != null}" th:insert="~{fragments/developer-flow :: runChoice(${retryForm})}"></th:block>
                 <button type="submit" class="btn btn-primary btn-sm"
                         th:text="'Start attempt ' + ${task.nextAttempt()} + ' with this answer'">Start attempt 2 with this answer</button>
             </div>
-            <p class="dev-form-note">A new attempt starts from a clean checkout and adds to the cost.</p>
+            <p class="dev-form-note">A new attempt starts from a clean checkout and adds to the cost.<th:block
+                    th:if="${retryForm != null and retryForm.selected() != null}"
+                    th:text="' ' + ${retryForm.effortHint()}"> Effort is how long the model thinks.</th:block></p>
         </form>
     </section>
 
@@ -86,17 +88,20 @@
             <input type="hidden" name="expectedVersion" th:value="${task.version()}">
             <input type="hidden" name="inputFingerprint" th:value="${task.inputFingerprint()}">
             <input type="hidden" name="destinationFingerprint" th:value="${task.destinationFingerprint()}">
-            <label class="dev-field">
-                <span>What should the agent do differently? (optional)</span>
-                <textarea class="textarea" name="instructions" rows="2" th:maxlength="${instructionsLimit}"
-                          th:text="${retryInstructions}"></textarea>
-            </label>
+            <div class="dev-field">
+                <label for="retry-instructions">What should the agent do differently? (optional)</label>
+                <textarea class="textarea" id="retry-instructions" name="instructions" rows="2"
+                          th:maxlength="${instructionsLimit}" th:text="${typedInstructions}"
+                          placeholder="For example: change only FolioTenantApiClient and its test."></textarea>
+            </div>
             <div class="run-settings">
                 <th:block th:if="${retryForm != null}" th:insert="~{fragments/developer-flow :: runChoice(${retryForm})}"></th:block>
                 <button type="submit" class="btn btn-primary btn-sm"
                         th:text="'Start attempt ' + ${task.nextAttempt()}">Start attempt 2</button>
             </div>
-            <p class="dev-form-note">A new attempt starts from a clean checkout and adds to the cost.</p>
+            <p class="dev-form-note">A new attempt starts from a clean checkout and adds to the cost.<th:block
+                    th:if="${retryForm != null and retryForm.selected() != null}"
+                    th:text="' ' + ${retryForm.effortHint()}"> Effort is how long the model thinks.</th:block></p>
         </form>
     </section>
 
@@ -121,35 +126,6 @@
         </div>
     </section>
 
-    <details class="disclosure tech-disclosure">
-        <summary>Technical details</summary>
-        <dl class="tech-grid">
-            <dt>Task id</dt>
-            <dd><code th:text="${task.taskId()}">id</code></dd>
-            <dt>Jira project</dt>
-            <dd th:text="${task.project()}">PROJECT</dd>
-            <th:block th:if="${task.destination() != null}">
-                <dt>Destination</dt>
-                <dd th:text="${task.destination()}">owner/repository · base master</dd>
-            </th:block>
-            <th:block th:if="${task.usage().present()}">
-                <dt>Total tokens</dt>
-                <dd th:text="${task.usage().tokens()}">0</dd>
-                <th:block th:each="category : ${task.usage().categories()}">
-                    <dt th:text="${category.label()}">Input</dt>
-                    <dd th:text="${category.value()}">0</dd>
-                </th:block>
-                <th:block th:if="${task.usage().cost() != null}">
-                    <dt>Estimated cost</dt>
-                    <dd th:text="${task.usage().cost()}">$0.00</dd>
-                </th:block>
-                <th:block th:if="${task.usage().note() != null}">
-                    <dt>About the cost</dt>
-                    <dd th:text="${task.usage().note()}">note</dd>
-                </th:block>
-            </th:block>
-        </dl>
-    </details>
 </div>
 </body>
 </html>

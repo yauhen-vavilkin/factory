@@ -1143,7 +1143,7 @@ class UiRenderSmokeTest {
                 .filter(model -> model.id().startsWith("glm-5.3")).toList(), "glm-5.3"), "claude-code",
                 name -> "FACTORY_ZAI_API_KEY".equals(name) ? ZAI_KEY : null);
         var withoutProxy = new TaskRunSettings(codingRuntime, glmOnly);
-        doAnswer(call -> withoutProxy.form(call.getArgument(0))).when(runSettings).form(any());
+        doAnswer(call -> withoutProxy.form()).when(runSettings).form();
 
         String body = assertRendered("/flows/dev-factory", "Ready to run");
         assertThat(body).containsPattern("<option value=\"glm-5.3\"[^>]*selected=\"selected\"")
@@ -1156,13 +1156,13 @@ class UiRenderSmokeTest {
                 .filter(model -> model.id().equals("glm-5.3")).toList(), null), "claude-code",
                 name -> "FACTORY_ZAI_API_KEY".equals(name) ? ZAI_KEY : null);
         var single = new TaskRunSettings(codingRuntime, oneModel);
-        doAnswer(call -> single.form(call.getArgument(0))).when(runSettings).form(any());
+        doAnswer(call -> single.form()).when(runSettings).form();
         assertThat(assertRendered("/flows/dev-factory", "Ready to run"))
                 .contains("<input type=\"hidden\" name=\"modelId\" value=\"glm-5.3\">")
                 .doesNotContain("data-model-select", "<span>Model</span>");
 
         var none = new TaskRunSettings(codingRuntime, new ModelCatalog(modelsFile, "claude-code", name -> null));
-        doAnswer(call -> none.form(call.getArgument(0))).when(runSettings).form(any());
+        doAnswer(call -> none.form()).when(runSettings).form();
         assertThat(assertRendered("/flows/dev-factory", "Ready to run"))
                 .contains("No model can run now. Check configuration lists the models in config/developer-models.yaml")
                 .doesNotContain("name=\"modelId\"", "name=\"effort-");
@@ -1176,7 +1176,7 @@ class UiRenderSmokeTest {
         seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
                 "VERIFICATION_FAILED: 2 tests in error");
         // With the Pi harness there is no model choice, so the form has no Model and no Effort.
-        doReturn(null).when(runSettings).form(any());
+        doReturn(null).when(runSettings).form();
 
         String body = assertRendered("/tasks/" + stopped.getId(), "Failed");
         assertThat(body).containsPattern("<section class=\"dev-section\" id=\"retry\"")
@@ -1255,29 +1255,36 @@ class UiRenderSmokeTest {
                         "<p class=\"status-card-headline\">Attempt 1 failed</p>")
                 .containsPattern("<span class=\"status-card-label\">Reason</span>\\s*"
                         + "<span>Verification failed: 2 tests in error.</span>")
-                .contains("<span class=\"status-card-money\">$0.02</span>", "spent in 1 attempt", "120,000",
-                        "Input (uncached)", "Output", ">Estimated cost</dt>")
-                .containsPattern("<details class=\"disclosure tech-disclosure\">\\s*<summary>Technical details</summary>")
-                .doesNotContain("Cost and usage", "<details class=\"disclosure tech-disclosure\" open")
+                .contains("<span class=\"status-card-money\">$0.02</span>", "spent in 1 attempt",
+                        "No pull request was created.")
+                // Technical details are gone: the URL, the header and the status card say all they held.
+                .doesNotContain("Technical details", "tech-disclosure", "Total tokens", "Cost and usage",
+                        "dev-page-narrow")
+                .containsPattern("<div class=\"dev-meta dev-meta-dots\">\\s*<a class=\"key-link ext-link\"[^>]*>MODBAR-721</a>"
+                        + "\\s*<span>mod-bar</span>")
+                .containsPattern("<a class=\"btn btn-secondary btn-sm\" href=\"/executions/" + execution.getId()
+                        + "\">Open run</a>")
                 .contains(">Start attempt 2</button>", "name=\"expectedVersion\"", "name=\"inputFingerprint\"",
                         "name=\"destinationFingerprint\"",
-                        "A new attempt starts from a clean checkout and adds to the cost.")
-                // The next attempt is its own section, filled from the previous attempt.
+                        "A new attempt starts from a clean checkout and adds to the cost. Effort is how long the model"
+                                + " thinks at each step: higher is slower and costs more.")
+                // The next attempt is its own section; its text field is empty and has a name for screen readers.
                 .containsPattern("<section class=\"dev-section\" id=\"retry\"")
                 .containsPattern("<form class=\"dev-form\" method=\"post\"\\s+action=\"/tasks/"
                         + stopped.getId() + "/retry\"")
-                .contains("What should the agent do differently? (optional)", "name=\"instructions\"",
-                        "maxlength=\"8000\"", ">Read the ADR through the wiki &lt;REST&gt; URL.</textarea>")
-                .doesNotContain("value=\"77\"", "Max turns")
-                // Retry keeps the previous model and effort.
-                .containsPattern("<option value=\"glm-5.3\"[^>]*selected=\"selected\"")
-                .contains("<span>Effort</span>", "<input type=\"radio\" name=\"effort\" value=\"low\" checked=\"checked\">")
+                .contains("<label for=\"retry-instructions\">What should the agent do differently? (optional)</label>",
+                        "id=\"retry-instructions\" name=\"instructions\"", "maxlength=\"8000\"",
+                        "placeholder=\"For example: change only FolioTenantApiClient and its test.\"></textarea>")
+                .doesNotContain(">Read the ADR through the wiki &lt;REST&gt; URL.</textarea>", "value=\"77\"", "Max turns")
+                // A new attempt starts from the configured model and effort, not from the previous attempt's.
+                .containsPattern("<option value=\"codemie-sonnet-5.5\"[^>]*selected=\"selected\"")
+                .doesNotContainPattern("<option value=\"glm-5.3\"[^>]*selected=\"selected\"")
+                .contains("<span>Effort</span>", "<input type=\"radio\" name=\"effort\" value=\"high\" checked=\"checked\">")
                 .contains("glm-5.3 · low · ", "&quot;Read the ADR through the wiki &lt;REST&gt; URL.&quot;")
                 .doesNotContain(ZAI_KEY)
                 .containsPattern("href=\"/executions/" + execution.getId() + "\"\\s+aria-label=\"Open run for attempt 1\""
                         + "\\s*>Open run</a>")
-                .contains("Attempt 1</strong>", "<span>first run</span>", "Technical details",
-                        stopped.getId().toString());
+                .contains("Attempt 1</strong>", "<span>first run</span>");
 
         Task partial = seedTask("70022", "MODBAR-722", "Partial task",
                 Task.Eligibility.ELIGIBLE, "repository mod-bar");
@@ -1292,7 +1299,9 @@ class UiRenderSmokeTest {
                         "rate", Map.of("currency", "USD", "inputPerMillion", 0.15)));
 
         String partialBody = assertRendered("/tasks/" + partial.getId(), "spent in 1 attempt, cost may be higher");
-        assertThat(partialBody).contains("Incomplete: some usage has no reported tokens or rate yet.", "50,000");
+        // Why the amount may be too low is the title of the amount.
+        assertThat(partialBody).containsPattern("<span class=\"status-card-money\" title=\"Incomplete: some usage has"
+                + " no reported tokens or rate yet. Cost per attempt is in Attempts.\">\\$[0-9.]+</span>");
         String costNote = "<span class=\"attempt-cost\"\\s+title=\"Some usage was not reported by the runtime or has no"
                 + " price, so the real cost may be higher.\">\\$[0-9.]+</span>";
         assertThat(partialBody.substring(partialBody.indexOf("id=\"attempts-title\"")))
@@ -1318,7 +1327,7 @@ class UiRenderSmokeTest {
 
         String liveBody = assertRendered("/tasks/" + live.getId(), "Implementation is running.");
         assertThat(liveBody)
-                .contains("In progress", "Open live run", "Includes live usage that can still change.")
+                .contains("In progress", ">Open run</a>", "Includes live usage that can still change.")
                 .doesNotContain("name=\"expectedVersion\"");
         // A running attempt's cost is "so far", the same as Working in Triggered.
         assertThat(liveBody.substring(liveBody.indexOf("id=\"attempts-title\"")))
@@ -1400,7 +1409,7 @@ class UiRenderSmokeTest {
         String body = assertRendered("/tasks/" + delivered.getId(), "Pull request #7 is ready for review.");
         assertThat(body)
                 .contains("href=\"https://github.com/folio-org/mod-bar/pull/7\">Open pull request #7</a>",
-                        "href=\"/executions/" + execution.getId() + "#pr-feedback\">PR feedback</a>",
+                        "href=\"/executions/" + execution.getId() + "\">Open run</a>",
                         "chip-success")
                 .doesNotContain("Draft PR", "Factory opened it as a draft because:")
                 .doesNotContain("name=\"expectedVersion\"");

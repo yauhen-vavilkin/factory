@@ -473,8 +473,7 @@ class TaskUiControllerTest {
                 .containsEntry("runUrl", "/executions/" + EXECUTION_ID)
                 .containsEntry("nextAttempt", 3)
                 .containsEntry("spentNote", "spent in 2 attempts")
-                .containsEntry("project", "MODBAR")
-                .containsEntry("destination", "folio-org/mod-bar · base master");
+                .containsEntry("repository", "mod-bar → folio-org/mod-bar · master");
         assertThat(detail(result))
                 .containsEntry("headline", "Attempt 2 failed")
                 .containsEntry("reason", "Verification failed: 2 tests failed.")
@@ -482,7 +481,7 @@ class TaskUiControllerTest {
         // Newest first: a new attempt is added at the top.
         assertThat(rows(result.getModelAndView().getModel(), "attempts"))
                 .extracting(row -> row.get("ordinal") + " · " + row.get("kind"))
-                .containsExactly("2 · first run by key", "1 · first run");
+                .containsExactly("2 · first run", "1 · first run");
         assertThat(result.getModelAndView().getModel().get("question")).isNull();
         verifyNoInteractions(admissions, outcomes);
         verify(dispatcher, never()).dispatchNext();
@@ -490,7 +489,7 @@ class TaskUiControllerTest {
     }
 
     @Test
-    void taskDetail_retryFormIsFilledFromThePreviousAttempt() throws Exception {
+    void taskDetail_retryFormStartsFromTheDefaultsWithAnEmptyTextField() throws Exception {
         String previous = "{\"profileId\":\"glm-5.3\",\"profileLabel\":\"GLM-5.3 (Z.ai)\",\"model\":\"glm-5.3\","
                 + "\"endpointOrigin\":\"https://api.z.ai\",\"effort\":\"low\",\"maxTurns\":77,"
                 + "\"instructions\":\"Keep the public API.\"}";
@@ -504,12 +503,27 @@ class TaskUiControllerTest {
 
         var model = result.getModelAndView().getModel();
         var retryForm = (TaskRunSettings.Form) model.get("retryForm");
-        assertThat(retryForm.selected().id()).isEqualTo("glm-5.3");
-        assertThat(retryForm.effort()).isEqualTo("low");
-        assertThat(model.get("retryInstructions")).isEqualTo("Keep the public API.");
+        assertThat(retryForm.selected().id()).isEqualTo("codemie-sonnet-5.5");
+        assertThat(retryForm.effort()).isEqualTo("high");
+        assertThat(model).doesNotContainKeys("retryInstructions", "typedInstructions");
         assertThat(rows(model, "attempts")).extracting(row -> row.get("meta"))
                 .containsExactly("glm-5.3 · low · Oct 23, 08:00 · 10 min · \"Keep the public API.\"",
                         "Oct 23, 08:00 · 10 min");
+    }
+
+    @Test
+    void taskDetail_namesEachAttemptByHowItStarted() throws Exception {
+        var instructed = "{\"profileId\":\"glm-5.3\",\"effort\":\"max\",\"instructions\":\"Keep the API.\"}";
+        var answered = "{\"profileId\":\"glm-5.3\",\"effort\":\"max\","
+                + "\"instructions\":\"My answer to your question: The internal API\"}";
+        when(taskQuery.detail(TASK_ID)).thenReturn(taskView(TASK_ID, "MODBAR-911", "Open",
+                TaskView.TaskState.STOPPED, false, true, attempt("STOPPED", "BY_KEY", 1), retryAttempt(2, null),
+                retryAttempt(3, instructed), retryAttempt(4, answered)));
+
+        var model = mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn().getModelAndView().getModel();
+
+        assertThat(rows(model, "attempts")).extracting(row -> row.get("kind")).containsExactly(
+                "answer to the agent's question", "retry with your instructions", "retry", "first run");
     }
 
     @Test
@@ -701,13 +715,17 @@ class TaskUiControllerTest {
     void retry_refusalReturnsToTheTaskSummary() throws Exception {
         when(admissions.retry(any())).thenReturn(new TaskAdmissionService.RetryResult(null, null, TaskAttempt.State.STOPPED, "Your GitHub token cannot push to folio-org/mod-bar", false));
 
-        MvcResult result = mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "1"))
+        MvcResult result = mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "1")
+                        .param("instructions", "Keep the public API."))
                 .andExpect(status().is3xxRedirection())
+                // The page shows the typed text again; it never goes into the URL.
+                .andExpect(flash().attribute("typedInstructions", "Keep the public API."))
                 .andReturn();
 
         assertThat(result.getResponse().getRedirectedUrl())
                 .startsWith("/tasks/" + TASK_ID + "?error=")
-                .contains("cannot+push");
+                .contains("cannot+push")
+                .doesNotContain("public");
     }
 
     @Test
@@ -920,6 +938,14 @@ class TaskUiControllerTest {
                 TaskAttempt.State.valueOf(state), "verification", "VERIFICATION_FAILED: 2 tests failed", null,
                 null, EXECUTION_ID, Instant.parse("2026-10-23T07:59:00Z"), Instant.parse("2026-10-23T08:00:00Z"),
                 true, 600, emptyUsage(), runSettings);
+    }
+
+    private static TaskView.AttemptHistoryEntry retryAttempt(int ordinal, String runSettings) {
+        var attempt = attempt("STOPPED", "MANUAL", ordinal, runSettings);
+        return new TaskView.AttemptHistoryEntry(attempt.attemptId(), ordinal, TaskAttempt.Kind.RETRY,
+                attempt.admittedVia(), attempt.state(), attempt.stage(), attempt.reason(), null, null,
+                attempt.executionId(), attempt.createdAt(), attempt.startedAt(), true, 600, attempt.usage(),
+                runSettings);
     }
 
     /** A delivered attempt; {@code draftReasons} null means the pull request is ready for review. */

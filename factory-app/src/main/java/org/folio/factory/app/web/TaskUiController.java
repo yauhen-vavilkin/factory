@@ -85,7 +85,7 @@ public class TaskUiController {
         addAvailable(model, available);
         addTriggered(model, installation, myTasks.triggered(), queuedCount);
         // Model for Run and the Effort choices of each row; null with the Pi harness.
-        model.addAttribute("runForm", runSettings.form(null));
+        model.addAttribute("runForm", runSettings.form());
         model.addAttribute("error", error);
         model.addAttribute("pollUrl", "/tasks/poll");
         model.addAttribute("pollFields", "revision");

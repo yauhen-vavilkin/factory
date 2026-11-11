@@ -87,17 +87,16 @@ public class TaskRows {
         var stateLabel = label != null ? label
                 : view.state() == TaskView.TaskState.UNSUPPORTED ? "Not eligible" : "Not started";
         var failure = failure(view);
-        return new TaskDetail(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(), repository(view),
+        return new TaskDetail(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(), repositoryLine(view),
                 view.version(), view.inputFingerprint(), view.destinationFingerprint(), stateLabel,
                 stateClass(label), failure.map(AttemptFailure::headline).orElseGet(() -> headline(view)),
                 failure.map(AttemptFailure::reason).orElse(null),
                 failure.map(found -> pullRequestNote(view.reason())).orElse(null),
-                view.draftReasons(), costLabel(view.usage()), spentNote(view),
-                view.allowedActions().retry(), view.attempts().size() + 1, runUrl(view, latest), runLabel(view),
+                view.draftReasons(), costLabel(view.usage()), spentNote(view), usageNote(view.usage()),
+                view.allowedActions().retry(), view.attempts().size() + 1, runUrl(view),
                 view.pullRequestUrl(), view.pullRequestUrl() == null ? null
                         : "Open p" + pullRequestLabel(view.pullRequestUrl()).substring(1),
-                latest == null ? null : markStoppedAttemptId(latest), view.projectKey(),
-                destination(view.destinationRepository()), usage(view.usage()));
+                latest == null ? null : markStoppedAttemptId(latest));
     }
 
     public static AttemptRow attemptRow(TaskView.AttemptHistoryEntry attempt) {
@@ -187,27 +186,26 @@ public class TaskRows {
                 + (view.usage().complete() ? "" : ", cost may be higher");
     }
 
-    private static String runUrl(TaskView view, TaskView.AttemptHistoryEntry latest) {
-        if (latest == null || latest.executionId() == null) {
-            return null;
-        }
-        var run = "/executions/" + latest.executionId();
-        return view.pullRequestUrl() != null ? run + "#pr-feedback" : run;
+    /** The run of the latest attempt that has one, in every state. */
+    private static String runUrl(TaskView view) {
+        return view.attempts().reversed().stream()
+                .map(TaskView.AttemptHistoryEntry::executionId)
+                .filter(Objects::nonNull)
+                .findFirst()
+                .map(executionId -> "/executions/" + executionId)
+                .orElse(null);
     }
 
-    private static String runLabel(TaskView view) {
-        if (view.pullRequestUrl() != null) {
-            return "PR feedback";
-        }
-        return TaskLabels.working(view) ? "Open live run" : "Open last run";
-    }
-
-    /** "first run", "retry" or "retry with instructions", and "by key" for a task added by its key. */
+    /** "first run", "retry", "retry with your instructions" or "answer to the agent's question". */
     private static String attemptKind(TaskView.AttemptHistoryEntry attempt) {
-        var instructed = TaskRunSettings.instructions(attempt.runSettings()) != null;
-        var kind = attempt.kind() != TaskAttempt.Kind.RETRY ? "first run"
-                : instructed ? "retry with instructions" : "retry";
-        return attempt.admittedVia() == TaskAttempt.AdmittedVia.BY_KEY ? kind + " by key" : kind;
+        if (attempt.kind() != TaskAttempt.Kind.RETRY) {
+            return "first run";
+        }
+        var instructions = TaskRunSettings.instructions(attempt.runSettings());
+        if (instructions == null) {
+            return "retry";
+        }
+        return TaskAnswers.isAnswer(instructions) ? "answer to the agent's question" : "retry with your instructions";
     }
 
     /** "glm-5.3 · max · Nov 10, 17:48 · 13 min · "first line of the instructions"". */
@@ -225,15 +223,6 @@ public class TaskRows {
         return line.length() <= QUOTE ? line : line.substring(0, QUOTE - 1) + "…";
     }
 
-    private static TaskDetail.Usage usage(TaskUsage usage) {
-        return new TaskDetail.Usage(usage.tokens() > 0 || !usage.estimatesByCurrency().isEmpty(),
-                UiFormat.count(usage.tokens()),
-                usage.tokensByCategory().entrySet().stream()
-                        .map(entry -> new TaskDetail.Figure(entry.getKey().label(), UiFormat.count(entry.getValue())))
-                        .toList(),
-                costLabel(usage), usageNote(usage));
-    }
-
     private String repository(TaskView view) {
         return view.destinationRepository() == null ? null : repositoryName(view.destinationRepository());
     }
@@ -247,10 +236,13 @@ public class TaskRows {
         return sourceRepo.substring(sourceRepo.indexOf('/') + 1);
     }
 
-    private String destination(String repositoryKey) {
-        var repository = repositoryKey == null ? null : repositories.repositories().get(repositoryKey);
+    /** "mgr-applications → owner/mgr-applications · master", or only the name when no delivery is set. */
+    private String repositoryLine(TaskView view) {
+        var name = repository(view);
+        var repository = view.destinationRepository() == null ? null
+                : repositories.repositories().get(view.destinationRepository());
         var target = repository == null ? null : repository.delivery();
-        return target == null || target.repository() == null ? null
-                : target.repository() + " · base " + target.baseBranch();
+        return name == null || target == null || target.repository() == null ? name
+                : name + " → " + target.repository() + " · " + target.baseBranch();
     }
 }
