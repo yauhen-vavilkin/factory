@@ -201,13 +201,12 @@ curl --fail http://localhost:8080/actuator/health
 Wait for Factory to become healthy (`status: UP`); `coding-runtime` should have
 exited with code 0. Health confirms application/database startup, not that a task
 can run. Open <http://localhost:8080/developer/configuration> to check the effective
-configuration and an issue key before triggering. Then open
-<http://localhost:8080/flows/dev-factory>, choose **Trigger flow**, and submit an
-issue such as `{"issueKey":"MODSIDECAR-196"}`.
-Use an issue that still requires a change on your chosen base. Set a unique dedup
-key for each intentional run. With a new empty database, starting the stack or
-loading the UI makes no coding-model call. Existing queued executions can resume
-on startup; triggering coding can incur API charges and publish a PR.
+configuration and an issue key before a run. Then open
+<http://localhost:8080/flows/dev-factory> (My tasks), press **Scan Jira** or add a
+task by its key, select it and press **Run** (see "My tasks" below).
+Use an issue that still requires a change on your chosen base. With a new empty
+database, starting the stack or loading the UI makes no coding-model call. Existing
+queued executions can resume on startup; a run can incur API charges and publish a PR.
 
 To diagnose a failed start, use `docker compose logs --tail=100 factory
 coding-runtime postgres`. Avoid sharing `.env` or unfiltered `docker compose

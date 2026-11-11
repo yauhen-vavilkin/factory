@@ -232,7 +232,6 @@ Conventions that are easy to violate silently:
 - **Fast loop.** While you iterate on a page, run the console page tests (command above), not
   `mvn verify`; run `mvn verify` once before the commit. When a change breaks a smoke assertion on
   incidental markup, assert the visible text or link instead of copying the new markup.
-- `docs/superpowers/` holds past specs and mockups: history, not instructions.
 
 ## Adding a new flow (the plugin pattern)
 

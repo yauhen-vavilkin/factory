@@ -741,8 +741,7 @@ a.kpi:hover { text-decoration: none; border-color: hsl(var(--strong-border)); }
 .def-list dd { margin: 0; font-variant-numeric: tabular-nums; }
 
 /* ---------- Developer Flow: My tasks, task summary, run ----------
-   Page-scoped so the shared components keep their look elsewhere; sizes follow
-   docs/superpowers/mockups/my-tasks-v3. */
+   Page-scoped so the shared components keep their look elsewhere. */
 /* The page is the container the run page's step cards measure, so the menu counts and the window does not. */
 .dev-page { display: flex; flex-direction: column; gap: 24px; container-type: inline-size; }
 .dev-page form { margin: 0; }

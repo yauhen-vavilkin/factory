@@ -57,9 +57,8 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
   2026-10-31 (Developer Flow cleanup, phase 1). An `.env` that still sets them gets no warning. With
   the Pi runtime and only legacy values, Pi is "not configured" and preflight says so. With a mix
   of `FACTORY_PI_*` values and a leftover `FACTORY_MODEL_BASE_URL`, the Pi base URL is now empty and
-  Pi uses its provider's built-in endpoint with the configured key. The local `.env` still has
-  `FACTORY_MODEL_*` and `FACTORY_DEV_FACTORY_DELIVERY_*` lines (runtime `claude-code`); delete them.
-  Its `FACTORY_PILOT_*` names were renamed to `FACTORY_TASKS_*` on 2026-11-03. An `.env` that still
+  Pi uses its provider's built-in endpoint with the configured key.
+  The `FACTORY_PILOT_*` names were renamed to `FACTORY_TASKS_*` on 2026-10-30. An `.env` that still
   uses the old names gets no warning either: My tasks stays off and Scan Jira finds nobody. The
   README "Configuration" section lists every rename.
 - The same cleanup removed `factory.dev-factory.delivery.targets` and the startup check that
@@ -76,7 +75,7 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
   null and was removed in the cleanup (phase 5).
 - `/executions` runs one `ArtifactStore.getLatest` query per artifact name for each Developer Flow
   row (3 for a delivered run, up to 8 for an unusual one), where it ran one `allForExecution`
-  before (`ExecutionUiController.executionRow`, cleanup phase 6). A batched "latest by names"
+  before (`ExecutionListPage`, through `DeveloperExecutionView.listFacts`). A batched "latest by names"
   query would belong in `factory-core`, which the cleanup did not touch.
 - `TaskOutcomeService.classify` maps any `DELIVERED` delivery to `NEEDS_INSPECTION` ("the
   candidate was delivered without a known pull-request identity"), because `deliveredOutcome`
@@ -85,16 +84,14 @@ Source: GLM runs of MGRAPPS-120 on 2026-10-27.
   `deliveredOutcome` read the delivery before it was written and `classify` reads it after, so the
   attempt is held for one dispatch poll. The next refresh releases it as `PR_READY` through
   `deliveredOutcome`.
-- Types instead of strings in the flow module (audit section 8 of
-  `docs/superpowers/specs/2026-10-30-dev-flow-code-audit.md`, cleanup phase 7) were not started:
-  stop and result states, `IntakeWorker` states and reason codes, `VerificationReceipt.result`,
+- Types instead of strings in the flow module (code audit of 2026-10-30, cleanup phase 7) were not
+  started: stop and result states, `IntakeWorker` states and reason codes, `VerificationReceipt.result`,
   `FeedbackState.failureKind` and the `VerifyWorker` outcome map are still strings. Each change
   needs a round-trip test that keeps today's persisted JSON byte for byte.
 
 ## Left after the test-suite speed pass
 
-Source: test-suite speed pass, 2026-10-31 (audit section 9 in
-`docs/superpowers/specs/2026-10-30-dev-flow-code-audit.md`).
+Source: test-suite speed pass, 2026-10-31.
 
 - factory-app starts 16 Spring contexts, not the five the speed prompt aimed for: 14 classes need
   their own Jira instance, repository catalog or mocked beans. Sharing more would mean new
@@ -108,14 +105,12 @@ Source: reviews of the developer flow fixes (spec in commit 82e0d0d), 2026-10-28
 
 - An empty Acceptance criteria section, or one that says only "None", opens a ready PR. A
   possible draft reason: "The agent listed no acceptance criteria."
-- `FACTORY_CLAUDE_CODE_MAX_TURNS` outside 1 to 500 now stops Factory at startup with a plain
-  message. Before the fixes there was no upper limit.
 - GitHub answers HTTP 422 when a draft PR is asked for in a repository without draft support.
   The delivery then ends as blocked, with no fallback to a ready PR.
 - Factory never reads the draft state back from GitHub. After "Ready for review" on GitHub
   the UI still shows "Draft PR".
-- Hashed `/webjars` URLs (chart.js on the dashboard) get no long `Cache-Control`.
-- `factory-app/src/test/js/poll.test.js` is not run by Maven or CI.
+- The console JS tests (`factory-app/src/test/js/poll.test.js`, `time.test.js`) are not run by
+  Maven or CI.
 - PR feedback round summaries now use the four report headings, and the PR feedback panel on
   the run page shows them flattened into one line.
 - Transcript and activity writes run on the CLI output reader thread. A slow database can
@@ -124,8 +119,6 @@ Source: reviews of the developer flow fixes (spec in commit 82e0d0d), 2026-10-28
 - The transcript page renders every entry of every run in one response.
 
 ## Left after the models file and run form (2026-11-03)
-
-Spec: `docs/superpowers/specs/2026-11-03-models-config-and-run-form.md`.
 
 - **Model per task.** Effort is chosen per task; the model is one per run. A model on each
   row was discussed and left out to keep the table readable.
@@ -153,24 +146,12 @@ Spec: `docs/superpowers/specs/2026-11-03-models-config-and-run-form.md`.
 - **Review findings left.** From the review of af08eb6 on 2026-11-03:
   - Claude Code always gets `--effort`, also for a gateway model whose provider may ignore or
     refuse it. Check with a real CodeMie run before changing it.
-  - `flow-my-tasks.html` compares `row.problem().name()` with the string `'NO_REPOSITORY'`; a
-    boolean on the row would keep enum names out of the template.
-  - `TaskUiController` and `TaskListController` both define `FLOW_PAGE`.
-
-## Seen in the live run of 2026-11-10
-
-- **The agent's question is lost.** The GLM-5.3 run of MGRAPPS-64 (execution `70b3baee`) ended
-  with a `FACTORY_DECISION_REQUIRED` block: the work of the ticket is no longer in
-  mgr-applications, with a question and three options. Factory showed only "Development
-  stopped: Candidate contains no changes" and the step "Clarify implementation" as completed
-  in 0 s. The question is on no page and in no artifact, only at the end of the transcript,
-  and the only action offered is a blind Retry. Not investigated in the code yet: the
-  no-changes check seems to win over the decision request.
+  - `TaskUiController`, `TaskListController` and `TaskPageController` each define `FLOW_PAGE`.
 
 ## Left out of the demo UX work of 2026-11-10
 
-Spec: `docs/superpowers/specs/2026-11-10-demo-ux-requirements.md`. Each item is a cut taken to keep a
-page as on its board.
+Each item is a cut taken to keep a page as on its board (the boards were mockups, removed from the
+repository on 2026-11-11; git history has them under `docs/superpowers`).
 
 - **My tasks.** The fix steps dialog of a task that cannot run is gone; "N cannot run here" shows the
   reason in one line and the task page still has the stored reason. "cost may be higher" and "cost
@@ -252,9 +233,6 @@ The question flow, the in-progress strip and Factory's comment on the pull reque
   address, so My tasks and the task page do not run it; only the Configuration tab probes, and it
   keeps the model under Ready to run with the warning, because the run forms still offer it. A
   cached probe result could reach the forms later.
-- **The README still says to trigger the Developer Flow from its page.** "Wait for Factory to
-  become healthy" ends with "choose **Trigger flow**" on `/flows/dev-factory`, which refuses
-  manual triggers; runs start from My tasks.
 - **Not in this work** (fix list of 2026-11-11), each still as the owner found it:
   - Audit page.
   - Artifacts pages.
@@ -281,3 +259,40 @@ The question flow, the in-progress strip and Factory's comment on the pull reque
 
 - **The step time can read past its limit.** The run card counts Implement changes from the step's start against "of 30 min", but the time per step applies to the first build and to the coding separately (`InitialCodingAttempt`), so a long first build can show, for example, "40 min of 30 min" without a stop.
 - **/executions says "Asked a question" where the task says "Needs your answer".** Both name the same stop: the run list reads the run's state (`RunState.ASKED`), the task pages read the attempt's stop reason.
+
+## Found by the cleanup audit (2026-11-11), not fixed
+
+The cleanup changed no behavior, so these were recorded instead. None was reproduced in a run.
+
+- **The candidate patch is not checked for secrets.** The transcript and tool results pass
+  `CodingRuntime.redact`, but the patch (`CandidateFreezer.freeze`, `FeedbackCodingAttempt.saveEdits`)
+  is stored, shown and pushed as it is. The coding container holds the model secret in a file
+  (`/tmp/factory-claude/environment`, `/tmp/factory-pi/models.json`) and the agent has a shell. Whether
+  the agent can read that file is not checked. Option: refuse a patch that redaction would change.
+- **An escalation of a Developer Flow step leaves no trace in audit and metrics.**
+  `ResumableStepTransactions.fail` writes no `ESCALATED` audit event and calls neither
+  `stepEscalated()` nor `stepRetryScheduled()`, and its `RETRY_SCHEDULED` event has no
+  `backoffSeconds`. `ExecutionEngine` does all of these for a normal step.
+- **GitHub without credentials breaks delivery with the wrong error.** `UnconfiguredConnectors.GitHub`
+  has no `findPullRequests`, so `DeliveryWorker` gets `UnsupportedOperationException`, not
+  `ConnectorNotConfiguredException`.
+- **Null content.** `ArtifactStore.put` guards the size of a null content but then hashes it and
+  fails; `JiraRestConnector.getIssue` does not guard an empty response body.
+- **A bad repository answer loses its error prefix.** `DevArtifactAmendmentValidator.validateRepositoryAnswer`
+  catches `ArtifactFormatException`, but `DecisionArtifacts.parseAnswer` throws
+  `IllegalArgumentException`: the amendment is still refused, without "Amended decision answer is not
+  valid:".
+- **An amendment can write any artifact name.** `HitlDecisionService` does not limit AMEND to the
+  gate's `reviewed_artifacts`. Maybe intended.
+- **The 404 page shows its error in the green toast.** `UiExceptionHandler` puts the text in `message`,
+  which the layout renders as a success alert that goes away by itself.
+- **The Retry scheduled badge has no colour.** `UiFormat.eventTone` returns `warning`, and `app.css`
+  has no `.badge-warning`.
+- **Some POST forms skip the same-origin check.** The task forms call `requireSameOrigin`; the PR
+  feedback forms, `ReviewUiController.decide` and `FlowUiController.trigger` do not.
+- **`ExecutionEngineTest` depends on the real 333 ms heartbeat.** An injectable scheduler would make
+  its lease-loss tests independent of timing; that is a production change.
+- **Pull request and commit text** (from the demo UX findings of 2026-11-10): Factory posts no reply
+  per review comment; the commit author is `Factory <factory@localhost>` and the title "Address PR
+  feedback (round N)" has no task key; "Changed files" repeats "Changes" in the PR text; a file and
+  line in a PR feedback comment is not a link.
