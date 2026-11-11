@@ -122,14 +122,13 @@ html[data-menu="collapsed"] .sidebar-brand strong {
 .sidebar-footer .btn { padding-inline: 8px; }
 .sidebar .btn-ghost:hover { background: hsl(var(--secondary-hover) / 0.6); }
 
-/* Left aligned: with the menu collapsed the content starts at the rail plus the page padding. One content width
-   (1040 px) for every page and its flash messages, so the right edge does not move between pages; wide tables
-   scroll in their own box. */
+/* Centered in the space next to the menu. One content width (1040 px) for every page and its flash messages, so
+   the edges do not move between pages; wide tables scroll in their own box. */
 .main {
   padding: 2rem;
   width: 100%;
   max-width: calc(1040px + 4rem);
-  margin: 0;
+  margin-inline: auto;
 }
 .page-header { margin-bottom: 1.5rem; }
 .page-header h1 { font-size: 1.5rem; line-height: 36px; }
