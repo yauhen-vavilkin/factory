@@ -463,7 +463,7 @@ class UiRenderSmokeTest {
 
         // Jira without sign-in still serves My tasks; the Developer Flow opens on its Definition here.
         assertThat(body).contains("Not configured for Test Factory sync: set FACTORY_CONNECTORS_JIRA_EMAIL",
-                        "FACTORY_CONNECTORS_JIRA_API_TOKEN in .env to turn it on.",
+                        "FACTORY_CONNECTORS_JIRA_API_TOKEN to turn it on.",
                         "My tasks reads Jira with FACTORY_CONNECTORS_JIRA_BASE_URL alone",
                         "href=\"/developer/configuration\">Developer Flow configuration</a>",
                         "href=\"/flows/dev-factory?view=definition\">dev-factory</a>",

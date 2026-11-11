@@ -178,7 +178,7 @@ public class DashboardUiController {
         }
         return "jira".equals(name)
                 ? new ConnectorRow(name, false, "Not configured for Test Factory sync: set"
-                        + " FACTORY_CONNECTORS_JIRA_EMAIL and FACTORY_CONNECTORS_JIRA_API_TOKEN in .env to turn it on."
+                        + " FACTORY_CONNECTORS_JIRA_EMAIL and FACTORY_CONNECTORS_JIRA_API_TOKEN to turn it on."
                         + " My tasks reads Jira with FACTORY_CONNECTORS_JIRA_BASE_URL alone and sees public issues"
                         + " without them.", "/developer/configuration")
                 : new ConnectorRow(name, false,

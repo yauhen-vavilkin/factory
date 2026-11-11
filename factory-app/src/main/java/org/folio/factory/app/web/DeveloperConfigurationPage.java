@@ -148,8 +148,8 @@ public class DeveloperConfigurationPage {
 
     private Fact signIn() {
         return jira.isConfigured()
-                ? new Fact("Jira sign-in", "Factory signs in with FACTORY_CONNECTORS_JIRA_EMAIL and"
-                        + " FACTORY_CONNECTORS_JIRA_API_TOKEN from .env.", null)
+                ? new Fact("Jira sign-in", "Set: Factory reads Jira as the account in FACTORY_CONNECTORS_JIRA_EMAIL"
+                        + " and FACTORY_CONNECTORS_JIRA_API_TOKEN, so it sees the issues that account can see.", null)
                 : new Fact("Jira sign-in", "Not set: Factory reads Jira without signing in, so it sees only public"
                         + " issues. To read other issues, set FACTORY_CONNECTORS_JIRA_EMAIL and"
                         + " FACTORY_CONNECTORS_JIRA_API_TOKEN in .env.", null);

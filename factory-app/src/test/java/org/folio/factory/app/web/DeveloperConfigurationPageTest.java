@@ -178,8 +178,8 @@ class DeveloperConfigurationPageTest {
         assertThat(view.source().facts()).extracting(Fact::name, Fact::text, Fact::variable).containsExactly(
                 tuple("Jira", "jira.example.org", "FACTORY_CONNECTORS_JIRA_BASE_URL"),
                 tuple("Assignee", "Jane", "FACTORY_TASKS_ASSIGNEE"),
-                tuple("Jira sign-in", "Factory signs in with"
-                        + " FACTORY_CONNECTORS_JIRA_EMAIL and FACTORY_CONNECTORS_JIRA_API_TOKEN from .env.", null));
+                tuple("Jira sign-in", "Set: Factory reads Jira as the account in FACTORY_CONNECTORS_JIRA_EMAIL"
+                        + " and FACTORY_CONNECTORS_JIRA_API_TOKEN, so it sees the issues that account can see.", null));
         assertThat(view.source().searchUrl()).isEqualTo("https://jira.example.org/issues/?jql=x");
         assertThat(view.toString()).doesNotContain("jira-secret-token", "github-secret-token");
     }
