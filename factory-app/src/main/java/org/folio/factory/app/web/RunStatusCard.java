@@ -94,6 +94,20 @@ final class RunStatusCard {
                 usage.partial() ? RunUsage.INCOMPLETE : null, in.clock(), action.label(), action.url());
     }
 
+    /**
+     * The developer's turn when the page waits for an answer, a review, a choice of PR comments or the start of
+     * the next attempt; otherwise the page says that Factory works or that nothing is needed.
+     */
+    static DeveloperRunView.Turn turn(Input in, Status status) {
+        var waits = status.actionUrl() != null
+                || in.feedback().map(FeedbackUi.Summary::yourTurn).orElse(false)
+                || in.context().map(RunContext::retryUrl).isPresent();
+        if (waits) {
+            return DeveloperRunView.Turn.YOURS;
+        }
+        return in.live() ? DeveloperRunView.Turn.WORKING : DeveloperRunView.Turn.NONE;
+    }
+
     /** The muted line under the card: where an older attempt stands, or the button to start the next attempt. */
     static DeveloperRunView.Standing standing(Optional<RunContext> context) {
         if (context.isEmpty()) {

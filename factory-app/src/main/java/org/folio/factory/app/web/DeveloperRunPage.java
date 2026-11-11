@@ -61,8 +61,9 @@ class DeveloperRunPage {
         var usage = usage(detail, projection, feedback);
         var input = new RunStatusCard.Input(facts, context, execution, feedback, usage, clock(detail, now), review);
         var repository = context.map(RunContext::repositoryKey).map(taskRows::repositoryLine).orElse(null);
+        var status = RunStatusCard.status(input);
         model.addAttribute("run", new DeveloperRunView(RunStatusCard.header(facts, context, execution, repository),
-                RunStatusCard.status(input), RunStatusCard.standing(context), facts.steps().cards(),
+                status, RunStatusCard.turn(input, status), RunStatusCard.standing(context), facts.steps().cards(),
                 facts.activity(), usage.column(), facts.technical(), links(detail, usage)));
         model.addAttribute("pollUrl", polls(execution, context) ? "/executions/" + detail.id() + "/poll" : null);
         model.addAttribute("pollBaseline", revision(execution, detail.events().size(), detail.artifacts().size(),

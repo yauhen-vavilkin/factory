@@ -75,9 +75,13 @@
         class="status-card-money" th:attr="data-elapsed-start=${clock.start()}" th:text="${clock.time()}">5 min</span>
     <span class="status-card-note" th:if="${clock.limit() != null}" th:text="${clock.limit()}">of 30 min</span></span>
 
-<!-- Activity and Usage of a run; the run page closes them in a disclosure once the run has a PR. -->
+<!-- Activity and Usage of a run: side by side while the run has no PR, then each in its own fold. -->
     <div class="run-columns" th:fragment="runColumns(activity, usage, transcriptUrl)">
-        <section class="dev-list run-activity" aria-labelledby="activity-title">
+        <th:block th:replace="~{fragments/developer-flow :: activity(${activity}, ${transcriptUrl})}"></th:block>
+        <th:block th:replace="~{fragments/developer-flow :: usage(${usage})}"></th:block>
+    </div>
+
+        <section class="dev-list run-activity" aria-labelledby="activity-title" th:fragment="activity(activity, transcriptUrl)">
             <div class="dev-list-head">
                 <h2 class="dev-section-title" id="activity-title">Activity <span class="dev-count"
                         th:text="${activity.total()}">0</span></h2>
@@ -101,7 +105,7 @@
             </div>
             <p class="dev-note" th:if="${activity.notice() != null}" th:text="${activity.notice()}">notice</p>
         </section>
-        <section class="dev-list run-usage" aria-labelledby="usage-title">
+        <section class="dev-list run-usage" aria-labelledby="usage-title" th:fragment="usage(usage)">
             <div class="dev-list-head">
                 <h2 class="dev-section-title" id="usage-title" th:text="${usage.title()}">Usage</h2>
             </div>
@@ -116,6 +120,5 @@
             </dl>
             <p class="dev-note" th:if="${usage.note() != null}" th:text="${usage.note()}">note</p>
         </section>
-    </div>
 </body>
 </html>

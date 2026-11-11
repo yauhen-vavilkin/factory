@@ -673,25 +673,31 @@ class UiRenderSmokeTest {
                         // The start time in UTC for time.js, then what followed; the title has the whole line.
                         "title=\"Nov 10, 18:22 UTC · 6 min · 300 tests passed\">" + timeTag(PageTime.day(Instant.parse("2026-11-10T18:22:00Z")))
                                 + "<span>6 min · 300 tests passed</span></div>",
-                        "<p class=\"feedback-round-summary\">Added minProperties to the items object.</p>",
-                        "<strong>Comments sent to the agent</strong>", "<p>Add minProperties</p>",
-                        "<strong>Agent's report</strong>",
+                        // Each reply of a round names its source: the reviewer, the coding agent, Factory.
+                        "<span class=\"src src-github\">GitHub comment</span>",
+                        "<p class=\"said-quote\">Add minProperties</p>",
+                        "<span class=\"src src-agent\">Coding agent</span>",
                         "<p class=\"feedback-report\">Changes\n• Added minProperties to the items object.\n\n"
                                 + "Assumptions\n• None.</p>", "<p>Checks passed: 300 tests.</p>",
                         "href=\"https://github.com/o/mgr-applications/pull/6#issuecomment-9\">Factory's comment on the PR</a>",
-                        "<summary>Round details</summary>", ">Verify my manual changes</button>",
+                        ">Verify my manual changes</button>",
                         "Runs the checks on commits you pushed to the PR branch yourself. No agent, no cost.",
-                        "<summary>Activity and usage</summary>", "id=\"usage-title\">First implementation</h2>")
+                        "<details class=\"fold\" id=\"fold-activity\">", "<details class=\"fold\" id=\"fold-usage\">",
+                        "id=\"usage-title\">First implementation</h2>",
+                        // New comments wait for a choice, so the card and the list say it is the developer's turn.
+                        "data-turn=\"YOURS\"", "<span class=\"src src-you\">Your turn</span>",
+                        "<span class=\"src src-you\">You decide</span>")
                 // One head line: the round and its commit, then the amount and the chip; the rest under it.
                 .containsPattern("<div class=\"feedback-round\">\\s*<div class=\"feedback-round-head\"><strong>Round 1"
                         + "</strong>[\\s\\S]*?ccccccc</a></div>\\s*<span class=\"row-amount\">\\$0\\.00</span>"
                         + "\\s*<span class=\"chip chip-success\">Published</span>\\s*<div class=\"feedback-round-body\">")
-                .doesNotContain(">Add minProperties</span>", "Work on feedback", "Agent: ", "## ", "inline:1",
+                .doesNotContain(">Add minProperties</span>", "Round details", "feedback-round-summary",
+                        "Work on feedback", "Agent: ", "## ", "inline:1",
                         "BUILD SUCCESS from the checks", "<dt>Models</dt>", "<dt>Runtime</dt>", "<dt>Attempts</dt>",
                         "attempt-cost");
         // One filled button on the page: Fix N comments.
         assertThat(body.split("btn btn-primary", -1)).hasSize(2);
-        assertThat(body).contains(">Round 2</strong>").containsOnlyOnce("<strong>Agent's report</strong>")
+        assertThat(body).contains(">Round 2</strong>").containsOnlyOnce("<div class=\"said said-agent\">")
                 .doesNotContain("Verified changes published to the same PR");
 
         // The transcript names its sections as the page names the work: the implementation, then each round.
@@ -809,12 +815,13 @@ class UiRenderSmokeTest {
                         + "cat &gt; Notes.java &lt;&lt;&#39;EOF&#39;</code>\\s*<span class=\"activity-result\">failed · exit 2</span>")
                 .doesNotContain("Runtime log, oldest first", "Audit events", "Reading", "data-earlier");
         // The usage column and the technical details: closed, the checks that ran, the starting build output.
-        assertThat(body).containsPattern("<details class=\"disclosure\">\\s*<summary>Technical details</summary>")
-                .doesNotContain("<details class=\"disclosure\" open")
+        assertThat(body).containsPattern("<details class=\"fold\" id=\"fold-technical\">\\s*<summary>"
+                        + "<span class=\"fold-title\">Technical details</span>")
+                .doesNotContain("<details class=\"disclosure\" open", "<details class=\"fold\" open")
                 .contains("MODSIDECAR-196", "<code>mvn test</code> · exit code 0", "1 · Prepare task",
                         "2 · Implement changes", "3 · Verify changes", "4 · Create pull request",
                         "<summary>Starting build output</summary>", "Compiling 42 source files", "transfer failed",
-                        "<summary>Artifacts (4)</summary>", "<dl class=\"tech-facts artifact-list\">", ">Audit log</a>", "No usage reported yet.");
+                        "<span class=\"fold-title\">Artifacts</span><span class=\"fold-hint\">4</span>", "<dl class=\"tech-facts artifact-list\">", ">Audit log</a>", "No usage reported yet.");
         assertThat(body).doesNotContain("SOURCE_CONTENT_SENTINEL", "HIDDEN_MESSAGE_SENTINEL",
                 "HIDDEN_REASONING_SENTINEL", "HIDDEN_HEREDOC_SENTINEL", "HIDDEN_STDERR_SENTINEL", "run-stages",
                 "Engine steps", "Execution history", "Now · updates live", "class=\"task-key\"", "class=\"stepper\"",

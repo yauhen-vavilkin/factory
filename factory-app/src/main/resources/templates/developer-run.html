@@ -11,22 +11,28 @@
                     th:href="@{'/tasks/' + ${header.taskId()}}" th:text="${header.key()}">KEY-1</a><span
                     th:if="${header.taskId() == null}" th:text="${header.key()}">KEY-1</span></th:block>
             / <span th:text="${header.crumb()}">Attempt 1</span></nav>
+        <div class="dev-meta" th:if="${header.jiraUrl() != null}">
+            <span class="src src-jira">Jira task</span>
+            <a class="key-link ext-link" th:href="${header.jiraUrl()}" th:text="${header.key()}">KEY-1</a>
+        </div>
         <h1 class="dev-title" th:text="${header.title()}">Task</h1>
-        <div class="dev-meta dev-meta-dots">
-            <a class="key-link ext-link" th:if="${header.jiraUrl() != null}" th:href="${header.jiraUrl()}"
-               th:text="${header.key()}">KEY-1</a>
-            <span th:if="${header.repository() != null}" th:text="${header.repository()}">repository</span>
-            <span th:if="${header.settings() != null}" th:text="${header.settings()}">model · effort</span>
+        <div class="dev-meta" th:if="${header.repository() != null or header.settings() != null}">
+            <span class="src">Factory run</span>
+            <span class="dev-meta-dots"><span th:if="${header.repository() != null}"
+                    th:text="${header.repository()}">repository</span><span th:if="${header.settings() != null}"
+                    th:text="${header.settings()}">model · effort</span></span>
         </div>
     </div>
 
     <p class="dev-poll-notice" role="status" data-poll-notice hidden>This run changed. Copy what you typed or
         selected, then reload the page to see the change.</p>
 
-    <section class="status-card" aria-label="Status">
+    <section class="status-card" aria-label="Status" th:attr="data-turn=${run.turn().name()}">
         <div class="status-card-main">
             <th:block th:replace="~{fragments/developer-flow :: statusChip(${status})}"></th:block>
             <div class="status-card-body">
+                <span class="src" th:classappend="${run.turn().yours()} ? 'src-you'"
+                      th:text="${run.turn().label()}">Your turn</span>
                 <p class="status-card-headline" th:text="${status.headline()}">Implementing changes</p>
                 <p class="status-card-reason" th:if="${status.reason() != null}"><span class="status-card-label" th:text="${status.reasonLabel()}">Reason</span>
                     <span th:text="${status.reason()}">Why the attempt failed.</span></p>
@@ -60,26 +66,42 @@
            th:text="${standing.retryLabel()}">Start attempt 2</a>
     </div>
 
-    <ol class="run-steps" aria-label="Steps">
-        <li class="run-step" th:each="step : ${run.steps()}" th:attr="data-state=${step.tone()}">
-            <span class="run-step-title" th:text="${step.title()}">1 · Prepare task</span>
-            <span class="run-step-state"><span th:text="${step.stateLabel()}">Passed</span><th:block
-                    th:if="${step.detail() != null}"> · <span th:attr="data-elapsed-start=${step.elapsedStart()}"
-                    th:text="${step.detail()}">2 s</span></th:block></span>
-        </li>
-    </ol>
+    <section class="run-part" aria-labelledby="steps-title">
+        <div class="run-part-head"><h2 class="dev-section-title" id="steps-title">Steps</h2><span class="src">Factory</span></div>
+        <ol class="run-steps" aria-label="Steps">
+            <li class="run-step" th:each="step : ${run.steps()}" th:attr="data-state=${step.tone()}">
+                <span class="run-step-title" th:text="${step.title()}">1 · Prepare task</span>
+                <span class="run-step-state"><span th:text="${step.stateLabel()}">Passed</span><th:block
+                        th:if="${step.detail() != null}"> · <span th:attr="data-elapsed-start=${step.elapsedStart()}"
+                        th:text="${step.detail()}">2 s</span></th:block></span>
+            </li>
+        </ol>
+    </section>
 
     <th:block th:if="${feedback != null}"><th:block th:replace="~{fragments/pr-feedback :: feedback}"></th:block></th:block>
 
     <th:block th:if="${feedback == null}"><th:block th:replace="~{fragments/developer-flow :: runColumns(${run.activity()}, ${run.usage()}, ${run.links().transcriptUrl()})}"></th:block></th:block>
 
     <div class="run-disclosures">
-        <details class="disclosure" th:if="${feedback != null}">
-            <summary>Activity and usage</summary>
-            <th:block th:replace="~{fragments/developer-flow :: runColumns(${run.activity()}, ${run.usage()}, ${run.links().transcriptUrl()})}"></th:block>
+        <details class="fold" id="fold-activity" th:if="${feedback != null}">
+            <summary><span class="fold-title">Activity</span><span class="fold-hint"
+                    th:text="${run.activity().total()}">0</span><span class="src src-agent">Coding agent</span></summary>
+            <div class="fold-body">
+                <th:block th:replace="~{fragments/developer-flow :: activity(${run.activity()}, ${run.links().transcriptUrl()})}"></th:block>
+            </div>
         </details>
-        <details class="disclosure" th:with="tech=${run.technical()}, links=${run.links()}">
-            <summary>Technical details</summary>
+        <details class="fold" id="fold-usage" th:if="${feedback != null}">
+            <summary><span class="fold-title">Usage</span><span class="fold-hint"><th:block
+                    th:if="${run.usage().cost() != null}" th:text="${run.usage().cost()}">$0.00</th:block></span><span
+                    class="src">Factory</span></summary>
+            <div class="fold-body">
+                <th:block th:replace="~{fragments/developer-flow :: usage(${run.usage()})}"></th:block>
+            </div>
+        </details>
+        <details class="fold" id="fold-technical" th:with="tech=${run.technical()}, links=${run.links()}">
+            <summary><span class="fold-title">Technical details</span><span class="fold-hint">Checkout, commands
+                and what was delivered</span><span class="src">Factory</span></summary>
+            <div class="fold-body">
             <dl class="tech-facts">
                 <th:block th:if="${tech.checkout() != null}">
                     <dt>Checkout</dt>
@@ -121,24 +143,28 @@
                         Real provider charges may differ.</dd>
                 </th:block>
             </dl>
-            <details class="disclosure" th:if="${tech.buildOutput() != null}">
-                <summary>Starting build output</summary>
-                <pre class="code-block" th:text="${tech.buildOutput()}">output</pre>
-            </details>
-            <div class="run-links">
-                <a th:href="${links.transcriptUrl()}">Transcript</a>
-                <a th:href="${links.auditUrl()}">Audit log</a>
-                <details class="disclosure">
-                    <summary th:text="'Artifacts (' + ${links.artifactCount()} + ')'">Artifacts (0)</summary>
-                    <p class="dev-note" th:if="${#lists.isEmpty(links.artifacts())}">This run has no artifacts.</p>
-                    <dl class="tech-facts artifact-list" th:unless="${#lists.isEmpty(links.artifacts())}">
-                        <th:block th:each="group : ${links.artifacts()}">
-                            <dt th:text="${group.name()}">dev_result.json</dt>
-                            <dd class="artifact-links"><a th:each="version : ${group.versions()}"
-                                    th:href="${version.url()}" th:text="${version.label()}">v1</a></dd>
-                        </th:block>
-                    </dl>
+                <details class="disclosure" th:if="${tech.buildOutput() != null}">
+                    <summary>Starting build output</summary>
+                    <pre class="code-block" th:text="${tech.buildOutput()}">output</pre>
                 </details>
+                <div class="run-links">
+                    <a th:href="${links.transcriptUrl()}">Transcript</a>
+                    <a th:href="${links.auditUrl()}">Audit log</a>
+                </div>
+            </div>
+        </details>
+        <details class="fold" id="fold-artifacts" th:with="links=${run.links()}">
+            <summary><span class="fold-title">Artifacts</span><span class="fold-hint"
+                    th:text="${links.artifactCount()}">0</span><span class="src">Factory</span></summary>
+            <div class="fold-body">
+                <p class="dev-note" th:if="${#lists.isEmpty(links.artifacts())}">This run has no artifacts.</p>
+                <dl class="tech-facts artifact-list" th:unless="${#lists.isEmpty(links.artifacts())}">
+                    <th:block th:each="group : ${links.artifacts()}">
+                        <dt th:text="${group.name()}">dev_result.json</dt>
+                        <dd class="artifact-links"><a th:each="version : ${group.versions()}"
+                                th:href="${version.url()}" th:text="${version.label()}">v1</a></dd>
+                    </th:block>
+                </dl>
             </div>
         </details>
     </div>

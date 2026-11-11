@@ -51,7 +51,7 @@ public class FeedbackUi {
         var feedback = feedback(view, FeedbackRows.newComments(view.snapshot(), history.processed()), rounds);
         model.addAttribute("feedback", feedback);
         var waiting = phase == FeedbackState.Phase.READY || phase == FeedbackState.Phase.INIT;
-        return Optional.of(new Summary(feedback.phase(), waiting, !rounds.isEmpty()));
+        return Optional.of(new Summary(feedback.phase(), waiting, !rounds.isEmpty(), feedback.yourTurn()));
     }
 
     /** The rounds the agent worked on the run, with their titles on the run page; empty without PR feedback. */
@@ -65,9 +65,9 @@ public class FeedbackUi {
     /**
      * What the status card says about PR feedback: the phase in words, whether it waits for new comments or is
      * still getting ready to (the card then names the pull request), and whether rounds ran, so the amount is the
-     * total.
+     * total; {@code yourTurn} says that a question or new PR comments wait for the developer.
      */
-    public record Summary(String headline, boolean waiting, boolean rounds) {
+    public record Summary(String headline, boolean waiting, boolean rounds, boolean yourTurn) {
     }
 
     /**
@@ -77,6 +77,11 @@ public class FeedbackUi {
     public record Feedback(int version, UUID reviewId, String phase, String reason, boolean refresh, boolean fix,
                            boolean answer, String snapshotId, List<ActionButton> actions,
                            List<FeedbackRows.Comment> comments, List<FeedbackRows.Round> rounds) {
+
+        /** The agent's question or new PR comments wait for the developer. */
+        public boolean yourTurn() {
+            return answer || fix && !comments.isEmpty();
+        }
 
         /** Says how to get new comments when the page offers to check for them. */
         public String emptyNote() {

@@ -20,6 +20,7 @@
   --soft-foreground: 240 5.3% 26.1%; --quiet-foreground: 240 5.2% 33.9%;
   --notice: 33.3 100% 96.5%;      --notice-border: 30.8 79.2% 81.2%;
   --notice-foreground: 15.3 74.6% 27.8%; --notice-accent: 17.5 88.3% 40.4%;
+  --agent: 262 60% 45%;            --agent-background: 262 60% 97.5%;
 }
 html[data-theme="dark"] {
   --background: 240 10% 3.9%;      --foreground: 0 0% 98%;
@@ -41,4 +42,5 @@ html[data-theme="dark"] {
   --soft-foreground: 240 5% 84%;   --quiet-foreground: 240 5% 72%;
   --notice: 22 55% 10%;            --notice-border: 25 55% 30%;
   --notice-foreground: 30 90% 78%; --notice-accent: 25 85% 55%;
+  --agent: 262 80% 78%;            --agent-background: 262 30% 11%;
 }

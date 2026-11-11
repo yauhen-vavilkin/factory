@@ -6,7 +6,8 @@
   <p class="feedback-reason" th:if="${feedback.reason() != null}" th:text="${feedback.reason()}"></p>
 
   <section class="dev-list" aria-labelledby="comments-title" th:if="${feedback.fix() or feedback.refresh()}"
-           th:with="count=${#lists.size(feedback.comments())}">
+           th:with="count=${#lists.size(feedback.comments())}"
+           th:classappend="${feedback.fix() and count > 0} ? 'your-part'">
     <div class="dev-list-head">
       <h3 class="dev-section-title" id="comments-title">New PR comments <span class="dev-count" th:text="${count}">1</span></h3>
       <form class="dev-list-tools" th:if="${feedback.refresh()}" method="post"
@@ -28,6 +29,7 @@
         <input type="checkbox" class="task-check" name="selectedIds" th:id="'comment-' + ${state.index}"
                th:value="${comment.id()}" th:attr="aria-labelledby='comment-' + ${state.index} + '-text'" checked>
         <span class="dev-row-main">
+          <span class="src src-github">GitHub comment</span>
           <span class="feedback-comment-body" th:id="'comment-' + ${state.index} + '-text'"
                 th:text="${comment.body()}">Comment</span>
           <span class="dev-row-meta"
@@ -42,11 +44,12 @@
                 th:class="${feedback.answer()} ? 'btn btn-secondary btn-sm' : 'btn btn-primary btn-sm'"
                 th:text="'Fix ' + ${count} + (${count == 1} ? ' comment' : ' comments')">Fix 1 comment</button>
         <span class="dev-form-note">Starts a new round and adds to the cost.</span>
+        <span class="src src-you">You decide</span>
       </div>
     </form>
   </section>
 
-  <section class="dev-section" aria-labelledby="feedback-answer-title" th:if="${feedback.answer()}">
+  <section class="dev-section your-part" aria-labelledby="feedback-answer-title" th:if="${feedback.answer()}">
     <h3 class="dev-section-head" id="feedback-answer-title">The agent's question</h3>
     <form class="dev-form" method="post" th:action="@{'/executions/'+${execution.id}+'/pr-feedback/actions'}">
       <input type="hidden" name="reviewId" th:value="${feedback.reviewId()}">
@@ -76,25 +79,27 @@
           <div class="dev-row-meta dev-row-meta-dots" th:if="${round.metaTitle() != null}"
                th:title="${round.metaTitle()}"><time th:replace="~{fragments/components :: pageTime(${round.started()})}"></time><span
                   th:if="${round.meta() != null}" th:text="${round.meta()}">6 min · 300 tests passed</span></div>
-          <p class="feedback-round-summary" th:if="${round.summary() != null}" th:text="${round.summary()}">Added
-            minProperties to the items object.</p>
-          <p class="feedback-reason" th:if="${round.reason() != null}" th:text="${round.reason()}">reason</p>
-          <a class="ext-link feedback-round-link" th:if="${round.commentUrl() != null}" th:href="${round.commentUrl()}">Factory's comment on the PR</a>
-          <details class="disclosure feedback-round-details"
-                   th:if="${!#lists.isEmpty(round.selected()) or round.report() != null or round.checks() != null}">
-            <summary>Round details</summary>
-            <div class="feedback-detail" th:unless="${#lists.isEmpty(round.selected())}">
-              <strong>Comments sent to the agent</strong>
-              <div class="feedback-selected" th:each="item : ${round.selected()}"><span class="feedback-author"
-                      th:text="${item.author()}">reviewer</span>
-                <p th:text="${item.body()}">Comment</p></div>
+          <div class="said" th:each="item : ${round.selected()}">
+            <span class="src src-github">GitHub comment</span>
+            <div class="said-lines"><p class="said-quote" th:text="${item.body()}">Comment</p>
+              <span class="feedback-author" th:text="${item.author()}">reviewer</span></div>
+          </div>
+          <div class="said said-agent" th:if="${round.report() != null}">
+            <span class="src src-agent">Coding agent</span>
+            <p class="feedback-report" th:text="${round.report()}">Changes</p>
+          </div>
+          <div class="said" th:if="${(round.report() == null and round.summary() != null) or round.reason() != null or round.checks() != null or round.commentUrl() != null}">
+            <span class="src">Factory</span>
+            <div class="said-lines">
+              <p class="feedback-round-summary" th:if="${round.report() == null and round.summary() != null}"
+                 th:text="${round.summary()}">No file changed.</p>
+              <p class="feedback-reason" th:if="${round.reason() != null}" th:text="${round.reason()}">reason</p>
+              <p th:if="${round.checks() != null}" th:text="${round.checks()}">Checks passed: 300 tests.</p>
+              <a class="ext-link feedback-round-link" th:if="${round.commentUrl() != null}" th:href="${round.commentUrl()}">Factory's comment on the PR</a>
+              <pre class="feedback-diagnostics" th:if="${round.checksOutput() != null}"
+                   th:text="${round.checksOutput()}">output</pre>
             </div>
-            <div class="feedback-detail" th:if="${round.report() != null}"><strong>Agent's report</strong>
-              <p class="feedback-report" th:text="${round.report()}">Changes</p></div>
-            <p th:if="${round.checks() != null}" th:text="${round.checks()}">Checks passed: 300 tests.</p>
-            <pre class="feedback-diagnostics" th:if="${round.checksOutput() != null}"
-                 th:text="${round.checksOutput()}">output</pre>
-          </details>
+          </div>
         </div>
       </div>
     </div>

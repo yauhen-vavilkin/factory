@@ -327,7 +327,8 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
   background: hsl(var(--secondary-hover));
 }
 .disclosure > summary::-webkit-details-marker { display: none; }
-.disclosure > summary::before {
+.disclosure > summary::before,
+.fold > summary::before {
   content: "";
   flex: none;
   display: block;
@@ -338,7 +339,8 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
   transition: transform 150ms ease;
 }
-.disclosure[open] > summary::before { transform: rotate(90deg); }
+.disclosure[open] > summary::before,
+.fold[open] > summary::before { transform: rotate(90deg); }
 /* The content box of an open details element; browsers without ::details-content show it unboxed. */
 .disclosure[open]::details-content {
   margin-top: 6px;
@@ -906,11 +908,26 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .activity-row[data-tone="live"] .activity-verb { font-weight: 600; }
 .activity-row[data-tone="live"] .activity-result { color: hsl(var(--info)); font-weight: 600; }
 .activity-row[data-tone="failed"] .activity-result { color: hsl(var(--destructive)); }
-/* The closed disclosures sit in one row; an opened one takes the full width, and long output scrolls in its
-   own box instead of widening the page. */
-.run-disclosures { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 14px; }
-.run-disclosures > * { min-width: 0; max-width: 100%; }
-.run-disclosures > [open] { flex-basis: 100%; }
+/* Folds: one list of full-width rows. The title row never moves; the content opens under it, and long output
+   scrolls in its own box instead of widening the page. */
+.run-disclosures { border: 1px solid hsl(var(--border)); border-radius: 8px; }
+.fold + .fold { border-top: 1px solid hsl(var(--border)); }
+.fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 16px;
+  list-style: none;
+  cursor: pointer;
+}
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { color: hsl(var(--muted-foreground)); }
+.fold > summary:hover .fold-title { text-decoration: underline; }
+.fold-title { font-weight: 600; }
+.fold-hint { flex: 1 1 0; min-width: 0; font-size: 13px; color: hsl(var(--muted-foreground)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fold-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 2px 16px 16px 39px; }
+.fold-body .run-activity .dev-section-title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+@media (max-width: 560px) { .fold-body { padding-left: 16px; } }
 .tech-facts {
   display: grid;
   grid-template-columns: 140px minmax(0, 1fr);
@@ -926,7 +943,6 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .artifact-links { display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .run-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; min-width: 0; font-size: 13px; }
 .run-links > a { text-decoration: underline; }
-.run-links > [open] { flex-basis: 100%; min-width: 0; }
 .transcript-list { display: flex; flex-direction: column; gap: 14px; margin: 0; padding: 12px 0; list-style: none; }
 .transcript-list > li { display: grid; grid-template-columns: minmax(72px, max-content) minmax(0, 1fr); gap: 12px; }
 .transcript-list time {
@@ -1000,33 +1016,45 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .dev-row.feedback-comment .task-check { top: 0; }
 .feedback-comment-body { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 .feedback-location { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-/* Rounds: one grid for all rounds, so the amounts and the chips stand in straight columns and each chip ends at
-   the right edge; what the round did takes the full width under its head line. */
-.feedback-rounds { display: grid; grid-template-columns: minmax(0, 1fr) 88px 150px; column-gap: 12px; }
+/* Rounds: one card per round. All cards share one grid, so the amounts and the chips stand in straight columns;
+   under the head line each reply says who it comes from: the reviewer on GitHub, the coding agent, Factory. */
+.feedback-rounds { display: grid; grid-template-columns: minmax(0, 1fr) 88px auto; column-gap: 12px; row-gap: 10px; padding-top: 12px; }
 .feedback-round {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   grid-template-columns: subgrid;
   align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px solid hsl(var(--border));
+  padding: 12px 16px 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  overflow: hidden;
 }
 .feedback-round > .row-amount { grid-column: 2; }
-.feedback-round > .chip { grid-column: 3; justify-self: start; }
-.feedback-round-body { grid-column: 1 / -1; min-width: 0; }
+.feedback-round > .chip { grid-column: 3; justify-self: end; }
+.feedback-round-body { grid-column: 1 / -1; min-width: 0; padding-bottom: 12px; }
+.feedback-round-body > .said:first-of-type { margin-top: 12px; }
+.feedback-round-body > .said:last-child { margin-bottom: -12px; }
 .feedback-round-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
-.feedback-round-summary { margin-top: 8px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.feedback-round-link { display: inline-flex; margin-top: 6px; font-size: 12px; }
-/* The disclosure spans the row; the text in it keeps a readable width. */
-.feedback-round-details { margin-top: 8px; font-size: 13px; }
-.feedback-round-details[open] { display: flex; flex-direction: column; }
-.feedback-round-details > :not(summary) { max-width: 80ch; }
-.feedback-round-details > summary { align-self: flex-start; }
-.feedback-detail { display: flex; flex-direction: column; gap: 6px; }
+.feedback-round-summary { white-space: pre-wrap; overflow-wrap: anywhere; }
+.feedback-round-link { display: inline-flex; align-self: flex-start; }
+.said {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 4px 16px;
+  margin: 0 -16px;
+  padding: 12px 16px;
+  border-top: 1px solid hsl(var(--border));
+  font-size: 13px;
+}
+.said > .src { align-self: start; padding-top: 3px; }
+.said-agent { background: hsl(var(--agent-background)); }
+.said-agent .feedback-report { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.6; }
+.said-lines { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.said-quote { padding-left: 10px; border-left: 2px solid hsl(var(--strong-border)); white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .said { grid-template-columns: minmax(0, 1fr); } }
 .feedback-author { font-size: 12px; color: hsl(var(--muted-foreground)); }
-.feedback-selected p,
-.feedback-report { white-space: pre-wrap; overflow-wrap: anywhere; margin: .25rem 0 0; }
+.feedback-report { white-space: pre-wrap; overflow-wrap: anywhere; }
 .feedback-sha { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
 .feedback-actions { display: flex; flex-direction: column; gap: 10px; }
 .feedback-actions form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; }
@@ -1218,6 +1246,34 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .status-card-note { font-size: 13px; color: hsl(var(--muted-foreground)); }
 .status-card-reasons { margin-top: 4px; font-size: 13px; }
 .status-card-reasons ul { padding-left: 20px; }
+.status-card[data-turn="YOURS"],
+.your-part {
+  border: 1px solid hsl(var(--notice-border));
+  border-left: 4px solid hsl(var(--notice-accent));
+  border-radius: 8px;
+}
+.status-card[data-turn="YOURS"] { background: hsl(var(--notice)); }
+.your-part { padding: 14px 16px; }
+/* Source tag: says who a block comes from. Jira and GitHub are outside Factory, the coding agent writes its own
+   text, and "you" marks what waits for the developer. A tag without a tone is Factory itself. */
+.src {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: hsl(var(--muted-foreground));
+}
+.src::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 2px; background: currentColor; }
+.src-jira, .src-github { color: hsl(var(--info)); }
+.src-agent { color: hsl(var(--agent)); }
+.src-you { color: hsl(var(--notice-accent)); }
+.run-part { display: flex; flex-direction: column; gap: 10px; }
+.run-part-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
 .dev-section { display: flex; flex-direction: column; gap: 14px; }
 .dev-section-head {
   padding-bottom: 10px;
