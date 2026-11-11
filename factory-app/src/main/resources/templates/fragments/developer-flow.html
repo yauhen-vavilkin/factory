@@ -81,7 +81,7 @@
             <div class="dev-list-head">
                 <h2 class="dev-section-title" id="activity-title">Activity <span class="dev-count"
                         th:text="${activity.total()}">0</span></h2>
-                <a class="dev-list-tools" th:href="${transcriptUrl}">Full transcript</a>
+                <a class="dev-list-tools" th:unless="${#lists.isEmpty(activity.rows())}" th:href="${transcriptUrl}">Full transcript</a>
             </div>
             <p class="dev-empty" th:if="${#lists.isEmpty(activity.rows())}">No activity reported yet.</p>
             <div class="activity-row" th:each="row, state : ${activity.rows()}"
