@@ -616,10 +616,10 @@ tbody tr:hover { background: hsl(var(--secondary-hover) / 0.4); }
 .step-sublabel { font-size: 0.8125rem; color: hsl(var(--muted-foreground)); }
 
 /* ---------- kpi ---------- */
+/* The cards of a row stretch to one height, so a card with a second line does not stand out. */
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  align-items: start;
   gap: 1rem;
 }
 .kpi-grid > * { min-width: 0; }
@@ -944,7 +944,9 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1rem;
 }
-.card-grid .card { margin-top: 0; }
+/* The gap spaces the cards of a grid: the margin of stacked cards (.card + .card) would push every card but the
+   first one down, so the cards of one row would not start on one line or have one height. */
+.card-grid .card, .charts-grid .card { margin-top: 0; }
 
 /* version tab buttons */
 .tabs button[role="tab"] { background: transparent; border-top: 0; border-inline: 0; cursor: pointer; }
