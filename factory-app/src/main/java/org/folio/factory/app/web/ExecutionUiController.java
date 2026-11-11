@@ -1,6 +1,8 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.app.EngineRecords;
+import org.folio.factory.app.tasks.persistence.TaskAttempt;
+import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
@@ -34,6 +36,7 @@ import java.util.NoSuchElementException;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.folio.factory.devfactory.DevFactoryConfiguration;
 
 /**
@@ -54,9 +57,11 @@ public class ExecutionUiController {
     private final JsonMapper jsonMapper;
     private final DeveloperExecutionView developerView;
     private final DeveloperRunPage developerRunPage;
+    private final TaskAttemptRepository taskAttempts;
 
     public ExecutionUiController(EngineRecords engine, AuditLog auditLog, HitlReviewRepository reviews,
-                                 JsonMapper jsonMapper, DeveloperRunPage developerRunPage) {
+                                 JsonMapper jsonMapper, DeveloperRunPage developerRunPage,
+                                 TaskAttemptRepository taskAttempts) {
         this.executions = engine.executions();
         this.artifactStore = engine.artifacts();
         this.auditLog = auditLog;
@@ -65,6 +70,7 @@ public class ExecutionUiController {
         this.jsonMapper = jsonMapper;
         this.developerView = new DeveloperExecutionView(jsonMapper);
         this.developerRunPage = developerRunPage;
+        this.taskAttempts = taskAttempts;
     }
 
     @GetMapping("/executions")
@@ -80,7 +86,10 @@ public class ExecutionUiController {
         var selectedStatus = parsedStatus != null ? parsedStatus.name() : "";
         var selectedFlow = flow != null && !flow.isBlank() ? flow : "";
         var result = executions.search(parsedStatus, flow, pageable);
-        model.addAttribute("executions", result.getContent().stream().map(this::executionRow).toList());
+        var attempts = attemptNumbers(result.getContent());
+        var rows = result.getContent().stream().map(execution -> executionRow(execution, attempts)).toList();
+        model.addAttribute("executions", rows);
+        model.addAttribute("showStep", rows.stream().anyMatch(row -> row.step() != null));
         model.addAttribute("page", result);
         model.addAttribute("statuses", ExecutionStatus.values());
         model.addAttribute("flows", flowRegistry.all().stream().map(FlowDescriptor::id).toList());
@@ -143,7 +152,18 @@ public class ExecutionUiController {
         model.addAttribute("pendingReview", pendingReview(execution, detail.id()));
     }
 
-    private ExecutionRow executionRow(PipelineExecution execution) {
+    /** The attempt number of each Developer Flow run on the page, read in one query for the whole page. */
+    private Map<UUID, Integer> attemptNumbers(List<PipelineExecution> page) {
+        var ids = page.stream().filter(execution -> DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId()))
+                .map(PipelineExecution::getId).toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return taskAttempts.findByExecutionIdIn(ids).stream()
+                .collect(Collectors.toMap(TaskAttempt::getExecutionId, TaskAttempt::getOrdinal, (one, other) -> one));
+    }
+
+    private ExecutionRow executionRow(PipelineExecution execution, Map<UUID, Integer> attempts) {
         var idShort = UiFormat.abbreviate(execution.getId().toString());
         var parentId = execution.getParentExecutionId();
         var parentShort = parentId == null ? null : UiFormat.abbreviate(parentId.toString());
@@ -158,9 +178,15 @@ public class ExecutionUiController {
         // step means nothing to the person.
         var facts = developerView.listFacts(execution, name -> artifactStore.getLatest(execution.getId(), name));
         var chip = RunStatusCard.chip(facts.productStatus(), facts.pullRequest());
-        return new ExecutionRow(execution.getId(), facts.taskKey().isBlank() ? idShort : facts.taskKey(),
+        var name = facts.taskKey().isBlank() ? idShort : runName(facts.taskKey(), attempts.get(execution.getId()));
+        return new ExecutionRow(execution.getId(), name,
                 execution.getFlowId(), facts.productStatus(), chip.label(), chip.cssClass(), null, created, updated,
                 parentId, parentShort);
+    }
+
+    /** "MGRENTITLE-229 · attempt 2", so the runs of one task differ; the key alone for a run no attempt started. */
+    private static String runName(String taskKey, Integer attempt) {
+        return attempt == null ? taskKey : taskKey + " · attempt " + attempt;
     }
 
     private List<Map<String, Object>> stepStates(PipelineExecution execution, List<StepDescriptor> chain) {

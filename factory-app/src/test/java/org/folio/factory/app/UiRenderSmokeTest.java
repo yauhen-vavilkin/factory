@@ -365,7 +365,9 @@ class UiRenderSmokeTest {
         var stored = executions.findById(execution.getId()).orElseThrow();
 
         assertThat(assertRendered("/executions?flow=test-factory", "Pipeline runs across all flows, most recent first."))
-                .contains("<td class=\"muted\">" + timeTag(PageTime.timestamp(stored.getCreatedAt())) + "</td>",
+                .contains("<a class=\"table-link\" href=\"/executions/" + execution.getId() + "\">", "<th>Step</th>",
+                        "<td>0</td>",
+                        "<td class=\"muted\">" + timeTag(PageTime.timestamp(stored.getCreatedAt())) + "</td>",
                         "<td class=\"muted\">" + timeTag(PageTime.timestamp(stored.getUpdatedAt())) + "</td>");
     }
 
@@ -1064,11 +1066,16 @@ class UiRenderSmokeTest {
     }
 
     @Test
-    void developerRunsInTheListShowTheirTaskKeyAndStatusInWordsWithoutAStep() {
+    void developerRunsInTheListShowTheirTaskKeyAttemptAndStatusInWordsWithoutAStep() {
+        resetTaskData();
         var question = new PipelineExecution("dev-factory", "0.9.0", "{\"issueKey\":\"MGRAPPS-64\"}");
         question.setStatus(ExecutionStatus.AWAITING_HITL);
         question.setCurrentStepIndex(4);
         question = executions.save(question);
+        var secondAttempt = seedAttempt(seedTask("70064", "MGRAPPS-64", "Asked task", Task.Eligibility.ELIGIBLE,
+                "repository mgr-applications"), 2, TaskAttempt.Kind.RETRY, TaskAttempt.State.RUNNING, null);
+        secondAttempt.setExecutionId(question.getId());
+        taskAttempts.save(secondAttempt);
         artifactStore.putMarkdown(question.getId(), "dev_coding_outcome.json", "{\"status\":\"NEEDS_DECISION\"}",
                 "implement");
         var draft = new PipelineExecution("dev-factory", "0.9.0", "{\"issueKey\":\"MGRAPPS-21\"}");
@@ -1081,11 +1088,11 @@ class UiRenderSmokeTest {
 
         String list = assertRendered("/executions?flow=dev-factory", "Executions");
 
-        assertThat(list).contains("href=\"/executions/" + question.getId() + "\">MGRAPPS-64</a>",
+        assertThat(list).contains("href=\"/executions/" + question.getId() + "\">MGRAPPS-64 · attempt 2</a>",
                         "class=\"chip chip-warning\">Asked a question</span>",
-                        "href=\"/executions/" + draft.getId() + "\">MGRAPPS-21</a>",
+                        "<a class=\"table-link\" href=\"/executions/" + draft.getId() + "\">MGRAPPS-21</a>",
                         "class=\"chip chip-neutral\">Draft PR #412</span>")
-                .doesNotContain(">NEEDS_DECISION<", ">DELIVERED<", "<td>4</td>", "<td>7</td>");
+                .doesNotContain(">NEEDS_DECISION<", ">DELIVERED<", "<th>Step</th>", "<td>4</td>", "<td>7</td>");
     }
 
     @Test

@@ -1,6 +1,7 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.app.developer.CodingTranscriptStore;
+import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.execution.TaskExecutionProperties;
 import org.folio.factory.app.tasks.presentation.RunContext;
 import org.folio.factory.core.domain.AuditEvent;
@@ -45,6 +46,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -78,6 +80,9 @@ class ExecutionUiControllerTest {
     @Mock
     private CodingTranscriptStore transcripts;
 
+    @Mock
+    private TaskAttemptRepository taskAttempts;
+
     @Captor
     private ArgumentCaptor<Pageable> pageableCaptor;
 
@@ -94,7 +99,8 @@ class ExecutionUiControllerTest {
                 new FeedbackUi(mock(org.folio.factory.devfactory.feedback.FeedbackActions.class)), taskQuery,
                 new TaskExecutionProperties(null, false));
         mvc = MockMvcBuilders.standaloneSetup(new ExecutionUiController(
-                        new EngineRecords(executions, artifactStore, flowRegistry), auditLog, reviews, json, runPage),
+                        new EngineRecords(executions, artifactStore, flowRegistry), auditLog, reviews, json, runPage,
+                        taskAttempts),
                         new TranscriptUiController(executions, taskQuery, transcripts))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
@@ -115,6 +121,21 @@ class ExecutionUiControllerTest {
         verify(executions).findAll(pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(20);
         assertThat(pageableCaptor.getValue().getSort().getOrderFor("createdAt")).isNotNull();
+    }
+
+    @Test
+    void executions_engineRowsShowTheirStepAndNeedNoAttemptLookup() throws Exception {
+        when(executions.search(any(), any(), any())).thenCallRealMethod();
+        var execution = new PipelineExecution("test-factory", "1", "{}");
+        execution.setCurrentStepIndex(2);
+        when(executions.findAll(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(execution), PageRequest.of(0, 20), 1));
+
+        mvc.perform(get("/executions"))
+                .andExpect(status().isOk())
+                .andExpect(model().attribute("showStep", true));
+
+        verifyNoInteractions(taskAttempts);
     }
 
     @Test

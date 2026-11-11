@@ -1056,11 +1056,14 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
   line-clamp: 2;
   overflow: hidden;
   overflow-wrap: anywhere;
+}
+/* The link of a list row or a table row looks like a link before the pointer reaches it. */
+.dev-row-title, .table-link {
   text-decoration: underline;
   text-decoration-color: hsl(var(--strong-border));
   text-underline-offset: 3px;
 }
-.dev-row-title:hover { text-decoration-color: currentColor; }
+.dev-row-title:hover, .table-link:hover { text-decoration-color: currentColor; }
 /* One line of inline parts that ends with an ellipsis when the row is narrow; its title has the whole line. The
    templates write the parts without spaces between them, so the margins alone space them. */
 .dev-row-meta {

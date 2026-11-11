@@ -20,6 +20,8 @@ public interface TaskAttemptRepository extends JpaRepository<TaskAttempt, UUID> 
 
     Optional<TaskAttempt> findByExecutionId(UUID executionId);
 
+    List<TaskAttempt> findByExecutionIdIn(Collection<UUID> executionIds);
+
     List<TaskAttempt> findByTaskIdAndStateIn(UUID taskId, Collection<TaskAttempt.State> states);
 
     /** Tasks that were started at least once, the most recently clicked first. */

@@ -37,12 +37,13 @@
         <div class="table-wrap">
             <table>
                 <thead>
-                <tr><th>Execution</th><th>Flow</th><th>Status</th><th>Step</th><th>Created</th><th>Updated</th></tr>
+                <tr><th>Execution</th><th>Flow</th><th>Status</th><th th:if="${showStep}">Step</th><th>Created</th><th>Updated</th>
+                </tr>
                 </thead>
                 <tbody>
                 <tr th:each="e : ${executions}">
                     <td>
-                        <a th:href="@{'/executions/' + ${e.id()}}" th:text="${e.name()}"></a>
+                        <a class="table-link" th:href="@{'/executions/' + ${e.id()}}" th:text="${e.name()}"></a>
                         <div class="muted sub-tag" th:if="${e['parentExecutionId']}">
                             <a th:href="@{'/executions/' + ${e['parentExecutionId']}}"
                                th:text="'↳ sub-flow of ' + ${e['parentShort']}"></a>
@@ -52,7 +53,7 @@
                     <td><span th:if="${e.statusLabel() != null}" th:class="${e.statusClass()}"
                               th:text="${e.statusLabel()}">Failed</span><th:block th:if="${e.statusLabel() == null}"><span
                             th:replace="~{fragments/components :: statusBadge(${e.status()})}"></span></th:block></td>
-                    <td th:text="${e.step()}"></td>
+                    <td th:if="${showStep}" th:text="${e.step()}"></td>
                     <td class="muted"><time th:replace="~{fragments/components :: pageTime(${e.createdAt()})}"></time></td>
                     <td class="muted"><time th:replace="~{fragments/components :: pageTime(${e.updatedAt()})}"></time></td>
                 </tr>
