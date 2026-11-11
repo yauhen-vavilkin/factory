@@ -1145,7 +1145,9 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .feedback-section { display: flex; flex-direction: column; gap: 22px; }
 .feedback-reason { font-size: 13px; }
 .dev-row.feedback-comment { align-items: flex-start; cursor: pointer; }
+.feedback-comment .dev-row-meta { flex-wrap: wrap; white-space: normal; }
 .feedback-comment .task-check { margin-top: 3px; }
+.dev-row.feedback-comment .task-check { top: 0; }
 .feedback-comment-body { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 .feedback-location { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .dev-row.feedback-round { align-items: flex-start; }
@@ -1187,27 +1189,61 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .dev-list-tools [data-poll-notice] { color: hsl(var(--notice-foreground)); }
 .add-key { display: flex; align-items: center; gap: 10px; }
 .add-key-input { width: 280px; }
+/* The right part of a row lines up with the title line, also in rows of two or three lines. On a narrow
+   screen it moves under the title instead of squeezing it. */
 .dev-row {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: baseline;
   gap: 14px 16px;
   padding: 12px 0;
   border-bottom: 1px solid hsl(var(--border));
 }
-.dev-row-main { flex: 1 1 0; min-width: 0; }
-.dev-row-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev-row-main { flex: 1 1 200px; min-width: 0; }
+.dev-row-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--strong-border));
+  text-underline-offset: 3px;
+}
+.dev-row-title:hover { text-decoration-color: currentColor; }
+/* One line: the detail gets the room that is left and ends with an ellipsis; its title has the whole text. */
 .dev-row-meta {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 4px 10px;
+  gap: 10px;
   margin-top: 3px;
+  overflow: hidden;
   font-size: 12px;
+  white-space: nowrap;
   color: hsl(var(--muted-foreground));
 }
-.dev-row-detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev-row-meta > * { flex: none; }
+.dev-row-meta > .dev-row-detail { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dev-row-action { display: flex; justify-content: flex-end; }
-.dev-row .task-check { margin: 0; flex: 0 0 auto; }
+/* The box of a checkbox sits on the baseline; this puts its middle on the middle of the title text. */
+.dev-row .task-check { position: relative; top: 3px; margin: 0; flex: 0 0 auto; }
+/* Amount, chip and button in fixed columns, so they line up from row to row in Runs, Attempts and Rounds.
+   A wider button (Mark as stopped…) widens only its own row. A Ready to run row has its effort choice
+   and, for a task added by key, Remove in the button column. */
+.row-cluster {
+  flex: none;
+  display: grid;
+  grid-template-columns: 88px 150px minmax(96px, auto);
+  align-items: baseline;
+  column-gap: 12px;
+  margin-left: auto;
+}
+.row-cluster > .row-amount { grid-column: 1; }
+.row-cluster > .chip { grid-column: 2; justify-self: start; }
+.row-cluster > .dev-row-action { grid-column: 3; }
+.row-cluster-ready { grid-template-columns: auto 96px; }
+.row-cluster-ready > .run-setting { grid-column: 1; }
+.row-cluster-ready > .dev-row-action { grid-column: 2; }
+.row-amount { justify-self: end; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .key-link {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
@@ -1216,7 +1252,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 }
 .dev-list-foot { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px; padding-top: 12px; }
 .dev-list-foot .run-settings { margin-left: auto; }
-.disclosure-line { margin-top: 8px; font-size: 13px; color: hsl(var(--muted-foreground)); }
+.dev-list-note { flex-basis: 100%; font-size: 13px; color: hsl(var(--muted-foreground)); }
 .dev-empty { padding: 12px 0; font-size: 13px; color: hsl(var(--muted-foreground)); }
 .dev-problem { padding-top: 8px; font-size: 13px; color: hsl(var(--destructive)); }
 /* In progress: one 30 px line while a run works, then its Open run button. */
@@ -1246,7 +1282,7 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
    headline; long text wraps inside the middle column. */
 .status-card {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(12rem, 1fr) auto;
   align-items: baseline;
   gap: 8px 12px;
   padding: 14px 18px;

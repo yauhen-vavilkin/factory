@@ -114,14 +114,17 @@
             <div class="dev-row-main">
                 <div><strong class="attempt-title" th:text="'Attempt ' + ${attempt.ordinal()}">Attempt 1</strong>
                     · <span th:text="${attempt.kind()}">first run</span></div>
-                <div class="dev-row-meta" th:title="${attempt.startedTitle()}" th:text="${attempt.meta()}">glm-5.3 · max</div>
+                <div class="dev-row-meta"><span class="dev-row-detail" th:title="${attempt.meta()}"
+                        th:text="${attempt.meta()}">glm-5.3 · max</span></div>
             </div>
-            <span class="attempt-cost" th:title="${attempt.costNoteTitle()}" th:text="${attempt.costText()}">$0.00</span>
-            <span th:class="${attempt.chipClass()}" th:title="${attempt.result()}" th:text="${attempt.chipLabel()}">Failed</span>
-            <div class="dev-row-action">
-                <a class="btn btn-secondary btn-sm btn-col" th:if="${attempt.executionId() != null}"
-                   th:href="@{'/executions/' + ${attempt.executionId()}}"
-                   th:attr="aria-label='Open run for attempt ' + ${attempt.ordinal()}">Open run</a>
+            <div class="row-cluster">
+                <span class="row-amount" th:title="${attempt.costNoteTitle()}" th:text="${attempt.costText()}">$0.00</span>
+                <span th:class="${attempt.chipClass()}" th:title="${attempt.result()}" th:text="${attempt.chipLabel()}">Failed</span>
+                <div class="dev-row-action">
+                    <a class="btn btn-secondary btn-sm btn-col" th:if="${attempt.executionId() != null}"
+                       th:href="@{'/executions/' + ${attempt.executionId()}}"
+                       th:attr="aria-label='Open run for attempt ' + ${attempt.ordinal()}">Open run</a>
+                </div>
             </div>
         </div>
     </section>

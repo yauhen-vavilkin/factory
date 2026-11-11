@@ -103,7 +103,7 @@ public class TaskRows {
         var label = attemptLabel(attempt);
         var costNote = attemptCostNote(attempt);
         return new AttemptRow(attempt.ordinal(), attemptKind(attempt), attemptMeta(attempt),
-                UiFormat.format(attempt.startedAt()), costLabel(attempt.usage()), costNote, costNoteTitle(costNote),
+                costLabel(attempt.usage()), costNote, costNoteTitle(costNote),
                 costText(costLabel(attempt.usage()), costNote), label, stateClass(label), attemptResult(attempt),
                 attempt.executionId());
     }

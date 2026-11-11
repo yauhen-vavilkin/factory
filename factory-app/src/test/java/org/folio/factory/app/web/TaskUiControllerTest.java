@@ -195,8 +195,9 @@ class TaskUiControllerTest {
                 .containsEntry("chipUrl", null)
                 .containsEntry("detail", "Verification failed: 2 tests failed.")
                 .containsEntry("detailTitle", "Verification failed: 2 tests failed.")
-                .containsEntry("action", RunAction.RETRY)
-                .containsEntry("actionUrl", "/tasks/" + OTHER_TASK_ID + "#retry")
+                // A failed task opens its run, where it says why it failed.
+                .containsEntry("action", RunAction.OPEN_RUN)
+                .containsEntry("actionUrl", "/executions/" + EXECUTION_ID)
                 .containsEntry("markStoppedAttemptId", null);
         assertThat(model.get("inProgress")).isNull();
         var source = (SourceCard) model.get("source");
@@ -231,18 +232,23 @@ class TaskUiControllerTest {
                 taskView(TASK_ID, "MODBAR-901", "Open", TaskView.TaskState.AWAITING_SELECTION, true, false),
                 unsupported(OTHER_TASK_ID, "MODBAR-902", TaskRoutingReason.noRepository("MODBAR")),
                 unsupported(UUID.randomUUID(), "MODBAR-903", TaskRoutingReason.noRepository("MODBAR")),
-                unsupported(UUID.randomUUID(), "MODBAR-904", "Out of scope"))));
+                unsupported(UUID.randomUUID(), "MODBAR-904", "Out of scope"),
+                unsupported(UUID.randomUUID(), "MODBAR-905",
+                        TaskRoutingReason.severalRepositories("MODBAR", List.of("mod-bar", "mod-bar-fork"))))));
 
         Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
 
         assertThat(rows(model, "available")).extracting(row -> row.get("key")).containsExactly("MODBAR-901");
-        assertThat(model).containsEntry("cannotRunCount", 3L);
         assertThat(rows(model, "cannotRun")).extracting(group -> group.get("keys")).containsExactly(
-                List.of("MODBAR-902", "MODBAR-903"), List.of("MODBAR-904"));
+                List.of("MODBAR-902", "MODBAR-903"), List.of("MODBAR-904"), List.of("MODBAR-905"));
         @SuppressWarnings("unchecked")
         var groups = (List<CannotRunGroup>) model.get("cannotRun");
-        assertThat(groups.getFirst().line())
-                .isEqualTo("MODBAR-902, MODBAR-903: no repository is set for the project");
+        assertThat(groups).extracting(CannotRunGroup::line).containsExactly(
+                "2 tasks cannot run here: MODBAR-902, MODBAR-903. Project MODBAR has no repository in"
+                        + " config/developer-repositories.yaml.",
+                "1 task cannot run here: MODBAR-904. Out of scope.",
+                "1 task cannot run here: MODBAR-905. Project MODBAR maps to more than one repository in"
+                        + " config/developer-repositories.yaml.");
     }
 
     @Test

@@ -71,7 +71,7 @@ class TaskListControllerTest {
         mvc.perform(post(FLOW_PAGE + "/add-by-key").param("key", "https://jira.example.org/browse/MODBAR-930"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl(FLOW_PAGE))
-                .andExpect(flash().attribute("message", "MODBAR-930 is in Available now."));
+                .andExpect(flash().attribute("message", "MODBAR-930 is in Ready to run."));
     }
 
     @Test

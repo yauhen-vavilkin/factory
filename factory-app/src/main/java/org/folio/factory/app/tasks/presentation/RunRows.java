@@ -87,6 +87,7 @@ public final class RunRows {
                 "/executions/" + latest.executionId());
     }
 
+    /** A failed task opens its run, where it says why; Retry stays for an attempt that never got a run. */
     private static RunAction action(TaskView view, TaskView.AttemptHistoryEntry latest) {
         if (delivered(view) && latest.executionId() != null) {
             return RunAction.PR_FEEDBACK;
@@ -97,10 +98,10 @@ public final class RunRows {
         if (view.needsAnswer() && view.allowedActions().retry()) {
             return RunAction.ANSWER;
         }
-        if (view.allowedActions().retry()) {
-            return RunAction.RETRY;
+        if (latest.executionId() != null && (working(view) || view.allowedActions().retry())) {
+            return RunAction.OPEN_RUN;
         }
-        return working(view) && latest.executionId() != null ? RunAction.OPEN_RUN : RunAction.NONE;
+        return view.allowedActions().retry() ? RunAction.RETRY : RunAction.NONE;
     }
 
     private static String actionUrl(TaskView view, TaskView.AttemptHistoryEntry latest, RunAction action) {
@@ -128,11 +129,12 @@ public final class RunRows {
 
     private static String cannotRunReason(AvailableRow row) {
         if (row.problem() == TaskRoutingReason.Problem.NO_REPOSITORY) {
-            return "no repository is set for the project";
+            return "Project " + row.projectKey() + " has no repository in " + TaskRoutingReason.CATALOG_FILE + ".";
         }
         if (row.problem() == TaskRoutingReason.Problem.SEVERAL_REPOSITORIES) {
-            return "the project maps to several repositories";
+            return "Project " + row.projectKey() + " maps to more than one repository in "
+                    + TaskRoutingReason.CATALOG_FILE + ".";
         }
-        return row.problemReason() == null ? "not eligible" : AttemptFailure.reason(row.problemReason());
+        return AttemptFailure.reason(row.problemReason());
     }
 }

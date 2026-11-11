@@ -45,7 +45,7 @@ public class TaskListController {
         if (result.problem() != null) {
             return UiFormat.errorRedirect(FLOW_PAGE, result.problem());
         }
-        redirect.addFlashAttribute("message", result.issueKey() + " is in Available now.");
+        redirect.addFlashAttribute("message", result.issueKey() + " is in Ready to run.");
         return "redirect:" + FLOW_PAGE;
     }
 

@@ -978,8 +978,16 @@ class UiRenderSmokeTest {
         seedAttempt(queued, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.RESERVED, null);
         Task stopped = seedTask("70005", "MODBAR-705", "Stopped task",
                 Task.Eligibility.ELIGIBLE, "repository mod-bar");
-        seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
+        PipelineExecution stoppedRun = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        TaskAttempt stoppedAttempt = seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
                 "VERIFICATION_FAILED: 2 tests in error");
+        stoppedAttempt.setExecutionId(stoppedRun.getId());
+        taskAttempts.save(stoppedAttempt);
+        // An attempt that stopped before it got a run has no run page to open.
+        Task notStarted = seedTask("70014", "MODBAR-714", "Stopped before its run",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        seedAttempt(notStarted, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
+                "DEADLINE_EXCEEDED: the attempt waited too long in the queue");
         Task delivered = seedTask("70006", "MODBAR-706", "Delivered task",
                 Task.Eligibility.ELIGIBLE, "repository mod-bar");
         TaskAttempt ready = seedAttempt(delivered, 1, TaskAttempt.Kind.INITIAL,
@@ -1047,10 +1055,15 @@ class UiRenderSmokeTest {
                 .contains("data-run-selected disabled>Run</button>")
                 .doesNotContain("data-status-chip", "task-grid", "data-select-all", "Select MODBAR-702",
                         "Add to list", "Not in your list?", "added by key", "fix-dialog");
-        // Tasks that cannot run: a closed disclosure with one line per reason.
+        // Tasks that cannot run: one muted line per reason under the list, no disclosure.
         assertThat(readyList)
-                .containsPattern("<details class=\"disclosure\">\\s*<summary>1 cannot run here</summary>\\s*"
-                        + "<p class=\"disclosure-line\">MODBAR-702: no repository is set for the project</p>");
+                .contains("<p class=\"dev-list-note\">1 task cannot run here: MODBAR-702. Project MODBAR has no"
+                        + " repository in config/developer-repositories.yaml.</p>")
+                .doesNotContain("cannot run here</summary>");
+        // The effort choice and Remove sit in the fixed columns of the row; the effort says what it means.
+        assertThat(readyList)
+                .containsPattern("<div class=\"row-cluster row-cluster-ready\">\\s*<div class=\"run-setting\"\\s+"
+                        + "title=\"Effort is how long the model thinks at each step: higher is slower and costs more.\">");
         // Run: one Model for the run, the ready models only, each with its levels for the page script.
         String run = body.substring(body.indexOf("action=\"/tasks/run-selected\""), body.indexOf("data-run-selected"));
         assertThat(run).contains("<span>Model</span>", "name=\"modelId\"", "data-model-select")
@@ -1068,7 +1081,7 @@ class UiRenderSmokeTest {
                         + "\" value=\"xhigh\">\\s*<span>xhigh</span>")
                 .doesNotContain("name=\"effort-" + unsupported.getId() + "\"");
         // A task added by key and not run yet can leave the list again.
-        assertThat(readyList).containsPattern("<button type=\"submit\" class=\"btn btn-secondary btn-sm\"\\s+"
+        assertThat(readyList).containsPattern("<button type=\"submit\" class=\"btn btn-secondary btn-sm btn-col\"\\s+"
                 + "formaction=\"/tasks/" + added.getId() + "/remove-from-list\"");
         // Runs: title, key, cost and age, a chip, and one action per row.
         String triggered = body.substring(body.indexOf("id=\"triggered-title\""));
@@ -1082,12 +1095,19 @@ class UiRenderSmokeTest {
                         + ">Draft PR #8</a>")
                 .containsPattern("<a class=\"dev-row-title\" href=\"/tasks/" + stopped.getId()
                         + "\"\\s+title=\"Stopped task\">Stopped task</a>")
-                .containsPattern("<a class=\"btn btn-secondary btn-sm btn-col\" href=\"/tasks/" + stopped.getId()
-                        + "#retry\"\\s+aria-label=\"Retry MODBAR-705\">Retry</a>")
+                // A failed task opens its run; one that never got a run offers Retry.
+                .containsPattern("<a class=\"btn btn-secondary btn-sm btn-col\" href=\"/executions/" + stoppedRun.getId()
+                        + "\"\\s+aria-label=\"Open run MODBAR-705\">Open run</a>")
+                .containsPattern("<a class=\"btn btn-secondary btn-sm btn-col\" href=\"/tasks/" + notStarted.getId()
+                        + "#retry\"\\s+aria-label=\"Retry MODBAR-714\">Retry</a>")
+                .doesNotContain("aria-label=\"Retry MODBAR-705\"")
+                // Amount, chip and button are the fixed columns of the row.
+                .containsPattern("<div class=\"row-cluster\">\\s*<span class=\"row-amount\"[^>]*>[^<]*</span>\\s*"
+                        + "<span class=\"chip chip-danger\">Failed</span>")
                 .containsPattern("href=\"/executions/" + liveExecution.getId() + "\"\\s+aria-label=\"Open run MODBAR-709\">Open run</a>")
                 .containsPattern("<form method=\"post\"\\s+action=\"/tasks/" + held.getId()
                         + "/attempts/[0-9a-f-]+/mark-stopped\">\\s*<input type=\"hidden\" name=\"returnTo\" value=\"flow\">"
-                        + "\\s*<button type=\"submit\" class=\"btn btn-secondary btn-sm btn-col\"[^>]*aria-label=\"Mark as stopped: MODBAR-707\"")
+                        + "\\s*<button type=\"submit\" class=\"btn btn-secondary btn-sm\"[^>]*aria-label=\"Mark as stopped: MODBAR-707\"")
                 .contains("Queue is waiting.", "MODBAR-707 needs inspection", "data-confirm-title=\"Mark MODBAR-707 as stopped?\"",
                         "The task becomes Failed, its cost so far stays")
                 .contains("Queued tasks are not starting.", "FACTORY_TASKS_EXECUTION_ENABLED=true")
@@ -1128,8 +1148,8 @@ class UiRenderSmokeTest {
         String body = assertRendered("/flows/dev-factory", "Ready to run");
         assertThat(body)
                 .containsPattern("Ready to run <span class=\"dev-count\"\\s*>0</span>")
-                .contains("<summary>3 cannot run here</summary>",
-                        "MODBAR-711, MODBAR-712, MODBAR-713: no repository is set for the project")
+                .contains("3 tasks cannot run here: MODBAR-711, MODBAR-712, MODBAR-713. Project MODBAR has no"
+                        + " repository in config/developer-repositories.yaml.")
                 .contains("data-run-selected disabled>Run</button>");
     }
 
@@ -1302,14 +1322,14 @@ class UiRenderSmokeTest {
         // Why the amount may be too low is the title of the amount.
         assertThat(partialBody).containsPattern("<span class=\"status-card-money\" title=\"Incomplete: some usage has"
                 + " no reported tokens or rate yet. Cost per attempt is in Attempts.\">\\$[0-9.]+</span>");
-        String costNote = "<span class=\"attempt-cost\"\\s+title=\"Some usage was not reported by the runtime or has no"
+        String costNote = "<span class=\"row-amount\"\\s+title=\"Some usage was not reported by the runtime or has no"
                 + " price, so the real cost may be higher.\">\\$[0-9.]+</span>";
         assertThat(partialBody.substring(partialBody.indexOf("id=\"attempts-title\"")))
                 .containsPattern(costNote).doesNotContain(">incomplete<");
         String partialList = assertRendered("/flows/dev-factory", "Ready to run");
         assertThat(partialList.substring(partialList.indexOf("id=\"triggered-title\"")))
-                .containsPattern("<span title=\"Some usage was not reported by the runtime or has no price, so the"
-                        + " real cost may be higher.\">\\$[0-9.]+</span>")
+                .containsPattern("<span class=\"row-amount\" title=\"Some usage was not reported by the runtime or has"
+                        + " no price, so the real cost may be higher.\">\\$[0-9.]+</span>")
                 .doesNotContain(">incomplete<", ">cost may be higher<");
 
         Task live = seedTask("70023", "MODBAR-723", "Live task",
@@ -1331,7 +1351,7 @@ class UiRenderSmokeTest {
                 .doesNotContain("name=\"expectedVersion\"");
         // A running attempt's cost is "so far", the same as Working in Triggered.
         assertThat(liveBody.substring(liveBody.indexOf("id=\"attempts-title\"")))
-                .containsPattern("<span class=\"attempt-cost\"\\s*>\\$[0-9.]+ so far</span>")
+                .containsPattern("<span class=\"row-amount\"\\s*>\\$[0-9.]+ so far</span>")
                 .doesNotContain("cost may be higher", "cost unknown");
 
         // A paid start that stopped before the runtime reported any usage, for example on a Docker error:
@@ -1345,7 +1365,7 @@ class UiRenderSmokeTest {
         unreportedAttempt.setPaidStartAt(Instant.now());
         taskAttempts.save(unreportedAttempt);
 
-        String unknownCost = "<span class=\"attempt-cost\"\\s+title=\"The runtime did not report usage,"
+        String unknownCost = "<span class=\"row-amount\"\\s+title=\"The runtime did not report usage,"
                 + " or the usage has no price, so the cost is not known.\">cost unknown</span>";
         String unreportedBody = assertRendered("/tasks/" + unreported.getId(), "Failed");
         assertThat(unreportedBody.substring(unreportedBody.indexOf("id=\"attempts-title\"")))

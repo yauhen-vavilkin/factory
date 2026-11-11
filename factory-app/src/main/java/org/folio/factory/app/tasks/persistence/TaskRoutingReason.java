@@ -16,8 +16,9 @@ import java.util.Optional;
 public final class TaskRoutingReason {
 
     public static final String ELIGIBLE_PREFIX = "repository ";
-    private static final String NO_REPOSITORY = " is not configured: no repository for it in"
-            + " config/developer-repositories.yaml";
+    /** The file that maps Jira projects to repositories. */
+    public static final String CATALOG_FILE = "config/developer-repositories.yaml";
+    private static final String NO_REPOSITORY = " is not configured: no repository for it in " + CATALOG_FILE;
     private static final String SEVERAL_REPOSITORIES = " maps to several repositories: ";
 
     /** Why a task cannot run: its Jira project has no repository, or several. */

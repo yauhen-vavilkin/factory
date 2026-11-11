@@ -56,15 +56,19 @@
                         <span th:if="${row.repository() != null}" th:text="${row.repository()}">repository</span>
                     </div>
                 </div>
-                <button type="submit" class="btn btn-secondary btn-sm" th:if="${row.addedByKey()}"
-                        th:formaction="@{'/tasks/' + ${row.taskId()} + '/remove-from-list'}" formnovalidate
-                        th:attr="aria-label='Remove ' + ${row.key()} + ' from your list'">Remove</button>
-                <div class="run-setting" th:if="${runForm != null and runForm.selected() != null}"
-                     th:title="${runForm.effortHint()}">
-                    <span>Effort</span>
-                    <th:block th:insert="~{fragments/developer-flow :: effortChoice(${runForm.selected()},
-                            ${runForm.selected().defaultEffort()}, 'effort-' + ${row.taskId()},
-                            'Effort for ' + ${row.key()}, true)}"></th:block>
+                <div class="row-cluster row-cluster-ready">
+                    <div class="run-setting" th:if="${runForm != null and runForm.selected() != null}"
+                         th:title="${runForm.effortHint()}">
+                        <span>Effort</span>
+                        <th:block th:insert="~{fragments/developer-flow :: effortChoice(${runForm.selected()},
+                                ${runForm.selected().defaultEffort()}, 'effort-' + ${row.taskId()},
+                                'Effort for ' + ${row.key()}, true)}"></th:block>
+                    </div>
+                    <div class="dev-row-action" th:if="${row.addedByKey()}">
+                        <button type="submit" class="btn btn-secondary btn-sm btn-col"
+                                th:formaction="@{'/tasks/' + ${row.taskId()} + '/remove-from-list'}" formnovalidate
+                                th:attr="aria-label='Remove ' + ${row.key()} + ' from your list'">Remove</button>
+                    </div>
                 </div>
             </div>
             <p class="dev-empty" th:if="${#lists.isEmpty(available)}"
@@ -72,10 +76,8 @@
                         : 'No tasks to run.'">No tasks.</p>
 
             <div class="dev-list-foot">
-                <details class="disclosure" th:if="${cannotRunCount > 0}">
-                    <summary th:text="${cannotRunCount} + ' cannot run here'">2 cannot run here</summary>
-                    <p class="disclosure-line" th:each="group : ${cannotRun}" th:text="${group.line()}">KEY-1: reason</p>
-                </details>
+                <p class="dev-list-note" th:each="group : ${cannotRun}" th:text="${group.line()}">
+                    2 tasks cannot run here: KEY-1, KEY-2. Project KEY has no repository.</p>
                 <div class="run-settings">
                     <th:block th:if="${runForm != null}">
                         <th:block th:insert="~{fragments/developer-flow :: modelChoice(${runForm})}"></th:block>
@@ -117,26 +119,28 @@
                    th:text="${row.title()}">Title</a>
                 <div class="dev-row-meta">
                     <a class="key-link ext-link" th:href="${row.jiraUrl()}" th:text="${row.key()}">KEY-1</a>
-                    <span th:if="${row.cost() != null}" th:title="${row.costTitle()}" th:text="${row.cost()}">$0.00</span>
                     <span th:title="${row.whenTitle()}" th:text="${row.when()}">5 min ago</span>
                     <span class="dev-row-detail" th:if="${row.detail() != null}" th:title="${row.detailTitle()}"
                           th:text="${row.detail()}">detail</span>
                 </div>
             </div>
-            <a th:if="${row.chipUrl() != null}" th:class="${row.chipClass()} + ' ext-link'" th:href="${row.chipUrl()}"
-               th:text="${row.chipLabel()}">PR #1</a>
-            <span th:unless="${row.chipUrl() != null}" th:class="${row.chipClass()}" th:text="${row.chipLabel()}">State</span>
-            <div class="dev-row-action">
-                <a class="btn btn-secondary btn-sm btn-col" th:if="${row.actionUrl() != null}" th:href="${row.actionUrl()}"
-                   th:attr="aria-label=${row.action().label()} + ' ' + ${row.key()}" th:text="${row.action().label()}">Open run</a>
-                <form method="post" th:if="${row.markStoppedAttemptId() != null}"
-                      th:action="@{'/tasks/' + ${row.taskId()} + '/attempts/' + ${row.markStoppedAttemptId()} + '/mark-stopped'}">
-                    <input type="hidden" name="returnTo" value="flow">
-                    <button type="submit" class="btn btn-secondary btn-sm btn-col"
-                            th:attr="aria-label='Mark as stopped: ' + ${row.key()}, data-confirm-title='Mark ' + ${row.key()} + ' as stopped?'"
-                            data-confirm-ok="Mark as stopped" data-confirm-style="compact"
-                            data-confirm="Do this only if its run is really over: no factory container is running for it. If it was opening a pull request, check the repository first. The task becomes Failed, its cost so far stays, and the queue starts the next task.">Mark as stopped…</button>
-                </form>
+            <div class="row-cluster">
+                <span class="row-amount" th:title="${row.costTitle()}" th:text="${row.cost()}">$0.00</span>
+                <a th:if="${row.chipUrl() != null}" th:class="${row.chipClass()} + ' ext-link'" th:href="${row.chipUrl()}"
+                   th:text="${row.chipLabel()}">PR #1</a>
+                <span th:unless="${row.chipUrl() != null}" th:class="${row.chipClass()}" th:text="${row.chipLabel()}">State</span>
+                <div class="dev-row-action">
+                    <a class="btn btn-secondary btn-sm btn-col" th:if="${row.actionUrl() != null}" th:href="${row.actionUrl()}"
+                       th:attr="aria-label=${row.action().label()} + ' ' + ${row.key()}" th:text="${row.action().label()}">Open run</a>
+                    <form method="post" th:if="${row.markStoppedAttemptId() != null}"
+                          th:action="@{'/tasks/' + ${row.taskId()} + '/attempts/' + ${row.markStoppedAttemptId()} + '/mark-stopped'}">
+                        <input type="hidden" name="returnTo" value="flow">
+                        <button type="submit" class="btn btn-secondary btn-sm"
+                                th:attr="aria-label='Mark as stopped: ' + ${row.key()}, data-confirm-title='Mark ' + ${row.key()} + ' as stopped?'"
+                                data-confirm-ok="Mark as stopped" data-confirm-style="compact"
+                                data-confirm="Do this only if its run is really over: no factory container is running for it. If it was opening a pull request, check the repository first. The task becomes Failed, its cost so far stays, and the queue starts the next task.">Mark as stopped…</button>
+                    </form>
+                </div>
             </div>
         </div>
         <p class="dev-empty" th:if="${#lists.isEmpty(triggered)}">Nothing has run yet.</p>
