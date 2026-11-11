@@ -31,7 +31,7 @@
                 <p class="status-card-reason" th:if="${status.reason() != null}"><span class="status-card-label" th:text="${status.reasonLabel()}">Reason</span>
                     <span th:text="${status.reason()}">Why the attempt failed.</span></p>
                 <p class="status-card-note" th:if="${status.reasonUrl() != null}"><a class="dev-link"
-                        th:href="@{${status.reasonUrl()}}">Configuration</a></p>
+                        th:href="@{${status.reasonUrl()}}">Limits in Configuration</a></p>
                 <p class="status-card-reason" th:if="${status.question() != null}" th:text="${status.question()}">
                     The agent's question.</p>
                 <p class="status-card-note" th:if="${status.note() != null}" th:text="${status.note()}">

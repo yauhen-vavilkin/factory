@@ -23,8 +23,14 @@ class AttemptFailureTest {
                 + " 30 minutes, so Factory stopped it. Retry with a lower effort or a smaller task, or raise the limit"
                 + " (FACTORY_DEV_FACTORY_TIMEOUT_SECONDS, FACTORY_TASKS_EXECUTION_DEADLINE)."))
                 .isEqualTo("The agent did not finish in 30 minutes, so Factory stopped it. Start a new attempt with"
-                        + " a lower effort or narrower instructions, or raise the time limit (see Configuration).")
+                        + " a lower effort or narrower instructions, or raise the time limit.")
                 .doesNotContain("FACTORY_");
+        // The page links the limits under the reason, so a reason stored with "(see Configuration)" drops it.
+        assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: The agent did not finish in 1 minute, so Factory"
+                + " stopped it. Start a new attempt with a lower effort or narrower instructions, or raise the time"
+                + " limit (see Configuration)."))
+                .isEqualTo(TaskStops.timeLimitReason(1))
+                .doesNotContain("see Configuration");
         assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: Claude Code reached the 200-turn limit before it"
                 + " finished the task. Retry with another model or effort."))
                 .isEqualTo(TaskStops.turnLimitReason(200));

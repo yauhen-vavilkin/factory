@@ -85,7 +85,7 @@ class UiRenderSmokeTest {
             + " FACTORY_DEV_FACTORY_CODING_RUNTIME to pi, and FACTORY_PI_MODEL and the other FACTORY_PI_* settings to"
             + " this model.";
     private static final String LIMITS_LINK = "<p class=\"status-card-note\"><a class=\"dev-link\"\\s+"
-            + "href=\"/developer/configuration#limits\">Configuration</a></p>";
+            + "href=\"/developer/configuration#limits\">Limits in Configuration</a></p>";
 
     @LocalServerPort
     int port;

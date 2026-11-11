@@ -25,7 +25,7 @@
                 <p class="status-card-reason" th:if="${task.reason() != null}"><span class="status-card-label">Reason</span>
                     <span th:text="${task.reason()}">Why the attempt failed.</span></p>
                 <p class="status-card-note" th:if="${task.reasonUrl() != null}"><a class="dev-link"
-                        th:href="@{${task.reasonUrl()}}">Configuration</a></p>
+                        th:href="@{${task.reasonUrl()}}">Limits in Configuration</a></p>
                 <p class="status-card-note" th:if="${task.reasonNote() != null}" th:text="${task.reasonNote()}">
                     No pull request was created.</p>
                 <div th:replace="~{fragments/developer-flow :: draftReasons(${task.draftReasons()})}"></div>

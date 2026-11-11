@@ -259,7 +259,7 @@ class ClaudeCodeCodingRuntimeTest {
         assertThat(timedOut.failure().code()).isEqualTo("TIME_LIMIT");
         assertThat(timedOut.failure().message()).isEqualTo("The agent did not finish in 30 minutes, so Factory"
                 + " stopped it. Start a new attempt with a lower effort or narrower instructions, or raise the time"
-                + " limit (see Configuration).");
+                + " limit.");
 
         when(workload.stream(anyList(), eq(60), any(), any()))
                 .thenReturn(new Processes.Streamed(137, false, true, "", false));

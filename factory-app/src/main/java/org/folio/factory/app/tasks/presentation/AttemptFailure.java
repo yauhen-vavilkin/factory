@@ -26,8 +26,9 @@ public record AttemptFailure(String headline, String reason) {
     private static final List<String> LAYER_PREFIXES =
             List.of("shared: ", "Development stopped: ", "Implementation failed: ");
     private static final Pattern LEADING_STAGE = Pattern.compile("^([A-Za-z][A-Za-z_-]*): (.+)$", Pattern.DOTALL);
-    private static final Pattern OLD_TIME_LIMIT =
-            Pattern.compile("^Claude Code did not finish within the time limit of (\\d+) minutes?\\b");
+    /** The wordings of a time limit that older runs stored, also the one that ended "(see Configuration)". */
+    private static final Pattern OLD_TIME_LIMIT = Pattern.compile("^(?:Claude Code did not finish within the time"
+            + " limit of|" + Pattern.quote(TaskStops.TIME_LIMIT_START.strip()) + ") (\\d+) minutes?\\b");
     /** The wordings of a turn limit that older runs stored, also "limit of 1 turns" before the grammar fix. */
     private static final Pattern OLD_TURN_LIMIT = Pattern.compile("^(?:Claude Code (?:reached the (\\d+)-turn limit"
             + "|used all (\\d+) turns)\\b|The agent reached its limit of (\\d+) turns? before it finished\\.)");

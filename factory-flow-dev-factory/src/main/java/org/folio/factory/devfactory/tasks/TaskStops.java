@@ -36,11 +36,11 @@ public final class TaskStops {
     /** The start of {@link #turnLimitReason}. */
     public static final String TURN_LIMIT_START = "The agent reached its limit of ";
 
-    /** Why a coding attempt stopped when the agent did not finish in time. */
+    /** Why a coding attempt stopped when the agent did not finish in time; the page links the limits under it. */
     public static String timeLimitReason(long minutes) {
         return TIME_LIMIT_START + minutes + (minutes == 1 ? " minute" : " minutes")
                 + ", so Factory stopped it. Start a new attempt with a lower effort or narrower instructions,"
-                + " or raise the time limit (see Configuration).";
+                + " or raise the time limit.";
     }
 
     /** Why a coding attempt stopped when the agent used all of its turns. */
