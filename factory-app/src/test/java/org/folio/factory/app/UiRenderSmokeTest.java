@@ -349,13 +349,23 @@ class UiRenderSmokeTest {
 
     @Test
     void flowDetailRenders() {
-        String body = assertRendered("/flows/test-factory", "Retry policy");
+        String body = assertRendered("/flows/test-factory", "Step retries: up to 2, waiting 30 s, then 2 min.");
         // The trigger-dialog sample <script> block must hold raw (un-escaped) JSON so the
         // sample-fill helper copies valid text into the textarea. The escaped form only
         // appears in the textarea itself, where the browser decodes it back.
         assertThat(body)
                 .contains("type=\"application/json\"")
                 .contains("\"issueKey\"");
+        // One numbered list of steps: agent steps with what they read and write, review steps with their
+        // instructions and the artifacts they show.
+        assertThat(body).contains(">1 · Triage</div>", "Agent step, worker triage-agent",
+                        "the trigger payload → scope_manifest.md", ">3 · QA review: manual test cases</div>",
+                        "Human review", "Reviews test_plan.md, scope_manifest.md",
+                        "Agent step, worker test-automation-agent, framework: karate",
+                        "When /issue/fields/status/name is Ready for QA", "<summary>Descriptor YAML</summary>")
+                .containsPattern("<p class=\"def-step-note\">Review the generated manual test cases")
+                .doesNotContain("class=\"stepper\"", ">Pipeline<", "Retry policy", ">AGENT<", ">HITL_GATE<",
+                        "details-inline");
     }
 
     @Test
@@ -1342,10 +1352,14 @@ class UiRenderSmokeTest {
 
     @Test
     void developerFlowDefinitionTabHasNoJsonTrigger() {
-        String body = assertRendered("/flows/dev-factory?view=definition", "Retry policy");
-        assertThat(body).contains("aria-current=\"page\">Definition</a>", ">Configuration</a>")
-                .doesNotContain("trigger-dialog", "Trigger flow");
-        assertThat(assertRendered("/flows/test-factory", "Retry policy")).contains("Trigger flow");
+        String body = assertRendered("/flows/dev-factory?view=definition", "Steps <span class=\"dev-count\">10</span>");
+        assertThat(body).contains("aria-current=\"page\">Definition</a>", ">Configuration</a>",
+                        ">1 · Read task</div>", ">10 · PR follow up</div>",
+                        "dev_decision_request.md → no artifacts", "no artifacts → dev_pr_state.json, dev_pr_request.json",
+                        "Agent step, worker dev-pr-follow-up, resumable: true",
+                        "Step retries: up to 2, waiting 30 s, then 2 min.")
+                .doesNotContain("trigger-dialog", "Trigger flow", "class=\"stepper\"", "30120300");
+        assertThat(assertRendered("/flows/test-factory", "Steps")).contains("Trigger flow");
     }
 
     @Test

@@ -5,6 +5,7 @@ import lombok.AccessLevel;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.registry.model.StepDescriptor;
+import org.folio.factory.devfactory.DevFactoryConfiguration;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -98,6 +99,12 @@ public final class UiFormat {
         } catch (RuntimeException ignored) {
             return jsonMapper.createObjectNode();
         }
+    }
+
+    /** The Definition of a flow: the Developer Flow page opens on My tasks, so it needs its Definition tab. */
+    static String flowDefinitionUrl(String flowId) {
+        return DevFactoryConfiguration.FLOW_ID.equals(flowId) ? "/flows/" + flowId + "?view=definition"
+                : "/flows/" + flowId;
     }
 
     static String stepLabel(StepDescriptor step) {

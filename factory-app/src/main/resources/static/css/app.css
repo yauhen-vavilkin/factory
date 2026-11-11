@@ -713,7 +713,6 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
    docs/superpowers/mockups/my-tasks-v3. */
 /* One content width for every Developer Flow page, so the right column does not move between pages. */
 .dev-page { display: flex; flex-direction: column; gap: 24px; max-width: 1040px; }
-.dev-page-head { margin-bottom: 24px; }
 .dev-page form { margin: 0; }
 .dev-title, .dev-section-title { line-height: 1.5; letter-spacing: normal; }
 .dev-title { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
@@ -1082,6 +1081,14 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .dev-list-foot .run-settings { margin-left: auto; }
 .dev-list-note { flex-basis: 100%; font-size: 13px; color: hsl(var(--muted-foreground)); }
 .dev-empty { padding: 12px 0; font-size: 13px; color: hsl(var(--muted-foreground)); }
+/* Definition: one numbered list of steps, each with its kind and what it reads and writes. */
+.dev-page > .page-header { margin-bottom: 0; }
+.def-steps { margin: 0; padding: 0; list-style: none; }
+.def-step-title { font-weight: 600; overflow-wrap: anywhere; }
+.def-step-kind { margin-top: 3px; font-size: 12px; color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
+.def-step-data, .def-step-note { margin-top: 6px; font-size: 13px; color: hsl(var(--soft-foreground)); overflow-wrap: anywhere; }
+.def-trigger { font-size: 12px; font-weight: 600; }
+.def-retries { padding-top: 12px; }
 .dev-problem { padding-top: 8px; font-size: 13px; color: hsl(var(--destructive)); }
 /* In progress: one 30 px line while a run works, then its Open run button. */
 .progress-strip { display: flex; align-items: center; gap: 12px; }

@@ -119,31 +119,20 @@ class FlowUiControllerTest {
 
         Map<String, Object> model = (Map<String, Object>) (Map<?, ?>) result.getModelAndView().getModel();
 
-        List<Map<String, Object>> steps = (List<Map<String, Object>>) model.get("steps");
-        assertThat(steps).hasSize(3);
-        assertThat(steps.get(0))
-                .containsEntry("type", "AGENT")
-                .containsEntry("label", "triage-agent")
-                .containsEntry("sublabel", "triage · AGENT")
-                .containsEntry("state", "pending")
-                .containsEntry("workerId", "triage-agent");
-        assertThat(steps.get(1))
-                .containsEntry("type", "HITL_GATE")
-                .containsEntry("label", "QA gate");
-        assertThat((Map<String, Object>) steps.get(1).get("gate")).containsEntry("gateId", "g1");
-        assertThat(steps.get(2))
-                .containsEntry("type", "SUB_FLOW")
-                .containsEntry("label", "Sub-flow: child-flow");
-
-        List<Map<String, Object>> triggers = (List<Map<String, Object>>) model.get("triggers");
-        assertThat(triggers).hasSize(2);
-        assertThat(triggers.get(1))
-                .containsEntry("eventType", "jira.issue.transitioned");
-        assertThat((Map<String, String>) triggers.get(1).get("filters"))
-                .containsEntry("/issue/fields/status/name", "Ready for QA");
-
-        Map<String, Object> retry = (Map<String, Object>) model.get("retryPolicy");
-        assertThat(retry).containsEntry("maxAttempts", 3);
+        var definition = (FlowDefinitionView) model.get("definition");
+        assertThat(definition.steps()).containsExactly(
+                new FlowDefinitionView.Step(1, "Triage", "Agent step, worker triage-agent, framework: karate", null,
+                        null, "the trigger payload → scope_manifest.md", null),
+                new FlowDefinitionView.Step(2, "QA gate", "Human review", null, null, "Reviews test_plan.md",
+                        "review it"),
+                new FlowDefinitionView.Step(3, "Sub", "Sub-flow, runs", "child-flow", "/flows/child-flow",
+                        "Passes test_plan.md as plan.md; gets back out.md as up.md", null));
+        assertThat(definition.triggers()).containsExactly(new FlowDefinitionView.Trigger("manual", "Any payload"),
+                new FlowDefinitionView.Trigger("jira.issue.transitioned",
+                        "When /issue/fields/status/name is Ready for QA"));
+        // Three tries in all: the engine retries after 30 s and 2 min, so the third wait of the policy is unused.
+        assertThat(definition.retries()).isEqualTo("Step retries: up to 2, waiting 30 s, then 2 min."
+                + " After 3 failures of one step, the run waits for a decision in Reviews.");
 
         // Real classpath samples for test-factory are discovered and payload-extracted.
         List<Map<String, Object>> samples = (List<Map<String, Object>>) model.get("samples");
@@ -151,6 +140,17 @@ class FlowUiControllerTest {
         assertThat(samples).allSatisfy(sample ->
                 assertThat(String.valueOf(sample.get("prettyJson"))).contains("issueKey"));
         assertThat(String.valueOf(model.get("defaultPayload"))).contains("issueKey");
+    }
+
+    @Test
+    void retryLineCountsTheTriesTheEngineMakes() {
+        assertThat(FlowDefinitionView.retries(new RetryPolicy(1, List.of(30L))))
+                .isEqualTo("Step retries: none. After 1 failure of one step, the run waits for a decision in Reviews.");
+        // A policy with fewer waits than retries reuses its last wait.
+        assertThat(FlowDefinitionView.retries(new RetryPolicy(4, List.of(10L, 90L))))
+                .startsWith("Step retries: up to 3, waiting 10 s, 1 min, then 1 min.");
+        assertThat(FlowDefinitionView.retries(new RetryPolicy(2, List.of(30L, 120L))))
+                .startsWith("Step retries: up to 1, waiting 30 s.");
     }
 
     // ----- trigger POST -----

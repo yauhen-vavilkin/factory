@@ -10,9 +10,6 @@ import org.folio.factory.core.limits.DailyBudgetExceededException;
 import org.folio.factory.core.registry.FlowRegistry;
 import org.folio.factory.core.registry.FlowValidationException;
 import org.folio.factory.core.registry.model.FlowDescriptor;
-import org.folio.factory.core.registry.model.HitlGateSpec;
-import org.folio.factory.core.registry.model.StepDescriptor;
-import org.folio.factory.core.registry.model.SubFlowSpec;
 import org.folio.factory.core.registry.model.TriggerContract;
 import org.folio.factory.core.repository.FlowRegistryEntryRepository;
 import org.folio.factory.core.trigger.PipelineRouter;
@@ -81,9 +78,7 @@ public class FlowUiController {
 
         List<Map<String, Object>> samples = samplesFor(descriptor.id());
         model.addAttribute("flow", header);
-        model.addAttribute("steps", stepRows(descriptor));
-        model.addAttribute("triggers", triggerRows(descriptor));
-        model.addAttribute("retryPolicy", retryPolicyRow(descriptor));
+        model.addAttribute("definition", FlowDefinitionView.of(descriptor));
         model.addAttribute("rawYaml", rawYaml(descriptor));
         model.addAttribute("samples", samples);
         model.addAttribute("defaultPayload", samples.isEmpty() ? "{}" : samples.get(0).get("prettyJson"));
@@ -137,71 +132,6 @@ public class FlowUiController {
         row.put("stepCount", descriptor.agentChain().size());
         row.put("gateCount", descriptor.gateCount());
         row.put("eventTypes", eventTypes);
-        return row;
-    }
-
-    private List<Map<String, Object>> stepRows(FlowDescriptor descriptor) {
-        List<StepDescriptor> chain = descriptor.agentChain();
-        List<Map<String, Object>> rows = new ArrayList<>(chain.size());
-        for (int i = 0; i < chain.size(); i++) {
-            rows.add(stepRow(i, chain.get(i)));
-        }
-        return rows;
-    }
-
-    private static Map<String, Object> stepRow(int index, StepDescriptor step) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("index", index);
-        row.put("stepId", step.stepId());
-        row.put("type", step.type().name());
-        row.put("label", UiFormat.stepLabel(step));
-        row.put("sublabel", step.stepId() + " · " + step.type());
-        row.put("state", "pending");
-        switch (step.type()) {
-            case AGENT -> {
-                row.put("workerId", step.workerId());
-                row.put("inputs", step.inputs());
-                row.put("outputs", step.outputs());
-                row.put("config", step.config());
-            }
-            case HITL_GATE -> row.put("gate", gateRow(step.gate()));
-            case SUB_FLOW -> row.put("subFlow", subFlowRow(step.subFlow()));
-        }
-        return row;
-    }
-
-    private static Map<String, Object> gateRow(HitlGateSpec gate) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("gateId", gate.gateId());
-        row.put("title", gate.title());
-        row.put("reviewInstructions", gate.reviewInstructions());
-        row.put("reviewedArtifacts", gate.reviewedArtifacts());
-        return row;
-    }
-
-    private static Map<String, Object> subFlowRow(SubFlowSpec subFlow) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("flowId", subFlow.flowId());
-        row.put("inputMapping", subFlow.inputMapping());
-        row.put("outputMapping", subFlow.outputMapping());
-        return row;
-    }
-
-    private List<Map<String, Object>> triggerRows(FlowDescriptor descriptor) {
-        List<Map<String, Object>> rows = new ArrayList<>();
-        for (TriggerContract trigger : descriptor.triggers()) {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("eventType", trigger.eventType());
-            row.put("filters", trigger.filters());
-            rows.add(row);
-        }
-        return rows;
-    }
-
-    private static Map<String, Object> retryPolicyRow(FlowDescriptor descriptor) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("maxAttempts", descriptor.retryPolicy().maxAttempts());
-        row.put("backoffSeconds", descriptor.retryPolicy().backoffSeconds());
         return row;
     }
 
