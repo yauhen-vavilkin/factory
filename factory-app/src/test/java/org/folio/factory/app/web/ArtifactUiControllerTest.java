@@ -1,5 +1,6 @@
 package org.folio.factory.app.web;
 
+import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.registry.FlowRegistry;
@@ -22,6 +23,7 @@ import org.springframework.data.domain.SliceImpl;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.view.InternalResourceViewResolver;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
 import java.util.Map;
@@ -53,6 +55,9 @@ class ArtifactUiControllerTest {
     @Mock
     private FlowRegistry flowRegistry;
 
+    @Mock
+    private TaskAttemptRepository taskAttempts;
+
     @Captor
     private ArgumentCaptor<Pageable> pageableCaptor;
 
@@ -61,7 +66,8 @@ class ArtifactUiControllerTest {
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders
-                .standaloneSetup(new ArtifactUiController(artifacts, executions, flowRegistry))
+                .standaloneSetup(new ArtifactUiController(artifacts, executions, flowRegistry, taskAttempts,
+                        JsonMapper.builder().build()))
                 .setControllerAdvice(new UiExceptionHandler())
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
@@ -106,10 +112,10 @@ class ArtifactUiControllerTest {
                 .containsEntry("version", 2)
                 .containsEntry("createdBy", "test-spec")
                 .containsEntry("executionId", EXECUTION_ID);
-        assertThat(rows.get(0).get("executionShort").toString()).isNotBlank();
-        // The stubbed execution entity has no persisted id, so the flow id lookup
-        // legitimately misses — rendered as a muted dash.
-        assertThat(rows.get(0).get("flowId")).isNull();
+        // The stubbed execution entity has another id than the artifact's run, so the lookup legitimately
+        // misses: no flow name, rendered as a muted dash, and the run keeps its short id.
+        assertThat(rows.get(0).get("runName")).isEqualTo("00000000-0...");
+        assertThat(rows.get(0).get("flowName")).isNull();
     }
 
     @Test

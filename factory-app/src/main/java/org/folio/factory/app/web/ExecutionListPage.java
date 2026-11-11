@@ -115,7 +115,7 @@ class ExecutionListPage {
     }
 
     /** "MGRENTITLE-229 · attempt 2", so the runs of one task differ; the key alone for a run no attempt started. */
-    private static String runName(String taskKey, TaskAttempt attempt, String idShort) {
+    static String runName(String taskKey, TaskAttempt attempt, String idShort) {
         if (taskKey.isBlank()) {
             return idShort;
         }

@@ -7,10 +7,10 @@
         <h1 th:text="${artifact['name']}">artifact</h1>
         <div class="page-header-meta">
             <span class="badge badge-outline" th:text="'v' + ${artifact['version']}">v1</span>
-            <span th:if="${artifact['flowId']}" th:text="${artifact['flowId']}">flow</span>
+            <span th:if="${artifact['flowName']}" th:text="${artifact['flowName']}">flow</span>
             <span>·</span>
             <a th:href="@{'/executions/' + ${artifact['executionId']}}"
-               th:text="${artifact['executionShort']}">execution</a>
+               th:text="${artifact['runName']}">run</a>
         </div>
     </div>
 

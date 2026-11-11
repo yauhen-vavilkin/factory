@@ -1192,18 +1192,31 @@ class UiRenderSmokeTest {
 
     @Test
     void artifactsListAndDetailRender() {
+        resetTaskData();
         PipelineExecution execution = executions.save(new PipelineExecution("test-factory", "1", "{}"));
         var artifact = artifactStore.putMarkdown(execution.getId(), "coverage_report.md",
                 "# Coverage\nAll branches hit.\n", "test-exec");
+        var developerRun = executions.save(
+                new PipelineExecution("dev-factory", "0.9.0", "{\"issueKey\":\"MGRAPPS-119\"}"));
+        var attempt = seedAttempt(seedTask("70119", "MGRAPPS-119", "Artifact task", Task.Eligibility.ELIGIBLE,
+                "repository mgr-applications"), 3, TaskAttempt.Kind.RETRY, TaskAttempt.State.RUNNING, null);
+        attempt.setExecutionId(developerRun.getId());
+        taskAttempts.save(attempt);
+        artifactStore.putMarkdown(developerRun.getId(), "dev_task_brief.md", "# Brief\n", "read-task");
 
         var created = timeTag(PageTime.timestamp(artifact.getCreatedAt()));
-        String list = assertRendered("/artifacts", "Immutable artifact versions");
-        // The list has the short time; the artifact page keeps the seconds.
-        assertThat(list).contains("coverage_report.md").contains("test-factory")
-                .contains("<td class=\"muted\">" + timeTag(PageTime.day(artifact.getCreatedAt())) + "</td>");
+        String list = assertRendered("/artifacts", "Immutable artifact versions across all runs");
+        // The list has the short time; the artifact page keeps the seconds. Each flow is named as on Executions,
+        // and a Developer Flow run by its task and attempt.
+        assertThat(list).contains("coverage_report.md", "<span>Test Factory</span>", "<span>Developer Flow</span>",
+                        "<th>Run</th>", "href=\"/executions/" + developerRun.getId() + "\">MGRAPPS-119 · attempt 3</a>",
+                        "href=\"/executions/" + execution.getId() + "\">" + execution.getId().toString().substring(0, 10))
+                .contains("<td class=\"muted\">" + timeTag(PageTime.day(artifact.getCreatedAt())) + "</td>")
+                .doesNotContain("<span>test-factory</span>", "<span>dev-factory</span>", "<th>Execution</th>");
 
         String detail = assertRendered("/artifacts/" + artifact.getId(), "All branches hit.");
-        assertThat(detail).contains("coverage_report.md").contains("test-exec · " + created + " · text/markdown");
+        assertThat(detail).contains("coverage_report.md", "<span>Test Factory</span>")
+                .contains("test-exec · " + created + " · text/markdown");
     }
 
     @Test
