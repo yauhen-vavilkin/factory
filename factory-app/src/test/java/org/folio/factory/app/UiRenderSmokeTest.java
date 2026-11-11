@@ -417,6 +417,8 @@ class UiRenderSmokeTest {
         String body = assertRendered("/reviews?status=ALL", "Steps that wait for a person's decision, and the decisions made.");
         var stored = reviews.findById(review.getId()).orElseThrow();
         assertThat(body).contains("Signed-off plan").contains("Decided")
+                // Only the title wraps; the decision and its reviewer stay on one line.
+                .containsPattern("<td class=\"nowrap\">\\s*<span>AMEND</span>")
                 // Each time is short UTC text with its instant, which time.js turns into the browser's local time.
                 .contains(timeTag(PageTime.day(stored.getCreatedAt())), timeTag(PageTime.day(stored.getDecidedAt())));
     }

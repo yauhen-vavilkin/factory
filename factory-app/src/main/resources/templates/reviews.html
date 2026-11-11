@@ -38,7 +38,7 @@
                 <td class="muted nowrap"><time th:replace="~{fragments/components :: pageTime(${r.createdAt()})}"></time></td>
                 <td class="muted nowrap" th:if="${showDecision}"><time th:replace="~{fragments/components :: pageTime(${r.decidedAt()})}"></time><th:block
                         th:if="${r.decidedAt() == null}">—</th:block></td>
-                <td th:if="${showDecision}">
+                <td class="nowrap" th:if="${showDecision}">
                     <span th:if="${r.decision()}" th:text="${r.decision()}"></span>
                     <span th:unless="${r.decision()}" class="muted">—</span>
                     <span class="muted" th:if="${r.reviewer()}" th:text="' · ' + ${r.reviewer()}"></span>
