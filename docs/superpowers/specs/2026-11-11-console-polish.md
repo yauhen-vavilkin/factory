@@ -5,12 +5,11 @@ called the result "slop": disclosures that repeat the page, a spoiler that does 
 like one, chips and amounts that do not line up, a Configuration tab that is a raw dump,
 no visible way to open the run of a failed task, a failure text that does not say what it
 is. Three independent audits (navigation, measured pixels, content) and a live run of
-MGRENTITLE-229 confirmed it. This file is the fix list. The owner asked for autonomous
-work: do not ask, do not stop for approval.
+MGRENTITLE-229 confirmed it. This file was the fix list for one overnight run.
 
-The approved design stays: `2026-11-10-demo-ux-requirements.md` and the five mockups in
-`2026-11-10-demo-ux-mockups/`. Where a live page differs from its mockup, the mockup wins
-unless an item below says otherwise.
+Status: worked through on 2026-11-11; what stayed open is in `docs/open-questions.md`. This
+file is a record, not a task list. The owner's current request wins over it and over the
+mockups in `2026-11-10-demo-ux-mockups/`; do not redo a page to match them.
 
 ## Root causes
 

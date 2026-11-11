@@ -1,7 +1,9 @@
 # Developer Flow demo: UX requirements
 
-Status: the owner approved all five boards on 2026-11-10. Nothing here is implemented yet.
-Start with "Implementation plan" below; the rest of the file is the detail behind it.
+Status: the owner approved all five boards on 2026-11-10, and the plan below was implemented
+on 2026-11-10 and 2026-11-11 (then polished by `2026-11-11-console-polish.md`). This file is a
+record of the agreed design, not a task list. The owner's current request wins over it and over
+the mockups; do not redo a page to match them.
 
 Mockups: https://claude.ai/artifact/TWgamEj8WopVNg1Vd8Kask (private canvas of the repo owner).
 The source of the five boards is in `2026-11-10-demo-ux-mockups/` next to this file: plain HTML
