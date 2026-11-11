@@ -1,5 +1,6 @@
 package org.folio.factory.app.tasks.presentation;
 
+import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.tasks.TaskStops;
 
@@ -16,6 +17,9 @@ import java.util.regex.Pattern;
 public record AttemptFailure(String headline, String reason) {
 
     private static final String NO_REASON = "No reason was recorded.";
+    private static final String RUN_ENDED = "The run stopped before a step could say why. Open the run to see"
+            + " where it stopped, then start a new attempt.";
+    private static final String MARKED_STOPPED = "You marked the attempt as stopped";
     private static final String IMPLEMENTATION = "Implementation";
     private static final List<String> LAYER_PREFIXES =
             List.of("shared: ", "Development stopped: ", "Implementation failed: ");
@@ -75,10 +79,19 @@ public record AttemptFailure(String headline, String reason) {
         return LAYER_PREFIXES.stream().filter(text::startsWith).findFirst();
     }
 
-    /** The causes whose producers said them in other words before; their sentences live in TaskStops. */
+    /**
+     * The causes said in plain words: the ones whose producers said them in other words before (their sentences
+     * live in TaskStops), and the ones Factory stores in its own words.
+     */
     private static String knownCause(String text) {
         if (text.startsWith(Processes.OUTPUT_LIMIT_EXCEEDED)) {
             return TaskStops.OUTPUT_LIMIT_REASON;
+        }
+        if (text.startsWith(TaskOutcomeService.RUN_ENDED)) {
+            return RUN_ENDED;
+        }
+        if (text.startsWith(TaskOutcomeService.MARKED_STOPPED)) {
+            return MARKED_STOPPED + text.substring(TaskOutcomeService.MARKED_STOPPED.length());
         }
         Matcher time = OLD_TIME_LIMIT.matcher(text);
         if (time.find()) {

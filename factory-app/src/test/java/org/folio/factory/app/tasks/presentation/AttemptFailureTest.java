@@ -31,6 +31,18 @@ class AttemptFailureTest {
     }
 
     @Test
+    void reasonsFactoryStoresInItsOwnWordsNeedNoEngineWords() {
+        assertThat(AttemptFailure.reason("engine execution ended in status FAILED_ESCALATED"))
+                .isEqualTo("The run stopped before a step could say why. Open the run to see where it stopped,"
+                        + " then start a new attempt.")
+                .doesNotContain("engine", "execution", "FAILED");
+        assertThat(AttemptFailure.reason("Marked as stopped by the operator; a pull request may already exist from"
+                + " task/MODBAR-1 to folio-org/mod-bar"))
+                .isEqualTo("You marked the attempt as stopped; a pull request may already exist from task/MODBAR-1 to"
+                        + " folio-org/mod-bar.");
+    }
+
+    @Test
     void aStageOtherThanImplementationStaysInTheReason() {
         assertThat(AttemptFailure.reason("VERIFICATION_FAILED: 2 tests in error"))
                 .isEqualTo("Verification failed: 2 tests in error.");
@@ -39,8 +51,8 @@ class AttemptFailureTest {
 
     @Test
     void anUnknownReasonPassesThroughAsASentence() {
-        assertThat(AttemptFailure.reason("Marked as stopped by the operator: Error: boom"))
-                .isEqualTo("Marked as stopped by the operator: Error: boom.");
+        assertThat(AttemptFailure.reason("Docker said: Error: boom"))
+                .isEqualTo("Docker said: Error: boom.");
         assertThat(AttemptFailure.reason("Done!")).isEqualTo("Done!");
         assertThat(AttemptFailure.reason(null)).isEqualTo("No reason was recorded.");
     }

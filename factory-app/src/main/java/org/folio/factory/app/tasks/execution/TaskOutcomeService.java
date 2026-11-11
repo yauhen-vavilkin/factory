@@ -49,6 +49,9 @@ public class TaskOutcomeService {
     /** Part of the reason when the stopped run may already have opened a pull request. */
     public static final String PULL_REQUEST_MAY_EXIST = "a pull request may already exist";
 
+    /** The reason when the run ended without a stage result; the status follows it. */
+    public static final String RUN_ENDED = "engine execution ended in status ";
+
     private final TaskAttemptRepository attempts;
     private final TaskInstallationRepository installations;
     private final TaskPublicationIntentRepository intents;
@@ -189,7 +192,7 @@ public class TaskOutcomeService {
                 .path("failure").path("code").asString(null);
         String reason = firstNonBlank(attempt.getResultReason(),
                 resultReason.isBlank() ? "" : resultState + ": " + resultReason,
-                "engine execution ended in status " + status);
+                RUN_ENDED + status);
         // Design 5.3: once inactivity is proven, a shared outage stops this attempt with its
         // persisted cause while the queue continues; startup rechecks the provider for the next ones.
         return new Classification(AttemptOutcome.State.STOPPED,
