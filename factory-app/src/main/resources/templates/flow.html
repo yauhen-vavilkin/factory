@@ -24,7 +24,7 @@
                 <li class="dev-row" th:each="step : ${definition.steps()}">
                     <div class="dev-row-main">
                         <div class="def-step-title" th:text="${step.number()} + ' · ' + ${step.name()}">1 · Read task</div>
-                        <div class="def-step-kind"><th:block th:text="${step.kind()}">Agent step, worker dev-intake</th:block><th:block
+                        <div class="def-step-kind"><th:block th:text="${step.kind()}">Worker dev-intake</th:block><th:block
                                 th:if="${step.flow() != null}"> <a class="dev-link" th:href="${step.flowUrl()}"
                                 th:text="${step.flow()}">child-flow</a></th:block></div>
                         <p class="def-step-data" th:if="${step.data() != null}" th:text="${step.data()}">
@@ -44,8 +44,8 @@
             <p class="dev-empty" th:if="${#lists.isEmpty(definition.triggers())}">No triggers declared.</p>
             <div class="dev-row" th:each="trigger : ${definition.triggers()}">
                 <div class="dev-row-main">
-                    <code class="def-trigger" th:text="${trigger.event()}">manual</code>
-                    <div class="def-step-kind" th:text="${trigger.condition()}">Any payload</div>
+                    <div class="def-step-title" th:text="${trigger.event()}">Manual start</div>
+                    <div class="def-step-kind" th:text="${trigger.condition()}">Needs issueKey</div>
                 </div>
             </div>
         </section>

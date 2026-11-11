@@ -442,14 +442,17 @@ class UiRenderSmokeTest {
                 .contains("\"issueKey\"");
         // One numbered list of steps: agent steps with what they read and write, review steps with their
         // instructions and the artifacts they show.
-        assertThat(body).contains(">1 · Triage</div>", "Agent step, worker triage-agent",
+        assertThat(body).contains(">1 · Triage</div>", "Worker triage-agent",
                         "the trigger payload → scope_manifest.md", ">3 · QA review: manual test cases</div>",
                         "Human review", "Reviews test_plan.md, scope_manifest.md",
-                        "Agent step, worker test-automation-agent, framework: karate",
-                        "When /issue/fields/status/name is Ready for QA", "<summary>Descriptor YAML</summary>")
+                        "Worker test-automation-agent, framework: karate",
+                        "<div class=\"def-step-title\">Manual start</div>", ">Needs issueKey</div>",
+                        "<div class=\"def-step-title\">Jira: issue transitioned</div>",
+                        "When /issue/fields/status/name is Ready for QA; needs issueKey",
+                        "<summary>Descriptor YAML</summary>")
                 .containsPattern("<p class=\"def-step-note\">Review the generated manual test cases")
                 .doesNotContain("class=\"stepper\"", ">Pipeline<", "Retry policy", ">AGENT<", ">HITL_GATE<",
-                        "details-inline");
+                        "details-inline", "Agent step", "Any payload", ">manual<");
     }
 
     @Test
@@ -1503,9 +1506,10 @@ class UiRenderSmokeTest {
         assertThat(body).contains("aria-current=\"page\">Definition</a>", ">Configuration</a>",
                         ">1 · Read task</div>", ">10 · PR follow up</div>",
                         "dev_decision_request.md → no artifacts", "no artifacts → dev_pr_state.json, dev_pr_request.json",
-                        "Agent step, worker dev-pr-follow-up, resumable: true",
+                        "Worker dev-pr-follow-up, can pause and go on where it stopped", ">Needs issueKey</div>",
                         "Step retries: up to 2, waiting 30 s, then 2 min.")
-                .doesNotContain("trigger-dialog", "Trigger flow", "class=\"stepper\"", "30120300");
+                .doesNotContain("trigger-dialog", "Trigger flow", "class=\"stepper\"", "30120300",
+                        "dev-pr-follow-up, resumable", "Agent step");
         assertThat(assertRendered("/flows/test-factory", "Steps")).contains("Trigger flow");
     }
 

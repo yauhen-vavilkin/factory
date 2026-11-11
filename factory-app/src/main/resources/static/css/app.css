@@ -1132,7 +1132,6 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .def-step-title { font-weight: 600; overflow-wrap: anywhere; }
 .def-step-kind { margin-top: 3px; font-size: 12px; color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
 .def-step-data, .def-step-note { margin-top: 6px; font-size: 13px; color: hsl(var(--soft-foreground)); overflow-wrap: anywhere; }
-.def-trigger { font-size: 12px; font-weight: 600; }
 .def-retries { padding-top: 12px; }
 /* Configuration: the models, where runs go, the limits, the task source, and the check of one task. */
 .config-note, .config-facts { padding-top: 12px; }

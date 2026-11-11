@@ -6,7 +6,9 @@ import org.folio.factory.core.registry.model.RetryPolicy;
 import org.folio.factory.core.registry.model.StepDescriptor;
 import org.folio.factory.core.registry.model.SubFlowSpec;
 import org.folio.factory.core.registry.model.TriggerContract;
+import tools.jackson.databind.JsonNode;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -17,11 +19,17 @@ import java.util.stream.IntStream;
 
 /**
  * The Definition view of a flow: its steps in order, how a run starts, and how the engine retries a step that
- * fails. Built from the descriptor alone, in words, so the page shows no engine enums.
+ * fails. Built from the descriptor alone, in words, so the page shows no engine enums; it knows the words of the
+ * engine (step config keys, trigger event types), never those of a flow.
  */
 public record FlowDefinitionView(List<Step> steps, List<Trigger> triggers, String retries) {
 
     private static final Set<String> ACRONYMS = Set.of("pr", "qa", "api", "hitl");
+    /** Step config keys the engine reads, in words; any other key shows as "key: value". */
+    private static final Map<String, String> CONFIG_WORDS = Map.of(
+            "resumable: true", "can pause and go on where it stopped");
+    /** The sources of the trigger events, as the webhook adapters name them. */
+    private static final Map<String, String> SOURCES = Map.of("jira", "Jira", "github", "GitHub");
 
     /**
      * One step, numbered from 1. {@code flow} and {@code flowUrl} name and link the flow a sub-flow step runs;
@@ -30,14 +38,16 @@ public record FlowDefinitionView(List<Step> steps, List<Trigger> triggers, Strin
     public record Step(int number, String name, String kind, String flow, String flowUrl, String data, String note) {
     }
 
-    /** One way a run starts: the event and the payload it needs. */
+    /** One way a run starts, in words: the event ("Manual start") and what its payload needs. */
     public record Trigger(String event, String condition) {
     }
 
     static FlowDefinitionView of(FlowDescriptor descriptor) {
         var chain = descriptor.agentChain();
         var steps = IntStream.range(0, chain.size()).mapToObj(index -> step(index + 1, chain.get(index))).toList();
-        return new FlowDefinitionView(steps, descriptor.triggers().stream().map(FlowDefinitionView::trigger).toList(),
+        var required = requiredInputs(descriptor.inputSchema());
+        return new FlowDefinitionView(steps,
+                descriptor.triggers().stream().map(trigger -> trigger(trigger, required)).toList(),
                 retries(descriptor.retryPolicy()));
     }
 
@@ -63,10 +73,12 @@ public record FlowDefinitionView(List<Step> steps, List<Trigger> triggers, Strin
         };
     }
 
+    /** "Worker triage-agent, framework: karate": every step of this type runs a worker, not always a model. */
     private static String agentKind(StepDescriptor step) {
         var config = new TreeMap<>(step.config()).entrySet().stream()
-                .map(entry -> entry.getKey() + ": " + entry.getValue()).toList();
-        return "Agent step, worker " + step.workerId() + (config.isEmpty() ? "" : ", " + String.join(", ", config));
+                .map(entry -> entry.getKey() + ": " + entry.getValue())
+                .map(pair -> CONFIG_WORDS.getOrDefault(pair, pair)).toList();
+        return "Worker " + step.workerId() + (config.isEmpty() ? "" : ", " + String.join(", ", config));
     }
 
     private static Step gateStep(int number, HitlGateSpec gate) {
@@ -80,11 +92,45 @@ public record FlowDefinitionView(List<Step> steps, List<Trigger> triggers, Strin
                 UiFormat.flowDefinitionUrl(subFlow.flowId()), data, null);
     }
 
-    private static Trigger trigger(TriggerContract trigger) {
-        var condition = trigger.filters().isEmpty() ? "Any payload" : new TreeMap<>(trigger.filters()).entrySet()
-                .stream().map(filter -> filter.getKey() + " is " + filter.getValue())
-                .collect(Collectors.joining(" and ", "When ", ""));
-        return new Trigger(trigger.eventType(), condition);
+    /**
+     * "Manual start" with "Needs issueKey": the filters of the trigger and the inputs the flow requires of every
+     * payload, which the router checks before it starts a run.
+     */
+    private static Trigger trigger(TriggerContract trigger, List<String> required) {
+        var parts = new ArrayList<String>();
+        if (!trigger.filters().isEmpty()) {
+            parts.add(new TreeMap<>(trigger.filters()).entrySet().stream()
+                    .map(filter -> filter.getKey() + " is " + filter.getValue())
+                    .collect(Collectors.joining(" and ", "When ", "")));
+        }
+        if (!required.isEmpty()) {
+            parts.add((parts.isEmpty() ? "Needs " : "needs ") + series(required, " and "));
+        }
+        return new Trigger(event(trigger.eventType()), parts.isEmpty() ? "Any payload" : String.join("; ", parts));
+    }
+
+    /** "manual" → "Manual start", "jira.issue.transitioned" → "Jira: issue transitioned". */
+    private static String event(String type) {
+        if ("manual".equals(type)) {
+            return "Manual start";
+        }
+        var dot = type.indexOf('.');
+        if (dot < 0) {
+            return type;
+        }
+        var source = type.substring(0, dot);
+        var what = type.substring(dot + 1).replace('.', ' ').replace('_', ' ');
+        return SOURCES.getOrDefault(source, source) + ": " + what;
+    }
+
+    private static List<String> requiredInputs(JsonNode schema) {
+        var required = schema == null ? null : schema.get("required");
+        if (required == null || !required.isArray()) {
+            return List.of();
+        }
+        var names = new ArrayList<String>();
+        required.forEach(field -> names.add(field.asString("")));
+        return names.stream().filter(name -> !name.isBlank()).toList();
     }
 
     /** Artifact names separated by ", "; the trigger payload and an empty list in words. */
@@ -107,10 +153,14 @@ public record FlowDefinitionView(List<Step> steps, List<Trigger> triggers, Strin
 
     /** "30 s", "30 s, then 2 min", "30 s, 2 min, then 5 min". */
     private static String series(List<String> items) {
+        return series(items, ", then ");
+    }
+
+    private static String series(List<String> items, String last) {
         if (items.size() == 1) {
             return items.getFirst();
         }
-        return String.join(", ", items.subList(0, items.size() - 1)) + ", then " + items.getLast();
+        return String.join(", ", items.subList(0, items.size() - 1)) + last + items.getLast();
     }
 
     /** "read-task" → "Read task", "pr-follow-up" → "PR follow up". */

@@ -121,15 +121,18 @@ class FlowUiControllerTest {
 
         var definition = (FlowDefinitionView) model.get("definition");
         assertThat(definition.steps()).containsExactly(
-                new FlowDefinitionView.Step(1, "Triage", "Agent step, worker triage-agent, framework: karate", null,
-                        null, "the trigger payload → scope_manifest.md", null),
+                // A known config key in words, any other as it is in the descriptor.
+                new FlowDefinitionView.Step(1, "Triage", "Worker triage-agent, framework: karate, can pause and go on"
+                        + " where it stopped", null, null, "the trigger payload → scope_manifest.md", null),
                 new FlowDefinitionView.Step(2, "QA gate", "Human review", null, null, "Reviews test_plan.md",
                         "review it"),
                 new FlowDefinitionView.Step(3, "Sub", "Sub-flow, runs", "child-flow", "/flows/child-flow",
                         "Passes test_plan.md as plan.md; gets back out.md as up.md", null));
-        assertThat(definition.triggers()).containsExactly(new FlowDefinitionView.Trigger("manual", "Any payload"),
-                new FlowDefinitionView.Trigger("jira.issue.transitioned",
-                        "When /issue/fields/status/name is Ready for QA"));
+        // The router needs the required inputs of the flow in every payload, so each trigger names them.
+        assertThat(definition.triggers()).containsExactly(
+                new FlowDefinitionView.Trigger("Manual start", "Needs issueKey"),
+                new FlowDefinitionView.Trigger("Jira: issue transitioned",
+                        "When /issue/fields/status/name is Ready for QA; needs issueKey"));
         // Three tries in all: the engine retries after 30 s and 2 min, so the third wait of the policy is unused.
         assertThat(definition.retries()).isEqualTo("Step retries: up to 2, waiting 30 s, then 2 min."
                 + " After 3 failures of one step, the run waits for a decision in Reviews.");
@@ -279,7 +282,8 @@ class FlowUiControllerTest {
 
     private static FlowDescriptor descriptor() {
         StepDescriptor agent = new StepDescriptor("triage", StepType.AGENT, "triage-agent",
-                null, null, List.of("$trigger"), List.of("scope_manifest.md"), Map.of("framework", "karate"));
+                null, null, List.of("$trigger"), List.of("scope_manifest.md"),
+                Map.of("framework", "karate", "resumable", true));
         StepDescriptor gate = new StepDescriptor("qa-gate", StepType.HITL_GATE, null,
                 new HitlGateSpec("g1", "QA gate", "review it", List.of("test_plan.md")), null, null, null, null);
         StepDescriptor sub = new StepDescriptor("sub", StepType.SUB_FLOW, null, null,
@@ -288,7 +292,9 @@ class FlowUiControllerTest {
         List<TriggerContract> triggers = List.of(
                 new TriggerContract("manual", Map.of()),
                 new TriggerContract("jira.issue.transitioned", Map.of("/issue/fields/status/name", "Ready for QA")));
-        return new FlowDescriptor("test-factory", "Test Factory", "1.0.0", triggers, null, null,
+        var inputs = tools.jackson.databind.json.JsonMapper.builder().build()
+                .readTree("{\"required\":[\"issueKey\"]}");
+        return new FlowDescriptor("test-factory", "Test Factory", "1.0.0", triggers, inputs, null,
                 List.of(agent, gate, sub), RetryPolicy.DEFAULT);
     }
 
