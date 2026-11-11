@@ -3,6 +3,9 @@ package org.folio.factory.app.web;
 import org.folio.factory.app.tasks.presentation.AgentQuestion;
 import org.folio.factory.app.tasks.presentation.TaskAnswers;
 import org.folio.factory.core.domain.Artifact;
+import org.folio.factory.core.domain.ExecutionStatus;
+import org.folio.factory.core.domain.PipelineExecution;
+import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.worker.DevelopWorker;
@@ -23,6 +26,7 @@ import org.folio.factory.app.tasks.presentation.CannotRunGroup;
 import org.folio.factory.app.tasks.presentation.InProgressStrip;
 import org.folio.factory.app.tasks.presentation.RunAction;
 import org.folio.factory.app.tasks.presentation.SourceCard;
+import org.folio.factory.app.tasks.presentation.TaskRevisions;
 import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.app.tasks.presentation.TaskUsage;
 import org.folio.factory.app.tasks.presentation.TaskView;
@@ -118,6 +122,9 @@ class TaskUiControllerTest {
     @Mock
     private ArtifactStore artifactStore;
 
+    @Mock
+    private PipelineExecutionRepository executions;
+
     @Captor
     private ArgumentCaptor<TaskCommands.RunSelected> runCaptor;
 
@@ -148,9 +155,11 @@ class TaskUiControllerTest {
                 new DevFactoryProperties.Repository("folio-org/mod-bar", "master", "build:image", "unit",
                         List.of("MODBAR"), List.of(), new DeliveryTarget("folio-org/mod-bar", null)))));
         var rows = new TaskRows(new TaskSourceProperties("Jane Developer"), jira, repositories);
+        var revisions = new TaskRevisions(attempts, executions, dispatcher, taskQuery);
         var controller = new TaskUiController(taskQuery, installations, attempts, admissions,
-                dispatcher, outcomes, rows, flows, runSettings);
-        var page = new TaskPageController(taskQuery, admissions, rows, runSettings, new TaskAnswers(artifactStore));
+                dispatcher, rows, flows, runSettings, revisions);
+        var page = new TaskPageController(taskQuery, admissions, rows, runSettings, new TaskAnswers(artifactStore),
+                outcomes, dispatcher);
         mvc = MockMvcBuilders.standaloneSetup(controller, page)
                 .setControllerAdvice(new UiExceptionHandler())
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
@@ -555,12 +564,7 @@ class TaskUiControllerTest {
 
     @Test
     void poll_changesWhenTheRunningTaskShowsAnotherCostAndStaysWhenItShowsTheSame() throws Exception {
-        TaskInstallation installation = TaskInstallations.seeded();
-        installation.setActiveAttemptId(ATTEMPT_ID);
-        when(installations.findById(1)).thenReturn(Optional.of(installation));
-        TaskAttempt attempt = new TaskAttempt(TASK_ID, 1, TaskAttempt.Kind.INITIAL, "run#1", TaskAttempt.State.RUNNING);
-        ReflectionTestUtils.setField(attempt, "id", ATTEMPT_ID);
-        when(attempts.findById(ATTEMPT_ID)).thenReturn(Optional.of(attempt));
+        runningExecutionOf(TaskAttempt.State.RUNNING);
         TaskView before = taskView(TASK_ID, "MODBAR-931", "Open", TaskView.TaskState.WORKING, false, false,
                 attempt("RUNNING", 1, emptyUsage()));
         TaskView later = taskView(TASK_ID, "MODBAR-931", "Open", TaskView.TaskState.WORKING, false, false,
@@ -574,6 +578,29 @@ class TaskUiControllerTest {
         assertThat(same).isEqualTo(first);
         assertThat(grown).isNotEqualTo(first);
         verifyNoInteractions(admissions, outcomes);
+    }
+
+    @Test
+    void poll_changesWhileAPrFeedbackRoundAddsToTheCostOfADeliveredTask() throws Exception {
+        // A round runs on the delivered attempt's run; the task holds no queue slot meanwhile.
+        runningExecutionOf(TaskAttempt.State.PR_READY);
+        TaskView before = withUsage(taskView(TASK_ID, "MODBAR-921", "Open", TaskView.TaskState.PR_READY,
+                false, false, prAttempt(null)), emptyUsage());
+        TaskView later = withUsage(before, incompleteUsage());
+        when(taskQuery.detail(TASK_ID)).thenReturn(before, later);
+
+        String first = mvc.perform(get("/tasks/poll")).andReturn().getResponse().getContentAsString();
+        String grown = mvc.perform(get("/tasks/poll")).andReturn().getResponse().getContentAsString();
+
+        assertThat(grown).isNotEqualTo(first);
+    }
+
+    private void runningExecutionOf(TaskAttempt.State state) {
+        var execution = new PipelineExecution("dev-factory", "0.8.0", "{}");
+        ReflectionTestUtils.setField(execution, "id", EXECUTION_ID);
+        when(executions.findByStatus(ExecutionStatus.RUNNING)).thenReturn(List.of(execution));
+        TaskAttempt attempt = new TaskAttempt(TASK_ID, 1, TaskAttempt.Kind.INITIAL, "run#1", state);
+        when(attempts.findByExecutionId(EXECUTION_ID)).thenReturn(Optional.of(attempt));
     }
 
     @Test

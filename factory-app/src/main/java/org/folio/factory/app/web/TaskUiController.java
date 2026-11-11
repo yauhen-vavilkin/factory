@@ -6,38 +6,33 @@ import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.admission.TaskRunSettings;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
-import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.presentation.AvailableRow;
-import org.folio.factory.app.tasks.presentation.InProgressStrip;
 import org.folio.factory.app.tasks.presentation.RunRows;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
+import org.folio.factory.app.tasks.presentation.TaskRevisions;
 import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.app.tasks.presentation.TaskView;
 import org.folio.factory.core.registry.FlowRegistry;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import static org.folio.factory.devfactory.DevFactoryConfiguration.FLOW_ID;
@@ -62,10 +57,10 @@ public class TaskUiController {
     private final TaskAttemptRepository attempts;
     private final TaskAdmissionService admissions;
     private final TaskDispatcher dispatcher;
-    private final ObjectProvider<TaskOutcomeService> outcomes;
     private final TaskRows rows;
     private final FlowRegistry flows;
     private final TaskRunSettings runSettings;
+    private final TaskRevisions revisions;
 
     /** The Developer Flow page, tab My tasks; {@code ?view=definition} is served by {@link FlowUiController}. */
     @GetMapping(value = FLOW_PAGE, params = "!view")
@@ -77,7 +72,7 @@ public class TaskUiController {
         // The live-refresh baseline is read first: a change landing while the page is
         // built then differs from it and reloads the page, instead of being absorbed.
         var installation = installation();
-        var pollBaseline = revision(installation);
+        var pollBaseline = revisions.myTasks(installation);
         var myTasks = taskQuery.myTasks(PageRequest.of(Math.max(page, 0), TRIGGERED_PAGE_SIZE));
         var queuedCount = attempts.countByStateIn(List.of(TaskAttempt.State.RESERVED));
         var available = myTasks.available().stream().map(rows::availableRow).toList();
@@ -104,7 +99,7 @@ public class TaskUiController {
     @GetMapping("/tasks/poll")
     @ResponseBody
     public Map<String, Object> poll() {
-        return Map.of("revision", revision(installation()));
+        return Map.of("revision", revisions.myTasks(installation()));
     }
 
     @PostMapping("/tasks/run-selected")
@@ -125,31 +120,6 @@ public class TaskUiController {
         } catch (IllegalArgumentException e) {
             return UiFormat.errorRedirect(FLOW_PAGE, e.getMessage());
         }
-    }
-
-    @PostMapping("/tasks/{taskId}/attempts/{attemptId}/mark-stopped")
-    public String markStopped(@PathVariable("taskId") UUID taskId, @PathVariable("attemptId") UUID attemptId,
-                              @RequestParam(name = "returnTo", required = false) String returnTo,
-                              HttpServletRequest request, RedirectAttributes redirect) {
-        requireSameOrigin(request);
-        String back = "flow".equals(returnTo) ? FLOW_PAGE : "/tasks/" + taskId;
-        TaskOutcomeService outcomeService = outcomes.getIfAvailable();
-        if (outcomeService == null) {
-            return UiFormat.errorRedirect(
-                    back, "Task execution is disabled; set FACTORY_TASKS_EXECUTION_ENABLED=true.");
-        }
-        String refusal;
-        try {
-            refusal = outcomeService.markStopped(attemptId);
-        } catch (RuntimeException e) {
-            refusal = "The task changed at the same moment; reload and try again.";
-        }
-        if (refusal != null) {
-            return UiFormat.errorRedirect(back, refusal);
-        }
-        dispatcher.dispatchNextQuietly();
-        redirect.addFlashAttribute("message", "Marked as stopped; the queue continues.");
-        return "redirect:" + back;
     }
 
     /**
@@ -254,32 +224,5 @@ public class TaskUiController {
                 .map(TaskView::displayKey)
                 .findFirst()
                 .orElseGet(() -> taskLabel(taskId));
-    }
-
-    /** Compact identity for live refresh; comma-free so poll.js can split fields safely. */
-    private String revision(TaskInstallation installation) {
-        String problem = installation.getSyncProblem() == null ? "none" : "present";
-        return installation.isSyncComplete() + "|" + problem + "|" + installation.getUpdatedAt()
-                + "|" + attempts.findLatestUpdate().map(Instant::toString).orElse("none")
-                + "|" + attempts.count() + "|" + (dispatcher.queueProblem() == null ? "moving" : "stuck")
-                + "|" + running(installation);
-    }
-
-    /**
-     * What the strip and the Runs row of the running task show: its cost so far, its age and its minutes. Usage
-     * events do not change the attempt row, so without this part the numbers would stand still until the run ends.
-     */
-    private String running(TaskInstallation installation) {
-        return Optional.ofNullable(installation.getActiveAttemptId())
-                .flatMap(attempts::findById)
-                .map(attempt -> taskQuery.detail(attempt.getTaskId()))
-                .map(TaskUiController::shownWhileRunning)
-                .map(shown -> Integer.toHexString(shown.hashCode()))
-                .orElse("idle");
-    }
-
-    private static String shownWhileRunning(TaskView view) {
-        var row = RunRows.row(view);
-        return row.cost() + "|" + row.when() + "|" + RunRows.strip(List.of(view)).map(InProgressStrip::run).orElse("");
     }
 }
