@@ -624,7 +624,16 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
   border-radius: var(--radius);
   box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
 }
-.kpi-value { font-size: 1.875rem; font-weight: 600; letter-spacing: -0.025em; line-height: 1.1; }
+/* The value shrinks with its card, so a seven-figure token total stays inside a narrow card (5 cards at 1280 px). */
+.kpi { container-type: inline-size; }
+.kpi-value {
+  font-size: clamp(1.25rem, 14cqi, 1.875rem);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
 .kpi-label { font-size: 13px; color: hsl(var(--muted-foreground)); }
 .kpi-trend { font-size: 0.8125rem; color: hsl(var(--muted-foreground)); }
 
