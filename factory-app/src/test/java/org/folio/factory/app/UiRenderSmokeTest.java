@@ -1138,7 +1138,7 @@ class UiRenderSmokeTest {
     }
 
     @Test
-    void myTasksDisablesRunWhenNoTaskCanRun() {
+    void myTasksShowsNoRunControlsWhenNoTaskCanRun() {
         resetTaskData();
         for (int i = 1; i <= 3; i++) {
             seedTask("7010" + i, "MODBAR-71" + i, "Unsupported task " + i, Task.Eligibility.INELIGIBLE,
@@ -1148,8 +1148,13 @@ class UiRenderSmokeTest {
         String body = assertRendered("/flows/dev-factory", "Ready to run");
         assertThat(body)
                 .containsPattern("Ready to run <span class=\"dev-count\"\\s*>0</span>")
-                .contains("3 tasks cannot run here: MODBAR-711, MODBAR-712, MODBAR-713. Project MODBAR has no"
-                        + " repository in config/developer-repositories.yaml.")
+                .contains("3 tasks cannot run here: MODBAR-711, MODBAR-712, MODBAR-713. Project"
+                        + " MODBAR has no repository in config/developer-repositories.yaml.")
+                // Nothing to run: no Model choice and no disabled Run button under the empty list.
+                .doesNotContain("data-run-selected", "data-model-select", "name=\"modelId\"");
+
+        seedTask("70104", "MODBAR-714", "Eligible task", Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        assertThat(assertRendered("/flows/dev-factory", "Ready to run"))
                 .contains("data-run-selected disabled>Run</button>");
     }
 

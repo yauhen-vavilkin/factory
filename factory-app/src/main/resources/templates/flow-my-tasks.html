@@ -75,10 +75,10 @@
                th:text="${source.lastScan() == null} ? 'Press Scan Jira to load the tasks assigned to you.'
                         : 'No tasks to run.'">No tasks.</p>
 
-            <div class="dev-list-foot">
+            <div class="dev-list-foot" th:unless="${#lists.isEmpty(available) and #lists.isEmpty(cannotRun)}">
                 <p class="dev-list-note" th:each="group : ${cannotRun}" th:text="${group.line()}">
                     2 tasks cannot run here: KEY-1, KEY-2. Project KEY has no repository.</p>
-                <div class="run-settings">
+                <div class="run-settings" th:unless="${#lists.isEmpty(available)}">
                     <th:block th:if="${runForm != null}">
                         <th:block th:insert="~{fragments/developer-flow :: modelChoice(${runForm})}"></th:block>
                     </th:block>
