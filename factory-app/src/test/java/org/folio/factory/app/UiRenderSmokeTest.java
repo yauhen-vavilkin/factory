@@ -1318,10 +1318,11 @@ class UiRenderSmokeTest {
                         "inputTokens", 50_000, "cacheReadTokens", 0, "cacheWriteTokens", 0,
                         "rate", Map.of("currency", "USD", "inputPerMillion", 0.15)));
 
-        String partialBody = assertRendered("/tasks/" + partial.getId(), "spent in 1 attempt, cost may be higher");
-        // Why the amount may be too low is the title of the amount.
-        assertThat(partialBody).containsPattern("<span class=\"status-card-money\" title=\"Incomplete: some usage has"
-                + " no reported tokens or rate yet. Cost per attempt is in Attempts.\">\\$[0-9.]+</span>");
+        String partialBody = assertRendered("/tasks/" + partial.getId(), ">spent in 1 attempt</span>");
+        // Why the amount may be too low is the title of the amount, not a visible note.
+        assertThat(partialBody).doesNotContain("spent in 1 attempt, cost may be higher")
+                .containsPattern("<span class=\"status-card-money\" title=\"Incomplete: some usage has"
+                        + " no reported tokens or rate yet. Cost per attempt is in Attempts.\">\\$[0-9.]+</span>");
         String costNote = "<span class=\"row-amount\"\\s+title=\"Some usage was not reported by the runtime or has no"
                 + " price, so the real cost may be higher.\">\\$[0-9.]+</span>";
         assertThat(partialBody.substring(partialBody.indexOf("id=\"attempts-title\"")))

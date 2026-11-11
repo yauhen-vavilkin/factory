@@ -229,8 +229,12 @@ The question flow, the in-progress strip and Factory's comment on the pull reque
 
 ## Left after the console polish of My tasks and the task page (2026-11-11)
 
-- **"Command exceeded output limit" is said as an agent limit, but Factory's own commands hit it.**
-  `Processes` raises it when a command Factory runs prints more than 2 MB (the candidate `git diff`
-  in `CandidateFreezer`, starting the build, `docker cp`), not when an agent tool call does. The task
-  page now says `TaskStops.OUTPUT_LIMIT_REASON`, as the fix list asked; which Factory command printed
-  too much, and whether 2 MB fits a large diff, is not checked.
+- **"Command exceeded output limit" has more than one cause, and the page cannot say which.**
+  `Processes.run` stops a command that prints more than its limit: 2 MB for Factory's own commands
+  (git, including the candidate diff in `CandidateFreezer`, `docker cp`, the starting build) and
+  16 MB for the Pi event stream, which carries the agent's tool output. The Claude Code CLI runs
+  through `Processes.stream`, which has no total limit, so its tool output never hits it. The fix
+  list's sentence blamed "a command run by the agent" and suggested `| tail -n 100`, which does not
+  help with Claude Code; `TaskStops.OUTPUT_LIMIT_REASON` now names no culprit and asks for narrower
+  instructions, a small change and short command output. Which command printed too much in
+  MGRAPPS-64, and whether 2 MB fits a large diff, is not checked.

@@ -520,7 +520,7 @@ class DevelopReadinessTest {
         var result = harness.worker().execute(harness.context());
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
-                .contains("DEVELOPMENT_FAILED", "A command run by the agent printed more output than Factory accepts")
+                .contains("DEVELOPMENT_FAILED", "A command printed more output than Factory accepts")
                 .doesNotContain("Development stopped", Processes.OUTPUT_LIMIT_EXCEEDED);
     }
 

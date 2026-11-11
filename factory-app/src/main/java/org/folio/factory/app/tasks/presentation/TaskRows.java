@@ -176,14 +176,13 @@ public class TaskRows {
         return view.needsAnswer() ? "The agent stopped with a question" : resultSentence(view);
     }
 
-    /** "spent in 2 attempts"; null before the first attempt. */
+    /** "spent in 2 attempts"; null before the first attempt. Why the amount may be too low is its title. */
     private static String spentNote(TaskView view) {
         int count = view.attempts().size();
         if (count == 0) {
             return null;
         }
-        return "spent in " + count + (count == 1 ? " attempt" : " attempts")
-                + (view.usage().complete() ? "" : ", cost may be higher");
+        return "spent in " + count + (count == 1 ? " attempt" : " attempts");
     }
 
     /** The run of the latest attempt that has one, in every state. */
