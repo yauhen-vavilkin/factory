@@ -12,6 +12,7 @@ import org.folio.factory.core.repository.HitlReviewRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.json.JsonMapper;
@@ -44,7 +45,7 @@ public class HitlDecisionService {
     private final JsonMapper jsonMapper;
     private List<HitlDecisionPolicy> policies = List.of();
 
-    @org.springframework.beans.factory.annotation.Autowired
+    @Autowired
     public void setPolicies(List<HitlDecisionPolicy> policies) { this.policies = List.copyOf(policies); }
 
     @Transactional

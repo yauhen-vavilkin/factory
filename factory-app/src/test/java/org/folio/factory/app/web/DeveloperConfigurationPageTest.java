@@ -237,7 +237,7 @@ class DeveloperConfigurationPageTest {
         return new DeveloperConfigurationPage(preflight, runSetup(true), rows, installations,
                 new JiraProperties("https://jira.example.org", "jane@example.org", "jira-secret-token"),
                 new TaskExecutionProperties(Duration.ofMinutes(60), runsOn),
-                new RetentionProperties(retentionOn, null, null, null)).view(issueKey);
+                new RetentionProperties(retentionOn, null, null)).view(issueKey);
     }
 
     private DeveloperRunSetup runSetup(boolean token) {

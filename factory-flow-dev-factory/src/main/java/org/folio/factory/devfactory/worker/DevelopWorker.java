@@ -36,7 +36,7 @@ public class DevelopWorker implements AgentWorker {
                 codec.parse(context.requireInput(IntakeResolveWorker.TASK_BRIEF).content())
                         .metadata();
         String state = brief.path("state").asString("");
-        if (!state.equals("INTAKE_READY")) return blocked(state, "Intake is not ready", Map.of());
+        if (!state.equals(IntakeResolveWorker.INTAKE_READY)) return blocked(state, "Intake is not ready");
         CodingRequest request =
                 json.readValue(
                         context.requireInput(IntakeResolveWorker.CODING_REQUEST).content(),
@@ -61,15 +61,15 @@ public class DevelopWorker implements AgentWorker {
                 attempt.metrics());
     }
 
-    private AgentResult blocked(String state, String reason, Map<String, Object> readiness) {
+    private AgentResult blocked(String state, String reason) {
         CodingOutcome outcome = CodingOutcome.failed(state, reason, Map.of());
         var decision = CodingDecisionArtifacts.Request.none();
         return new AgentResult(
                 Map.of(
                         CANDIDATE,
-                        placeholder(state, reason),
+                        placeholder(json, state, reason),
                         READINESS,
-                        json.writeValueAsString(readiness),
+                        json.writeValueAsString(Map.of()),
                         OUTCOME,
                         json.writeValueAsString(outcome),
                         CodingDecisionArtifacts.REQUEST,
@@ -82,7 +82,8 @@ public class DevelopWorker implements AgentWorker {
                 Map.of());
     }
 
-    private String placeholder(String state, String reason) {
+    /** The candidate artifact written when no candidate was frozen. */
+    static String placeholder(JsonMapper json, String state, String reason) {
         return json.writeValueAsString(
                 Map.of("state", state, "reason", reason == null ? "" : reason));
     }

@@ -10,6 +10,7 @@ import java.util.UUID;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongFunction;
 
 /** Keeps blocking agent calls alive without allocating a thread per execution. */
 @Component
@@ -80,7 +81,7 @@ public class AgentLeaseHeartbeat {
         }
 
         /** Serialize short ownership checks with renewal; never hold this across workload calls. */
-        public synchronized <T> T checked(java.util.function.LongFunction<T> action) {
+        public synchronized <T> T checked(LongFunction<T> action) {
             renew();
             requireHealthy();
             if (closed) throw new IllegalStateException("Lease is closed");

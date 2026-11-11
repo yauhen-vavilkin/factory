@@ -52,18 +52,7 @@ public class JiraRestConnector implements JiraConnector, JiraSourceConnector, Co
                 .uri("/rest/api/2/issue/{key}", issueKey)
                 .retrieve()
                 .body(JsonNode.class);
-        JsonNode fields = body.path("fields");
-        List<String> labels = new ArrayList<>();
-        fields.path("labels").forEach(label -> labels.add(label.asString("")));
-        return new JiraIssue(
-                body.path("key").asString(""),
-                fields.path("summary").asString(""),
-                fields.path("description").isTextual() ? fields.path("description").asString()
-                        : fields.path("description").toString(),
-                fields.path("status").path("name").asString(""),
-                fields.path("issuetype").path("name").asString(""),
-                labels,
-                body);
+        return toJiraIssue(body.path("key").asString(""), body);
     }
 
     @Override
@@ -163,17 +152,22 @@ public class JiraRestConnector implements JiraConnector, JiraSourceConnector, Co
         String created = requiredField(fields, "created", "issue search result " + key);
         List<String> components = new ArrayList<>();
         fields.path("components").forEach(component -> components.add(component.path("name").asString("")));
+        return new DiscoveredIssue(id, key, projectKey, components, parseJiraTimestamp(created, key),
+                toJiraIssue(key, issue));
+    }
+
+    private static JiraIssue toJiraIssue(String key, JsonNode issue) {
+        JsonNode fields = issue.path("fields");
         List<String> labels = new ArrayList<>();
         fields.path("labels").forEach(label -> labels.add(label.asString("")));
-        return new DiscoveredIssue(id, key, projectKey, components, parseJiraTimestamp(created, key),
-                new JiraIssue(key,
-                        fields.path("summary").asString(""),
-                        fields.path("description").isTextual() ? fields.path("description").asString()
-                                : fields.path("description").toString(),
-                        fields.path("status").path("name").asString(""),
-                        fields.path("issuetype").path("name").asString(""),
-                        labels,
-                        issue));
+        return new JiraIssue(key,
+                fields.path("summary").asString(""),
+                fields.path("description").isTextual() ? fields.path("description").asString()
+                        : fields.path("description").toString(),
+                fields.path("status").path("name").asString(""),
+                fields.path("issuetype").path("name").asString(""),
+                labels,
+                issue);
     }
 
     private static Instant parseJiraTimestamp(String value, String issueKey) {

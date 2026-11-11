@@ -37,6 +37,7 @@ import java.util.Optional;
 public class FeedbackWorker implements AgentWorker {
     /** The review a run waits in while its pull request waits for comments. */
     public static final String GATE_ID = "pr-feedback";
+    private static final String PR_CLOSED = "PR is closed or merged; finish this task";
 
     private final DevFactoryProperties repositories;
     private final DevRuntimeProperties runtime;
@@ -111,7 +112,7 @@ public class FeedbackWorker implements AgentWorker {
         } catch (Exception e) {
             // Losing ownership must not turn into a normal result or a new paid attempt.
             context.invocation().requireOwned();
-            state.failed(safe(e));
+            state.failed(FeedbackCodingAttempt.safe(coding, e));
         }
         return Optional.empty();
     }
@@ -123,7 +124,8 @@ public class FeedbackWorker implements AgentWorker {
         } catch (RuntimeException cleanup) {
             state.cleanupBlocked(
                     state.phase() == CODE ? INTERRUPTED : state.phase(),
-                    "Owned workload cleanup could not be confirmed. " + safe(cleanup));
+                    "Owned workload cleanup could not be confirmed. "
+                    + FeedbackCodingAttempt.safe(coding, cleanup));
             return true;
         }
         if (state.phase() == CLEANUP_BLOCKED) {
@@ -184,7 +186,8 @@ public class FeedbackWorker implements AgentWorker {
             state.cleanupSteps.add(operation.id());
             state.cleanupBlocked(
                     state.phase(),
-                    "Owned workload cleanup could not be confirmed. " + safe(cleanup));
+                    "Owned workload cleanup could not be confirmed. "
+                    + FeedbackCodingAttempt.safe(coding, cleanup));
         }
     }
 
@@ -209,14 +212,11 @@ public class FeedbackWorker implements AgentWorker {
             throw new IllegalStateException("PR destination changed");
         }
         state.initialized();
-        state.reason = state.pr.open() ? "" : "PR is closed or merged; finish this task";
+        state.reason = state.pr.open() ? "" : PR_CLOSED;
     }
 
     private void prepare(AgentContext context, FeedbackState state, Map<String, String> outputs) {
-        var current = authorized(state);
-        if (!current.open()) {
-            throw new IllegalStateException("PR is closed or merged; finish this task");
-        }
+        var current = authorizedOpen(state);
         if (!state.manual && isSelectionChanged(state, current)) {
             return;
         }
@@ -328,10 +328,7 @@ public class FeedbackWorker implements AgentWorker {
     }
 
     private void publish(AgentContext context, FeedbackState state, Map<String, String> outputs) {
-        var current = authorized(state);
-        if (!current.open()) {
-            throw new IllegalStateException("PR is closed or merged; finish this task");
-        }
+        var current = authorizedOpen(state);
         var candidate = candidate(outputs);
         requireVerified(context, state, candidate,
                 JSON.readValue(outputs.get(VERIFICATION), VerificationReceipt.class));
@@ -358,6 +355,14 @@ public class FeedbackWorker implements AgentWorker {
                 || !target.baseBranch().equals(state.pr.baseBranch())) {
             throw new IllegalStateException("PR destination is no longer authorized");
         }
+    }
+
+    private PrFeedbackGateway.PullRequest authorizedOpen(FeedbackState state) {
+        var current = authorized(state);
+        if (!current.open()) {
+            throw new IllegalStateException(PR_CLOSED);
+        }
+        return current;
     }
 
     private PrFeedbackGateway.PullRequest authorized(FeedbackState state) {
@@ -401,7 +406,7 @@ public class FeedbackWorker implements AgentWorker {
     }
 
     private String source(FeedbackState state) {
-        return repositories.gitBaseUrl() + "/" + state.pr.repository() + ".git";
+        return repositories.gitUrl(state.pr.repository());
     }
 
     private Candidate candidate(Map<String, String> outputs) {
@@ -433,11 +438,6 @@ public class FeedbackWorker implements AgentWorker {
         detail.put("attemptId", state.attemptId);
         detail.put("invocationId", context.invocation().id().toString());
         context.invocation().recordProgress(detail);
-    }
-
-    private String safe(Exception e) {
-        String text = coding.redact(Objects.toString(e.getMessage(), "Operation failed"));
-        return text.substring(0, Math.min(1500, text.length()));
     }
 
     private String label(FeedbackState.Phase phase) {

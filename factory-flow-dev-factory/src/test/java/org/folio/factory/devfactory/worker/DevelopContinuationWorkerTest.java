@@ -97,7 +97,7 @@ class DevelopContinuationWorkerTest {
         InitialCodingAttempt develop = mock(InitialCodingAttempt.class);
         var requestArtifact = CodingDecisionArtifacts.Request.from(decision());
         var second = CodingOutcome.needsDecision(new CodingOutcome.Decision(
-                CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "One more question?", List.of(), "Evidence"),
+                CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "One more question?", List.of(), "Evidence"), "",
                 Map.of());
         when(develop.retry(any(), any(), any())).thenReturn(new InitialCodingAttempt.Attempt(null, second,
                 "{\"state\":\"NEEDS_DECISION\"}", "{}", "", "", Map.of()));
@@ -134,7 +134,7 @@ class DevelopContinuationWorkerTest {
 
     private AgentContext context(CodingDecisionArtifacts.Request decisionRequest,
                                  CodingOutcome.Decision decision, String answer) {
-        CodingOutcome outcome = CodingOutcome.needsDecision(decision, Map.of());
+        CodingOutcome outcome = CodingOutcome.needsDecision(decision, "", Map.of());
         return new AgentContext(UUID.randomUUID(), "continue-implementation", Map.of(
                 IntakeResolveWorker.CODING_REQUEST, artifact(IntakeResolveWorker.CODING_REQUEST,
                         json.writeValueAsString(request())),

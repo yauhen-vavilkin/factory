@@ -8,6 +8,9 @@ import java.util.Map;
 /** Git environment for publication: commit identity and a push credential that never reaches argv. */
 public final class PublicationGit {
 
+    public static final String AUTHOR_NAME = "Factory";
+    public static final String AUTHOR_EMAIL = "factory@localhost";
+
     private PublicationGit() {}
 
     public static Map<String, String> identity(String date, String name, String email) {

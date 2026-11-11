@@ -3,15 +3,13 @@ package org.folio.factory.core.service;
 import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.Artifact;
 import org.folio.factory.core.domain.AuditEventType;
+import org.folio.factory.core.limits.DedupKeyDeriver;
 import org.folio.factory.core.limits.LimitsProperties;
 import org.folio.factory.core.repository.ArtifactRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -56,20 +54,11 @@ public class ArtifactStore {
         return repository.findTopByExecutionIdAndNameOrderByVersionDesc(executionId, name);
     }
 
-    public Optional<Artifact> get(UUID executionId, String name, int version) {
-        return repository.findByExecutionIdAndNameAndVersion(executionId, name, version);
-    }
-
     public List<Artifact> allForExecution(UUID executionId) {
         return repository.findByExecutionIdOrderByNameAscVersionAsc(executionId);
     }
 
     public static String sha256(String content) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(content.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 unavailable", e);
-        }
+        return DedupKeyDeriver.sha256Hex(content.getBytes(StandardCharsets.UTF_8));
     }
 }

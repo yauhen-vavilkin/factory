@@ -259,7 +259,7 @@ class TaskDispatchIntegrationTest {
         UUID taskId = admit("30051", "MODBAR-251");
         var enabled = new TaskExecutionProperties(null, true);
         var launcher = new TaskExecutionLauncher(router, tasks, attempts, installations, enabled,
-                new RetentionProperties(true, null, null, null), transactionManager);
+                new RetentionProperties(true, null, null), transactionManager);
         var guarded = new TaskDispatcher(attempts, installations, launcher, enabled, outcomesProvider());
 
         assertThat(guarded.queueProblem()).isNull();
@@ -284,7 +284,7 @@ class TaskDispatchIntegrationTest {
 
     private TaskDispatcher dispatcherWithRouter(PipelineRouter crashingRouter) {
         var launcher = new TaskExecutionLauncher(crashingRouter, tasks, attempts, installations,
-                new TaskExecutionProperties(null, false), new RetentionProperties(null, null, null, null),
+                new TaskExecutionProperties(null, false), new RetentionProperties(null, null, null),
                 transactionManager);
         return new TaskDispatcher(attempts, installations, launcher,
                 new TaskExecutionProperties(null, false), outcomesProvider());

@@ -16,9 +16,7 @@ public class GitHubPrCommentWriter implements PrCommentWriter {
 
     public GitHubPrCommentWriter(GitHubProperties properties, RestClient.Builder builder) {
         this.properties = properties;
-        this.client = builder.baseUrl(properties.effectiveBaseUrl())
-                .defaultHeader("Authorization", "Bearer " + properties.token())
-                .defaultHeader("Accept", "application/vnd.github+json").build();
+        this.client = GitHubPrFeedbackGateway.restClient(properties, builder);
     }
 
     @Override
@@ -28,7 +26,7 @@ public class GitHubPrCommentWriter implements PrCommentWriter {
 
     @Override
     public String post(PrFeedbackGateway.PullRequest pr, String body) {
-        if (!pr.repository().matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+") || pr.number() < 1) {
+        if (!pr.repository().matches(GitHubPrFeedbackGateway.REPOSITORY) || pr.number() < 1) {
             throw new IllegalArgumentException("Invalid PR identity");
         }
         var response = client.post().uri("/repos/" + pr.repository() + "/issues/" + pr.number() + "/comments")

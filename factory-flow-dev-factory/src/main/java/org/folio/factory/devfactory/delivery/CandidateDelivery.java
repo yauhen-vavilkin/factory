@@ -114,7 +114,7 @@ public class CandidateDelivery {
     private static String commitCandidate(GitSession git, String issueKey, String summary, Candidate candidate) {
         var date = CandidateFreezer.git(git.workspace(), "show", "-s", "--format=%cI", candidate.baseSha())
                 .strip();
-        var identity = PublicationGit.identity(date, "Factory", "factory@localhost");
+        var identity = PublicationGit.identity(date, PublicationGit.AUTHOR_NAME, PublicationGit.AUTHOR_EMAIL);
         var commit = git.run(identity, "commit-tree", candidate.treeSha(), "-p", candidate.baseSha(),
                 "-m", commitTitle(issueKey, summary));
         requireSuccess(commit, "commit-tree");

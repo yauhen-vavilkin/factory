@@ -2,6 +2,7 @@ package org.folio.factory.devfactory.repository;
 
 import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.agent.AgentExecutionException;
+import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.runtime.Git;
 import org.folio.factory.devfactory.runtime.Processes;
 
@@ -16,7 +17,7 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class GitBaseRefResolver implements BaseRefResolver {
 
-    private static final Pattern SHA = Pattern.compile("[0-9a-f]{40}|[0-9a-f]{64}");
+    public static final Pattern SHA = Pattern.compile("[0-9a-f]{40}|[0-9a-f]{64}");
     private static final int TIMEOUT_SECONDS = 60;
     private static final int MAX_ERROR_CHARS = 500;
 
@@ -28,7 +29,7 @@ public class GitBaseRefResolver implements BaseRefResolver {
         if (git("check-ref-format", ref).exitCode() != 0) {
             throw new AgentExecutionException("Configured base branch is not a valid Git ref: " + branch);
         }
-        String url = gitBaseUrl + "/" + sourceRepo + ".git";
+        String url = DevFactoryProperties.gitUrl(gitBaseUrl, sourceRepo);
         Processes.Result result = git("ls-remote", "--exit-code", url, ref);
         if (result.exitCode() == 2) {
             return Optional.empty();

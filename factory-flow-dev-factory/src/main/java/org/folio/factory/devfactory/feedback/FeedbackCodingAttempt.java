@@ -68,7 +68,7 @@ final class FeedbackCodingAttempt {
                 context.executionId(), UUID.fromString(operation.state().attemptId), context.stepId())) {
             return coding.code(workload, request, runtime.timeoutSeconds(), progress, transcript);
         } catch (RuntimeException e) {
-            return CodingOutcome.failed("RUNTIME_FAILURE", safe(e), Map.of());
+            return CodingOutcome.failed("RUNTIME_FAILURE", safe(coding, e), Map.of());
         }
     }
 
@@ -92,11 +92,13 @@ final class FeedbackCodingAttempt {
             operation.outputs().put(CANDIDATE, JSON.writeValueAsString(candidate));
         } catch (RuntimeException lost) {
             throw new IllegalStateException(
-                    "Latest edits could not be saved; the previous confirmed patch is retained. " + safe(lost));
+                    "Latest edits could not be saved; the previous confirmed patch is retained. "
+                    + safe(coding, lost));
         }
     }
 
-    private String safe(Exception error) {
+    /** Redacted and bounded error text, safe for state, audit and pages. */
+    static String safe(CodingRuntime coding, Exception error) {
         String text = coding.redact(Objects.toString(error.getMessage(), "Operation failed"));
         return text.substring(0, Math.min(1500, text.length()));
     }

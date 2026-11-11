@@ -264,7 +264,7 @@ public class ExecutionEngine {
 
     private void handleStepFailure(PipelineExecution execution, FlowDescriptor flow, StepDescriptor step, Exception e) {
         UUID executionId = execution.getId();
-        String error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+        String error = errorText(e);
         auditLog.record(executionId, AuditEventType.STEP_FAILED, step.stepId(), Map.of("error", error));
         int attempts = stateManager.incrementRetry(executionId, step.stepId());
         if (attempts < flow.retryPolicy().maxAttempts()) {
@@ -318,11 +318,16 @@ public class ExecutionEngine {
 
     private void failTerminally(UUID executionId, Exception e) {
         try {
-            String error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            String error = errorText(e);
             stateManager.transition(executionId, ExecutionStatus.FAILED_ESCALATED, Map.of("engineError", error));
             auditLog.record(executionId, AuditEventType.ESCALATED, null, Map.of("engineError", error));
         } catch (Exception secondary) {
             log.error("Could not record terminal failure for execution {}", executionId, secondary);
         }
+    }
+
+    /** The failure message, or the exception class name when it has none. */
+    static String errorText(Throwable failure) {
+        return failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
     }
 }

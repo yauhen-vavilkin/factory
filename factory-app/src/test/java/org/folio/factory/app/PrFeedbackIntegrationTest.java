@@ -125,7 +125,7 @@ class PrFeedbackIntegrationTest {
             if(!noChanges) Files.writeString(codingSource.resolve("value.txt"),Files.readString(codingSource.resolve("value.txt"))+"fix "+calls+"\n");
             Consumer<Map<String,Object>> progress=i.getArgument(3); var streamed=new HashMap<String,Object>(usage); streamed.put("activity","coding_usage"); progress.accept(streamed);
             CodingTranscripts.Sink transcript=i.getArgument(4); transcript.add(new CodingTranscripts.Entry("prompt",Instant.now(),Map.of("text","Feedback round "+calls)));
-            if(ask) return CodingOutcome.needsDecision(new CodingOutcome.Decision(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS,"Keep both options?",List.of("Yes","No"),"Partial patch saved"),usage);
+            if(ask) return CodingOutcome.needsDecision(new CodingOutcome.Decision(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS,"Keep both options?",List.of("Yes","No"),"Partial patch saved"), "",usage);
             return CodingOutcome.completed("Corrected selected feedback",usage);
         });
         when(verifier.verify(any(),anyString(),any(),anyString(),anyInt())).thenAnswer(i->{

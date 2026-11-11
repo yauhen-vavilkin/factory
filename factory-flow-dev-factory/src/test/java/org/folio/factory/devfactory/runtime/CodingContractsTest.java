@@ -49,7 +49,7 @@ class CodingContractsTest {
     @Test void outcomesEnforcePortableDecisionAndFailureShapes() {
         var mismatch = CodingOutcome.needsDecision(new CodingOutcome.Decision(
                 CodingOutcome.DecisionKind.REPOSITORY_MISMATCH,
-                "Is this the correct repository?", List.of(), "No owning module is present"), Map.of());
+                "Is this the correct repository?", List.of(), "No owning module is present"), "", Map.of());
         assertThat(mismatch.status()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
         assertThat(mismatch.decision().kind()).isEqualTo(CodingOutcome.DecisionKind.REPOSITORY_MISMATCH);
         assertThatThrownBy(() -> new CodingOutcome(CodingOutcome.Status.COMPLETED, "Done",

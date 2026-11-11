@@ -8,6 +8,8 @@ import java.util.HexFormat;
 /** Factory-authored identity. The patch is raw textual Git binary-patch format. */
 public record Candidate(String repository, String baseSha, String treeSha, String patchSha256, String patch,
         String state) {
+    public static final String UNVERIFIED = "CANDIDATE_UNVERIFIED";
+
     public Candidate {
         if (repository == null || !repository.matches("[a-z0-9][a-z0-9-]{0,63}"))
             throw new IllegalArgumentException("Invalid repository key");
@@ -16,7 +18,7 @@ public record Candidate(String repository, String baseSha, String treeSha, Strin
         if (patch == null || patch.getBytes(StandardCharsets.UTF_8).length > 1024 * 1024)
             throw new IllegalArgumentException("Candidate exceeds MVP artifact limit");
         if (!sha256(patch).equals(patchSha256)) throw new IllegalArgumentException("Candidate patch digest mismatch");
-        if (!"CANDIDATE_UNVERIFIED".equals(state))
+        if (!UNVERIFIED.equals(state))
             throw new IllegalArgumentException("Frozen candidate must be unverified");
     }
     public static String sha256(String content) {

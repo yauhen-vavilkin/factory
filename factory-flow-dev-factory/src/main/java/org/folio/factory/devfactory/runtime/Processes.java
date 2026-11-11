@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
@@ -26,7 +27,7 @@ public final class Processes {
     public static final String OUTPUT_LIMIT_EXCEEDED = "Command exceeded output limit";
 
     /** How long the line reader may still work after the command ended, for example on slow best-effort writes. */
-    static final java.time.Duration READER_DRAIN = java.time.Duration.ofMinutes(2);
+    static final Duration READER_DRAIN = Duration.ofMinutes(2);
 
     private static final int OBSERVED_LINE_LIMIT = 512 * 1024;
 

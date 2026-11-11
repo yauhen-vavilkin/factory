@@ -21,8 +21,10 @@ import java.util.UUID;
 @Table(name = "task_installation")
 public class TaskInstallation {
 
+    public static final int ID = 1;
+
     @Id
-    private int id = 1;
+    private int id = ID;
 
     @Column(name = "sync_complete", nullable = false)
     @Setter
@@ -51,7 +53,7 @@ public class TaskInstallation {
     private Instant updatedAt;
 
     protected TaskInstallation() {
-        this.id = 1;
+        this.id = ID;
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
     }

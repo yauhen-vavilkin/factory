@@ -333,9 +333,7 @@ public final class PullRequestRenderer {
 
     private static String redact(String value) {
         if (value == null) return "";
-        String clean =
-                value.replaceAll("(?i)\\b(Bearer|Basic)\\s+[A-Za-z0-9+/_.=-]+", "$1 [REDACTED]");
-        clean = MavenBaselineOutput.sanitize(clean);
+        String clean = MavenBaselineOutput.redactCredentials(value);
         return TOKEN.matcher(clean).replaceAll("[REDACTED]");
     }
 

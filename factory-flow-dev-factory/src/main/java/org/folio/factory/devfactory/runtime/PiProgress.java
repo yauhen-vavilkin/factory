@@ -14,7 +14,6 @@ import java.util.regex.Pattern;
 /** Bounded, redacted activity projection; usage continues after the display limit. */
 @RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class PiProgress implements Consumer<String> {
-    private static final int FRAME_LIMIT = 512 * 1024;
     private static final int ACTIVITY_LIMIT = 200;
     private static final List<String> ACTIVITIES = List.of(
             "agent_start",
@@ -24,7 +23,6 @@ final class PiProgress implements Consumer<String> {
             "tool_execution_end",
             "compaction_start",
             "compaction_end");
-    private static final List<String> PROVIDER_STOPS = List.of("error", "aborted");
     private static final List<String> PATH_TOOLS = List.of("read", "write", "edit", "find", "ls", "grep");
     private static final Pattern BUILD_WORD = Pattern.compile(
             "(?:\\./)?(?:mvnw?|gradlew?|npm|npx|pytest|go|cargo)|test|verify|compile|build|clean"
@@ -40,7 +38,7 @@ final class PiProgress implements Consumer<String> {
 
     @Override
     public void accept(String line) {
-        if (line.length() > FRAME_LIMIT || line.isBlank()) {
+        if (line.length() > PiProtocol.FRAME_LIMIT || line.isBlank()) {
             return;
         }
         JsonNode frame;
@@ -78,7 +76,7 @@ final class PiProgress implements Consumer<String> {
 
     private void reportProviderError(JsonNode message) {
         var stopReason = message.path("stopReason").asString("");
-        if (!message.path("role").asString("").equals("assistant") || !PROVIDER_STOPS.contains(stopReason)) {
+        if (!message.path("role").asString("").equals("assistant") || !PiProtocol.PROVIDER_STOPS.contains(stopReason)) {
             return;
         }
         var event = new LinkedHashMap<String, Object>();

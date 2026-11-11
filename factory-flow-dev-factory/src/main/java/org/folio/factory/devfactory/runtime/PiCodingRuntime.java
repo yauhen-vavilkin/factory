@@ -193,8 +193,7 @@ public class PiCodingRuntime implements CodingRuntime {
     }
 
     private static String safeFailure(RuntimeException error) {
-        String message =
-                error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+        String message = CodingRuntime.failureText(error);
         return message.substring(0, Math.min(2000, message.length()));
     }
 }

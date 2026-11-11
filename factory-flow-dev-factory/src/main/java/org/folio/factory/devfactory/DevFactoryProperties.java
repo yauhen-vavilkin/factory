@@ -47,7 +47,16 @@ public record DevFactoryProperties(String gitBaseUrl, SortedMap<String, Reposito
         if (repository == null) {
             throw new IllegalStateException("Missing trusted repository: " + repositoryKey);
         }
-        return gitBaseUrl + "/" + repository.sourceRepo() + ".git";
+        return gitUrl(repository.sourceRepo());
+    }
+
+    /** Clone URL of a GitHub-style {@code owner/name} repository under the configured Git base URL. */
+    public String gitUrl(String sourceRepo) {
+        return gitUrl(gitBaseUrl, sourceRepo);
+    }
+
+    public static String gitUrl(String gitBaseUrl, String sourceRepo) {
+        return gitBaseUrl + "/" + sourceRepo + ".git";
     }
 
     /** The valid delivery destination of a configured repository. */

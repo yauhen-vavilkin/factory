@@ -121,23 +121,6 @@ class GitHubRestConnectorTest {
     }
 
     @Test
-    void findsOnlyMatchingPullRequestInsideConfiguredFork() {
-        server.expect(requestTo("https://api.github.com/repos/o/r/pulls?state=open&head=o:factory/task-123&base=main"))
-                .andExpect(method(GET))
-                .andRespond(withSuccess("""
-                        [{"html_url":"https://github.com/folio-org/r/pull/1",
-                          "head":{"repo":{"full_name":"o/r"},"ref":"factory/task-123"},
-                          "base":{"repo":{"full_name":"folio-org/r"},"ref":"main"}},
-                         {"html_url":"https://github.com/o/r/pull/7",
-                          "head":{"repo":{"full_name":"o/r"},"ref":"factory/task-123"},
-                          "base":{"repo":{"full_name":"o/r"},"ref":"main"}}]
-                        """, MediaType.APPLICATION_JSON));
-        assertThat(connector.findOpenPullRequest("o/r", "factory/task-123", "main"))
-                .contains("https://github.com/o/r/pull/7");
-        server.verify();
-    }
-
-    @Test
     void findPullRequestsCoversOpenClosedAndMergedStatesWithHeadIdentity() {
         server.expect(requestTo("https://api.github.com/repos/o/r/pulls?state=all&head=o:factory/task-123&base=main"))
                 .andExpect(method(GET))

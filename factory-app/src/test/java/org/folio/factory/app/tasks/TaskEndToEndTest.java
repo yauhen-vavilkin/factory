@@ -704,12 +704,12 @@ class TaskEndToEndTest {
                     : CodingOutcome.completed("Implemented the change on the fresh attempt", REPEAT_USAGE);
             case "MODBAR-102" -> CodingOutcome.needsDecision(new CodingOutcome.Decision(
                     CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS,
-                    "Which acceptance criterion defines the limit?", List.of(), "No limit is specified"),
+                    "Which acceptance criterion defines the limit?", List.of(), "No limit is specified"), "",
                     REPEAT_USAGE);
             case "MODBAR-106" -> codingCalls.get(issueKey) == 1
                     ? CodingOutcome.needsDecision(new CodingOutcome.Decision(
                             CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS,
-                            "Which module should expose the endpoint?", List.of(), "Not stated"), PARTIAL_USAGE)
+                            "Which module should expose the endpoint?", List.of(), "Not stated"), "", PARTIAL_USAGE)
                     : CodingOutcome.completed("Implemented the change", COMPLETE_USAGE);
             default -> throw new IllegalStateException("Unexpected coding request " + issueKey);
         };

@@ -7,7 +7,7 @@ public interface CodingRuntime {
 
     /**
      * Checks the configuration a run with these settings would use (null: the defaults). A
-     * {@link RunProfiles.ProfileException} message is safe to show and says what to fix.
+     * {@link ModelCatalog.ModelException} message is safe to show and says what to fix.
      */
     void requireConfigured(CodingRequest.RunSettings settings);
 
@@ -23,6 +23,11 @@ public interface CodingRuntime {
 
     /** Removes adapter-owned credentials from persisted failures and audit activity. */
     default String redact(String value) { return value; }
+
+    /** The failure message, or the exception class name when it has none; not yet redacted or bounded. */
+    static String failureText(RuntimeException error) {
+        return error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+    }
 
     /** Only runtimes that read a conversation stream write a transcript; the others ignore the sink. */
     CodingOutcome code(DockerWorkloads.Workload workload, CodingRequest request, int timeoutSeconds,

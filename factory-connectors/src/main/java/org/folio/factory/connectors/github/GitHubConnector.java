@@ -18,7 +18,7 @@ public interface GitHubConnector {
     void createBranch(String repo, String baseBranch, String newBranch);
 
     /**
-     * Commits the given files (path → content) to the branch, one commit per call.
+     * Commits the given files (path → content) to the branch, one commit per file.
      */
     void commitFiles(String repo, String branch, Map<String, String> files, String message);
 
@@ -35,11 +35,6 @@ public interface GitHubConnector {
     default String createPullRequest(String repo, String headBranch, String baseBranch, String title, String body,
                                      boolean draft) {
         throw new UnsupportedOperationException("This GitHub connector cannot choose draft pull requests");
-    }
-
-    /** Find an open PR inside the destination repository before creating another. */
-    default java.util.Optional<String> findOpenPullRequest(String repo, String headBranch, String baseBranch) {
-        throw new UnsupportedOperationException("GitHub pull request lookup is not configured");
     }
 
     /**

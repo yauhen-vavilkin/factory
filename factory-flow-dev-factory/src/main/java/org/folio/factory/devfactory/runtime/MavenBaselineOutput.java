@@ -15,6 +15,7 @@ public final class MavenBaselineOutput implements Consumer<String> {
     private static final Pattern URI_CREDENTIALS = Pattern.compile("(https?://)[^/@\\s]+@", Pattern.CASE_INSENSITIVE);
     private static final Pattern NAMED_SECRET = Pattern.compile(
             "(?i)(authorization|password|token|api[-_]?key)(\\s*[=:]\\s*)\\S+");
+    private static final Pattern AUTHORIZATION_VALUE = Pattern.compile("(?i)\\b(Bearer|Basic)\\s+[A-Za-z0-9+/_.=-]+");
     private static final Pattern TRANSFER = Pattern.compile(
             "(?i)Could not transfer artifact (?:[^:\\s]+:)?([^:\\s]+):[^:\\s]+:([^:\\s]+) from/to ([^ (:\\s]+)");
     private static final Pattern NETWORK_FAILURE = Pattern.compile(
@@ -136,6 +137,11 @@ public final class MavenBaselineOutput implements Consumer<String> {
         String safe = URI_CREDENTIALS.matcher(text).replaceAll("$1[REDACTED]@");
         safe = NAMED_SECRET.matcher(safe).replaceAll("$1$2[REDACTED]");
         return safe;
+    }
+
+    /** Bearer and Basic credentials, then the {@link #sanitize} secrets. */
+    public static String redactCredentials(String text) {
+        return sanitize(AUTHORIZATION_VALUE.matcher(text).replaceAll("$1 [REDACTED]"));
     }
 
     private enum Category { DOWNLOAD, DIAGNOSTIC, ACTIVITY, RESULT }

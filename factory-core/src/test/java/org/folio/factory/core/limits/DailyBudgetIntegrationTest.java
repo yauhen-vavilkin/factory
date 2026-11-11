@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.transaction.annotation.Transactional;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -86,7 +87,7 @@ class DailyBudgetIntegrationTest {
                 .isInstanceOf(DailyBudgetExceededException.class);
 
         assertThat(executions.count()).isEqualTo(before);
-        assertThat(auditEvents.findTop200ByOrderByIdDesc())
+        assertThat(auditEvents.findAllByOrderByIdDesc(PageRequest.of(0, 200)).getContent())
                 .extracting(AuditEvent::getEventType)
                 .contains(AuditEventType.EXECUTION_BUDGET_EXCEEDED);
     }
@@ -117,7 +118,7 @@ class DailyBudgetIntegrationTest {
 
         assertThat(second).containsExactly(first.getFirst());
         assertThat(executions.count()).isEqualTo(before);
-        assertThat(auditEvents.findTop200ByOrderByIdDesc())
+        assertThat(auditEvents.findAllByOrderByIdDesc(PageRequest.of(0, 200)).getContent())
                 .extracting(AuditEvent::getEventType)
                 .contains(AuditEventType.EXECUTION_DEDUPED);
     }

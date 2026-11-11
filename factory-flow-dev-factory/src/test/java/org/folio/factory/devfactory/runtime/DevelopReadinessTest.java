@@ -275,7 +275,7 @@ class DevelopReadinessTest {
                 .thenReturn(new Processes.Result(0, "[INFO] BUILD SUCCESS"));
         when(coding.code(any(), any(CodingRequest.class), anyInt(), any(), any()))
                 .thenReturn(CodingOutcome.needsDecision(new CodingOutcome.Decision(
-                        CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"),
+                        CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"), "",
                         Map.of()));
         var attempt = new InitialCodingAttempt(new DevFlowSettings(properties, settings), new CodingServices(coding, docker, freezer), codec,
                 mock(AuditLog.class), new DevFactoryHooks(TaskAttemptPolicy.none(), (modelId, model) -> Map.of(), CodingTranscripts.none(), SelectedRepositoryPreflight.none()), taskAttempts.guard());
@@ -328,7 +328,7 @@ class DevelopReadinessTest {
                         new Processes.Result(0, "[INFO] BUILD SUCCESS"));
         when(coding.code(any(), any(CodingRequest.class), anyInt(), any(), any()))
                 .thenReturn(CodingOutcome.needsDecision(new CodingOutcome.Decision(
-                        CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"),
+                        CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"), "",
                         Map.of()));
         var attempt = new InitialCodingAttempt(new DevFlowSettings(properties, settings), new CodingServices(coding, docker, freezer), codec,
                 mock(AuditLog.class), new DevFactoryHooks(TaskAttemptPolicy.none(), (modelId, model) -> Map.of(), CodingTranscripts.none(), SelectedRepositoryPreflight.none()), taskAttempts.guard());
@@ -550,7 +550,7 @@ class DevelopReadinessTest {
             // The runtime gets the failure, so it can log it once and note it in the transcript.
             reported.set(catchThrowable(() -> progress.accept(Map.of("activity", "agent_start"))));
             return CodingOutcome.needsDecision(new CodingOutcome.Decision(
-                    CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"),
+                    CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"), "",
                     Map.of());
         });
 
@@ -613,7 +613,7 @@ class DevelopReadinessTest {
                 .thenReturn(new Processes.Result(0, "[INFO] BUILD SUCCESS"));
         when(coding.code(any(), any(CodingRequest.class), anyInt(), any(), any()))
                 .thenReturn(CodingOutcome.needsDecision(new CodingOutcome.Decision(
-                        CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"),
+                        CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which limit?", List.of(), "Evidence"), "",
                         Map.of()));
         var attempt = new InitialCodingAttempt(new DevFlowSettings(properties, settings), new CodingServices(coding, docker, freezer), codec,
                 audit, new DevFactoryHooks(TaskAttemptPolicy.none(), (modelId, model) -> Map.of(), transcripts, SelectedRepositoryPreflight.none()), taskAttempts.guard());

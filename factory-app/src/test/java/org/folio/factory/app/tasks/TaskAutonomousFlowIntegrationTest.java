@@ -255,7 +255,7 @@ class TaskAutonomousFlowIntegrationTest {
                     "activity", "coding_usage", "inputTokens", 10L, "outputTokens", 3L)));
             return CodingOutcome.needsDecision(new CodingOutcome.Decision(
                     CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which length limit should be enforced?",
-                    List.of(), "No limit is specified"), usage);
+                    List.of(), "No limit is specified"), "", usage);
         });
 
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
@@ -386,7 +386,7 @@ class TaskAutonomousFlowIntegrationTest {
         DevFlowHarness.stubIssue(jira, "MODBAR-422", DESCRIPTION, "");
         when(coding.code(any(), any(), anyInt(), any(), any())).thenReturn(CodingOutcome.needsDecision(
                 new CodingOutcome.Decision(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS,
-                        "Which acceptance criterion defines the limit?", List.of(), "No limit specified"),
+                        "Which acceptance criterion defines the limit?", List.of(), "No limit specified"), "",
                 Map.of()));
 
         UUID executionId = start("MODBAR-422");

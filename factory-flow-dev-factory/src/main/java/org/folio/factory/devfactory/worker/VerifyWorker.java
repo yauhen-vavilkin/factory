@@ -36,7 +36,7 @@ public class VerifyWorker implements AgentWorker {
     public AgentResult execute(AgentContext context) {
         String content = context.requireInput(DevelopWorker.CANDIDATE).content();
         var node = json.readTree(content);
-        if (!"CANDIDATE_UNVERIFIED".equals(node.path("state").asString(""))) {
+        if (!Candidate.UNVERIFIED.equals(node.path("state").asString(""))) {
             return notRun("No frozen candidate was available for independent verification",
                     new Stop(node.path("state").asString("DEVELOPMENT_FAILED"),
                             node.path("reason").asString("Development did not produce a candidate")));

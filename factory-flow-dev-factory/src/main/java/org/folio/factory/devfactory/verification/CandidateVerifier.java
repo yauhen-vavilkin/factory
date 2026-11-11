@@ -117,8 +117,7 @@ public class CandidateVerifier {
     }
 
     private static String safeOutput(String output) {
-        String redacted = MavenBaselineOutput.sanitize(output.replaceAll(
-                "(?i)\\b(Bearer|Basic)\\s+[A-Za-z0-9+/_.=-]+", "$1 [REDACTED]"));
+        String redacted = MavenBaselineOutput.redactCredentials(output);
         return redacted.substring(Math.max(0, redacted.length() - 16000));
     }
 

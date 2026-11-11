@@ -82,7 +82,8 @@ public class DedupKeyDeriver {
         return "sha256:" + sha256Hex(key.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static String sha256Hex(byte[] bytes) {
+    /** Lowercase hex SHA-256 of the bytes. */
+    public static String sha256Hex(byte[] bytes) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256").digest(bytes);
             return HexFormat.of().formatHex(digest);

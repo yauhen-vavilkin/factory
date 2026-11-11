@@ -68,7 +68,7 @@ public class TaskDispatcher {
     }
 
     private Optional<UUID> dispatchNextOrThrow() {
-        TaskInstallation installation = installations.findById(1).orElse(null);
+        TaskInstallation installation = installations.findById(TaskInstallation.ID).orElse(null);
         if (installation != null && installation.getActiveAttemptId() != null
                 && !refreshReleases(installation.getActiveAttemptId())) {
             return Optional.of(activeBinding(installation.getActiveAttemptId()));

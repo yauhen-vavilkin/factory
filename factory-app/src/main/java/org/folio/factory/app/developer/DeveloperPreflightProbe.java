@@ -1,7 +1,9 @@
 package org.folio.factory.app.developer;
 
 import org.folio.factory.connectors.github.GitHubProperties;
+import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
+import org.folio.factory.devfactory.repository.GitBaseRefResolver;
 import org.folio.factory.devfactory.runtime.Git;
 import org.folio.factory.devfactory.runtime.Processes;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -16,13 +18,11 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 /** Bounded read-only probes. Never sends an inference request or publishes Git changes. */
 @Component
 public class DeveloperPreflightProbe {
 
-    private static final Pattern SHA = Pattern.compile("[0-9a-f]{40}|[0-9a-f]{64}");
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(5);
     private static final int COMMAND_TIMEOUT_SECONDS = 5;
     private static final int SOURCE_TIMEOUT_SECONDS = 10;
@@ -70,13 +70,14 @@ public class DeveloperPreflightProbe {
     public String sourceBase(String gitBaseUrl, String sourceRepo, String branch) {
         String branchRef = "refs/heads/" + branch;
         Processes.Result result = Git.run(null, Map.of(), SOURCE_TIMEOUT_SECONDS, "ls-remote", "--exit-code",
-                gitBaseUrl + "/" + sourceRepo + ".git", branchRef);
+                DevFactoryProperties.gitUrl(gitBaseUrl, sourceRepo), branchRef);
         if (result.exitCode() != 0) {
             throw new IllegalStateException("Public source base is not readable");
         }
         for (String line : result.output().lines().toList()) {
             String[] parts = line.split("\t");
-            if (parts.length == 2 && branchRef.equals(parts[1]) && SHA.matcher(parts[0]).matches()) {
+            if (parts.length == 2 && branchRef.equals(parts[1])
+                    && GitBaseRefResolver.SHA.matcher(parts[0]).matches()) {
                 return parts[0];
             }
         }
@@ -118,7 +119,7 @@ public class DeveloperPreflightProbe {
                 .retrieve()
                 .body(JsonNode.class);
         String destinationSha = branch == null ? "" : branch.path("commit").path("sha").asString("");
-        if (!SHA.matcher(destinationSha).matches()) {
+        if (!GitBaseRefResolver.SHA.matcher(destinationSha).matches()) {
             throw new IllegalStateException("Destination base is missing");
         }
         return destinationSha;

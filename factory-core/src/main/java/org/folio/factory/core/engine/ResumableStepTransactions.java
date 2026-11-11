@@ -149,7 +149,7 @@ public class ResumableStepTransactions {
     public void fail(UUID id, int index, long version, UUID invocation, FlowDescriptor flow,
                      StepDescriptor step, Exception failure) {
         var execution = owned(id, index, version);
-        String message = failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
+        String message = ExecutionEngine.errorText(failure);
         audit.record(id, AuditEventType.STEP_FAILED, step.stepId(),
                 Map.of("invocationId", invocation.toString(), "error", message));
         int attempts = state.incrementRetry(id, step.stepId());

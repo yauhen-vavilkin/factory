@@ -19,6 +19,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -60,7 +61,7 @@ class SizeCapsIntegrationTest {
         var limits = new LimitsProperties(null, null, null, maxTriggerPayloadBytes,
                 new LimitsProperties.Dedup(false, null, null));
         return new PipelineRouter(flowRegistry, stateManager, jsonMapper, limits,
-                new DedupKeyDeriver(limits, jsonMapper), auditLog);
+                new DedupKeyDeriver(limits, jsonMapper), auditLog, List.of());
     }
 
     private UUID newExecution() {

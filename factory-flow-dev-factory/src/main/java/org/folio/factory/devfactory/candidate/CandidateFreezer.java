@@ -50,7 +50,7 @@ public class CandidateFreezer {
                     "--no-textconv", baseSha, "--");
             if (!allowUnchanged && patch.isEmpty()) throw new IllegalStateException("Candidate contains no patch");
             Candidate candidate = new Candidate(repository, baseSha, tree, Candidate.sha256(patch), patch,
-                    "CANDIDATE_UNVERIFIED");
+                    Candidate.UNVERIFIED);
             Path roundTrip = reconstruct(sourceUrl, candidate);
             cleanup(roundTrip);
             return candidate;

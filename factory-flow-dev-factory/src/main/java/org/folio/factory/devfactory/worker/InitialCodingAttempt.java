@@ -19,6 +19,7 @@ import org.folio.factory.devfactory.tasks.TaskGuard;
 import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
+import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.runtime.ModelCatalog;
@@ -94,7 +95,7 @@ public final class InitialCodingAttempt {
 
     private Run newRun(AgentContext context, CodingRequest request, DevFactoryProperties.Repository repository,
                        DockerWorkloads.StepScope scope) {
-        var url = settings.repositories().gitBaseUrl() + "/" + repository.sourceRepo() + ".git";
+        var url = settings.repositories().gitUrl(repository.sourceRepo());
         return new Run(context, request, repository, url, scope, taskGuard.policy().find(context.executionId()));
     }
 
@@ -212,10 +213,10 @@ public final class InitialCodingAttempt {
         return switch (outcome.status()) {
             case COMPLETED -> completedAttempt(run, state, outcome);
             case NEEDS_DECISION -> attempt(run.request(), outcome,
-                    placeholder("NEEDS_DECISION", outcome.decision().question()), state,
+                    DevelopWorker.placeholder(json, "NEEDS_DECISION", outcome.decision().question()), state,
                     CodingDecisionArtifacts.Request.from(outcome.decision()));
             case FAILED -> attempt(run.request(), outcome,
-                    placeholder("DEVELOPMENT_FAILED", outcome.failure().message()), state,
+                    DevelopWorker.placeholder(json, "DEVELOPMENT_FAILED", outcome.failure().message()), state,
                     CodingDecisionArtifacts.Request.none());
         };
     }
@@ -265,13 +266,13 @@ public final class InitialCodingAttempt {
         if (Processes.OUTPUT_LIMIT_EXCEEDED.equals(e.getMessage())) {
             return new Stop("DEVELOPMENT_FAILED", TaskStops.OUTPUT_LIMIT_REASON);
         }
-        var reason = safeRedact(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+        var reason = safeRedact(CodingRuntime.failureText(e));
         return new Stop("DEVELOPMENT_FAILED", reason.substring(0, Math.min(2000, reason.length())));
     }
 
     private Attempt failedAttempt(Stop stop, RunState state) {
         var outcome = CodingOutcome.failed(stop.state(), stop.reason(), Map.of());
-        return attempt(null, outcome, placeholder(stop.state(), stop.reason()), state,
+        return attempt(null, outcome, DevelopWorker.placeholder(json, stop.state(), stop.reason()), state,
                 CodingDecisionArtifacts.Request.none());
     }
 
@@ -282,11 +283,6 @@ public final class InitialCodingAttempt {
                 CodingDecisionArtifacts.renderRequest(codec, decision),
                 CodingDecisionArtifacts.renderAnswer(codec, answer),
                 state.metrics);
-    }
-
-    private String placeholder(String state, String reason) {
-        return json.writeValueAsString(
-                Map.of("state", state, "reason", reason == null ? "" : reason));
     }
 
     private void progress(AgentContext context, Map<String, Object> event) {

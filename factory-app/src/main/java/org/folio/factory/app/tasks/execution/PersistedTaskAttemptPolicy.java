@@ -130,7 +130,7 @@ public class PersistedTaskAttemptPolicy implements TaskAttemptPolicy {
         return attempts.findByExecutionId(executionId)
                 .filter(attempt -> attempt.getState().isLive())
                 .map(TaskAttempt::getId)
-                .flatMap(ownedId -> installations.findById(1)
+                .flatMap(ownedId -> installations.findById(TaskInstallation.ID)
                         .map(TaskInstallation::getActiveAttemptId)
                         .map(ownedId::equals))
                 .orElse(false);

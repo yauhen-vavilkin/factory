@@ -24,7 +24,7 @@ class CodingDecisionGateWorkerTest {
     @Test void opensOnlyForNeedsDecision() {
         ConditionalDecisionGate gate = mock(ConditionalDecisionGate.class);
         var context = context(CodingOutcome.needsDecision(new CodingOutcome.Decision(
-                CodingOutcome.DecisionKind.REPOSITORY_MISMATCH, "Correct repository?", List.of(), "Evidence"),
+                CodingOutcome.DecisionKind.REPOSITORY_MISMATCH, "Correct repository?", List.of(), "Evidence"), "",
                 Map.of()));
         when(gate.open(context, CodingDecisionGateWorker.GATE)).thenReturn(true);
 
@@ -47,7 +47,7 @@ class CodingDecisionGateWorkerTest {
         var taskAttempts = RecordingTaskAttempts.taskRun();
         var context = context(CodingOutcome.needsDecision(new CodingOutcome.Decision(
                 CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS, "Which length limit applies?",
-                List.of(), "No limit is specified"), Map.of()));
+                List.of(), "No limit is specified"), "", Map.of()));
 
         assertThat(new CodingDecisionGateWorker(gate, taskAttempts.guard()).execute(context).metrics())
                 .containsEntry("decisionRequired", true).containsEntry("reviewOpened", false);

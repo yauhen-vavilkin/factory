@@ -19,12 +19,12 @@ public record AttemptDeadline(Instant expiresAt) {
 
     /** Negative once the budget is exhausted. */
     public Duration remaining(Clock clock) {
-        Objects.requireNonNull(clock, "clock");
         return Duration.between(clock.instant(), expiresAt);
     }
 
     public boolean expired(Clock clock) {
-        return remaining(clock).isZero() || remaining(clock).isNegative();
+        var remaining = remaining(clock);
+        return remaining.isZero() || remaining.isNegative();
     }
 
     /** min(existing per-operation limit, remaining); zero once expired, never negative. */

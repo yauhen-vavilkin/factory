@@ -10,8 +10,10 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.DevFactoryProperties.Repository;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.intake.IssueSnapshot;
+import org.folio.factory.devfactory.repository.GitBaseRefResolver;
 import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
+import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
@@ -30,7 +32,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import static org.folio.factory.devfactory.DevFactoryConfiguration.FLOW_ID;
 
@@ -46,7 +47,6 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     private static final String ISSUE_MISSING = "Jira did not return the requested issue.";
     private static final String ISSUE_UNREADABLE =
             "Cannot read the requested Jira issue; check URL, credentials and issue access.";
-    private static final Pattern COMMIT_SHA = Pattern.compile("[0-9a-f]{40}|[0-9a-f]{64}");
     /**
      * Checks that fail because of the task itself or the model it chose, not because of Factory,
      * Docker, Jira or GitHub.
@@ -151,7 +151,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     @Override
     public void requireRepositoryReady(String repositoryKey, String frozenBaseSha) {
         if (!repositories.repositories().containsKey(repositoryKey)
-                || frozenBaseSha == null || !COMMIT_SHA.matcher(frozenBaseSha).matches()) {
+                || frozenBaseSha == null || !GitBaseRefResolver.SHA.matcher(frozenBaseSha).matches()) {
             throw new IllegalArgumentException("Selected repository and frozen base must be valid.");
         }
 
@@ -288,7 +288,7 @@ public class DeveloperPreflight implements TriggerPreflight, SelectedRepositoryP
     }
 
     private boolean usesClaudeCode() {
-        return "claude-code".equals(coding.id());
+        return ClaudeCodeCodingRuntime.ID.equals(coding.id());
     }
 
     private void checkTask(String issueKey, List<Check> checks) {

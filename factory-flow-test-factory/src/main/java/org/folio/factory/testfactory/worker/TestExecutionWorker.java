@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * Non-LLM system worker. When a reference environment and Karate runner are
  * configured, materialises the script bundle to disk and executes it; otherwise
- * runs in advisory mode (the document's Phase 1 default) and records the results
+ * runs in advisory mode (the default) and records the results
  * as NOT_EXECUTED so the pipeline still reaches QA sign-off.
  */
 @RequiredArgsConstructor

@@ -19,8 +19,6 @@ public interface ArtifactRepository extends Repository<Artifact, UUID> {
 
     Optional<Artifact> findTopByExecutionIdAndNameOrderByVersionDesc(UUID executionId, String name);
 
-    Optional<Artifact> findByExecutionIdAndNameAndVersion(UUID executionId, String name, int version);
-
     List<Artifact> findByExecutionIdOrderByNameAscVersionAsc(UUID executionId);
 
     Optional<Artifact> findById(UUID id);

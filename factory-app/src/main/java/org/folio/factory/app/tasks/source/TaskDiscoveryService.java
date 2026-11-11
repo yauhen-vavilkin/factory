@@ -222,7 +222,8 @@ public class TaskDiscoveryService {
     private Instant applyCompleteSync(List<DiscoveredIssue> discovered) {
         // The row lock serializes this write against other installation saves, so
         // a scan and a concurrent dispatch cannot collide on the optimistic version.
-        TaskInstallation installation = installations.lockById(1).orElseThrow(TaskInstallation::missing);
+        TaskInstallation installation = installations.lockById(TaskInstallation.ID)
+                .orElseThrow(TaskInstallation::missing);
         Set<String> discoveredIds = new HashSet<>();
         for (DiscoveredIssue issue : discovered) {
             discoveredIds.add(issue.id());
@@ -244,7 +245,8 @@ public class TaskDiscoveryService {
         String problem = truncated(cause.getMessage() == null ? cause.toString() : cause.getMessage(),
                 MAX_PROBLEM_LENGTH);
         SyncResult result = transactions.execute(status -> {
-            TaskInstallation installation = installations.lockById(1).orElseThrow(TaskInstallation::missing);
+            TaskInstallation installation = installations.lockById(TaskInstallation.ID)
+                    .orElseThrow(TaskInstallation::missing);
             installation.setSyncComplete(false);
             installation.setSyncProblem(problem);
             installations.save(installation);

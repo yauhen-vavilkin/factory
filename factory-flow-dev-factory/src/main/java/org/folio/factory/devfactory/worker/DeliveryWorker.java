@@ -37,6 +37,7 @@ import java.util.Map;
 public class DeliveryWorker implements AgentWorker {
     public static final String ID = "dev-deliver";
     public static final String DELIVERY = "dev_delivery.json";
+    public static final String DELIVERED = "DELIVERED";
     private static final String PLAN_CHANGED =
             "Verification receipt no longer matches the current Factory plan; reverify the candidate";
     private final DevFactoryProperties repositories;
@@ -147,7 +148,7 @@ public class DeliveryWorker implements AgentWorker {
 
     private AgentResult publishPullRequest(AgentContext context, Inputs inputs, Publication publication) {
         // The same computation for a new and an existing pull request, so a replay records the same flag.
-        var outcome = inputJson(context, "dev_coding_outcome.json");
+        var outcome = inputJson(context, DevelopWorker.OUTCOME);
         var draftReasons = PullRequestRenderer.draftReasons(outcome);
         var target = publication.target();
         var receipt = publication.receipt();
@@ -190,7 +191,7 @@ public class DeliveryWorker implements AgentWorker {
                 publication.target());
         var title = inputs.issueKey() + ": " + inputs.summary();
         var body = renderer.render(inputs.issueKey(), jiraProperties.baseUrl(), candidate, verification, receipt,
-                inputJson(context, "dev_coding_request.json"), outcome);
+                inputJson(context, IntakeResolveWorker.CODING_REQUEST), outcome);
         var url = github.createPullRequest(publication.target().repository(), receipt.branch(),
                 publication.target().baseBranch(), title, body, !draftReasons.isEmpty());
         return delivered(inputs, receipt, new PullRequestOutcome(url, title, draftReasons));
@@ -216,7 +217,7 @@ public class DeliveryWorker implements AgentWorker {
     }
 
     private static Map<String, Object> deliveredResult(Inputs inputs, DeliveryReceipt receipt) {
-        var result = identity("DELIVERED", inputs.candidate());
+        var result = identity(DELIVERED, inputs.candidate());
         deliveredIdentity(result, receipt);
         return result;
     }

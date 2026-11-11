@@ -13,10 +13,11 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * GitHub REST API client using the contents API — sufficient for committing
- * generated test files and opening pull requests in milestone 1.
+ * generated test files and opening pull requests.
  */
 public class GitHubRestConnector implements GitHubConnector, ConnectorHealth {
 
@@ -80,28 +81,6 @@ public class GitHubRestConnector implements GitHubConnector, ConnectorHealth {
     }
 
     @Override
-    public java.util.Optional<String> findOpenPullRequest(String repo, String headBranch, String baseBranch) {
-        String owner = repo.substring(0, repo.indexOf('/'));
-        JsonNode response = restClient.get()
-                .uri(builder -> builder.path("/repos/" + repo + "/pulls")
-                        .queryParam("state", "open").queryParam("head", owner + ":" + headBranch)
-                        .queryParam("base", baseBranch).build())
-                .retrieve().body(JsonNode.class);
-        if (response != null && response.isArray()) {
-            for (JsonNode pr : response) {
-                if (repo.equalsIgnoreCase(pr.path("head").path("repo").path("full_name").asString(""))
-                        && repo.equalsIgnoreCase(pr.path("base").path("repo").path("full_name").asString(""))
-                        && headBranch.equals(pr.path("head").path("ref").asString(""))
-                        && baseBranch.equals(pr.path("base").path("ref").asString(""))) {
-                    String url = pr.path("html_url").asString("");
-                    if (!url.isBlank()) return java.util.Optional.of(url);
-                }
-            }
-        }
-        return java.util.Optional.empty();
-    }
-
-    @Override
     public List<PullRequest> findPullRequests(String repo, String headBranch, String baseBranch) {
         String owner = repo.substring(0, repo.indexOf('/'));
         JsonNode response = restClient.get()
@@ -139,17 +118,17 @@ public class GitHubRestConnector implements GitHubConnector, ConnectorHealth {
                 pr.path("base").path("ref").asString(""));
     }
 
-    private java.util.Optional<String> existingFileSha(String repo, String branch, String path) {
+    private Optional<String> existingFileSha(String repo, String branch, String path) {
         try {
             JsonNode existing = restClient.get()
                     .uri("/repos/" + repo + "/contents/" + path + "?ref=" + branch)
                     .retrieve()
                     .body(JsonNode.class);
             String sha = existing.path("sha").asString("");
-            return sha == null || sha.isBlank() ? java.util.Optional.empty() : java.util.Optional.of(sha);
+            return sha == null || sha.isBlank() ? Optional.empty() : Optional.of(sha);
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode() == HttpStatusCode.valueOf(404)) {
-                return java.util.Optional.empty();
+                return Optional.empty();
             }
             throw e;
         }

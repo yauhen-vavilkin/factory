@@ -87,7 +87,7 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
     private String syncGitHub(AgentContext context, List<Map<String, String>> actions,
                               ScriptBundle bundle, String issueKey) {
         if (properties.targetRepo() == null || properties.targetRepo().isBlank()) {
-            record(context, actions, "github", "commit scripts", "skipped",
+            record(context, actions, "github", "commit scripts", ActionStatus.SKIPPED,
                     "no target repository configured (FACTORY_TEST_FACTORY_TARGET_REPO)");
             return null;
         }
@@ -97,13 +97,13 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
             commitScripts(branch, bundle, issueKey);
             return openPullRequest(context, actions, branch, issueKey);
         } catch (ConnectorNotConfiguredException e) {
-            record(context, actions, "github", "commit scripts", "skipped", e.getMessage());
+            record(context, actions, "github", "commit scripts", ActionStatus.SKIPPED, e.getMessage());
             return null;
         } catch (RestClientException e) {
             // Non-idempotent side effects must not be retried wholesale by the
             // engine: record the failure for the humans at the sign-off surface
             // and continue with the remaining connectors.
-            record(context, actions, "github", "commit scripts", "failed", e.getMessage());
+            record(context, actions, "github", "commit scripts", ActionStatus.FAILED, e.getMessage());
             return null;
         }
     }
@@ -142,18 +142,18 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
             }
             // A PR for this branch already exists (or there is nothing new to
             // propose) — not a failure for an idempotent re-run.
-            record(context, actions, "github", "branch + commit + PR", "done",
+            record(context, actions, "github", "branch + commit + PR", ActionStatus.DONE,
                     "pull request already exists for " + branch);
             return null;
         }
-        record(context, actions, "github", "branch + commit + PR", "done", prUrl);
+        record(context, actions, "github", "branch + commit + PR", ActionStatus.DONE, prUrl);
         return prUrl;
     }
 
     private void syncTestRail(AgentContext context, List<Map<String, String>> actions,
                               Frontmatter plan, Frontmatter results, String issueKey) {
         if (properties.testrailSectionId() == null) {
-            record(context, actions, "testrail", "sync cases", "skipped",
+            record(context, actions, "testrail", "sync cases", ActionStatus.SKIPPED,
                     "no TestRail section configured (FACTORY_TEST_FACTORY_TESTRAIL_SECTION_ID)");
             return;
         }
@@ -165,11 +165,11 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
                 testRail.addResults(runId, testRailOutcomes(results, caseIds), "Automated by AI Test Factory");
             }
             record(context, actions, "testrail", "cases + run" + (executed ? " + results" : ""),
-                    "done", caseIds.size() + " case(s), run " + runId);
+                    ActionStatus.DONE, caseIds.size() + " case(s), run " + runId);
         } catch (ConnectorNotConfiguredException e) {
-            record(context, actions, "testrail", "sync cases", "skipped", e.getMessage());
+            record(context, actions, "testrail", "sync cases", ActionStatus.SKIPPED, e.getMessage());
         } catch (RestClientException e) {
-            record(context, actions, "testrail", "sync cases", "failed", e.getMessage());
+            record(context, actions, "testrail", "sync cases", ActionStatus.FAILED, e.getMessage());
         }
     }
 
@@ -204,12 +204,12 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
             jira.addComment(issueKey, "AI Test Factory completed for " + issueKey
                     + ".\nResults mode: " + mode
                     + (prUrl == null ? "" : "\nTest scripts PR: " + prUrl));
-            record(context, actions, "jira", "comment", "done", "");
+            record(context, actions, "jira", "comment", ActionStatus.DONE, "");
         } catch (ConnectorNotConfiguredException e) {
-            record(context, actions, "jira", "comment", "skipped", e.getMessage());
+            record(context, actions, "jira", "comment", ActionStatus.SKIPPED, e.getMessage());
             return;
         } catch (RestClientException e) {
-            record(context, actions, "jira", "comment", "failed", e.getMessage());
+            record(context, actions, "jira", "comment", ActionStatus.FAILED, e.getMessage());
             return;
         }
         if (properties.jiraTransition() != null && !properties.jiraTransition().isBlank()) {
@@ -221,11 +221,11 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
         var action = "transition '" + properties.jiraTransition() + "'";
         try {
             jira.transitionIssue(issueKey, properties.jiraTransition());
-            record(context, actions, "jira", action, "done", "");
+            record(context, actions, "jira", action, ActionStatus.DONE, "");
         } catch (ConnectorNotConfiguredException | IllegalArgumentException e) {
-            record(context, actions, "jira", action, "skipped", e.getMessage());
+            record(context, actions, "jira", action, ActionStatus.SKIPPED, e.getMessage());
         } catch (RestClientException e) {
-            record(context, actions, "jira", action, "failed", e.getMessage());
+            record(context, actions, "jira", action, ActionStatus.FAILED, e.getMessage());
         }
     }
 
@@ -236,19 +236,34 @@ public class TestFactoryFinalizerWorker implements AgentWorker {
     }
 
     private void record(AgentContext context, List<Map<String, String>> actions,
-                        String connector, String action, String status, String detail) {
+                        String connector, String action, ActionStatus status, String detail) {
         actions.add(Map.of("connector", connector, "action", action,
-                "status", status, "detail", detail == null ? "" : detail));
-        AuditEventType eventType = "skipped".equals(status)
+                "status", status.value(), "detail", detail == null ? "" : detail));
+        AuditEventType eventType = status == ActionStatus.SKIPPED
                 ? AuditEventType.CONNECTOR_SKIPPED : AuditEventType.CONNECTOR_ACTION;
         auditLog.record(context.executionId(), eventType, context.stepId(),
                 Map.of("connector", connector, "action", action, "detail", detail == null ? "" : detail));
-        engineMetrics.connectorOutcome(connector, status);
-        if ("skipped".equals(status)) {
+        engineMetrics.connectorOutcome(connector, status.value());
+        if (status == ActionStatus.SKIPPED) {
             log.info("Connector {} skipped for execution {}: {}", connector, context.executionId(), detail);
-        } else if ("failed".equals(status)) {
+        } else if (status == ActionStatus.FAILED) {
             log.warn("Connector {} sync FAILED for execution {} ({}): {}",
                     connector, context.executionId(), action, detail);
+        }
+    }
+
+    /** How a connector action ended; {@link #value} is the text the sync report, audit and metrics carry. */
+    private enum ActionStatus {
+        DONE("done"), SKIPPED("skipped"), FAILED("failed");
+
+        private final String value;
+
+        ActionStatus(String value) {
+            this.value = value;
+        }
+
+        String value() {
+            return value;
         }
     }
 }

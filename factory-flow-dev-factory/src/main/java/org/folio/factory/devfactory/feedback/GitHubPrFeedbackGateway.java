@@ -8,15 +8,21 @@ import tools.jackson.databind.json.JsonMapper;
 import java.util.*;
 
 public class GitHubPrFeedbackGateway implements PrFeedbackGateway {
+    /** A GitHub {@code owner/name} repository. */
+    static final String REPOSITORY = "[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+";
     private final RestClient client;
     private final JsonMapper json = JsonMapper.builder().build();
     public GitHubPrFeedbackGateway(GitHubProperties properties, RestClient.Builder builder) {
-        client = builder.baseUrl(properties.effectiveBaseUrl())
+        client = restClient(properties, builder);
+    }
+    /** A GitHub REST client authenticated with the configured token. */
+    static RestClient restClient(GitHubProperties properties, RestClient.Builder builder) {
+        return builder.baseUrl(properties.effectiveBaseUrl())
                 .defaultHeader("Authorization", "Bearer " + properties.token())
                 .defaultHeader("Accept", "application/vnd.github+json").build();
     }
     public PullRequest read(String repository, int number) {
-        if (!repository.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+") || number < 1)
+        if (!repository.matches(REPOSITORY) || number < 1)
             throw new IllegalArgumentException("Invalid PR identity");
         var node = get("/repos/" + repository + "/pulls/" + number);
         if (!repository.equals(node.path("head").path("repo").path("full_name").asString(""))
@@ -32,7 +38,7 @@ public class GitHubPrFeedbackGateway implements PrFeedbackGateway {
         if (previous == null) throw new IllegalArgumentException("No delivered PR is available");
         String repository = previous.repository();
         int number = previous.number();
-        if (!repository.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+") || number < 1)
+        if (!repository.matches(REPOSITORY) || number < 1)
             throw new IllegalArgumentException("Invalid PR identity");
         var node = get("/repos/" + repository + "/pulls/" + number);
         if (!repository.equals(node.path("base").path("repo").path("full_name").asString(""))

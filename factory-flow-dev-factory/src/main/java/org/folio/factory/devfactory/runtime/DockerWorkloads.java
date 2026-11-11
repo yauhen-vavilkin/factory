@@ -1,5 +1,6 @@
 package org.folio.factory.devfactory.runtime;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -7,6 +8,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 import lombok.extern.slf4j.Slf4j;
 
 /** Only owned containers, with private writable storage and no host mounts. */
@@ -197,8 +201,8 @@ public class DockerWorkloads {
 
     private static String workloadUser(Path source) {
         try {
-            Number uid = (Number) java.nio.file.Files.getAttribute(source, "unix:uid");
-            Number gid = (Number) java.nio.file.Files.getAttribute(source, "unix:gid");
+            Number uid = (Number) Files.getAttribute(source, "unix:uid");
+            Number gid = (Number) Files.getAttribute(source, "unix:gid");
             return uid + ":" + gid;
         } catch (java.io.IOException | UnsupportedOperationException e) {
             throw new IllegalStateException("Cannot resolve trusted workspace ownership", e);
@@ -213,15 +217,15 @@ public class DockerWorkloads {
             runCommand(List.of("docker", "cp", local, name + ":" + destination), 120).requireSuccess();
         }
         public Processes.Result execute(List<String> argv, int timeout, int outputLimit,
-                                        java.util.function.Consumer<String> stdoutLine) {
+                                        Consumer<String> stdoutLine) {
             if (stopped) throw new IllegalStateException("Workload is stopped");
             var command = new ArrayList<>(List.of("docker", "exec", "--workdir", "/workspace", name));
             command.addAll(argv);
             return Processes.run(null, command, timeout, Map.of(), outputLimit, stdoutLine);
         }
         public Processes.Streamed stream(List<String> argv, int timeout,
-                                         java.util.function.UnaryOperator<String> redactor,
-                                         java.util.function.Predicate<String> stdoutLine) {
+                                         UnaryOperator<String> redactor,
+                                         Predicate<String> stdoutLine) {
             if (stopped) throw new IllegalStateException("Workload is stopped");
             var command = new ArrayList<>(List.of("docker", "exec", "--workdir", "/workspace", name));
             command.addAll(argv);

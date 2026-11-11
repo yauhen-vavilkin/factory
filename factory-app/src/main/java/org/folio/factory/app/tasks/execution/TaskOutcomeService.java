@@ -137,7 +137,7 @@ public class TaskOutcomeService {
      */
     private AttemptOutcome deliveredOutcome(TaskAttempt attempt, UUID executionId) {
         JsonNode delivery = readArtifact(executionId, DeliveryWorker.DELIVERY);
-        if (!"DELIVERED".equals(delivery.path("state").asString(""))) {
+        if (!DeliveryWorker.DELIVERED.equals(delivery.path("state").asString(""))) {
             return null;
         }
         String pullRequestUrl = delivery.path("pullRequestUrl").asString("");
@@ -181,7 +181,7 @@ public class TaskOutcomeService {
     /** A delivery with a pull-request identity never gets here: deliveredOutcome released it first. */
     private Classification classify(TaskAttempt attempt, UUID executionId, ExecutionStatus status) {
         JsonNode delivery = readArtifact(executionId, DeliveryWorker.DELIVERY);
-        if ("DELIVERED".equals(delivery.path("state").asString(""))) {
+        if (DeliveryWorker.DELIVERED.equals(delivery.path("state").asString(""))) {
             return new Classification(AttemptOutcome.State.NEEDS_INSPECTION,
                     "the candidate was delivered without a known pull-request identity", null, null);
         }
@@ -215,7 +215,7 @@ public class TaskOutcomeService {
     private void releaseLocked(UUID attemptId, Classification classification) {
         // Installation first, then the attempt: the same order as markStopped, launch and
         // admission, so a release and a concurrent mark-as-stopped cannot deadlock.
-        var installation = installations.lockById(1);
+        var installation = installations.lockById(TaskInstallation.ID);
         TaskAttempt current = attempts.findById(attemptId).orElseThrow();
         current.setState(TaskAttempt.State.valueOf(classification.state().name()));
         if (classification.publicationIdentity() != null) {
@@ -250,7 +250,7 @@ public class TaskOutcomeService {
      */
     public String markStopped(UUID attemptId) {
         return transactions.execute(status -> {
-            var installation = installations.lockById(1);
+            var installation = installations.lockById(TaskInstallation.ID);
             TaskAttempt attempt = attempts.findById(attemptId).orElse(null);
             if (attempt == null || attempt.getState() != TaskAttempt.State.NEEDS_INSPECTION) {
                 return "Only a task that needs inspection can be marked as stopped";

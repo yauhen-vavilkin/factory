@@ -11,7 +11,6 @@ import org.folio.factory.core.registry.model.FlowDescriptor;
 import org.folio.factory.core.registry.model.TriggerContract;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.core.service.StateManager;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -50,12 +49,6 @@ public class PipelineRouter {
     private final AuditLog auditLog;
     private final List<TriggerPreflight> preflights;
 
-    public PipelineRouter(FlowRegistry flowRegistry, StateManager stateManager, JsonMapper jsonMapper,
-                          LimitsProperties limits, DedupKeyDeriver dedupKeyDeriver, AuditLog auditLog) {
-        this(flowRegistry, stateManager, jsonMapper, limits, dedupKeyDeriver, auditLog, List.of());
-    }
-
-    @Autowired
     public PipelineRouter(FlowRegistry flowRegistry, StateManager stateManager, JsonMapper jsonMapper,
                           LimitsProperties limits, DedupKeyDeriver dedupKeyDeriver, AuditLog auditLog,
                           List<TriggerPreflight> preflights) {

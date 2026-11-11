@@ -1,10 +1,12 @@
 package org.folio.factory.core.repository;
 
+import jakarta.persistence.LockModeType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -12,13 +14,14 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface PipelineExecutionRepository extends JpaRepository<PipelineExecution, UUID> {
 
-    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select e from PipelineExecution e where e.id = :id")
-    java.util.Optional<PipelineExecution> lockById(@Param("id") UUID id);
+    Optional<PipelineExecution> lockById(@Param("id") UUID id);
 
 
     @Modifying
@@ -104,9 +107,6 @@ public interface PipelineExecutionRepository extends JpaRepository<PipelineExecu
     }
 
     long countByStatus(ExecutionStatus status);
-
-    @Query("select e.status, count(e) from PipelineExecution e group by e.status")
-    List<Object[]> countGroupedByStatus();
 
     boolean existsByFlowIdAndDedupKeyAndIdNotAndStatusNotIn(
             String flowId, String dedupKey, UUID id, Collection<ExecutionStatus> statuses);

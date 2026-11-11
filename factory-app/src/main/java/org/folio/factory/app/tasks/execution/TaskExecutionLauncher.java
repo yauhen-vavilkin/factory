@@ -93,7 +93,7 @@ public class TaskExecutionLauncher {
      * keeps the whole queue waiting.
      */
     private void stopNotRunnable(UUID attemptId, String reason) {
-        installations.lockById(1);
+        installations.lockById(TaskInstallation.ID);
         TaskAttempt attempt = attempts.findById(attemptId).orElse(null);
         if (attempt == null || attempt.getState() != TaskAttempt.State.RESERVED || attempt.getExecutionId() != null) {
             return;
@@ -104,7 +104,7 @@ public class TaskExecutionLauncher {
     }
 
     private UUID launchLocked(UUID attemptId, PreparedManualTrigger prepared) {
-        TaskInstallation installation = installations.lockById(1).orElseThrow(TaskInstallation::missing);
+        var installation = installations.lockById(TaskInstallation.ID).orElseThrow(TaskInstallation::missing);
         if (installation.getActiveAttemptId() != null && !installation.getActiveAttemptId().equals(attemptId)) {
             return attempts.findById(installation.getActiveAttemptId())
                     .map(TaskAttempt::getExecutionId)

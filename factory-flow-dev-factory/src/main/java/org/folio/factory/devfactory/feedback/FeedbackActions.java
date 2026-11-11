@@ -218,7 +218,7 @@ public class FeedbackActions {
             return Optional.empty();
         }
         var review = reviews.findById(before.reviewId()).orElseThrow();
-        return "pr-feedback".equals(review.getGateId()) ? Optional.of(before) : Optional.empty();
+        return FeedbackWorker.GATE_ID.equals(review.getGateId()) ? Optional.of(before) : Optional.empty();
     }
 
     private void recordPrOutcome(UUID id, View before, PrFeedbackGateway.Status observed) {
@@ -252,7 +252,7 @@ public class FeedbackActions {
     }
 
     private static boolean requiresOpenPr(Action action) {
-        return action != null && action != Action.RETRY_CLEANUP && action != Action.FINISH;
+        return action != null && action != Action.RETRY_CLEANUP;
     }
 
     public static List<Action> allowed(FeedbackState state) {

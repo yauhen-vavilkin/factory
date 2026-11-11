@@ -13,7 +13,7 @@ import tools.jackson.dataformat.yaml.YAMLMapper;
 @Component
 public class FrontmatterCodec {
 
-    public static final String DELIMITER = "---";
+    private static final String DELIMITER = "---";
 
     private final ObjectMapper yamlMapper = YAMLMapper.builder().build();
 

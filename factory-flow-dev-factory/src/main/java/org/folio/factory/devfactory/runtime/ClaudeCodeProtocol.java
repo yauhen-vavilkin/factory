@@ -12,6 +12,7 @@ import tools.jackson.databind.node.ObjectNode;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -322,15 +323,17 @@ final class ClaudeCodeProtocol implements Consumer<String> {
     private void record(String kind, Map<String, Object> detail) {
         if (transcriptCut) return;
         long size = detail.values().stream().mapToLong(value -> String.valueOf(value).length()).sum();
+        String entryKind = kind;
+        Map<String, Object> entryDetail = detail;
         if (transcriptSize + size > TRANSCRIPT_LIMIT) {
             transcriptCut = true;
-            kind = "note";
-            detail = Map.of("text", "Transcript cut at 5 MB; the attempt went on.");
+            entryKind = "note";
+            entryDetail = Map.of("text", "Transcript cut at 5 MB; the attempt went on.");
         }
         transcriptSize += size;
         try {
-            transcript.add(new CodingTranscripts.Entry(kind, Instant.now(),
-                    java.util.Collections.unmodifiableMap(new LinkedHashMap<>(detail))));
+            transcript.add(new CodingTranscripts.Entry(entryKind, Instant.now(),
+                    Collections.unmodifiableMap(new LinkedHashMap<>(entryDetail))));
         } catch (RuntimeException ignored) {
             // The sink logs and marks its own write failures; the attempt goes on.
         }

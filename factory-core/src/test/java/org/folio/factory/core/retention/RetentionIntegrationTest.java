@@ -150,7 +150,7 @@ class RetentionIntegrationTest {
         stateManager.transition(rootId, ExecutionStatus.COMPLETED, null);
         backdate(rootId, 40);
         RetentionService zeroTtlService = new RetentionService(retentionRepository, retentionPurger,
-                new RetentionProperties(true, 0, 10, null));
+                new RetentionProperties(true, 0, 10));
 
         zeroTtlService.purgeExpired();
 

@@ -27,10 +27,11 @@ public class FeedbackGit {
         Path path = freezer.reconstruct(source, candidate);
         try {
             String cleanMessage = message.replaceAll("[\\r\\n]", " ");
-            String sha = commitTree(path, PublicationGit.identity(date, "Factory", "factory@localhost"),
+            var identity = PublicationGit.identity(date, PublicationGit.AUTHOR_NAME, PublicationGit.AUTHOR_EMAIL);
+            String sha = commitTree(path, identity,
                     candidate.treeSha(), candidate.baseSha(), cleanMessage);
-            return new Intent(candidate.baseSha(), candidate.treeSha(), sha, cleanMessage, date, "Factory",
-                    "factory@localhost");
+            return new Intent(candidate.baseSha(), candidate.treeSha(), sha, cleanMessage, date,
+                    PublicationGit.AUTHOR_NAME, PublicationGit.AUTHOR_EMAIL);
         } finally {
             CandidateFreezer.cleanup(path);
         }

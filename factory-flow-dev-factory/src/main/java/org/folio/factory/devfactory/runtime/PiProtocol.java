@@ -16,9 +16,9 @@ import java.util.regex.Pattern;
 
 /** Strict final-result validation. Progress observations never authorize a coding result. */
 final class PiProtocol {
+    static final int FRAME_LIMIT = 512 * 1024;
+    static final List<String> PROVIDER_STOPS = List.of("error", "aborted");
     private static final Pattern HTTP_STATUS = Pattern.compile("\\b[45][0-9]{2}\\b");
-    private static final int FRAME_LIMIT = 512 * 1024;
-    private static final List<String> PROVIDER_STOPS = List.of("error", "aborted");
     private static final String INCOMPLETE = "Pi did not return a completed coding result";
 
     static CodingOutcome parse(String output, String provider, String model) {
