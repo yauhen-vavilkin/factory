@@ -72,15 +72,18 @@ public final class UiFormat {
     }
 
     /** Compact elapsed time for live UI clocks: seconds, then minutes, then hours. */
+    /** "9 s", "5 min", "1 h 20 min": the words the run page uses, and poll.js ticks in, for a time span. */
     static String duration(long seconds) {
         long safe = Math.max(0, seconds);
-        if (safe < 60) return safe + "s";
+        if (safe < 60) {
+            return safe + " s";
+        }
         long minutes = safe / 60;
-        long remainingSeconds = safe % 60;
-        if (minutes < 60) return minutes + "m" + (remainingSeconds == 0 ? "" : " " + remainingSeconds + "s");
-        long hours = minutes / 60;
+        if (minutes < 60) {
+            return minutes + " min";
+        }
         long remainingMinutes = minutes % 60;
-        return hours + "h" + (remainingMinutes == 0 ? "" : " " + remainingMinutes + "m");
+        return minutes / 60 + " h" + (remainingMinutes == 0 ? "" : " " + remainingMinutes + " min");
     }
 
     /** Milliseconds under one second, the compact duration from one second up. */

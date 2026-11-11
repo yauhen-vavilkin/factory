@@ -26,6 +26,17 @@
   }
   window.startPolling = startPolling;
 
+  // The same words as UiFormat.duration on the server, so a ticking time does not jump on its first tick.
+  function formatDuration(seconds) {
+    var safe = Math.max(0, seconds);
+    if (safe < 60) return safe + ' s';
+    var minutes = Math.floor(safe / 60);
+    if (minutes < 60) return minutes + ' min';
+    var remainingMinutes = minutes % 60;
+    return Math.floor(minutes / 60) + ' h' + (remainingMinutes ? ' ' + remainingMinutes + ' min' : '');
+  }
+  window.formatDuration = formatDuration;
+
   function resolve(obj, path) {
     return path.split('.').reduce(function (acc, key) {
       return (acc === null || acc === undefined) ? undefined : acc[key];
@@ -35,16 +46,6 @@
   document.addEventListener('DOMContentLoaded', function () {
     initTaskSelection();
     initModelChoice();
-    function formatDuration(seconds) {
-      var safe = Math.max(0, seconds);
-      if (safe < 60) return safe + 's';
-      var minutes = Math.floor(safe / 60);
-      var remainingSeconds = safe % 60;
-      if (minutes < 60) return minutes + 'm' + (remainingSeconds ? ' ' + remainingSeconds + 's' : '');
-      var hours = Math.floor(minutes / 60);
-      var remainingMinutes = minutes % 60;
-      return hours + 'h' + (remainingMinutes ? ' ' + remainingMinutes + 'm' : '');
-    }
     var clocks = document.querySelectorAll('[data-elapsed-start]');
     if (clocks.length) setInterval(function () {
       clocks.forEach(function (clock) {

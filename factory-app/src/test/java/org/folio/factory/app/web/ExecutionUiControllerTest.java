@@ -318,7 +318,7 @@ class ExecutionUiControllerTest {
         assertThat(entries).extracting(entry -> entry.get("kind")).containsExactly("prompt", "tool", "result");
         assertThat(entries.get(0)).containsEntry("time", "09:15:30").containsEntry("timeTitle", "2026-10-27 09:15:30");
         assertThat(entries.get(1)).containsEntry("tool", "Bash").containsEntry("input", "{ \"command\" : \"mvn test\" }")
-                .containsEntry("result", "BUILD FAILURE").containsEntry("error", true).containsEntry("duration", "3s")
+                .containsEntry("result", "BUILD FAILURE").containsEntry("error", true).containsEntry("duration", "3 s")
                 .containsEntry("hasResult", true);
         assertThat(entries.get(2)).containsEntry("facts", "3 turns · 40 input tokens · 5 output tokens");
     }

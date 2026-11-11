@@ -258,7 +258,7 @@ class DeveloperExecutionViewTest {
 
         @SuppressWarnings("unchecked")
         var activity = (List<Map<String, String>>) model.get("activity");
-        assertThat(activity).extracting(row -> row.get("text")).containsExactly("Built the project · took 24s");
+        assertThat(activity).extracting(row -> row.get("text")).containsExactly("Built the project · took 24 s");
         // The time column shows only the clock; the full date and time go into the title attribute.
         assertThat(activity.getFirst()).containsEntry("time", "10:00:00")
                 .containsEntry("timeTitle", "2026-09-18 10:00:00");
@@ -293,7 +293,7 @@ class DeveloperExecutionViewTest {
         @SuppressWarnings("unchecked")
         var activity = (List<Map<String, String>>) view.build(execution, List.of(), events, start.plusSeconds(41))
                 .get("activity");
-        assertThat(activity).extracting(row -> row.get("text")).containsExactly("Build failed · exit 1 · took 40s");
+        assertThat(activity).extracting(row -> row.get("text")).containsExactly("Build failed · exit 1 · took 40 s");
     }
 
     @Test void rendersPiToolActivityWithoutRawBooleans() {
@@ -319,11 +319,11 @@ class DeveloperExecutionViewTest {
 
         // One row per tool call; Pi reports no duration, so it comes from the event times.
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "Edited KeycloakAuthorizationService.java · took 1s",
-                "Wrote AdvisoryLockService.java · took 1s",
+                "Edited KeycloakAuthorizationService.java · took 1 s",
+                "Wrote AdvisoryLockService.java · took 1 s",
                 "Reading Foo.java",
-                "Ran mvn test · took 1s",
-                "Ran mvn test · failed · took 1s");
+                "Ran mvn test · took 1 s",
+                "Ran mvn test · failed · took 1 s");
         assertThat(activity).extracting(row -> row.get("time")).containsExactly(
                 "10:00:00", "10:00:02", "10:00:04", "10:00:05", "10:00:07");
         assertThat(activity.toString()).doesNotContain("false", "true", "error=");
@@ -356,7 +356,7 @@ class DeveloperExecutionViewTest {
 
         // Calls that overlap still pair up by their file or command.
         assertThat(activity).extracting(row -> row.get("text")).containsExactly(
-                "Ran mvn test · failed · took 1m 12s · Exit code 1 BUILD FAILURE",
+                "Ran mvn test · failed · took 1 min · Exit code 1 BUILD FAILURE",
                 "Read Foo.java · took 15 ms",
                 "Finding files matching **/*.java",
                 "Searching for TODO",
@@ -520,9 +520,11 @@ class DeveloperExecutionViewTest {
     }
 
     @Test void durationsUseCompactHumanUnits() {
-        assertThat(UiFormat.duration(59)).isEqualTo("59s");
-        assertThat(UiFormat.duration(1_209)).isEqualTo("20m 9s");
-        assertThat(UiFormat.duration(7_205)).isEqualTo("2h");
+        assertThat(UiFormat.duration(59)).isEqualTo("59 s");
+        assertThat(UiFormat.duration(1_209)).isEqualTo("20 min");
+        assertThat(UiFormat.duration(7_205)).isEqualTo("2 h");
+        assertThat(UiFormat.duration(4_830)).isEqualTo("1 h 20 min");
+        assertThat(UiFormat.milliseconds(9)).isEqualTo("9 ms");
     }
 
     @Test void derivesFourProductPhasesAndCombinesPreparationDuration() {
@@ -543,7 +545,7 @@ class DeveloperExecutionViewTest {
                 .containsExactly("Prepare task", "Implement changes", "Verify changes", "Create pull request");
         assertThat(phases).extracting(p -> p.get("state"))
                 .containsExactly("current", "pending", "pending", "pending");
-        assertThat(phases.getFirst()).containsEntry("sublabel", "9s").containsKey("elapsedStart");
+        assertThat(phases.getFirst()).containsEntry("sublabel", "9 s").containsKey("elapsedStart");
     }
 
     @Test void aRunThatStoppedOnAQuestionShowsVerifyAndPullRequestAsNotStarted() {
@@ -599,7 +601,7 @@ class DeveloperExecutionViewTest {
         var model = view.build(execution, List.of(readiness),
                 List.of(event(AuditEventType.STEP_STARTED, "implement", start)), start.plusSeconds(90));
 
-        assertThat(phases(model).get(1)).containsEntry("state", "failed").containsEntry("sublabel", "10s");
+        assertThat(phases(model).get(1)).containsEntry("state", "failed").containsEntry("sublabel", "10 s");
         assertThat(model).containsEntry("startingBuild", "Passed")
                 .containsEntry("currentPhase", "Implement changes")
                 .containsEntry("startingBuildOutput", "ok");
@@ -624,7 +626,7 @@ class DeveloperExecutionViewTest {
         assertThat(phases(model)).extracting(p -> p.get("state"))
                 .containsExactly("done", "done", "current", "pending");
         assertThat(phases(model).get(2)).containsEntry("stateLabel", "Retry pending")
-                .containsEntry("sublabel", "7s")
+                .containsEntry("sublabel", "7 s")
                 .doesNotContainKey("elapsedStart");
         assertThat(model).containsEntry("currentPhase", "Verify changes");
     }
@@ -644,7 +646,7 @@ class DeveloperExecutionViewTest {
 
         var model = view.build(execution, List.of(), events, start.plusSeconds(50));
 
-        assertThat(phases(model).get(1)).containsEntry("state", "current").containsEntry("sublabel", "40s");
+        assertThat(phases(model).get(1)).containsEntry("state", "current").containsEntry("sublabel", "40 s");
     }
     /** The run list reads each latest artifact on its own; the run page must show the same status. */
     private String productStatus(PipelineExecution execution, List<Artifact> artifacts) {

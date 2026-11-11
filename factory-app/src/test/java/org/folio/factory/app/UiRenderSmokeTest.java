@@ -574,10 +574,10 @@ class UiRenderSmokeTest {
         assertThat(body)
                 .contains("Run 1 · Implementation", "Started 2026-10-27 09:15:30 UTC",
                         "<summary>Prompt sent to the agent</summary>", "Implement MODBAR-1 &lt;now&gt;",
-                        "I will run the tests", "<strong>Bash</strong>", "failed", "3s",
+                        "I will run the tests", "<strong>Bash</strong>", "failed", "3 s",
                         "{ &quot;command&quot; : &quot;mvn test&quot; }", "BUILD FAILURE",
                         "[cut: 120 more characters]", "<strong>Final result</strong>",
-                        "4 turns · 6s · 1,200 input tokens · 80 output tokens",
+                        "4 turns · 6 s · 1,200 input tokens · 80 output tokens",
                         "Transcript cut at 5 MB; the attempt went on.",
                         "<time title=\"2026-10-27 09:15:32\">09:15:32</time>",
                         "href=\"/executions/" + execution.getId() + "\"")
