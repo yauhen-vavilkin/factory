@@ -244,3 +244,24 @@ The question flow, the in-progress strip and Factory's comment on the pull reque
 - **Placeholder targets look like code.** An Activity row whose event names no file shows a
   placeholder such as "the project" in the code style of a real path. A plain style for those
   needs the activity rows to say which targets are real.
+
+## Left after the console polish of Configuration, Definition and the framework pages (2026-11-11)
+
+- **Run forms do not mark an unreachable endpoint.** The fix list wanted `(endpoint not reachable)`
+  in the run forms and such a model under Cannot run. The TCP probe takes up to 3 s per closed
+  address, so My tasks and the task page do not run it; only the Configuration tab probes, and it
+  keeps the model under Ready to run with the warning, because the run forms still offer it. A
+  cached probe result could reach the forms later.
+- **The run list and the task page can word one run differently.** `/executions` words a
+  Developer Flow run by its product status (`RunStatusCard.chip`); the task page and the run page
+  word it by its task attempt, so an attempt that is Withdrawn or Needs inspection, for example,
+  reads otherwise in the list.
+- **The README still says to trigger the Developer Flow from its page.** "Wait for Factory to
+  become healthy" ends with "choose **Trigger flow**" on `/flows/dev-factory`, which refuses
+  manual triggers; runs start from My tasks.
+- **Not in this work** (fix list of 2026-11-11), each still as the owner found it:
+  - Dashboard counters and charts.
+  - Audit page.
+  - Artifacts pages.
+  - Prompts pages.
+  - Pull request text and commit titles.
