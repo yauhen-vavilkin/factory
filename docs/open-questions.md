@@ -226,3 +226,11 @@ The question flow, the in-progress strip and Factory's comment on the pull reque
   that repository into /tmp although the request forbids a repository switch, and the attempt
   failed with "Command exceeded output limit". MGRAPPS-64 is not a task for the demo. Whether
   a run after an answer reaches a pull request is not verified.
+
+## Left after the console polish of My tasks and the task page (2026-11-11)
+
+- **"Command exceeded output limit" is said as an agent limit, but Factory's own commands hit it.**
+  `Processes` raises it when a command Factory runs prints more than 2 MB (the candidate `git diff`
+  in `CandidateFreezer`, starting the build, `docker cp`), not when an agent tool call does. The task
+  page now says `TaskStops.OUTPUT_LIMIT_REASON`, as the fix list asked; which Factory command printed
+  too much, and whether 2 MB fits a large diff, is not checked.
