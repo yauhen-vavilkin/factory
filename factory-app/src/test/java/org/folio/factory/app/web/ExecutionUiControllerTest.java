@@ -38,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
 import java.time.LocalDate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -325,7 +326,7 @@ class ExecutionUiControllerTest {
         @SuppressWarnings("unchecked")
         var entries = (List<Map<String, Object>>) runs.getFirst().get("entries");
         assertThat(entries).extracting(entry -> entry.get("kind")).containsExactly("prompt", "tool", "result");
-        assertThat(entries.get(0)).containsEntry("time", "09:15:30").containsEntry("timeTitle", "2026-10-27 09:15:30");
+        assertThat(entries.get(0)).containsEntry("time", PageTime.clock(Instant.parse("2026-10-27T09:15:30Z")));
         assertThat(entries.get(1)).containsEntry("tool", "Bash").containsEntry("input", "{ \"command\" : \"mvn test\" }")
                 .containsEntry("result", "BUILD FAILURE").containsEntry("error", true).containsEntry("duration", "3 s")
                 .containsEntry("hasResult", true);

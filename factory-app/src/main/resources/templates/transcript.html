@@ -22,11 +22,12 @@
         <section class="dev-list" th:each="run : ${runs}" th:attr="aria-label=${run['label']}">
             <div class="dev-list-head">
                 <h2 class="dev-section-title" th:text="${run['label']}">Run 1 · Implementation</h2>
-                <span class="dev-list-tools" th:text="'Started ' + ${run['started']} + ' UTC'">Started</span>
+                <span class="dev-list-tools">Started <time
+                        th:replace="~{fragments/components :: pageTime(${run['started']})}"></time></span>
             </div>
             <ol class="transcript-list">
                 <li th:each="entry : ${run['entries']}" th:attr="data-kind=${entry['kind']}">
-                    <time th:title="${entry['timeTitle']}" th:text="${entry['time']}">00:00:00</time>
+                    <time th:replace="~{fragments/components :: pageTime(${entry['time']})}">00:00:00</time>
                     <div class="transcript-body">
                         <details class="disclosure" th:if="${entry['kind'] == 'prompt'}">
                             <summary>Prompt sent to the agent</summary>

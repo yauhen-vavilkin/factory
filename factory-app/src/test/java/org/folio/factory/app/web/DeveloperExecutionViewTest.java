@@ -227,6 +227,20 @@ class DeveloperExecutionViewTest {
         assertThat(view.build(execution, List.of(), List.of(), Instant.now()).reason()).isEmpty();
     }
 
+    @Test void aPrFeedbackPhaseReadsAsPrFeedbackWithThePhaseAsPlainText() {
+        var events = List.of(runtime("feedback_phase", "Updating the existing PR",
+                Instant.parse("2026-09-18T10:00:00Z")));
+
+        var rows = DeveloperRuntimeActivity.from(events, JsonMapper.builder().build(), true).view(false).rows();
+
+        assertThat(rows).singleElement().satisfies(row -> {
+            assertThat(row.verb()).isEqualTo("PR feedback");
+            assertThat(row.target()).isEqualTo("Updating the existing PR");
+            assertThat(row.code()).isFalse();
+        });
+        assertThat(texts(rows).getFirst()).doesNotContain("feedback phase");
+    }
+
     @Test void theStartingBuildIsOneRowWithItsTimeAndNoLogLines() {
         var execution = new PipelineExecution("dev-factory", "0.6.0", "{}");
         Instant start = Instant.parse("2026-09-18T10:00:00Z");
@@ -243,8 +257,8 @@ class DeveloperExecutionViewTest {
 
         assertThat(texts(activity.rows())).containsExactly("Built mvn -B test · took 24 s");
         // The time column shows only the clock; the full date and time go into the title attribute.
-        assertThat(activity.rows().getFirst().time()).isEqualTo("10:00:00");
-        assertThat(activity.rows().getFirst().timeTitle()).isEqualTo("2026-09-18 10:00:00");
+        assertThat(activity.rows().getFirst().time().text()).isEqualTo("10:00:00 UTC");
+        assertThat(activity.rows().getFirst().time().title()).isEqualTo("2026-09-18 10:00:00 UTC");
         assertThat(activity.total()).isEqualTo(1);
 
         events.add(runtime("agent_start", "Pi started", start.plusSeconds(26)));
@@ -304,10 +318,10 @@ class DeveloperExecutionViewTest {
                 "Read /workspace/src/Foo.java",
                 "Wrote /workspace/src/AdvisoryLockService.java · took 1 s",
                 "Edited /workspace/src/KeycloakAuthorizationService.java · took 1 s");
-        assertThat(rows).extracting(ActivityRow::time).containsExactly(
-                "10:00:07", "10:00:05", "10:00:04", "10:00:02", "10:00:00");
+        assertThat(rows).extracting(row -> row.time().text()).containsExactly(
+                "10:00:07 UTC", "10:00:05 UTC", "10:00:04 UTC", "10:00:02 UTC", "10:00:00 UTC");
         assertThat(rows).allMatch(ActivityRow::code);
-        assertThat(rows.toString()).doesNotContain("false", "true", "error=");
+        assertThat(String.join("\n", texts(rows))).doesNotContain("false", "true", "error=");
     }
 
     @Test void labelsClaudeCodeToolsWithTheirTargetResultAndDuration() {

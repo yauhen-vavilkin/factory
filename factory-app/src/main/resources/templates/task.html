@@ -120,8 +120,10 @@
             <div class="dev-row-main">
                 <div><strong class="attempt-title" th:text="'Attempt ' + ${attempt.ordinal()}">Attempt 1</strong>
                     · <span th:text="${attempt.kind()}">first run</span></div>
-                <div class="dev-row-meta"><span class="dev-row-detail" th:title="${attempt.meta()}"
-                        th:text="${attempt.meta()}">glm-5.3 · max</span></div>
+                <div class="dev-row-meta dev-row-meta-dots" th:title="${attempt.meta()}"><span
+                        th:if="${attempt.settings() != null}" th:text="${attempt.settings()}">glm-5.3 · max</span><time
+                        th:replace="~{fragments/components :: pageTime(${attempt.started()})}"></time><span
+                        th:if="${attempt.details() != null}" th:text="${attempt.details()}">13 min</span></div>
             </div>
             <div class="row-cluster">
                 <span class="row-amount" th:title="${attempt.costNoteTitle()}" th:text="${attempt.costText()}">$0.00</span>

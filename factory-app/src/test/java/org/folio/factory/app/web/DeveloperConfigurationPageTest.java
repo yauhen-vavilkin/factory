@@ -67,7 +67,7 @@ class DeveloperConfigurationPageTest {
         var installation = TaskInstallations.seeded();
         when(installations.findById(1)).thenReturn(Optional.of(installation));
         when(rows.sourceCard(installation)).thenReturn(new SourceCard("Jane", "jira.example.org",
-                "assignee = \"Jane\"", "https://jira.example.org/issues/?jql=x", null, null, null));
+                "assignee = \"Jane\"", "https://jira.example.org/issues/?jql=x", null, null));
     }
 
     @Test

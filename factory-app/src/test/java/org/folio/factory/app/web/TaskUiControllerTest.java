@@ -69,6 +69,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -525,8 +526,11 @@ class TaskUiControllerTest {
         assertThat(retryForm.effort()).isEqualTo("high");
         assertThat(model).doesNotContainKeys("retryInstructions", "typedInstructions");
         assertThat(rows(model, "attempts")).extracting(row -> row.get("meta"))
-                .containsExactly("glm-5.3 · low · Oct 23, 08:00 · 10 min · \"Keep the public API.\"",
-                        "Oct 23, 08:00 · 10 min");
+                .containsExactly("glm-5.3 · low · Oct 23, 08:00 UTC · 10 min · \"Keep the public API.\"",
+                        "Oct 23, 08:00 UTC · 10 min");
+        // The line shows the settings, the start time for time.js and what followed; the title has it all.
+        assertThat(rows(model, "attempts")).extracting(row -> row.get("settings"), row -> row.get("details"))
+                .containsExactly(tuple("glm-5.3 · low", "10 min · \"Keep the public API.\""), tuple(null, "10 min"));
     }
 
     @Test

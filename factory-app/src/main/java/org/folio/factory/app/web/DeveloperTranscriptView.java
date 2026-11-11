@@ -48,7 +48,7 @@ final class DeveloperTranscriptView {
         var step = STEPS.getOrDefault(first.stepId(), first.stepId());
         Map<String, Object> run = new LinkedHashMap<>();
         run.put("label", "Run " + number + " · " + step);
-        run.put("started", UiFormat.format(first.at()));
+        run.put("started", PageTime.timestamp(first.at()));
         run.put("entries", new ArrayList<Map<String, Object>>());
         return run;
     }
@@ -61,8 +61,7 @@ final class DeveloperTranscriptView {
     private static Map<String, Object> entryRow(CodingTranscriptStore.Entry entry, JsonNode detail) {
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("kind", entry.kind());
-        row.put("time", UiFormat.clock(entry.at()));
-        row.put("timeTitle", UiFormat.format(entry.at()));
+        row.put("time", PageTime.clock(entry.at()));
         row.put("text", detail.path("text").asString(""));
         switch (entry.kind()) {
             case "tool_call" -> {

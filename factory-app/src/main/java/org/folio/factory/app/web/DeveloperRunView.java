@@ -66,14 +66,10 @@ public record DeveloperRunView(Header header, Status status, Standing standing, 
 
     /**
      * Time, verb, target and result of one tool call or runtime event. {@code verb} is null for an event that is
-     * not a tool call; its target is then plain text, not code.
+     * not a tool call; {@code code} says the target is a command or a path, not plain text.
      */
-    public record ActivityRow(String time, String timeTitle, String verb, String target, String result,
+    public record ActivityRow(PageTime time, String verb, String target, boolean code, String result,
                               ActivityTone tone) {
-
-        public boolean code() {
-            return verb != null;
-        }
 
         public String toneName() {
             return tone.name().toLowerCase(Locale.ROOT);

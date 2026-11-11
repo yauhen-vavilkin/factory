@@ -564,7 +564,9 @@ class UiRenderSmokeTest {
                         "data-selection=\"selectedIds\"", ">Fix 1 comment</button>", "Starts a new round and adds to the cost.",
                         ">Round 1</strong>", "<span>1 comment</span>",
                         "href=\"https://github.com/o/mgr-applications/pull/6/commits/" + "c".repeat(40) + "\">ccccccc</a>",
-                        "Nov 10, 18:22 · 6 min · 300 tests passed",
+                        // The start time in UTC for time.js, then what followed; the title has the whole line.
+                        "title=\"Nov 10, 18:22 UTC · 6 min · 300 tests passed\">" + timeTag(PageTime.day(Instant.parse("2026-11-10T18:22:00Z")))
+                                + "<span>6 min · 300 tests passed</span></div>",
                         "<p class=\"feedback-round-summary\">Added minProperties to the items object.</p>",
                         "<strong>Comments sent to the agent</strong>", "<p>Add minProperties</p>",
                         "<strong>Agent's report</strong>",
@@ -574,8 +576,10 @@ class UiRenderSmokeTest {
                         "<summary>Round details</summary>", ">Verify my manual changes</button>",
                         "Runs the checks on commits you pushed to the PR branch yourself. No agent, no cost.",
                         "<summary>Activity and usage</summary>", "id=\"usage-title\">First implementation</h2>")
-                .containsPattern("<div class=\"row-cluster\">\\s*<span class=\"row-amount\">\\$0\\.00</span>"
-                        + "\\s*<span class=\"chip chip-success\">Published</span>\\s*<div class=\"dev-row-action\"></div>")
+                // One head line: the round and its commit, then the amount and the chip; the rest under it.
+                .containsPattern("<div class=\"feedback-round\">\\s*<div class=\"feedback-round-head\"><strong>Round 1"
+                        + "</strong>[\\s\\S]*?ccccccc</a></div>\\s*<span class=\"row-amount\">\\$0\\.00</span>"
+                        + "\\s*<span class=\"chip chip-success\">Published</span>\\s*<div class=\"feedback-round-body\">")
                 .doesNotContain(">Add minProperties</span>", "Work on feedback", "Agent: ", "## ", "inline:1",
                         "BUILD SUCCESS from the checks", "<dt>Models</dt>", "<dt>Runtime</dt>", "<dt>Attempts</dt>",
                         "attempt-cost");
@@ -606,7 +610,8 @@ class UiRenderSmokeTest {
                 + "}", "application/json", "test");
 
         String body = assertRendered("/executions/" + id, "Rounds");
-        assertThat(body).contains(">Round 1</strong>", "Nov 10, 18:22 · 300 tests, 2 failed",
+        assertThat(body).contains(">Round 1</strong>", "title=\"Nov 10, 18:22 UTC · 300 tests, 2 failed\">"
+                                + timeTag(PageTime.day(Instant.parse("2026-11-10T18:22:00Z"))) + "<span>300 tests, 2 failed</span>",
                         "<p>Checks failed: 2 of 300 tests failed.</p>", "class=\"chip chip-danger\">Action needed</span>")
                 .containsPattern("<pre class=\"feedback-diagnostics\"\\s*>AppTest.renames failed</pre>")
                 .doesNotContain("Checks passed");
@@ -667,8 +672,9 @@ class UiRenderSmokeTest {
         assertThat(activity)
                 .contains("Activity <span class=\"dev-count\">3</span>",
                         "href=\"/executions/" + execution.getId() + "/transcript\">Full transcript</a>")
-                .containsPattern("data-tone=\"live\">\\s*<time title=\"\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\">"
-                        + "\\d{2}:\\d{2}:\\d{2}</time>\\s*<span class=\"activity-verb\">Running</span>\\s*"
+                .containsPattern("data-tone=\"live\">\\s*<time datetime=\"\\d{4}-\\d{2}-\\d{2}T[\\d:]{8}Z\" data-local=\"clock\""
+                        + " title=\"\\d{4}-\\d{2}-\\d{2} [\\d:]{8} UTC\">[\\d:]{8} UTC</time>\\s*"
+                        + "<span class=\"activity-verb\">Running</span>\\s*"
                         + "<code class=\"activity-target\" title=\"mvn test\">mvn test</code>\\s*"
                         + "<span class=\"activity-result\">running now</span>")
                 .containsPattern("<span class=\"activity-verb\">Read</span>\\s*<code class=\"activity-target\""
@@ -724,14 +730,15 @@ class UiRenderSmokeTest {
         assertThat(body)
                 .contains("<title>Transcript — AI FOLIO</title>", "/ Transcript</nav>",
                         ">run " + execution.getId().toString().substring(0, 4) + "…</a>",
-                        "<details class=\"disclosure\">", "Run 1 · Implementation", "Started 2026-10-27 09:15:30 UTC",
+                        "<details class=\"disclosure\">", "Run 1 · Implementation",
+                        "Started " + timeTag(PageTime.timestamp(Instant.parse("2026-10-27T09:15:30Z"))),
                         "<summary>Prompt sent to the agent</summary>", "Implement MODBAR-1 &lt;now&gt;",
                         "I will run the tests", "<strong>Bash</strong>", "failed", "3 s",
                         "{ &quot;command&quot; : &quot;mvn test&quot; }", "BUILD FAILURE",
                         "[cut: 120 more characters]", "<strong>Final result</strong>",
                         "4 turns · 6 s · 1,200 input tokens · 80 output tokens",
                         "Transcript cut at 5 MB; the attempt went on.",
-                        "<time title=\"2026-10-27 09:15:32\">09:15:32</time>",
+                        timeTag(PageTime.clock(Instant.parse("2026-10-27T09:15:32Z"))),
                         "href=\"/executions/" + execution.getId() + "\"")
                 .doesNotContain("<details open", "HIDDEN_REASONING_SENTINEL", "<now>", "run-panel");
 
@@ -755,6 +762,7 @@ class UiRenderSmokeTest {
         TaskAttempt attempt = seedAttempt(stopped, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
                 "DEVELOPMENT_FAILED: " + turnLimit);
         attempt.setExecutionId(execution.getId());
+        attempt.setStartedAt(Instant.parse("2026-11-10T22:42:00Z"));
         taskAttempts.save(attempt);
         Task provider = seedTask("70082", "MODBAR-782", "Provider task",
                 Task.Eligibility.ELIGIBLE, "repository mod-bar");
@@ -769,10 +777,13 @@ class UiRenderSmokeTest {
         String list = assertRendered("/flows/dev-factory", "Ready to run");
         // The Runs row shows the first sentence on one line, with the whole reason in the title.
         assertThat(list)
-                .contains("<span class=\"dev-row-detail\" title=\"" + expected + "\">The agent reached its limit of"
-                        + " 40 turns before it finished.</span>")
-                .contains("<span class=\"dev-row-detail\" title=\"" + providerError + " Check the provider and the"
-                        + " Developer Flow settings, then retry. Error: API Error: 429.\">" + providerError + "</span>")
+                .containsPattern("<div class=\"dev-row-meta\" title=\"MODBAR-\\d+ · [^\"]+ · " + Pattern.quote(expected)
+                        + "\"\\s*>[\\s\\S]*?<span>The agent reached its limit of 40 turns before it finished.</span></div>")
+                .containsPattern("title=\"MODBAR-782 · [^\"]+ · " + Pattern.quote(providerError + " Check the provider"
+                        + " and the Developer Flow settings, then retry. Error: API Error: 429.") + "\"\\s*>[\\s\\S]*?<span>"
+                        + Pattern.quote(providerError) + "</span></div>")
+                // The age stays relative; time.js puts the local time into its title.
+                .containsPattern("</a><time datetime=\"[\\dT:-]{19}Z\" data-local=\"ago\" title=\"[\\d-]{10} [\\d:]{8} UTC\">")
                 .doesNotContain("Implementation failed", "shared: ", "DEVELOPMENT_FAILED");
         String task = assertRendered("/tasks/" + stopped.getId(), "Failed");
         assertThat(task)
@@ -783,9 +794,12 @@ class UiRenderSmokeTest {
                         + "</span>")
                 .containsPattern("<p class=\"status-card-note\">\\s*No pull request was created.</p>")
                 .doesNotContain("Implementation failed", "DEVELOPMENT_FAILED");
-        // The attempt chip keeps the reason and what to do in its title.
+        // The attempt chip keeps the reason and what to do in its title; the meta line has its start time for
+        // time.js, and its title has the whole line in UTC.
         assertThat(task.substring(task.indexOf("id=\"attempts-title\"")))
-                .contains("title=\"" + expected + "\">Failed</span>");
+                .contains("title=\"" + expected + "\">Failed</span>",
+                        "<div class=\"dev-row-meta dev-row-meta-dots\" title=\"Nov 10, 22:42 UTC\">"
+                                + timeTag(PageTime.day(Instant.parse("2026-11-10T22:42:00Z"))) + "</div>");
         // The run page says it in the same words, and links back to its task and attempt.
         String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(run)

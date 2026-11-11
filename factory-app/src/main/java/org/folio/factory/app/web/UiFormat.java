@@ -14,9 +14,6 @@ import java.math.RoundingMode;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.text.NumberFormat;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -31,21 +28,6 @@ public final class UiFormat {
 
     /** Longest message carried in a redirect; a remote error body could otherwise overflow the headers. */
     static final int MAX_REDIRECT_MESSAGE = 300;
-
-    private static final DateTimeFormatter TIMESTAMP =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneOffset.UTC);
-    private static final DateTimeFormatter CLOCK =
-            DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneOffset.UTC);
-
-    /** Formats an instant as {@code yyyy-MM-dd HH:mm:ss} UTC, or {@code null} when the instant is null. */
-    public static String format(Instant instant) {
-        return instant == null ? null : TIMESTAMP.format(instant);
-    }
-
-    /** Formats an instant as {@code HH:mm:ss} UTC for dense logs; the full value goes in a title attribute. */
-    static String clock(Instant instant) {
-        return instant == null ? null : CLOCK.format(instant);
-    }
 
     static String abbreviate(String value) {
         return value.length() <= 13 ? value : value.substring(0, 10) + "...";

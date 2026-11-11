@@ -7,14 +7,11 @@ import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskRoutingReason;
 import org.folio.factory.app.tasks.source.TaskJiraInstance;
 import org.folio.factory.app.tasks.source.TaskSourceProperties;
-import org.folio.factory.app.web.UiFormat;
+import org.folio.factory.app.web.PageTime;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.springframework.stereotype.Component;
 
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -44,8 +41,6 @@ import static org.folio.factory.app.tasks.presentation.TaskLabels.usageNote;
 @RequiredArgsConstructor
 public class TaskRows {
 
-    private static final DateTimeFormatter STARTED =
-            DateTimeFormatter.ofPattern("MMM d, HH:mm", Locale.US).withZone(ZoneOffset.UTC);
     private static final int QUOTE = 80;
 
     private final TaskSourceProperties source;
@@ -57,8 +52,7 @@ public class TaskRows {
         boolean ready = source.assignee() != null && base != null;
         return new SourceCard(source.assignee(), base == null ? null : jira.current(),
                 ready ? source.effectiveQuery() : null, ready ? source.searchUrl(base) : null,
-                ago(installation.getLastSuccessfulSyncAt()), UiFormat.format(installation.getLastSuccessfulSyncAt()),
-                installation.getSyncProblem());
+                ago(installation.getLastSuccessfulSyncAt()), installation.getSyncProblem());
     }
 
     public AvailableRow availableRow(TaskView view) {
@@ -91,7 +85,9 @@ public class TaskRows {
     public static AttemptRow attemptRow(TaskView.AttemptHistoryEntry attempt) {
         var label = attemptLabel(attempt);
         var costNote = attemptCostNote(attempt);
-        return new AttemptRow(attempt.ordinal(), attemptKind(attempt), attemptMeta(attempt),
+        var started = PageTime.day(attempt.startedAt());
+        return new AttemptRow(attempt.ordinal(), attemptKind(attempt), attemptMeta(attempt, started),
+                TaskRunSettings.label(attempt.runSettings()), started, attemptDetails(attempt, started),
                 costLabel(attempt.usage()), costNote, costNoteTitle(costNote),
                 costText(costLabel(attempt.usage()), costNote), label, stateClass(label), attemptResult(attempt),
                 attempt.executionId());
@@ -171,14 +167,21 @@ public class TaskRows {
         return TaskAnswers.isAnswer(instructions) ? "answer to the agent's question" : "retry with your instructions";
     }
 
-    /** "glm-5.3 · max · Nov 10, 17:48 · 13 min · "first line of the instructions"". */
-    private static String attemptMeta(TaskView.AttemptHistoryEntry attempt) {
+    /** The whole meta line for its title: "glm-5.3 · max · Nov 10, 17:48 UTC · 13 min · "first line"". */
+    private static String attemptMeta(TaskView.AttemptHistoryEntry attempt, PageTime started) {
+        return Stream.of(TaskRunSettings.label(attempt.runSettings()), started == null ? null : started.text(),
+                        attemptDetails(attempt, started))
+                .filter(Objects::nonNull).collect(Collectors.joining(" · "));
+    }
+
+    /** What follows the start time: "13 min · "first line of the instructions"", or "not started". */
+    private static String attemptDetails(TaskView.AttemptHistoryEntry attempt, PageTime started) {
         var instructions = TaskRunSettings.instructions(attempt.runSettings());
-        return Stream.of(TaskRunSettings.label(attempt.runSettings()),
-                        attempt.startedAt() == null ? "not started" : STARTED.format(attempt.startedAt()),
+        var details = Stream.of(started == null ? "not started" : null,
                         attempt.paidStart() ? minutes(attempt.activeSeconds()) : null,
                         instructions == null ? null : "\"" + firstLine(instructions) + "\"")
                 .filter(Objects::nonNull).collect(Collectors.joining(" · "));
+        return details.isEmpty() ? null : details;
     }
 
     private static String firstLine(String text) {

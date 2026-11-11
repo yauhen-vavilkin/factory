@@ -42,14 +42,20 @@ final class DeveloperRuntimeActivity {
         private final String present;
         private final String past;
         private final String target;
+        private final boolean code;
         private String result;
         private ActivityTone tone = ActivityTone.NORMAL;
 
         Draft(Instant at, String present, String past, String target) {
+            this(at, present, past, target, present != null);
+        }
+
+        Draft(Instant at, String present, String past, String target, boolean code) {
             this.at = at;
             this.present = present;
             this.past = past;
             this.target = target;
+            this.code = code;
         }
     }
 
@@ -91,12 +97,11 @@ final class DeveloperRuntimeActivity {
     }
 
     private static ActivityRow row(Draft draft, boolean running) {
+        var time = PageTime.clock(draft.at);
         if (running) {
-            return new ActivityRow(UiFormat.clock(draft.at), UiFormat.format(draft.at), draft.present,
-                    draft.target, "running now", ActivityTone.LIVE);
+            return new ActivityRow(time, draft.present, draft.target, draft.code, "running now", ActivityTone.LIVE);
         }
-        return new ActivityRow(UiFormat.clock(draft.at), UiFormat.format(draft.at), draft.past, draft.target,
-                draft.result, draft.tone);
+        return new ActivityRow(time, draft.past, draft.target, draft.code, draft.result, draft.tone);
     }
 
     private void record(AuditEvent event) {
@@ -119,6 +124,7 @@ final class DeveloperRuntimeActivity {
             case "tool_execution_end" -> toolEnded(event, detail);
             case "baseline_started" -> buildStarted(event, detail);
             case "baseline_completed" -> buildEnded(event, detail);
+            case "feedback_phase" -> feedbackRow(event, detail);
             default -> eventRow(event, detail, action);
         }
     }
@@ -182,6 +188,13 @@ final class DeveloperRuntimeActivity {
         var row = new Draft(event.getOccurredAt(), null, null, eventText(detail, action));
         row.tone = failedEvent(detail, action) ? ActivityTone.FAILED : ActivityTone.NORMAL;
         rows.add(row);
+    }
+
+    /** A phase of a PR feedback round: "PR feedback" then "Updating the existing PR", in words, not as code. */
+    private void feedbackRow(AuditEvent event, JsonNode detail) {
+        var phase = Verbs.firstLine(detail.path("message").asString(""));
+        var target = phase.isBlank() ? "Next step" : phase;
+        rows.add(new Draft(event.getOccurredAt(), "PR feedback", "PR feedback", target, false));
     }
 
     private static boolean failedEvent(JsonNode detail, String action) {

@@ -858,10 +858,11 @@ tbody tr:hover { background: hsl(var(--muted) / 0.4); }
 .run-activity { flex: 999 1 520px; min-width: 0; }
 .run-usage { flex: 1 1 220px; min-width: 0; }
 .run-usage .usage-figures { padding-top: 10px; }
-/* Time, verb, target on one line with an ellipsis, result. A row with no verb gives its text both columns. */
+/* Time, verb, target on one line with an ellipsis, result. A row with no verb gives its text both columns. The
+   time column grows for the UTC text a page shows without script. */
 .activity-row {
   display: grid;
-  grid-template-columns: 62px 70px minmax(0, 1fr) 100px;
+  grid-template-columns: minmax(62px, max-content) 80px minmax(0, 1fr) 100px;
   gap: 12px;
   align-items: baseline;
   padding: 9px 0;
@@ -903,7 +904,7 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .run-links > a { text-decoration: underline; }
 .run-links > [open] { flex-basis: 100%; min-width: 0; }
 .transcript-list { display: flex; flex-direction: column; gap: 14px; margin: 0; padding: 12px 0; list-style: none; }
-.transcript-list > li { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; }
+.transcript-list > li { display: grid; grid-template-columns: minmax(72px, max-content) minmax(0, 1fr); gap: 12px; }
 .transcript-list time {
   padding-top: 2px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -968,15 +969,30 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .feedback-section { display: flex; flex-direction: column; gap: 22px; }
 .feedback-reason { font-size: 13px; }
 .dev-row.feedback-comment { align-items: flex-start; cursor: pointer; }
-.feedback-comment .dev-row-meta { flex-wrap: wrap; white-space: normal; }
+.feedback-comment .dev-row-meta { white-space: normal; }
 .feedback-comment .task-check { margin-top: 3px; }
 .dev-row.feedback-comment .task-check { top: 0; }
 .feedback-comment-body { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
 .feedback-location { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.feedback-round-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+/* Rounds: one grid for all rounds, so the amounts and the chips stand in straight columns and each chip ends at
+   the right edge; what the round did takes the full width under its head line. */
+.feedback-rounds { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; column-gap: 12px; }
+.feedback-round {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: subgrid;
+  align-items: baseline;
+  padding: 12px 0;
+  border-bottom: 1px solid hsl(var(--border));
+}
+.feedback-round > .row-amount { grid-column: 2; }
+.feedback-round > .chip { grid-column: 3; justify-self: end; }
+.feedback-round-body { grid-column: 1 / -1; min-width: 0; }
+.feedback-round-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
 .feedback-round-summary { margin-top: 8px; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .feedback-round-link { display: inline-flex; margin-top: 6px; font-size: 12px; }
-.feedback-round-details { margin-top: 8px; font-size: 13px; }
+.feedback-round-details { max-width: 80ch; margin-top: 8px; font-size: 13px; }
 .feedback-round-details[open] { display: flex; flex-direction: column; gap: 10px; }
 .feedback-round-details > summary { align-self: flex-start; }
 .feedback-detail { display: flex; flex-direction: column; gap: 6px; }
@@ -1039,23 +1055,24 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
   text-underline-offset: 3px;
 }
 .dev-row-title:hover { text-decoration-color: currentColor; }
-/* One line: the detail gets the room that is left and ends with an ellipsis; its title has the whole text. */
+/* One line of inline parts that ends with an ellipsis when the row is narrow; its title has the whole line. The
+   templates write the parts without spaces between them, so the margins alone space them. */
 .dev-row-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display: block;
   margin-top: 3px;
   overflow: hidden;
-  font-size: 12px;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12px;
   color: hsl(var(--muted-foreground));
 }
-.dev-row-meta > * { flex: none; }
-.dev-row-meta > .dev-row-detail { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dev-row-meta > * + * { margin-left: 10px; }
+.dev-row-meta-dots > * + * { margin-left: 0; }
+.dev-row-meta-dots > * + *::before { content: "·"; margin: 0 6px; }
 .dev-row-action { display: flex; justify-content: flex-end; }
 /* The box of a checkbox sits on the baseline; this puts its middle on the middle of the title text. */
 .dev-row .task-check { position: relative; top: 3px; margin: 0; flex: 0 0 auto; }
-/* Amount, chip and button in fixed columns, so they line up from row to row in Runs, Attempts and Rounds.
+/* Amount, chip and button in fixed columns, so they line up from row to row in Runs and Attempts.
    A wider button (Mark as stopped…) widens only its own row. A Ready to run row has its effort choice
    and, for a task added by key, Remove in the button column. */
 .row-cluster {

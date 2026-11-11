@@ -11,13 +11,10 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -28,8 +25,6 @@ import java.util.stream.Stream;
 /** Page rows of the PR feedback part of the run page: the new PR comments and the rounds. */
 final class FeedbackRows {
 
-    private static final DateTimeFormatter WHEN =
-            DateTimeFormatter.ofPattern("MMM d, HH:mm", Locale.US).withZone(ZoneOffset.UTC);
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final int SHORT_SHA = 7;
 
@@ -44,12 +39,14 @@ final class FeedbackRows {
     }
 
     /**
-     * One round: what it fixed, its commit, the first sentence of the agent's changes, the report as text, the
+     * One round: what it fixed, its commit, when it started and what followed ({@code meta}, with
+     * {@code metaTitle} the whole line), the first sentence of the agent's changes, the report as text, the
      * checks and Factory's comment on the PR. Values the round does not have are null.
      */
-    public record Round(String title, String comments, String commit, String commitUrl, String meta,
-                        String summary, String report, String reason, String commentUrl, String cost, Chip chip,
-                        List<Selected> selected, String checks, String checksOutput) {
+    public record Round(String title, String comments, String commit, String commitUrl, PageTime started,
+                        String meta, String metaTitle, String summary, String report, String reason,
+                        String commentUrl, String cost, Chip chip, List<Selected> selected, String checks,
+                        String checksOutput) {
     }
 
     public record Chip(String label, String cssClass) {
@@ -108,7 +105,10 @@ final class FeedbackRows {
                 .toList();
         var report = state.manual() ? null : blankToNull(RoundReport.text(state.summary()));
         var verification = state.verification();
-        return new Round(title, commentCount(state), shortSha, commitUrl(state.pr(), sha), blankToNull(meta(state)),
+        var started = PageTime.day(instant(state.roundStartedAt()));
+        var meta = blankToNull(meta(state));
+        var metaTitle = blankToNull(joined(started == null ? null : started.text(), meta));
+        return new Round(title, commentCount(state), shortSha, commitUrl(state.pr(), sha), started, meta, metaTitle,
                 blankToNull(RoundReport.firstSentence(state.summary())), report, blankToNull(state.reason()),
                 facts.commentUrls().get(round), String.valueOf(facts.projection().summary(round, facts.live())
                 .get("cost")), chip(state), selected, checks(verification), checksOutput(verification));
@@ -129,15 +129,16 @@ final class FeedbackRows {
         return pr.url() + "/commits/" + sha;
     }
 
-    /** "Nov 10, 18:22 · 6 min · 300 tests passed". */
+    /** "6 min · 300 tests passed": what follows the start time of the round. */
     private static String meta(FeedbackState state) {
         var started = instant(state.roundStartedAt());
         var finished = instant(state.finishedAt());
-        return Stream.of(started == null ? null : WHEN.format(started),
-                        started == null || finished == null ? null : minutes(Duration.between(started, finished)),
-                        tests(state.verification()))
-                .filter(Objects::nonNull)
-                .collect(Collectors.joining(" · "));
+        return joined(started == null || finished == null ? null : minutes(Duration.between(started, finished)),
+                tests(state.verification()));
+    }
+
+    private static String joined(String... parts) {
+        return Stream.of(parts).filter(Objects::nonNull).collect(Collectors.joining(" · "));
     }
 
     /** "6 min", as the task page writes the time of an attempt. */

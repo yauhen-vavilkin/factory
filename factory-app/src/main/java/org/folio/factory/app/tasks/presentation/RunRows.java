@@ -5,7 +5,7 @@ import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.tasks.admission.TaskRunSettings;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskRoutingReason;
-import org.folio.factory.app.web.UiFormat;
+import org.folio.factory.app.web.PageTime;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -45,7 +45,7 @@ public final class RunRows {
                 pullRequest ? pullRequestClass(view) : stateClass(label), pullRequest ? view.pullRequestUrl() : null,
                 detail == null ? null : AttemptFailure.firstSentence(detail), detail, cost(view, latest), costTitle,
                 ago(when),
-                UiFormat.format(when), action,
+                PageTime.timestamp(when), action,
                 actionUrl(view, latest, action), action == RunAction.MARK_STOPPED ? latest.attemptId() : null);
     }
 

@@ -50,11 +50,10 @@
                 <div class="dev-row-main">
                     <a class="dev-row-title" th:href="@{'/tasks/' + ${row.taskId()}}" th:title="${row.title()}"
                        th:text="${row.title()}">Title</a>
-                    <div class="dev-row-meta">
-                        <a class="key-link ext-link" th:href="${row.jiraUrl()}" th:text="${row.key()}">KEY-1</a>
-                        <span th:text="'Jira: ' + ${row.jiraStatus()}">Jira: Open</span>
-                        <span th:if="${row.repository() != null}" th:text="${row.repository()}">repository</span>
-                    </div>
+                    <div class="dev-row-meta" th:title="${row.metaTitle()}"
+                        ><a class="key-link ext-link" th:href="${row.jiraUrl()}" th:text="${row.key()}">KEY-1</a><span
+                            th:text="'Jira: ' + ${row.jiraStatus()}">Jira: Open</span><span
+                            th:if="${row.repository() != null}" th:text="${row.repository()}">repository</span></div>
                 </div>
                 <div class="row-cluster row-cluster-ready">
                     <div class="run-setting" th:if="${runForm != null and runForm.selected() != null}"
@@ -117,12 +116,10 @@
             <div class="dev-row-main">
                 <a class="dev-row-title" th:href="@{'/tasks/' + ${row.taskId()}}" th:title="${row.title()}"
                    th:text="${row.title()}">Title</a>
-                <div class="dev-row-meta">
-                    <a class="key-link ext-link" th:href="${row.jiraUrl()}" th:text="${row.key()}">KEY-1</a>
-                    <span th:title="${row.whenTitle()}" th:text="${row.when()}">5 min ago</span>
-                    <span class="dev-row-detail" th:if="${row.detail() != null}" th:title="${row.detailTitle()}"
-                          th:text="${row.detail()}">detail</span>
-                </div>
+                <div class="dev-row-meta" th:title="${row.metaTitle()}"
+                    ><a class="key-link ext-link" th:href="${row.jiraUrl()}" th:text="${row.key()}">KEY-1</a><th:block
+                        th:replace="~{fragments/components :: ago(${row.when()}, ${row.whenAt()})}"></th:block><span
+                        th:if="${row.detail() != null}" th:text="${row.detail()}">detail</span></div>
             </div>
             <div class="row-cluster">
                 <span class="row-amount" th:title="${row.costTitle()}" th:text="${row.cost()}">$0.00</span>

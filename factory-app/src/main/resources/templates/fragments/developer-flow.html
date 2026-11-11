@@ -66,7 +66,7 @@
             <div class="activity-row" th:each="row, state : ${activity.rows()}"
                  th:attr="data-tone=${row.toneName()}, data-earlier=${activity.hiddenAt(state.index)} ? 'true' : null"
                  th:hidden="${activity.hiddenAt(state.index)}">
-                <time th:title="${row.timeTitle()}" th:text="${row.time()}">17:53:12</time>
+                <time th:replace="~{fragments/components :: pageTime(${row.time()})}">17:53:12</time>
                 <span class="activity-verb" th:text="${row.verb()}">Ran</span>
                 <code class="activity-target" th:if="${row.code()}" th:title="${row.target()}"
                       th:text="${row.target()}">mvn test</code>
