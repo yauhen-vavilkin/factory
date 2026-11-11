@@ -3,7 +3,6 @@ package org.folio.factory.app.tasks.presentation;
 import org.folio.factory.app.web.UiFormat;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -23,8 +22,6 @@ public record AttemptClock(String time, Instant start, String limit, String titl
     /** The steps that Factory stops at the time per step; the other steps have only the time per attempt. */
     private static final Set<String> LIMITED_STEPS =
             Set.of("implement", "continue-implementation", "verify", "pr-follow-up");
-    private static final Set<String> CODING_STARTS = Set.of("coding_starting", "pi_starting");
-    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     /** The time per step and the time per attempt, as the Configuration tab's "Limits for every run" says them. */
     public record Limits(long stepSeconds, Duration attempt) {
@@ -49,28 +46,17 @@ public record AttemptClock(String time, Instant start, String limit, String titl
     }
 
     /**
-     * Where the time of the working step starts: its STEP_STARTED event, or the start of the coding in it, since
-     * the first build and the coding each have the time per step. Empty before the first step.
+     * Where the time of the working step starts: its STEP_STARTED event, so the time never goes back while the
+     * step works. A PR feedback round starts the step again. Empty before the first step.
      */
     public static Optional<AuditEvent> stepStart(List<AuditEvent> events) {
         for (int i = events.size() - 1; i >= 0; i--) {
             var event = events.get(i);
-            if (event.getEventType() == AuditEventType.STEP_STARTED || codingStart(event)) {
+            if (event.getEventType() == AuditEventType.STEP_STARTED) {
                 return Optional.of(event);
             }
         }
         return Optional.empty();
-    }
-
-    private static boolean codingStart(AuditEvent event) {
-        if (event.getEventType() != AuditEventType.RUNTIME_PROGRESS || event.getDetail() == null) {
-            return false;
-        }
-        try {
-            return CODING_STARTS.contains(JSON.readTree(event.getDetail()).path("activity").asString(""));
-        } catch (RuntimeException e) {
-            return false;
-        }
     }
 
     /** Leaves out a ticking time, so the revision a page polls does not change while the time ticks. */

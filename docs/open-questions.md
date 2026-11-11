@@ -277,3 +277,8 @@ The question flow, the in-progress strip and Factory's comment on the pull reque
 - **Reviews still shows the raw decision.** The Decision column says `APPROVE`, `AMEND` or `REJECT`, and the flash message after a decision says "Decision APPROVE recorded for review <uuid>".
 - **Workers "Used by" names flows and steps by their ids** (`dev-factory · read-task`), while Executions, Reviews and Artifacts now use the flow name.
 - **The "Runs started per day" chart labels its days as ISO dates** (`2026-11-01`), not as the short dates of the lists.
+
+## Left after the live-run polish (2026-11-11)
+
+- **The step time can read past its limit.** The run card counts Implement changes from the step's start against "of 30 min", but the time per step applies to the first build and to the coding separately (`InitialCodingAttempt`), so a long first build can show, for example, "40 min of 30 min" without a stop.
+- **/executions says "Asked a question" where the task says "Needs your answer".** Both name the same stop: the run list reads the run's state (`RunState.ASKED`), the task pages read the attempt's stop reason.

@@ -2016,13 +2016,23 @@ class UiRenderSmokeTest {
                 .containsPattern("<span title=\"The whole attempt may take 1 h.\"><span\\s+class=\"status-card-money\""
                         + " data-elapsed-start=\"[^\"]+\">\\d+ s</span>\\s*"
                         + "<span class=\"status-card-note\">of 30 min</span></span>");
-        // The coding agent started and has reported no usage yet: the run has cost nothing so far.
+        // The coding agent started and has reported no usage yet: the run has cost nothing so far, and the
+        // time still counts from the step's start, so it never goes back.
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement", "smoke",
                 Map.of("activity", "coding_starting", "attemptId", "attempt-1"));
         String agent = assertRendered("/executions/" + execution.getId(), "Implementing changes</p>");
         assertThat(agent.substring(agent.indexOf("class=\"status-card-side\"")))
                 .containsPattern("class=\"status-card-money\"[^>]*>\\$0.00</span>\\s*"
                         + "<span class=\"status-card-note\">so far</span>");
+        assertThat(elapsedStart(agent)).isEqualTo(elapsedStart(coding));
+    }
+
+    /** Where the ticking time of the run card counts from. */
+    private static String elapsedStart(String body) {
+        var side = body.substring(body.indexOf("class=\"status-card-side\""));
+        var matcher = Pattern.compile("data-elapsed-start=\"([^\"]+)\"").matcher(side);
+        assertThat(matcher.find()).isTrue();
+        return matcher.group(1);
     }
 
     /** The {@code pageTime} fragment of a time, as the page renders it. */
