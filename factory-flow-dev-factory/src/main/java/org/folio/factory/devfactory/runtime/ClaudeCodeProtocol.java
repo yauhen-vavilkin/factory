@@ -184,7 +184,8 @@ final class ClaudeCodeProtocol implements Consumer<String> {
         String id = block.path("id").asString("");
         JsonNode input = block.path("input");
         String key = summaryKey(tool);
-        String summary = key == null ? "" : summary(input.path(summaryField(tool)).asString(""));
+        // The first line only: a heredoc or a script would otherwise join its lines into one long target.
+        String summary = key == null ? "" : summary(firstLine(input.path(summaryField(tool)).asString("")));
         openTools.put(id, new ToolCall(tool, key, summary, System.nanoTime()));
         var event = new LinkedHashMap<String, Object>();
         event.put("activity", "tool_execution_start");
@@ -548,6 +549,10 @@ final class ClaudeCodeProtocol implements Consumer<String> {
             }
         }
         return String.join("\n", parts);
+    }
+
+    private static String firstLine(String text) {
+        return text.strip().lines().findFirst().orElse("");
     }
 
     private static String oneLine(String text) {

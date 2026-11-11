@@ -460,7 +460,8 @@ class ClaudeCodeCodingRuntimeTest {
                 {"toolu_r", "Read", "{\"file_path\":\"/workspace/src/Foo.java\"}"},
                 {"toolu_g", "Grep", "{\"pattern\":\"TODO\"}"},
                 {"toolu_f", "WebFetch", "{\"url\":\"https://example.org/doc\"}"},
-                {"toolu_b", "Bash", "{\"command\":\"mvn test -Dtoken=secret-key\"}"}})
+                {"toolu_b", "Bash", "{\"command\":\"mvn test -Dtoken=secret-key\"}"},
+                {"toolu_h", "Bash", "{\"command\":\"python3 - <<'EOF'\\nimport json\\nEOF\"}"}})
             protocol.accept("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\""
                     + tool[0] + "\",\"name\":\"" + tool[1] + "\",\"input\":" + tool[2] + "}]}}");
         protocol.accept("""
@@ -474,10 +475,12 @@ class ClaudeCodeCodingRuntimeTest {
         assertThat(tools.get(1)).containsEntry("tool", "Grep").containsEntry("pattern", "TODO");
         assertThat(tools.get(2)).containsEntry("tool", "WebFetch").containsEntry("url", "https://example.org/doc");
         assertThat(tools.get(3)).containsEntry("tool", "Bash").containsEntry("command", "mvn test -Dtoken=[REDACTED]");
-        assertThat(tools.get(4)).containsEntry("activity", "tool_execution_end").containsEntry("tool", "Bash")
+        // A heredoc is named by its first line, not by its whole script on one line.
+        assertThat(tools.get(4)).containsEntry("tool", "Bash").containsEntry("command", "python3 - <<'EOF'");
+        assertThat(tools.get(5)).containsEntry("activity", "tool_execution_end").containsEntry("tool", "Bash")
                 .containsEntry("command", "mvn test -Dtoken=[REDACTED]").containsEntry("error", true)
                 .containsEntry("errorText", "Exit code 1 BUILD FAILURE [REDACTED]").containsKey("durationMs");
-        assertThat(tools.get(5)).containsEntry("tool", "Read").containsEntry("path", "/workspace/src/Foo.java")
+        assertThat(tools.get(6)).containsEntry("tool", "Read").containsEntry("path", "/workspace/src/Foo.java")
                 .containsEntry("error", false).doesNotContainKey("errorText");
         assertThat(events.toString()).doesNotContain("secret-key", "file text");
     }
