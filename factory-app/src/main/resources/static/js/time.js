@@ -1,7 +1,8 @@
 (function () {
   // The server prints every absolute time in UTC (PageTime); this rewrites it to the browser's local time in the
-  // same format. The title keeps the UTC time. A relative time ("5 min ago") keeps its text and gets the local
-  // time as its title.
+  // same format. The title keeps the UTC time. A relative time ("5 min ago") gets the local time as its title, and
+  // its text moves on every 30 seconds, in the words of the server (TaskLabels.ago), so an open page stays true.
+  var AGO_REFRESH_MS = 30000;
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   function pad(value) {
@@ -36,5 +37,28 @@
   }
   window.localizeTimes = localizeTimes;
 
-  document.addEventListener('DOMContentLoaded', function () { localizeTimes(document); });
+  function agoText(date, now) {
+    var seconds = Math.max(0, Math.floor((now - date.getTime()) / 1000));
+    if (seconds < 60) return 'just now';
+    var minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return minutes + ' min ago';
+    var hours = Math.floor(minutes / 60);
+    if (hours < 24) return hours + ' h ago';
+    var days = Math.floor(hours / 24);
+    return days + (days === 1 ? ' day ago' : ' days ago');
+  }
+  window.agoText = agoText;
+
+  function refreshAgo(root, now) {
+    root.querySelectorAll('time[data-local="ago"][datetime]').forEach(function (element) {
+      var date = new Date(element.getAttribute('datetime'));
+      if (!isNaN(date.getTime())) element.textContent = agoText(date, now);
+    });
+  }
+  window.refreshAgo = refreshAgo;
+
+  document.addEventListener('DOMContentLoaded', function () {
+    localizeTimes(document);
+    setInterval(function () { refreshAgo(document, Date.now()); }, AGO_REFRESH_MS);
+  });
 })();
