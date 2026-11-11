@@ -79,6 +79,23 @@ class DeliveryWorkerTest {
     }
 
     @Test
+    void policyIsCheckedAgainBeforeCreatingPullRequest() {
+        var runtime = mock(DevRuntimeProperties.class);
+        when(runtime.command("unit")).thenReturn(List.of("mvn", "test"), List.of("mvn", "verify"));
+        when(runtime.requiredReports("unit")).thenReturn(List.of());
+        givenDelivered();
+
+        var result = delivery(worker("unit", "image", runtime).execute(verifiedContext()));
+
+        assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
+        assertThat(result.path("reason").asString())
+                .contains("no longer matches the current Factory plan", "reverify");
+        assertThat(result.path("deliveryCommitSha").asString()).isEqualTo(delivered.commitSha());
+        verify(delivery, times(1)).deliver(any());
+        verify(github, never()).createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
+    }
+
+    @Test
     void pullRequestDescribesFinalArtifactsAndActualIndependentEvidence() {
         givenDelivered();
         when(github.createPullRequest(anyString(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
@@ -102,6 +119,7 @@ class DeliveryWorkerTest {
         verify(github).createPullRequest(eq(delivered.repository()), eq(delivered.branch()), eq("master"),
                 eq("MODSIDECAR-196: Task"), body.capture(), eq(true));
         assertThat(body.getValue()).doesNotContain("## Summary", "\nTask\n");
+        assertThat(body.getValue()).contains("## Issue\n\n[MODSIDECAR-196](https://jira.example.org/browse/MODSIDECAR-196)");
         assertThat(body.getValue()).contains("## Confirmed decisions\n\n- &#35;&#35; Which API? — &#45; Use v2",
                 "## Agent report\n\nUpdated final routing", "&lt;script&gt;", "＠everyone", "**PASS** · 1 tests · 0 failures · 0 errors",
                 "- Plan: `unit`", "- Command: `mvn test`", "- Image: `image`",

@@ -203,7 +203,7 @@ exited with code 0. Health confirms application/database startup, not that a tas
 can run. Open <http://localhost:8080/developer/configuration> to check the effective
 configuration and an issue key before a run. Then open
 <http://localhost:8080/flows/dev-factory> (My tasks), press **Scan Jira** or add a
-task by its key, select it and press **Run** (see "My tasks" below).
+task by its key, select it and press **Run** (see [My tasks quick start](#my-tasks-quick-start)).
 Use an issue that still requires a change on your chosen base. With a new empty
 database, starting the stack or loading the UI makes no coding-model call. Existing
 queued executions can resume on startup; a run can incur API charges and publish a PR.

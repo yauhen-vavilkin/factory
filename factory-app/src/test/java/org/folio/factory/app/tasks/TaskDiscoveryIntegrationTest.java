@@ -33,6 +33,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.absent;
@@ -191,12 +192,13 @@ class TaskDiscoveryIntegrationTest {
         assertThat(discovery.sync().complete()).isTrue();
         var locked = new CountDownLatch(1);
         var release = new CountDownLatch(1);
+        var holderPid = new AtomicInteger();
         ExecutorService pool = Executors.newFixedThreadPool(2);
         try {
-            Future<?> holder = pool.submit(() -> saveInstallationAndHoldItsLock(locked, release));
+            Future<?> holder = pool.submit(() -> saveInstallationAndHoldItsLock(holderPid, locked, release));
             assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
             Future<TaskDiscoveryService.SyncResult> scan = pool.submit(discovery::sync);
-            await().atMost(Duration.ofSeconds(10)).until(this::aSessionWaitsForARowLock);
+            await().atMost(Duration.ofSeconds(10)).until(() -> aSessionIsBlockedBy(holderPid.get()));
             release.countDown();
             holder.get(10, TimeUnit.SECONDS);
 
@@ -212,11 +214,13 @@ class TaskDiscoveryIntegrationTest {
         assertThat(installation.getSyncProblem()).isNull();
     }
 
-    private void saveInstallationAndHoldItsLock(CountDownLatch locked, CountDownLatch release) {
+    private void saveInstallationAndHoldItsLock(AtomicInteger holderPid, CountDownLatch locked,
+                                                CountDownLatch release) {
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             TaskInstallation installation = installations.lockById(1).orElseThrow();
             installation.setLastSuccessfulSyncAt(Instant.now());
             installations.saveAndFlush(installation);
+            holderPid.set(jdbc.sql("SELECT pg_backend_pid()").query(Integer.class).single());
             locked.countDown();
             try {
                 release.await(20, TimeUnit.SECONDS);
@@ -226,9 +230,10 @@ class TaskDiscoveryIntegrationTest {
         });
     }
 
-    private boolean aSessionWaitsForARowLock() {
-        return jdbc.sql("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'"
-                + " AND datname = current_database()").query(Long.class).single() > 0;
+    /** Another session waits for a lock that this backend holds; other tests' sessions do not count. */
+    private boolean aSessionIsBlockedBy(int holderPid) {
+        return jdbc.sql("SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))")
+                .param(holderPid).query(Long.class).single() > 0;
     }
 
     @Test

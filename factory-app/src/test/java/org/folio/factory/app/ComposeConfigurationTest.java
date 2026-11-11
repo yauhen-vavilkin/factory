@@ -98,6 +98,7 @@ class ComposeConfigurationTest {
         var config = render(Map.of(), Map.of());
         var environment = config.path("services").path("factory").path("environment");
 
+        assertLocalCodeMieProfile(environment);
         assertThat(config.path("services").path("coding-runtime").path("image").asString())
                 .startsWith("factory-dev-claude-code:");
         // Unset values arrive empty, which Factory treats as unset: the first model and "not configured".

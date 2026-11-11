@@ -46,7 +46,9 @@ class RunStateIntegrationTest {
     private static final String ASKED_REASON = "clarify-implementation: " + TaskStops.DECISION_REASON + "Which API?";
     private static final OffsetDateTime ANY_TIME = Instant.EPOCH.atOffset(ZoneOffset.UTC);
     private static final Pattern OPTION = Pattern.compile("<option[^>]*>([^<]*)</option>");
-    private static final Pattern SELECTED_OPTION = Pattern.compile("<option[^>]*\\bselected\\b[^>]*>([^<]*)</option>");
+    /** The value of a selected state option; the flow and period options have other values. */
+    private static final Pattern SELECTED_STATE =
+            Pattern.compile("<option(?=[^>]*\\bvalue=\"([A-Z_]+)\")(?=[^>]*\\bselected\\b)[^>]*>");
 
     @LocalServerPort
     int port;
@@ -136,12 +138,14 @@ class RunStateIntegrationTest {
         var rest = RestClient.builder().baseUrl("http://localhost:" + port).build();
         for (var state : Set.of(RunState.FAILED, RunState.COMPLETED, RunState.IN_PROGRESS)) {
             var body = rest.get().uri("/executions?status=" + state.name()).retrieve().body(String.class);
+            var otherLabels = Arrays.stream(RunState.values()).filter(other -> other != state)
+                    .map(RunState::getLabel).toArray(String[]::new);
             assertThat(rowTexts(body)).as(state.getLabel()).hasSize(idsIn(state).size())
-                    .allSatisfy(row -> assertThat(row).contains(state.getLabel()));
+                    .allSatisfy(row -> assertThat(row).contains(state.getLabel()).doesNotContain(otherLabels));
         }
         var failed = rest.get().uri("/executions?status=FAILED").retrieve().body(String.class);
         assertThat(optionLabels(OPTION, failed)).contains("Failed", "Completed", "Developer Flow");
-        assertThat(optionLabels(SELECTED_OPTION, failed)).contains("Failed");
+        assertThat(SELECTED_STATE.matcher(failed).results().map(match -> match.group(1))).containsExactly("FAILED");
         assertThat(rowTexts(failed)).anySatisfy(row -> assertThat(row).contains("Developer Flow"));
     }
 

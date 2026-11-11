@@ -101,6 +101,8 @@ class DevelopReadinessTest {
             assertThat(result.metrics()).containsEntry("inputTokens", 10L).containsEntry("cacheReadTokens", 2L)
                     .containsEntry("cacheWriteTokens", 1L).containsEntry("outputTokens", 3L);
         }
+        verify(harness.baseline(), times(2)).close();
+        verify(harness.codingWorkload()).close();
     }
 
     @Test
@@ -444,6 +446,7 @@ class DevelopReadinessTest {
         var docker = mock(DockerWorkloads.class);
         var scope = mock(DockerWorkloads.StepScope.class);
         var baseline = mock(DockerWorkloads.Workload.class);
+        var codingWorkload = mock(DockerWorkloads.Workload.class);
         var freezer = mock(CandidateFreezer.class);
         var coding = mock(CodingRuntime.class);
         var codec = new FrontmatterCodec();
@@ -454,7 +457,7 @@ class DevelopReadinessTest {
         when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
         when(scope.createTrusted(anyString(), any(), anyString())).thenReturn(baseline);
         when(scope.createSeeded(anyString(), any(), anyString(), anyString()))
-                .thenReturn(mock(DockerWorkloads.Workload.class));
+                .thenReturn(codingWorkload);
         when(baseline.execute(anyList(), anyInt(), anyInt(), any()))
                 .thenReturn(new Processes.Result(0, "[INFO] BUILD SUCCESS"));
         when(coding.code(any(), any(CodingRequest.class), anyInt(), any(), any()))
@@ -465,7 +468,7 @@ class DevelopReadinessTest {
                 new CodingServices(coding, docker, freezer), codec, audit,
                 new DevFactoryHooks(TaskAttemptPolicy.none(), (modelId, model) -> Map.of(), transcripts,
                         selectedRepository), taskAttempts.guard());
-        return new TaskHarness(docker, scope, baseline, freezer, coding, attempt,
+        return new TaskHarness(docker, scope, baseline, codingWorkload, freezer, coding, attempt,
                 new DevelopWorker(attempt, codec), context);
     }
 
@@ -473,6 +476,7 @@ class DevelopReadinessTest {
             DockerWorkloads docker,
             DockerWorkloads.StepScope scope,
             DockerWorkloads.Workload baseline,
+            DockerWorkloads.Workload codingWorkload,
             CandidateFreezer freezer,
             CodingRuntime coding,
             InitialCodingAttempt attempt,

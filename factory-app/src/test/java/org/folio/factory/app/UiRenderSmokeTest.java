@@ -1066,6 +1066,22 @@ class UiRenderSmokeTest {
         return "href=\"" + Pattern.quote(url) + "\"[^>]*>\\s*" + Pattern.quote(label) + "\\s*<";
     }
 
+    /** A link with the {@code ext-link} class, in any attribute order. */
+    private static String extLinkTo(String url, String label) {
+        return "<a(?=[^>]*class=\"[^\"]*\\bext-link\\b)(?=[^>]*href=\"" + Pattern.quote(url) + "\")[^>]*>\\s*"
+                + Pattern.quote(label) + "\\s*<";
+    }
+
+    /** A chip of this tone with this text. */
+    private static String chip(String tone, String label) {
+        return "<(?:a|span)(?=[^>]*class=\"chip chip-" + tone + "[\" ])[^>]*>\\s*" + Pattern.quote(label) + "\\s*<";
+    }
+
+    /** A form that posts to this action; the action is a regex. */
+    private static String postForm(String actionPattern) {
+        return "<form(?=[^>]*method=\"post\")(?=[^>]*action=\"" + actionPattern + "\")";
+    }
+
     /** An element with this title and this text. */
     private static String titled(String title, String label) {
         return "title=\"" + Pattern.quote(title) + "\"[^>]*>\\s*" + Pattern.quote(label) + "\\s*<";
@@ -1439,7 +1455,7 @@ class UiRenderSmokeTest {
         // The running task: one strip with its state first, then the task, then the shortcut to its run.
         assertThat(text(body)).contains("In progress MODBAR-709 Live task");
         assertThat(body)
-                .containsPattern(linkTo("https://jira.example.org/browse/MODBAR-709", "MODBAR-709"))
+                .containsPattern(extLinkTo("https://jira.example.org/browse/MODBAR-709", "MODBAR-709"))
                 .containsPattern(linkTo("/executions/" + seed.liveExecution().getId(), "Open run"));
         assertThat(rest.get().uri("/tasks").retrieve().toEntity(String.class).getBody()).contains("Ready to run");
     }
@@ -1517,6 +1533,11 @@ class UiRenderSmokeTest {
         assertThat(triggered)
                 .containsPattern(linkTo("https://github.com/folio-org/mod-bar/pull/7", "PR #7"))
                 .containsPattern(linkTo("https://github.com/folio-org/mod-bar/pull/8", "Draft PR #8"))
+                // The pull request chip opens GitHub and looks clickable; each chip has the tone of its state.
+                .containsPattern(extLinkTo("https://github.com/folio-org/mod-bar/pull/7", "PR #7"))
+                .containsPattern(chip("success", "PR #7"))
+                .containsPattern(chip("danger", "Failed"))
+                .containsPattern(chip("info", "In progress"))
                 .containsPattern(linkTo("/tasks/" + seed.stopped().getId(), "Stopped task"))
                 // A row is one link to its task and has no button of its own: a task that waits for the developer
                 // says Your turn, and its task page starts with the answer or the next attempt.
@@ -1525,7 +1546,7 @@ class UiRenderSmokeTest {
                         "Triggered", "Working", "Withdrawn");
         // A held task offers Mark as stopped, which asks first and returns to My tasks.
         assertThat(triggered)
-                .containsPattern("action=\"/tasks/" + seed.held().getId() + "/attempts/[0-9a-f-]+/mark-stopped\"")
+                .containsPattern(postForm("/tasks/" + seed.held().getId() + "/attempts/[0-9a-f-]+/mark-stopped"))
                 .contains("<input type=\"hidden\" name=\"returnTo\" value=\"flow\">",
                         "aria-label=\"Mark as stopped: MODBAR-707\"", "data-confirm-title=\"Mark MODBAR-707 as stopped?\"",
                         "The task becomes Failed, its cost so far stays");
@@ -1548,6 +1569,7 @@ class UiRenderSmokeTest {
         // The row says it waits for the developer and opens the task, whose page starts with the question.
         assertThat(text(runs)).contains("Needs your answer", "Your turn");
         assertThat(runs).containsPattern(linkTo("/tasks/" + asked.getId(), "Asking task"))
+                .containsPattern(chip("warning", "Needs your answer"))
                 .doesNotContain("Which API should change?", ">Retry</a>", ">Answer</a>");
     }
 
@@ -1727,7 +1749,7 @@ class UiRenderSmokeTest {
                         "<label for=\"retry-instructions\">What should the agent do differently? (optional)</label>",
                         "id=\"retry-instructions\" name=\"instructions\"", "maxlength=\"8000\"",
                         "placeholder=\"For example: change only FolioTenantApiClient and its test.\"></textarea>")
-                .containsPattern("action=\"/tasks/" + failed.task().getId() + "/retry\"")
+                .containsPattern(postForm("/tasks/" + failed.task().getId() + "/retry"))
                 .doesNotContain(">Read the ADR through the wiki &lt;REST&gt; URL.</textarea>", "value=\"77\"", "Max turns")
                 // A new attempt starts from the configured model and effort, not from the previous attempt's.
                 .containsPattern("<option value=\"codemie-sonnet-5.5\"[^>]*selected=\"selected\"")

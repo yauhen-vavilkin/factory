@@ -109,6 +109,8 @@ Source: reviews of the developer flow fixes (spec in commit 82e0d0d), 2026-10-28
   The delivery then ends as blocked, with no fallback to a ready PR.
 - Factory never reads the draft state back from GitHub. After "Ready for review" on GitHub
   the UI still shows "Draft PR".
+- `/webjars` URLs (chart.js on the dashboard) are answered with `no-store`, not a long
+  `Cache-Control`: `StaticResourceConfiguration` versions only `/css` and `/js`.
 - The console JS tests (`factory-app/src/test/js/poll.test.js`, `time.test.js`) are not run by
   Maven or CI.
 - PR feedback round summaries now use the four report headings, and the PR feedback panel on
@@ -290,6 +292,9 @@ The cleanup changed no behavior, so these were recorded instead. None was reprod
   has no `.badge-warning`.
 - **Some POST forms skip the same-origin check.** The task forms call `requireSameOrigin`; the PR
   feedback forms, `ReviewUiController.decide` and `FlowUiController.trigger` do not.
+- **`btn-sm`, `input-sm` and `select-sm` are classes without a rule.** Their rules repeated `.btn`,
+  `.input` and `.select` and were removed; the class names are still in about 30 template places and
+  in `TaskDetail` and `FeedbackUi`. Removing them changes markup that tests pin, so it was left.
 - **`ExecutionEngineTest` depends on the real 333 ms heartbeat.** An injectable scheduler would make
   its lease-loss tests independent of timing; that is a production change.
 - **Pull request and commit text** (from the demo UX findings of 2026-11-10): Factory posts no reply
