@@ -99,8 +99,9 @@ class FlowUiControllerTest {
                 .containsEntry("version", "1.0.0")
                 .containsEntry("stepCount", 3)
                 .containsEntry("gateCount", 1);
-        assertThat((List<String>) rows.get(0).get("eventTypes"))
-                .containsExactly("manual", "jira.issue.transitioned");
+        // The triggers in the words of the Definition tab, not their event ids.
+        assertThat((List<String>) rows.get(0).get("triggers"))
+                .containsExactly("Manual start", "Jira: issue transitioned");
     }
 
     // ----- flow detail -----

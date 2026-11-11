@@ -458,7 +458,10 @@ class UiRenderSmokeTest {
 
     @Test
     void flowsListRenders() {
-        assertRendered("/flows", "Registered flow plugins");
+        assertThat(assertRendered("/flows", "The flows this Factory can run. Open one to see its steps and runs."))
+                .contains("<span class=\"badge badge-outline\">Manual start</span>",
+                        "<span class=\"badge badge-outline\">Jira: issue transitioned</span>")
+                .doesNotContain("Registered flow plugins", ">manual<", ">jira.issue.transitioned<");
     }
 
     @Test

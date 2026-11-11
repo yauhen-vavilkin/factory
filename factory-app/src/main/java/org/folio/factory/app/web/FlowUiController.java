@@ -122,16 +122,17 @@ public class FlowUiController {
         return "workers";
     }
 
+    /** A flow card; its triggers are said in the words of the Definition tab ("Manual start"). */
     private Map<String, Object> flowSummaryRow(FlowDescriptor descriptor) {
-        List<String> eventTypes = descriptor.triggers().stream()
-                .map(TriggerContract::eventType).distinct().toList();
+        List<String> triggers = descriptor.triggers().stream()
+                .map(TriggerContract::eventType).distinct().map(FlowDefinitionView::event).toList();
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", descriptor.id());
         row.put("name", descriptor.name());
         row.put("version", descriptor.version());
         row.put("stepCount", descriptor.agentChain().size());
         row.put("gateCount", descriptor.gateCount());
-        row.put("eventTypes", eventTypes);
+        row.put("triggers", triggers);
         return row;
     }
 
