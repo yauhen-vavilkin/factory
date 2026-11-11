@@ -624,6 +624,8 @@ class UiRenderSmokeTest {
                 .doesNotContain("Implementation failed", "shared: ", "DEVELOPMENT_FAILED");
         String task = assertRendered("/tasks/" + stopped.getId(), "Failed");
         assertThat(task)
+                // Chip and headline are one group, so the amount wraps under the text and the chip stays on its line.
+                .containsPattern("<div class=\"status-card-main\">\\s*<span class=\"chip chip-danger\">Failed</span>")
                 .contains("<p class=\"status-card-headline\">Attempt 1 failed</p>")
                 .containsPattern("<span class=\"status-card-label\">Reason</span>\\s*<span>" + Pattern.quote(expected)
                         + "</span>")

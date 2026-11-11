@@ -18,19 +18,21 @@
         then reload the page to see the change.</p>
 
     <section class="status-card" aria-label="Status">
-        <span th:class="${task.stateClass()}" th:text="${task.stateLabel()}">State</span>
-        <div class="status-card-body">
-            <p class="status-card-headline" th:text="${task.headline()}">Headline</p>
-            <p class="status-card-reason" th:if="${task.reason() != null}"><span class="status-card-label">Reason</span>
-                <span th:text="${task.reason()}">Why the attempt failed.</span></p>
-            <p class="status-card-note" th:if="${task.reasonNote() != null}" th:text="${task.reasonNote()}">
-                No pull request was created.</p>
-            <div class="status-card-reasons"
-                 th:if="${task.draftReasons() != null and !#lists.isEmpty(task.draftReasons())}">
-                <p>Factory opened it as a draft because:</p>
-                <ul>
-                    <li th:each="reason : ${task.draftReasons()}" th:text="${reason}">reason</li>
-                </ul>
+        <div class="status-card-main">
+            <span th:class="${task.stateClass()}" th:text="${task.stateLabel()}">State</span>
+            <div class="status-card-body">
+                <p class="status-card-headline" th:text="${task.headline()}">Headline</p>
+                <p class="status-card-reason" th:if="${task.reason() != null}"><span class="status-card-label">Reason</span>
+                    <span th:text="${task.reason()}">Why the attempt failed.</span></p>
+                <p class="status-card-note" th:if="${task.reasonNote() != null}" th:text="${task.reasonNote()}">
+                    No pull request was created.</p>
+                <div class="status-card-reasons"
+                     th:if="${task.draftReasons() != null and !#lists.isEmpty(task.draftReasons())}">
+                    <p>Factory opened it as a draft because:</p>
+                    <ul>
+                        <li th:each="reason : ${task.draftReasons()}" th:text="${reason}">reason</li>
+                    </ul>
+                </div>
             </div>
         </div>
         <div class="status-card-side">
