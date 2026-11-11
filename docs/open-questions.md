@@ -238,3 +238,16 @@ The question flow, the in-progress strip and Factory's comment on the pull reque
   help with Claude Code; `TaskStops.OUTPUT_LIMIT_REASON` now names no culprit and asks for narrower
   instructions, a small change and short command output. Which command printed too much in
   MGRAPPS-64, and whether 2 MB fits a large diff, is not checked.
+
+## Left after the console polish of the run page (2026-11-11)
+
+- **Pricing in Technical details is not a link.** The rate cards name a source and a date
+  (`docs.z.ai (2026-09-19)`) but no URL, so the page writes them as text. A link needs a `url`
+  per rate in `config/developer-models.yaml`.
+- **Artifacts (N) cannot link to a filtered list.** `/artifacts` has no `executionId` filter, so
+  the run page lists the versions of each artifact in a disclosure instead of linking out.
+- **Activity rows at phone width are not checked.** The time, verb, target and result columns of
+  Activity were checked at desktop widths only; a long target may need its own line below 480 px.
+- **Placeholder targets look like code.** An Activity row whose event names no file shows a
+  placeholder such as "the project" in the code style of a real path. A plain style for those
+  needs the activity rows to say which targets are real.
