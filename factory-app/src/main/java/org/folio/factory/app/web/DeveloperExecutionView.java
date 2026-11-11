@@ -33,9 +33,16 @@ final class DeveloperExecutionView {
     private static final JsonNode MISSING = MissingNode.getInstance();
     private final JsonMapper json;
 
-    /** Asks only for the artifacts the status depends on, so a run list row does not load every version. */
-    String productStatus(PipelineExecution execution, Function<String, Optional<Artifact>> latest) {
-        return status(execution, parsed(latest));
+    /** What the run list shows of a Developer Flow run; taskKey is blank when the run names none. */
+    record ListFacts(String productStatus, String taskKey, RunFacts.PullRequest pullRequest) {
+    }
+
+    /** The status, task key and pull request of a run list row; a row does not load every artifact version. */
+    ListFacts listFacts(PipelineExecution execution, Function<String, Optional<Artifact>> latest) {
+        var parsed = parsed(latest);
+        var key = first(parsed.apply("dev_task_brief.md").path("issue_key"),
+                UiFormat.parse(execution.getTriggerPayload(), json).path("issueKey"));
+        return new ListFacts(status(execution, parsed), key, pullRequest(parsed.apply("dev_delivery.json")));
     }
 
     /** The latest version of each artifact by name, as {@code ArtifactStore.getLatest} returns it. */

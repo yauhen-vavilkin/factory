@@ -277,6 +277,13 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
 .chip-success { --chip-tone: var(--success); }
 .chip-warning { --chip-tone: var(--warning); }
 .chip-danger { --chip-tone: var(--destructive); }
+/* Engine and review statuses (statusBadge); a status without a rule keeps the muted tone. */
+.chip-status-PENDING, .chip-status-RUNNING, .chip-status-AWAITING_SUBFLOW { --chip-tone: var(--info); }
+.chip-status-AWAITING_HITL, .chip-status-AMENDED { --chip-tone: var(--warning); }
+.chip-status-COMPLETED, .chip-status-APPROVED { --chip-tone: var(--success); }
+.chip-status-FAILED_ESCALATED, .chip-status-REJECTED { --chip-tone: var(--destructive); }
+.chip-status-CANCELLED { color: hsl(var(--foreground)); }
+.chip-status-CANCELLED::before { background: hsl(var(--muted-foreground)); }
 /* Links that leave Factory (Jira, GitHub) carry an arrow so they look clickable. */
 .ext-link { display: inline-flex; align-items: center; gap: 4px; }
 .ext-link::after {
@@ -288,9 +295,8 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 17L17 7M9 7h8v8'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 /* A disclosure looks like a small secondary button with a chevron that points right when closed and down
-   when open. The opened content is one indented box tied to its summary, never loose page text. The
-   .details-inline disclosures share the look. */
-.disclosure > summary, .details-inline > summary {
+   when open. The opened content is one indented box tied to its summary, never loose page text. */
+.disclosure > summary {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -310,11 +316,11 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
   user-select: none;
   transition: background-color 150ms ease;
 }
-.disclosure > summary:hover, .details-inline > summary:hover {
+.disclosure > summary:hover {
   background: hsl(var(--secondary-hover));
 }
-.disclosure > summary::-webkit-details-marker, .details-inline > summary::-webkit-details-marker { display: none; }
-.disclosure > summary::before, .details-inline > summary::before {
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary::before {
   content: "";
   flex: none;
   display: block;
@@ -325,9 +331,9 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
   mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E") center / contain no-repeat;
   transition: transform 150ms ease;
 }
-.disclosure[open] > summary::before, .details-inline[open] > summary::before { transform: rotate(90deg); }
+.disclosure[open] > summary::before { transform: rotate(90deg); }
 /* The content box of an open details element; browsers without ::details-content show it unboxed. */
-.disclosure[open]::details-content, .details-inline[open]::details-content {
+.disclosure[open]::details-content {
   margin-top: 6px;
   padding: 10px 12px;
   border: 1px solid hsl(var(--border));
@@ -355,31 +361,19 @@ a.chip:hover { text-decoration: none; border-color: hsl(var(--chip-tone) / 0.8);
   color: hsl(var(--foreground));
   background: transparent;
 }
-.badge-success, .badge-status-COMPLETED, .badge-status-APPROVED, .badge-status-DELIVERED {
+.badge-success {
   background: hsl(var(--success));
   color: hsl(var(--success-foreground));
 }
-.badge-status-AWAITING_HITL, .badge-status-AWAITING_PR, .badge-status-AMENDED {
-  background: hsl(var(--warning));
-  color: hsl(var(--warning-foreground));
-}
-.badge-destructive, .badge-status-FAILED_ESCALATED, .badge-status-REJECTED,
-.badge-status-DEVELOPMENT_FAILED, .badge-status-VERIFICATION_FAILED, .badge-status-DELIVERY_BLOCKED,
-.badge-status-UNSUPPORTED, .badge-status-BLOCKED, .badge-status-BLOCKED_ENVIRONMENT,
-.badge-status-REPOSITORY_MISMATCH, .badge-status-OUTCOME_UNAVAILABLE {
+.badge-destructive {
   background: hsl(var(--destructive));
   color: hsl(var(--destructive-foreground));
 }
-.badge-muted, .badge-status-CANCELLED {
+.badge-muted {
   background: hsl(var(--muted));
   /* secondary-foreground, not muted-foreground: the latter is only ~4.2:1 on
      --muted in the light theme, under WCAG AA for this 12px text. */
   color: hsl(var(--secondary-foreground));
-}
-.badge-status-PENDING, .badge-status-RUNNING, .badge-status-AWAITING_SUBFLOW, .badge-status-VERIFIED {
-  border-color: hsl(var(--border));
-  color: hsl(var(--foreground));
-  background: transparent;
 }
 
 /* ---------- table ---------- */
@@ -946,7 +940,6 @@ code.activity-target { font-family: ui-monospace, SFMono-Regular, Menlo, monospa
 .badge-row { display: flex; flex-wrap: wrap; gap: 0.375rem; align-items: center; }
 * + .badge-row { margin-top: 0.75rem; }
 .stack { display: flex; flex-direction: column; gap: 1.5rem; }
-.details-inline { margin-top: 0.5rem; }
 
 @media (max-width: 720px) {
   .app-shell { grid-template-columns: minmax(0, 1fr); }

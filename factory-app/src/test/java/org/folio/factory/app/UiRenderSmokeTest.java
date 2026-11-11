@@ -319,6 +319,23 @@ class UiRenderSmokeTest {
     }
 
     @Test
+    void aDeveloperRunWaitingForPrCommentsIsNamedByItsTaskAndOpensItsRunPage() {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.9.0", "{\"issueKey\":\"MGRAPPS-21\"}"));
+        reviews.save(new HitlReview(execution.getId(), "pr-feedback", 8,
+                "{\"title\":\"PR feedback\",\"flowId\":\"dev-factory\"}"));
+        var gate = executions.save(new PipelineExecution("test-factory", "1", "{\"issueKey\":\"MGRAPPS-22\"}"));
+        var qaReview = reviews.save(new HitlReview(gate.getId(), "qa-gate-1", 2,
+                "{\"title\":\"QA review: manual test cases\",\"flowId\":\"test-factory\"}"));
+
+        String body = assertRendered("/reviews", "Human-in-the-loop gates and their decisions.");
+
+        assertThat(body).contains(">Waiting for PR comments: MGRAPPS-21</td>",
+                        "href=\"/executions/" + execution.getId() + "#pr-feedback\">Open run</a>",
+                        ">QA review: manual test cases</td>", "href=\"/reviews/" + qaReview.getId() + "\">Review</a>")
+                .doesNotContain(">PR feedback</td>", "MGRAPPS-22");
+    }
+
+    @Test
     void executionsListRenders() {
         assertRendered("/executions", "Pipeline runs across all flows, most recent first.");
     }
@@ -346,7 +363,14 @@ class UiRenderSmokeTest {
 
     @Test
     void statusPageRenders() {
-        assertRendered("/status", "Execution engine");
+        String body = assertRendered("/status", "Execution engine");
+
+        // Jira without sign-in still serves My tasks; the Developer Flow opens on its Definition here.
+        assertThat(body).contains("Not configured for Test Factory sync, which needs FACTORY_CONNECTORS_JIRA_EMAIL",
+                        "My tasks reads Jira with FACTORY_CONNECTORS_JIRA_BASE_URL alone",
+                        "href=\"/developer/configuration\">Developer Flow configuration</a>",
+                        "href=\"/flows/dev-factory?view=definition\">dev-factory</a>",
+                        "href=\"/flows/test-factory\">test-factory</a>");
     }
 
     @Test
@@ -382,7 +406,9 @@ class UiRenderSmokeTest {
 
     @Test
     void workersListRenders() {
-        assertRendered("/workers", "agent worker library");
+        assertThat(assertRendered("/workers", "agent worker library"))
+                .contains("href=\"/flows/dev-factory?view=definition\">dev-factory · read-task</a>",
+                        "href=\"/flows/test-factory\">test-factory · triage</a>");
     }
 
     @Test
@@ -956,14 +982,13 @@ class UiRenderSmokeTest {
             var chip = outcome.equals("DELIVERED") ? "class=\"chip chip-success\">Finished</span>"
                     : "class=\"chip chip-danger\">Failed</span>";
             assertThat(detail).contains(chip)
-                    .doesNotContain("badge-status-", ">" + outcome + "<", ">COMPLETED<", "Engine status", "now-title");
+                    .doesNotContain("chip-status-", ">" + outcome + "<", ">COMPLETED<", "Engine status", "now-title");
             if (outcome.equals("DEVELOPMENT_FAILED"))
                 assertThat(usageColumn(detail)).containsSubsequence("<dt>Input</dt>", "<dt>Cache read</dt>",
                                 "<dt>Cache write</dt>", "<dt>Output</dt>", "<dt>Total tokens</dt><dd>16</dd>")
                         .doesNotContain("pi usage", "Coding runtime-reported cost");
             String list = assertRendered("/executions?flow=dev-factory", "Executions");
-            assertThat(list).contains("badge-status-" + outcome, ">" + outcome + "</span>")
-                    .doesNotContain("badge-status-COMPLETED");
+            assertThat(list).contains(chip).doesNotContain(">" + outcome + "</span>", "chip-status-COMPLETED");
         }
     }
 
@@ -975,11 +1000,36 @@ class UiRenderSmokeTest {
         artifactStore.putMarkdown(execution.getId(), "dev_result.json",
                 "{\"state\":\"DEVELOPMENT_FAILED\"}", "test");
         assertThat(assertRendered("/executions/" + execution.getId(), "Execution"))
-                .contains("badge-status-COMPLETED", ">COMPLETED</span>")
-                .doesNotContain("badge-status-DEVELOPMENT_FAILED", "Engine status");
+                .contains("class=\"chip chip-status-COMPLETED\">COMPLETED</span>")
+                .doesNotContain("chip-status-DEVELOPMENT_FAILED", "Engine status", "badge-status-");
         assertThat(assertRendered("/executions?flow=test-factory", "Executions"))
-                .contains("badge-status-COMPLETED", ">COMPLETED</span>")
-                .doesNotContain("badge-status-DEVELOPMENT_FAILED");
+                .contains("class=\"chip chip-status-COMPLETED\">COMPLETED</span>")
+                .doesNotContain("chip-status-DEVELOPMENT_FAILED");
+    }
+
+    @Test
+    void developerRunsInTheListShowTheirTaskKeyAndStatusInWordsWithoutAStep() {
+        var question = new PipelineExecution("dev-factory", "0.9.0", "{\"issueKey\":\"MGRAPPS-64\"}");
+        question.setStatus(ExecutionStatus.AWAITING_HITL);
+        question.setCurrentStepIndex(4);
+        question = executions.save(question);
+        artifactStore.putMarkdown(question.getId(), "dev_coding_outcome.json", "{\"status\":\"NEEDS_DECISION\"}",
+                "implement");
+        var draft = new PipelineExecution("dev-factory", "0.9.0", "{\"issueKey\":\"MGRAPPS-21\"}");
+        draft.setStatus(ExecutionStatus.COMPLETED);
+        draft.setCurrentStepIndex(7);
+        draft = executions.save(draft);
+        artifactStore.putMarkdown(draft.getId(), "dev_delivery.json", "{\"state\":\"DELIVERED\","
+                + "\"pullRequestUrl\":\"https://github.com/folio-org/mgr-applications/pull/412\","
+                + "\"pullRequestDraft\":true}", "publish");
+
+        String list = assertRendered("/executions?flow=dev-factory", "Executions");
+
+        assertThat(list).contains("href=\"/executions/" + question.getId() + "\">MGRAPPS-64</a>",
+                        "class=\"chip chip-warning\">Asked a question</span>",
+                        "href=\"/executions/" + draft.getId() + "\">MGRAPPS-21</a>",
+                        "class=\"chip chip-neutral\">Draft PR #412</span>")
+                .doesNotContain(">NEEDS_DECISION<", ">DELIVERED<", "<td>4</td>", "<td>7</td>");
     }
 
     @Test
@@ -1741,7 +1791,7 @@ class UiRenderSmokeTest {
                         "data-poll-url=\"/executions/" + execution.getId() + "/poll\"",
                         "<p class=\"dev-poll-notice\" role=\"status\" data-poll-notice hidden>")
                 .containsPattern("href=\"/flows\"[^>]*aria-current=\"page\"")
-                .doesNotContain("badge-status-RUNNING", "Engine steps", "Runtime and usage", "Now · updates live");
+                .doesNotContain("chip-status-RUNNING", "Engine steps", "Runtime and usage", "Now · updates live");
         // While it works, the time ticks and is measured against the attempt time limit.
         assertThat(body.substring(body.indexOf("class=\"status-card-side\"")))
                 .containsPattern("<span class=\"status-card-money\" data-elapsed-start=\"[^\"]+\">\\d+ s</span>\\s*"

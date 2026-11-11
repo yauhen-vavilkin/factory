@@ -665,9 +665,13 @@ class DeveloperExecutionViewTest {
 
     /** The run list reads each latest artifact on its own; the run page must show the same status. */
     private String productStatus(PipelineExecution execution, List<Artifact> artifacts) {
-        var status = view.productStatus(execution, DeveloperExecutionView.latest(artifacts));
-        assertThat(view.build(execution, artifacts, List.of(), Instant.now()).productStatus()).isEqualTo(status);
-        return status;
+        var row = view.listFacts(execution, DeveloperExecutionView.latest(artifacts));
+        var facts = view.build(execution, artifacts, List.of(), Instant.now());
+        // The run list row and the run page read the same status, task key and pull request.
+        assertThat(facts.productStatus()).isEqualTo(row.productStatus());
+        assertThat(facts.task().key()).isEqualTo(row.taskKey());
+        assertThat(facts.pullRequest()).isEqualTo(row.pullRequest());
+        return row.productStatus();
     }
 
     private static List<StepState> states(RunFacts facts) {

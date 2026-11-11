@@ -200,18 +200,40 @@ class DashboardUiControllerTest {
         assertThat(engine.get("leaseTimeoutSeconds")).isEqualTo(1800L);
 
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> connectors =
-                (List<Map<String, Object>>) result.getModelAndView().getModel().get("connectors");
-        assertThat(connectors).extracting(c -> c.get("name")).containsExactly("github", "jira");
-        assertThat(connectors).extracting(c -> c.get("configured")).containsExactly(false, true);
+        var connectors = (List<DashboardUiController.ConnectorRow>) result.getModelAndView().getModel()
+                .get("connectors");
+        assertThat(connectors).extracting(DashboardUiController.ConnectorRow::name).containsExactly("github", "jira");
+        assertThat(connectors).extracting(DashboardUiController.ConnectorRow::configured).containsExactly(false, true);
+        assertThat(connectors.getFirst().note()).contains("advisory mode");
+        assertThat(connectors.get(1).note()).isNull();
 
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> flows =
-                (List<Map<String, Object>>) result.getModelAndView().getModel().get("flows");
-        assertThat(flows).hasSize(1);
-        assertThat(flows.get(0).get("id")).isEqualTo("test-factory");
-        assertThat(flows.get(0).get("name")).isEqualTo("Test Factory");
-        assertThat(flows.get(0).get("version")).isEqualTo("1.0.0");
+        var flows = (List<DashboardUiController.FlowRow>) result.getModelAndView().getModel().get("flows");
+        assertThat(flows).containsExactly(
+                new DashboardUiController.FlowRow("test-factory", "Test Factory", "1.0.0", "—", "/flows/test-factory"));
+    }
+
+    @Test
+    void status_jiraWithoutSignIn_saysThatMyTasksStillReadsIt() throws Exception {
+        var jira = new FakeConnector("jira", false);
+        when(flowRegistry.all()).thenReturn(List.of(
+                new FlowDescriptor("dev-factory", "Developer Flow", "0.9.0", null, null, null, null, null)));
+        when(flowRegistryEntries.findById(any())).thenReturn(java.util.Optional.empty());
+
+        var result = mvcWithConnectors(List.of(jira)).perform(get("/status")).andExpect(status().isOk()).andReturn();
+
+        @SuppressWarnings("unchecked")
+        var connectors = (List<DashboardUiController.ConnectorRow>) result.getModelAndView().getModel()
+                .get("connectors");
+        assertThat(connectors).singleElement().satisfies(row -> {
+            assertThat(row.note()).startsWith("Not configured for Test Factory sync")
+                    .contains("My tasks reads Jira with FACTORY_CONNECTORS_JIRA_BASE_URL alone");
+            assertThat(row.configurationUrl()).isEqualTo("/developer/configuration");
+        });
+        @SuppressWarnings("unchecked")
+        var flows = (List<DashboardUiController.FlowRow>) result.getModelAndView().getModel().get("flows");
+        assertThat(flows).extracting(DashboardUiController.FlowRow::url)
+                .containsExactly("/flows/dev-factory?view=definition");
     }
 
     @Test
@@ -241,10 +263,12 @@ class DashboardUiControllerTest {
                 .andReturn();
 
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> connectors =
-                (List<Map<String, Object>>) result.getModelAndView().getModel().get("connectors");
-        assertThat(connectors).extracting(c -> c.get("name")).containsExactly("github", "jira", "testrail");
-        assertThat(connectors).extracting(c -> c.get("configured")).containsExactly(false, true, true);
+        var connectors = (List<DashboardUiController.ConnectorRow>) result.getModelAndView().getModel()
+                .get("connectors");
+        assertThat(connectors).extracting(DashboardUiController.ConnectorRow::name)
+                .containsExactly("github", "jira", "testrail");
+        assertThat(connectors).extracting(DashboardUiController.ConnectorRow::configured)
+                .containsExactly(false, true, true);
     }
 
     @Test

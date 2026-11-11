@@ -35,6 +35,9 @@ import java.util.Optional;
 
 /** One finite operation per engine invocation; all durable transitions are engine-owned. */
 public class FeedbackWorker implements AgentWorker {
+    /** The review a run waits in while its pull request waits for comments. */
+    public static final String GATE_ID = "pr-feedback";
+
     private final DevFactoryProperties repositories;
     private final DevRuntimeProperties runtime;
     private final GitHubProperties github;
@@ -418,7 +421,7 @@ public class FeedbackWorker implements AgentWorker {
                     metrics,
                     AgentResult.Disposition.WAIT,
                     new AgentResult.WaitRequest(
-                            new HitlGateSpec("pr-feedback", "PR feedback", state.reason, List.of()),
+                            new HitlGateSpec(GATE_ID, "PR feedback", state.reason, List.of()),
                             STATE));
         return new AgentResult(outputs, metrics, AgentResult.Disposition.CONTINUE, null);
     }

@@ -42,15 +42,17 @@
                 <tbody>
                 <tr th:each="e : ${executions}">
                     <td>
-                        <a th:href="@{'/executions/' + ${e['id']}}" th:text="${e['idShort']}"></a>
+                        <a th:href="@{'/executions/' + ${e.id()}}" th:text="${e.name()}"></a>
                         <div class="muted sub-tag" th:if="${e['parentExecutionId']}">
                             <a th:href="@{'/executions/' + ${e['parentExecutionId']}}"
                                th:text="'↳ sub-flow of ' + ${e['parentShort']}"></a>
                         </div>
                     </td>
                     <td th:text="${e['flowId']}"></td>
-                    <td><span th:replace="~{fragments/components :: statusBadge(${e['status']})}"></span></td>
-                    <td th:text="${e['currentStepIndex']}"></td>
+                    <td><span th:if="${e.statusLabel() != null}" th:class="${e.statusClass()}"
+                              th:text="${e.statusLabel()}">Failed</span><th:block th:if="${e.statusLabel() == null}"><span
+                            th:replace="~{fragments/components :: statusBadge(${e.status()})}"></span></th:block></td>
+                    <td th:text="${e.step()}"></td>
                     <td class="muted" th:text="${e['createdAt']}"></td>
                     <td class="muted" th:text="${e['updatedAt']}"></td>
                 </tr>

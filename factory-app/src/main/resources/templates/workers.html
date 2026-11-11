@@ -27,7 +27,7 @@
                 <td>
                     <div class="badge-row" th:unless="${#lists.isEmpty(w['usedBy'])}">
                         <a class="badge badge-outline" th:each="u : ${w['usedBy']}"
-                           th:href="@{'/flows/' + ${u['flowId']}}"
+                           th:href="@{${u['url']}}"
                            th:text="${u['flowId']} + ' · ' + ${u['stepId']}">flow · step</a>
                     </div>
                     <span class="muted" th:if="${#lists.isEmpty(w['usedBy'])}">—</span>

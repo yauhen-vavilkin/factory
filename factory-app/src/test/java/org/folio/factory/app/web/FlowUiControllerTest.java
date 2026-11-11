@@ -271,7 +271,8 @@ class FlowUiControllerTest {
         assertThat((List<String>) rows.get(1).get("prompts")).containsExactly("system", "user");
         List<Map<String, Object>> usedBy = (List<Map<String, Object>>) rows.get(1).get("usedBy");
         assertThat(usedBy).hasSize(1);
-        assertThat(usedBy.get(0)).containsEntry("flowId", "test-factory").containsEntry("stepId", "triage");
+        assertThat(usedBy.get(0)).containsEntry("flowId", "test-factory").containsEntry("stepId", "triage")
+                .containsEntry("url", "/flows/test-factory");
     }
 
     // ----- helpers -----

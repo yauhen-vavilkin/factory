@@ -202,7 +202,8 @@ public class FlowUiController {
 
     private Map<String, Object> workerRow(AgentWorker worker) {
         List<Map<String, Object>> usedBy = WorkerController.usedBy(worker.id(), flowRegistry).stream()
-                .map(ref -> Map.<String, Object>of("flowId", ref.flowId(), "stepId", ref.stepId()))
+                .map(ref -> Map.<String, Object>of("flowId", ref.flowId(), "stepId", ref.stepId(),
+                        "url", UiFormat.flowDefinitionUrl(ref.flowId())))
                 .toList();
         Map<String, Object> row = new LinkedHashMap<>();
         row.put("id", worker.id());

@@ -2,9 +2,11 @@ package org.folio.factory.app.web;
 
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
+import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.hitl.HitlDecision;
 import org.folio.factory.core.hitl.HitlDecisionService;
 import org.folio.factory.core.repository.HitlReviewRepository;
+import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -54,6 +56,9 @@ class ReviewUiControllerTest {
     @Mock
     private HitlDecisionService decisionService;
 
+    @Mock
+    private PipelineExecutionRepository executions;
+
     @Captor
     private ArgumentCaptor<Map<String, String>> amendmentsCaptor;
 
@@ -62,7 +67,7 @@ class ReviewUiControllerTest {
     @BeforeEach
     void setUp() {
         mvc = MockMvcBuilders
-                .standaloneSetup(new ReviewUiController(reviews, decisionService, json))
+                .standaloneSetup(new ReviewUiController(reviews, decisionService, json, executions))
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
     }
@@ -199,11 +204,32 @@ class ReviewUiControllerTest {
         var result = mvc.perform(get("/reviews")).andExpect(status().isOk()).andReturn();
 
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> rows =
-                (List<Map<String, Object>>) result.getModelAndView().getModel().get("reviews");
+        var rows = (List<ReviewUiController.ReviewRow>) result.getModelAndView().getModel().get("reviews");
         assertThat(rows).hasSize(1);
-        assertThat(rows.get(0).get("createdAt").toString()).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}");
-        assertThat(rows.get(0).get("decidedAt")).isNull();
+        assertThat(rows.get(0).createdAt()).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}");
+        assertThat(rows.get(0).decidedAt()).isNull();
+        assertThat(rows.get(0).url()).isEqualTo("/reviews/" + review.getId());
+        assertThat(rows.get(0).action()).isEqualTo("Review");
+        verifyNoInteractions(executions);
+    }
+
+    @Test
+    void reviews_prFeedbackWaitOfADeveloperRun_isNamedByItsTaskAndOpensTheRunPage() throws Exception {
+        var run = new PipelineExecution("dev-factory", "0.9.0", "{\"issueKey\":\"MGRAPPS-21\"}");
+        HitlReview review = new HitlReview(run.getId(), "pr-feedback", 8,
+                "{\"title\":\"PR feedback\",\"flowId\":\"dev-factory\"}");
+        when(reviews.findByStatusOrderByCreatedAtAsc(HitlReviewStatus.PENDING)).thenReturn(List.of(review));
+        when(executions.findAllById(java.util.Set.of(run.getId()))).thenReturn(List.of(run));
+
+        var result = mvc.perform(get("/reviews")).andExpect(status().isOk()).andReturn();
+
+        @SuppressWarnings("unchecked")
+        var rows = (List<ReviewUiController.ReviewRow>) result.getModelAndView().getModel().get("reviews");
+        assertThat(rows).singleElement().satisfies(row -> {
+            assertThat(row.title()).isEqualTo("Waiting for PR comments: MGRAPPS-21");
+            assertThat(row.url()).isEqualTo("/executions/" + run.getId() + "#pr-feedback");
+            assertThat(row.action()).isEqualTo("Open run");
+        });
     }
 
     @Test
@@ -217,9 +243,8 @@ class ReviewUiControllerTest {
                 .andExpect(status().isOk()).andReturn();
 
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> rows =
-                (List<Map<String, Object>>) result.getModelAndView().getModel().get("reviews");
-        assertThat(rows.get(0).get("decidedAt").toString()).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}");
+        var rows = (List<ReviewUiController.ReviewRow>) result.getModelAndView().getModel().get("reviews");
+        assertThat(rows.get(0).decidedAt()).matches("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}");
     }
 
     @Test

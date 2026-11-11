@@ -2,8 +2,9 @@
 <html xmlns:th="http://www.thymeleaf.org" lang="en">
 <body>
 
-<span th:fragment="statusBadge(status)" class="badge"
-      th:classappend="'badge-status-' + ${status}" th:text="${status}">STATUS</span>
+<!-- An engine or review status in the chip shape of the Developer Flow pages; app.css gives each status its tone. -->
+<span th:fragment="statusBadge(status)" class="chip"
+      th:classappend="'chip-status-' + ${status}" th:text="${status}">STATUS</span>
 
 <nav th:fragment="pagination(page, baseUrl)" class="pagination" aria-label="Pagination"
      th:if="${page != null}">
@@ -55,7 +56,7 @@
             <td><span th:if="${ev['actor']}" th:text="${ev['actor']}"></span>
                 <span th:unless="${ev['actor']}" class="muted">—</span></td>
             <td>
-                <details class="details-inline" th:if="${ev['detail']}">
+                <details class="disclosure" th:if="${ev['detail']}">
                     <summary>View</summary>
                     <pre class="code-block" th:text="${ev['detail']}"></pre>
                 </details>

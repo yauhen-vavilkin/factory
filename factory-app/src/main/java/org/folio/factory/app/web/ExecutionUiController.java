@@ -144,14 +144,23 @@ public class ExecutionUiController {
     }
 
     private ExecutionRow executionRow(PipelineExecution execution) {
-        var status = DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId())
-                ? developerView.productStatus(execution, name -> artifactStore.getLatest(execution.getId(), name))
-                : execution.getStatus().name();
+        var idShort = UiFormat.abbreviate(execution.getId().toString());
         var parentId = execution.getParentExecutionId();
-        return new ExecutionRow(execution.getId(), UiFormat.abbreviate(execution.getId().toString()),
-                execution.getFlowId(), status, execution.getCurrentStepIndex(),
-                UiFormat.format(execution.getCreatedAt()), UiFormat.format(execution.getUpdatedAt()),
-                parentId, parentId == null ? null : UiFormat.abbreviate(parentId.toString()));
+        var parentShort = parentId == null ? null : UiFormat.abbreviate(parentId.toString());
+        var created = UiFormat.format(execution.getCreatedAt());
+        var updated = UiFormat.format(execution.getUpdatedAt());
+        if (!DevFactoryConfiguration.FLOW_ID.equals(execution.getFlowId())) {
+            return new ExecutionRow(execution.getId(), idShort, execution.getFlowId(), execution.getStatus().name(),
+                    null, null, String.valueOf(execution.getCurrentStepIndex()), created, updated, parentId,
+                    parentShort);
+        }
+        // A Developer Flow run: its task key opens its run page, its status is in product words, and its engine
+        // step means nothing to the person.
+        var facts = developerView.listFacts(execution, name -> artifactStore.getLatest(execution.getId(), name));
+        var chip = RunStatusCard.chip(facts.productStatus(), facts.pullRequest());
+        return new ExecutionRow(execution.getId(), facts.taskKey().isBlank() ? idShort : facts.taskKey(),
+                execution.getFlowId(), facts.productStatus(), chip.label(), chip.cssClass(), null, created, updated,
+                parentId, parentShort);
     }
 
     private List<Map<String, Object>> stepStates(PipelineExecution execution, List<StepDescriptor> chain) {
@@ -259,8 +268,12 @@ public class ExecutionUiController {
                 .orElse(null);
     }
 
-    /** One row of the run list; {@code status} is the product status for Developer Flow runs. */
-    public record ExecutionRow(UUID id, String idShort, String flowId, String status, int currentStepIndex,
-                               String createdAt, String updatedAt, UUID parentExecutionId, String parentShort) {
+    /**
+     * One row of the run list. A Developer Flow run is named by its task key and has its status in words
+     * ({@code statusLabel}, {@code statusClass}) and no {@code step}; other runs show the engine status.
+     */
+    public record ExecutionRow(UUID id, String name, String flowId, String status, String statusLabel,
+                               String statusClass, String step, String createdAt, String updatedAt,
+                               UUID parentExecutionId, String parentShort) {
     }
 }

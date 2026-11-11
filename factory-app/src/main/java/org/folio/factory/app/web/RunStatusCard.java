@@ -41,7 +41,8 @@ final class RunStatusCard {
     record Clock(long activeSeconds, Instant now, Integer limitMinutes) {
     }
 
-    private record Chip(String label, String cssClass, String url) {
+    /** A status chip: its words, its classes and, for a pull request, its link. */
+    record Chip(String label, String cssClass, String url) {
     }
 
     private record Action(String label, String url) {
@@ -73,7 +74,7 @@ final class RunStatusCard {
 
     static Status status(Input in) {
         var chip = in.context().map(run -> new Chip(run.chipLabel(), run.chipClass(), run.chipUrl()))
-                .orElseGet(() -> chip(in.facts()));
+                .orElseGet(() -> chip(in.facts().productStatus(), in.facts().pullRequest()));
         var headline = headline(in);
         var usage = in.usage();
         var rounds = in.feedback().map(FeedbackUi.Summary::rounds).orElse(false);
@@ -144,10 +145,11 @@ final class RunStatusCard {
         if (in.execution().getStatus() == ExecutionStatus.AWAITING_HITL) {
             return Headline.of("Waiting for your review");
         }
-        if ("Failed".equals(chip(facts).label())) {
+        var chip = chip(facts.productStatus(), facts.pullRequest());
+        if ("Failed".equals(chip.label())) {
             return new Headline("This run failed", "Reason", AttemptFailure.reason(facts.reason()), null, null);
         }
-        return Headline.of(chip(facts).label());
+        return Headline.of(chip.label());
     }
 
     /** "Pull request #6 is open as a draft", in the words of the task page. */
@@ -169,10 +171,9 @@ final class RunStatusCard {
         return Action.NONE;
     }
 
-    /** The product status in words, for a run that no task attempt started. */
-    private static Chip chip(RunFacts facts) {
-        var pullRequest = facts.pullRequest();
-        return switch (facts.productStatus()) {
+    /** The product status in words, for a run that no task attempt started and for the run list. */
+    static Chip chip(String productStatus, RunFacts.PullRequest pullRequest) {
+        return switch (productStatus) {
             case "RUNNING", "PENDING" -> new Chip("In progress", "chip chip-info", null);
             case "AWAITING_HITL" -> new Chip("Waiting for review", "chip chip-warning", null);
             case "NEEDS_DECISION" -> new Chip("Asked a question", "chip chip-warning", null);

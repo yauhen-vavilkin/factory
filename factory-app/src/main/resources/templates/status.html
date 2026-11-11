@@ -37,12 +37,12 @@
             <div class="card-grid" th:unless="${#lists.isEmpty(connectors)}">
                 <div class="card" th:each="c : ${connectors}">
                     <div class="card-header">
-                        <h3 class="card-title" th:text="${c['name']}"></h3>
-                        <span class="badge badge-success" th:if="${c['configured']}">Configured</span>
-                        <span class="badge badge-outline" th:unless="${c['configured']}">Not configured</span>
-                        <p class="card-description" th:unless="${c['configured']}">
-                            Sync actions run in advisory mode and are audited as CONNECTOR_SKIPPED.
-                        </p>
+                        <h3 class="card-title" th:text="${c.name()}"></h3>
+                        <span class="badge badge-success" th:if="${c.configured()}">Configured</span>
+                        <span class="badge badge-outline" th:unless="${c.configured()}">Not configured</span>
+                        <p class="card-description" th:if="${c.note() != null}"><th:block th:text="${c.note()}">Advisory
+                            mode.</th:block> <a class="dev-link" th:if="${c.configurationUrl() != null}"
+                            th:href="@{${c.configurationUrl()}}">Developer Flow configuration</a></p>
                     </div>
                 </div>
             </div>
@@ -59,10 +59,10 @@
                     </thead>
                     <tbody>
                     <tr th:each="f : ${flows}">
-                        <td><a th:href="@{'/flows/' + ${f['id']}}" th:text="${f['id']}"></a></td>
-                        <td th:text="${f['name']}"></td>
-                        <td th:text="${f['version']}"></td>
-                        <td class="muted" th:text="${f['registeredAt']}"></td>
+                        <td><a th:href="@{${f.url()}}" th:text="${f.id()}"></a></td>
+                        <td th:text="${f.name()}"></td>
+                        <td th:text="${f.version()}"></td>
+                        <td class="muted" th:text="${f.registeredAt()}"></td>
                     </tr>
                     </tbody>
                 </table>

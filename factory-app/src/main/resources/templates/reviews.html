@@ -29,21 +29,21 @@
             </thead>
             <tbody>
             <tr th:each="r : ${reviews}">
-                <td th:text="${r['title']}"></td>
-                <td th:text="${r['flowId']}"></td>
-                <td th:text="${r['gateId']}"></td>
+                <td th:text="${r.title()}"></td>
+                <td th:text="${r.flowId()}"></td>
+                <td th:text="${r.gateId()}"></td>
                 <td th:if="${showDecision}">
-                    <span th:replace="~{fragments/components :: statusBadge(${r['status']})}"></span>
+                    <span th:replace="~{fragments/components :: statusBadge(${r.status()})}"></span>
                 </td>
-                <td class="muted" th:text="${r['createdAt']}"></td>
-                <td class="muted" th:if="${showDecision}" th:text="${r['decidedAt']} ?: '—'"></td>
+                <td class="muted" th:text="${r.createdAt()}"></td>
+                <td class="muted" th:if="${showDecision}" th:text="${r.decidedAt()} ?: '—'"></td>
                 <td th:if="${showDecision}">
-                    <span th:if="${r['decision']}" th:text="${r['decision']}"></span>
-                    <span th:unless="${r['decision']}" class="muted">—</span>
-                    <span class="muted" th:if="${r['reviewer']}" th:text="' · ' + ${r['reviewer']}"></span>
+                    <span th:if="${r.decision()}" th:text="${r.decision()}"></span>
+                    <span th:unless="${r.decision()}" class="muted">—</span>
+                    <span class="muted" th:if="${r.reviewer()}" th:text="' · ' + ${r.reviewer()}"></span>
                 </td>
                 <td>
-                    <a class="btn btn-outline btn-sm" th:href="@{'/reviews/' + ${r['id']}}">Review</a>
+                    <a class="btn btn-outline btn-sm" th:href="@{${r.url()}}" th:text="${r.action()}">Review</a>
                 </td>
             </tr>
             </tbody>

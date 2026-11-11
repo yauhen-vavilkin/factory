@@ -121,14 +121,8 @@ public class DashboardUiController {
         engine.put("leaseTimeoutSeconds", engineProperties.leaseTimeoutSeconds());
         model.addAttribute("engine", engine);
 
-        List<Map<String, Object>> connectorRows = new ArrayList<>();
-        connectorConfiguration().forEach((name, configured) -> {
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("name", name);
-            row.put("configured", configured);
-            connectorRows.add(row);
-        });
-        model.addAttribute("connectors", connectorRows);
+        model.addAttribute("connectors", connectorConfiguration().entrySet().stream()
+                .map(entry -> connectorRow(entry.getKey(), entry.getValue())).toList());
 
         model.addAttribute("flows", flowRegistry.all().stream().map(this::flowRow).toList());
         return "status";
@@ -184,16 +178,36 @@ public class DashboardUiController {
         return byName;
     }
 
-    private Map<String, Object> flowRow(FlowDescriptor flow) {
-        Map<String, Object> row = new LinkedHashMap<>();
-        row.put("id", flow.id());
-        row.put("name", flow.name());
-        row.put("version", flow.version());
-        row.put("registeredAt", flowRegistryEntries
-                .findById(new FlowRegistryEntry.Key(flow.id(), flow.version()))
+    /**
+     * One connector card. Jira without sign-in still serves My tasks, which reads it with the base URL alone, so
+     * its card says so instead of only "advisory mode".
+     */
+    private static ConnectorRow connectorRow(String name, boolean configured) {
+        if (configured) {
+            return new ConnectorRow(name, true, null, null);
+        }
+        return "jira".equals(name)
+                ? new ConnectorRow(name, false, "Not configured for Test Factory sync, which needs"
+                        + " FACTORY_CONNECTORS_JIRA_EMAIL and FACTORY_CONNECTORS_JIRA_API_TOKEN. My tasks reads Jira"
+                        + " with FACTORY_CONNECTORS_JIRA_BASE_URL alone and sees public issues without them.",
+                        "/developer/configuration")
+                : new ConnectorRow(name, false,
+                        "Sync actions run in advisory mode and are audited as CONNECTOR_SKIPPED.", null);
+    }
+
+    private FlowRow flowRow(FlowDescriptor flow) {
+        var registeredAt = flowRegistryEntries.findById(new FlowRegistryEntry.Key(flow.id(), flow.version()))
                 .map(entry -> UiFormat.format(entry.getRegisteredAt()))
-                .orElse("—"));
-        return row;
+                .orElse("—");
+        return new FlowRow(flow.id(), flow.name(), flow.version(), registeredAt, UiFormat.flowDefinitionUrl(flow.id()));
+    }
+
+    /** A connector card; {@code configurationUrl} links the page that shows its other use, or is null. */
+    public record ConnectorRow(String name, boolean configured, String note, String configurationUrl) {
+    }
+
+    /** A registered flow; {@code url} opens its Definition. */
+    public record FlowRow(String id, String name, String version, String registeredAt, String url) {
     }
 
 }
