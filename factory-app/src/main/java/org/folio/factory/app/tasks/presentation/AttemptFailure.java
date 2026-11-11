@@ -26,8 +26,9 @@ public record AttemptFailure(String headline, String reason) {
     private static final Pattern LEADING_STAGE = Pattern.compile("^([A-Za-z][A-Za-z_-]*): (.+)$", Pattern.DOTALL);
     private static final Pattern OLD_TIME_LIMIT =
             Pattern.compile("^Claude Code did not finish within the time limit of (\\d+) minutes?\\b");
-    private static final Pattern OLD_TURN_LIMIT =
-            Pattern.compile("^Claude Code (?:reached the (\\d+)-turn limit|used all (\\d+) turns)\\b");
+    /** The wordings of a turn limit that older runs stored, also "limit of 1 turns" before the grammar fix. */
+    private static final Pattern OLD_TURN_LIMIT = Pattern.compile("^(?:Claude Code (?:reached the (\\d+)-turn limit"
+            + "|used all (\\d+) turns)\\b|The agent reached its limit of (\\d+) turns? before it finished\\.)");
     private static final Pattern SENTENCE_END = Pattern.compile("(?<=[.!?])\\s+(?=[A-Z\"])");
 
     /** "Attempt 3 failed" and the reason of that attempt. */
@@ -101,7 +102,7 @@ public record AttemptFailure(String headline, String reason) {
         if (!turns.find()) {
             return text;
         }
-        var count = turns.group(1) != null ? turns.group(1) : turns.group(2);
+        var count = turns.group(1) != null ? turns.group(1) : turns.group(2) != null ? turns.group(2) : turns.group(3);
         return TaskStops.turnLimitReason(Long.parseLong(count));
     }
 

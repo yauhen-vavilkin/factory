@@ -31,6 +31,15 @@ class AttemptFailureTest {
     }
 
     @Test
+    void oneTurnIsOneTurnAlsoInAReasonStoredBeforeTheGrammarFix() {
+        assertThat(TaskStops.turnLimitReason(1)).startsWith("The agent reached its limit of 1 turn before it finished.");
+        assertThat(TaskStops.turnLimitReason(2)).startsWith("The agent reached its limit of 2 turns before it finished.");
+        assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: The agent reached its limit of 1 turns before it"
+                + " finished. Start a new attempt with narrower instructions."))
+                .isEqualTo(TaskStops.turnLimitReason(1));
+    }
+
+    @Test
     void reasonsFactoryStoresInItsOwnWordsNeedNoEngineWords() {
         assertThat(AttemptFailure.reason("engine execution ended in status FAILED_ESCALATED"))
                 .isEqualTo("The run stopped before a step could say why. Open the run to see where it stopped,"

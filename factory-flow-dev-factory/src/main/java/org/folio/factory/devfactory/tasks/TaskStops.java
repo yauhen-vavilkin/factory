@@ -37,7 +37,7 @@ public final class TaskStops {
 
     /** Why a coding attempt stopped when the agent used all of its turns. */
     public static String turnLimitReason(long turns) {
-        return "The agent reached its limit of " + turns + " turns before it finished."
+        return "The agent reached its limit of " + turns + (turns == 1 ? " turn" : " turns") + " before it finished."
                 + " Start a new attempt with narrower instructions.";
     }
 
