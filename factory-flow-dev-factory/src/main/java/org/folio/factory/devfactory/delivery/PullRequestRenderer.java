@@ -31,9 +31,15 @@ public final class PullRequestRenderer {
     private static final Pattern NOT_CHECKED = Pattern.compile("(?i)\\bnot\\s+checked\\b");
     /** "met" as the status: at the start of the text or right after a colon or a dash. */
     private static final Pattern MET = Pattern.compile("(?i)(?:^|[:\\u2013\\u2014-])\\s*[*_]{0,2}met\\b");
-    private static final Pattern NONE = Pattern.compile("(?i)(?:[-*+]\\s+)?[*_]{0,2}(?:none(?:\\s+found)?|n/a"
+    private static final String NONE_WORD = "(?i)(?:[-*+]\\s+)?[*_]{0,2}(?:none(?:\\s+found)?|n/a"
             + "|nothing(?:\\s+to\\s+report)?|no\\s+assumptions?(?:\\s+(?:were\\s+)?made)?"
-            + "|all\\s+sources\\s+were\\s+readable)[*_]{0,2}[.!]?");
+            + "|all\\s+sources\\s+were\\s+readable)[*_]{0,2}";
+    private static final Pattern NONE = Pattern.compile(NONE_WORD + "[.!]?");
+    /** "None — all files were readable": a separator and an explanation, but not "None, except ...". */
+    private static final Pattern NONE_WITH_REASON = Pattern.compile(NONE_WORD
+            + "\\s*[\\u2014\\u2013:;,.!-](?!\\s*(?:except|but|apart|besides|other\\s+than|however|although"
+            + "|though|only|aside|excluding|save)\\b)\\s*\\S.*");
+    private static final Pattern ESCAPED_BOLD = Pattern.compile("&#42;&#42;(\\S(?:.*?\\S)??)&#42;&#42;");
     private static final Pattern LIST_ITEM = Pattern.compile("(\\s*)([-*+]|[0-9]{1,3}[.)])\\s+(.*)");
     private static final Pattern INNER_HEADING = Pattern.compile("\\s{0,3}#{1,6}\\s+(.*)");
     private static final int REPORT_LIMIT = 8000;
@@ -186,10 +192,10 @@ public final class PullRequestRenderer {
                     + " so nothing in it is confirmed.");
         }
         var reasons = new ArrayList<>(criteriaReasons(criterionStatuses(sections.get(CRITERIA))));
-        if (!isNone(sections.get(ASSUMPTIONS))) {
+        if (!saysNone(sections.get(ASSUMPTIONS))) {
             reasons.add("The agent made assumptions that a reviewer should confirm.");
         }
-        if (!isNone(sections.get(COULD_NOT_READ))) {
+        if (!saysNone(sections.get(COULD_NOT_READ))) {
             reasons.add("The agent could not read some of the task's sources.");
         }
         return List.copyOf(reasons);
@@ -211,14 +217,35 @@ public final class PullRequestRenderer {
     }
 
     private static List<CriterionStatus> criterionStatuses(String criteria) {
-        if (isNone(criteria)) {
+        if (saysNone(criteria)) {
             return List.of();
         }
-        return criteria.lines()
-                .filter(line -> !line.isBlank())
-                .filter(line -> !RUNTIME_CHECKS.matcher(line).find())
+        return criterionLines(criteria).stream()
                 .map(PullRequestRenderer::criterionStatus)
                 .toList();
+    }
+
+    /**
+     * An intro line before the first list item ("Assessed per item:") is not a criterion; a line there that
+     * names a status, and every line after the first item, still is.
+     */
+    private static List<String> criterionLines(String criteria) {
+        var lines = criteria.lines()
+                .filter(line -> !line.isBlank())
+                .filter(line -> !RUNTIME_CHECKS.matcher(line).find())
+                .toList();
+        if (lines.stream().noneMatch(PullRequestRenderer::isListItem)) {
+            return lines;
+        }
+        return lines.stream().dropWhile(line -> !isListItem(line) && !namesStatus(line)).toList();
+    }
+
+    private static boolean isListItem(String line) {
+        return LIST_ITEM.matcher(line).matches();
+    }
+
+    private static boolean namesStatus(String line) {
+        return NOT_MET.matcher(line).find() || NOT_CHECKED.matcher(line).find() || MET.matcher(line.strip()).find();
     }
 
     /**
@@ -290,8 +317,21 @@ public final class PullRequestRenderer {
 
     /** Only the first paragraph counts, so a closing line after "None" does not make the section non-empty. */
     private static boolean isNone(String section) {
-        String first = section.strip().split("\\n\\s*\\n", 2)[0].strip();
+        String first = firstParagraph(section);
         return first.isEmpty() || NONE.matcher(first).matches();
+    }
+
+    /**
+     * For draft reasons, a one-line "None — all files were readable" also says nothing is missing; the PR
+     * still shows that line, because {@link #isNone} hides only a bare "None".
+     */
+    private static boolean saysNone(String section) {
+        String first = firstParagraph(section);
+        return isNone(section) || !first.contains("\n") && NONE_WITH_REASON.matcher(first).matches();
+    }
+
+    private static String firstParagraph(String section) {
+        return section.strip().split("\\n\\s*\\n", 2)[0].strip();
     }
 
     /**
@@ -348,7 +388,8 @@ public final class PullRequestRenderer {
         if (text.length() > limit) {
             text = text.substring(0, limit) + "…";
         }
-        return escapeMarkdown(text);
+        // Bold is safe to keep: its content is already escaped, so it cannot carry HTML, links or mentions.
+        return ESCAPED_BOLD.matcher(escapeMarkdown(text)).replaceAll("**$1**");
     }
 
     private static String escapeMarkdown(String text) {

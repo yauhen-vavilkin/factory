@@ -57,6 +57,29 @@ class PullRequestRendererTest {
                 .containsExactly("2 acceptance criteria are not met.", "4 acceptance criteria were not checked.");
     }
 
+    @Test
+    void anIntroLineBeforeTheCriteriaListIsNotACriterion() {
+        // A real glm-5.3-flash report opened the section this way, and the PR became a draft for it.
+        String intro = "The Jira story lists scope items rather than formal acceptance criteria; assessed per item:\n";
+
+        assertThat(PullRequestRenderer.draftReasons(outcome(report(intro + "- A — met: done\n- B — met", "None", "None"))))
+                .isEmpty();
+        assertThat(PullRequestRenderer.draftReasons(outcome(report(intro + "- A: met\n- B: not checked", "None", "None"))))
+                .containsExactly("1 acceptance criterion was not checked.");
+    }
+
+    @Test
+    void aLineAfterTheCriteriaListStillCounts() {
+        assertThat(PullRequestRenderer.draftReasons(outcome(report("- A: met\nB: not met\nC: not verified", "None", "None"))))
+                .containsExactly("1 acceptance criterion is not met.", "1 acceptance criterion was not checked.");
+    }
+
+    @Test
+    void aLineWithAStatusBeforeTheCriteriaListStillCounts() {
+        assertThat(PullRequestRenderer.draftReasons(outcome(report("Rejects duplicates: not met\n- Logs a warning: met",
+                "None", "None")))).containsExactly("1 acceptance criterion is not met.");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"None", "N/A", "", "None.\n\nThe task description has no criteria."})
     void anEmptyCriteriaSectionGivesNoReason(String criteria) {
@@ -66,14 +89,19 @@ class PullRequestRendererTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"None found.", "Nothing.", "No assumptions.", "No assumptions were made.", "**None**",
-            "All sources were readable.", "None\n\nLet me know if you need anything else."})
+            "All sources were readable.", "None\n\nLet me know if you need anything else.",
+            "None — all repository files were readable. Integration tests could not run (no Docker).",
+            "None: the task was explicit.", "**None** - nothing was missing", "None, all files opened."})
     void usualWaysToSayNothingAndAClosingLineAfterNoneGiveNoReason(String empty) {
         assertThat(PullRequestRenderer.draftReasons(outcome(report("- Works: met", empty, empty)))).isEmpty();
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"No access to the ADR page.", "None of the attachments opened.",
-            "Nothing in Confluence opened: the page needs a login."})
+            "Nothing in Confluence opened: the page needs a login.", "None, except:\n- The ADR page needs a login.",
+            "N/A:\n- The ADR page needs a login.", "None. But the ADR link failed.", "None — except the ADR page.",
+            "None:\n\n- The ADR page needs a login.", "None; however, the ADR page failed.",
+            "None — only the ADR page failed."})
     void textThatOnlyStartsLikeNoneIsStillAReason(String couldNotRead) {
         assertThat(PullRequestRenderer.draftReasons(outcome(report("- Works: met", "None", couldNotRead))))
                 .containsExactly("The agent could not read some of the task's sources.");
@@ -209,6 +237,19 @@ class PullRequestRendererTest {
         assertThat(PullRequestRenderer.draftReasons(outcome)).isEmpty();
         assertThat(body(outcome)).contains("## Acceptance criteria\n\n- Works: met\n\n## Changed files")
                 .doesNotContain("## Assumptions", "## Could not read", "Let me know");
+    }
+
+    @Test
+    void anExplainedNoneStaysInThePrAndBoldTextStaysBold() {
+        var outcome = outcome(report("- **Rejects duplicates** — met\n- a ** b: met\n- **<b>x</b>**: met"
+                        + "\n- **A**: met, see **B**",
+                "None", "None — all files were readable."));
+
+        assertThat(PullRequestRenderer.draftReasons(outcome)).isEmpty();
+        assertThat(body(outcome)).contains("- **Rejects duplicates** — met", "- a &#42;&#42; b: met",
+                        "- **A**: met, see **B**",
+                        "- **&lt;b&gt;x&lt;/b&gt;**: met", "## Could not read\n\nNone — all files were readable.")
+                .doesNotContain("<b>", "## Assumptions");
     }
 
     @Test
