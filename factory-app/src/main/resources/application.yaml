@@ -93,7 +93,7 @@ factory:
     # Must exceed the longest legitimate single step or the reaper re-queues a live
     # execution. Developer Flow can run baseline + Pi sequentially, so keep this
     # above 2 * FACTORY_DEV_FACTORY_TIMEOUT_SECONDS plus setup/freezing margin.
-    lease-timeout-seconds: ${FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS:7200}
+    lease-timeout-seconds: ${FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS:9000}
     # Cadence of the lease reaper + sub-flow reconciliation sweep. Read by the
     # @Scheduled placeholder in ExecutionPoller, not by EngineProperties.
     reap-interval-ms: ${FACTORY_ENGINE_REAP_INTERVAL_MS:30000}
@@ -150,9 +150,9 @@ factory:
       # Gates the outcome and dispatch wiring; the engine itself knows nothing about tasks.
       enabled: ${FACTORY_TASKS_EXECUTION_ENABLED:false}
       # Whole-attempt budget from preparation through delivery (queue and review waiting
-      # excluded). The coding turns have their own safety limit, 200 by default
+      # excluded). The coding turns have their own safety limit, 400 by default
       # (factory.dev-factory.runtime.coding.claude-code.max-turns).
-      deadline: ${FACTORY_TASKS_EXECUTION_DEADLINE:60m}
+      deadline: ${FACTORY_TASKS_EXECUTION_DEADLINE:120m}
       # Dispatch poller, also run once at startup: re-examines the active attempt, retries
       # queued attempts after a refused or failed dispatch and advances the queue when a
       # terminal outcome frees the slot. Admission itself also dispatches best-effort.
@@ -167,7 +167,7 @@ factory:
     # in that file that the coding harness can run.
     default-model: ${FACTORY_DEV_FACTORY_DEFAULT_MODEL:}
     runtime:
-      timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:1800}
+      timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:3600}
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
       coding:
         runtime: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:claude-code}
@@ -185,8 +185,8 @@ factory:
         claude-code:
           image: ${FACTORY_CLAUDE_CODE_IMAGE:factory-dev-claude-code:2.1.287-java21}
           # A safety limit from 1 to 500, not a tuning knob: the coding timeout above usually ends a
-          # run first (about 180 turns in 30 minutes). A run that hits it loses its work.
-          max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:200}
+          # run first (about 360 turns in 60 minutes). A run that hits it loses its work.
+          max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:400}
   test-factory:
     execution:
       base-url: ${FACTORY_TEST_FACTORY_EXECUTION_BASE_URL:}

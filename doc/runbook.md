@@ -59,7 +59,7 @@ Also alert on the standard actuator readiness probe flipping (DB unreachable) an
 **Symptom: an execution sits in `RUNNING` and its audit timeline shows no recent step.**
 The worker likely died. The **lease reaper** (`ExecutionClaimService.reapStale`, every
 `factory.engine.reap-interval-ms`, default 30s) returns any `RUNNING` row whose
-`updated_at` is older than `factory.engine.lease-timeout-seconds` (default **7200s / 2
+`updated_at` is older than `factory.engine.lease-timeout-seconds` (default **9000s / 2.5
 h**) back to `PENDING`, and a poller re-runs the step. Re-running a step is safe —
 workers write new immutable artifact versions, never overwrite.
 

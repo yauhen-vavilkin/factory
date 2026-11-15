@@ -220,8 +220,9 @@ class ComposeConfigurationTest {
         assertEnvironmentContains(environment, Map.of(
                 "FACTORY_DEV_FACTORY_CODING_RUNTIME", "claude-code",
                 "FACTORY_CODEMIE_PROXY_TOKEN", "codemie-proxy",
-                "FACTORY_CLAUDE_CODE_MAX_TURNS", "200",
-                "FACTORY_DEV_FACTORY_TIMEOUT_SECONDS", "1800"));
+                "FACTORY_CLAUDE_CODE_MAX_TURNS", "400",
+                "FACTORY_DEV_FACTORY_TIMEOUT_SECONDS", "3600",
+                "FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS", "9000"));
     }
 
     private static Map<String, String> exampleEnvironment(String fileName) throws IOException {

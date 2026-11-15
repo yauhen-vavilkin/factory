@@ -63,8 +63,8 @@ class CodingRuntimeConfigurationTest {
         assertThat(setup.runtime()).isInstanceOf(ClaudeCodeCodingRuntime.class);
         assertThat(setup.runtime().identity(null)).containsEntry("modelId", "codemie-sonnet-5.5")
                 .containsEntry("model", "claude-sonnet-5-5").containsEntry("effort", "high")
-                .containsEntry("maxTurns", 200);
-        assertThat(setup.properties().timeoutSeconds()).isEqualTo(1800);
+                .containsEntry("maxTurns", 400);
+        assertThat(setup.properties().timeoutSeconds()).isEqualTo(3600);
         setup.runtime().requireConfigured(null);
         assertThat(setup.properties().coding().pi().apiKey()).isBlank();
     }

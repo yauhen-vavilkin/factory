@@ -255,7 +255,7 @@ catalog, the application also packages the checked-in file as its fallback, and 
 started from the repository root also loads `config/developer-models.yaml`.
 
 Compose publishes Factory and PostgreSQL on `127.0.0.1` by default. The MVP still
-runs the trusted Factory container as root with the Docker socket and a 7200-second
+runs the trusted Factory container as root with the Docker socket and a 9000-second
 engine lease; tightening these local-only controls is deferred.
 
 ### Adding or changing a repository
@@ -433,9 +433,9 @@ Pi authentication is `api-key`; the Pi provider controls its wire format. Option
 Pi settings are `FACTORY_PI_REASONING_EFFORT` and `FACTORY_PI_MAX_OUTPUT_TOKENS` (16384).
 An empty `FACTORY_PI_IMAGE` uses `factory-dev-pi:0.85.1-java21`. Pi does not offer a model
 choice yet; it uses the models file only for the price of its model. Claude Code has one
-setting of its own, `FACTORY_CLAUDE_CODE_MAX_TURNS` (200, from 1 to 500): a safety limit,
-not a tuning knob. The common attempt timeout `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` (1800,
-about 180 turns) usually ends a run first. A run that hits either limit loses its work.
+setting of its own, `FACTORY_CLAUDE_CODE_MAX_TURNS` (400, from 1 to 500): a safety limit,
+not a tuning knob. The common attempt timeout `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` (3600,
+about 360 turns) usually ends a run first. A run that hits either limit loses its work.
 
 #### Models (Claude Code)
 
@@ -612,10 +612,10 @@ and `_IMAGE`. `FACTORY_DEV_FACTORY_DELIVERY_*`, `FACTORY_TASKS_EXECUTION_RECOVER
 | `FACTORY_DEV_FACTORY_REPOSITORIES_FILE` | Compose host path of the repository catalog (default `./config/developer-repositories.yaml`); mounted read-only |
 | `FACTORY_<REPO>_SOURCE_REPO` / `_DELIVERY_REPO` / `_BASE_BRANCH` | Overrides for the bundled catalog entries, `<REPO>` being `SIDECAR`, `MOD_ROLES_KEYCLOAK`, `MGR_TENANT_ENTITLEMENTS` or `MGR_APPLICATIONS`; see [Developer Flow with Docker Compose](#developer-flow-with-docker-compose) |
 | `FACTORY_DEV_FACTORY_GIT_BASE_URL` | Git host the source repositories are read from (default `https://github.com`) |
-| `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` | Time limit of one coding, build or verification run (default `1800`) |
+| `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` | Time limit of one coding, build or verification run (default `3600`) |
 | `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `claude-code`) |
 | `FACTORY_PI_IMAGE` / `_PROVIDER` / `_MODEL` / `_BASE_URL` / `_API` / `_AUTHENTICATION` / `_API_KEY` / `_REASONING_EFFORT` / `_MAX_OUTPUT_TOKENS` | Pi runtime profile; see [Coding runtime profiles](#coding-runtime-profiles) |
-| `FACTORY_CLAUDE_CODE_IMAGE` / `FACTORY_CLAUDE_CODE_MAX_TURNS` | Claude Code coding image, and the safety limit of turns in one attempt (200, from 1 to 500); see [Coding runtime profiles](#coding-runtime-profiles) |
+| `FACTORY_CLAUDE_CODE_IMAGE` / `FACTORY_CLAUDE_CODE_MAX_TURNS` | Claude Code coding image, and the safety limit of turns in one attempt (400, from 1 to 500); see [Coding runtime profiles](#coding-runtime-profiles) |
 | `FACTORY_DEV_FACTORY_DEFAULT_MODEL` | Model preselected in the run forms and used by runs without a choice; empty means the first model Claude Code can run. See [Models](#models-claude-code) |
 | `FACTORY_DEV_FACTORY_MODELS_FILE` | Compose host path of the models file (default `./config/developer-models.yaml`); mounted read-only |
 | `FACTORY_CODEMIE_PROXY_TOKEN` | Token of the local CodeMie proxy for the `codemie-*` models (default `codemie-proxy`, also without Compose) |
@@ -634,13 +634,13 @@ and `_IMAGE`. `FACTORY_DEV_FACTORY_DELIVERY_*`, `FACTORY_TASKS_EXECUTION_RECOVER
 | `FACTORY_LIMITS_MAX_CONCURRENT_EXECUTIONS` / `_MAX_EXECUTIONS_PER_DAY` | Concurrency cap / daily budget (`0` disables; defaults `8` / `200`, 429 on budget) |
 | `FACTORY_TASKS_ASSIGNEE` | Whose open Jira tasks **Scan Jira** finds: the name as Jira shows it, or an accountId; see [My tasks quick start](#my-tasks-quick-start) |
 | `FACTORY_TASKS_EXECUTION_ENABLED` | Runs the My tasks queue (opt-in, default off) |
-| `FACTORY_TASKS_EXECUTION_DEADLINE` | Time budget of one task attempt from preparation through delivery, queue and review waiting excluded (Duration; default `60m`) |
+| `FACTORY_TASKS_EXECUTION_DEADLINE` | Time budget of one task attempt from preparation through delivery, queue and review waiting excluded (Duration; default `120m`) |
 | `FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS` | How often the My tasks queue rechecks the active attempt and starts the next one (default `30000`; it also runs at startup) |
 | `FACTORY_LIMITS_DEDUP_ENABLED` / `_DEDUP_WINDOW` / `_DEDUP_ID_POINTERS` | Trigger dedup (default on, `10m`, `/issueKey`) |
 | `FACTORY_LIMITS_MAX_ARTIFACT_BYTES` / `_MAX_TRIGGER_PAYLOAD_BYTES` | Write-time size caps (defaults `5000000` / `262144`) |
 | `FACTORY_RETENTION_ENABLED` / `_TTL_DAYS` / `_RUN_CRON` | Purge of old terminal runs (**off** by default; audit is never purged) |
 | `FACTORY_LOG_FORMAT` | Structured logging: `ecs`/`logstash`/`gelf` (empty = human-readable) |
-| `FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS` / `_SHUTDOWN_AWAIT_SECONDS` | Crash-recovery lease / graceful-drain budget (defaults `7200` / `30`); for Developer Flow, keep the lease above twice its stage timeout plus setup/freezing margin |
+| `FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS` / `_SHUTDOWN_AWAIT_SECONDS` | Crash-recovery lease / graceful-drain budget (defaults `9000` / `30`); for Developer Flow, keep the lease above twice its stage timeout plus setup/freezing margin |
 | `FACTORY_ENGINE_POLL_INTERVAL_MS` / `_BATCH_SIZE` / `_WORKER_THREADS` | Poller cadence / claims per poll / engine pool size (defaults `2000` / `5` / `4`) |
 | `FACTORY_ENGINE_REAP_INTERVAL_MS` | Lease-reaper and sub-flow reconciliation cadence (default `30000`) |
 | `FACTORY_ENGINE_RECLAIM_RUNNING_ON_STARTUP` | Requeue orphaned RUNNING rows at boot (default `true`; **must be `false` for multi-instance** — see `doc/runbook.md`) |

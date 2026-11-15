@@ -68,7 +68,7 @@ class DevRuntimePropertiesTest {
 
     @Test
     void theTurnLimitIsASafetyGateFromOneTo500() {
-        assertThat(new DevRuntimeProperties.ClaudeCode(null, null).maxTurns()).isEqualTo(200);
+        assertThat(new DevRuntimeProperties.ClaudeCode(null, null).maxTurns()).isEqualTo(400);
         new DevRuntimeProperties.ClaudeCode(null, 500).requireConfigured();
         assertThatThrownBy(() -> new DevRuntimeProperties.ClaudeCode(null, 501).requireConfigured())
                 .hasMessage("FACTORY_CLAUDE_CODE_MAX_TURNS is 501, but it must be from 1 to 500");
@@ -114,7 +114,7 @@ class DevRuntimePropertiesTest {
         var defaults = new DevRuntimeProperties(null, null, 0, null, null);
         assertThat(defaults.mavenCacheVolume()).isEqualTo("factory-dev-m2-cache");
         assertThat(defaults.coding().runtime()).isEqualTo("claude-code");
-        assertThat(defaults.timeoutSeconds()).isEqualTo(1800);
+        assertThat(defaults.timeoutSeconds()).isEqualTo(3600);
         assertThat(defaults.coding().pi().reasoningEffort()).isNull();
         assertThat(new DevRuntimeProperties(null, null, 0, "operator-cache", null).mavenCacheVolume())
                 .isEqualTo("operator-cache");

@@ -256,12 +256,12 @@ class UiRenderSmokeTest {
                 .doesNotContain("Jira projects configured:");
         assertThat(body).contains("<section class=\"dev-list\" id=\"limits\" aria-labelledby=\"limits-title\">",
                         ">Limits for every run</h2>", ">Time per step</dt>",
-                        "30 min each for the first build, the coding and the checks",
-                        "FACTORY_DEV_FACTORY_TIMEOUT_SECONDS", ">Time per attempt</dt>", "1 h from Prepare task",
+                        "1 h each for the first build, the coding and the checks",
+                        "FACTORY_DEV_FACTORY_TIMEOUT_SECONDS", ">Time per attempt</dt>", "2 h from Prepare task",
                         "FACTORY_TASKS_EXECUTION_DEADLINE", ">Agent turns</dt>", "FACTORY_CLAUDE_CODE_MAX_TURNS",
                         ">Coding image</dt>", "FACTORY_CLAUDE_CODE_IMAGE")
                 // Name, value and the variable that sets it are three cells.
-                .containsPattern("<dt>Time per step</dt>\\s*<dd>30 min each for the first build[^<]*</dd>\\s*"
+                .containsPattern("<dt>Time per step</dt>\\s*<dd>1 h each for the first build[^<]*</dd>\\s*"
                         + "<dd class=\"config-variable\"><code>FACTORY_DEV_FACTORY_TIMEOUT_SECONDS</code></dd>")
                 .containsPattern("<dt>Search</dt>\\s*<dd><code>[^<]+</code>[\\s\\S]*?</dd>\\s*"
                         + "<dd class=\"config-variable\"></dd>");
@@ -1824,8 +1824,8 @@ class UiRenderSmokeTest {
         assertThat(liveBody).containsPattern("title=\"[^\"]*Includes live usage that can still change.\"").doesNotContain("name=\"expectedVersion\"", "Implementing changes.");
         // The status card shows the time of the coding step against its own limit, as the run page does.
         String side = liveBody.substring(liveBody.indexOf("class=\"status-card-side\""));
-        assertThat(side).contains("title=\"The whole attempt may take 1 h.\"").containsPattern("data-elapsed-start=\"[^\"]+\"");
-        assertThat(text(side)).containsPattern("\\d+ s of 30 min");
+        assertThat(side).contains("title=\"The whole attempt may take 2 h.\"").containsPattern("data-elapsed-start=\"[^\"]+\"");
+        assertThat(text(side)).containsPattern("\\d+ s of 1 h");
         // A running attempt's cost is "so far", the same as Working in Runs.
         String attempts = liveBody.substring(liveBody.indexOf("id=\"attempts-title\""));
         assertThat(text(attempts)).contains("&lt;$0.01 so far");
@@ -2097,13 +2097,13 @@ class UiRenderSmokeTest {
         assertThat(card).contains("In progress", "Starting the run", "$0.00 so far");
         assertThat(elapsedStart(body)).isNotBlank();
         // Before the coding step the time has no limit beside it.
-        assertThat(text(body.substring(body.indexOf("class=\"status-card-side\"")))).doesNotContain("of 30 min");
+        assertThat(text(body.substring(body.indexOf("class=\"status-card-side\"")))).doesNotContain("of 1 h");
         // While the coding step works, the time is that step's, against the step's own limit.
         auditLog.record(execution.getId(), AuditEventType.STEP_STARTED, "implement", "smoke", Map.of());
         String coding = assertRendered("/executions/" + execution.getId(), "Implementing changes</p>");
         String codingSide = coding.substring(coding.indexOf("class=\"status-card-side\""));
-        assertThat(codingSide).contains("title=\"The whole attempt may take 1 h.\"");
-        assertThat(text(codingSide)).containsPattern("\\d+ s of 30 min");
+        assertThat(codingSide).contains("title=\"The whole attempt may take 2 h.\"");
+        assertThat(text(codingSide)).containsPattern("\\d+ s of 1 h");
         // The coding agent started and has reported no usage yet: the run has cost nothing so far, and the
         // time still counts from the step's start, so it never goes back.
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement", "smoke",

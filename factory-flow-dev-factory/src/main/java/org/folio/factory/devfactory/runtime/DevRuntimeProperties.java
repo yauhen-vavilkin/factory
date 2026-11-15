@@ -18,7 +18,7 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
         plans = plans == null ? Map.of() : Map.copyOf(plans);
         requiredReports = validatedReportRequirements(requiredReports);
         coding = coding == null ? new Coding(null, null, null) : coding;
-        timeoutSeconds = timeoutSeconds <= 0 ? 1800 : timeoutSeconds;
+        timeoutSeconds = timeoutSeconds <= 0 ? 3600 : timeoutSeconds;
         mavenCacheVolume = mavenCacheVolume == null || mavenCacheVolume.isBlank()
                 ? DEFAULT_MAVEN_CACHE_VOLUME : mavenCacheVolume;
         if (!mavenCacheVolume.matches("[A-Za-z0-9][A-Za-z0-9_.-]*")) {
@@ -98,14 +98,14 @@ public record DevRuntimeProperties(Map<String, List<String>> plans, Coding codin
 
     /**
      * The model, endpoint and secret of a Claude Code run come from config/developer-models.yaml. maxTurns is a
-     * safety limit, not a tuning knob: the 30-minute coding timeout usually ends a run first.
+     * safety limit, not a tuning knob: the 60-minute coding timeout usually ends a run first.
      */
     public record ClaudeCode(String image, Integer maxTurns) {
         public static final int MAX_TURNS_LIMIT = 500;
 
         public ClaudeCode {
             image = first(image, "factory-dev-claude-code:2.1.287-java21");
-            maxTurns = maxTurns == null ? 200 : maxTurns;
+            maxTurns = maxTurns == null ? 400 : maxTurns;
         }
 
         public void requireConfigured() {
