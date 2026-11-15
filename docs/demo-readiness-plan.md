@@ -557,7 +557,8 @@ Give a session this prompt:
 - [x] Stage 5. Final check, all but the live smoke (the owner's, below). README (3d3cd1b): one quick start,
   the My tasks quick start, from `.env.tasks.example`, which already has the folio-org Jira, the assignee and
   `FACTORY_TASKS_EXECUTION_ENABLED=true`; the Compose section points to it, and `.env.example` is named as the
-  list of further settings. No `.env*` file changed, so `ComposeConfigurationTest` is unchanged. The quick start
+  list of further settings; the header of `.env.example` says the same (536f7bd, comments only;
+  `ComposeConfigurationTest` passed and is unchanged). The quick start
   says that the default model needs a CodeMie proxy on port 4001 that Factory does not start, and how to pick
   another default model (`FACTORY_ZAI_API_KEY` and `FACTORY_DEV_FACTORY_DEFAULT_MODEL=glm-5.3-flash`); no
   command to start the proxy is given, because nothing in the repository or workspace says how. Controls named
@@ -566,8 +567,8 @@ Give a session this prompt:
   agent do differently?" (it starts from the default model, not from the previous attempt), the "cannot run
   here" line instead of a red chip, a new attempt joining the queue, Failed after Mark as stopped, and the
   Claude Code profile that now holds only the image and the turn limit. Line 308 of the plan's list names no
-  control (a `docker compose` command) and was left as it is. `docs/open-questions.md` (338a4e1 and this
-  commit): the deadline wording item is gone (2.5); the note on the question parser now says what item A does
+  control (a `docker compose` command) and was left as it is. `docs/open-questions.md` (338a4e1, e726964):
+  the deadline wording item is gone (2.5); the note on the question parser now says what item A does
   (the first JSON value after the marker, text after it ignored): it was not "corrected" to "the attempt
   fails", because A made it true; the patch check item says what D covers and what not; the limits read 400
   turns, 60 minutes and "of 1 h"; the `/executions` label item has the 2.7 owner decision; "Recorded, not done"
@@ -588,6 +589,17 @@ Give a session this prompt:
   browser pane): the "In progress" strip on page 2 of My tasks, the 80036 row of My tasks, the status cards of
   80033 and 80034, the Dashboard figures. Not done: the stage 4 read-only pass by a fresh agent, G, 2.7 and
   scenario 12 (owner decisions above); this file is kept until the owner has run the live smoke.
+  Live smoke, for the owner: (1) in `.env`, remove or raise `FACTORY_CLAUDE_CODE_MAX_TURNS=200` and
+  `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS=1800` and any explicit `FACTORY_TASKS_EXECUTION_DEADLINE` or
+  `FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS`, or the old limits win; check that `FACTORY_ZAI_API_KEY` is set.
+  (2) On this branch: `docker compose up -d --build`, `docker compose ps -a`, `curl --fail
+  localhost:8080/actuator/health`. (3) On the Configuration tab check the limits (1 h, 2 h, 400), that
+  glm-5.3-flash is ready to run, and Check one task with the chosen key. (4) On My tasks set the Model to
+  glm-5.3-flash, select the task and press Run; wait 20 to 60 minutes for the pull request. (5) Leave a review
+  comment on the pull request; on the run page press Check PR comments, then Fix 1 comment, and check that the
+  round pushes a commit. (6) Open the Dashboard for 30 days: about $18.99 spent and $3.58 ended in a pull request,
+  each higher by the smoke's own cost. (7) If all is well, delete this file; what is left is in
+  `docs/open-questions.md`.
 - [ ] If time is left: A B C D E F G. A, B, C, D, E and F are done; G was not started. A second agent did A, B, E
   and D in its own worktree; its commits were cherry-picked onto `m1-sprint-pilot` without a conflict, and the demo
   seeds were added in the main checkout. A (cc50f01): `CodingProtocol.answer` reads the first JSON value after the
