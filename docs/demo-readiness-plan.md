@@ -516,6 +516,30 @@ Give a session this prompt:
   wide: the row of its status card holds the amount ("$2.32 spent in 3 attempts", which stage 3's seed now gives) and
   the two buttons, and "Open run" ends at 486 px, the same issue as 80034; a running attempt's amount on the
   Dashboard has no "so far".
-- [ ] Stage 4. Console clean-up
+- [x] Stage 4. Console clean-up, the fixed list (the read-only pass by a fresh agent is not part of this entry).
+  Effort sentence (e3eed95): both run forms of the task page (Start attempt N and the answer form) now end with "A new
+  attempt starts from a clean checkout and adds to the cost." only. The effort text stays as the hover title of the
+  Effort choice on My tasks, which the plan did not name. Test: `UiRenderSmokeTest`
+  (`aFailedTaskPageStartsTheNextAttemptFromTheConfiguredModelAndAnEmptyTextField` and
+  `taskPageShowsTheAgentsQuestionAndStartsTheNextAttemptWithTheAnswer` assert the note and that the effort sentence is
+  gone; the first failed on the old template). Wrapping (6f6a707), CSS and one
+  template only: the side of the status card (amount, clock and buttons) could not shrink, so at 390 px 12 task pages
+  were 456 to 636 px wide (80034 with three buttons, 80021, every needs-inspection and pull request task). It now wraps
+  inside the card; the run page uses the same card, so its "Start attempt 2 on the task page" now sits under the amount.
+  The queue notice of a queued task ("Set FACTORY_TASKS_EXECUTION_ENABLED=true ...") breaks the long name instead of
+  making the page 483 px wide. On My tasks the reason of a started task (its first sentence) had to share one cut line
+  with the key and the age; it now wraps to at most two lines next to them, or under them on a phone, and the chip and
+  the amount stay in their columns. At 1280 px the card looks as before. Checked by measuring every Developer Flow page
+  of `DemoConsole` in a 390 px and a 1280 px frame (both pages of My tasks, 29 task pages, 29 run pages): none is wider
+  than the window. Looked at, light theme, at 1280 px (headless Chrome) and 390 px (browser pane): both pages of My
+  tasks; the task pages of 80034, 80021, 80027 (queued), 80029 (failed, retry form) and 80006 (answer form); the run
+  page of 80029. Page tests and `mvn verify` passed; the JS tests passed (no JS changed). Seen, not changed: at 390 px
+  the reason of 80033 ("Factory could not finish the step ... after 3 tries: 429 ...") is longer than two lines and ends
+  with an ellipsis on My tasks (the row's title and the task page have it all); a reason on its own line under the key
+  starts 10 px in; the Configuration tab's repository table is wider than its box at 390 px (456 against 350 px; the
+  page itself stays 390 px); the Dashboard row of a running attempt still shows its amount without "so far" (handed
+  over by stage 3, outside the fixed list). Headless Chrome with `--window-size=390` lays the page out wider than 390 px
+  and cuts the right edge, so a 390 px look needs the browser pane or a 390 px frame. Not done: an independent review
+  of the stage diff by a fresh agent (this session cannot start one).
 - [ ] Stage 5. Final check
 - [ ] If time is left: A B C D E F G
