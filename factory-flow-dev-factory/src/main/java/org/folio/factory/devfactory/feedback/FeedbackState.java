@@ -23,6 +23,10 @@ import java.util.UUID;
 @Getter
 @Accessors(fluent = true)
 public class FeedbackState {
+    /** The start of the reason of a round whose latest edits Factory could not save; the cause follows it. */
+    public static final String EDITS_NOT_SAVED_START =
+            "Latest edits could not be saved; the previous confirmed patch is retained. ";
+
     public enum Phase {
         INIT,
         READY,

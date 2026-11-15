@@ -20,6 +20,7 @@ import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
+import org.folio.factory.devfactory.feedback.FeedbackState;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.TokenUsage;
 import org.folio.factory.devfactory.tasks.TaskStops;
@@ -57,11 +58,11 @@ import java.util.UUID;
  * Factory names (checks failed on tests, code that does not compile, checks that could not run, a base branch that
  * does not build and spent nothing, a step the engine gave up on after three tries, time limit, turn limit,
  * whole-attempt deadline, shared configuration, a pull request GitHub refused, a coding step that Factory
- * repeated), three attempts
+ * repeated, changes that held the API key of a model), three attempts
  * that end in a pull request, a task no longer assigned to the developer, a draft pull request without and with
  * new comments, a pull request ready for review, merged, closed without merge, a feedback round that works now,
- * one that asked a question and one that failed, and a run whose end Factory could not confirm, with and without
- * the queue held and after it opened a pull request.
+ * one that asked a question, one whose checks failed and one whose changes held the API key of a model, and a run
+ * whose end Factory could not confirm, with and without the queue held and after it opened a pull request.
  *
  * <p>Every run that reached the agent reports its usage the way the coding step does, with the model, the effort
  * and the price from config/developer-models.yaml (two models, three efforts), so every finished attempt has a
@@ -85,6 +86,8 @@ class DemoConsole {
 
     private static final String ELIGIBLE = "repository mod-bar";
     private static final String PULL = "https://github.com/folio-org/mod-bar/pull/";
+    /** The file the agent wrote a model's API key into, in the seeds of that stop. */
+    private static final String KEY_FILE = "src/main/resources/application.yml";
     private static final JsonMapper JSON = JsonMapper.builder().build();
     /** The model and effort of each seeded run, in turn. */
     private static final List<CodingRequest.RunSettings> RUNS = List.of(
@@ -131,6 +134,7 @@ class DemoConsole {
         roundWorking();
         roundAsked();
         roundFailed();
+        roundKeyInChanges();
         endNotConfirmed();
         System.out.println("Demo console: http://localhost:8090/flows/dev-factory");
         Thread.sleep(Duration.ofHours(8));
@@ -218,6 +222,7 @@ class DemoConsole {
                 + " configuration is incomplete or unsupported; check Developer Flow configuration.");
         pullRequestRefused();
         codingRepeated();
+        keyInChanges();
     }
 
     /**
@@ -248,6 +253,15 @@ class DemoConsole {
                 "implement: " + TaskStops.REPLAYED_CODING_REASON);
         put(execution, DevelopWorker.CANDIDATE, replayed);
         put(execution, VerifyWorker.RESULT, replayed);
+    }
+
+    /** The agent wrote the API key of a model into a file, so Factory did not keep its changes. */
+    private void keyInChanges() {
+        var refused = Map.of("state", "DEVELOPMENT_FAILED", "reason", TaskStops.secretInChangesReason(KEY_FILE));
+        var execution = stopped("80036", "Task whose changes held the API key of a model",
+                StopReasons.ofResult(JSON.valueToTree(refused)));
+        put(execution, DevelopWorker.CANDIDATE, refused);
+        put(execution, VerifyWorker.RESULT, refused);
     }
 
     /** The base branch did not build, so the agent never started and the attempt spent nothing. */
@@ -378,6 +392,20 @@ class DemoConsole {
                 + checks.failureKind() + "\",\"reason\":" + FeedbackArtifacts.JSON.writeValueAsString(
                 checks.failureReason()) + ",\"verification\":" + FeedbackArtifacts.JSON.writeValueAsString(checks));
         comments(execution.getId(), 16, selected);
+        review(execution);
+    }
+
+    /** The agent wrote the API key of a model into a file in the first feedback round, so its edits were not saved. */
+    private void roundKeyInChanges() {
+        var execution = delivered("80037", "MODBAR-837",
+                "Pull request whose feedback round wrote the API key of a model", 37, true, ExecutionStatus.AWAITING_HITL);
+        var selected = comment("inline:1", "reviewer", "Read the timeout from the configuration.", "application.yml", 8,
+                37);
+        var reason = FeedbackState.EDITS_NOT_SAVED_START + TaskStops.secretInChangesCause(KEY_FILE);
+        state(execution.getId(), roundStart(37, selected) + ",\"phase\":\"CODE\"");
+        state(execution.getId(), roundStart(37, selected) + ",\"phase\":\"FAILURE\",\"resumePhase\":\"CODE\","
+                + "\"failureKind\":\"CODING\",\"reason\":" + FeedbackArtifacts.JSON.writeValueAsString(reason));
+        comments(execution.getId(), 37, selected);
         review(execution);
     }
 

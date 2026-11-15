@@ -93,9 +93,7 @@ final class FeedbackCodingAttempt {
             refuseSecret(candidate);
             operation.outputs().put(CANDIDATE, JSON.writeValueAsString(candidate));
         } catch (RuntimeException lost) {
-            throw new IllegalStateException(
-                    "Latest edits could not be saved; the previous confirmed patch is retained. "
-                    + safe(coding, lost));
+            throw new IllegalStateException(FeedbackState.EDITS_NOT_SAVED_START + safe(coding, lost));
         }
     }
 
