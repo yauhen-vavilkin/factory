@@ -135,13 +135,14 @@ public class PiCodingRuntime implements CodingRuntime {
         try {
             execution = workload.execute(command(), timeoutSeconds, EVENT_STREAM_LIMIT, observer);
         } catch (RuntimeException e) {
-            return CodingOutcome.failed("RUNTIME_ERROR", redact(safeFailure(e)), metrics(observer));
+            return CodingOutcome.failed("RUNTIME_ERROR", safeFailure(e), metrics(observer));
         }
         if (execution.exitCode() != 0) {
             return CodingOutcome.failed(
                     "RUNTIME_EXIT", "Pi exited with code " + execution.exitCode(), metrics(observer));
         }
-        var parsed = PiProtocol.parse(execution.output(), config.provider(), config.model());
+        // Redact before parsing: parsing cuts long text, and a cut key would no longer match.
+        var parsed = PiProtocol.parse(redact(execution.output()), config.provider(), config.model());
         return sanitize(new CodingOutcome(
                 parsed.status(), parsed.summary(), parsed.decision(), parsed.failure(), metrics(observer)));
     }
@@ -197,8 +198,8 @@ public class PiCodingRuntime implements CodingRuntime {
         };
     }
 
-    private static String safeFailure(RuntimeException error) {
-        String message = CodingRuntime.failureText(error);
+    private String safeFailure(RuntimeException error) {
+        String message = redact(CodingRuntime.failureText(error));
         return message.substring(0, Math.min(2000, message.length()));
     }
 }

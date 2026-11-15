@@ -55,10 +55,12 @@ public final class Processes {
         if (outputLimit < 1) {
             throw new IllegalArgumentException("Output limit must be positive");
         }
+        Process process = null;
         try {
-            var process = start(directory, argv, extraEnvironment);
+            process = start(directory, argv, extraEnvironment);
             return collect(process, seconds, new OutputBudget(outputLimit), stdoutLine);
         } catch (InterruptedException e) {
+            process.destroyForcibly();
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Command interrupted", e);
         } catch (IOException e) {
