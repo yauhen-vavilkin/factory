@@ -554,7 +554,40 @@ Give a session this prompt:
   in the browser pane), the one-line "Your turn" tag of 80006 at 390 px, and the task pages of 80021 and 80011 at
   1280 px (headless Chrome), where the card looks as before. Page tests and `mvn verify`
   passed. One review round is left for this stage.
-- [ ] Stage 5. Final check
+- [x] Stage 5. Final check, all but the live smoke (the owner's, below). README (3d3cd1b): one quick start,
+  the My tasks quick start, from `.env.tasks.example`, which already has the folio-org Jira, the assignee and
+  `FACTORY_TASKS_EXECUTION_ENABLED=true`; the Compose section points to it, and `.env.example` is named as the
+  list of further settings. No `.env*` file changed, so `ComposeConfigurationTest` is unchanged. The quick start
+  says that the default model needs a CodeMie proxy on port 4001 that Factory does not start, and how to pick
+  another default model (`FACTORY_ZAI_API_KEY` and `FACTORY_DEV_FACTORY_DEFAULT_MODEL=glm-5.3-flash`); no
+  command to start the proxy is given, because nothing in the repository or workspace says how. Controls named
+  as the pages have them: Add by key and Add, Remove from list, each row's status in Jira (there is no status
+  chip filter), the Model choice next to Run under the list, the Start attempt N form with "What should the
+  agent do differently?" (it starts from the default model, not from the previous attempt), the "cannot run
+  here" line instead of a red chip, a new attempt joining the queue, Failed after Mark as stopped, and the
+  Claude Code profile that now holds only the image and the turn limit. Line 308 of the plan's list names no
+  control (a `docker compose` command) and was left as it is. `docs/open-questions.md` (338a4e1 and this
+  commit): the deadline wording item is gone (2.5); the note on the question parser now says what item A does
+  (the first JSON value after the marker, text after it ignored): it was not "corrected" to "the attempt
+  fails", because A made it true; the patch check item says what D covers and what not; the limits read 400
+  turns, 60 minutes and "of 1 h"; the `/executions` label item has the 2.7 owner decision; "Recorded, not done"
+  and every "seen, not changed" finding of the stages are in a new section, plus two new findings: at 390 px the
+  "In progress" strip of My tasks has no room for the task title, and the strip shows only on the page that
+  lists the running task (`RunRows.strip` reads the current page). Not fixed: they are outside the stage 4 list.
+  Gate: `mvn -B -ntp verify` passed (dev-factory 416 tests, 18 skipped; factory-app 688), the JS tests passed
+  (17), and the `HIDDEN_*_SENTINEL` tests ran and passed (`UiRenderSmokeTest`, `ClaudeCodeCodingRuntimeTest`,
+  `PiCodingRuntimeTest`, `DeveloperExecutionViewTest`). No sentinel case was added by this plan: the new outputs
+  are stop reasons built by Factory, the first line of the engine's error and item A's split of the agent's final
+  text, none of which reads the thinking stream; that they cannot carry reasoning is not proved by a test.
+  Walk in `DemoConsole`, light theme. Measured, every page in a 390 px and a 1280 px frame (both pages of My
+  tasks, the Dashboard, Configuration, 31 task pages, 31 run pages): no page is wider than its window, no text
+  passes its status card, row or section except the "In progress" strip above, and no page shows "could say
+  why", "engine execution ended", "Exception", a Java package, "cost unknown" or an id outside a closed
+  disclosure. Looked at, 1280 px (headless Chrome): both pages of My tasks, the Dashboard with its four
+  spending parts, the task pages of 80033 and 80034, the run page of 80016; 390 px (a 390 px frame in the
+  browser pane): the "In progress" strip on page 2 of My tasks, the 80036 row of My tasks, the status cards of
+  80033 and 80034, the Dashboard figures. Not done: the stage 4 read-only pass by a fresh agent, G, 2.7 and
+  scenario 12 (owner decisions above); this file is kept until the owner has run the live smoke.
 - [ ] If time is left: A B C D E F G. A, B, C, D, E and F are done; G was not started. A second agent did A, B, E
   and D in its own worktree; its commits were cherry-picked onto `m1-sprint-pilot` without a conflict, and the demo
   seeds were added in the main checkout. A (cc50f01): `CodingProtocol.answer` reads the first JSON value after the
