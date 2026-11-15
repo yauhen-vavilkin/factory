@@ -541,5 +541,18 @@ Give a session this prompt:
   over by stage 3, outside the fixed list). Headless Chrome with `--window-size=390` lays the page out wider than 390 px
   and cuts the right edge, so a 390 px look needs the browser pane or a 390 px frame. Not done: an independent review
   of the stage diff by a fresh agent (this session cannot start one).
+  Review round 1 (fresh agent): one finding, fixed (e476370). At 390 px the turn tag "Nothing needed from you" of the
+  status card passed the card's right edge on the task pages of 80007, 80011, 80012, 80013 and 80021 and on their 7
+  run pages: the tag does not wrap and the text column next to the 150 px chip column is narrower than it. Page width
+  did not show it (the text ended at 387 px inside a 390 px window). The tag now wraps inside the status card only,
+  with its square on the first line; the other source tags and the chip column did not change. Checked by measuring
+  the text edges against the status card, the rows and the answer section on both pages of My tasks, 29 task pages
+  and 29 run pages in a 390 px and a 1280 px frame: no text passes its box and no page is wider than the window; the
+  tag takes two lines only at 390 px. At 390 px "Waiting in the queue" on the queued task pages (80004, 80027) now
+  also takes two lines: it was 0.2 px wider than the column. "Your turn" and "Factory is working" stay on one line.
+  Looked at, light theme: the task pages of 80021, 80011 and 80027 and the run page of 80011 at 390 px (a 390 px frame
+  in the browser pane), the one-line "Your turn" tag of 80006 at 390 px, and the task pages of 80021 and 80011 at
+  1280 px (headless Chrome), where the card looks as before. Page tests and `mvn verify`
+  passed. One review round is left for this stage.
 - [ ] Stage 5. Final check
 - [ ] If time is left: A B C D E F G
