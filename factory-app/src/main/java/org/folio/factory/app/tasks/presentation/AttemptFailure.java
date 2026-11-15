@@ -1,5 +1,6 @@
 package org.folio.factory.app.tasks.presentation;
 
+import org.folio.factory.app.tasks.execution.StopReasons;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.tasks.TaskStops;
@@ -41,7 +42,8 @@ public record AttemptFailure(String headline, String reason) {
 
     /**
      * One or two plain sentences that end with a full stop. A reason this method does not know passes through
-     * without the layer prefixes; a stage other than the implementation stays as "Verification failed: ".
+     * without the layer prefixes; a stage other than the implementation stays as "Publication failed: ", and
+     * failed checks read "Checks failed: " or "Checks could not run: ".
      */
     public static String reason(String storedReason) {
         if (storedReason == null || storedReason.isBlank()) {
@@ -52,12 +54,24 @@ public record AttemptFailure(String headline, String reason) {
         if (!stage.matches() || !isStage(stage.group(1))) {
             return sentence(knownCause(text));
         }
-        var label = "VERIFIED".equals(stage.group(1)) ? null : TaskLabels.stageLabel(stage.group(1));
+        var failed = failedWords(stage.group(1));
         var cause = withoutLayerPrefixes(stage.group(2).strip());
-        if (label == null || IMPLEMENTATION.equals(label)) {
+        if (failed == null) {
             return sentence(knownCause(cause));
         }
-        return cause.isEmpty() ? label + " failed." : label + " failed: " + withFullStop(cause);
+        return cause.isEmpty() ? failed + "." : failed + ": " + withFullStop(cause);
+    }
+
+    /** What failed, in front of the cause; null when the cause says it alone (implementation, no stage). */
+    private static String failedWords(String stage) {
+        if (StopReasons.CHECKS_FAILED.equals(stage)) {
+            return "Checks failed";
+        }
+        if (StopReasons.CHECKS_NOT_RUN.equals(stage)) {
+            return "Checks could not run";
+        }
+        var label = "VERIFIED".equals(stage) ? null : TaskLabels.stageLabel(stage);
+        return label == null || IMPLEMENTATION.equals(label) ? null : label + " failed";
     }
 
     /**

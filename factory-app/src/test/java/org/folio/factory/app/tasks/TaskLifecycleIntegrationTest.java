@@ -278,7 +278,8 @@ class TaskLifecycleIntegrationTest {
         TaskAttempt failedAttempt = attempts.findByExecutionId(failedExecutionId).orElseThrow();
         stateManager.transition(failedExecutionId, ExecutionStatus.COMPLETED, null);
         writeArtifact(failedExecutionId, VerifyWorker.RESULT,
-                "{\"state\":\"VERIFICATION_FAILED\",\"reason\":\"tests failed\"}");
+                "{\"state\":\"VERIFICATION_FAILED\",\"exitCode\":1,\"testCount\":300,\"failureKind\":\"UNKNOWN\","
+                        + "\"failureCount\":2,\"errorCount\":0}");
         writeArtifact(failedExecutionId, DeliveryWorker.DELIVERY,
                 "{\"state\":\"NOT_RUN\",\"reason\":\"Candidate was not independently verified\"}");
 

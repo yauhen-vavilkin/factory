@@ -1527,7 +1527,7 @@ class UiRenderSmokeTest {
         String body = assertRendered("/flows/dev-factory", "Ready to run");
         String triggered = body.substring(body.indexOf("id=\"triggered-title\""));
         assertThat(text(triggered)).contains("Queued", "next in line", "2nd in line",
-                "Verification failed: 2 tests in error", "Failed", "Needs inspection", "In progress",
+                "Checks failed: 2 tests in error", "Failed", "Needs inspection", "In progress",
                 "outcome not confirmed", "Queue is waiting.", "MODBAR-707 needs inspection",
                 "Queued tasks are not starting.", "FACTORY_TASKS_EXECUTION_ENABLED=true");
         assertThat(triggered)
@@ -1723,7 +1723,7 @@ class UiRenderSmokeTest {
         var failed = seedFailedTask();
 
         String body = assertRendered("/tasks/" + failed.task().getId(), "Failed");
-        assertThat(text(body)).contains("Attempt 1 failed Reason Verification failed: 2 tests in error. No pull request was created.", "$0.02 spent in 1 attempt",
+        assertThat(text(body)).contains("Attempt 1 failed Reason Checks failed: 2 tests in error. No pull request was created.", "$0.02 spent in 1 attempt",
                 // The head says what comes from Jira and what Factory adds; a failed attempt is the developer's turn.
                 "Jira task MODBAR-721", "Factory mod-bar", "Your turn");
         assertThat(body)

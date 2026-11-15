@@ -82,9 +82,19 @@ class AttemptFailureTest {
     }
 
     @Test
+    void failedChecksSayWhetherTheyFailedOrCouldNotRun() {
+        assertThat(AttemptFailure.reason("VERIFICATION_FAILED: 2 of 300 tests failed"))
+                .isEqualTo("Checks failed: 2 of 300 tests failed.");
+        assertThat(AttemptFailure.reason("VERIFICATION_NOT_RUN: no test reports were written"))
+                .isEqualTo("Checks could not run: no test reports were written.");
+    }
+
+    @Test
     void aStageOtherThanImplementationStaysInTheReason() {
-        assertThat(AttemptFailure.reason("VERIFICATION_FAILED: 2 tests in error"))
+        assertThat(AttemptFailure.reason("verification: 2 tests in error"))
                 .isEqualTo("Verification failed: 2 tests in error.");
+        assertThat(AttemptFailure.reason("DELIVERY_BLOCKED: GitHub said no"))
+                .isEqualTo("Publication failed: GitHub said no.");
         assertThat(AttemptFailure.reason("VERIFIED: the change has no diff")).isEqualTo("The change has no diff.");
     }
 

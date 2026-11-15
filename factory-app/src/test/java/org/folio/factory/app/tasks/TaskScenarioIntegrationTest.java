@@ -28,6 +28,7 @@ import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.ModelCatalog;
+import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.tasks.TaskStops;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -97,6 +98,9 @@ class TaskScenarioIntegrationTest {
             "inputTokens", 100_000L, "outputTokens", 20_000L, "cacheReadTokens", 0L, "cacheWriteTokens", 0L);
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+    /** The run page of an attempt whose checks failed: the change is there, the checks failed, nothing published. */
+    private static final List<String> CHECKS_FAILED_STEPS = List.of("2 · Implement changes Passed",
+            "3 · Verify changes Failed", "4 · Create pull request Not started");
 
     static final WireMockServer JIRA = SharedWireMock.JIRA;
     static final WireMockServer GITHUB = SharedWireMock.GITHUB;
@@ -122,7 +126,10 @@ class TaskScenarioIntegrationTest {
                 issue("8202", "MODBAR-202", "MODBAR", "Nothing to change", "2026-10-01T09:01:00.000+0000", ""),
                 issue("8203", "MODBAR-203", "MODBAR", "Unclear limit", "2026-10-01T09:02:00.000+0000", ""),
                 issue("8204", "MODBAR-204", "MODBAR", "Slow task", "2026-10-01T09:03:00.000+0000", ""),
-                issue("8205", "MODBAR-205", "MODBAR", "Provider down", "2026-10-01T09:04:00.000+0000", ""));
+                issue("8205", "MODBAR-205", "MODBAR", "Provider down", "2026-10-01T09:04:00.000+0000", ""),
+                issue("8206", "MODBAR-206", "MODBAR", "Two tests fail", "2026-10-01T09:05:00.000+0000", ""),
+                issue("8207", "MODBAR-207", "MODBAR", "Code breaks the build", "2026-10-01T09:06:00.000+0000", ""),
+                issue("8208", "MODBAR-208", "MODBAR", "Checks time out", "2026-10-01T09:07:00.000+0000", ""));
         assertThat(discovery.sync().complete()).isTrue();
     }
 
@@ -324,8 +331,64 @@ class TaskScenarioIntegrationTest {
         assertFailedWithoutPullRequest(taskId, "Provider down MODBAR-205", providerMessage + ".");
     }
 
+    /** Scenario 7: the agent's change breaks 2 of 300 tests. */
+    @Test
+    void checksFailOnTwoOfThreeHundredTests() {
+        UUID taskId = taskId("8206");
+        workloads.checksReturn(new Processes.Result(1, "[ERROR] Tests run: 300, Failures: 2\n[INFO] BUILD FAILURE"),
+                DevFlowHarness.workspace("task-scenario-failing-", Map.of("target/surefire-reports/TEST-S.xml", """
+                        <?xml version="1.0" encoding="UTF-8"?>
+                        <testsuite name="S" tests="300" skipped="0" failures="2" errors="0" time="1.0">
+                          <testcase name="first" classname="S"><failure message="expected 1"/></testcase>
+                          <testcase name="second" classname="S"><failure message="expected 2"/></testcase>
+                        </testsuite>
+                        """)));
+
+        assertRedirect(postRun(taskId));
+
+        assertThat(finish(taskId).getState()).isEqualTo(TaskAttempt.State.STOPPED);
+        assertFailedWithoutPullRequest(taskId, "Two tests fail MODBAR-206", "Checks failed: 2 of 300 tests failed.",
+                CHECKS_FAILED_STEPS);
+    }
+
+    /** Scenario 8: the agent's change does not compile. */
+    @Test
+    void checksFailBecauseTheCodeDoesNotCompile() {
+        UUID taskId = taskId("8207");
+        workloads.checksReturn(new Processes.Result(1, """
+                [ERROR] COMPILATION ERROR :
+                [ERROR] /workspace/src/main/java/Bar.java:[12,5] cannot find symbol
+                [INFO] BUILD FAILURE"""), NO_CHANGE);
+
+        assertRedirect(postRun(taskId));
+
+        assertThat(finish(taskId).getState()).isEqualTo(TaskAttempt.State.STOPPED);
+        assertFailedWithoutPullRequest(taskId, "Code breaks the build MODBAR-207",
+                "Checks failed: the code does not compile.", CHECKS_FAILED_STEPS);
+    }
+
+    /** Scenario 9: the checks ran past their time limit, so they could not finish. */
+    @Test
+    void checksCouldNotRunBecauseTheyRanPastTheTimeLimit() {
+        UUID taskId = taskId("8208");
+        workloads.checksReturn(new Processes.Result(-1, "Command exceeded 3600 seconds"), NO_CHANGE);
+
+        assertRedirect(postRun(taskId));
+
+        assertThat(finish(taskId).getState()).isEqualTo(TaskAttempt.State.STOPPED);
+        assertFailedWithoutPullRequest(taskId, "Checks time out MODBAR-208",
+                "Checks could not run: the build environment failed (Docker, network, disk space or time limit).",
+                CHECKS_FAILED_STEPS);
+    }
+
     /** The pages of a failed attempt: its cause on each page, no pull request and the form for the next one. */
     private Pages assertFailedWithoutPullRequest(UUID taskId, String titleAndKey, String reason) {
+        return assertFailedWithoutPullRequest(taskId, titleAndKey, reason,
+                List.of("2 · Implement changes Failed", "3 · Verify changes Not started"));
+    }
+
+    /** The same, with the step lines of the run page that show where the attempt failed. */
+    private Pages assertFailedWithoutPullRequest(UUID taskId, String titleAndKey, String reason, List<String> steps) {
         var pages = pages(taskId);
         int keyStart = titleAndKey.lastIndexOf(' ');
         assertRow(pages.myTasks(), titleAndKey.substring(0, keyStart) + " Your turn" + titleAndKey.substring(keyStart),
@@ -333,8 +396,7 @@ class TaskScenarioIntegrationTest {
         assertThat(pages.task()).contains("Failed Your turn Attempt 1 failed", "Reason " + reason,
                 "No pull request was created.", "Start attempt 2");
         assertThat(pages.run()).contains("Failed Your turn Attempt 1 failed", "Reason " + reason,
-                "No pull request was created.", "Start attempt 2 on the task page",
-                "2 · Implement changes Failed", "3 · Verify changes Not started");
+                "No pull request was created.", "Start attempt 2 on the task page").contains(steps);
         assertNoInternalWording(pages);
         return pages;
     }

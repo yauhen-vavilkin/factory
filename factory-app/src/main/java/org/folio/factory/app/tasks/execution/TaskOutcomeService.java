@@ -185,13 +185,10 @@ public class TaskOutcomeService {
             return new Classification(AttemptOutcome.State.NEEDS_INSPECTION,
                     "the candidate was delivered without a known pull-request identity", null, null);
         }
-        JsonNode result = readArtifact(executionId, VerifyWorker.RESULT);
-        String resultState = result.path("state").asString("");
-        String resultReason = result.path("reason").asString("");
         String codingFailureCode = readArtifact(executionId, DevelopWorker.OUTCOME)
                 .path("failure").path("code").asString(null);
         String reason = firstNonBlank(attempt.getResultReason(),
-                resultReason.isBlank() ? "" : resultState + ": " + resultReason,
+                StopReasons.ofResult(readArtifact(executionId, VerifyWorker.RESULT)),
                 RUN_ENDED + status);
         // Design 5.3: once inactivity is proven, a shared outage stops this attempt with its
         // persisted cause while the queue continues; startup rechecks the provider for the next ones.

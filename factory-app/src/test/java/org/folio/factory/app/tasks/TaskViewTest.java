@@ -204,7 +204,8 @@ class TaskViewTest {
         TaskAttempt attempt = attempts.findByExecutionId(executionId).orElseThrow();
         stateManager.transition(executionId, ExecutionStatus.COMPLETED, null);
         writeArtifact(executionId, VerifyWorker.RESULT,
-                "{\"state\":\"VERIFICATION_FAILED\",\"reason\":\"tests failed\"}");
+                "{\"state\":\"VERIFICATION_FAILED\",\"exitCode\":1,\"testCount\":300,\"failureKind\":\"UNKNOWN\","
+                        + "\"failureCount\":2,\"errorCount\":0}");
         writeArtifact(executionId, DeliveryWorker.DELIVERY,
                 "{\"state\":\"NOT_RUN\",\"reason\":\"Candidate was not independently verified\"}");
         outcomes.refresh(attempt.getId());
@@ -214,7 +215,7 @@ class TaskViewTest {
         assertThat(attempts.findById(attempt.getId()).orElseThrow().getState())
                 .isEqualTo(TaskAttempt.State.STOPPED);
         assertThat(view.state()).isEqualTo(TaskView.TaskState.STOPPED);
-        assertThat(view.reason()).isEqualTo("VERIFICATION_FAILED: tests failed");
+        assertThat(view.reason()).isEqualTo("VERIFICATION_FAILED: 2 of 300 tests failed");
         assertThat(view.stage()).isEqualTo("VERIFICATION_FAILED");
         var entry = view.attempts().getFirst();
         assertThat(entry.state()).isEqualTo(TaskAttempt.State.STOPPED);

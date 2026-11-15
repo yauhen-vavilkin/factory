@@ -2,6 +2,7 @@ package org.folio.factory.app.tasks.presentation;
 
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
+import org.folio.factory.app.tasks.execution.StopReasons;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.web.UiFormat;
@@ -108,7 +109,8 @@ final class TaskLabels {
             case "read-task", "select-repository", "prepare-task" -> "Preparation";
             case "implement", "clarify-implementation", "continue-implementation", "coding",
                     "DEVELOPMENT_FAILED" -> "Implementation";
-            case "verify", "verification", "VERIFIED", "VERIFICATION_FAILED" -> "Verification";
+            case "verify", "verification", "VERIFIED", StopReasons.CHECKS_FAILED, StopReasons.CHECKS_NOT_RUN ->
+                    "Verification";
             case "publish", "initialize-pr-feedback", "pr-follow-up", "DELIVERY_BLOCKED" -> "Publication";
             default -> null;
         };

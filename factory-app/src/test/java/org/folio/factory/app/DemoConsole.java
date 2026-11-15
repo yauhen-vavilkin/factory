@@ -2,6 +2,7 @@ package org.folio.factory.app;
 
 import org.folio.factory.app.support.SharedDatabase;
 import org.folio.factory.app.tasks.TaskFixture;
+import org.folio.factory.app.tasks.execution.StopReasons;
 import org.folio.factory.app.tasks.persistence.Task;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
@@ -18,12 +19,14 @@ import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
 import org.folio.factory.devfactory.tasks.TaskStops;
+import org.folio.factory.devfactory.worker.VerifyWorker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -40,7 +43,8 @@ import java.util.Map;
  * <p>The states: ready to run (from a scan, added by key, in progress in Jira with a two-line title, withdrawn
  * before the start), cannot run (no repository, several repositories), queued (two waiting, one starting), working,
  * asked a question, stopped for each cause
- * Factory names (checks, time limit, turn limit, whole-attempt deadline, shared configuration), three attempts
+ * Factory names (checks failed on tests, code that does not compile, checks that could not run, time limit, turn
+ * limit, whole-attempt deadline, shared configuration), three attempts
  * that end in a pull request, a task no longer assigned to the developer, a draft pull request without and with
  * new comments, a pull request ready for review, merged, closed without merge, a feedback round that works now,
  * one that asked a question and one that failed, and a run whose end Factory could not confirm, with and without
@@ -63,6 +67,7 @@ class DemoConsole {
 
     private static final String ELIGIBLE = "repository mod-bar";
     private static final String PULL = "https://github.com/folio-org/mod-bar/pull/";
+    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     @Autowired
     private PipelineExecutionRepository executions;
@@ -153,10 +158,21 @@ class DemoConsole {
                 "evidence":"removeRoutes runs only on a new event."},"metrics":{}}""", "implement");
     }
 
+    /** The checks failed on tests, failed to compile, or could not run. */
     private void failed() {
-        var execution = execution("0.6.0", ExecutionStatus.FAILED_ESCALATED, 6);
-        attempt(task("80009", "MODBAR-809", "Task whose checks failed"), TaskAttempt.State.STOPPED,
-                "VERIFICATION_FAILED: 2 tests in error", execution);
+        checksFailed("80009", "Task whose checks failed", "\"testCount\":300,\"failureCount\":2,\"errorCount\":0,"
+                + "\"failureKind\":\"UNKNOWN\",\"exitCode\":1");
+        checksFailed("80029", "Task whose code does not compile", "\"failureKind\":\"CANDIDATE_COMPILE\",\"exitCode\":1");
+        checksFailed("80030", "Task whose checks could not run", "\"failureKind\":\"ENVIRONMENT\",\"exitCode\":-1");
+    }
+
+    /** The verification result in the shape VerifyWorker writes, and the reason Factory builds from it. */
+    private TaskAttempt checksFailed(String issueId, String title, String fields) {
+        var execution = execution("0.6.0", ExecutionStatus.COMPLETED, 10);
+        var result = "{\"state\":\"" + StopReasons.CHECKS_FAILED + "\"," + fields + "}";
+        artifacts.put(execution.getId(), VerifyWorker.RESULT, result, "application/json", "demo");
+        return attempt(task(issueId, "MODBAR-8" + issueId.substring(3), title), TaskAttempt.State.STOPPED,
+                StopReasons.ofResult(JSON.readTree(result)), execution);
     }
 
     /** One task for each cause of a stop that Factory names, besides failed checks. */
@@ -189,11 +205,11 @@ class DemoConsole {
 
     /** A failed task that a Jira scan no longer finds among the developer's tasks. */
     private void noLongerAssigned() {
-        var task = task("80025", "MODBAR-825", "Failed task that is no longer assigned to you");
+        var attempt = checksFailed("80025", "Failed task that is no longer assigned to you",
+                "\"testCount\":300,\"failureCount\":1,\"errorCount\":0,\"failureKind\":\"UNKNOWN\",\"exitCode\":1");
+        var task = tasks.findById(attempt.getTaskId()).orElseThrow();
         task.setInScope(false);
         tasks.save(task);
-        attempt(task, TaskAttempt.State.STOPPED, "VERIFICATION_FAILED: 1 test failed",
-                execution("0.6.0", ExecutionStatus.FAILED_ESCALATED, 6));
     }
 
     /** A delivered task that waits for PR comments after two rounds; {@code fresh} adds a comment no round fixed. */

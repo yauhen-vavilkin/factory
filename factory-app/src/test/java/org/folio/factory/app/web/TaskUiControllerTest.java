@@ -228,8 +228,8 @@ class TaskUiControllerTest {
                 .containsEntry("chipLabel", "Failed")
                 .containsEntry("chipClass", "chip chip-danger")
                 .containsEntry("chipUrl", null)
-                .containsEntry("detail", "Verification failed: 2 tests failed.")
-                .containsEntry("detailTitle", "Verification failed: 2 tests failed.")
+                .containsEntry("detail", "Checks failed: 2 tests failed.")
+                .containsEntry("detailTitle", "Checks failed: 2 tests failed.")
                 // A failed task offers Retry on its task page, where the status card says why it failed.
                 .containsEntry("action", RunAction.RETRY)
                 .containsEntry("markStoppedAttemptId", null);
@@ -673,7 +673,7 @@ class TaskUiControllerTest {
                 .containsEntry("repository", "mod-bar → folio-org/mod-bar · master");
         assertThat(detail(result))
                 .containsEntry("headline", "Attempt 2 failed")
-                .containsEntry("reason", "Verification failed: 2 tests failed.")
+                .containsEntry("reason", "Checks failed: 2 tests failed.")
                 .containsEntry("reasonNote", "No pull request was created.");
         // Newest first: a new attempt is added at the top.
         assertThat(rows(result.getModelAndView().getModel(), "attempts"))
