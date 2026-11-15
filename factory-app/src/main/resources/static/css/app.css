@@ -1174,11 +1174,22 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .dev-row-meta-dots > * + * { margin-left: 0; }
 .dev-row-meta-dots > * + *::before { content: "·"; margin: 0 0.3em; }
 .dev-row-meta a:focus-visible { outline-offset: -2px; }
-/* An attempt keeps its facts whole: on a narrow row they wrap as a whole, and only the quoted instructions end
-   with an ellipsis. */
+/* An attempt or a started task keeps its facts whole: on a narrow row they wrap as a whole. The quoted
+   instructions end with an ellipsis; the reason of a started task wraps to at most two lines. */
 .dev-row-meta-quoted { display: flex; flex-wrap: wrap; }
 .dev-row-meta-quoted > * { flex: none; }
 .dev-row-meta-quoted > .dev-row-quote { flex: 1 1 8em; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dev-row-meta-quoted:has(> .dev-row-reason) { align-items: baseline; }
+.dev-row-meta-quoted > .dev-row-reason {
+  flex: 1 1 16em;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  white-space: normal;
+}
 .dev-row-action { display: flex; justify-content: flex-end; }
 /* The box of a checkbox sits on the baseline; this puts its middle on the middle of the title text. */
 .dev-row .task-check { position: relative; top: 3px; margin: 0; flex: 0 0 auto; }
@@ -1336,7 +1347,8 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .status-card-headline { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
 .status-card-reason { font-size: 14px; overflow-wrap: anywhere; }
 .status-card-label { margin-right: 6px; color: hsl(var(--muted-foreground)); }
-.status-card-side { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px; margin-left: auto; }
+/* The side may shrink to the width of the card, so on a phone its amount and buttons wrap inside the card. */
+.status-card-side { flex: 0 1 auto; display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px; margin-left: auto; }
 .status-card-money { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .status-card-note { font-size: 13px; color: hsl(var(--muted-foreground)); }
 .status-card-reasons { margin-top: 4px; font-size: 13px; }
@@ -1349,7 +1361,7 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 }
 .status-card[data-turn="YOURS"] { background: hsl(var(--notice)); padding-left: 13px; }
 .your-part { padding: 14px 16px 14px 13px; }
-.status-card-note.status-card-problem { color: hsl(var(--notice-foreground)); }
+.status-card-note.status-card-problem { color: hsl(var(--notice-foreground)); overflow-wrap: anywhere; }
 /* Source tag: says who a block comes from. Jira and GitHub are outside Factory, the coding agent writes its own
    text, and "you" marks what waits for the developer. A tag without a tone is Factory itself. */
 .src {

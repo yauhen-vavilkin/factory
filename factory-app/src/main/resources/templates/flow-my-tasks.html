@@ -106,11 +106,11 @@
             <div class="dev-row-main">
                 <a class="dev-row-title" th:href="@{'/tasks/' + ${row.taskId()}}" th:title="${row.title()}"
                    th:text="${row.title()}">Title</a>
-                <div class="dev-row-meta" th:title="${row.metaTitle()}"
+                <div class="dev-row-meta dev-row-meta-quoted" th:title="${row.metaTitle()}"
                     ><span class="src src-you" th:if="${row.action().yours()}">Your turn</span><a
                         class="key-link ext-link" th:href="${row.jiraUrl()}" th:text="${row.key()}">KEY-1</a><th:block
                         th:replace="~{fragments/components :: ago(${row.when()}, ${row.whenAt()})}"></th:block><span
-                        th:if="${row.detail() != null}" th:text="${row.detail()}">detail</span></div>
+                        class="dev-row-reason" th:if="${row.detail() != null}" th:text="${row.detail()}">detail</span></div>
             </div>
             <div class="row-cluster row-cluster-status">
                 <span class="row-amount" th:title="${row.costTitle()}" th:text="${row.cost()}">$0.00</span>
