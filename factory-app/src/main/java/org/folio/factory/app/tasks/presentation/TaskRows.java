@@ -9,7 +9,6 @@ import org.folio.factory.app.tasks.source.TaskJiraInstance;
 import org.folio.factory.app.tasks.source.TaskSourceProperties;
 import org.folio.factory.app.web.FeedbackUi;
 import org.folio.factory.app.web.PageTime;
-import org.folio.factory.app.web.UiFormat;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.springframework.stereotype.Component;
 
@@ -137,18 +136,21 @@ public class TaskRows {
     public static List<AttemptRow> attemptRows(TaskView view, AttemptStatus standing) {
         var stands = view.standingAttempt().orElse(null);
         return view.attempts().reversed().stream()
-                .map(attempt -> attemptRow(attempt, attempt == stands ? standing : AttemptStatus.of(view, attempt)))
+                .map(attempt -> attemptRow(view, attempt,
+                        attempt == stands ? standing : AttemptStatus.of(view, attempt)))
                 .toList();
     }
 
-    private static AttemptRow attemptRow(TaskView.AttemptHistoryEntry attempt, AttemptStatus status) {
+    private static AttemptRow attemptRow(TaskView view, TaskView.AttemptHistoryEntry attempt,
+                                         AttemptStatus status) {
         var costNote = attemptCostNote(attempt);
         var cost = SO_FAR.equals(costNote) ? costSoFar(attempt.usage()) : finishedCost(attempt);
         var started = PageTime.day(attempt.startedAt());
-        return new AttemptRow(attempt.ordinal(), attemptKind(attempt), attemptMeta(attempt),
+        return new AttemptRow(attempt.ordinal(), attemptKind(attempt),
                 TaskRunSettings.label(attempt.runSettings()), started, attemptClock(attempt),
                 started == null ? "not started" : null, quote(attempt), cost, costNoteTitle(costNote),
-                costText(cost, costNote), status, attemptResult(attempt, status), attempt.executionId());
+                costText(cost, costNote), status, AttemptFailure.firstSentence(attemptResult(attempt, status)),
+                attempt.executionId(), TaskSpending.tokens(view, attempt.usage()));
     }
 
     /**
@@ -268,28 +270,22 @@ public class TaskRows {
         return TaskAnswers.isAnswer(instructions) ? "answer to the agent's question" : "retry with your instructions";
     }
 
-    /**
-     * The meta line for its title, without the start time, which the line shows in local time:
-     * "glm-5.3 · max · 13 min · "first line"".
-     */
-    private static String attemptMeta(TaskView.AttemptHistoryEntry attempt) {
-        var clock = attemptClock(attempt);
-        return UiFormat.joinNonNull(TaskRunSettings.label(attempt.runSettings()),
-                attempt.startedAt() == null ? "not started" : null,
-                clock == null || clock.start() != null ? null : clock.time(), quote(attempt));
-    }
-
     /** The time the attempt worked: ticking while it is in flight, null before its paid start. */
     private static AttemptClock attemptClock(TaskView.AttemptHistoryEntry attempt) {
         if (!attempt.paidStart()) {
             return null;
         }
-        if (!attempt.state().isInFlight() || attempt.pullRequestUrl() != null
-                || TaskLabels.RUN_ENDED.equals(attempt.stage())) {
+        if (!ticks(attempt)) {
             return new AttemptClock(minutes(attempt.activeSeconds()), null, null, null);
         }
         var facts = new AttemptClock.Facts(attempt.activeSeconds(), null, null, true, Instant.now());
         return AttemptClock.of(facts, new AttemptClock.Limits(0, Duration.ZERO));
+    }
+
+    /** True while the agent works on the attempt, so its time on the page still grows. */
+    static boolean ticks(TaskView.AttemptHistoryEntry attempt) {
+        return attempt.paidStart() && attempt.state().isInFlight() && attempt.pullRequestUrl() == null
+                && !TaskLabels.RUN_ENDED.equals(attempt.stage());
     }
 
     /** The first line of the developer's instructions in quotes, null when the attempt has none. */

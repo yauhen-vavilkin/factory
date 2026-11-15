@@ -451,9 +451,9 @@ class TaskUiControllerTest {
                 .containsEntry("ordinal", 1)
                 .containsEntry("executionId", EXECUTION_ID)
                 .containsEntry("chipLabel", "Failed")
-                // A reason stored by an older run reads like the reason a run stores now, with what to do.
-                .containsEntry("result", "The agent reached its limit of 40 turns before it finished."
-                        + " Start a new attempt with narrower instructions.");
+                // A reason stored by an older run reads like the reason a run stores now; the row has room for
+                // its first sentence.
+                .containsEntry("result", "The agent reached its limit of 40 turns before it finished.");
     }
 
     private static final String UNKNOWN_COST_TITLE =
@@ -754,10 +754,7 @@ class TaskUiControllerTest {
         assertThat(retryForm.selected().id()).isEqualTo("codemie-sonnet-5.5");
         assertThat(retryForm.effort()).isEqualTo("high");
         assertThat(model).doesNotContainKeys("retryInstructions", "typedInstructions");
-        // The title has the whole line but the start time, which the line shows in local time.
-        assertThat(rows(model, "attempts")).extracting(row -> row.get("meta"))
-                .containsExactly("glm-5.3 · low · 10 min · \"Keep the public API.\"", "10 min");
-        // The line shows the settings, the start time for time.js, the time and the quote, which alone may be cut.
+        // The row shows the settings, the time and the quote, which alone may be cut.
         assertThat(rows(model, "attempts")).extracting(row -> row.get("settings"),
                         row -> ((AttemptClock) row.get("clock")).time(), row -> row.get("quote"))
                 .containsExactly(tuple("glm-5.3 · low", "10 min", "\"Keep the public API.\""),

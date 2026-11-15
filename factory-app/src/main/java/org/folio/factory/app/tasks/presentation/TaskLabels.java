@@ -55,8 +55,9 @@ final class TaskLabels {
             return pullRequestLabel(attempt.pullRequestUrl())
                     + (attempt.draftReasons() == null ? " opened" : " opened as a draft");
         }
+        // An attempt that needs inspection has no reason of its own: its headline says what is not known.
         return switch (attempt.state()) {
-            case STOPPED, NEEDS_INSPECTION, PR_READY -> AttemptFailure.reason(attempt.reason());
+            case STOPPED, PR_READY -> AttemptFailure.reason(attempt.reason());
             default -> status.headline();
         };
     }

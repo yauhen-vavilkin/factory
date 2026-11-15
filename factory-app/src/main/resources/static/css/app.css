@@ -1215,11 +1215,9 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .dev-row-meta-dots > * + * { margin-left: 0; }
 .dev-row-meta-dots > * + *::before { content: "·"; margin: 0 0.3em; }
 .dev-row-meta a:focus-visible { outline-offset: -2px; }
-/* An attempt keeps its facts whole: on a narrow row they wrap as a whole. The quoted instructions end with an
-   ellipsis. */
+/* A group on the dashboard keeps its facts whole: on a narrow row they wrap as a whole. */
 .dev-row-meta-quoted { display: flex; flex-wrap: wrap; }
 .dev-row-meta-quoted > * { flex: none; }
-.dev-row-meta-quoted > .dev-row-quote { flex: 1 1 8em; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .dev-row-action { display: flex; justify-content: flex-end; }
 /* The box of a checkbox sits on the baseline; this puts its middle on the middle of the title text. */
 .dev-row .task-check { position: relative; top: 3px; margin: 0; flex: 0 0 auto; }
@@ -1298,13 +1296,44 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .spend-group .dev-row-meta { column-gap: 10px; }
 .spend-group .dev-row-meta > * + * { margin-left: 0; }
 @media (max-width: 560px) { .spend-group > .row-cluster-status { grid-template-columns: 88px; } }
-/* Task page: what each attempt used and cost. A table without a frame, its edge cells in line with the Attempts
-   rows; on a narrow screen it scrolls in its own box. */
-.spend-table { overflow-x: auto; }
-.spend-table th, .spend-table td { padding: 10px 12px; white-space: nowrap; }
-.spend-table .num { text-align: right; font-variant-numeric: tabular-nums; }
-.spend-table tbody tr:hover { background: none; }
-.spend-table tfoot td { border-top: 1px solid hsl(var(--border)); font-weight: 600; }
+/* Task page: one attempt. Its name, kind and instructions on one line, how it ended under it, the cost and the
+   chip on the right; under them a strip of labelled values: the model, the start and the time on the left, the
+   tokens by kind on the right. Every value has a fixed column, so the cards and the Total row line up. */
+.attempt-card { padding-top: 16px; padding-bottom: 16px; }
+.attempt-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attempt-head > * + * { margin-left: 6px; color: hsl(var(--muted-foreground)); font-size: 13px; }
+.attempt-result {
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: hsl(var(--soft-foreground));
+}
+.attempt-usage { flex: 1 1 100%; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 24px; }
+.attempt-usage dl { display: grid; column-gap: 16px; margin: 0; }
+.usage-facts { grid-template-columns: 170px 140px 100px; }
+.usage-tokens { grid-auto-flow: column; grid-auto-columns: 104px; text-align: right; }
+.attempt-usage dt { font-size: 11px; color: hsl(var(--muted-foreground)); }
+.attempt-usage dd { margin: 2px 0 0; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The row that adds the attempts up: each sum under the column it adds. The labels are in the cards above, so
+   here only a screen reader gets them. */
+.attempt-total .usage-time { grid-column: 3; }
+.attempt-total dt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.attempt-total dd { margin-top: 0; font-weight: 600; }
+.attempt-total .row-amount { font-weight: 600; }
+/* On a narrow page the tokens go under the model, the start and the time, in the same equal columns in every
+   card, and the Total row shows its labels, which no longer stand above its sums. */
+@container (max-width: 40rem) {
+  .attempt-usage { display: grid; justify-content: stretch; }
+  .usage-facts, .usage-tokens { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 10px; }
+  .usage-tokens { text-align: left; }
+  /* A long model name takes a second line and stays in its column. */
+  .attempt-usage dd { white-space: normal; overflow-wrap: anywhere; }
+  .attempt-total .usage-time { grid-column: auto; }
+  .attempt-total dt { position: static; width: auto; height: auto; clip-path: none; }
+  .attempt-total dd { margin-top: 2px; }
+}
 /* Definition: one numbered list of steps, each with its kind and what it reads and writes. */
 .dev-page > .page-header { margin-bottom: 0; }
 .def-steps { margin: 0; padding: 0; list-style: none; }

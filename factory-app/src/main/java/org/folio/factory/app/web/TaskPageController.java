@@ -54,7 +54,7 @@ public class TaskPageController {
         model.addAttribute("task", task);
         model.addAttribute("question", answers.question(view).orElse(null));
         model.addAttribute("attempts", attempts);
-        model.addAttribute("spending", TaskSpending.of(view, attempts, task).orElse(null));
+        model.addAttribute("spending", TaskSpending.of(view, task));
         model.addAttribute("queueProblem", task.turn() == Turn.QUEUED ? dispatcher.queueProblem() : null);
         model.addAttribute("pollUrl", "/tasks/" + taskId + "/poll");
         model.addAttribute("pollBaseline", TaskRevisions.task(task, attempts));

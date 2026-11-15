@@ -60,7 +60,8 @@ import java.util.UUID;
  * does not build and spent nothing, a step the engine gave up on after three tries, time limit, turn limit,
  * whole-attempt deadline, shared configuration, a pull request GitHub refused, a coding step that Factory
  * repeated, changes that held the API key of a model), three attempts
- * that end in a pull request, a task no longer assigned to the developer, a draft pull request without and with
+ * that end in a pull request, the third of them with the developer's instructions, two failed attempts and a third
+ * that waits in line, a failed attempt and a second that works now, a task no longer assigned to the developer, a draft pull request without and with
  * new comments, a pull request ready for review, merged, closed without merge, a feedback round that works now,
  * one that asked a question, one whose checks failed and one whose changes held the API key of a model, and a run
  * whose end Factory could not confirm, with and without the queue held and after it opened a pull request.
@@ -128,6 +129,8 @@ class DemoConsole {
         engineGaveUp();
         stoppedByLimits();
         threeAttempts();
+        thirdAttemptQueued();
+        secondAttemptWorking();
         noLongerAssigned();
         pullRequest("80007", "MODBAR-807", "Pull request without new comments", 7, false);
         pullRequest("80008", "MODBAR-808", "Pull request with a new comment", 8, true);
@@ -310,8 +313,38 @@ class DemoConsole {
         attempt(task, 2, TaskAttempt.State.STOPPED, "DEVELOPMENT_FAILED: " + TaskStops.OUTPUT_LIMIT_REASON,
                 execution("0.6.0", ExecutionStatus.COMPLETED, 10));
         var execution = execution(FeedbackArtifacts.VERSION, ExecutionStatus.AWAITING_HITL, 9);
-        deliver(attempt(task, 3, TaskAttempt.State.PR_READY, null, execution), 21, true);
+        var third = attempt(task, 3, TaskAttempt.State.PR_READY, null, execution);
+        deliver(instructed(third, RUNS.get(0), "Change only FolioTenantApiClient and its test."), 21, true);
         waitForComments(execution, 21);
+    }
+
+    /** Two failed attempts with their usage, and a third one that the developer started and that waits in line. */
+    private void thirdAttemptQueued() {
+        var task = task("80038", "MODBAR-838", "Task that failed twice and waits for its third attempt");
+        attempt(task, 1, TaskAttempt.State.STOPPED, "DEVELOPMENT_FAILED: " + TaskStops.NO_CHANGES_REASON,
+                execution("0.6.0", ExecutionStatus.COMPLETED, 10));
+        attempt(task, 2, TaskAttempt.State.STOPPED, "DEVELOPMENT_FAILED: " + TaskStops.OUTPUT_LIMIT_REASON,
+                execution("0.6.0", ExecutionStatus.COMPLETED, 10));
+        instructed(attempt(task, 3, TaskAttempt.State.RESERVED, null, null), RUNS.get(0), null);
+    }
+
+    /** A failed attempt, and a second one the agent works on now: the row of the attempts added up has no time. */
+    private void secondAttemptWorking() {
+        var task = task("80039", "MODBAR-839", "Task whose second attempt works now");
+        attempt(task, 1, TaskAttempt.State.STOPPED, "DEVELOPMENT_FAILED: " + TaskStops.NO_CHANGES_REASON,
+                execution("0.6.0", ExecutionStatus.COMPLETED, 10));
+        var execution = bareExecution("0.6.0", ExecutionStatus.RUNNING, 3);
+        usage(execution, AuditEventType.RUNTIME_PROGRESS, 1);
+        attempt(task, 2, TaskAttempt.State.RUNNING, null, execution);
+        auditLog.record(execution.getId(), AuditEventType.STEP_STARTED, "implement", Map.of());
+    }
+
+    /** The attempt with the model, the effort and the instructions the developer chose when starting it. */
+    private TaskAttempt instructed(TaskAttempt attempt, CodingRequest.RunSettings run, String instructions) {
+        var chosen = settingsByRun.getOrDefault(attempt.getExecutionId(), run);
+        attempt.setRunSettings(JSON.writeValueAsString(
+                new CodingRequest.RunSettings(chosen.modelId(), chosen.effort(), instructions)));
+        return attempts.save(attempt);
     }
 
     /** A failed task that a Jira scan no longer finds among the developer's tasks. */

@@ -802,12 +802,12 @@ class UiRenderSmokeTest {
         assertThat(text(task)).contains(reasonCard);
         assertThat(task).containsPattern(linkTo("/developer/configuration#limits", "Limits in Configuration"))
                 .doesNotContain("Implementation failed", "DEVELOPMENT_FAILED");
-        // The attempt chip keeps the reason and what to do in its title; the meta line has its start time for
-        // time.js, and no title in UTC, since the line itself shows the local time.
-        assertThat(task.substring(task.indexOf("id=\"attempts-title\"")))
-                .containsPattern(titled(expected, "Failed"))
-                .containsPattern("<div(?![^>]*title=)[^>]*>" + Pattern.quote(
-                        timeTag(PageTime.day(Instant.parse("2026-11-10T22:42:00Z")))) + "</div>");
+        // The attempt row says the first sentence of the reason and has its start time for time.js.
+        String attemptRows = task.substring(task.indexOf("id=\"attempts-title\""));
+        assertThat(text(attemptRows)).contains("The agent reached its limit of 40 turns before it finished. $")
+                .doesNotContain("narrower instructions");
+        assertThat(attemptRows)
+                .contains("<dd>" + timeTag(PageTime.day(Instant.parse("2026-11-10T22:42:00Z"))) + "</dd>");
         // The run page links back to its task and attempt.
         String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(text(run)).contains(reasonCard, "Attempt 1");
@@ -1777,7 +1777,7 @@ class UiRenderSmokeTest {
         String attempts = body.substring(body.indexOf("id=\"attempts-title\""));
         assertThat(text(attempts)).contains("Attempt 1", "first run",
                 "glm-5.3 · low", "&quot;Read the ADR through the wiki &lt;REST&gt; URL.&quot;");
-        // Only the quote may end with an ellipsis on a narrow row: it is an element of its own.
+        // The quote is the last part of the row's first line, so a narrow row cuts the quote first.
         assertThat(attempts).contains(">&quot;Read the ADR through the wiki &lt;REST&gt; URL.&quot;</span>")
                 .containsPattern("<a(?=[^>]*href=\"/executions/" + failed.execution().getId() + "\")"
                         + "(?=[^>]*aria-label=\"Open run for attempt 1\")");
@@ -1839,9 +1839,8 @@ class UiRenderSmokeTest {
         assertThat(text(side)).containsPattern("\\d+ s of 1 h");
         // A running attempt's cost is "so far", the same as Working in Runs.
         String attempts = liveBody.substring(liveBody.indexOf("id=\"attempts-title\""));
-        assertThat(text(attempts)).contains("&lt;$0.01 so far");
-        assertThat(attempts).containsPattern(titled("Implementing changes", "In progress"))
-                .doesNotContain("cost may be higher", "cost unknown");
+        assertThat(text(attempts)).contains("&lt;$0.01 so far", "Implementing changes", "In progress");
+        assertThat(attempts).doesNotContain("cost may be higher", "cost unknown");
     }
 
     @Test
@@ -1925,8 +1924,9 @@ class UiRenderSmokeTest {
         // The row says what the task page says, and the task page says what each attempt used and cost.
         assertThat(text(assertRendered("/tasks/" + delivered.getId(), "Pull request #41")))
                 .contains("$0.70 spent in 2 attempts")
-                .containsSubsequence("Spending", "Attempt Model Input Cost", "Attempt 2", "300,000 $0.30",
-                        "Attempt 1", "400,000 $0.40", "Total 700,000 $0.70");
+                .containsSubsequence("Attempt 2", "$0.30", "Model", "Started", "Time", "Input 300,000",
+                        "Attempt 1", "$0.40", "Input 400,000", "Total 2 attempts $0.70", "Input 700,000")
+                .doesNotContain("Spending");
         // A longer period counts the older run too.
         assertThat(text(spendingBlock(assertRendered("/?days=30", "Developer Flow spending"))))
                 .contains("$6.90 Spent", "$0.30 Ended in a pull request", "$6.60 Attempts without a pull request",
@@ -2090,8 +2090,8 @@ class UiRenderSmokeTest {
         assertThat(body).contains("data-poll-fields=\"revision\"",
                 "data-poll-url=\"/tasks/" + stopped.getId() + "/poll\"",
                 "<p class=\"dev-poll-notice\" role=\"status\" data-poll-notice hidden>This task changed.");
-        // An attempt that reported no tokens has nothing to show under Spending.
-        assertThat(body).doesNotContain("spending-title");
+        // An attempt that reported no tokens has its model, start and time, and no token columns.
+        assertThat(body).contains("<dt>Model</dt>").doesNotContain("usage-tokens");
         Matcher baseline = Pattern.compile("data-poll-baseline=\"([0-9a-f]+)\"").matcher(body);
         assertThat(baseline.find()).isTrue();
         // Nothing changed since the page was built: the poll gives the page's own baseline.
@@ -2134,9 +2134,9 @@ class UiRenderSmokeTest {
                         + "aria-labelledby=\"answer-own-text\"\\s*>")
                 .doesNotContain("id=\"retry\"", "What should the agent do differently?", "I read the code.");
         // The attempt row has the chip of the status card: the question of the latest attempt waits for an answer.
-        // Its title is the question, without the words the flow stores before it.
+        // The row says the question, without the words the flow stores before it.
         assertThat(body.substring(body.indexOf("id=\"attempts-title\"")))
-                .contains("title=\"Remove &lt;old&gt; routes too?\">Needs your answer</span>")
+                .contains(">Remove &lt;old&gt; routes too?</div>", ">Needs your answer</span>")
                 .doesNotContainIgnoringCase("human decision");
     }
 
@@ -2228,11 +2228,11 @@ class UiRenderSmokeTest {
                         + " The agent made assumptions that a reviewer should confirm.");
         assertThat(body).containsPattern(linkTo(pr, "Draft PR #8")).containsPattern(linkTo(pr, "Open pull request #8"))
                 .doesNotContain("chip-success", "is ready for review");
-        // The Attempts row marks the draft with the chip of the status card.
-        assertThat(body.substring(body.indexOf("id=\"attempts-title\"")))
-                .containsPattern("<a(?=[^>]*href=\"" + Pattern.quote(pr) + "\")"
-                        + "(?=[^>]*title=\"Pull request #8 opened as a draft\")[^>]*>Draft PR #8</a>")
+        // The Attempts row marks the draft with the chip of the status card and says how the attempt ended.
+        String attemptRows = body.substring(body.indexOf("id=\"attempts-title\""));
+        assertThat(attemptRows).containsPattern(linkTo(pr, "Draft PR #8"))
                 .contains("aria-label=\"Open run for attempt 1\"");
+        assertThat(text(attemptRows)).contains("Pull request #8 opened as a draft");
 
         String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         // The run page lists why the pull request is a draft, and its meta line names the repository as the task
@@ -2258,6 +2258,9 @@ class UiRenderSmokeTest {
 
         String body = assertRendered("/tasks/" + held.getId(), "Needs inspection");
         assertThat(text(body)).contains("Factory could not confirm how the run ended", "Close as failed…");
+        // The attempt row says the same, not that no reason was recorded.
+        assertThat(text(body.substring(body.indexOf("id=\"attempts-title\""))))
+                .contains("Factory could not confirm how the run ended").doesNotContain("No reason was recorded");
         assertThat(body).contains("/attempts/" + heldAttempt.getId() + "/mark-stopped", "data-confirm-style=\"compact\"")
                 .doesNotContain("name=\"expectedVersion\"");
         assertThat(assertRendered("/tasks/" + failed.getId(), "Failed")).doesNotContain("/mark-stopped",
@@ -2285,9 +2288,8 @@ class UiRenderSmokeTest {
         String body = assertRendered("/tasks/" + retried.getId(), "Attempts");
         assertThat(text(body)).contains("Attempt 3", "retry", "first run", "Verification failed: second failure",
                 "Failed");
-        // The chip of an older attempt says how it ended in its title.
-        assertThat(body).containsPattern(titled("Withdrawn before it started", "Withdrawn"))
-                .containsPattern(titled("Verification failed: first failure.", "Failed"));
+        // An older attempt says how it ended too.
+        assertThat(text(body)).contains("Withdrawn before it started", "Verification failed: first failure.");
         String attemptsTable = body.substring(body.indexOf("id=\"attempts-title\""));
         // The whole attempt row opens its run, as a row of Runs opens its task.
         assertThat(attemptsTable)

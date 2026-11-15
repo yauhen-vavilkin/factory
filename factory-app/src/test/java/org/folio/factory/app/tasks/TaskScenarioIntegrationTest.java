@@ -300,7 +300,7 @@ class TaskScenarioIntegrationTest {
         var pages = pages(taskId);
         assertRow(pages.myTasks(), "MODBAR-203", "Unclear limit 2 attempts", "$0.80 Draft PR #33");
         assertThat(pages.task()).contains("Pull request #33 is open as a draft", "$0.80 spent in 2 attempts",
-                "Attempt 2 · answer to the agent's question");
+                "Attempt 2 answer to the agent's question");
         assertNoInternalWording(pages);
     }
 
@@ -328,7 +328,7 @@ class TaskScenarioIntegrationTest {
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(taskId)).hasSize(2);
         assertThat(latestAttempt(taskId).getKind()).isEqualTo(TaskAttempt.Kind.RETRY);
         assertThat(finish(taskId).getState()).isEqualTo(TaskAttempt.State.PR_READY);
-        assertThat(pages(taskId).task()).contains("Pull request #34 is open as a draft", "Attempt 2 · retry");
+        assertThat(pages(taskId).task()).contains("Pull request #34 is open as a draft", "Attempt 2 retry");
     }
 
     /** Scenario 5: the model endpoint refuses the key. */

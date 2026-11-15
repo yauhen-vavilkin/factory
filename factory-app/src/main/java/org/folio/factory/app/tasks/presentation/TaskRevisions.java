@@ -37,9 +37,8 @@ public class TaskRevisions {
     }
 
     /**
-     * The task page: everything its status card and attempt rows show. The token counts of Spending are left out:
-     * they change with every turn of the agent, and the page would reload every few seconds while it works. They
-     * are fresh again when the cost or the state changes.
+     * The task page: everything its status card and attempt rows show but the token counts, which
+     * {@link TaskSpending.Tokens} leaves out.
      */
     public static String task(TaskDetail task, List<AttemptRow> attemptRows) {
         return hash(task + "|" + attemptRows);

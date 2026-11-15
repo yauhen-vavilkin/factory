@@ -5,68 +5,72 @@ import org.folio.factory.app.web.UiFormat;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
- * The Spending table of the task page: what each attempt that started used and cost, newest first as in Attempts,
- * and their sum when there are two or more. {@code tokenColumns} names the kinds of tokens the task used; every
- * row has one cell for each of them, in the same order.
+ * What the Attempts rows of the task page say about usage: the token columns, and the row that adds the attempts
+ * up. A token category with no tokens in the whole task has no column. total is null until two attempts started.
  */
-public record TaskSpending(List<String> tokenColumns, List<Row> rows, Row total) {
+public record TaskSpending(List<String> tokenColumns, Total total) {
 
     private static final String NONE = "—";
 
-    /**
-     * One attempt, or the sum, which has no run and no model. {@code costTitle} says why the cost is missing or
-     * may be too low; null when it is complete.
-     */
-    public record Row(String label, String runUrl, String model, List<String> tokens, String cost,
-                      String costTitle) {
-    }
+    /** The token counts of one attempt or of the task, one per column; "—" where none were reported. */
+    public record Tokens(List<String> counts) {
 
-    /**
-     * Empty while no attempt has reported tokens. {@code attempts} are the Attempts rows and {@code task} the
-     * status card, so the table shows the same costs as the rest of the page.
-     */
-    public static Optional<TaskSpending> of(TaskView view, List<AttemptRow> attempts, TaskDetail task) {
-        return of(view, attempts, task.spent(), task.spentTitle());
-    }
-
-    /** The same from the amount of the status card and its title; an amount of null is an unknown cost. */
-    static Optional<TaskSpending> of(TaskView view, List<AttemptRow> attempts, String spent, String spentTitle) {
-        var categories = Arrays.stream(AttemptCharge.Category.values())
-                .filter(category -> view.usage().tokensByCategory().getOrDefault(category, 0L) > 0)
-                .toList();
-        if (categories.isEmpty()) {
-            return Optional.empty();
+        /**
+         * Leaves the counts out: they change with every turn of the agent, and the revision the task page polls
+         * would reload the page every few seconds while it works. They are fresh again when the cost or the state
+         * changes.
+         */
+        @Override
+        public String toString() {
+            return "Tokens";
         }
-        var entries = view.attempts().stream()
-                .collect(Collectors.toMap(TaskView.AttemptHistoryEntry::ordinal, Function.identity()));
-        var rows = attempts.stream()
-                .filter(attempt -> entries.get(attempt.ordinal()).startedAt() != null)
-                .map(attempt -> row(attempt, entries.get(attempt.ordinal()), categories))
-                .toList();
-        var total = rows.size() < 2 ? null : new Row("Total", null, null, tokens(view.usage(), categories),
-                spent == null ? UiFormat.COST_UNKNOWN : spent, spentTitle);
-        var columns = categories.stream().map(AttemptCharge.Category::label).toList();
-        return Optional.of(new TaskSpending(columns, rows, total));
     }
 
-    private static Row row(AttemptRow attempt, TaskView.AttemptHistoryEntry entry,
-                           List<AttemptCharge.Category> categories) {
-        var runUrl = entry.executionId() == null ? null : "/executions/" + entry.executionId();
-        var model = attempt.settings() == null ? NONE : attempt.settings();
-        return new Row("Attempt " + attempt.ordinal(), runUrl, model, tokens(entry.usage(), categories),
-                attempt.costText(), attempt.costNoteTitle());
+    /** The attempts added up. costTitle says why the cost is missing or may be too low; null when it is complete. */
+    public record Total(String attempts, String time, Tokens tokens, String cost, String costTitle) { }
+
+    public static TaskSpending of(TaskView view, TaskDetail task) {
+        return of(view, task.spent(), task.spentTitle());
     }
 
-    /** One cell for each column; "—" where the usage does not report that kind of tokens. */
-    private static List<String> tokens(TaskUsage usage, List<AttemptCharge.Category> categories) {
-        return categories.stream()
+    static TaskSpending of(TaskView view, String spent, String spentTitle) {
+        var columns = categories(view).stream().map(AttemptCharge.Category::label).toList();
+        long started = view.attempts().stream().filter(attempt -> attempt.startedAt() != null).count();
+        return new TaskSpending(columns, started < 2 ? null : total(view, spent, spentTitle));
+    }
+
+    /** The counts of {@code usage} in the token columns of {@code view}. */
+    static Tokens tokens(TaskView view, TaskUsage usage) {
+        return new Tokens(categories(view).stream()
                 .map(category -> usage.tokensByCategory().get(category))
                 .map(count -> count == null ? NONE : UiFormat.count(count))
+                .toList());
+    }
+
+    private static List<AttemptCharge.Category> categories(TaskView view) {
+        return Arrays.stream(AttemptCharge.Category.values())
+                .filter(category -> view.usage().tokensByCategory().getOrDefault(category, 0L) > 0)
                 .toList();
+    }
+
+    private static Total total(TaskView view, String spent, String spentTitle) {
+        int count = view.attempts().size();
+        return new Total(count + " attempts", time(view), tokens(view, view.usage()),
+                spent == null ? UiFormat.COST_UNKNOWN : spent, spentTitle);
+    }
+
+    /**
+     * The times in the Attempts rows added up, each in whole minutes as its row shows it, so the sum agrees with
+     * the rows above it. "—" when no attempt reached the agent, and while the agent works: the time of that row
+     * ticks, and a sum that stands still would fall behind it.
+     */
+    private static String time(TaskView view) {
+        var paid = view.attempts().stream().filter(TaskView.AttemptHistoryEntry::paidStart).toList();
+        if (paid.isEmpty() || paid.stream().anyMatch(TaskRows::ticks)) {
+            return NONE;
+        }
+        return TaskLabels.minutes(paid.stream().mapToLong(attempt -> attempt.activeSeconds() / 60 * 60).sum());
     }
 }
