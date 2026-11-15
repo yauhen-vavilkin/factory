@@ -22,6 +22,7 @@ import org.folio.factory.core.engine.ExecutionClaimService;
 import org.folio.factory.core.engine.ExecutionEngine;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
+import org.folio.factory.devfactory.delivery.PullRequestRenderer;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
@@ -46,6 +47,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.web.client.RestClient;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.net.http.HttpClient;
 import java.nio.file.Path;
@@ -95,6 +97,7 @@ class TaskScenarioIntegrationTest {
     private static final String BASE_README = "# fixture folio-org/mod-bar\n";
     private static final Map<String, Object> USAGE = Map.of(
             "inputTokens", 100_000L, "outputTokens", 20_000L, "cacheReadTokens", 0L, "cacheWriteTokens", 0L);
+    private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 
     static final WireMockServer JIRA = SharedWireMock.JIRA;
@@ -206,21 +209,39 @@ class TaskScenarioIntegrationTest {
         outcomes.refresh(active);
     }
 
-    /** Scenario 1. */
+    /** Scenario 1: the agent's report uses the four sections and leaves one criterion not met. */
     @Test
     void agentEditsFilesAndChecksPassButTheReportHasOpenPointsSoADraftPullRequestOpens() {
         UUID taskId = taskId("8201");
+        String report = """
+                ## Changes
+                - Added the limit check to the validator.
+
+                ## Acceptance criteria
+                - The limit is validated: met
+                - The error names the limit: not met
+
+                ## Assumptions
+                None
+
+                ## Could not read
+                None
+                """;
+        agent = request -> CodingOutcome.completed(report, USAGE);
         pullRequestOpensAs(31);
 
         assertRedirect(postRun(taskId));
 
         assertThat(finish(taskId).getState()).isEqualTo(TaskAttempt.State.PR_READY);
+        String draftReason = PullRequestRenderer.draftReasons(JSON.createObjectNode().put("summary", report))
+                .getFirst();
+        assertThat(draftReason).isEqualTo("1 acceptance criterion is not met.");
         var pages = pages(taskId);
         assertRow(pages.myTasks(), "Validate the limit MODBAR-201", "$0.40 Draft PR #31");
         assertThat(pages.task()).contains("Draft PR #31 Nothing needed from you Pull request #31 is open as a draft",
-                "Factory opened it as a draft because: The agent's final report does not use the four expected"
-                        + " sections", "Open pull request #31");
-        assertThat(pages.run()).contains("Pull request #31 is open as a draft", "2 · Implement changes Passed",
+                "Factory opened it as a draft because: " + draftReason, "Open pull request #31");
+        assertThat(pages.run()).contains("Pull request #31 is open as a draft",
+                "Factory opened it as a draft because: " + draftReason, "2 · Implement changes Passed",
                 "3 · Verify changes Passed · 2 tests", "4 · Create pull request Passed · draft");
         assertNoInternalWording(pages);
     }
@@ -251,7 +272,7 @@ class TaskScenarioIntegrationTest {
         agent = request -> CodingOutcome.completed("Implemented the change", USAGE);
         pullRequestOpensAs(33);
         assertRedirect(postRetry(taskId, Map.of("answer", "0")));
-        assertThat(postRetry(taskId, Map.of("answer", "0")).getStatusCode().value()).isEqualTo(302);
+        assertShowsAPage(postRetry(taskId, Map.of("answer", "0")));
 
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(taskId)).hasSize(2);
         assertThat(finish(taskId).getState()).isEqualTo(TaskAttempt.State.PR_READY);
@@ -273,7 +294,7 @@ class TaskScenarioIntegrationTest {
         UUID taskId = taskId("8204");
         agent = request -> CodingOutcome.failed("TIME_LIMIT", TaskStops.timeLimitReason(60), USAGE);
         assertRedirect(postRun(taskId));
-        assertThat(postRun(taskId).getStatusCode().value()).isEqualTo(302);
+        assertShowsAPage(postRun(taskId));
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(taskId)).hasSize(1);
 
         assertThat(finish(taskId).getState()).isEqualTo(TaskAttempt.State.STOPPED);
@@ -284,7 +305,7 @@ class TaskScenarioIntegrationTest {
         agent = request -> CodingOutcome.completed("Implemented the change", USAGE);
         pullRequestOpensAs(34);
         assertRedirect(postRetry(taskId, Map.of()));
-        assertThat(postRetry(taskId, Map.of()).getStatusCode().value()).isEqualTo(302);
+        assertShowsAPage(postRetry(taskId, Map.of()));
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(taskId)).hasSize(2);
         assertThat(latestAttempt(taskId).getKind()).isEqualTo(TaskAttempt.Kind.RETRY);
         assertThat(finish(taskId).getState()).isEqualTo(TaskAttempt.State.PR_READY);
@@ -480,6 +501,14 @@ class TaskScenarioIntegrationTest {
     private ResponseEntity<Void> post(String path, LinkedMultiValueMap<String, String> form) {
         return http.post().uri(url(path)).contentType(MediaType.APPLICATION_FORM_URLENCODED).body(form)
                 .retrieve().toBodilessEntity();
+    }
+
+    /** A repeated click is refused or ignored: it redirects to a page that renders, never to an error page. */
+    private void assertShowsAPage(ResponseEntity<Void> response) {
+        assertThat(response.getStatusCode().value()).isEqualTo(302);
+        String page = DevFlowHarness.visibleText(
+                http.get().uri(response.getHeaders().getLocation()).retrieve().body(String.class));
+        assertThat(page).contains("Developer Flow").doesNotContain("Exception", "Something went wrong");
     }
 
     private static void assertRedirect(ResponseEntity<Void> response) {
