@@ -27,13 +27,16 @@ public class TaskRevisions {
     private final TaskDispatcher dispatcher;
     private final TaskQuery tasks;
 
-    /** My tasks: the scan, the attempts, the queue, and the numbers of every run that works now. */
+    /**
+     * My tasks: the scan, the attempts, the queue, the numbers of every run that works now, and the runs that
+     * ended. A merged or closed pull request changes no attempt row; it ends the run, so its chip shows then.
+     */
     public String myTasks(TaskInstallation installation) {
         String problem = installation.getSyncProblem() == null ? "none" : "present";
         return installation.isSyncComplete() + "|" + problem + "|" + installation.getUpdatedAt()
                 + "|" + attempts.findLatestUpdate().map(Instant::toString).orElse("none")
                 + "|" + attempts.count() + "|" + (dispatcher.queueProblem() == null ? "moving" : "stuck")
-                + "|" + running();
+                + "|" + executions.countByStatus(ExecutionStatus.COMPLETED) + "|" + running();
     }
 
     /**

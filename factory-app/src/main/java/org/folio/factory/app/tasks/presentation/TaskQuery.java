@@ -18,6 +18,7 @@ import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.PipelineExecution;
 import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.AuditLog;
+import org.folio.factory.devfactory.intake.IssueSnapshot;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -292,7 +293,7 @@ public class TaskQuery {
         if (base == null || !base.strip().matches("https?://[A-Za-z0-9.-]+(:[0-9]+)?")) {
             return null;
         }
-        if (displayKey == null || !displayKey.matches("[A-Z][A-Z0-9]*-[0-9]+")) {
+        if (displayKey == null || !IssueSnapshot.ISSUE_KEY.matcher(displayKey).matches()) {
             return null;
         }
         return base.strip() + "/browse/" + displayKey;

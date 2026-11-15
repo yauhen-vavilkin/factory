@@ -23,7 +23,6 @@ import static org.folio.factory.app.tasks.presentation.TaskLabels.costNoteTitle;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costSoFar;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.incompleteCostNote;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.minutes;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.queued;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.triggeredDetail;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.working;
 
@@ -159,7 +158,7 @@ public final class RunRows {
 
     /** A running task needs no detail: its chip says it; a queued one says its place in line. */
     private static String detail(TaskView view) {
-        return working(view) && !queued(view) ? null : triggeredDetail(view);
+        return working(view) ? null : triggeredDetail(view);
     }
 
     private static String cannotRunReason(AvailableRow row) {

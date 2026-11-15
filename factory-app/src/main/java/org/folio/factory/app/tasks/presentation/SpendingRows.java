@@ -86,13 +86,17 @@ public class SpendingRows {
         return label == null ? NO_MODEL : label;
     }
 
-    /** "2 attempts", "1 pull request", "$0.80 per attempt"; without the average when no attempt has a price. */
+    /**
+     * "2 attempts", "1 pull request", "$0.80 per attempt"; the average counts only attempts with a price, and is left
+     * out when none has one.
+     */
     private static List<String> modelFacts(List<TaskView.AttemptHistoryEntry> attempts) {
         var money = money(attempts);
         var pullRequests = attempts.stream().filter(attempt -> attempt.pullRequestUrl() != null).count();
+        var priced = attempts.stream().filter(attempt -> TaskCost.cost(attempt) != null).count();
         var facts = new ArrayList<>(List.of(count(attempts.size(), "attempt"), count(pullRequests, "pull request")));
-        if (!money.isEmpty()) {
-            facts.add(amount(divide(money, attempts.size())) + " per attempt");
+        if (!money.isEmpty() && priced > 0) {
+            facts.add(amount(divide(money, priced)) + " per attempt");
         }
         return List.copyOf(facts);
     }

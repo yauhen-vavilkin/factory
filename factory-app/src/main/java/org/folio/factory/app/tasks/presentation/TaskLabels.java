@@ -40,9 +40,8 @@ final class TaskLabels {
 
     static String triggeredDetail(TaskView view) {
         return switch (view.state()) {
-            case WORKING -> queued(view) ? linePlace(view) : joinNonNull(stageLabel(view.stage()),
-                    view.stageStartedAt() == null ? null
-                            : minutes(Duration.between(view.stageStartedAt(), Instant.now()).getSeconds()));
+            // A running task shows its progress elsewhere; only a queued one reaches here.
+            case WORKING -> linePlace(view);
             // The chip says it: a pull request, or Needs inspection.
             case PR_READY, UNCERTAIN, PROCESSING_PAUSED -> null;
             case STOPPED -> view.needsAnswer() ? null : AttemptFailure.reason(view.reason());
@@ -213,13 +212,6 @@ final class TaskLabels {
         }
         long days = hours / 24;
         return days + (days == 1 ? " day ago" : " days ago");
-    }
-
-    private static String joinNonNull(String first, String second) {
-        if (first == null) {
-            return second;
-        }
-        return second == null ? first : first + " · " + second;
     }
 
     static String ordinal(int position) {

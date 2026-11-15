@@ -94,9 +94,13 @@ public class TaskRows {
                 turn(view, failure.isPresent(), standing));
     }
 
-    /** PR feedback decides first: it waits for the developer or a round works now. */
+    /**
+     * PR feedback decides first: it waits for the developer or a round works now. A run Factory could not
+     * confirm is the developer's turn even while a round works, as on My tasks and the run page.
+     */
     private static Turn turn(TaskView view, boolean failed, FeedbackStanding standing) {
-        if (standing == FeedbackStanding.WAITS_FOR_YOU) {
+        var latest = view.attempts().isEmpty() ? null : view.attempts().getLast();
+        if (standing == FeedbackStanding.WAITS_FOR_YOU || latest != null && markStoppedAttemptId(latest) != null) {
             return Turn.YOURS;
         }
         if (standing == FeedbackStanding.WORKING) {
