@@ -1380,6 +1380,9 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .src-jira, .src-github { color: hsl(var(--info)); }
 .src-agent { color: hsl(var(--agent)); }
 .src-you { color: hsl(var(--notice-accent)); }
+/* On a phone the text column of the status card is narrower than "Nothing needed from you", so that tag wraps
+   inside the card instead of passing its edge, with its square on the first line. */
+.status-card-body > .src { white-space: normal; align-items: baseline; }
 .dev-section-title > .src { margin-left: 8px; vertical-align: middle; }
 .dev-row-meta > .src { vertical-align: baseline; }
 .your-part > .dev-section-head { border-bottom: 0; padding-bottom: 0; }
