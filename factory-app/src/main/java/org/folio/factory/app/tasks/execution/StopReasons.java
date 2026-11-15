@@ -2,8 +2,12 @@ package org.folio.factory.app.tasks.execution;
 
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
+import org.folio.factory.app.web.UiFormat;
+import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.verification.VerificationFailure;
 import tools.jackson.databind.JsonNode;
+
+import java.util.regex.Pattern;
 
 /**
  * The stored reason of a run that ended without one of its own, built from what its steps left. The text is
@@ -16,6 +20,11 @@ public final class StopReasons {
     public static final String CHECKS_FAILED = "VERIFICATION_FAILED";
     /** The stage of a reason whose checks could not run to a result. */
     public static final String CHECKS_NOT_RUN = "VERIFICATION_NOT_RUN";
+    private static final int MAX_ERROR = 300;
+    private static final Pattern UUID = Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+    /** What the engine stores for an exception without a message: its simple class name. */
+    private static final Pattern BARE_EXCEPTION = Pattern.compile("[A-Z][A-Za-z0-9$]*(?:Exception|Error)");
 
     /**
      * The reason of the latest verification result: its own reason when it has one, the cause of failed checks
@@ -28,6 +37,25 @@ public final class StopReasons {
             return state + ": " + reason;
         }
         return CHECKS_FAILED.equals(state) ? checks(result) : "";
+    }
+
+    /**
+     * The reason of a run whose engine gave up on step {@code stepId} after {@code tries} failed tries; the error
+     * the engine stored is cut to its first line, without credentials, ids or a bare exception name.
+     */
+    public static String engineGaveUp(String stepId, int tries, String error) {
+        return "Factory could not finish the " + UiFormat.inWords(stepId) + " step after " + tries + " tries: "
+                + oneLine(error) + ". Start a new attempt.";
+    }
+
+    private static String oneLine(String error) {
+        var line = MavenBaselineOutput.redactCredentials(error.strip().lines().findFirst().orElse(""));
+        line = UUID.matcher(line).replaceAll("…").strip();
+        if (line.isEmpty() || BARE_EXCEPTION.matcher(line).matches()) {
+            return "an unexpected error";
+        }
+        line = line.length() > MAX_ERROR ? line.substring(0, MAX_ERROR) + "…" : line;
+        return line.endsWith(".") ? line.substring(0, line.length() - 1) : line;
     }
 
     /** Counts first: tests that failed are the cause even when the build environment looks broken too. */

@@ -115,7 +115,7 @@ public class TaskOutcomeService {
         if (!execution.get().getStatus().isTerminal()) {
             return processing(attempt);
         }
-        return resolveTerminal(attempt, executionId, execution.get().getStatus());
+        return resolveTerminal(attempt, execution.get());
     }
 
     private static boolean isSettled(TaskAttempt attempt) {
@@ -152,10 +152,9 @@ public class TaskOutcomeService {
                 attempt.getResultReason(), pullRequestUrl, draftReasons(delivery)));
     }
 
-    private AttemptOutcome resolveTerminal(TaskAttempt attempt, UUID executionId,
-                                           ExecutionStatus status) {
-        String uncertainty = proveInactive(executionId);
-        Classification classification = classify(attempt, executionId, status);
+    private AttemptOutcome resolveTerminal(TaskAttempt attempt, PipelineExecution execution) {
+        String uncertainty = proveInactive(execution.getId());
+        Classification classification = classify(attempt, execution);
         if (uncertainty != null) {
             return hold(attempt, uncertainty);
         }
@@ -179,7 +178,8 @@ public class TaskOutcomeService {
     }
 
     /** A delivery with a pull-request identity never gets here: deliveredOutcome released it first. */
-    private Classification classify(TaskAttempt attempt, UUID executionId, ExecutionStatus status) {
+    private Classification classify(TaskAttempt attempt, PipelineExecution execution) {
+        UUID executionId = execution.getId();
         JsonNode delivery = readArtifact(executionId, DeliveryWorker.DELIVERY);
         if (DeliveryWorker.DELIVERED.equals(delivery.path("state").asString(""))) {
             return new Classification(AttemptOutcome.State.NEEDS_INSPECTION,
@@ -189,11 +189,23 @@ public class TaskOutcomeService {
                 .path("failure").path("code").asString(null);
         String reason = firstNonBlank(attempt.getResultReason(),
                 StopReasons.ofResult(readArtifact(executionId, VerifyWorker.RESULT)),
-                RUN_ENDED + status);
+                runEnded(execution));
         // Design 5.3: once inactivity is proven, a shared outage stops this attempt with its
         // persisted cause while the queue continues; startup rechecks the provider for the next ones.
         return new Classification(AttemptOutcome.State.STOPPED,
                 TaskStops.sharedFailure(reason, codingFailureCode) ? "shared: " + reason : reason, null, null);
+    }
+
+    /** Why a run ended without a stage result: the step the engine gave up on after its tries, or its status. */
+    private String runEnded(PipelineExecution execution) {
+        var flow = flows.require(DevFactoryConfiguration.FLOW_ID);
+        int step = execution.getCurrentStepIndex();
+        if (execution.getStatus() != ExecutionStatus.FAILED_ESCALATED || execution.getErrorMessage() == null
+                || step < 0 || step >= flow.agentChain().size()) {
+            return RUN_ENDED + execution.getStatus();
+        }
+        return StopReasons.engineGaveUp(flow.agentChain().get(step).stepId(), flow.retryPolicy().maxAttempts(),
+                execution.getErrorMessage());
     }
 
     private AttemptOutcome release(TaskAttempt attempt, Classification classification) {

@@ -40,6 +40,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -60,6 +61,10 @@ import java.util.UUID;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.folio.factory.app.support.DevFlowHarness.issue;
@@ -131,7 +136,8 @@ class TaskScenarioIntegrationTest {
                 issue("8207", "MODBAR-207", "MODBAR", "Code breaks the build", "2026-10-01T09:06:00.000+0000", ""),
                 issue("8208", "MODBAR-208", "MODBAR", "Checks time out", "2026-10-01T09:07:00.000+0000", ""),
                 issue("8209", "MODBAR-209", "MODBAR", "Base branch does not build", "2026-10-01T09:08:00.000+0000",
-                        ""));
+                        ""),
+                issue("8210", "MODBAR-210", "MODBAR", "GitHub rate limit", "2026-10-01T09:09:00.000+0000", ""));
         assertThat(discovery.sync().complete()).isTrue();
     }
 
@@ -176,6 +182,9 @@ class TaskScenarioIntegrationTest {
 
     @Autowired
     ExecutionEngine engine;
+
+    @Autowired
+    JdbcTemplate jdbc;
 
     @LocalServerPort
     int port;
@@ -403,6 +412,29 @@ class TaskScenarioIntegrationTest {
                 CHECKS_FAILED_STEPS);
     }
 
+    /** Scenario 10: GitHub answers 429 on each of the three tries at publish, so the engine gives up. */
+    @Test
+    void engineGivesUpAfterThreeTriesAtPublishAndThePagesSayWhichStepAndWhy() {
+        UUID taskId = taskId("8210");
+        var rateLimited = GITHUB.stubFor(get(urlPathEqualTo("/repos/" + BAR + "/pulls"))
+                .withQueryParam("state", equalTo("all"))
+                .willReturn(aResponse().withStatus(429).withHeader("Content-Type", "application/json")
+                        .withBody("{\"message\": \"API rate limit exceeded\"}")));
+        try {
+            assertRedirect(postRun(taskId));
+
+            assertThat(finishThroughRetries(taskId).getState()).isEqualTo(TaskAttempt.State.STOPPED);
+        } finally {
+            GITHUB.removeStub(rateLimited);
+        }
+        assertThat(stateManager.get(latestAttempt(taskId).getExecutionId()).getStatus())
+                .isEqualTo(ExecutionStatus.FAILED_ESCALATED);
+        assertFailedWithoutPullRequest(taskId, "GitHub rate limit MODBAR-210",
+                "Factory could not finish the Publish step after 3 tries: 429 Too Many Requests: \"{\"message\":"
+                        + " \"API rate limit exceeded\"}\". Start a new attempt.",
+                List.of("2 · Implement changes Passed", "3 · Verify changes Passed", "4 · Create pull request Failed"));
+    }
+
     /** The pages of a failed attempt: its cause on each page, no pull request and the form for the next one. */
     private Pages assertFailedWithoutPullRequest(UUID taskId, String titleAndKey, String reason) {
         return assertFailedWithoutPullRequest(taskId, titleAndKey, reason,
@@ -481,6 +513,28 @@ class TaskScenarioIntegrationTest {
         TaskAttempt attempt = latestAttempt(taskId);
         assertThat(attempt.getExecutionId()).as("the run started").isNotNull();
         drive(attempt.getExecutionId());
+        outcomes.refresh(attempt.getId());
+        dispatcher.dispatchNext();
+        return attempts.findById(attempt.getId()).orElseThrow();
+    }
+
+    /**
+     * Runs the latest attempt to the end of its engine retries: before each poll its next try is due now, so the
+     * backoff of the flow's retry policy does not hold the test.
+     */
+    private TaskAttempt finishThroughRetries(UUID taskId) {
+        TaskAttempt attempt = latestAttempt(taskId);
+        UUID executionId = attempt.getExecutionId();
+        await().pollInSameThread().pollDelay(Duration.ZERO).pollInterval(Duration.ofMillis(20))
+                .atMost(Duration.ofSeconds(30)).until(() -> {
+                    if (stateManager.get(executionId).getStatus().isTerminal()) {
+                        return true;
+                    }
+                    jdbc.update("UPDATE pipeline_execution SET next_run_at = now() - interval '1 second'"
+                            + " WHERE id = ?", executionId);
+                    claims.claim(100).forEach(engine::advance);
+                    return false;
+                });
         outcomes.refresh(attempt.getId());
         dispatcher.dispatchNext();
         return attempts.findById(attempt.getId()).orElseThrow();

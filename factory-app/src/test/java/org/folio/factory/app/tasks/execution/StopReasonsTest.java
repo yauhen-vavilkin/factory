@@ -42,6 +42,25 @@ class StopReasonsTest {
         assertThat(StopReasons.ofResult(JSON.createObjectNode())).isEmpty();
     }
 
+    @Test
+    void anEngineThatGaveUpNamesTheStepTheTriesAndTheFirstLineOfTheError() {
+        assertThat(StopReasons.engineGaveUp("publish", 3, "429 Too Many Requests: rate limit.\nat line 2"))
+                .isEqualTo("Factory could not finish the Publish step after 3 tries: 429 Too Many Requests: rate"
+                        + " limit. Start a new attempt.");
+    }
+
+    @Test
+    void theErrorOfAnEngineThatGaveUpHasNoCredentialsIdsOrBareExceptionName() {
+        assertThat(StopReasons.engineGaveUp("verify", 3, "push to https://user:secret@github.com failed for"
+                + " factory/0c5e0a3e-5a2b-4c1d-9e8f-1234567890ab with Authorization: Bearer abc.def"))
+                .doesNotContain("secret", "0c5e0a3e", "abc.def")
+                .startsWith("Factory could not finish the Verify step after 3 tries: push to https://");
+        assertThat(StopReasons.engineGaveUp("publish", 3, "NullPointerException"))
+                .isEqualTo("Factory could not finish the Publish step after 3 tries: an unexpected error. Start a"
+                        + " new attempt.");
+        assertThat(StopReasons.engineGaveUp("publish", 3, "x".repeat(500))).hasSizeLessThan(400);
+    }
+
     private static JsonNode read(String json) {
         return JSON.readTree(json);
     }

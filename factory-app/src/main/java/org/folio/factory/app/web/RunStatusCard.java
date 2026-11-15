@@ -212,13 +212,16 @@ final class RunStatusCard {
         return label + (pullRequest.draft() ? " is open as a draft" : " is ready for review");
     }
 
-    /** The answer form on the task page while the task waits for it, or the review this run waits for. */
+    /**
+     * The answer form on the task page while the task waits for it, or the review this run waits for. A failed
+     * attempt whose engine gave up offers its next attempt instead of the engine's review.
+     */
     private static Action action(Input in) {
         var answer = in.context().map(RunContext::answerUrl);
         if (answer.isPresent()) {
             return new Action("Answer on the task page", answer.get());
         }
-        if (in.review() != null && in.feedback().isEmpty()) {
+        if (in.review() != null && in.feedback().isEmpty() && in.context().map(RunContext::retryUrl).isEmpty()) {
             return new Action("Open review", "/reviews/" + in.review().getId());
         }
         return Action.NONE;
