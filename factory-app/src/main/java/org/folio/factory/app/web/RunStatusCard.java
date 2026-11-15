@@ -213,13 +213,20 @@ final class RunStatusCard {
     }
 
     /**
-     * The answer form on the task page while the task waits for it, or the review this run waits for. A failed
-     * attempt whose engine gave up offers its next attempt instead of the engine's review.
+     * The answer form on the task page while the task waits for it, the pull request of an attempt that needs
+     * inspection (the draft reasons of the card are about it), or the review this run waits for. A failed attempt
+     * whose engine gave up offers its next attempt instead of the engine's review.
      */
     private static Action action(Input in) {
         var answer = in.context().map(RunContext::answerUrl);
         if (answer.isPresent()) {
             return new Action("Answer on the task page", answer.get());
+        }
+        var pullRequest = in.facts().pullRequest().url();
+        if (in.context().map(RunContext::status).filter(AttemptStatus::needsInspection).isPresent()
+                && !pullRequest.isBlank()) {
+            var number = PULL_NUMBER.matcher(pullRequest);
+            return new Action("Open pull request" + (number.find() ? " #" + number.group(1) : ""), pullRequest);
         }
         if (in.review() != null && in.feedback().isEmpty() && in.context().map(RunContext::retryUrl).isEmpty()) {
             return new Action("Open review", "/reviews/" + in.review().getId());

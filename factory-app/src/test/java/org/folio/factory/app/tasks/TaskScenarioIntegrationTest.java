@@ -462,7 +462,7 @@ class TaskScenarioIntegrationTest {
         assertThat(pages.task()).contains("Needs inspection Your turn Factory could not confirm how the run ended",
                 "Open pull request #41", "Mark as stopped…");
         assertThat(pages.run()).contains("Needs inspection Your turn Factory could not confirm how the run ended",
-                "4 · Create pull request Passed · draft");
+                "Open pull request #41", "4 · Create pull request Passed · draft");
         assertNoInternalWording(pages);
 
         // Factory's next recheck finds the containers gone, so the attempt is ready and the queue goes on.
