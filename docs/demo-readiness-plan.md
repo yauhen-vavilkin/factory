@@ -577,9 +577,14 @@ Give a session this prompt:
   lists the running task (`RunRows.strip` reads the current page). Not fixed: they are outside the stage 4 list.
   Gate: `mvn -B -ntp verify` passed (dev-factory 416 tests, 18 skipped; factory-app 688), the JS tests passed
   (17), and the `HIDDEN_*_SENTINEL` tests ran and passed (`UiRenderSmokeTest`, `ClaudeCodeCodingRuntimeTest`,
-  `PiCodingRuntimeTest`, `DeveloperExecutionViewTest`). No sentinel case was added by this plan: the new outputs
-  are stop reasons built by Factory, the first line of the engine's error and item A's split of the agent's final
-  text, none of which reads the thinking stream; that they cannot carry reasoning is not proved by a test.
+  `PiCodingRuntimeTest`, `DeveloperExecutionViewTest`). After the stage review, `ClaudeCodeCodingRuntimeTest` and
+  `PiCodingRuntimeTest` each have a sentinel case for item A's split: thinking blocks hold
+  `HIDDEN_REASONING_SENTINEL`, then the final text has a report, the marker, pretty-printed JSON and text after
+  it; the outcome is a question, and the report, the question, the transcript and the activity do not hold the
+  sentinel. Both are guard tests and passed on their first run. No sentinel case for the first line of the
+  engine's error (2.4): it is Factory's own exception text, not model output, and `StopReasonsTest` already pins
+  that only its first line reaches the reason. The other new stop reasons are built from Factory's words, counts,
+  an HTTP status or a file name.
   Walk in `DemoConsole`, light theme. Measured, every page in a 390 px and a 1280 px frame (both pages of My
   tasks, the Dashboard, Configuration, 31 task pages, 31 run pages): no page is wider than its window, no text
   passes its status card, row or section except the "In progress" strip above, and no page shows "could say

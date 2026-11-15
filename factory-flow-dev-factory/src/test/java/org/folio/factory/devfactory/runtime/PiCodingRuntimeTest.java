@@ -502,6 +502,21 @@ class PiCodingRuntimeTest {
         assertThat(outcome.toString()).doesNotContain("HIDDEN_REASONING_SENTINEL");
     }
 
+    @Test void aThinkingBlockNeverReachesTheReportOrTheQuestionOfADecision() {
+        String text = "I read the config.\n\nFACTORY_DECISION_REQUIRED: {\n  \"kind\": \"PRODUCT_REQUIREMENTS\",\n"
+                + "  \"question\": \"Which API?\",\n  \"options\": [],\n  \"evidence\": \"Both exist\"\n}\n"
+                + "I will wait for the answer.";
+
+        var outcome = runPi(assistantFrame(List.of(
+                Map.of("type", "thinking", "thinking", "HIDDEN_REASONING_SENTINEL"),
+                Map.of("type", "text", "text", text))));
+
+        assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
+        assertThat(outcome.decision().question()).isEqualTo("Which API?");
+        assertThat(outcome.summary()).isEqualTo("I read the config.");
+        assertThat(outcome.toString()).doesNotContain("HIDDEN_REASONING_SENTINEL");
+    }
+
     private static String assistantFrame(List<Map<String, String>> content) {
         return JSON.writeValueAsString(Map.of("type", "message_end", "message", Map.of("role", "assistant",
                 "provider", "p", "model", "m", "stopReason", "stop", "content", content))) + "\n" + SETTLED;

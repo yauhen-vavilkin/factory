@@ -441,6 +441,28 @@ class ClaudeCodeCodingRuntimeTest {
     }
 
     @Test
+    void aDecisionAfterThinkingKeepsTheThinkingOutOfItsReportAndQuestion() {
+        var transcript = new ArrayList<CodingTranscripts.Entry>();
+        var events = new ArrayList<Map<String, Object>>();
+        var protocol = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s, events::add, transcript::add);
+        String answer = "I read the config.\n\nFACTORY_DECISION_REQUIRED: {\n  \"kind\": \"PRODUCT_REQUIREMENTS\",\n"
+                + "  \"question\": \"Which API?\",\n  \"options\": [],\n  \"evidence\": \"Both exist\"\n}\n"
+                + "I will wait for the answer.";
+        (INIT + """
+                {"type":"assistant","message":{"id":"m1","content":[{"type":"thinking","thinking":"HIDDEN_REASONING_SENTINEL"}]}}
+                {"type":"assistant","message":{"id":"m1","content":[{"type":"redacted_thinking","data":"HIDDEN_REASONING_SENTINEL"}]}}
+                """ + JSON.writeValueAsString(Map.of("type", "result", "subtype", "success", "is_error", false,
+                "result", answer))).lines().forEach(protocol);
+
+        var outcome = finish(protocol);
+
+        assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
+        assertThat(outcome.decision().question()).isEqualTo("Which API?");
+        assertThat(outcome.summary()).isEqualTo("I read the config.");
+        assertThat(outcome + transcript.toString() + events).doesNotContain("HIDDEN_REASONING_SENTINEL");
+    }
+
+    @Test
     void toolResultsAreCutWithAMarkerAndTheTranscriptCapNeverFailsTheAttempt() {
         var transcript = new ArrayList<CodingTranscripts.Entry>();
         var protocol = new ClaudeCodeProtocol("custom/Model-1", 10, s -> s, e -> { }, transcript::add);
