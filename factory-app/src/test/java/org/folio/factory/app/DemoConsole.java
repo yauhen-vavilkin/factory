@@ -20,6 +20,7 @@ import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
 import org.folio.factory.devfactory.tasks.TaskStops;
+import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.folio.factory.devfactory.worker.VerifyWorker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -46,7 +47,8 @@ import java.util.Map;
  * asked a question, stopped for each cause
  * Factory names (checks failed on tests, code that does not compile, checks that could not run, a base branch that
  * does not build and spent nothing, a step the engine gave up on after three tries, time limit, turn limit,
- * whole-attempt deadline, shared configuration, a coding step that Factory repeated), three attempts
+ * whole-attempt deadline, shared configuration, a pull request GitHub refused, a coding step that Factory
+ * repeated), three attempts
  * that end in a pull request, a task no longer assigned to the developer, a draft pull request without and with
  * new comments, a pull request ready for review, merged, closed without merge, a feedback round that works now,
  * one that asked a question and one that failed, and a run whose end Factory could not confirm, with and without
@@ -188,6 +190,8 @@ class DemoConsole {
                 TaskStops.DEADLINE_STATE + ": " + TaskStops.deadlineReason("verification"));
         stopped("80019", "Task stopped by the shared configuration", "DEVELOPMENT_FAILED: Coding runtime"
                 + " configuration is incomplete or unsupported; check Developer Flow configuration.");
+        stopped("80035", "Task whose pull request GitHub refused",
+                "DELIVERY_BLOCKED: " + DeliveryWorker.pullRequestRefusedReason(403));
         // What the task guard stores when the engine repeats the coding step after the paid start.
         stopped("80032", "Task whose coding step Factory repeated", "implement: " + TaskStops.REPLAYED_CODING_REASON);
     }

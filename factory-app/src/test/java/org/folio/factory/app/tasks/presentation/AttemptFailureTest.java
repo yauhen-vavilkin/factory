@@ -1,6 +1,7 @@
 package org.folio.factory.app.tasks.presentation;
 
 import org.folio.factory.devfactory.tasks.TaskStops;
+import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -129,6 +130,10 @@ class AttemptFailureTest {
                 .isEqualTo("Verification failed: 2 tests in error.");
         assertThat(AttemptFailure.reason("DELIVERY_BLOCKED: GitHub said no"))
                 .isEqualTo("Publication failed: GitHub said no.");
+        assertThat(AttemptFailure.firstSentence(AttemptFailure.reason(
+                "DELIVERY_BLOCKED: " + DeliveryWorker.pullRequestRefusedReason(403))))
+                .isEqualTo("Publication failed: Factory pushed the branch, but GitHub refused to open the pull request"
+                        + " (HTTP 403).");
         assertThat(AttemptFailure.reason("VERIFIED: the change has no diff")).isEqualTo("The change has no diff.");
     }
 

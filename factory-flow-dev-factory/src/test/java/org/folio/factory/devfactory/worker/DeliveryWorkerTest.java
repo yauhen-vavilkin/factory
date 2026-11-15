@@ -198,9 +198,29 @@ class DeliveryWorkerTest {
             assertThat(output.path("deliveryBranch").asString()).isEqualTo(delivered.branch());
             assertThat(output.path("deliveryCommitSha").asString()).isEqualTo(delivered.commitSha());
             assertThat(output.path("pullRequestState").asString()).isEqualTo("BLOCKED");
-            assertThat(output.path("reason").asString()).contains("branch and commit delivered", "HTTP 403")
+            assertThat(output.path("reason").asString()).isEqualTo(DeliveryWorker.pullRequestRefusedReason(403))
+                    .isEqualTo("Factory pushed the branch, but GitHub refused to open the pull request (HTTP 403)."
+                            + " Check that the GitHub token may open pull requests in the delivery repository and that"
+                            + " the repository in config/developer-repositories.yaml is right, or set"
+                            + " FACTORY_<REPO>_SOURCE_REPO and FACTORY_<REPO>_DELIVERY_REPO to deliver to your fork.")
                     .doesNotContain("sensitive remote diagnostic");
         }
+    }
+
+    @Test
+    void aRefusedDeliverySaysWhatToCheckWithoutTheRemoteDiagnostic() {
+        when(delivery.deliver(completeRequest()))
+                .thenThrow(new HttpClientErrorException(HttpStatus.NOT_FOUND, "sensitive remote diagnostic"));
+
+        var result = json.readTree(worker().execute(verifiedContext()).outputs().get(VerifyWorker.RESULT));
+
+        assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
+        assertThat(result.path("reason").asString()).isEqualTo(DeliveryWorker.deliveryRefusedReason(404))
+                .isEqualTo("GitHub refused the delivery (HTTP 404). Check that the GitHub token can push to the"
+                        + " delivery repository and that the repository in config/developer-repositories.yaml is"
+                        + " right, or set FACTORY_<REPO>_SOURCE_REPO and FACTORY_<REPO>_DELIVERY_REPO to deliver to"
+                        + " your fork.")
+                .doesNotContain("sensitive remote diagnostic");
     }
 
     @Test

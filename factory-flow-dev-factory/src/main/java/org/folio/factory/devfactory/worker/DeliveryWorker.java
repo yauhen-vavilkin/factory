@@ -40,6 +40,8 @@ public class DeliveryWorker implements AgentWorker {
     public static final String DELIVERED = "DELIVERED";
     private static final String PLAN_CHANGED =
             "Verification receipt no longer matches the current Factory plan; reverify the candidate";
+    private static final String WHAT_TO_CHECK = "the repository in config/developer-repositories.yaml is right, or"
+            + " set FACTORY_<REPO>_SOURCE_REPO and FACTORY_<REPO>_DELIVERY_REPO to deliver to your fork.";
     private final DevFactoryProperties repositories;
     private final VerificationPolicy verificationPolicy;
     private final PullRequestRenderer renderer = new PullRequestRenderer();
@@ -89,8 +91,7 @@ public class DeliveryWorker implements AgentWorker {
             return blocked(inputs, e.getMessage(), null);
         } catch (HttpClientErrorException e) {
             rethrowIfRetryable(e);
-            return blocked(inputs, "GitHub rejected delivery configuration or destination (HTTP "
-                    + e.getStatusCode().value() + ")", null);
+            return blocked(inputs, deliveryRefusedReason(e.getStatusCode().value()), null);
         }
     }
 
@@ -164,8 +165,7 @@ public class DeliveryWorker implements AgentWorker {
             return createPullRequest(context, inputs, publication, outcome, draftReasons);
         } catch (HttpClientErrorException e) {
             rethrowIfRetryable(e);
-            return blocked(inputs, "Candidate branch and commit delivered; GitHub blocked pull request creation"
-                    + " (HTTP " + e.getStatusCode().value() + ")", receipt);
+            return blocked(inputs, pullRequestRefusedReason(e.getStatusCode().value()), receipt);
         }
     }
 
@@ -195,6 +195,19 @@ public class DeliveryWorker implements AgentWorker {
         var url = github.createPullRequest(publication.target().repository(), receipt.branch(),
                 publication.target().baseBranch(), title, body, !draftReasons.isEmpty());
         return delivered(inputs, receipt, new PullRequestOutcome(url, title, draftReasons));
+    }
+
+    /** Why the delivery stopped when GitHub refused the push or its destination with this HTTP status. */
+    public static String deliveryRefusedReason(int status) {
+        return "GitHub refused the delivery (HTTP " + status + "). Check that the GitHub token can push to the"
+                + " delivery repository and that " + WHAT_TO_CHECK;
+    }
+
+    /** Why the delivery stopped when GitHub refused to open the pull request of the pushed branch. */
+    public static String pullRequestRefusedReason(int status) {
+        return "Factory pushed the branch, but GitHub refused to open the pull request (HTTP " + status + ")."
+                + " Check that the GitHub token may open pull requests in the delivery repository and that "
+                + WHAT_TO_CHECK;
     }
 
     /** Timeouts and rate limits are retried by the engine; every other client error blocks the delivery. */
