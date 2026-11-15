@@ -516,14 +516,16 @@ class PiCodingRuntimeTest {
         assertThat(PiProtocol.parse(output, "provider", "model").summary()).isEqualTo(text);
     }
 
-    @Test void decisionProtocolRejectsTrailingText() {
+    @Test void decisionProtocolIgnoresTextAfterTheDecision() {
         String decision = "FACTORY_DECISION_REQUIRED: {\\\"kind\\\":\\\"PRODUCT_REQUIREMENTS\\\","
                 + "\\\"question\\\":\\\"Which API?\\\",\\\"options\\\":[],\\\"evidence\\\":\\\"Both exist\\\"} extra";
         String output = "{\"type\":\"message_end\",\"message\":{\"role\":\"assistant\",\"provider\":\"provider\","
                 + "\"model\":\"model\",\"stopReason\":\"stop\",\"content\":[{\"type\":\"text\",\"text\":\"" + decision
                 + "\"}]}}\n" + SETTLED;
-        assertThat(PiProtocol.parse(output, "provider", "model").failure().code())
-                .isEqualTo("INVALID_DECISION_RESULT");
+        var outcome = PiProtocol.parse(output, "provider", "model");
+        assertThat(outcome.status()).isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
+        assertThat(outcome.decision().question()).isEqualTo("Which API?");
+        assertThat(outcome.decision().evidence()).isEqualTo("Both exist");
     }
 
     private static CodingRequest request() {

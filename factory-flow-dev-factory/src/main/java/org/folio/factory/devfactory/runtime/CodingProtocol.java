@@ -2,15 +2,21 @@ package org.folio.factory.devfactory.runtime;
 
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectReader;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /** Shared task and decision language; vendor stream acceptance stays in each adapter. */
 final class CodingProtocol {
-    private static final JsonMapper JSON = JsonMapper.builder()
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+    /** Reads the decision JSON and leaves whatever follows it unread. */
+    private static final ObjectReader FIRST_VALUE = JSON.reader()
+            .without(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final Pattern FENCE_LINE = Pattern.compile("(?m)^[ \\t]*```");
+    private static final Pattern TRAILING_FENCE = Pattern.compile("(?:^|\\n)[ \\t]*```[\\w-]*[ \\t]*$");
     private static final String DECISION_PREFIX = "FACTORY_DECISION_REQUIRED:";
     private static final int MAX_SUMMARY = 8000;
     private static final String TASK_RULES = """
@@ -61,21 +67,28 @@ final class CodingProtocol {
                         : "\n\nInstructions from the operator:\n" + instructions);
     }
 
+    /**
+     * Models do not always keep the decision to one line: the JSON may be pretty-printed or fenced as code, and a
+     * closing remark may follow it. Only the first JSON value after the marker counts.
+     */
     static CodingOutcome answer(String summary, Map<String, Object> metrics, String runtime) {
         var marker = decisionLine(summary);
         if (marker < 0) {
             return CodingOutcome.completed(bounded(summary), metrics);
         }
-        var detail = summary.substring(marker).strip().substring(DECISION_PREFIX.length()).strip();
-        if (detail.contains("\n") || detail.contains("\r")) {
-            return invalidDecision(runtime, metrics);
-        }
+        var detail = summary.substring(marker + DECISION_PREFIX.length());
         try {
-            var before = bounded(summary.substring(0, marker).strip());
-            return CodingOutcome.needsDecision(decision(JSON.readTree(detail)), before, metrics);
+            var before = bounded(withoutOpeningFence(summary.substring(0, marker).strip()));
+            return CodingOutcome.needsDecision(decision(FIRST_VALUE.readTree(detail)), before, metrics);
         } catch (RuntimeException e) {
             return invalidDecision(runtime, metrics);
         }
+    }
+
+    /** A fence that opens the decision is not part of the report; a code block the report closed stays. */
+    private static String withoutOpeningFence(String before) {
+        var fences = FENCE_LINE.matcher(before).results().count();
+        return fences % 2 == 0 ? before : TRAILING_FENCE.matcher(before).replaceFirst("").strip();
     }
 
     /** Models often write a report before the marker line, so the marker counts at the start of any line. */
