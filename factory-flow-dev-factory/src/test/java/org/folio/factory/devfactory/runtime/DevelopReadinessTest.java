@@ -301,6 +301,31 @@ class DevelopReadinessTest {
     }
 
     @Test
+    void aDeadlineExpiringWhileTheAgentCodesStopsBeforeTheChangesAreSavedInPlainWords() {
+        var now = new AtomicReference<>(Instant.now());
+        var clock = mock(Clock.class);
+        when(clock.instant()).thenAnswer(invocation -> now.get());
+        var taskAttempts = RecordingTaskAttempts.taskRun("repo")
+                .withDeadline(new AttemptDeadline(now.get().plusSeconds(3)))
+                .withClock(clock);
+        var harness = taskHarness(taskAttempts);
+        when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any())).thenAnswer(
+                invocation -> {
+                    now.set(now.get().plusSeconds(4));
+                    return CodingOutcome.completed("Done", Map.of());
+                });
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains(TaskStops.deadlineReason("saving the agent's changes"))
+                .doesNotContain("candidate freeze");
+        verify(harness.freezer(), never()).freeze(anyString(), anyString(), anyString(), any(), anyBoolean());
+        assertThat(taskAttempts.stops).singleElement()
+                .isEqualTo("implement: " + TaskStops.deadlineReason("saving the agent's changes"));
+    }
+
+    @Test
     void theRemainingBudgetCapsEveryStageTimeoutBelowTheConfiguredPerOperationLimit() {
         var now = Instant.parse("2026-10-23T10:00:00Z");
         var taskAttempts = RecordingTaskAttempts.taskRun("repo")

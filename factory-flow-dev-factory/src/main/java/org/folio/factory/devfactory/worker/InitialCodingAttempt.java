@@ -219,7 +219,7 @@ public final class InitialCodingAttempt {
     }
 
     private Attempt completedAttempt(Run run, RunState state, CodingOutcome outcome) {
-        var stop = taskStop(run, "candidate freeze");
+        var stop = taskStop(run, "saving the agent's changes");
         if (stop.isPresent()) {
             return failedAttempt(stop.get(), state);
         }

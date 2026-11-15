@@ -23,7 +23,7 @@ class TaskGuardTest {
             + " a stopped, superseded or released attempt must not continue",
         "coding | the task attempt no longer owns the installation's active slot;"
             + " a stopped, superseded or released attempt must not continue",
-        "candidate freeze | the task attempt no longer owns the installation's active slot;"
+        "saving the agent's changes | the task attempt no longer owns the installation's active slot;"
             + " a stopped, superseded or released attempt must not continue",
         "verification | the task attempt no longer owns the installation's active slot;"
             + " a stopped, superseded or released attempt must not continue",
@@ -45,8 +45,9 @@ class TaskGuardTest {
             + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole attempt.",
         "coding | The attempt used all of its time before coding, so Factory stopped it. Start a new"
             + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole attempt.",
-        "candidate freeze | The attempt used all of its time before candidate freeze, so Factory stopped it. Start a new"
-            + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole attempt.",
+        "saving the agent's changes | The attempt used all of its time before saving the agent's changes, so Factory"
+            + " stopped it. Start a new attempt with a lower effort or narrower instructions, or raise the time limit"
+            + " of the whole attempt.",
         "verification | The attempt used all of its time before verification, so Factory stopped it. Start a new"
             + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole attempt.",
         "publication | The attempt used all of its time before publication, so Factory stopped it. Start a new"
