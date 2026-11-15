@@ -555,7 +555,7 @@ Give a session this prompt:
   1280 px (headless Chrome), where the card looks as before. Page tests and `mvn verify`
   passed. One review round is left for this stage.
 - [ ] Stage 5. Final check
-- [ ] If time is left: A B C D E F G. A, B, D and E are done; C, F and G were not started. A second agent did A, B, E
+- [ ] If time is left: A B C D E F G. A, B, C, D, E and F are done; G was not started. A second agent did A, B, E
   and D in its own worktree; its commits were cherry-picked onto `m1-sprint-pilot` without a conflict, and the demo
   seeds were added in the main checkout. A (cc50f01): `CodingProtocol.answer` reads the first JSON value after the
   marker line, so a pretty-printed decision, one on the next line, a closing code fence and text after it are
@@ -594,3 +594,35 @@ Give a session this prompt:
   its button is "Try fixing with the agent". For stage 5: B changed a deliberate rule (failed environment checks now
   offer the agent fix), and after A the note in `docs/open-questions.md` that text after a question line is ignored is
   true for both runtimes, so it must not be "corrected".
+  C and F were done in the main checkout after the integration. C (211d0be): the spending block has a third part,
+  "Where attempts stopped", one row per cause with its attempts and money, the most expensive cause first, causes
+  without an attempt left out, and the part left out when no attempt stopped. The cause is the enum `StopCause`
+  (tasks.presentation, 70 lines): `StopCause.of(state, storedReason)` reads the stored reason with the checks the
+  pages already make, so older wordings count under the same cause as on the task page. Counted: every attempt of the
+  period without a pull request that is neither running nor withdrawn. Choices to know: checks that could not run,
+  the starting build, a repeated coding step, the engine giving up, a shared outage (`shared: ` or "check Developer
+  Flow configuration"), `BLOCKED_ENVIRONMENT`, `DELIVERY_BLOCKED`, a run that ended without a reason and "Needs
+  inspection" count as "Stopped by Factory or the environment"; a stop you marked yourself, a patch refused for a
+  model key and a command that printed too much count as "Other". Running attempts are not counted, so while an
+  attempt runs the causes add up to less than "Attempts without a pull request". Small production changes for it:
+  the constants `StopReasons.ENGINE_GAVE_UP_START` and `TaskOutcomeService.SHARED` (the literals they replace are
+  unchanged) and two package constants in `AttemptFailure` for "Checks failed" and "Checks could not run". F
+  (9f16acd): a fourth part, "By model and effort", one row per model and effort in the words of the task page
+  ("glm-5.3 · max"), with attempts, pull requests, "$0.80 per attempt" and the money, the most spent first; an
+  attempt without run settings counts as "Model not recorded". Both parts are rows with thin lines, no bar, no
+  card; the amount stands in the amount column of "Cost per task" and stays on the line of its row on a phone,
+  where the facts wrap as a whole. Tests: `StopCauseTest` (every cause, built from the production builders, plus
+  older wordings) and `UiRenderSmokeTest`
+  (`theDashboardSaysWhereTheAttemptsWithoutAPullRequestStopped` with a known sum, a pull request and a running
+  attempt that do not count; `theDashboardLeavesOutWhereAttemptsStoppedWhenNoneStopped`;
+  `theDashboardSaysWhatEachModelAndEffortCostAndHowManyPullRequestsItOpened`). No new demo seed: the seeds already
+  hold every cause. `mvn verify` passed (factory-app 688 tests); no JS changed. Looked at in `DemoConsole`, light
+  theme: the Dashboard (14 days) at 1280 px (headless Chrome) and 390 px (a 390 px frame in the browser pane), both
+  new parts. It reads: Stopped by Factory or the environment 8 attempts $8.51, Time limit 2 $6.06, Checks failed 3
+  $3.92, Other 2 $2.20, Turn limit 1 $0.25, Asked a question 1 $0.12, No changes 1 $0.12; glm-5.3 · max 10 attempts 4
+  pull requests $17.64, glm-5.3 · low 9 and 3 $12.67, glm-5.3-flash · high 10 and 4 $1.40, Model not recorded 2 and 0
+  $0.00. The page stays 390 px wide and no text of the two parts passes its row. Not seen: the Dashboard with no
+  stopped attempt (covered by the test); a group whose attempts all have no price ("cost unknown", not covered by a
+  test). The new tests were written before the code but first run after it. The average per attempt divides by every
+  attempt of the group, priced or not. F builds on C (it renames C's row record and CSS class), so reverting C needs F
+  reverted first. Not done: an independent review of C and F by a fresh agent (this session cannot start one).
