@@ -555,4 +555,42 @@ Give a session this prompt:
   1280 px (headless Chrome), where the card looks as before. Page tests and `mvn verify`
   passed. One review round is left for this stage.
 - [ ] Stage 5. Final check
-- [ ] If time is left: A B C D E F G
+- [ ] If time is left: A B C D E F G. A, B, D and E are done; C, F and G were not started. A second agent did A, B, E
+  and D in its own worktree; its commits were cherry-picked onto `m1-sprint-pilot` without a conflict, and the demo
+  seeds were added in the main checkout. A (cc50f01): `CodingProtocol.answer` reads the first JSON value after the
+  marker line, so a pretty-printed decision, one on the next line, a closing code fence and text after it are
+  accepted; a fence that opens the decision is left out of the report, a code block the report closes stays. Both
+  runtimes use it. `PiCodingRuntimeTest` asserted the old rejection of trailing text and now asserts the decision. B
+  (c80e553): every `VerificationFailure` except NONE (plus CODING) offers "Try fixing with the agent";
+  `FeedbackActionsTest` asserted that ENVIRONMENT does not and now asserts the plan's rule. The reason comes from the
+  new `VerificationReceipt.failureReason()`: "Checks failed: some tests failed.", "Checks failed: the code does not
+  compile.", "Checks could not run: …" or "Checks failed: the build failed with exit code N.". It has no test count,
+  because the round prints "Checks failed: 2 of 300 tests failed." right under it. New scenario in
+  `PrFeedbackIntegrationTest` with ENVIRONMENT checks; the agent fix then reaches READY. E (5a7f31f): "None
+  identified", "No assumptions were needed" and "All links were readable" are none forms. D (b789d32, 47d0603,
+  3e3df49): `CodingRuntime.holdsSecret` (Claude Code: every model secret; Pi: its API key) with one rule,
+  `CodingRuntime.holdsAny`, for secrets of 16 or more characters; `Candidate.findFileAdding` reads only the lines
+  hunks add. The first attempt stops with `TaskStops.secretInChangesReason(file)` and keeps its spend; a PR feedback
+  round reuses the "Latest edits could not be saved" path with `TaskStops.secretInChangesCause(file)`, without "Start
+  a new attempt.", because that page offers its own buttons under the reason (the finding of the worktree's review
+  round, fixed in 3e3df49). Demo seeds: 80016 (7f9373e) now stores the receipt the verifier returns (1 of 1 tests
+  failed, CANDIDATE) and its `failureReason()` instead of the typed "Independent checks failed: 1 test failed." with
+  the commit-preparation kind; 80036 (a first attempt refused for a model key) and 80037 (a PR feedback round refused
+  for a model key) are new (a452aad). For 80037 the start of the round's reason is now the constant
+  `FeedbackState.EDITS_NOT_SAVED_START`, so the seed does not type it. `mvn verify` passed on the integrated branch;
+  no JS changed. Looked at in `DemoConsole`, light theme, at 1280 px and 390 px (browser pane): the first page of My
+  tasks, and the task page and the run page of 80016, 80036 and 80037. The run page of 80016 reads "Checks failed:
+  some tests failed." under PR feedback and in the round, then "Checks failed: 1 of 1 tests failed." and the test
+  output, with "Verify my manual changes", "Try fixing with the agent" and "Run checks again"; 80037 reads its reason
+  with "Verify my manual changes" and "Try fixing with the agent"; 80036 reads "Attempt 1 failed", the reason, "No
+  pull request was created." and $0.55, and its run page "Implement changes Failed" with Verify and Create "Not
+  started". Every one of these pages, and the second page of My tasks (measured, not looked at), stays 390 px wide.
+  Not done: an independent review of the integration (the cherry-picks and the seeds) by a fresh agent; no scenario
+  drives a refusal for a model key through the pages (unit tests and the seeds only). Seen, not changed: at 390 px My
+  tasks cuts the reason of 80036 after two lines, as for 80033; the round of failed checks without test reports reads
+  "Checks failed." under "Checks could not run: …" (`FeedbackRows.checks`); `StopReasons.checks` and
+  `VerificationReceipt.failureReason` say the same causes in two places; feedback states stored before B keep
+  "Independent checks failed: …"; the INTERRUPTED PR feedback reason says "Start a new attempt explicitly." although
+  its button is "Try fixing with the agent". For stage 5: B changed a deliberate rule (failed environment checks now
+  offer the agent fix), and after A the note in `docs/open-questions.md` that text after a question line is ignored is
+  true for both runtimes, so it must not be "corrected".
