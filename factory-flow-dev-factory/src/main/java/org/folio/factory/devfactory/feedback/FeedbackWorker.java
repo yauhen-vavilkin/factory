@@ -255,7 +255,7 @@ public class FeedbackWorker implements AgentWorker {
         return new CodingRequest(original.issueKey(), original.summary(), description, List.of(),
                 original.linkedIssues(), original.acceptanceCriteria(), original.confirmedDecisions(), repository,
                 CodingRequest.Constraints.defaults(),
-                // Feedback rounds run with the profile, effort, turns and instructions of the task's run.
+                // Feedback rounds run with the model, effort and instructions of the task's run.
                 original.runSettings());
     }
 

@@ -32,12 +32,10 @@ public class JiraRestConnector implements JiraConnector, JiraSourceConnector, Co
 
     private final RestClient restClient;
     private final boolean authenticated;
-    private final String baseUrl;
 
     public JiraRestConnector(JiraProperties properties, RestClient.Builder builder) {
         this.authenticated = properties.isConfigured();
-        this.baseUrl = properties.baseUrl();
-        builder.baseUrl(baseUrl)
+        builder.baseUrl(properties.baseUrl())
                 .defaultHeader(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE);
         if (authenticated) {
             builder.defaultHeader(HttpHeaders.AUTHORIZATION, "Basic " + HttpHeaders.encodeBasicAuth(

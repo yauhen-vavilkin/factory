@@ -121,16 +121,16 @@ class GitHubRestConnectorTest {
         server.expect(requestTo("https://api.github.com/repos/o/r/pulls?state=all&head=o:factory/task-123&base=main"))
                 .andExpect(method(GET))
                 .andRespond(withSuccess("""
-                        [{"html_url":"https://github.com/o/r/pull/1","state":"open","merged":false,
+                        [{"html_url":"https://github.com/o/r/pull/1","state":"open","merged_at":null,
                           "head":{"repo":{"full_name":"o/r"},"ref":"factory/task-123","sha":"sha-open"},
                           "base":{"repo":{"full_name":"o/r"},"ref":"main"}},
-                         {"html_url":"https://github.com/o/r/pull/2","state":"closed","merged":false,
+                         {"html_url":"https://github.com/o/r/pull/2","state":"closed","merged_at":null,
                           "head":{"repo":{"full_name":"o/r"},"ref":"factory/task-123","sha":"sha-closed"},
                           "base":{"repo":{"full_name":"o/r"},"ref":"main"}},
-                         {"html_url":"https://github.com/o/r/pull/3","state":"closed","merged":true,
+                         {"html_url":"https://github.com/o/r/pull/3","state":"closed","merged_at":"2026-11-01T10:00:00Z",
                           "head":{"repo":{"full_name":"o/r"},"ref":"factory/task-123","sha":"sha-merged"},
                           "base":{"repo":{"full_name":"o/r"},"ref":"main"}},
-                         {"html_url":"https://github.com/other/r/pull/9","state":"open","merged":false,
+                         {"html_url":"https://github.com/other/r/pull/9","state":"open","merged_at":null,
                           "head":{"repo":{"full_name":"other/r"},"ref":"factory/task-123","sha":"sha-other"},
                           "base":{"repo":{"full_name":"other/r"},"ref":"main"}}]
                         """, MediaType.APPLICATION_JSON));

@@ -15,7 +15,6 @@ import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.tasks.Stop;
-import org.folio.factory.devfactory.tasks.TaskExecutionContext;
 import org.folio.factory.devfactory.tasks.TaskGuard;
 import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
@@ -97,7 +96,8 @@ public final class InitialCodingAttempt {
     private Run newRun(AgentContext context, CodingRequest request, DevFactoryProperties.Repository repository,
                        DockerWorkloads.StepScope scope) {
         var url = settings.repositories().gitUrl(repository.sourceRepo());
-        return new Run(context, request, repository, url, scope, taskGuard.policy().find(context.executionId()));
+        var taskRun = taskGuard.policy().find(context.executionId()).isPresent();
+        return new Run(context, request, repository, url, scope, taskRun);
     }
 
     private Attempt develop(Run run, Mode mode, RunState state) {
@@ -165,7 +165,7 @@ public final class InitialCodingAttempt {
         if (stop.isPresent()) {
             return stop;
         }
-        if (run.taskRun().isEmpty() || taskGuard.policy().claimPaidStart(run.executionId())) {
+        if (!run.taskRun() || taskGuard.policy().claimPaidStart(run.executionId())) {
             return Optional.empty();
         }
         // A replayed or retried engine step must not start a second paid coding invocation.
@@ -349,14 +349,14 @@ public final class InitialCodingAttempt {
         CONTINUATION
     }
 
-    /** One attempt inside its engine step; {@code taskRun} is empty outside My tasks. */
+    /** One attempt inside its engine step; {@code taskRun} is false outside My tasks. */
     private record Run(
             AgentContext context,
             CodingRequest request,
             DevFactoryProperties.Repository repository,
             String url,
             DockerWorkloads.StepScope scope,
-            Optional<TaskExecutionContext> taskRun) {
+            boolean taskRun) {
 
         UUID executionId() {
             return context.executionId();

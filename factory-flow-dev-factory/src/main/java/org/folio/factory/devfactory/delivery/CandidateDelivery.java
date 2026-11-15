@@ -2,6 +2,7 @@ package org.folio.factory.devfactory.delivery;
 
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
+import org.folio.factory.devfactory.intake.IssueSnapshot;
 import org.folio.factory.devfactory.runtime.Git;
 import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
@@ -56,7 +57,7 @@ public class CandidateDelivery {
         if (request.githubToken() == null || request.githubToken().isBlank()) {
             throw new DeliveryBlockedException("FACTORY_CONNECTORS_GITHUB_TOKEN is missing");
         }
-        if (request.issueKey() == null || !request.issueKey().matches("[A-Z][A-Z0-9]*-[0-9]+")) {
+        if (request.issueKey() == null || !IssueSnapshot.ISSUE_KEY.matcher(request.issueKey()).matches()) {
             throw new DeliveryBlockedException("Invalid delivery issue key");
         }
     }

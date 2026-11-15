@@ -112,7 +112,8 @@ public class GitHubRestConnector implements GitHubConnector, ConnectorHealth {
         return new PullRequest(
                 pr.path("html_url").asString(""),
                 pr.path("state").asString(""),
-                pr.path("merged").asBoolean(false),
+                // The list endpoint has no "merged" field; a merged pull request has a merge time.
+                pr.hasNonNull("merged_at"),
                 pr.path("head").path("ref").asString(""),
                 pr.path("head").path("sha").asString(""),
                 pr.path("base").path("ref").asString(""));
