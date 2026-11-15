@@ -509,10 +509,12 @@ Give a session this prompt:
   `DemoConsole`, light theme: the Dashboard (14 days) at 1280 px (headless Chrome) and 390 px (browser pane, page 390
   px wide), My tasks and the task page of 80021 at both widths, and the step cards of the run pages of 80005, 80010,
   80017, 80020, 80021, 80032, 80033, 80034 and 80035 (the same as after stage 2; they now also show a Usage section).
+  The run pages of 80021 and 80032 with their new Usage section at 1280 px and 390 px: both stay 390 px wide.
   Not seen: the Dashboard without the block, since every seed starts now (covered by the test). Not done: the
   independent review of the stage diff by a fresh agent (this session cannot start one); the new tests were written
   before the code but first run after it. Seen, not changed (for stage 4): at 390 px the task page of 80021 is 486 px
-  wide because of the two buttons of its status card, the same issue as 80034; a running attempt's amount on the
+  wide: the row of its status card holds the amount ("$2.32 spent in 3 attempts", which stage 3's seed now gives) and
+  the two buttons, and "Open run" ends at 486 px, the same issue as 80034; a running attempt's amount on the
   Dashboard has no "so far".
 - [ ] Stage 4. Console clean-up
 - [ ] Stage 5. Final check
