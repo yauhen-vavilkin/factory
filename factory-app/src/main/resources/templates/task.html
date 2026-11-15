@@ -152,6 +152,40 @@
         </div>
     </section>
 
+    <section class="dev-list" aria-labelledby="spending-title" th:if="${spending != null}">
+        <div class="dev-list-head">
+            <h2 class="dev-section-title" id="spending-title">Spending</h2>
+            <span class="src">Factory</span>
+        </div>
+        <div class="spend-table">
+            <table>
+                <thead><tr><th scope="col">Attempt</th><th scope="col">Model</th><th
+                        scope="col" class="num" th:each="column : ${spending.tokenColumns()}"
+                        th:text="${column}" th:title="${column} + ' tokens'">Input</th><th scope="col"
+                        class="num">Cost</th></tr></thead>
+                <tbody>
+                <tr th:each="row : ${spending.rows()}">
+                    <td><a class="table-link" th:if="${row.runUrl() != null}" th:href="@{${row.runUrl()}}"
+                           th:text="${row.label()}">Attempt 1</a><span th:if="${row.runUrl() == null}"
+                            th:text="${row.label()}">Attempt 1</span></td>
+                    <td th:text="${row.model()}">glm-5.3 · max</td>
+                    <td class="num" th:each="tokens : ${row.tokens()}" th:text="${tokens}">0</td>
+                    <td class="num" th:title="${row.costTitle()}" th:text="${row.cost()}">$0.00</td>
+                </tr>
+                </tbody>
+                <tfoot th:if="${spending.total() != null}">
+                <tr>
+                    <td th:text="${spending.total().label()}">Total</td>
+                    <td></td>
+                    <td class="num" th:each="tokens : ${spending.total().tokens()}" th:text="${tokens}">0</td>
+                    <td class="num" th:title="${spending.total().costTitle()}"
+                        th:text="${spending.total().cost()}">$0.00</td>
+                </tr>
+                </tfoot>
+            </table>
+        </div>
+    </section>
+
 </div>
 </body>
 </html>

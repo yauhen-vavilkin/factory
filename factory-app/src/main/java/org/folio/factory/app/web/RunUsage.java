@@ -16,9 +16,6 @@ record RunUsage(DeveloperRunView.Usage column, String amount, boolean partial, L
 
     static final String INCOMPLETE = "Some usage was not reported, so the real cost may be higher.";
     static final String NO_PRICE = "No price is set for this model, so the cost is not known.";
-    private static final Map<AttemptCharge.Category, String> LABELS = Map.of(
-            AttemptCharge.Category.INPUT, "Input", AttemptCharge.Category.CACHE_READ, "Cache read",
-            AttemptCharge.Category.CACHE_WRITE, "Cache write", AttemptCharge.Category.OUTPUT, "Output");
 
     /**
      * A run with PR feedback rounds titles its column "First implementation", since the status card shows the
@@ -31,7 +28,7 @@ record RunUsage(DeveloperRunView.Usage column, String amount, boolean partial, L
         for (var category : AttemptCharge.Category.values()) {
             var count = first.breakdown().getOrDefault(category, 0L);
             if (count > 0) {
-                figures.add(new Figure(LABELS.get(category), UiFormat.count(count)));
+                figures.add(new Figure(category.label(), UiFormat.count(count)));
             }
         }
         var total = !first.present() ? null : first.tokensReported() ? UiFormat.count(first.tokens()) : "—";
@@ -69,7 +66,7 @@ record RunUsage(DeveloperRunView.Usage column, String amount, boolean partial, L
         for (var category : AttemptCharge.Category.values()) {
             var value = totals.get(category.key());
             if (value != null) {
-                figures.add(new Figure(LABELS.get(category), value.toString()));
+                figures.add(new Figure(category.label(), value.toString()));
             }
         }
         return List.copyOf(figures);

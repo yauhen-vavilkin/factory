@@ -36,15 +36,19 @@ public class TaskRevisions {
                 + "|" + running();
     }
 
-    /** The task page: everything its status card and attempt rows show. */
+    /**
+     * The task page: everything its status card and attempt rows show. The token counts of Spending are left out:
+     * they change with every turn of the agent, and the page would reload every few seconds while it works. They
+     * are fresh again when the cost or the state changes.
+     */
     public static String task(TaskDetail task, List<AttemptRow> attemptRows) {
         return hash(task + "|" + attemptRows);
     }
 
     /**
      * What the strip and the Runs rows show for each task whose run works now, a first implementation or a PR
-     * feedback round. Usage events change no attempt row, so without this the cost and the minutes would stand
-     * still until the run ends.
+     * feedback round. Usage events change no attempt row, so without this the cost and the minutes, also the time
+     * the agent worked while a PR feedback round runs, would stand still until the run ends.
      */
     private String running() {
         var shown = executions.findByStatus(ExecutionStatus.RUNNING).stream()

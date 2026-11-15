@@ -21,7 +21,7 @@ public record AttemptCharge(
     private static final BigDecimal TOKENS_PER_MILLION = BigDecimal.valueOf(1_000_000);
 
     public enum Category {
-        INPUT(TokenUsage::inputTokens, "inputPerMillion", "input", "Input (uncached)"),
+        INPUT(TokenUsage::inputTokens, "inputPerMillion", "input", "Input"),
         CACHE_READ(TokenUsage::cacheReadTokens, "cacheReadPerMillion", "cacheRead", "Cache read"),
         CACHE_WRITE(TokenUsage::cacheWriteTokens, "cacheWritePerMillion", "cacheWrite", "Cache write"),
         OUTPUT(TokenUsage::outputTokens, "outputPerMillion", "output", "Output");
@@ -46,6 +46,7 @@ public record AttemptCharge(
             return key;
         }
 
+        /** The category's name on the run page and the task page. */
         public String label() {
             return label;
         }

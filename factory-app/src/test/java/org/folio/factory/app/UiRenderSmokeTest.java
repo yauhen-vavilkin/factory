@@ -1921,9 +1921,11 @@ class UiRenderSmokeTest {
         assertThat(block).containsPattern(linkTo("/tasks/" + delivered.getId(), "Task delivered on its second attempt"))
                 .contains("aria-label=\"Ended in a pull request: $0.30 · No pull request: $0.40\"")
                 .doesNotContain("class=\"kpi\"");
-        // The row says what the task page says.
+        // The row says what the task page says, and the task page says what each attempt used and cost.
         assertThat(text(assertRendered("/tasks/" + delivered.getId(), "Pull request #41")))
-                .contains("$0.70 spent in 2 attempts");
+                .contains("$0.70 spent in 2 attempts")
+                .containsSubsequence("Spending", "Attempt Model Input Cost", "Attempt 2", "300,000 $0.30",
+                        "Attempt 1", "400,000 $0.40", "Total 700,000 $0.70");
         // A longer period counts the older run too.
         assertThat(text(spendingBlock(assertRendered("/?days=30", "Developer Flow spending"))))
                 .contains("$6.90 Spent", "$0.30 Ended in a pull request", "$6.60 Attempts without a pull request",
@@ -2087,6 +2089,8 @@ class UiRenderSmokeTest {
         assertThat(body).contains("data-poll-fields=\"revision\"",
                 "data-poll-url=\"/tasks/" + stopped.getId() + "/poll\"",
                 "<p class=\"dev-poll-notice\" role=\"status\" data-poll-notice hidden>This task changed.");
+        // An attempt that reported no tokens has nothing to show under Spending.
+        assertThat(body).doesNotContain("spending-title");
         Matcher baseline = Pattern.compile("data-poll-baseline=\"([0-9a-f]+)\"").matcher(body);
         assertThat(baseline.find()).isTrue();
         // Nothing changed since the page was built: the poll gives the page's own baseline.

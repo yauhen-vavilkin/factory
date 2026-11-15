@@ -11,6 +11,7 @@ import org.folio.factory.app.tasks.presentation.TaskAnswers;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
 import org.folio.factory.app.tasks.presentation.TaskRevisions;
 import org.folio.factory.app.tasks.presentation.TaskRows;
+import org.folio.factory.app.tasks.presentation.TaskSpending;
 import org.folio.factory.app.tasks.presentation.Turn;
 import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.springframework.beans.factory.ObjectProvider;
@@ -53,6 +54,7 @@ public class TaskPageController {
         model.addAttribute("task", task);
         model.addAttribute("question", answers.question(view).orElse(null));
         model.addAttribute("attempts", attempts);
+        model.addAttribute("spending", TaskSpending.of(view, attempts, task).orElse(null));
         model.addAttribute("queueProblem", task.turn() == Turn.QUEUED ? dispatcher.queueProblem() : null);
         model.addAttribute("pollUrl", "/tasks/" + taskId + "/poll");
         model.addAttribute("pollBaseline", TaskRevisions.task(task, attempts));

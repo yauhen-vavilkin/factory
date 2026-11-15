@@ -1272,6 +1272,13 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .spend-group .dev-row-meta { column-gap: 10px; }
 .spend-group .dev-row-meta > * + * { margin-left: 0; }
 @media (max-width: 560px) { .spend-group > .row-cluster-status { grid-template-columns: 88px; } }
+/* Task page: what each attempt used and cost. A table without a frame, its edge cells in line with the Attempts
+   rows; on a narrow screen it scrolls in its own box. */
+.spend-table { overflow-x: auto; }
+.spend-table th, .spend-table td { padding: 10px 12px; white-space: nowrap; }
+.spend-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.spend-table tbody tr:hover { background: none; }
+.spend-table tfoot td { border-top: 1px solid hsl(var(--border)); font-weight: 600; }
 /* Definition: one numbered list of steps, each with its kind and what it reads and writes. */
 .dev-page > .page-header { margin-bottom: 0; }
 .def-steps { margin: 0; padding: 0; list-style: none; }
