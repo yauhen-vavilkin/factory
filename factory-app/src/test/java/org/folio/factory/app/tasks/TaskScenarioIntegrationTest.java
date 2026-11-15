@@ -435,8 +435,8 @@ class TaskScenarioIntegrationTest {
         assertThat(stateManager.get(latestAttempt(taskId).getExecutionId()).getStatus())
                 .isEqualTo(ExecutionStatus.FAILED_ESCALATED);
         assertFailedWithoutPullRequest(taskId, "GitHub rate limit MODBAR-210",
-                "Factory could not finish the Publish step after 3 tries: 429 Too Many Requests: \"{\"message\":"
-                        + " \"API rate limit exceeded\"}\". Start a new attempt.",
+                "Factory could not finish the step \"Create pull request\" after 3 tries: 429 Too Many Requests:"
+                        + " \"{\"message\": \"API rate limit exceeded\"}\". Start a new attempt.",
                 List.of("2 · Implement changes Passed", "3 · Verify changes Passed", "4 · Create pull request Failed"));
     }
 

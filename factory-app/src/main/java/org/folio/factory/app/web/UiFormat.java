@@ -149,6 +149,11 @@ public final class UiFormat {
         return text.isEmpty() ? id : Character.toUpperCase(text.charAt(0)) + text.substring(1);
     }
 
+    /** An engine step as the run page names its card ("publish" → "Create pull request"), else its id in words. */
+    public static String stepInWords(String stepId) {
+        return RunSteps.label(stepId).orElseGet(() -> inWords(stepId));
+    }
+
     static String stepLabel(StepDescriptor step) {
         return switch (step.type()) {
             case AGENT -> step.workerId();

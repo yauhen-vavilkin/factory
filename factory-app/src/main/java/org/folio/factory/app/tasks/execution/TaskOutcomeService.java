@@ -196,16 +196,22 @@ public class TaskOutcomeService {
                 TaskStops.sharedFailure(reason, codingFailureCode) ? "shared: " + reason : reason, null, null);
     }
 
-    /** Why a run ended without a stage result: the step the engine gave up on after its tries, or its status. */
+    /**
+     * Why a run ended without a stage result: the step the engine gave up on after its tries, or its status. The
+     * engine stores an error only when it retries a step and clears a step's count when it passes, so the error is
+     * the one of this step only when the step failed at least twice.
+     */
     private String runEnded(PipelineExecution execution) {
-        var flow = flows.require(DevFactoryConfiguration.FLOW_ID);
+        var chain = flows.require(DevFactoryConfiguration.FLOW_ID).agentChain();
         int step = execution.getCurrentStepIndex();
         if (execution.getStatus() != ExecutionStatus.FAILED_ESCALATED || execution.getErrorMessage() == null
-                || step < 0 || step >= flow.agentChain().size()) {
+                || step < 0 || step >= chain.size()) {
             return RUN_ENDED + execution.getStatus();
         }
-        return StopReasons.engineGaveUp(flow.agentChain().get(step).stepId(), flow.retryPolicy().maxAttempts(),
-                execution.getErrorMessage());
+        var stepId = chain.get(step).stepId();
+        int tries = json.readTree(execution.getRetryCounts()).path(stepId).asInt(0);
+        return tries < 2 ? RUN_ENDED + execution.getStatus()
+                : StopReasons.engineGaveUp(stepId, tries, execution.getErrorMessage());
     }
 
     private AttemptOutcome release(TaskAttempt attempt, Classification classification) {

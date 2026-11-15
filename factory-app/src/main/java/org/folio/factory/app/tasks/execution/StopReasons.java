@@ -40,12 +40,13 @@ public final class StopReasons {
     }
 
     /**
-     * The reason of a run whose engine gave up on step {@code stepId} after {@code tries} failed tries; the error
-     * the engine stored is cut to its first line, without credentials, ids or a bare exception name.
+     * The reason of a run whose engine gave up on step {@code stepId} after {@code tries} failed tries, with the step
+     * named as its card on the run page; the error the engine stored is cut to its first line, without credentials,
+     * ids or a bare exception name.
      */
     public static String engineGaveUp(String stepId, int tries, String error) {
-        return "Factory could not finish the " + UiFormat.inWords(stepId) + " step after " + tries + " tries: "
-                + oneLine(error) + ". Start a new attempt.";
+        return "Factory could not finish the step \"" + UiFormat.stepInWords(stepId) + "\" after " + tries
+                + " tries: " + oneLine(error) + ". Start a new attempt.";
     }
 
     private static String oneLine(String error) {

@@ -14,6 +14,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -42,6 +43,11 @@ record RunSteps(List<Step> cards, String current) {
     }
 
     private record Timing(long seconds, boolean seen, boolean running) {
+    }
+
+    /** The label of the card that covers this engine step, empty for a step no card covers. */
+    static Optional<String> label(String stepId) {
+        return CURRENT_PHASES.stream().filter(phase -> phase.stepIds().contains(stepId)).map(Phase::label).findFirst();
     }
 
     static RunSteps of(PipelineExecution execution, List<AuditEvent> events, Instant now,

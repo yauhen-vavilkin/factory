@@ -147,6 +147,9 @@ class TaskLifecycleIntegrationTest {
         if (withResult) {
             failExecution(executionId, "{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"syntax\"}");
         } else {
+            // The engine keeps the error of the last retried step; an escalation of a step it never retried must
+            // not name it.
+            stateManager.scheduleRetry(executionId, 0, "an earlier step failed once");
             stateManager.transition(executionId, ExecutionStatus.FAILED_ESCALATED,
                     java.util.Map.of("error", "step exhausted retries"));
         }
