@@ -2,6 +2,7 @@ package org.folio.factory.app.web;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.admission.TaskRunSettings;
@@ -32,6 +33,7 @@ import static org.folio.factory.app.web.TaskUiController.requireSameOrigin;
 import static org.folio.factory.devfactory.DevFactoryConfiguration.FLOW_ID;
 
 /** The task page: its state, the agent's question or the next attempt, the attempts so far, and their actions. */
+@Slf4j
 @Controller
 @RequiredArgsConstructor
 public class TaskPageController {
@@ -119,6 +121,10 @@ public class TaskPageController {
             refusal = outcomeService.markStopped(taskId, attemptId);
         } catch (ConcurrencyFailureException e) {
             refusal = "The task changed at the same moment; reload and try again.";
+        } catch (RuntimeException e) {
+            log.warn("Could not close attempt {} of task {} as failed", attemptId, taskId, e);
+            refusal = "Factory could not close the attempt as failed; try again in a moment, and see the Factory log "
+                    + "if it fails again.";
         }
         if (refusal != null) {
             return UiFormat.errorRedirect(back, refusal);

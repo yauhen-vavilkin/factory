@@ -19,7 +19,7 @@ public final class PullRequestRenderer {
     private static final Pattern DIFF_PATH = Pattern.compile("^diff --git a/(.+) b/(.+)$");
     private static final Pattern QUOTED_DIFF_PATH =
             Pattern.compile("^diff --git \"a/(.+)\" \"b/(.+)\"$");
-    private static final Pattern URL = Pattern.compile("(?i)https?://\\S+");
+    private static final Pattern URL = Pattern.compile("(?i)(?:https?://|www\\.)\\S+");
     private static final Pattern RUNTIME_CHECKS = Pattern.compile("(?i)\\bChecks passed:");
     private static final String CHANGES = "Changes";
     private static final String CRITERIA = "Acceptance criteria";

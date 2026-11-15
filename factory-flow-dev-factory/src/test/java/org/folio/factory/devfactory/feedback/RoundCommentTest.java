@@ -43,6 +43,26 @@ class RoundCommentTest {
                         "model&#95;secret");
     }
 
+    /** A long report is cut at a line end, so a token on the last line kept is still redacted whole. */
+    @Test
+    void aLongReportIsCutAtALineEndSoATokenIsNeverCutInTwo() {
+        var posted = new StringBuilder();
+        var audit = mock(AuditLog.class);
+        when(audit.forExecution(any())).thenReturn(List.of());
+        var state = new FeedbackState();
+        state.round = 2;
+        state.commitSha = "def456";
+        state.pr = new PrFeedbackGateway.PullRequest("fork/repo", 7, "factory/task", "main", "def456",
+                "https://github.com/fork/repo/pull/7", true);
+        // The token starts at about character 5990 of the section, so a cut at 6000 would split it.
+        state.summary = "## Changes\n- see www.evil.example\n- " + "x".repeat(5956)
+                + "\n- token ghp_abcdefghijklmnopqrstuvwxyz0123\n";
+
+        new RoundComment(writer(posted), audit).post(UUID.randomUUID(), "pr-follow-up", state, text -> text);
+
+        assertThat(posted.toString()).endsWith("[cut]").doesNotContain("ghp", "www.evil");
+    }
+
     private static PrCommentWriter writer(StringBuilder posted) {
         return new PrCommentWriter() {
             @Override

@@ -1139,6 +1139,19 @@ class TaskUiControllerTest {
     }
 
     @Test
+    void markStopped_failureSaysFactoryCouldNotCloseTheAttempt() throws Exception {
+        when(outcomes.getIfAvailable()).thenReturn(outcomeService);
+        when(outcomeService.markStopped(TASK_ID, ATTEMPT_ID)).thenThrow(new IllegalStateException("connection lost"));
+
+        mvc.perform(post("/tasks/{taskId}/attempts/{attemptId}/mark-stopped", TASK_ID, ATTEMPT_ID))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/tasks/" + TASK_ID + "?error=Factory+could+not+close+the+attempt+as+failed%3B"
+                        + "+try+again+in+a+moment%2C+and+see+the+Factory+log+if+it+fails+again."));
+
+        verifyNoInteractions(dispatcher);
+    }
+
+    @Test
     void markStopped_refusalDoesNotDispatch() throws Exception {
         when(outcomes.getIfAvailable()).thenReturn(outcomeService);
         when(outcomeService.markStopped(TASK_ID, ATTEMPT_ID))

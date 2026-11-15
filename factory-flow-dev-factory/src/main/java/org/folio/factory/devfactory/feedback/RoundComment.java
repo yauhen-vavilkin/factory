@@ -67,9 +67,15 @@ public final class RoundComment {
         // The report is model text that a PR comment can steer, so it gets the cleaning of the PR body.
         var summary = changes.length() <= MAX_SUMMARY
                 ? PullRequestRenderer.safeReport(changes)
-                : PullRequestRenderer.safeReport(changes.substring(0, MAX_SUMMARY)) + "\n\n[cut]";
+                : PullRequestRenderer.safeReport(wholeLines(changes)) + "\n\n[cut]";
         return MARKER + executionId + " " + state.round + " -->\n"
                 + "Factory round " + state.round + ": pushed " + state.commitSha + ".\n\n" + summary;
+    }
+
+    /** Cut at a line end: the cleaning redacts tokens line by line, and a token cut in two would not match. */
+    private static String wholeLines(String changes) {
+        var end = changes.lastIndexOf('\n', MAX_SUMMARY);
+        return end > 0 ? changes.substring(0, end) : changes.lines().findFirst().orElse("");
     }
 
     @SuppressWarnings("unchecked")
