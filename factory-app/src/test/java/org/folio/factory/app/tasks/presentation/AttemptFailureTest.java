@@ -117,6 +117,24 @@ class AttemptFailureTest {
     }
 
     @Test
+    void aWholeAttemptDeadlineThatTheGuardStoredAtVerifyOrPublishNeedsNoStageInFront() {
+        // The task guard stores "<step id>: <reason>", and the step ids are verify and publish.
+        assertDeadline("verify: " + TaskStops.deadlineReason("verification"), "verification");
+        assertDeadline("publish: " + TaskStops.deadlineReason("publication"), "publication");
+        assertDeadline("verify: the whole-attempt deadline expired before verification; queue and human-review"
+                + " waiting are excluded from the budget", "verification");
+        assertDeadline("publish: the whole-attempt deadline expired before publication; queue and human-review"
+                + " waiting are excluded from the budget", "publication");
+    }
+
+    private static void assertDeadline(String stored, String stage) {
+        var reason = AttemptFailure.reason(stored);
+
+        assertThat(reason).isEqualTo(TaskStops.deadlineReason(stage)).doesNotContain("failed:");
+        assertThat(AttemptFailure.limitsUrl(reason)).isEqualTo("/developer/configuration#limits");
+    }
+
+    @Test
     void failedChecksSayWhetherTheyFailedOrCouldNotRun() {
         assertThat(AttemptFailure.reason("VERIFICATION_FAILED: 2 of 300 tests failed"))
                 .isEqualTo("Checks failed: 2 of 300 tests failed.");

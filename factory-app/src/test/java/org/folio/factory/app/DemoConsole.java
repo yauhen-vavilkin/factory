@@ -186,8 +186,9 @@ class DemoConsole {
         // The limits are the shipped defaults: 60 minutes per step and 400 turns.
         stopped("80017", "Task stopped at the time limit", "DEVELOPMENT_FAILED: " + TaskStops.timeLimitReason(60));
         stopped("80018", "Task stopped at the turn limit", "DEVELOPMENT_FAILED: " + TaskStops.turnLimitReason(400));
+        // What the task guard stores when the whole-attempt time runs out before the verify step.
         stopped("80020", "Task stopped at the whole-attempt deadline",
-                TaskStops.DEADLINE_STATE + ": " + TaskStops.deadlineReason("verification"));
+                "verify: " + TaskStops.deadlineReason("verification"));
         stopped("80019", "Task stopped by the shared configuration", "DEVELOPMENT_FAILED: Coding runtime"
                 + " configuration is incomplete or unsupported; check Developer Flow configuration.");
         stopped("80035", "Task whose pull request GitHub refused",

@@ -60,10 +60,26 @@ public record AttemptFailure(String headline, String reason) {
         }
         var failed = failedWords(stage.group(1));
         var cause = withoutLayerPrefixes(stage.group(2).strip());
+        var deadline = deadline(cause);
+        if (deadline != null) {
+            return deadline;
+        }
         if (failed == null) {
             return sentence(knownCause(cause));
         }
         return cause.isEmpty() ? failed + "." : failed + ": " + withFullStop(cause);
+    }
+
+    /**
+     * The whole-attempt deadline, also in the words of older runs; null for any other cause. It names the stage it
+     * stopped before, so it needs no "Verification failed: " in front, and the page can link the limits under it.
+     */
+    private static String deadline(String cause) {
+        if (cause.startsWith(TaskStops.DEADLINE_START)) {
+            return withFullStop(cause);
+        }
+        Matcher older = OLD_DEADLINE.matcher(cause);
+        return older.find() ? TaskStops.deadlineReason(older.group(1)) : null;
     }
 
     /** What failed, in front of the cause; null when the cause says it alone (implementation, no stage). */
@@ -146,8 +162,7 @@ public record AttemptFailure(String headline, String reason) {
         if (text.startsWith(OLD_REPLAYED_CODING)) {
             return TaskStops.REPLAYED_CODING_REASON;
         }
-        Matcher deadline = OLD_DEADLINE.matcher(text);
-        return deadline.find() ? TaskStops.deadlineReason(deadline.group(1)) : null;
+        return deadline(text);
     }
 
     /** The causes Factory stores in its own words; the reason of a question is the question alone. */
