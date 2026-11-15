@@ -1,6 +1,14 @@
 package org.folio.factory.devfactory.feedback;
 
+import org.folio.factory.devfactory.verification.VerificationFailure;
+import org.folio.factory.devfactory.verification.VerificationReceipt;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+
+import java.time.Instant;
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.*;
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.JSON;
 
@@ -39,6 +47,40 @@ class FeedbackStateTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(state.phase()).isEqualTo(FeedbackState.Phase.INIT);
         assertThat(state.attemptId()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "CANDIDATE|1|300|2|0|Checks failed: some tests failed.",
+            "UNKNOWN|1|10|1|1|Checks failed: some tests failed.",
+            "CANDIDATE_COMPILE|0||||Checks failed: the code does not compile.",
+            "ENVIRONMENT|0||||Checks could not run: the build environment failed (Docker, network, disk space or"
+                    + " time limit).",
+            "INVALID_EVIDENCE|0||||Checks could not run: the test reports could not be read.",
+            "INSUFFICIENT_EVIDENCE|0||||Checks could not run: no test reports were written.",
+            "UNKNOWN|0||||Checks failed: the build failed with exit code 1."})
+    void failedChecksSayTheirCauseInWordsWithoutTheCountTheRoundShows(VerificationFailure kind, int reports,
+                                                                      Integer tests, Integer failures, Integer errors,
+                                                                      String reason) {
+        var state = JSON.readValue("{\"phase\":\"VERIFY\"}", FeedbackState.class);
+        var receipt = failedReceipt(kind, reports, tests, failures, errors);
+
+        state.verified(receipt);
+
+        assertThat(state.phase()).isEqualTo(FeedbackState.Phase.FAILURE);
+        assertThat(state.failureKind()).isEqualTo(kind.name());
+        assertThat(state.reason()).isEqualTo(reason);
+        assertThat(FeedbackActions.allowed(state)).contains(FeedbackActions.Action.RETRY_CODE);
+        // The words are not stored with the receipt.
+        assertThat(JSON.valueToTree(receipt).has("failureReason")).isFalse();
+    }
+
+    private static VerificationReceipt failedReceipt(VerificationFailure kind, int reports, Integer tests,
+                                                     Integer failures, Integer errors) {
+        var now = Instant.now();
+        return new VerificationReceipt("execution", "repo", "a".repeat(40), "b".repeat(40), "c".repeat(64), "plan",
+                "image", List.of("mvn", "test"), "checks", now, now, 1, reports, tests, failures, errors, "FAIL",
+                "output", kind, 0, List.of(), List.of());
     }
 
     @Test

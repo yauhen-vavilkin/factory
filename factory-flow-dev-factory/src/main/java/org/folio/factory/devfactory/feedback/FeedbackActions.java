@@ -16,12 +16,14 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.folio.factory.devfactory.DevFactoryConfiguration;
+import org.folio.factory.devfactory.verification.VerificationFailure;
 
 /** Network reads happen before short, version-checked command transactions. */
 public class FeedbackActions {
@@ -281,7 +283,7 @@ public class FeedbackActions {
     }
 
     private static void addFailureActions(FeedbackState state, List<Action> actions) {
-        if (Set.of("CODING", "CANDIDATE", "CANDIDATE_COMPILE").contains(state.failureKind)) {
+        if (isCodingOrChecksFailure(state.failureKind)) {
             actions.add(Action.RETRY_CODE);
         }
         if (!Set.of("CODING", "OPERATION").contains(state.failureKind)) {
@@ -290,5 +292,14 @@ public class FeedbackActions {
         if (state.resumePhase != null && state.resumePhase != CODE && state.resumePhase != FINISH) {
             actions.add(Action.RETRY_OPERATION);
         }
+    }
+
+    /**
+     * The person may let the agent try again after its own failure and after failed checks of any kind: otherwise
+     * only the same checks or a new paid round, which drops the saved work, would be left.
+     */
+    private static boolean isCodingOrChecksFailure(String failureKind) {
+        return "CODING".equals(failureKind) || Arrays.stream(VerificationFailure.values())
+                .anyMatch(failure -> failure != VerificationFailure.NONE && failure.name().equals(failureKind));
     }
 }

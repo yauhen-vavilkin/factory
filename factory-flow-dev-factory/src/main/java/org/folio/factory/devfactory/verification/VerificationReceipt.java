@@ -52,6 +52,30 @@ public record VerificationReceipt(String executionId, String repository, String 
         }
     }
 
+    /**
+     * Why the checks did not pass, in the words of the task pages but without the test count, which the page shows
+     * next to it: "Checks failed: the code does not compile." Blank for checks that passed.
+     */
+    public String failureReason() {
+        if ("PASS".equals(result)) {
+            return "";
+        }
+        if (failureKind == VerificationFailure.CANDIDATE_COMPILE) {
+            return "Checks failed: the code does not compile.";
+        }
+        // Tests that failed are the cause even when the build environment looks broken too.
+        if (testCount != null && testCount > 0 && failureCount + errorCount > 0) {
+            return "Checks failed: some tests failed.";
+        }
+        return switch (failureKind) {
+            case ENVIRONMENT -> "Checks could not run: the build environment failed (Docker, network, disk space"
+                    + " or time limit).";
+            case INVALID_EVIDENCE -> "Checks could not run: the test reports could not be read.";
+            case INSUFFICIENT_EVIDENCE -> "Checks could not run: no test reports were written.";
+            default -> "Checks failed: the build failed with exit code " + exitCode + ".";
+        };
+    }
+
     private static VerificationFailure defaultFailureKind(String result) {
         return "PASS".equals(result) ? VerificationFailure.NONE : VerificationFailure.UNKNOWN;
     }

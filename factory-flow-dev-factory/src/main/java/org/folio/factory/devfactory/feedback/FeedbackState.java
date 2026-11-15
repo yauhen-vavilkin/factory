@@ -301,7 +301,7 @@ public class FeedbackState {
         } else {
             phase = Phase.FAILURE;
             failureKind = receipt.failureKind().name();
-            reason = "Independent checks failed: " + receipt.failureKind();
+            reason = receipt.failureReason();
         }
     }
 

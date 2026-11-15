@@ -84,7 +84,7 @@ class PrFeedbackIntegrationTest {
     UUID id;
     String branch;
     int calls;
-    boolean noChanges, ask, checksFail, cleanupFails, exportFails, closed, merged, mergeDuringCode, statusFails, badPolicy;
+    boolean noChanges, ask, checksFail, checksCannotRun, cleanupFails, exportFails, closed, merged, mergeDuringCode, statusFails, badPolicy;
     String commentsRevision="1";
     Map<String,Object> usage=Map.of("model","fixture-model","inputTokens",100L,"cacheReadTokens",0L,"cacheWriteTokens",0L,"outputTokens",20L);
     /** One fork and one working copy per class; every test starts from the initial commit with no refs. */
@@ -98,7 +98,7 @@ class PrFeedbackIntegrationTest {
         git(work,"reset","--quiet","--hard",base); git(work,"clean","-qfdx");
     }
     @BeforeEach void setup() throws Exception {
-        calls=0; noChanges=ask=checksFail=cleanupFails=exportFails=closed=merged=mergeDuringCode=statusFails=badPolicy=false; commentsRevision="1";
+        calls=0; noChanges=ask=checksFail=checksCannotRun=cleanupFails=exportFails=closed=merged=mergeDuringCode=statusFails=badPolicy=false; commentsRevision="1";
         resetFork();
         id=state.createExecution("dev-factory",VERSION,null).getId(); branch="factory/test-1-"+id;
         git(work,"push",bare.toString(),"HEAD:refs/heads/"+branch);
@@ -131,6 +131,8 @@ class PrFeedbackIntegrationTest {
         });
         when(verifier.verify(any(),anyString(),any(),anyString(),anyInt())).thenAnswer(i->{
             Candidate c=i.getArgument(2); Instant now=Instant.now();
+            // The build environment failed before the tests wrote a report.
+            if(checksCannotRun) return new VerificationReceipt(id.toString(),c.repository(),c.baseSha(),c.treeSha(),c.patchSha256(),"fixture-checks","fixture-image",List.of("fixture-check"),"scripted-checks",now,now,1,0,null,null,null,"FAIL","Cannot connect to the Docker daemon",VerificationFailure.ENVIRONMENT,0,List.of(),List.of());
             return new VerificationReceipt(id.toString(),c.repository(),c.baseSha(),c.treeSha(),c.patchSha256(),badPolicy?"previous-checks":"fixture-checks","fixture-image",List.of("fixture-check"),"scripted-checks",now,now,checksFail?1:0,1,1,checksFail?1:0,0,checksFail?"FAIL":"PASS","Independent fixture report",checksFail?VerificationFailure.CANDIDATE:VerificationFailure.NONE,0,List.of(),List.of());
         });
         var request=new CodingRequest("TEST-1","Fixture task","Fix behavior",List.of(),List.of(),List.of("Checks pass"),List.of(),
@@ -268,9 +270,15 @@ class PrFeedbackIntegrationTest {
         assertThat(runPage()).contains("Your answer is needed","Keep both options?","Answer and continue"); assertThat(actions.patch(id)).contains("fix 1");
         assertThat(pr().headSha()).isEqualTo(base); verifyNoInteractions(verifier);
         ask=false; checksFail=true; action(ANSWER); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.FAILURE);
-        assertThat(runPage()).contains("Action needed","Checks failed: 1 of 1 tests failed.","Try fixing with the agent","Run checks again");
+        assertThat(runPage()).contains("Action needed","Checks failed: some tests failed.","Checks failed: 1 of 1 tests failed.","Try fixing with the agent","Run checks again").doesNotContain("Independent checks failed");
         assertThat(actions.patch(id)).contains("fix 1","fix 2"); assertThat(pr().headSha()).isEqualTo(base);
         checksFail=false; action(RETRY_CHECKS); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(2);
+    }
+    @Test void checksThatCouldNotRunSayWhyAndTheAgentCanStillTryAgain() {
+        checksCannotRun=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.FAILURE);
+        assertThat(runPage()).contains("Action needed","Checks could not run: the build environment failed (Docker, network, disk space or time limit).","Try fixing with the agent","Run checks again")
+                .doesNotContain("Independent checks failed","ENVIRONMENT");
+        checksCannotRun=false; action(RETRY_CODE); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(2);
     }
     @Test void rejectsOldSelectionsDuplicateCommandsAndEveryGenericDecision() {
         drive(); var v=actions.refresh(id,view().version());
