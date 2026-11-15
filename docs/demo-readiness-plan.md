@@ -462,6 +462,14 @@ Give a session this prompt:
   delivered attempt the reason names the branch with an id (`factory/modbar-211-<uuid>`) and the
   known pull request is hidden again; the `stopped()` demo seeds show every step as Passed on the
   run page; `StopReasons` (tasks.execution) uses `UiFormat` (web), as 2.4 asked.
+  Review round 1 (fresh agent): two findings. Fixed: 2.5 worked only for a deadline at the
+  implement step; the guard stores "verify: …" or "publish: …", so the pages read "Verification
+  failed: The attempt used all of its time …" without the Limits link (e3e97d8: `AttemptFailure`
+  says the deadline alone, also in the old words, and seed 80020 now stores the shape the guard
+  writes); the stage word "candidate freeze" in that reason is now "saving the agent's changes"
+  (7fa94f8). Deferred to the stage 4 wrapping check, as recorded above: the 557 px task page of
+  80034 at 390 px. Looked at again after the fix: 80020 on My tasks, its task page and its run
+  page, light theme, 1280 px and 390 px. `mvn verify` passed.
 - [ ] Stage 3. Dashboard spending
 - [ ] Stage 4. Console clean-up
 - [ ] Stage 5. Final check
