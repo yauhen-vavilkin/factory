@@ -47,6 +47,18 @@ class StopReasonsTest {
         assertThat(StopReasons.engineGaveUp("publish", 3, "429 Too Many Requests: rate limit.\nat line 2"))
                 .isEqualTo("Factory could not finish the step \"Create pull request\" after 3 tries: 429 Too Many"
                         + " Requests: rate limit. Start a new attempt.");
+        // The JSON body an HTTP client quotes after the status reads as its message.
+        assertThat(StopReasons.engineGaveUp("publish", 3,
+                "429 Too Many Requests: \"{\"message\": \"API rate limit exceeded\"}\""))
+                .isEqualTo("Factory could not finish the step \"Create pull request\" after 3 tries: 429 Too Many"
+                        + " Requests: API rate limit exceeded. Start a new attempt.");
+        assertThat(StopReasons.engineGaveUp("publish", 3, "502 Bad Gateway: \"{\"error\": 7}\""))
+                .contains("after 3 tries: 502 Bad Gateway: \"{\"error\": 7}\". Start");
+        // The message is read first, then cut to its first line and cleared of credentials like any other error.
+        assertThat(StopReasons.engineGaveUp("publish", 3, "500 Server Error: \"{\"message\": \"fetch"
+                + " https:\\/\\/bot:hunter2@example.org\\/x failed\\nsecond line\"}\""))
+                .contains("after 3 tries: 500 Server Error: fetch https://[REDACTED]@example.org/x failed. Start")
+                .doesNotContain("hunter2", "second line");
         // A step that no card of the run page covers is named by its id in words.
         assertThat(StopReasons.engineGaveUp("initialize-pr-feedback", 2, "boom"))
                 .startsWith("Factory could not finish the step \"Initialize PR feedback\" after 2 tries: boom.");

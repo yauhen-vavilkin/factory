@@ -1,6 +1,7 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.app.tasks.presentation.AttemptStatus;
+import org.folio.factory.app.tasks.presentation.FeedbackStanding;
 import org.folio.factory.app.tasks.presentation.RunContext;
 import org.folio.factory.app.tasks.presentation.Turn;
 import org.folio.factory.core.domain.ExecutionStatus;
@@ -58,7 +59,7 @@ class RunStatusCardTest {
 
     @Test
     void prFeedbackThatWaitsForYouIsYourTurnEvenWhileTheRunIsLive() {
-        var summary = new FeedbackUi.Summary("Waiting for your review", true, false, true);
+        var summary = new FeedbackUi.Summary("Waiting for your review", true, false, true, FeedbackStanding.NONE);
         var in = new RunStatusCard.Input(facts("AWAITING_HITL", RunFacts.ReasonKind.STOP, null), Optional.empty(),
                 execution(ExecutionStatus.RUNNING), Optional.of(summary), noUsage(), null, null);
 
@@ -75,6 +76,44 @@ class RunStatusCardTest {
 
         assertThat(status.actionLabel()).isEqualTo("Answer on the task page");
         assertThat(status.actionUrl()).isEqualTo("/tasks/" + TASK_ID + "#answer");
+        assertThat(RunStatusCard.turn(in, status)).isEqualTo(Turn.YOURS);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "MERGED, PR merged, Merged PR #7, chip chip-success, Pull request #7 is merged",
+        "CLOSED, PR closed without merge, Closed PR #7, chip chip-neutral, Pull request #7 was closed without merge"})
+    void aPullRequestThatIsMergedOrClosedReadsOnTheRunPageAsOnTheTaskPage(
+            FeedbackStanding ended, String phase, String chip, String chipClass, String headline) {
+        var url = "https://github.com/folio-org/mod-bar/pull/7";
+        var draft = new AttemptStatus("Draft PR #7", "chip chip-neutral", url, "Pull request #7 is open as a draft");
+        var summary = new FeedbackUi.Summary(phase, false, false, false, ended);
+        var in = new RunStatusCard.Input(facts("DELIVERED", RunFacts.ReasonKind.STOP, null),
+                Optional.of(context(draft, null, null)), execution(ExecutionStatus.COMPLETED), Optional.of(summary),
+                noUsage(), null, null);
+
+        var status = RunStatusCard.status(in);
+
+        assertThat(status.chipLabel()).isEqualTo(chip);
+        assertThat(status.chipClass()).isEqualTo(chipClass);
+        assertThat(status.chipUrl()).isEqualTo(url);
+        assertThat(status.headline()).isEqualTo(headline);
+        assertThat(RunStatusCard.turn(in, status)).isEqualTo(Turn.NONE);
+    }
+
+    @Test
+    void anAttemptThatNeedsInspectionKeepsItsChipAndHeadlineAfterItsPullRequestIsMerged() {
+        var held = new AttemptStatus("Needs inspection", "chip chip-warning", null,
+                "Factory could not confirm how the run ended");
+        var summary = new FeedbackUi.Summary("PR merged", false, false, false, FeedbackStanding.MERGED);
+        var in = new RunStatusCard.Input(facts("DELIVERED", RunFacts.ReasonKind.STOP, null),
+                Optional.of(context(held, null, null)), execution(ExecutionStatus.COMPLETED), Optional.of(summary),
+                noUsage(), null, null);
+
+        var status = RunStatusCard.status(in);
+
+        assertThat(status.chipLabel()).isEqualTo("Needs inspection");
+        assertThat(status.headline()).isEqualTo("Factory could not confirm how the run ended");
         assertThat(RunStatusCard.turn(in, status)).isEqualTo(Turn.YOURS);
     }
 
@@ -95,7 +134,7 @@ class RunStatusCardTest {
     @Test
     void theReviewOfPrFeedbackHasNoOpenReviewButton() {
         var review = new HitlReview(EXECUTION_ID, "pr-feedback", 8, "{}");
-        var summary = new FeedbackUi.Summary("Waiting for your review", true, false, false);
+        var summary = new FeedbackUi.Summary("Waiting for your review", true, false, false, FeedbackStanding.NONE);
         var in = new RunStatusCard.Input(facts("AWAITING_HITL", RunFacts.ReasonKind.STOP, null), Optional.empty(),
                 execution(ExecutionStatus.AWAITING_HITL), Optional.of(summary), noUsage(), null, review);
 

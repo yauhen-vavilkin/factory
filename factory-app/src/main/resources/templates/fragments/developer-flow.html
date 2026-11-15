@@ -64,7 +64,7 @@
 <!-- Why the pull request is a draft, the same on the task page and the run page. -->
 <div th:fragment="draftReasons(reasons)" class="status-card-reasons"
      th:if="${reasons != null and !#lists.isEmpty(reasons)}">
-    <p>Factory opened it as a draft because:</p>
+    <p>The pull request was opened as a draft because:</p>
     <ul>
         <li th:each="reason : ${reasons}" th:text="${reason}">reason</li>
     </ul>

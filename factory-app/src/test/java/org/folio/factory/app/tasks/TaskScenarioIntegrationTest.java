@@ -258,9 +258,9 @@ class TaskScenarioIntegrationTest {
         var pages = pages(taskId);
         assertRow(pages.myTasks(), "Validate the limit MODBAR-201", "$0.40 Draft PR #31");
         assertThat(pages.task()).contains("Draft PR #31 Nothing needed from you Pull request #31 is open as a draft",
-                "Factory opened it as a draft because: " + draftReason, "Open pull request #31");
+                "The pull request was opened as a draft because: " + draftReason, "Open pull request #31");
         assertThat(pages.run()).contains("Pull request #31 is open as a draft",
-                "Factory opened it as a draft because: " + draftReason, "2 · Implement changes Passed",
+                "The pull request was opened as a draft because: " + draftReason, "2 · Implement changes Passed",
                 "3 · Verify changes Passed · 2 tests", "4 · Create pull request Passed · draft");
         assertNoInternalWording(pages);
     }
@@ -436,7 +436,7 @@ class TaskScenarioIntegrationTest {
                 .isEqualTo(ExecutionStatus.FAILED_ESCALATED);
         assertFailedWithoutPullRequest(taskId, "GitHub rate limit MODBAR-210",
                 "Factory could not finish the step \"Create pull request\" after 3 tries: 429 Too Many Requests:"
-                        + " \"{\"message\": \"API rate limit exceeded\"}\". Start a new attempt.",
+                        + " API rate limit exceeded. Start a new attempt.",
                 List.of("2 · Implement changes Passed", "3 · Verify changes Passed", "4 · Create pull request Failed"));
     }
 

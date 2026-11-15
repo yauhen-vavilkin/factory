@@ -5,7 +5,9 @@ import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.web.UiFormat;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.verification.VerificationFailure;
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.regex.Pattern;
 
@@ -27,6 +29,9 @@ public final class StopReasons {
             "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
     /** What the engine stores for an exception without a message: its simple class name. */
     private static final Pattern BARE_EXCEPTION = Pattern.compile("[A-Z][A-Za-z0-9$]*(?:Exception|Error)");
+    /** How an HTTP client writes a refused call: the status, then the JSON body of the answer in quotes. */
+    private static final Pattern QUOTED_JSON_BODY = Pattern.compile("(.*?): \"(\\{.*})\"");
+    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     /**
      * The reason of the latest verification result: its own reason when it has one, the cause of failed checks
@@ -52,13 +57,31 @@ public final class StopReasons {
     }
 
     private static String oneLine(String error) {
-        var line = MavenBaselineOutput.redactCredentials(error.strip().lines().findFirst().orElse(""));
+        var line = MavenBaselineOutput.redactCredentials(firstLine(withBodyMessage(firstLine(error))));
         line = UUID.matcher(line).replaceAll("…").strip();
         if (line.isEmpty() || BARE_EXCEPTION.matcher(line).matches()) {
             return "an unexpected error";
         }
         line = line.length() > MAX_ERROR ? line.substring(0, MAX_ERROR) + "…" : line;
         return line.endsWith(".") ? line.substring(0, line.length() - 1) : line;
+    }
+
+    private static String firstLine(String text) {
+        return text.strip().lines().findFirst().orElse("");
+    }
+
+    /** "429 Too Many Requests: API rate limit exceeded" in place of the quoted JSON body that holds the message. */
+    private static String withBodyMessage(String line) {
+        var refused = QUOTED_JSON_BODY.matcher(line);
+        if (!refused.matches()) {
+            return line;
+        }
+        try {
+            var message = JSON.readTree(refused.group(2)).path("message").asString("").strip();
+            return message.isEmpty() ? line : refused.group(1) + ": " + message;
+        } catch (JacksonException e) {
+            return line;
+        }
     }
 
     /** Counts first: tests that failed are the cause even when the build environment looks broken too. */

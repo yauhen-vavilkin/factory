@@ -34,6 +34,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.TestPropertySource;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -111,6 +112,8 @@ class DemoConsole {
     private TaskInstallationRepository installations;
     @Autowired
     private AttemptRateSnapshot rates;
+    @Autowired
+    private JdbcTemplate jdbc;
 
     private final Map<UUID, CodingRequest.RunSettings> settingsByRun = new HashMap<>();
 
@@ -190,6 +193,9 @@ class DemoConsole {
                 {"status":"NEEDS_DECISION","summary":"I read the code.","decision":{"kind":"PRODUCT_REQUIREMENTS",
                 "question":"Remove the old routes too?","options":["Only from now on.","Also the old ones."],
                 "evidence":"removeRoutes runs only on a new event."},"metrics":{}}""", "implement");
+        // The workers after the question record that they did not run, so the run page does not show them as passed.
+        put(execution, VerifyWorker.RECEIPT, Map.of("state", "NOT_RUN"));
+        put(execution, DeliveryWorker.DELIVERY, Map.of("state", "NOT_RUN"));
     }
 
     /** The checks failed on tests, failed to compile, or could not run. */
@@ -363,6 +369,7 @@ class DemoConsole {
         var selected = comment("inline:1", "reviewer", "Check the tenant id before the lookup.", "Foo.java", 41, 14);
         state(execution.getId(), roundStart(14, selected) + ",\"phase\":\"CODE\"");
         comments(execution.getId(), 14, selected);
+        startedMinutesAgo(execution.getId(), "pr-follow-up", 4);
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "pr-follow-up",
                 Map.of("activity", "tool_execution_start", "tool", "bash", "command", "mvn -B -ntp test"));
     }
@@ -553,8 +560,21 @@ class DemoConsole {
         usage.put("rate", rate);
         if (type == AuditEventType.RUNTIME_PROGRESS) {
             usage.put("activity", "coding_usage");
+        } else {
+            startedMinutesAgo(execution.getId(), "implement", Math.min(60, 6 * scale));
         }
         auditLog.record(execution.getId(), type, "implement", usage);
+    }
+
+    /**
+     * The start of a step in the past, so a finished run shows the time it took and not "0 s", and a round that
+     * works shows its own time. The audit log stamps every event with the current time, so this one row is
+     * inserted directly.
+     */
+    private void startedMinutesAgo(UUID executionId, String stepId, int minutes) {
+        jdbc.update("INSERT INTO audit_event (execution_id, event_type, step_id, actor, occurred_at)"
+                + " VALUES (?, 'STEP_STARTED', ?, 'demo', now() - make_interval(mins => ?))",
+                executionId, stepId, minutes);
     }
 
     /** A run that stands on the step with this index and reported no usage. */

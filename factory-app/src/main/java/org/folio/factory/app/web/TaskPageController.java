@@ -7,12 +7,10 @@ import org.folio.factory.app.tasks.admission.TaskCommands;
 import org.folio.factory.app.tasks.admission.TaskRunSettings;
 import org.folio.factory.app.tasks.execution.TaskDispatcher;
 import org.folio.factory.app.tasks.execution.TaskOutcomeService;
-import org.folio.factory.app.tasks.presentation.AttemptRow;
 import org.folio.factory.app.tasks.presentation.TaskAnswers;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
 import org.folio.factory.app.tasks.presentation.TaskRevisions;
 import org.folio.factory.app.tasks.presentation.TaskRows;
-import org.folio.factory.app.tasks.presentation.TaskView;
 import org.folio.factory.app.tasks.presentation.Turn;
 import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.springframework.beans.factory.ObjectProvider;
@@ -25,7 +23,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -52,7 +49,7 @@ public class TaskPageController {
                        @RequestParam(name = "error", required = false) String error, Model model) {
         var view = taskQuery.detail(taskId);
         var task = rows.detail(view);
-        var attempts = attemptRows(view);
+        var attempts = TaskRows.attemptRows(view, task.status());
         model.addAttribute("task", task);
         model.addAttribute("question", answers.question(view).orElse(null));
         model.addAttribute("attempts", attempts);
@@ -71,7 +68,8 @@ public class TaskPageController {
     @ResponseBody
     public Map<String, Object> poll(@PathVariable("taskId") UUID taskId) {
         var view = taskQuery.detail(taskId);
-        return Map.of("revision", TaskRevisions.task(rows.detail(view), attemptRows(view)));
+        var task = rows.detail(view);
+        return Map.of("revision", TaskRevisions.task(task, TaskRows.attemptRows(view, task.status())));
     }
 
     /**
@@ -125,11 +123,6 @@ public class TaskPageController {
         dispatcher.dispatchNextQuietly();
         redirect.addFlashAttribute("message", "Marked as stopped; the queue continues.");
         return "redirect:" + back;
-    }
-
-    /** Newest first: a new attempt is added at the top. */
-    private static List<AttemptRow> attemptRows(TaskView view) {
-        return view.attempts().reversed().stream().map(attempt -> TaskRows.attemptRow(view, attempt)).toList();
     }
 
     /** The page shows the text the developer typed again; it goes through the session, never into the URL. */

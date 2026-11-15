@@ -18,15 +18,7 @@ public record AttemptStatus(String chipLabel, String chipClass, String chipUrl, 
      * its PR feedback has seen that.
      */
     static AttemptStatus of(TaskView view, TaskView.AttemptHistoryEntry attempt, FeedbackStanding standing) {
-        var url = attempt.pullRequestUrl();
-        if (url == null || standing != FeedbackStanding.MERGED && standing != FeedbackStanding.CLOSED) {
-            return of(view, attempt);
-        }
-        var merged = standing == FeedbackStanding.MERGED;
-        var number = TaskLabels.shortPullRequestLabel(url, false);
-        return new AttemptStatus((merged ? "Merged " : "Closed ") + number,
-                merged ? "chip chip-success" : "chip chip-neutral", url,
-                TaskLabels.pullRequestLabel(url) + (merged ? " is merged" : " was closed without merge"));
+        return of(view, attempt).ended(standing);
     }
 
     /** The status of {@code attempt}, one of the attempts of {@code view}. */
@@ -44,6 +36,21 @@ public record AttemptStatus(String chipLabel, String chipClass, String chipUrl, 
             case WITHDRAWN -> neutral("Withdrawn", "Withdrawn before it started");
             case PR_READY -> pullRequest(attempt);
         };
+    }
+
+    /**
+     * This status once the run of its PR feedback has seen the pull request merged or closed without merge; the
+     * same status for any other {@code standing} and for a chip that opens no pull request, so an attempt that
+     * needs inspection keeps its chip here too.
+     */
+    public AttemptStatus ended(FeedbackStanding standing) {
+        if (chipUrl == null || standing != FeedbackStanding.MERGED && standing != FeedbackStanding.CLOSED) {
+            return this;
+        }
+        var merged = standing == FeedbackStanding.MERGED;
+        return new AttemptStatus((merged ? "Merged " : "Closed ") + TaskLabels.shortPullRequestLabel(chipUrl, false),
+                merged ? "chip chip-success" : "chip chip-neutral", chipUrl,
+                TaskLabels.pullRequestLabel(chipUrl) + (merged ? " is merged" : " was closed without merge"));
     }
 
     /** Factory could not confirm how the run of this attempt ended. */

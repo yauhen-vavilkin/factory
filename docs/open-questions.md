@@ -365,6 +365,9 @@ Developer Flow:
   be missing from page 1 (seen in the demo console, where MODBAR-805 is on page 2).
 - **`StopReasons` (tasks.execution) imports `UiFormat` (web)** for the step name of the engine-gave-up
   reason.
+- **The run page of an older attempt names a merged or closed pull request by its old chip.** Its line
+  "Attempt 1 of 2. Latest: attempt 2, PR #12." comes from `RunContext.standing`, which does not know
+  where PR feedback stands; the task page and the run page of attempt 2 say "Merged PR #12".
 
 Tests and the demo console:
 

@@ -43,9 +43,8 @@ public class FeedbackUi {
         if (task.pullRequestUrl() == null || task.attempts().isEmpty()) {
             return FeedbackStanding.NONE;
         }
-        var executionId = task.attempts().getLast().executionId();
-        return executionId == null ? FeedbackStanding.NONE
-                : executions.findById(executionId).map(this::standing).orElse(FeedbackStanding.NONE);
+        return task.standingAttempt().map(TaskView.AttemptHistoryEntry::executionId)
+                .flatMap(executions::findById).map(this::standing).orElse(FeedbackStanding.NONE);
     }
 
     private FeedbackStanding standing(PipelineExecution execution) {
@@ -57,10 +56,18 @@ public class FeedbackUi {
         var state = view.state();
         return switch (state.phase()) {
             case SKIPPED -> FeedbackStanding.NONE;
+            case STOPPED, FINISHED -> ended(state);
+            default -> openStanding(execution, view, artifacts);
+        };
+    }
+
+    /** MERGED or CLOSED once PR feedback has seen the pull request merged or closed without merge. */
+    private static FeedbackStanding ended(FeedbackState state) {
+        return switch (state.phase()) {
             case STOPPED -> FeedbackStanding.CLOSED;
             case FINISHED -> "MERGED".equals(state.completionReason()) ? FeedbackStanding.MERGED
                     : FeedbackStanding.NONE;
-            default -> openStanding(execution, view, artifacts);
+            default -> FeedbackStanding.NONE;
         };
     }
 
@@ -100,7 +107,8 @@ public class FeedbackUi {
         var feedback = feedback(view, FeedbackRows.newComments(view.snapshot(), history.processed()), rounds);
         model.addAttribute("feedback", feedback);
         var waiting = phase == FeedbackState.Phase.READY || phase == FeedbackState.Phase.INIT;
-        return Optional.of(new Summary(feedback.phase(), waiting, !rounds.isEmpty(), feedback.yourTurn()));
+        return Optional.of(new Summary(feedback.phase(), waiting, !rounds.isEmpty(), feedback.yourTurn(),
+                ended(view.state())));
     }
 
     /** The rounds the agent worked on the run, with their titles on the run page; empty without PR feedback. */
@@ -114,9 +122,11 @@ public class FeedbackUi {
     /**
      * What the status card says about PR feedback: the phase in words, whether it waits for new comments or is
      * still getting ready to (the card then names the pull request), and whether rounds ran, so the amount is the
-     * total; {@code yourTurn} says that a question or new PR comments wait for the developer.
+     * total; {@code yourTurn} says that a question or new PR comments wait for the developer; {@code ended} is
+     * MERGED or CLOSED once the pull request is, so the card names it as the task page does, and NONE before.
      */
-    public record Summary(String headline, boolean waiting, boolean rounds, boolean yourTurn) {
+    public record Summary(String headline, boolean waiting, boolean rounds, boolean yourTurn,
+                          FeedbackStanding ended) {
     }
 
     /**

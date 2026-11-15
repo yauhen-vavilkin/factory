@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -129,8 +130,18 @@ public class TaskRows {
         };
     }
 
-    public static AttemptRow attemptRow(TaskView view, TaskView.AttemptHistoryEntry attempt) {
-        var status = AttemptStatus.of(view, attempt);
+    /**
+     * The Attempts rows, newest first: a new attempt is added at the top. The attempt the task stands for has
+     * {@code standing}, the status of the status card, so a merged or closed pull request reads the same in both.
+     */
+    public static List<AttemptRow> attemptRows(TaskView view, AttemptStatus standing) {
+        var stands = view.standingAttempt().orElse(null);
+        return view.attempts().reversed().stream()
+                .map(attempt -> attemptRow(attempt, attempt == stands ? standing : AttemptStatus.of(view, attempt)))
+                .toList();
+    }
+
+    private static AttemptRow attemptRow(TaskView.AttemptHistoryEntry attempt, AttemptStatus status) {
         var costNote = attemptCostNote(attempt);
         var cost = SO_FAR.equals(costNote) ? costSoFar(attempt.usage()) : finishedCost(attempt);
         var started = PageTime.day(attempt.startedAt());

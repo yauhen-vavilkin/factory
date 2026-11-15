@@ -3,6 +3,7 @@ package org.folio.factory.app.web;
 import org.folio.factory.app.tasks.presentation.AttemptClock;
 import org.folio.factory.app.tasks.presentation.AttemptFailure;
 import org.folio.factory.app.tasks.presentation.AttemptStatus;
+import org.folio.factory.app.tasks.presentation.FeedbackStanding;
 import org.folio.factory.app.tasks.presentation.RunContext;
 import org.folio.factory.app.tasks.presentation.Turn;
 import org.folio.factory.app.web.DeveloperRunView.Status;
@@ -83,7 +84,7 @@ final class RunStatusCard {
      * round that works or stopped says its phase instead. A run that works shows its amount from the first render.
      */
     static Status status(Input in) {
-        var chip = in.context().map(RunContext::status)
+        var chip = in.context().map(run -> attemptStatus(in, run))
                 .map(status -> new Chip(status.chipLabel(), status.chipClass(), status.chipUrl()))
                 .orElseGet(() -> chip(in.facts().productStatus(), in.facts().pullRequest()));
         var headline = headline(in);
@@ -144,15 +145,25 @@ final class RunStatusCard {
 
     private static Headline headline(Input in) {
         var feedback = in.feedback();
-        if (feedback.isPresent() && !feedback.get().waiting()) {
+        var named = in.context().isPresent() && ended(in) != FeedbackStanding.NONE;
+        if (feedback.isPresent() && !feedback.get().waiting() && !named) {
             return Headline.of(feedback.get().headline());
         }
         return in.context().map(run -> attemptHeadline(in, run)).orElseGet(() -> runHeadline(in));
     }
 
+    /** The attempt's status; its pull request reads as merged or closed once PR feedback has seen that. */
+    private static AttemptStatus attemptStatus(Input in, RunContext run) {
+        return run.status().ended(ended(in));
+    }
+
+    private static FeedbackStanding ended(Input in) {
+        return in.feedback().map(FeedbackUi.Summary::ended).orElse(FeedbackStanding.NONE);
+    }
+
     /** The headline of the attempt, with the reason of a failure, the question, or the problem a retry follows. */
     private static Headline attemptHeadline(Input in, RunContext run) {
-        var text = run.status().headline();
+        var text = attemptStatus(in, run).headline();
         if (run.failure() != null) {
             return new Headline(text, "Reason", run.failure().reason(), null, run.failureNote());
         }

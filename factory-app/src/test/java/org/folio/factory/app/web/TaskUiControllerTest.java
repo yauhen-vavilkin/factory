@@ -521,6 +521,22 @@ class TaskUiControllerTest {
         assertThat(task.status().chipLabel()).isEqualTo("Merged PR #7");
         assertThat(task.status().headline()).isEqualTo("Pull request #7 is merged");
         assertThat(task.turn()).isEqualTo(Turn.NONE);
+        assertThat(attemptRowsOfTheTaskPage().getFirst()).containsEntry("status", task.status());
+    }
+
+    @Test
+    void anAttemptThatNeedsInspectionKeepsItsChipAfterItsPullRequestIsMerged() throws Exception {
+        var delivered = prAttempt(null);
+        var held = new TaskView.AttemptHistoryEntry(ATTEMPT_ID, 1, delivered.kind(), delivered.admittedVia(),
+                TaskAttempt.State.NEEDS_INSPECTION, delivered.stage(), null, delivered.pullRequestUrl(), null,
+                EXECUTION_ID, delivered.createdAt(), delivered.startedAt(), true, 600, emptyUsage(), null);
+        TaskView task = taskView(TASK_ID, "MODBAR-921", "Open", TaskView.TaskState.PROCESSING_PAUSED,
+                false, false, held);
+        givenStanding(task, FeedbackStanding.MERGED);
+
+        assertThat(rows(myTasksModel(task), "triggered").getFirst()).containsEntry("chipLabel", "Needs inspection");
+        assertThat(taskPage().status().chipLabel()).isEqualTo("Needs inspection");
+        assertThat(attemptRowsOfTheTaskPage().getFirst()).containsEntry("status", taskPage().status());
     }
 
     @Test
@@ -535,6 +551,7 @@ class TaskUiControllerTest {
         var task = taskPage();
         assertThat(task.status().chipLabel()).isEqualTo("Closed PR #7");
         assertThat(task.status().headline()).isEqualTo("Pull request #7 was closed without merge");
+        assertThat(attemptRowsOfTheTaskPage().getFirst()).containsEntry("status", task.status());
     }
 
     @Test
@@ -639,6 +656,11 @@ class TaskUiControllerTest {
     private Map<String, Object> myTasksModel(TaskView... triggered) throws Exception {
         when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(), triggered));
         return mvc.perform(get(FLOW_PAGE)).andExpect(status().isOk()).andReturn().getModelAndView().getModel();
+    }
+
+    private List<Map<String, Object>> attemptRowsOfTheTaskPage() throws Exception {
+        return rows(mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn().getModelAndView().getModel(),
+                "attempts");
     }
 
     private TaskDetail taskPage() throws Exception {

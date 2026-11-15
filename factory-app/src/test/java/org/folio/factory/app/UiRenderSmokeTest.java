@@ -33,6 +33,8 @@ import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.data.domain.Page;
@@ -2133,6 +2135,40 @@ class UiRenderSmokeTest {
                 .doesNotContainIgnoringCase("human decision");
     }
 
+    @ParameterizedTest
+    @CsvSource({
+        "FINISHED, MERGED, Merged PR #6, Pull request #6 is merged",
+        "STOPPED, CLOSED_WITHOUT_MERGE, Closed PR #6, Pull request #6 was closed without merge"})
+    void aMergedOrClosedPullRequestReadsTheSameOnTheTaskPageItsAttemptRowAndTheRunPage(
+            String phase, String completion, String chip, String headline) {
+        resetTaskData();
+        Task delivered = seedTask("70036", "MODBAR-736", "Delivered task",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        var execution = new PipelineExecution("dev-factory",
+                org.folio.factory.devfactory.feedback.FeedbackArtifacts.VERSION, "{}");
+        execution.setStatus(ExecutionStatus.COMPLETED);
+        var id = executions.save(execution).getId();
+        TaskAttempt attempt = seedAttempt(delivered, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.PR_READY, null);
+        attempt.setPublicationIdentity("https://github.com/o/mgr-applications/pull/6");
+        attempt.setExecutionId(id);
+        taskAttempts.save(attempt);
+        artifactStore.put(id, "dev_pr_state.json", "{\"round\":0,\"pr\":" + PR_6 + ",\"phase\":\"READY\"}",
+                "application/json", "test");
+        artifactStore.put(id, "dev_pr_state.json", "{\"round\":0,\"pr\":" + PR_6.replace("\"open\":true",
+                "\"open\":false") + ",\"phase\":\"" + phase + "\",\"completionReason\":\"" + completion + "\"}",
+                "application/json", "test");
+        artifactStore.put(id, "dev_pr_comments.json", "{\"id\":\"s1\",\"pr\":" + PR_6 + ",\"comments\":[]}",
+                "application/json", "test");
+
+        var taskPage = text(assertRendered("/tasks/" + delivered.getId(), headline));
+        var runPage = text(assertRendered("/executions/" + id, headline));
+
+        // The status card and the attempt row of the task page, then the status card of the run page.
+        assertThat(taskPage.split(Pattern.quote(chip), -1)).hasSize(3);
+        assertThat(taskPage).doesNotContain("Draft PR #6");
+        assertThat(runPage).contains(chip + " Nothing needed from you " + headline);
+    }
+
     @Test
     void taskSummaryForPrReadyLinksThePullRequestAndItsFeedback() {
         resetTaskData();
@@ -2153,7 +2189,7 @@ class UiRenderSmokeTest {
                 .containsPattern(linkTo(pr, "Open pull request #7"))
                 .containsPattern(linkTo("/executions/" + execution.getId() + "#pr-feedback", "Open run"))
                 .containsPattern("<a(?=[^>]*btn-primary)(?=[^>]*href=\"" + Pattern.quote(pr) + "\")")
-                .doesNotContain("Draft PR", "Factory opened it as a draft because:")
+                .doesNotContain("Draft PR", "The pull request was opened as a draft because:")
                 .doesNotContain("name=\"expectedVersion\"");
         assertThat(body.split("btn btn-primary", -1)).hasSize(2);
     }
@@ -2183,7 +2219,7 @@ class UiRenderSmokeTest {
 
         String body = assertRendered("/tasks/" + delivered.getId(), "Pull request #8 is open as a draft");
         assertThat(text(body)).contains("Draft PR #8", "Pull request #8 is open as a draft",
-                "Factory opened it as a draft because: 1 acceptance criterion is not met."
+                "The pull request was opened as a draft because: 1 acceptance criterion is not met."
                         + " The agent made assumptions that a reviewer should confirm.");
         assertThat(body).containsPattern(linkTo(pr, "Draft PR #8")).containsPattern(linkTo(pr, "Open pull request #8"))
                 .doesNotContain("chip-success", "is ready for review");
@@ -2197,7 +2233,7 @@ class UiRenderSmokeTest {
         // The run page lists why the pull request is a draft, and its meta line names the repository as the task
         // page does.
         assertThat(text(run)).contains("Draft PR #8", "Pull request #8 is open as a draft",
-                "Factory opened it as a draft because: 1 acceptance criterion is not met.", "mod-bar",
+                "The pull request was opened as a draft because: 1 acceptance criterion is not met.", "mod-bar",
                 "4 · Create pull request Passed · draft");
         assertThat(run).containsPattern(linkTo(pr, "Draft PR #8"))
                 .doesNotContain(">PR ready</span>", "is ready for review");
