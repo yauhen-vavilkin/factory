@@ -580,8 +580,9 @@ Give a session this prompt:
   `PiCodingRuntimeTest`, `DeveloperExecutionViewTest`). After the stage review, `ClaudeCodeCodingRuntimeTest` and
   `PiCodingRuntimeTest` each have a sentinel case for item A's split: thinking blocks hold
   `HIDDEN_REASONING_SENTINEL`, then the final text has a report, the marker, pretty-printed JSON and text after
-  it; the outcome is a question, and the report, the question, the transcript and the activity do not hold the
-  sentinel. Both are guard tests and passed on their first run. No sentinel case for the first line of the
+  it; the outcome is a question, and its report and question do not hold the sentinel. The Claude Code case also
+  checks the transcript and the activity; the Pi case checks only the outcome (Pi's transcript and activity are
+  not collected there). Both are guard tests and passed on their first run. No sentinel case for the first line of the
   engine's error (2.4): it is Factory's own exception text, not model output, and `StopReasonsTest` already pins
   that only its first line reaches the reason. The other new stop reasons are built from Factory's words, counts,
   an HTTP status or a file name.
