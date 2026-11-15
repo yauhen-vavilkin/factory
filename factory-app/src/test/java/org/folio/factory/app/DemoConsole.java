@@ -9,6 +9,7 @@ import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.persistence.TaskRepository;
 import org.folio.factory.app.tasks.persistence.TaskRoutingReason;
+import org.folio.factory.app.web.AttemptRateSnapshot;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.domain.ExecutionStatus;
 import org.folio.factory.core.domain.HitlReview;
@@ -19,6 +20,8 @@ import org.folio.factory.core.repository.PipelineExecutionRepository;
 import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
+import org.folio.factory.devfactory.runtime.CodingRequest;
+import org.folio.factory.devfactory.runtime.TokenUsage;
 import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.folio.factory.devfactory.worker.DevelopWorker;
@@ -33,8 +36,11 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * The console on a fixed port with one task in every state a developer meets, for a walk through the pages in a
@@ -54,6 +60,11 @@ import java.util.Map;
  * new comments, a pull request ready for review, merged, closed without merge, a feedback round that works now,
  * one that asked a question and one that failed, and a run whose end Factory could not confirm, with and without
  * the queue held and after it opened a pull request.
+ *
+ * <p>Every run that reached the agent reports its usage the way the coding step does, with the model, the effort
+ * and the price from config/developer-models.yaml (two models, three efforts), so every finished attempt has a
+ * cost and the Dashboard shows the Developer Flow spending: the task delivered on the third attempt failed twice
+ * first, and the task stopped at the time limit is the most expensive one.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT, properties = "server.port=8090")
 @Import({StubLlmConfiguration.class, SharedDatabase.class})
@@ -73,6 +84,11 @@ class DemoConsole {
     private static final String ELIGIBLE = "repository mod-bar";
     private static final String PULL = "https://github.com/folio-org/mod-bar/pull/";
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    /** The model and effort of each seeded run, in turn. */
+    private static final List<CodingRequest.RunSettings> RUNS = List.of(
+            new CodingRequest.RunSettings("glm-5.3", "max", null),
+            new CodingRequest.RunSettings("glm-5.3-flash", "high", null),
+            new CodingRequest.RunSettings("glm-5.3", "low", null));
 
     @Autowired
     private PipelineExecutionRepository executions;
@@ -88,6 +104,10 @@ class DemoConsole {
     private TaskAttemptRepository attempts;
     @Autowired
     private TaskInstallationRepository installations;
+    @Autowired
+    private AttemptRateSnapshot rates;
+
+    private final Map<UUID, CodingRequest.RunSettings> settingsByRun = new HashMap<>();
 
     @Test
     void serveEveryState() throws InterruptedException {
@@ -142,7 +162,8 @@ class DemoConsole {
     }
 
     private void working() {
-        var execution = execution("0.6.0", ExecutionStatus.RUNNING, 3);
+        var execution = bareExecution("0.6.0", ExecutionStatus.RUNNING, 3);
+        usage(execution, AuditEventType.RUNTIME_PROGRESS, 1);
         attempt(task("80005", "MODBAR-805", "Task the agent works on now"), TaskAttempt.State.RUNNING, null,
                 execution);
         auditLog.record(execution.getId(), AuditEventType.STEP_STARTED, "implement", Map.of());
@@ -185,7 +206,10 @@ class DemoConsole {
     /** One task for each cause of a stop that Factory names, besides failed checks. */
     private void stoppedByLimits() {
         // The limits are the shipped defaults: 60 minutes per step and 400 turns.
-        stopped("80017", "Task stopped at the time limit", "DEVELOPMENT_FAILED: " + TaskStops.timeLimitReason(60));
+        var timeLimit = bareExecution("0.6.0", ExecutionStatus.COMPLETED, 10);
+        usage(timeLimit, AuditEventType.STEP_COMPLETED, 10);
+        attempt(task("80017", "MODBAR-817", "Task stopped at the time limit"), TaskAttempt.State.STOPPED,
+                "DEVELOPMENT_FAILED: " + TaskStops.timeLimitReason(60), timeLimit);
         stopped("80018", "Task stopped at the turn limit", "DEVELOPMENT_FAILED: " + TaskStops.turnLimitReason(400));
         deadlineBeforeVerification();
         stopped("80019", "Task stopped by the shared configuration", "DEVELOPMENT_FAILED: Coding runtime"
@@ -460,17 +484,36 @@ class DemoConsole {
         }
         if (execution != null) {
             attempt.setExecutionId(execution.getId());
+            var settings = settingsByRun.get(execution.getId());
+            attempt.setRunSettings(settings == null ? null : JSON.writeValueAsString(settings));
         }
         return attempts.save(attempt);
     }
 
-    /** A run that stands on the step with this index and has already reported model usage. */
+    /** A run that stands on the step with this index and whose coding step finished with its usage reported. */
     private PipelineExecution execution(String flowVersion, ExecutionStatus status, int step) {
         var execution = bareExecution(flowVersion, status, step);
-        auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
-                Map.of("activity", "pi_usage", "inputTokens", 184_000, "cacheReadTokens", 920_000,
-                        "cacheWriteTokens", 41_000, "outputTokens", 12_400, "costUsd", 1.37));
+        usage(execution, AuditEventType.STEP_COMPLETED, 1 + settingsByRun.size() % 4);
         return execution;
+    }
+
+    /**
+     * The usage of one coding call of the run with the next model and effort of {@link #RUNS}, recorded as the coding
+     * step records it: with its price, as a finished step or as live progress. {@code scale} multiplies the tokens.
+     */
+    private void usage(PipelineExecution execution, AuditEventType type, int scale) {
+        var settings = settingsByRun.computeIfAbsent(execution.getId(), id -> RUNS.get(settingsByRun.size() % 3));
+        var rate = rates.snapshot(settings.modelId(), null);
+        var usage = new LinkedHashMap<String, Object>(TokenUsage.withFactoryTotals(Map.<String, Object>of("inputTokens",
+                184_000L * scale, "cacheReadTokens", 920_000L * scale, "cacheWriteTokens", 0L,
+                "outputTokens", 12_400L * scale)));
+        usage.put("attemptId", UUID.randomUUID().toString());
+        usage.put("model", rate.get("model"));
+        usage.put("rate", rate);
+        if (type == AuditEventType.RUNTIME_PROGRESS) {
+            usage.put("activity", "coding_usage");
+        }
+        auditLog.record(execution.getId(), type, "implement", usage);
     }
 
     /** A run that stands on the step with this index and reported no usage. */
