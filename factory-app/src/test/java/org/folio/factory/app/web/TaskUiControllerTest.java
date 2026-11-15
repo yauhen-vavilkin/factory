@@ -1127,7 +1127,7 @@ class TaskUiControllerTest {
     @Test
     void markStopped_releasesTheQueueAndStartsTheNextTask() throws Exception {
         when(outcomes.getIfAvailable()).thenReturn(outcomeService);
-        when(outcomeService.markStopped(ATTEMPT_ID)).thenReturn(null);
+        when(outcomeService.markStopped(TASK_ID, ATTEMPT_ID)).thenReturn(null);
 
         mvc.perform(post("/tasks/{taskId}/attempts/{attemptId}/mark-stopped", TASK_ID, ATTEMPT_ID)
                         .param("returnTo", "flow"))
@@ -1141,7 +1141,7 @@ class TaskUiControllerTest {
     @Test
     void markStopped_refusalDoesNotDispatch() throws Exception {
         when(outcomes.getIfAvailable()).thenReturn(outcomeService);
-        when(outcomeService.markStopped(ATTEMPT_ID))
+        when(outcomeService.markStopped(TASK_ID, ATTEMPT_ID))
                 .thenReturn("Only a task that needs inspection can be closed as failed");
 
         mvc.perform(post("/tasks/{taskId}/attempts/{attemptId}/mark-stopped", TASK_ID, ATTEMPT_ID))

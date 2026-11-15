@@ -199,8 +199,12 @@ public class TaskDiscoveryService {
         task.setTitle(truncated(issue.issue().summary(), MAX_TITLE_LENGTH));
         task.setJiraCreatedAt(issue.createdAt());
         task.setProjectKey(issue.projectKey());
-        task.setIssueSnapshot(json.writeValueAsString(snapshot));
-        task.setSourceRevision(revision(snapshot));
+        // PostgreSQL gives jsonb back in its own spacing, so an unchanged issue would still raise the version.
+        var revision = revision(snapshot);
+        if (!revision.equals(task.getSourceRevision())) {
+            task.setIssueSnapshot(json.writeValueAsString(snapshot));
+            task.setSourceRevision(revision);
+        }
         task.setEligibility(routing.eligibility());
         task.setRoutingReason(truncated(routing.reason(), MAX_REASON_LENGTH));
     }

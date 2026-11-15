@@ -41,7 +41,8 @@ public class TaskAdmissionChecks {
         DiscoveredIssue issue;
         try {
             issue = discovery.fetch(issueKey);
-        } catch (HttpClientErrorException e) {
+        } catch (HttpClientErrorException.NotFound | HttpClientErrorException.BadRequest e) {
+            // Jira answers an unknown key, or one the reader may not see, with 404 or 400.
             issue = null;
         } catch (RestClientResponseException e) {
             // The response body may be a whole HTML error page; the status says enough.

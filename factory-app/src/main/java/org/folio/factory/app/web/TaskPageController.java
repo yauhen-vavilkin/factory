@@ -15,6 +15,7 @@ import org.folio.factory.app.tasks.presentation.TaskSpending;
 import org.folio.factory.app.tasks.presentation.Turn;
 import org.folio.factory.devfactory.runtime.ModelCatalog;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -115,8 +116,8 @@ public class TaskPageController {
         }
         String refusal;
         try {
-            refusal = outcomeService.markStopped(attemptId);
-        } catch (RuntimeException e) {
+            refusal = outcomeService.markStopped(taskId, attemptId);
+        } catch (ConcurrencyFailureException e) {
             refusal = "The task changed at the same moment; reload and try again.";
         }
         if (refusal != null) {

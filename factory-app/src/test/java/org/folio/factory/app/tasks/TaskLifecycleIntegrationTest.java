@@ -418,22 +418,25 @@ class TaskLifecycleIntegrationTest {
         admit("50102", "MODBAR-602");
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
         TaskAttempt held = attempts.findByExecutionId(executionId).orElseThrow();
-        assertThat(outcomes.markStopped(held.getId()))
+        assertThat(outcomes.markStopped(held.getTaskId(), held.getId()))
                 .as("a queued attempt is not held, so it cannot be closed as failed")
                 .isEqualTo("Only a task that needs inspection can be closed as failed");
         failExecution(executionId, "{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"syntax\"}");
         doThrow(new IllegalStateException("docker ps failed")).when(docker).cleanOwned(any(), anyString());
         assertThat(outcomes.refresh(held.getId()).state())
                 .isEqualTo(TaskOutcomeService.AttemptOutcome.State.NEEDS_INSPECTION);
+        assertThat(outcomes.markStopped(UUID.randomUUID(), held.getId()))
+                .as("the page of another task cannot close this attempt")
+                .isEqualTo("Only a task that needs inspection can be closed as failed");
 
-        assertThat(outcomes.markStopped(held.getId())).isNull();
+        assertThat(outcomes.markStopped(held.getTaskId(), held.getId())).isNull();
 
         TaskAttempt stopped = attempts.findById(held.getId()).orElseThrow();
         assertThat(stopped.getState()).isEqualTo(TaskAttempt.State.STOPPED);
         assertThat(stopped.getResultReason()).startsWith(TaskOutcomeService.MARKED_STOPPED)
                 .doesNotContain(TaskOutcomeService.PULL_REQUEST_MAY_EXIST);
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
-        assertThat(outcomes.markStopped(held.getId()))
+        assertThat(outcomes.markStopped(held.getTaskId(), held.getId()))
                 .isEqualTo("Only a task that needs inspection can be closed as failed");
         UUID nextExecutionId = dispatcher.dispatchNext().orElseThrow();
         assertThat(nextExecutionId).isNotEqualTo(executionId);

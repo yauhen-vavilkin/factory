@@ -262,15 +262,16 @@ public class TaskOutcomeService {
      * The developer's explicit stop of an attempt held for inspection: it becomes
      * STOPPED with the operator's note and frees the slot only when it holds it,
      * so the queue continues and the old run can no longer publish. Any other
-     * state is refused, so a stale page never stops newer work.
+     * state, or an attempt of another task, is refused, so a stale page never stops newer work.
      *
      * @return null when the attempt was stopped, otherwise the refusal
      */
-    public String markStopped(UUID attemptId) {
+    public String markStopped(UUID taskId, UUID attemptId) {
         return transactions.execute(status -> {
             var installation = installations.lockById(TaskInstallation.ID);
             TaskAttempt attempt = attempts.findById(attemptId).orElse(null);
-            if (attempt == null || attempt.getState() != TaskAttempt.State.NEEDS_INSPECTION) {
+            if (attempt == null || !attempt.getTaskId().equals(taskId)
+                    || attempt.getState() != TaskAttempt.State.NEEDS_INSPECTION) {
                 return "Only a task that needs inspection can be closed as failed";
             }
             String previous = attempt.getResultReason();

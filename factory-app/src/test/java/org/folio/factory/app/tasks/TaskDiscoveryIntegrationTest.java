@@ -236,6 +236,20 @@ class TaskDiscoveryIntegrationTest {
                 .param(holderPid).query(Long.class).single() > 0;
     }
 
+    /** A Run form rendered before a scan must still match when Jira did not change. */
+    @Test
+    void scanOfAnUnchangedIssueKeepsTheTaskVersion() {
+        stubFullSearch();
+        discovery.sync();
+        Task before = tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow();
+
+        discovery.sync();
+
+        Task after = tasks.findByJiraInstanceAndIssueId(INSTANCE, "10001").orElseThrow();
+        assertThat(after.getVersion()).isEqualTo(before.getVersion());
+        assertThat(after.getSourceRevision()).isEqualTo(before.getSourceRevision());
+    }
+
     @Test
     void renamedKeyWithSameImmutableIssueIdUpdatesOneTask() {
         stubFullSearch();

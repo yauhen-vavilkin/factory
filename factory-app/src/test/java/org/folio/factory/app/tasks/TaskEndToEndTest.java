@@ -489,11 +489,11 @@ class TaskEndToEndTest {
     void markAsStoppedReleasesTheQueueAndTheHeldRunCanNoLongerPublish() {
         TaskAttempt held = attempts.findByTaskIdOrderByOrdinalAsc(taskId("8106")).getLast();
         assertThat(held.getState()).isEqualTo(TaskAttempt.State.NEEDS_INSPECTION);
-        assertThat(outcomes.markStopped(attempts.findByTaskIdOrderByOrdinalAsc(taskId("8101")).getFirst().getId()))
+        assertThat(outcomes.markStopped(taskId("8101"), attempts.findByTaskIdOrderByOrdinalAsc(taskId("8101")).getFirst().getId()))
                 .as("only an attempt that needs inspection can be stopped")
                 .isNotNull();
 
-        assertThat(outcomes.markStopped(held.getId())).isNull();
+        assertThat(outcomes.markStopped(held.getTaskId(), held.getId())).isNull();
 
         TaskAttempt stopped = attempts.findById(held.getId()).orElseThrow();
         assertThat(stopped.getState()).isEqualTo(TaskAttempt.State.STOPPED);
@@ -503,7 +503,7 @@ class TaskEndToEndTest {
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
         assertThat(attemptPolicy.ownsActiveSlot(held.getExecutionId())).isFalse();
         assertThat(dispatcher.dispatchNext()).isEmpty();
-        assertThat(outcomes.markStopped(held.getId())).isNotNull();
+        assertThat(outcomes.markStopped(held.getTaskId(), held.getId())).isNotNull();
     }
 
     @Test
