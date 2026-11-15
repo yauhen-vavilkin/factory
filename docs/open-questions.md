@@ -106,7 +106,8 @@ Source: reviews of the developer flow fixes (spec in commit 82e0d0d), 2026-10-28
 - An empty Acceptance criteria section, or one that says only "None", opens a ready PR. A
   possible draft reason: "The agent listed no acceptance criteria."
 - GitHub answers HTTP 422 when a draft PR is asked for in a repository without draft support.
-  The delivery then ends as blocked, with no fallback to a ready PR.
+  The delivery then ends as blocked, with no fallback to a ready PR. `DeliveryWorker` retries only
+  408 and 429, so a 403 rate limit after the push also ends the run.
 - Factory never reads the draft state back from GitHub. After "Ready for review" on GitHub
   the UI still shows "Draft PR".
 - `/webjars` URLs (chart.js on the dashboard) are answered with `no-store`, not a long
@@ -127,7 +128,7 @@ Source: reviews of the developer flow fixes (spec in commit 82e0d0d), 2026-10-28
 - **Pi with a model choice.** Pi still takes its model and reasoning level from
   `FACTORY_PI_*`. The models file already accepts the Pi API types; Pi uses it only for
   prices and redaction.
-- **Budget hard stop.** Max turns is now a hidden gate (200). A stop by spent money would
+- **Budget hard stop.** Max turns is now a hidden gate (400). A stop by spent money would
   protect better against a run that goes wrong. Needs a live cost from the stream.
 - **Context from other repositories.** The agent sees only the task's repository. Some tasks
   need code from other modules.
@@ -144,7 +145,8 @@ Source: reviews of the developer flow fixes (spec in commit 82e0d0d), 2026-10-28
   that the secret is set.
 - **Coding timeout.** The GLM-5.3 run of MGRAPPS-21 on 2026-11-03 (effort high) opened its draft
   PR after 29 minutes, one minute before the 30-minute coding timeout
-  (`FACTORY_DEV_FACTORY_TIMEOUT_SECONDS`).
+  (`FACTORY_DEV_FACTORY_TIMEOUT_SECONDS`). The default is 60 minutes since 2026-11-15, and a
+  whole attempt may take 120 minutes; whether that is enough for a normal task is not measured.
 - **Review findings left.** From the review of af08eb6 on 2026-11-03:
   - Claude Code always gets `--effort`, also for a gateway model whose provider may ignore or
     refuse it. Check with a real CodeMie run before changing it.
@@ -160,8 +162,10 @@ repository on 2026-11-11; git history has them under `docs/superpowers`).
   unknown" are no longer printed in Runs: the cost carries the explanation as its tooltip. The last scan
   time is the tooltip of Scan Jira. A task added by key keeps a small Remove button, which board 1 does
   not show. The in-progress strip shows the first running task only.
-- **The lost question.** The parser takes the first line that starts with `FACTORY_DECISION_REQUIRED:`
-  and ignores any text after that line. The prompt still asks for a one-line answer; it was not changed.
+- **The lost question.** The parser (`CodingProtocol.answer`, both runtimes) reads the first JSON value
+  after the first line that starts with `FACTORY_DECISION_REQUIRED:`, so a pretty-printed decision, one on
+  the next line and a closing code fence are accepted, and any text after the JSON is ignored. The prompt
+  still asks for a one-line answer; it was not changed.
   "Needs your answer" is read from the stop reason of the attempt (`TaskStops.asksForAnswer`), not from a
   stored state, so it needs no migration.
 - **Task page.** The result chip of an attempt says "Failed", not a kind such as "Build failed" (board
@@ -173,8 +177,7 @@ repository on 2026-11-11; git history has them under `docs/superpowers`).
   request, or one that waits, is not on a board: it keeps "Open pull request" and "PR feedback" or
   "Open live run" in the status card.
 - **Run page while it works.** Activity stays oldest first with the last 20 rows, so "Show 35 earlier"
-  and the newest-first order of board 2 are not built; the time limit ("of 30") is not in the status
-  card. A tool call shows one row once it ends ("Read Foo.java · took 6 ms"); Pi reports no duration, so
+  and the newest-first order of board 2 are not built. A tool call shows one row once it ends ("Read Foo.java · took 6 ms"); Pi reports no duration, so
   the time between start and end is used. Calls are paired only when the match is certain: when two
   calls of the same tool overlap and the end names no file or command, the end keeps its own row, as
   before. A call still running says "Running …", not "running now".
@@ -247,7 +250,6 @@ The question flow, the in-progress strip and Factory's comment on the pull reque
 - **Runs without a task attempt are classified by a LIKE on artifact JSON.** `RunState.SQL` matches `"state":"DELIVERED"` and `"status":"NEEDS_DECISION"` in compact JSON; a stored state would make it exact.
 - **Activity rows stored before the first-line fix keep their joined heredoc target.** Only new runs store the first line of a shell command.
 - **`DeveloperExecutionView.ListFacts.productStatus` is read only by tests.** The run list now takes its state from `RunState`.
-- **The whole-attempt deadline reason is still internal wording.** "the whole-attempt deadline expired before …; queue and human-review waiting are excluded from the budget" (`TaskGuard`) has no plain-words mapping and no Configuration link.
 - **The run form's model refusal still names the config API word.** `ModelCatalog.problem` says "uses api openai-completions"; only the Configuration tab says the API in words.
 
 ## Left after the Dashboard and list polish (2026-11-11)
@@ -259,18 +261,19 @@ The question flow, the in-progress strip and Factory's comment on the pull reque
 
 ## Left after the live-run polish (2026-11-11)
 
-- **The step time can read past its limit.** The run card counts Implement changes from the step's start against "of 30 min", but the time per step applies to the first build and to the coding separately (`InitialCodingAttempt`), so a long first build can show, for example, "40 min of 30 min" without a stop.
-- **/executions says "Asked a question" where the task says "Needs your answer".** Both name the same stop: the run list reads the run's state (`RunState.ASKED`), the task pages read the attempt's stop reason.
+- **The step time can read past its limit.** The run card counts Implement changes from the step's start against "of 1 h", but the time per step applies to the first build and to the coding separately (`InitialCodingAttempt`), so a long first build can show, for example, "70 min of 1 h" without a stop.
+- **/executions says "Asked a question" where the task says "Needs your answer".** Both name the same stop: the run list reads the run's state (`RunState.ASKED`), the task pages read the attempt's stop reason. Item 2.7 of the demo readiness plan was stopped: `RunState.getLabel()` is also the label of the Dashboard run tiles (a framework page, `DashboardUiController`), and `RunState` gives ASKED also to runs whose question was already answered, where "Needs your answer" would be false. Owner decision: a label for `/executions` only, or leave it.
 
 ## Found by the cleanup audit (2026-11-11), not fixed
 
 The cleanup changed no behavior, so these were recorded instead. None was reproduced in a run.
 
-- **The candidate patch is not checked for secrets.** The transcript and tool results pass
-  `CodingRuntime.redact`, but the patch (`CandidateFreezer.freeze`, `FeedbackCodingAttempt.saveEdits`)
-  is stored, shown and pushed as it is. The coding container holds the model secret in a file
-  (`/tmp/factory-claude/environment`, `/tmp/factory-pi/models.json`) and the agent has a shell. Whether
-  the agent can read that file is not checked. Option: refuse a patch that redaction would change.
+- **The candidate patch is checked only for configured model secrets.** Since 2026-11-15 a first
+  attempt and a PR feedback round refuse a patch whose added lines hold a configured model secret of 16
+  or more characters (`CodingRuntime.holdsSecret`, `Candidate.findFileAdding`). A shorter secret, an
+  encoded one, or one in a binary patch still passes. The coding container holds the model secret in a
+  file (`/tmp/factory-claude/environment`, `/tmp/factory-pi/models.json`) and the agent has a shell;
+  whether the agent can read that file is not checked.
 - **An escalation of a Developer Flow step leaves no trace in audit and metrics.**
   `ResumableStepTransactions.fail` writes no `ESCALATED` audit event and calls neither
   `stepEscalated()` nor `stepRetryScheduled()`, and its `RETRY_SCHEDULED` event has no
@@ -301,3 +304,74 @@ The cleanup changed no behavior, so these were recorded instead. None was reprod
   per review comment; the commit author is `Factory <factory@localhost>` and the title "Address PR
   feedback (round N)" has no task key; "Changed files" repeats "Changes" in the PR text; a file and
   line in a PR feedback comment is not a link.
+
+## Left after the demo readiness plan (2026-11-15)
+
+Source: `docs/demo-readiness-plan.md`, its "Recorded, not done" list and what its stages saw but did
+not change.
+
+Engine and framework pages, outside that plan's scope:
+
+- **One failed heartbeat write discards a finished run.** `AgentLeaseHeartbeat.renew` stores any
+  exception as a permanent failure; the task then stays "In progress" for up to two hours. It is in
+  `factory-core` and changes lease ownership.
+- **Dashboard charts.** The doughnut repeats the tiles; "Runs per flow" and "Connector actions" show
+  one bar each. Status breaks long variable names inside a word in its connector cards.
+- **The engine-gave-up reason names the error of the try before the last.** The engine stores an error
+  only when it schedules a retry (`StateManager.scheduleRetry`), so the cause is named only when the
+  step failed at least twice; a run that `failTerminally` escalates still reads "The run stopped before
+  a step could say why".
+
+Developer Flow:
+
+- **The replayed `implement` step runs the whole starting build before it stops.**
+- **Draft reasons, a second parser pass:** nested items, "(met)", "is met", table rows.
+- **Partial work at a timeout is lost, and a working run has no Stop button.** A run that hangs holds
+  the single slot for up to 60 minutes per step.
+- **An `.env` with the old limits keeps them.** `FACTORY_CLAUDE_CODE_MAX_TURNS=200` and
+  `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS=1800` from an older `.env.example` win over the new defaults.
+- **Internal words that are left:** a second Run shows "MODBAR-204: task already has a live
+  admission" and a second Retry "the task already has a live attempt" in the error banner; the guard's
+  lost-slot stop at verify or publish reads "Verification failed: the task attempt no longer owns the
+  installation's active slot; …".
+- **PR feedback wording.** An interrupted round after an engine escalation reads only "Resources
+  cleaned up.". The INTERRUPTED reason says "Start a new attempt explicitly." although its button is
+  "Try fixing with the agent". A round whose checks failed without test reports reads "Checks failed."
+  under "Checks could not run: …" (`FeedbackRows.checks`). `StopReasons.checks` and
+  `VerificationReceipt.failureReason` word the same causes in two places.
+- **Failed environment checks now offer "Try fixing with the agent".** Item B of the plan changed this
+  deliberate rule for every failure kind; check in a live round that the agent fix helps there.
+- **Old stored reasons keep old words:** "candidate freeze" in a deadline reason, and "Independent
+  checks failed: <KIND>" in PR feedback states stored before item B.
+- **Needs inspection.** Its run page has no "Mark as stopped…". After "Mark as stopped…" on a delivered
+  attempt the reason names the branch with an id (`factory/modbar-211-<uuid>`) and the known pull
+  request is hidden again.
+- **Labels.** On the task page an answered attempt's row reads "Asked a question", while My tasks said
+  "Needs your answer" before the answer. The Dashboard row of a running attempt shows its amount
+  without "so far". The effort sentence is still the hover title of the Effort choice on My tasks.
+- **Dashboard spending, choices to confirm.** In "Cost per task" the Jira key opens Jira, as on every
+  page, and the title opens the task page; the plan asked for the key to open the task page. "Where
+  attempts stopped" counts checks that could not run and Needs inspection as "Stopped by Factory or the
+  environment", and a command output limit, a patch refused for a model key and a stop you marked as
+  "Other"; running attempts are not counted, so while one runs the causes add up to less than
+  "Attempts without a pull request". "By model and effort" divides by every attempt of the group,
+  priced or not.
+- **Phone width (390 px).** My tasks cuts a long reason after two lines (80033, 80036 in the demo
+  console); a reason on its own line under the key starts 10 px in; the repository table of the
+  Configuration tab is wider than its box (456 against 350 px).
+- **`StopReasons` (tasks.execution) imports `UiFormat` (web)** for the step name of the engine-gave-up
+  reason.
+
+Tests and the demo console:
+
+- **No page test for "Could not start".** Scenario 12 (a task that cannot start, and the queue notice
+  while Factory's preflight fails) needs its own Spring context with the default GitHub API and a
+  mocked `DeveloperPreflightProbe`, against the plan's "one class, one context". Owner decision.
+- **No scenario drives a patch refused for a model key through the pages**; unit tests and demo seeds
+  cover it. The tier B scenarios (item G) were not written.
+- **`DemoConsole` still seeds finished states by hand** (the reasons through production code). Running
+  the scenarios at its startup needs task execution on, which would let its queued tasks start. Seeds
+  80017, 80018 and 80019 show every step as Passed on the run page; 80019 stores `DEVELOPMENT_FAILED:`
+  for a cause the code stores as `BLOCKED_ENVIRONMENT:`; the delivery of 80020 has no reason, because
+  it is a private literal in `DeliveryWorker.notVerified`; every seeded PR feedback round shows $0.00
+  for the round. A Dashboard group whose attempts all have no price is not covered by a test.
