@@ -607,6 +607,11 @@ without a warning, so rename them in `.env`: `FACTORY_PILOT_ASSIGNEE`, `FACTORY_
 `FACTORY_PI_PROVIDER`, `_MODEL`, `_BASE_URL`, `_API`, `_API_KEY`, `_REASONING_EFFORT`, `_MAX_OUTPUT_TOKENS`
 and `_IMAGE`. `FACTORY_DEV_FACTORY_DELIVERY_*`, `FACTORY_TASKS_EXECUTION_RECOVERY_POLL_INTERVAL_MS`,
 `factory.dev-factory.delivery.targets.*` and the delivery `authorized` key are no longer read.
+Since the models file of 2026-11-03, `FACTORY_CLAUDE_CODE_API`, `_BASE_URL`, `_MODEL`, `_AUTHENTICATION`,
+`_API_KEY`, `_AUTH_TOKEN`, `_MAX_OUTPUT_TOKENS` and `_EFFORT` are no longer read either: the model, its
+endpoint, authentication and effort are in `config/developer-models.yaml`, the CodeMie proxy secret is
+`FACTORY_CODEMIE_PROXY_TOKEN`, and the prices of `config/developer-pricing.yaml` are the `price` blocks of
+the models file. `FACTORY_CLAUDE_CODE_IMAGE` and `FACTORY_CLAUDE_CODE_MAX_TURNS` stay.
 
 | Environment variable | Purpose |
 |---|---|

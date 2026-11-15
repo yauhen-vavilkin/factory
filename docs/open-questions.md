@@ -382,3 +382,19 @@ Tests and the demo console:
   for a cause the code stores as `BLOCKED_ENVIRONMENT:`; the delivery of 80020 has no reason, because
   it is a private literal in `DeliveryWorker.notVerified`; every seeded PR feedback round shows $0.00
   for the round. A Dashboard group whose attempts all have no price is not covered by a test.
+
+## Left after the review of the whole pull request (2026-11-15)
+
+Found by the review of everything since `main` before the merge; fixed findings are in the commits of that day.
+
+- **A double click on Run or Start attempt shows a refusal for work that was queued.** Every POST makes a
+  new request id (`"ui-" + UUID.randomUUID()` in `TaskUiController` and `TaskPageController`), so the second
+  click is refused with "task already has a live admission". A request id rendered into the form, and a
+  lookup by it right after `lockById` in `TaskAdmissionService`, would make the second click a no-op.
+- **A scan stores the Jira key, id and project key without checking them.** One field over the 64
+  characters of its column fails the whole scan, and a stored key that does not match `IssueSnapshot.ISSUE_KEY`
+  fails `DeveloperPreflight.requireReady` with a plain `IllegalArgumentException`, which the dispatcher
+  retries on every poll. Jira enforces its key format, so this needs a broken or hostile Jira.
+- **Renaming "attempt" to "run" on the pages** was asked for with the attempt card of the task page and
+  not done: it touches many texts ("Start attempt 2", "Attempt 1 failed", "spent in 2 attempts"), README
+  and the tests.
