@@ -21,6 +21,7 @@ import org.folio.factory.core.service.AuditLog;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
 import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
+import org.folio.factory.devfactory.worker.DevelopWorker;
 import org.folio.factory.devfactory.worker.VerifyWorker;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -186,15 +187,41 @@ class DemoConsole {
         // The limits are the shipped defaults: 60 minutes per step and 400 turns.
         stopped("80017", "Task stopped at the time limit", "DEVELOPMENT_FAILED: " + TaskStops.timeLimitReason(60));
         stopped("80018", "Task stopped at the turn limit", "DEVELOPMENT_FAILED: " + TaskStops.turnLimitReason(400));
-        // What the task guard stores when the whole-attempt time runs out before the verify step.
-        stopped("80020", "Task stopped at the whole-attempt deadline",
-                "verify: " + TaskStops.deadlineReason("verification"));
+        deadlineBeforeVerification();
         stopped("80019", "Task stopped by the shared configuration", "DEVELOPMENT_FAILED: Coding runtime"
                 + " configuration is incomplete or unsupported; check Developer Flow configuration.");
-        stopped("80035", "Task whose pull request GitHub refused",
-                "DELIVERY_BLOCKED: " + DeliveryWorker.pullRequestRefusedReason(403));
-        // What the task guard stores when the engine repeats the coding step after the paid start.
-        stopped("80032", "Task whose coding step Factory repeated", "implement: " + TaskStops.REPLAYED_CODING_REASON);
+        pullRequestRefused();
+        codingRepeated();
+    }
+
+    /**
+     * The whole-attempt time ran out before the verify step: the task guard stores its reason, VerifyWorker records
+     * that no check ran, and DeliveryWorker that nothing was delivered.
+     */
+    private void deadlineBeforeVerification() {
+        var reason = TaskStops.deadlineReason("verification");
+        var execution = stopped("80020", "Task stopped at the whole-attempt deadline", "verify: " + reason);
+        put(execution, VerifyWorker.RECEIPT, Map.of("state", "NOT_RUN", "reason", reason));
+        put(execution, VerifyWorker.RESULT, Map.of("state", TaskStops.DEADLINE_STATE, "reason", reason));
+        put(execution, DeliveryWorker.DELIVERY, Map.of("state", "NOT_RUN"));
+    }
+
+    /** Factory pushed the branch, then GitHub refused the pull request with an error the engine does not retry. */
+    private void pullRequestRefused() {
+        var blocked = Map.of("state", "DELIVERY_BLOCKED", "reason", DeliveryWorker.pullRequestRefusedReason(403));
+        var execution = stopped("80035", "Task whose pull request GitHub refused",
+                StopReasons.ofResult(JSON.valueToTree(blocked)));
+        put(execution, DeliveryWorker.DELIVERY, blocked);
+        put(execution, VerifyWorker.RESULT, blocked);
+    }
+
+    /** The engine repeated the coding step after the paid start, so the step stopped before the agent could start. */
+    private void codingRepeated() {
+        var replayed = Map.of("state", "PAID_START_CONSUMED", "reason", TaskStops.REPLAYED_CODING_REASON);
+        var execution = stopped("80032", "Task whose coding step Factory repeated",
+                "implement: " + TaskStops.REPLAYED_CODING_REASON);
+        put(execution, DevelopWorker.CANDIDATE, replayed);
+        put(execution, VerifyWorker.RESULT, replayed);
     }
 
     /** The base branch did not build, so the agent never started and the attempt spent nothing. */
@@ -217,9 +244,16 @@ class DemoConsole {
                 TaskAttempt.State.STOPPED, StopReasons.engineGaveUp("publish", 3, error), execution);
     }
 
-    private void stopped(String issueId, String title, String reason) {
+    private PipelineExecution stopped(String issueId, String title, String reason) {
+        var execution = execution("0.6.0", ExecutionStatus.COMPLETED, 10);
         attempt(task(issueId, "MODBAR-8" + issueId.substring(3), title), TaskAttempt.State.STOPPED, reason,
-                execution("0.6.0", ExecutionStatus.COMPLETED, 10));
+                execution);
+        return execution;
+    }
+
+    /** The artifact a worker writes under this name, with the fields the pages read from it. */
+    private void put(PipelineExecution execution, String name, Map<String, String> content) {
+        artifacts.put(execution.getId(), name, JSON.writeValueAsString(content), "application/json", "demo");
     }
 
     /** The agent changed no file, then printed too much, and the third attempt opened a draft pull request. */
