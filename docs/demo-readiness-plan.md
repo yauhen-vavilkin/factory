@@ -415,7 +415,47 @@ Give a session this prompt:
   has a live admission" and a second Retry "the task already has a live attempt" in the error
   banner; failed PR feedback checks read "Independent checks failed: CANDIDATE" (item B); an
   interrupted round after an engine escalation reads only "Resources cleaned up.".
-- [ ] Stage 2. What a person reads when a run stops
+- [x] Stage 2. What a person reads when a run stops. **Ready for a live run.** Items 2.1 to 2.6
+  and 2.8 are done; 2.7 was stopped (below). 2.1 (4abe6f7): `StopReasons.ofResult` builds the
+  stored reason from the result `VerifyWorker` writes (counts first, then `failureKind`), so the
+  pages read "Checks failed: 2 of 300 tests failed.", "Checks failed: the code does not compile."
+  or "Checks could not run: the build environment failed (Docker, network, disk space or time
+  limit)."; the worker's outputs did not change, and `TaskLifecycleIntegrationTest` and
+  `TaskViewTest` use the worker's shape. 2.2 (3d2fad3, 64cb631): `TaskStops.startingBuildFailedReason`;
+  a finished attempt that never reached the agent shows "$0.00" instead of "cost unknown", but only
+  when all its usage was counted (64cb631: usage without an attempt id keeps "cost unknown").
+  2.3 (d10f954): `TaskStops.REPLAYED_CODING_REASON`, old text mapped in `AttemptFailure`, the order
+  of `claimPaidStart` unchanged. 2.4 (a5bfb1c): "Factory could not finish the Publish step after 3
+  tries: <first line of the engine's error, without credentials or ids>. Start a new attempt.",
+  built in `TaskOutcomeService` from the step at the run's cursor and the flow's `max_attempts`;
+  the run page offers "Start attempt 2 on the task page" instead of "Open review" for it.
+  2.5 (4a6ceb2): `TaskStops.deadlineReason` with the "Limits in Configuration" link, old text
+  mapped. 2.6 (52fff74): `isLive()`; the task page shows "Open pull request #N" and the attempt
+  keeps its "Needs inspection" chip. 2.8 (c1f1c30): `DeliveryWorker.deliveryRefusedReason` and
+  `pullRequestRefusedReason`, retry rules unchanged. 2.7 not done: `RunState.getLabel()` is also
+  the label of the Dashboard run tiles (`DashboardUiController` line 92, `DashboardUiControllerTest`
+  line 113 expects "Asked a question"), so the change would change a framework page; and the
+  `RunState` query gives ASKED also to runs whose question was answered, where "Needs your answer"
+  would be false. The owner decides: a label for `/executions` only, or leave it. Scenarios 6 to
+  11 pass in `TaskScenarioIntegrationTest`, each in the commit of its fix; 10 uses
+  `finishThroughRetries`, which moves `next_run_at` to now between tries. Demo seeds (all through
+  the production builders): 80009, 80029, 80030 (checks), 80031 (base branch), 80033 (engine gave
+  up), 80020 (deadline), 80035 (GitHub refused the pull request), 80032 (replay), 80034 (needs
+  inspection with pull request #34); 80017 and 80018 use the shipped limits. `mvn verify` passed;
+  no JS changed. Looked at in `DemoConsole`, light theme, at 1280 px (headless Chrome) and 390 px
+  (browser pane): both pages of My tasks, and the task page and the run page of 80009, 80029,
+  80030, 80031, 80033, 80020, 80035, 80032, 80034, 80017, 80018 and 80025. Not done: the
+  independent review of the stage diff by a fresh agent (this session could not start one).
+  Seen, not changed: at 390 px the run page of every failed attempt is 405 px wide ("Start attempt
+  2 on the task page" passes the card's edge), the task page of 80034 is 557 px wide (three buttons
+  in one row since 2.6), and My tasks cuts the reason to a few characters (all for the stage 4
+  wrapping check); every finished demo attempt shows "cost unknown", because the seeds' usage has
+  no attempt id and no price (acceptance 4); the run page of an attempt that needs inspection says
+  "Factory opened it as a draft because:" without naming or linking the pull request and has no
+  "Mark as stopped…"; after "Mark as stopped…" on a delivered attempt the reason names the branch
+  with an id (`factory/modbar-211-<uuid>`) and the known pull request is hidden again; the
+  `stopped()` demo seeds show every step as Passed on the run page; the engine's error is the one
+  of its last retried try; `StopReasons` (tasks.execution) uses `UiFormat` (web), as 2.4 asked.
 - [ ] Stage 3. Dashboard spending
 - [ ] Stage 4. Console clean-up
 - [ ] Stage 5. Final check
