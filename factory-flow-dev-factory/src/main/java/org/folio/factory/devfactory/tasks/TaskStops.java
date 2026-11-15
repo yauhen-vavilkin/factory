@@ -39,6 +39,9 @@ public final class TaskStops {
     public static final String STARTING_BUILD_FAILED_START = "The build of the base branch failed before the agent"
             + " started, so nothing was spent.";
 
+    /** The start of {@link #deadlineReason}, by which a page knows the cause is a limit it can link to. */
+    public static final String DEADLINE_START = "The attempt used all of its time before ";
+
     /** The start of {@link #timeLimitReason}, by which a page knows the cause is a limit it can link to. */
     public static final String TIME_LIMIT_START = "The agent did not finish in ";
     /** The start of {@link #turnLimitReason}. */
@@ -53,6 +56,15 @@ public final class TaskStops {
                 : summary.strip() + (summary.strip().endsWith(".") ? " " : ". ");
         return STARTING_BUILD_FAILED_START + " " + found + "Open the run to see the build output, then fix the base"
                 + " branch or the check command in config/developer-repositories.yaml.";
+    }
+
+    /**
+     * Why an attempt stopped when its whole-attempt time ran out before {@code stage}; the page links the limits
+     * under it. Time in the queue and waiting for a person does not count.
+     */
+    public static String deadlineReason(String stage) {
+        return DEADLINE_START + stage + ", so Factory stopped it. Start a new attempt with a lower effort or narrower"
+                + " instructions, or raise the time limit of the whole attempt.";
     }
 
     /** Why a coding attempt stopped when the agent did not finish in time; the page links the limits under it. */

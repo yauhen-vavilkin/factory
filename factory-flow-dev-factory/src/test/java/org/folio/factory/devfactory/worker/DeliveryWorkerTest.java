@@ -1,6 +1,7 @@
 package org.folio.factory.devfactory.worker;
 
 import org.folio.factory.agents.artifact.FrontmatterCodec;
+import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.connectors.github.GitHubConnector;
 import org.folio.factory.connectors.github.GitHubProperties;
 import org.folio.factory.connectors.jira.JiraProperties;
@@ -245,7 +246,7 @@ class DeliveryWorkerTest {
         var result = delivery(worker(taskAttempts).execute(verifiedContext()));
 
         assertThat(result.path("state").asString()).isEqualTo("DELIVERY_BLOCKED");
-        assertThat(result.path("reason").asString()).contains("deadline expired before publication");
+        assertThat(result.path("reason").asString()).isEqualTo(TaskStops.deadlineReason("publication"));
         verifyNoInteractions(delivery, github);
     }
 

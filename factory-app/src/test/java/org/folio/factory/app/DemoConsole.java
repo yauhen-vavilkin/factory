@@ -181,11 +181,11 @@ class DemoConsole {
 
     /** One task for each cause of a stop that Factory names, besides failed checks. */
     private void stoppedByLimits() {
-        stopped("80017", "Task stopped at the time limit", "DEVELOPMENT_FAILED: " + TaskStops.timeLimitReason(30));
-        stopped("80018", "Task stopped at the turn limit", "DEVELOPMENT_FAILED: " + TaskStops.turnLimitReason(80));
-        stopped("80020", "Task stopped at the whole-attempt deadline", TaskStops.DEADLINE_STATE
-                + ": the whole-attempt deadline expired before verification; queue and human-review waiting are"
-                + " excluded from the budget");
+        // The limits are the shipped defaults: 60 minutes per step and 400 turns.
+        stopped("80017", "Task stopped at the time limit", "DEVELOPMENT_FAILED: " + TaskStops.timeLimitReason(60));
+        stopped("80018", "Task stopped at the turn limit", "DEVELOPMENT_FAILED: " + TaskStops.turnLimitReason(400));
+        stopped("80020", "Task stopped at the whole-attempt deadline",
+                TaskStops.DEADLINE_STATE + ": " + TaskStops.deadlineReason("verification"));
         stopped("80019", "Task stopped by the shared configuration", "DEVELOPMENT_FAILED: Coding runtime"
                 + " configuration is incomplete or unsupported; check Developer Flow configuration.");
         // What the task guard stores when the engine repeats the coding step after the paid start.

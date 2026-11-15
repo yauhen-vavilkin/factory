@@ -264,14 +264,14 @@ class DevelopReadinessTest {
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
                 .contains(TaskStops.DEADLINE_STATE)
-                .contains("expired before preparation");
+                .contains(TaskStops.deadlineReason("preparation"));
         verify(harness.freezer(), never()).checkout(anyString(), anyString());
         verify(harness.scope(), never()).createTrusted(anyString(), any(), anyString());
         verify(harness.scope(), never()).createSeeded(anyString(), any(), anyString(), anyString());
         verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
         assertThat(taskAttempts.stops).singleElement().satisfies(stop -> {
             assertThat(stop).startsWith("implement: ");
-            assertThat(stop).contains("deadline expired");
+            assertThat(stop).contains(TaskStops.DEADLINE_START);
         });
     }
 
@@ -294,10 +294,10 @@ class DevelopReadinessTest {
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
                 .contains(TaskStops.DEADLINE_STATE)
-                .contains("expired before coding");
+                .contains(TaskStops.deadlineReason("coding"));
         verify(harness.coding(), never()).code(any(), any(), anyInt(), any(), any());
         assertThat(taskAttempts.paidStartClaims).isZero();
-        assertThat(taskAttempts.stops).anyMatch(stop -> stop.contains("deadline expired before coding"));
+        assertThat(taskAttempts.stops).anyMatch(stop -> stop.contains(TaskStops.deadlineReason("coding")));
     }
 
     @Test

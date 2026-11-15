@@ -102,6 +102,20 @@ class AttemptFailureTest {
     }
 
     @Test
+    void aWholeAttemptDeadlineSaysTheAttemptUsedItsTimeAndLinksTheLimits() {
+        var reason = AttemptFailure.reason("DEADLINE_EXCEEDED: the whole-attempt deadline expired before"
+                + " verification; queue and human-review waiting are excluded from the budget");
+
+        assertThat(reason).isEqualTo(TaskStops.deadlineReason("verification"))
+                .isEqualTo("The attempt used all of its time before verification, so Factory stopped it. Start a new"
+                        + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole"
+                        + " attempt.");
+        assertThat(AttemptFailure.limitsUrl(reason)).isEqualTo("/developer/configuration#limits");
+        assertThat(AttemptFailure.reason("DEADLINE_EXCEEDED: " + TaskStops.deadlineReason("coding")))
+                .isEqualTo(TaskStops.deadlineReason("coding"));
+    }
+
+    @Test
     void failedChecksSayWhetherTheyFailedOrCouldNotRun() {
         assertThat(AttemptFailure.reason("VERIFICATION_FAILED: 2 of 300 tests failed"))
                 .isEqualTo("Checks failed: 2 of 300 tests failed.");

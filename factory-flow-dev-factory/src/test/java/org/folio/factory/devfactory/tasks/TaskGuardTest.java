@@ -41,16 +41,16 @@ class TaskGuardTest {
 
     @ParameterizedTest
     @CsvSource(delimiter = '|', quoteCharacter = '"', value = {
-        "preparation | the whole-attempt deadline expired before preparation;"
-            + " queue and human-review waiting are excluded from the budget",
-        "coding | the whole-attempt deadline expired before coding;"
-            + " queue and human-review waiting are excluded from the budget",
-        "candidate freeze | the whole-attempt deadline expired before candidate freeze;"
-            + " queue and human-review waiting are excluded from the budget",
-        "verification | the whole-attempt deadline expired before verification;"
-            + " queue and human-review waiting are excluded from the budget",
-        "publication | the whole-attempt deadline expired before publication;"
-            + " queue and human-review waiting are excluded from the budget"})
+        "preparation | The attempt used all of its time before preparation, so Factory stopped it. Start a new"
+            + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole attempt.",
+        "coding | The attempt used all of its time before coding, so Factory stopped it. Start a new"
+            + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole attempt.",
+        "candidate freeze | The attempt used all of its time before candidate freeze, so Factory stopped it. Start a new"
+            + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole attempt.",
+        "verification | The attempt used all of its time before verification, so Factory stopped it. Start a new"
+            + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole attempt.",
+        "publication | The attempt used all of its time before publication, so Factory stopped it. Start a new"
+            + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole attempt."})
     void anExpiredDeadlineStopsBeforeTheStage(String stage, String reason) {
         var attempts = RecordingTaskAttempts.taskRun()
                 .withDeadline(new AttemptDeadline(Instant.parse("2026-10-23T10:00:00Z")));

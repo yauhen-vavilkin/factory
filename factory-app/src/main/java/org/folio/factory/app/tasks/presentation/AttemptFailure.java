@@ -26,6 +26,7 @@ public record AttemptFailure(String headline, String reason) {
     private static final String OLD_STARTING_BUILD_FAILED = "Starting build failed before model spend";
     /** Older runs named the attempt id in this text. */
     private static final String OLD_REPLAYED_CODING = "Paid coding was already started for task attempt";
+    private static final Pattern OLD_DEADLINE = Pattern.compile("^the whole-attempt deadline expired before ([^;]+);");
     private static final String LIMITS_URL = "/developer/configuration#limits";
     private static final List<String> LAYER_PREFIXES =
             List.of("shared: ", "Development stopped: ", "Implementation failed: ");
@@ -82,8 +83,8 @@ public record AttemptFailure(String headline, String reason) {
      * turns, so the page can link to where they are set; null for any other reason.
      */
     public static String limitsUrl(String reason) {
-        var limit = reason != null
-                && (reason.startsWith(TaskStops.TIME_LIMIT_START) || reason.startsWith(TaskStops.TURN_LIMIT_START));
+        var limit = reason != null && (reason.startsWith(TaskStops.TIME_LIMIT_START)
+                || reason.startsWith(TaskStops.TURN_LIMIT_START) || reason.startsWith(TaskStops.DEADLINE_START));
         return limit ? LIMITS_URL : null;
     }
 
@@ -115,6 +116,24 @@ public record AttemptFailure(String headline, String reason) {
      * live in TaskStops), and the ones Factory stores in its own words.
      */
     private static String knownCause(String text) {
+        var older = olderWording(text);
+        if (older != null) {
+            return older;
+        }
+        Matcher time = OLD_TIME_LIMIT.matcher(text);
+        if (time.find()) {
+            return TaskStops.timeLimitReason(Long.parseLong(time.group(1)));
+        }
+        Matcher turns = OLD_TURN_LIMIT.matcher(text);
+        if (!turns.find()) {
+            return factoryCause(text);
+        }
+        var count = turns.group(1) != null ? turns.group(1) : turns.group(2) != null ? turns.group(2) : turns.group(3);
+        return TaskStops.turnLimitReason(Long.parseLong(count));
+    }
+
+    /** The fixed sentences of TaskStops that older runs stored in other words; null for any other text. */
+    private static String olderWording(String text) {
         if (text.startsWith(Processes.OUTPUT_LIMIT_EXCEEDED)) {
             return TaskStops.OUTPUT_LIMIT_REASON;
         }
@@ -127,16 +146,8 @@ public record AttemptFailure(String headline, String reason) {
         if (text.startsWith(OLD_REPLAYED_CODING)) {
             return TaskStops.REPLAYED_CODING_REASON;
         }
-        Matcher time = OLD_TIME_LIMIT.matcher(text);
-        if (time.find()) {
-            return TaskStops.timeLimitReason(Long.parseLong(time.group(1)));
-        }
-        Matcher turns = OLD_TURN_LIMIT.matcher(text);
-        if (!turns.find()) {
-            return factoryCause(text);
-        }
-        var count = turns.group(1) != null ? turns.group(1) : turns.group(2) != null ? turns.group(2) : turns.group(3);
-        return TaskStops.turnLimitReason(Long.parseLong(count));
+        Matcher deadline = OLD_DEADLINE.matcher(text);
+        return deadline.find() ? TaskStops.deadlineReason(deadline.group(1)) : null;
     }
 
     /** The causes Factory stores in its own words; the reason of a question is the question alone. */

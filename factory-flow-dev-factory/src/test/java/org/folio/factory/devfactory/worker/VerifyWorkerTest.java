@@ -159,7 +159,7 @@ class VerifyWorkerTest {
 
         var outcome = json.readTree(result.outputs().get(VerifyWorker.RESULT));
         assertThat(outcome.path("state").asString()).isEqualTo(TaskStops.DEADLINE_STATE);
-        assertThat(outcome.path("reason").asString()).contains("deadline expired before verification");
+        assertThat(outcome.path("reason").asString()).isEqualTo(TaskStops.deadlineReason("verification"));
         verifyNoInteractions(verifier);
     }
 

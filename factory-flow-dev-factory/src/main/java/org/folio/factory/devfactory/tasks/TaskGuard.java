@@ -54,9 +54,7 @@ public final class TaskGuard {
                             + " a stopped, superseded or released attempt must not " + forbidden));
         }
         if (policy.deadline(executionId).filter(deadline -> deadline.expired(clock)).isPresent()) {
-            return Optional.of(new Stop(TaskStops.DEADLINE_STATE,
-                    "the whole-attempt deadline expired before " + stage
-                            + "; queue and human-review waiting are excluded from the budget"));
+            return Optional.of(new Stop(TaskStops.DEADLINE_STATE, TaskStops.deadlineReason(stage)));
         }
         return Optional.empty();
     }
