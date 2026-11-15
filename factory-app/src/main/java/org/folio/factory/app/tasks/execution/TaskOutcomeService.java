@@ -271,7 +271,7 @@ public class TaskOutcomeService {
             var installation = installations.lockById(TaskInstallation.ID);
             TaskAttempt attempt = attempts.findById(attemptId).orElse(null);
             if (attempt == null || attempt.getState() != TaskAttempt.State.NEEDS_INSPECTION) {
-                return "Only a task that needs inspection can be marked as stopped";
+                return "Only a task that needs inspection can be closed as failed";
             }
             String previous = attempt.getResultReason();
             String publication = publicationNote(attempt);

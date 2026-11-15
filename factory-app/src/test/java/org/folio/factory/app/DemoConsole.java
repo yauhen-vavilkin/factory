@@ -534,6 +534,8 @@ class DemoConsole {
             attempt.setExecutionId(execution.getId());
             var settings = settingsByRun.get(execution.getId());
             attempt.setRunSettings(settings == null ? null : JSON.writeValueAsString(settings));
+            // A run that reported usage reached the agent, so its attempt shows the time the agent worked.
+            attempt.setPaidStartAt(settings == null ? null : attempt.getStartedAt());
         }
         return attempts.save(attempt);
     }

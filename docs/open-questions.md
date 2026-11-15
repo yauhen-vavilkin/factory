@@ -343,7 +343,7 @@ Developer Flow:
   deliberate rule for every failure kind; check in a live round that the agent fix helps there.
 - **Old stored reasons keep old words:** "candidate freeze" in a deadline reason, and "Independent
   checks failed: <KIND>" in PR feedback states stored before item B.
-- **Needs inspection.** Its run page has no "Mark as stopped…". After "Mark as stopped…" on a delivered
+- **Needs inspection.** Its run page has no "Close as failed…". After "Close as failed…" on a delivered
   attempt the reason names the branch with an id (`factory/modbar-211-<uuid>`) and the known pull
   request is hidden again.
 - **Labels.** On the task page an answered attempt's row reads "Asked a question", while My tasks said

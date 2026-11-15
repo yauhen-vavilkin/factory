@@ -419,8 +419,8 @@ class TaskLifecycleIntegrationTest {
         UUID executionId = dispatcher.dispatchNext().orElseThrow();
         TaskAttempt held = attempts.findByExecutionId(executionId).orElseThrow();
         assertThat(outcomes.markStopped(held.getId()))
-                .as("a queued attempt is not held, so it cannot be marked as stopped")
-                .isEqualTo("Only a task that needs inspection can be marked as stopped");
+                .as("a queued attempt is not held, so it cannot be closed as failed")
+                .isEqualTo("Only a task that needs inspection can be closed as failed");
         failExecution(executionId, "{\"state\":\"DEVELOPMENT_FAILED\",\"reason\":\"syntax\"}");
         doThrow(new IllegalStateException("docker ps failed")).when(docker).cleanOwned(any(), anyString());
         assertThat(outcomes.refresh(held.getId()).state())
@@ -434,7 +434,7 @@ class TaskLifecycleIntegrationTest {
                 .doesNotContain(TaskOutcomeService.PULL_REQUEST_MAY_EXIST);
         assertThat(installations.findById(1).orElseThrow().getActiveAttemptId()).isNull();
         assertThat(outcomes.markStopped(held.getId()))
-                .isEqualTo("Only a task that needs inspection can be marked as stopped");
+                .isEqualTo("Only a task that needs inspection can be closed as failed");
         UUID nextExecutionId = dispatcher.dispatchNext().orElseThrow();
         assertThat(nextExecutionId).isNotEqualTo(executionId);
     }

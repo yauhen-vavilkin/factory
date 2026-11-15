@@ -256,7 +256,7 @@ class TaskScenarioIntegrationTest {
                 .getFirst();
         assertThat(draftReason).isEqualTo("1 acceptance criterion is not met.");
         var pages = pages(taskId);
-        assertRow(pages.myTasks(), "Validate the limit MODBAR-201", "$0.40 Draft PR #31");
+        assertRow(pages.myTasks(), "MODBAR-201", "Validate the limit 1 attempt", "$0.40 Draft PR #31");
         assertThat(pages.task()).contains("Draft PR #31 Nothing needed from you Pull request #31 is open as a draft",
                 "The pull request was opened as a draft because: " + draftReason, "Open pull request #31");
         assertThat(pages.run()).contains("Pull request #31 is open as a draft",
@@ -298,7 +298,7 @@ class TaskScenarioIntegrationTest {
         assertThat(codingRequests.getLast().runSettings().instructions())
                 .startsWith("My answer to your question: Use 100");
         var pages = pages(taskId);
-        assertRow(pages.myTasks(), "Unclear limit MODBAR-203", "$0.80 Draft PR #33");
+        assertRow(pages.myTasks(), "MODBAR-203", "Unclear limit 2 attempts", "$0.80 Draft PR #33");
         assertThat(pages.task()).contains("Pull request #33 is open as a draft", "$0.80 spent in 2 attempts",
                 "Attempt 2 · answer to the agent's question");
         assertNoInternalWording(pages);
@@ -361,8 +361,8 @@ class TaskScenarioIntegrationTest {
                 "The build of the base branch failed before the agent started, so nothing was spent. Open the run"
                         + " to see the build output, then fix the base branch or the check command in"
                         + " config/developer-repositories.yaml.");
-        assertRow(pages.myTasks(), "Base branch does not build Your turn MODBAR-209",
-                TaskStops.STARTING_BUILD_FAILED_START + " $0.00 Failed");
+        assertRow(pages.myTasks(), "MODBAR-209", "Your turn Base branch does not build 1 attempt",
+                TaskStops.STARTING_BUILD_FAILED_START + " $0.00 Failed Start attempt 2");
         assertThat(pages.task()).contains("$0.00 spent in 1 attempt").doesNotContain("cost unknown");
         assertThat(pages.run()).doesNotContain("cost unknown");
     }
@@ -457,10 +457,10 @@ class TaskScenarioIntegrationTest {
                 .isEqualTo(TaskOutcomeService.AttemptOutcome.State.NEEDS_INSPECTION);
 
         var pages = pages(taskId);
-        assertRow(pages.myTasks(), "Clean-up not confirmed Your turn MODBAR-211",
-                "outcome not confirmed $0.40 Needs inspection Mark as stopped…");
+        assertRow(pages.myTasks(), "MODBAR-211", "Your turn Clean-up not confirmed 1 attempt",
+                "$0.40 Needs inspection Close as failed…");
         assertThat(pages.task()).contains("Needs inspection Your turn Factory could not confirm how the run ended",
-                "Open pull request #41", "Mark as stopped…");
+                "Open pull request #41", "Close as failed…");
         assertThat(pages.run()).contains("Needs inspection Your turn Factory could not confirm how the run ended",
                 "Open pull request #41", "4 · Create pull request Passed · draft");
         assertNoInternalWording(pages);
@@ -482,8 +482,8 @@ class TaskScenarioIntegrationTest {
     private Pages assertFailedWithoutPullRequest(UUID taskId, String titleAndKey, String reason, List<String> steps) {
         var pages = pages(taskId);
         int keyStart = titleAndKey.lastIndexOf(' ');
-        assertRow(pages.myTasks(), titleAndKey.substring(0, keyStart) + " Your turn" + titleAndKey.substring(keyStart),
-                AttemptFailure.firstSentence(reason));
+        assertRow(pages.myTasks(), titleAndKey.substring(keyStart + 1),
+                "Your turn " + titleAndKey.substring(0, keyStart) + " 1 attempt", AttemptFailure.firstSentence(reason));
         assertThat(pages.task()).contains("Failed Your turn Attempt 1 failed", "Reason " + reason,
                 "No pull request was created.", "Start attempt 2");
         assertThat(pages.run()).contains("Failed Your turn Attempt 1 failed", "Reason " + reason,
@@ -494,7 +494,7 @@ class TaskScenarioIntegrationTest {
 
     private void assertAsksForAnAnswer(UUID taskId) {
         var pages = pages(taskId);
-        assertRow(pages.myTasks(), "Unclear limit Your turn MODBAR-203", "$0.40 Needs your answer");
+        assertRow(pages.myTasks(), "MODBAR-203", "Your turn Unclear limit 1 attempt", "$0.40 Needs your answer Answer");
         assertThat(pages.task()).contains("Needs your answer Your turn The agent stopped with a question",
                 "The agent's question Coding agent Should the limit be 100 or 1000?", "Use 100", "Use 1000",
                 "Start attempt 2 with this answer");
@@ -505,11 +505,13 @@ class TaskScenarioIntegrationTest {
     }
 
     /**
-     * The task's row on My tasks reads {@code start}, then only its time ("just now"), then {@code end}; the
-     * time holds no capital letter or "$", so the match cannot run into the next row.
+     * The task's row on My tasks reads its key, then only its age ("just now"), then {@code start}, then at most
+     * the time the agent worked, then {@code end}. The age and the time hold no capital letter or "$", so the
+     * match cannot run into the next row.
      */
-    private static void assertRow(String myTasks, String start, String end) {
-        assertThat(myTasks).containsPattern(Pattern.quote(start) + " [^$A-Z]{1,20}? " + Pattern.quote(end));
+    private static void assertRow(String myTasks, String key, String start, String end) {
+        assertThat(myTasks).containsPattern(Pattern.quote(key) + " [^$A-Z]{1,20}? " + Pattern.quote(start)
+                + " (?:[^$A-Z]{1,12}? )?" + Pattern.quote(end));
     }
 
     private record Pages(String myTasks, String task, String run) {

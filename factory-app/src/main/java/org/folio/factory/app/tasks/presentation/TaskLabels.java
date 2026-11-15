@@ -43,9 +43,9 @@ final class TaskLabels {
             case WORKING -> queued(view) ? linePlace(view) : joinNonNull(stageLabel(view.stage()),
                     view.stageStartedAt() == null ? null
                             : minutes(Duration.between(view.stageStartedAt(), Instant.now()).getSeconds()));
-            case PR_READY -> null;
+            // The chip says it: a pull request, or Needs inspection.
+            case PR_READY, UNCERTAIN, PROCESSING_PAUSED -> null;
             case STOPPED -> view.needsAnswer() ? null : AttemptFailure.reason(view.reason());
-            case UNCERTAIN, PROCESSING_PAUSED -> "outcome not confirmed";
             default -> AttemptFailure.reason(view.reason());
         };
     }

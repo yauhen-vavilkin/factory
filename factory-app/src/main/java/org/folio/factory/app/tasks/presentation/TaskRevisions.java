@@ -65,7 +65,8 @@ public class TaskRevisions {
 
     private static String shown(TaskView view) {
         var row = RunRows.row(view, FeedbackStanding.NONE);
-        return row.cost() + "|" + row.when() + "|" + RunRows.strip(List.of(view)).map(InProgressStrip::run).orElse("");
+        var strip = RunRows.strip(List.of(view)).map(InProgressStrip::run).orElse("");
+        return row.cost() + "|" + row.when() + "|" + row.facts() + "|" + strip;
     }
 
     private static String hash(String shown) {

@@ -51,9 +51,9 @@
             <form method="post" th:if="${task.markStoppedAttemptId() != null}"
                   th:action="@{'/tasks/' + ${task.taskId()} + '/attempts/' + ${task.markStoppedAttemptId()} + '/mark-stopped'}">
                 <button type="submit" class="btn btn-notice btn-sm"
-                        th:attr="data-confirm-title='Mark ' + ${task.key()} + ' as stopped?'"
-                        data-confirm-ok="Mark as stopped" data-confirm-style="compact"
-                        data-confirm="Do this only if its run is really over: no factory container is running for it. If it was opening a pull request, check the repository first. The task becomes Failed, its cost so far stays, and the queue starts the next task.">Mark as stopped…</button>
+                        th:attr="data-confirm-title='Close ' + ${task.key()} + ' as failed?'"
+                        data-confirm-ok="Close as failed" data-confirm-style="compact"
+                        data-confirm="Do this only if its run is really over: no factory container is running for it. If it was opening a pull request, check the repository first. The task becomes Failed, its cost so far stays, and the queue starts the next task.">Close as failed…</button>
             </form>
         </div>
     </section>

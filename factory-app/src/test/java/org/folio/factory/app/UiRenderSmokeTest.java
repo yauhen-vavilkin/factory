@@ -785,11 +785,11 @@ class UiRenderSmokeTest {
         seedAttempt(unchanged, 1, TaskAttempt.Kind.INITIAL, TaskAttempt.State.STOPPED,
                 "DEVELOPMENT_FAILED: Candidate contains no changes");
         String list = assertRendered("/flows/dev-factory", "Ready to run");
-        // The Runs row shows the first sentence on one line, with the whole reason in the title.
+        // The row shows the first sentence after its facts on one line, with the whole reason in the title.
         assertThat(text(list)).contains("The agent reached its limit of 40 turns before it finished.", providerError);
         assertThat(list)
-                .containsPattern("title=\"MODBAR-781 · [^\"]+ · " + Pattern.quote(expected) + "\"")
-                .containsPattern("title=\"MODBAR-782 · [^\"]+ · " + Pattern.quote(providerError + " Check the provider"
+                .containsPattern("title=\"1 attempt(?: · [^\"]+)? · " + Pattern.quote(expected) + "\"")
+                .containsPattern("title=\"1 attempt(?: · [^\"]+)? · " + Pattern.quote(providerError + " Check the provider"
                         + " and the Developer Flow settings, then retry. Error: API Error: 429.") + "\"")
                 // The age stays relative; time.js puts the local time into its title.
                 .containsPattern("<time datetime=\"[\\dT:-]{19}Z\" data-local=\"ago\" title=\"[\\d-]{10} [\\d:]{8} UTC\">")
@@ -1537,7 +1537,7 @@ class UiRenderSmokeTest {
         String triggered = body.substring(body.indexOf("id=\"triggered-title\""));
         assertThat(text(triggered)).contains("Queued", "next in line", "2nd in line",
                 "Checks failed: 2 tests in error", "Failed", "Needs inspection", "In progress",
-                "outcome not confirmed", "Queue is waiting.", "MODBAR-707 needs inspection",
+                "Queue is waiting.", "MODBAR-707 needs inspection",
                 "Queued tasks are not starting.", "FACTORY_TASKS_EXECUTION_ENABLED=true");
         assertThat(triggered)
                 .containsPattern(linkTo("https://github.com/folio-org/mod-bar/pull/7", "PR #7"))
@@ -1548,16 +1548,16 @@ class UiRenderSmokeTest {
                 .containsPattern(chip("danger", "Failed"))
                 .containsPattern(chip("info", "In progress"))
                 .containsPattern(linkTo("/tasks/" + seed.stopped().getId(), "Stopped task"))
-                // A row is one link to its task and has no button of its own: a task that waits for the developer
-                // says Your turn, and its task page starts with the answer or the next attempt.
-                .doesNotContain("aria-label=\"Retry MODBAR-705\"", "aria-label=\"Retry MODBAR-714\"",
-                        "aria-label=\"Open run MODBAR-705\"", "aria-label=\"Open run MODBAR-709\"", ">Retry</button>",
-                        "Triggered", "Working", "Withdrawn");
-        // A held task offers Mark as stopped, which asks first and returns to My tasks.
+                // A failed task says Your turn and its button opens the task page at the next attempt; the chip of
+                // a task that needs inspection already says that its outcome is not confirmed.
+                .containsPattern(linkTo("/tasks/" + seed.stopped().getId() + "#retry", "Start attempt 2"))
+                .doesNotContain("outcome not confirmed", ">Retry</button>", "Triggered", "Working", "Withdrawn");
+        // A held task offers Close as failed, which asks first and returns to My tasks.
         assertThat(triggered)
                 .containsPattern(postForm("/tasks/" + seed.held().getId() + "/attempts/[0-9a-f-]+/mark-stopped"))
                 .contains("<input type=\"hidden\" name=\"returnTo\" value=\"flow\">",
-                        "aria-label=\"Mark as stopped: MODBAR-707\"", "data-confirm-title=\"Mark MODBAR-707 as stopped?\"",
+                        "aria-label=\"Close as failed: MODBAR-707\"",
+                        "data-confirm-title=\"Close MODBAR-707 as failed?\"", ">Close as failed…</button>",
                         "The task becomes Failed, its cost so far stays");
         // The page reloads itself when the poll says something changed.
         assertThat(body).contains("data-selection=\"taskId\"", "data-run-selected", "data-poll-notice",
@@ -1575,11 +1575,12 @@ class UiRenderSmokeTest {
         String body = assertRendered("/flows/dev-factory", "Started tasks");
 
         String runs = body.substring(body.indexOf("id=\"triggered-title\""));
-        // The row says it waits for the developer and opens the task, whose page starts with the question.
+        // The row says it waits for the developer; the row and its button open the task, the button at the question.
         assertThat(text(runs)).contains("Needs your answer", "Your turn");
         assertThat(runs).containsPattern(linkTo("/tasks/" + asked.getId(), "Asking task"))
+                .containsPattern(linkTo("/tasks/" + asked.getId() + "#answer", "Answer"))
                 .containsPattern(chip("warning", "Needs your answer"))
-                .doesNotContain("Which API should change?", ">Retry</a>", ">Answer</a>");
+                .doesNotContain("Which API should change?", "Start attempt");
     }
 
     @Test
@@ -2256,11 +2257,11 @@ class UiRenderSmokeTest {
                 "VERIFICATION_FAILED: 2 tests in error");
 
         String body = assertRendered("/tasks/" + held.getId(), "Needs inspection");
-        assertThat(text(body)).contains("Factory could not confirm how the run ended", "Mark as stopped…");
+        assertThat(text(body)).contains("Factory could not confirm how the run ended", "Close as failed…");
         assertThat(body).contains("/attempts/" + heldAttempt.getId() + "/mark-stopped", "data-confirm-style=\"compact\"")
                 .doesNotContain("name=\"expectedVersion\"");
         assertThat(assertRendered("/tasks/" + failed.getId(), "Failed")).doesNotContain("/mark-stopped",
-                "Mark as stopped");
+                "Close as failed");
     }
 
     @Test

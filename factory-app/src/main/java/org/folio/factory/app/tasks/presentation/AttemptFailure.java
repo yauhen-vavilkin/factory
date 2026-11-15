@@ -24,7 +24,7 @@ public record AttemptFailure(String headline, String reason) {
     private static final String NO_REASON = "No reason was recorded.";
     private static final String RUN_ENDED = "The run stopped before a step could say why. Open the run to see"
             + " where it stopped, then start a new attempt.";
-    private static final String MARKED_STOPPED = "You marked the attempt as stopped";
+    private static final String MARKED_STOPPED = "You closed the attempt as failed";
     private static final String IMPLEMENTATION = "Implementation";
     private static final String OLD_NO_CHANGES = "Candidate contains no changes";
     private static final String OLD_STARTING_BUILD_FAILED = "Starting build failed before model spend";

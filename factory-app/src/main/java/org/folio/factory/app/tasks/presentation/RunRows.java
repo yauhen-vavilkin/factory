@@ -13,7 +13,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static org.folio.factory.app.tasks.presentation.TaskLabels.ago;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.finishedCost;
@@ -38,10 +40,51 @@ public final class RunRows {
         var costTitle = working(view) ? null : costNoteTitle(incompleteCostNote(view.usage()));
         var detail = feedbackDetail(standing).orElseGet(() -> detail(view));
         return new TriggeredRow(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(),
-                status.chipLabel(), status.chipClass(), status.chipUrl(),
+                status.chipLabel(), status.chipClass(), status.chipUrl(), facts(view, latest),
                 detail == null ? null : AttemptFailure.firstSentence(detail), detail, cost(view, latest), costTitle,
-                ago(when),
-                PageTime.timestamp(when), action, action == RunAction.MARK_STOPPED ? latest.attemptId() : null);
+                ago(when), PageTime.timestamp(when), action, button(view, action),
+                action == RunAction.MARK_STOPPED ? latest.attemptId() : null);
+    }
+
+    /** The model and effort of the latest attempt, the attempts, and the time the agent worked. */
+    private static List<String> facts(TaskView view, TaskView.AttemptHistoryEntry latest) {
+        return Stream.of(TaskRunSettings.label(latest.runSettings()), attemptsFact(view, latest), agentTime(view))
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    /** "Attempt 2" while it waits in line or works, "2 attempts" once the task rests. */
+    private static String attemptsFact(TaskView view, TaskView.AttemptHistoryEntry latest) {
+        if (view.state() == TaskView.TaskState.WORKING) {
+            return "Attempt " + latest.ordinal();
+        }
+        int count = view.attempts().size();
+        return count + (count == 1 ? " attempt" : " attempts");
+    }
+
+    /**
+     * The time the agent worked in all attempts together, rounded once, so it can be a minute more than the times
+     * in the Attempts rows of the task page add up to. Null while the task is queued or works, and when no attempt
+     * reached the agent.
+     */
+    private static String agentTime(TaskView view) {
+        var paid = view.attempts().stream().filter(TaskView.AttemptHistoryEntry::paidStart).toList();
+        if (view.state() == TaskView.TaskState.WORKING || paid.isEmpty()) {
+            return null;
+        }
+        return minutes(paid.stream().mapToLong(TaskView.AttemptHistoryEntry::activeSeconds).sum());
+    }
+
+    /** The page where the developer acts: the task page at the answer or the next attempt, or PR feedback. */
+    private static TriggeredRow.Button button(TaskView view, RunAction action) {
+        var taskPage = "/tasks/" + view.taskId();
+        return switch (action) {
+            case ANSWER -> new TriggeredRow.Button("Answer", taskPage + "#answer");
+            case RETRY -> new TriggeredRow.Button("Start attempt " + (view.attempts().size() + 1),
+                    taskPage + "#retry");
+            case PR_WAITING -> new TriggeredRow.Button("Open PR feedback", TaskRows.runUrl(view) + "#pr-feedback");
+            default -> null;
+        };
     }
 
     /** The task's total, or the cost so far of the attempt that works now ($0.00 before it reports usage). */
@@ -83,7 +126,8 @@ public final class RunRows {
 
     /**
      * A row has a button only for what waits for the developer, so a task that works or has a pull request gets
-     * none here. A failed task offers Retry on its task page, where the status card says why it failed.
+     * none here. The button of a failed task opens its task page at the next attempt, where the status card says
+     * why it failed.
      */
     private static RunAction action(TaskView view, TaskView.AttemptHistoryEntry latest) {
         if (delivered(view) && latest.executionId() != null) {
@@ -101,9 +145,9 @@ public final class RunRows {
         return view.allowedActions().retry() ? RunAction.RETRY : RunAction.NONE;
     }
 
+    /** PR feedback that waits for the developer needs no words: the row says Your turn and has the button. */
     private static Optional<String> feedbackDetail(FeedbackStanding standing) {
         return switch (standing) {
-            case WAITS_FOR_YOU -> Optional.of(TaskRows.FEEDBACK_WAITS);
             case WORKING -> Optional.of(TaskRows.FEEDBACK_WORKS);
             default -> Optional.empty();
         };

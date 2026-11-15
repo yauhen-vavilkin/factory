@@ -216,7 +216,7 @@ public class TaskRows {
         };
     }
 
-    /** An attempt that needs inspection offers Mark as stopped. */
+    /** An attempt that needs inspection offers Close as failed. */
     private static UUID markStoppedAttemptId(TaskView.AttemptHistoryEntry attempt) {
         return attempt.state() == TaskAttempt.State.NEEDS_INSPECTION ? attempt.attemptId() : null;
     }

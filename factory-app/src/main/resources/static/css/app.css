@@ -1120,14 +1120,57 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
   overflow: hidden;
   overflow-wrap: anywhere;
 }
-/* The link of a list row or a table row, and a Jira key that opens Jira, look like links before the pointer
-   reaches them. */
-.dev-row-title, .table-link, a.key-link {
+/* The link of a table row, and a Jira key that opens Jira, look like links before the pointer reaches them. */
+.table-link, a.key-link {
   text-decoration: underline;
   text-decoration-color: hsl(var(--strong-border));
   text-underline-offset: 3px;
 }
-.dev-row-title:hover, .table-link:hover, a.key-link:hover { text-decoration-color: currentColor; }
+.table-link:hover, a.key-link:hover { text-decoration-color: currentColor; }
+/* The title of a row that opens its task has no underline: the whole row is the target and the highlight under
+   the pointer says so. */
+.dev-row-title, .dev-row-title:hover { text-decoration: none; }
+/* My tasks: the rows of both lists have more room than the rows of other lists. */
+.task-list .dev-row { padding-top: 16px; padding-bottom: 16px; }
+.task-list .dev-row-meta { margin-top: 6px; }
+/* Started tasks: the Jira key above the title, one line of facts under it, and on the right the cost and the chip
+   with the one button of the row under them. The right part is as high as the three lines, so a button adds no
+   height and every row is equally high; all buttons have one width. */
+.task-row { flex-wrap: nowrap; align-items: stretch; }
+.task-row > .dev-row-main { flex-basis: 0; }
+.task-row .task-row-head { margin-top: 0; }
+.task-row .dev-row-title {
+  display: block;
+  margin-top: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.task-row .task-row-facts > * + * { margin-left: 16px; }
+.task-row-side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* The amounts stand in one column and every chip ends at the right edge of the row. */
+.task-row-status { display: grid; grid-template-columns: 88px minmax(150px, auto); align-items: center; column-gap: 12px; }
+.task-row-status > .chip { justify-self: end; }
+.task-row-side .btn { width: 140px; padding-inline: 8px; }
+.dev-row-open .task-row-side a,
+.dev-row-open .task-row-side button { position: relative; z-index: 1; }
+/* On a narrow page the right part is one line under the text, as high as a button also when the row has none:
+   the cost and the chip on the left, the button, as wide as its words, on the right. */
+@container (max-width: 36rem) {
+  .task-row { flex-wrap: wrap; }
+  .task-row > .dev-row-main { flex-basis: 100%; }
+  .task-row-side { flex: 1 1 100%; flex-flow: row wrap; align-items: center; min-height: 30px; }
+  .task-row-status { display: flex; }
+  .task-row-status > .row-amount:empty { display: none; }
+  .task-row-side .btn { width: auto; padding-inline: 12px; }
+}
 /* A row of Ready to run selects its task when its name is clicked; a task that has not started has no page worth
    opening. */
 .dev-row-select, .task-check { cursor: pointer; }
@@ -1143,7 +1186,6 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .dev-row-open:hover { background: hsl(var(--secondary-hover) / 0.4); }
 .dev-row-open .dev-row-title::after,
 .dev-row-open .dev-row-link::after { content: ""; position: absolute; inset: 0; }
-.dev-row-open:hover .dev-row-title { text-decoration-color: currentColor; }
 /* The link of an attempt row: its text looks like the row's plain title, the whole row is the target. */
 .dev-row-link {
   color: inherit;
@@ -1157,8 +1199,7 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .dev-row-open:has(.dev-row-link:focus-visible),
 .dev-row-open:has(.dev-row-title:focus-visible) { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
 .dev-row-open .dev-row-meta a,
-.dev-row-open .row-cluster a,
-.dev-row-open .row-cluster button { position: relative; z-index: 1; }
+.dev-row-open .row-cluster a { position: relative; z-index: 1; }
 /* One line of inline parts that ends with an ellipsis when the row is narrow; its title has the whole line. The
    templates write the parts without spaces between them, so the margins alone space them. */
 .dev-row-meta {
@@ -1174,27 +1215,15 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .dev-row-meta-dots > * + * { margin-left: 0; }
 .dev-row-meta-dots > * + *::before { content: "·"; margin: 0 0.3em; }
 .dev-row-meta a:focus-visible { outline-offset: -2px; }
-/* An attempt or a started task keeps its facts whole: on a narrow row they wrap as a whole. The quoted
-   instructions end with an ellipsis; the reason of a started task wraps to at most two lines. */
+/* An attempt keeps its facts whole: on a narrow row they wrap as a whole. The quoted instructions end with an
+   ellipsis. */
 .dev-row-meta-quoted { display: flex; flex-wrap: wrap; }
 .dev-row-meta-quoted > * { flex: none; }
 .dev-row-meta-quoted > .dev-row-quote { flex: 1 1 8em; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.dev-row-meta-quoted:has(> .dev-row-reason) { align-items: baseline; }
-.dev-row-meta-quoted > .dev-row-reason {
-  flex: 1 1 16em;
-  min-width: 0;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-  white-space: normal;
-}
 .dev-row-action { display: flex; justify-content: flex-end; }
 /* The box of a checkbox sits on the baseline; this puts its middle on the middle of the title text. */
 .dev-row .task-check { position: relative; top: 3px; margin: 0; flex: 0 0 auto; }
-/* Amount, chip and button in fixed columns, so they line up from row to row in Runs and Attempts.
-   A wider button (Mark as stopped…) widens only its own row. */
+/* Amount and chip in fixed columns, so they line up from row to row in Attempts and Cost per task. */
 .row-cluster {
   flex: none;
   display: grid;
@@ -1207,12 +1236,9 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 }
 .row-cluster > .row-amount { grid-column: 1; }
 .row-cluster > .chip { grid-column: 2; justify-self: start; }
-.row-cluster > .dev-row-action { grid-column: 3; }
-/* Started tasks: the amounts stand in one column and every chip ends at the right edge of the row. The rare
-   Mark as stopped button goes under them. */
+/* Cost per task and Attempts: the amounts stand in one column and every chip ends at the right edge of the row. */
 .row-cluster-status { grid-template-columns: 88px minmax(150px, auto); height: auto; min-height: 21px; row-gap: 8px; }
 .row-cluster-status > .chip { justify-self: end; }
-.row-cluster-status > .dev-row-action { grid-column: 1 / -1; justify-self: end; }
 /* Ready to run: the effort choice ends at the edge of Run in every row. Only a task added by key has Remove from
    list, before the effort choice, so it takes no column in the other rows. */
 .row-cluster-ready { display: flex; height: auto; align-self: center; }

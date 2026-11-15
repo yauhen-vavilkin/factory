@@ -36,6 +36,7 @@ import org.folio.factory.app.tasks.presentation.TaskRevisions;
 import org.folio.factory.app.tasks.presentation.TaskRows;
 import org.folio.factory.app.tasks.presentation.TaskUsage;
 import org.folio.factory.app.tasks.presentation.TaskView;
+import org.folio.factory.app.tasks.presentation.TriggeredRow;
 import org.folio.factory.app.tasks.source.TaskJiraInstance;
 import org.folio.factory.app.tasks.source.TaskSourceProperties;
 import org.folio.factory.core.registry.FlowRegistry;
@@ -230,8 +231,12 @@ class TaskUiControllerTest {
                 .containsEntry("chipUrl", null)
                 .containsEntry("detail", "Checks failed: 2 tests failed.")
                 .containsEntry("detailTitle", "Checks failed: 2 tests failed.")
-                // A failed task offers Retry on its task page, where the status card says why it failed.
+                // No model was recorded for this attempt, so the facts are the attempts and the agent's time.
+                .containsEntry("facts", List.of("1 attempt", "10 min"))
+                // The button of a failed task opens its task page at the next attempt.
                 .containsEntry("action", RunAction.RETRY)
+                .containsEntry("button",
+                        new TriggeredRow.Button("Start attempt 2", "/tasks/" + OTHER_TASK_ID + "#retry"))
                 .containsEntry("markStoppedAttemptId", null);
         assertThat(model.get("inProgress")).isNull();
         var source = (SourceCard) model.get("source");
@@ -299,8 +304,25 @@ class TaskUiControllerTest {
                 .containsEntry("chipLabel", "In progress")
                 .containsEntry("chipClass", "chip chip-info")
                 .containsEntry("detail", null)
-                .containsEntry("action", RunAction.OPEN_RUN);
+                // An attempt in flight says which one it is, and no time: the strip above has it.
+                .containsEntry("facts", List.of("glm-5.3 · max", "Attempt 1"))
+                .containsEntry("action", RunAction.OPEN_RUN)
+                .containsEntry("button", null);
         assertThat(RunAction.OPEN_RUN.yours()).isFalse();
+    }
+
+    @Test
+    void myTasks_aTaskThatRestsSaysItsAttemptsAndTheTimeTheAgentWorkedInAllOfThem() throws Exception {
+        TaskView stopped = taskView(TASK_ID, "MODBAR-951", "Open", TaskView.TaskState.STOPPED, false, true,
+                attempt("STOPPED", "MANUAL", 1),
+                retryAttempt(2, "{\"profileId\":\"glm-5.3\",\"effort\":\"max\"}"));
+
+        var row = rows(myTasksModel(stopped), "triggered").getFirst();
+
+        // The model of the latest attempt, and 10 minutes in each of the two attempts.
+        assertThat(row)
+                .containsEntry("facts", List.of("glm-5.3 · max", "2 attempts", "20 min"))
+                .containsEntry("button", new TriggeredRow.Button("Start attempt 3", "/tasks/" + TASK_ID + "#retry"));
     }
 
     @Test
@@ -321,7 +343,8 @@ class TaskUiControllerTest {
                 .containsEntry("chipLabel", "Needs your answer")
                 .containsEntry("chipClass", "chip chip-warning")
                 .containsEntry("detail", null)
-                .containsEntry("action", RunAction.ANSWER);
+                .containsEntry("action", RunAction.ANSWER)
+                .containsEntry("button", new TriggeredRow.Button("Answer", "/tasks/" + TASK_ID + "#answer"));
         assertThat(RunAction.ANSWER.yours()).isTrue();
     }
 
@@ -344,7 +367,10 @@ class TaskUiControllerTest {
                 + " how its run ended. It rechecks every minute.");
         assertThat(rows(model, "triggered").getFirst())
                 .containsEntry("chipLabel", "Needs inspection")
+                // The chip says it, so the row has no words about the outcome.
+                .containsEntry("detail", null)
                 .containsEntry("action", RunAction.MARK_STOPPED)
+                .containsEntry("button", null)
                 .containsEntry("markStoppedAttemptId", ATTEMPT_ID);
     }
 
@@ -562,8 +588,11 @@ class TaskUiControllerTest {
 
         assertThat(rows(myTasksModel(delivered), "triggered").getFirst())
                 .containsEntry("chipLabel", "PR #7")
-                .containsEntry("detail", "PR feedback waits for you")
-                .containsEntry("action", RunAction.PR_WAITING);
+                // Your turn and the button say it, so the row has no words about it.
+                .containsEntry("detail", null)
+                .containsEntry("action", RunAction.PR_WAITING)
+                .containsEntry("button",
+                        new TriggeredRow.Button("Open PR feedback", "/executions/" + EXECUTION_ID + "#pr-feedback"));
         assertThat(RunAction.PR_WAITING.yours()).isTrue();
         var task = taskPage();
         assertThat(task.reasonNote()).isEqualTo("PR feedback waits for you.");
@@ -1107,7 +1136,7 @@ class TaskUiControllerTest {
                         .param("returnTo", "flow"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl(FLOW_PAGE))
-                .andExpect(flash().attribute("message", "Marked as stopped; the queue continues."));
+                .andExpect(flash().attribute("message", "Closed as failed; the queue continues."));
 
         verify(dispatcher).dispatchNextQuietly();
     }
@@ -1116,12 +1145,12 @@ class TaskUiControllerTest {
     void markStopped_refusalDoesNotDispatch() throws Exception {
         when(outcomes.getIfAvailable()).thenReturn(outcomeService);
         when(outcomeService.markStopped(ATTEMPT_ID))
-                .thenReturn("Only a task that needs inspection can be marked as stopped");
+                .thenReturn("Only a task that needs inspection can be closed as failed");
 
         mvc.perform(post("/tasks/{taskId}/attempts/{attemptId}/mark-stopped", TASK_ID, ATTEMPT_ID))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/tasks/" + TASK_ID
-                        + "?error=Only+a+task+that+needs+inspection+can+be+marked+as+stopped"));
+                        + "?error=Only+a+task+that+needs+inspection+can+be+closed+as+failed"));
 
         verifyNoInteractions(dispatcher);
     }

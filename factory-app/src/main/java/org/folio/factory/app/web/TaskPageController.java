@@ -101,7 +101,7 @@ public class TaskPageController {
         return refused(back, result.explanation(), form, redirect);
     }
 
-    /** Mark as stopped, from the task page or from a Runs row of My tasks (returnTo=flow). */
+    /** Close as failed, from the task page or from a Runs row of My tasks (returnTo=flow). */
     @PostMapping("/tasks/{taskId}/attempts/{attemptId}/mark-stopped")
     public String markStopped(@PathVariable("taskId") UUID taskId, @PathVariable("attemptId") UUID attemptId,
                               @RequestParam(name = "returnTo", required = false) String returnTo,
@@ -123,7 +123,7 @@ public class TaskPageController {
             return UiFormat.errorRedirect(back, refusal);
         }
         dispatcher.dispatchNextQuietly();
-        redirect.addFlashAttribute("message", "Marked as stopped; the queue continues.");
+        redirect.addFlashAttribute("message", "Closed as failed; the queue continues.");
         return "redirect:" + back;
     }
 

@@ -54,7 +54,7 @@ class AttemptFailureTest {
                 .doesNotContain("engine", "execution", "FAILED");
         assertThat(AttemptFailure.reason("Marked as stopped by the operator; a pull request may already exist from"
                 + " task/MODBAR-1 to folio-org/mod-bar"))
-                .isEqualTo("You marked the attempt as stopped; a pull request may already exist from task/MODBAR-1 to"
+                .isEqualTo("You closed the attempt as failed; a pull request may already exist from task/MODBAR-1 to"
                         + " folio-org/mod-bar.");
     }
 
