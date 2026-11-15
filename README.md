@@ -146,23 +146,22 @@ several minutes with an empty cache. Docker Desktop on macOS is the validated
 local environment. A host proxy must be reachable from sibling coding containers;
 plain Linux Docker needs its own host routing configuration.
 
-From a fresh clone:
+From a fresh clone, follow the [My tasks quick start](#my-tasks-quick-start): it copies
+`.env.tasks.example` to `.env`. `.env.example` lists more settings (the coding runtime,
+its limits, a Jira account); copy a line from it into `.env` when you need it.
 
-```bash
-cp .env.example .env
-```
-
-The short `.env.example` configures **Claude Code with Sonnet 5.5** through a
+Without a model setting, runs use **Claude Code with Sonnet 5.5** through a
 local CodeMie proxy at `http://host.docker.internal:4001`, using Bearer
-authentication and the standard local gateway token `codemie-proxy`. These are
-also the Spring, Java and Compose defaults. Start the proxy yourself; Compose
+authentication and the standard local gateway token `codemie-proxy`: the first entry
+of `config/developer-models.yaml`. Start the proxy yourself; Compose
 does not manage it. The URL is resolved inside the coding
-container and has no `/v1` suffix: the CLI appends `/v1/messages`.
+container and has no `/v1` suffix: the CLI appends `/v1/messages`. Without a CodeMie
+proxy, pick another default model, as the quick start shows.
 
-Fill in the empty access values before triggering a task:
+A task needs these access values:
 
-- Jira base URL for reading the requested issue (public Jira needs no email or
-  API token).
+- Jira base URL for reading the requested issue (the quick start sets the public
+  folio-org Jira, which needs no email or API token).
 - A GitHub token that can push to the delivery repository. Source repositories
   must be public; source checkout does not use this token.
 - Source/delivery repositories and an existing shared base branch. The delivery
@@ -369,10 +368,11 @@ preflight does not replace independent candidate verification or delivery checks
 ### Coding runtime profiles
 
 `factory.dev-factory.runtime.coding.pi` and `.claude-code` are independent
-operator-owned profiles. Defaults are Claude Code, model `claude-sonnet-5-5`,
-local CodeMie endpoint `http://host.docker.internal:4001` and `bearer-token`
-authentication with the standard gateway token `codemie-proxy`. All profile
-values can be overridden.
+profiles. The default runtime is Claude Code. Its profile holds only the image and
+the turn limit; its model, endpoint and secret come from the models file (below),
+whose first entry is `claude-sonnet-5-5` through the local CodeMie endpoint
+`http://host.docker.internal:4001` with `bearer-token` authentication and the
+standard gateway token `codemie-proxy`. Every value can be overridden.
 Only the selected runtime is validated before coding; empty inactive profiles do
 not prevent application startup. Both adapters serve
 initial coding, a fresh attempt after a confirmed clarification, and PR feedback.
@@ -439,11 +439,12 @@ about 360 turns) usually ends a run first. A run that hits either limit loses it
 
 #### Models (Claude Code)
 
-With the Claude Code harness, you choose the **model** for a run in the run form, and the
-**effort** for each task: above the task list on My tasks, with an Effort choice on each
-task row, and in the **Retry** form on the task page, which also has an optional
-**Instructions for the agent** field. Retry fills the form from the previous attempt, and
-PR feedback rounds keep the settings of the run they belong to.
+With the Claude Code harness, you choose the **model** and the **effort** of a run. On My
+tasks the Model choice sits next to **Run** under the list, and each task row has its own
+Effort choice. On the task page the **Start attempt N** form has both, plus the optional
+field **What should the agent do differently?**. That form starts from the default model,
+its default effort and an empty field, not from the previous attempt. PR feedback rounds
+keep the settings of the run they belong to.
 
 [`config/developer-models.yaml`](config/developer-models.yaml) is a flat list: one entry
 is one model at one provider, so the same model at another provider is another entry with
@@ -532,35 +533,45 @@ runtimes or endpoints.
 Developer Flow turns the Jira tasks assigned to you into pull requests under your
 name. Factory reads Jira anonymously and never writes to it.
 
-Prerequisites: Docker Desktop with Compose 2.20+, a local CodeMie proxy on port
-4001, and a GitHub token that can push to the delivery repositories.
+Prerequisites: Docker Desktop with Compose 2.20+, a GitHub token that can push to the
+delivery repositories, and a model: a local CodeMie proxy on port 4001 (the default
+model; Factory does not start the proxy) or a key for another model in
+`config/developer-models.yaml`.
 
 ```bash
 cp .env.tasks.example .env
 # Set FACTORY_TASKS_ASSIGNEE (your name as Jira shows it) and FACTORY_CONNECTORS_GITHUB_TOKEN.
-docker compose up -d
+# Without a CodeMie proxy on port 4001, pick another default model, for example:
+#   FACTORY_ZAI_API_KEY=<your Z.ai key>
+#   FACTORY_DEV_FACTORY_DEFAULT_MODEL=glm-5.3-flash
+docker compose up -d --build
 ```
 
+`.env.tasks.example` already sets the public folio-org Jira and turns the task queue on
+(`FACTORY_TASKS_EXECUTION_ENABLED=true`). Open
+<http://localhost:8080/developer/configuration> to check the models, the limits and one
+task before a run.
+
 Open <http://localhost:8080/flows/dev-factory> and press **Scan Jira** to load your
-open tasks; the status chips filter them on the page (Open and In Progress by
-default). A task that is not assigned to you can join the list too: put its key or link
-in **Not in your list?** and press **Add to list**; **Remove** takes it out again. Choose
-the model above the list and the effort on each task row, select tasks and press **Run**;
-see [Models](#models-claude-code). A failed task's **Retry** opens the form on its task
-page, where you can also add instructions for the agent.
+open tasks under **Ready to run**; each row shows its status in Jira. A task that is not
+assigned to you can join the list too: type its key or Jira link into **Add by key** and
+press **Add**; **Remove from list** takes it out again. Choose the effort on each task row
+and the model next to **Run** under the list, select tasks and press **Run**; see
+[Models](#models-claude-code). The page of a failed task has a **Start attempt N** form,
+where you can also tell the agent what to do differently.
 A task can run when its Jira project maps to exactly one repository in
-`config/developer-repositories.yaml`; otherwise a red chip on its row opens the steps to
-fix it. The **Configuration** tab shows the Jira query, the assignee and which repository
+`config/developer-repositories.yaml`; otherwise it is left out of Ready to run, and a
+line under the list names it and says why. The **Configuration** tab shows the Jira query, the assignee and which repository
 each Jira project goes to. Before a task is queued, Factory checks that
 your token can push to its delivery repository: folio-org by default, or your
 fork when you set both `<REPO>_SOURCE_REPO` and `<REPO>_DELIVERY_REPO`.
 
-One task runs at a time, in the order you clicked; Retry joins the same queue. A
+One task runs at a time, in the order you clicked; a new attempt joins the same queue. A
 failed task releases the queue. A task in **Needs inspection** holds it: Factory
 could not confirm how the run ended (for example, workload cleanup or a lost
 publication response) and rechecks at startup and on every dispatch poll
 (`FACTORY_TASKS_EXECUTION_DISPATCH_INTERVAL_MS`, default 30 seconds). If the run is really over, use
-**Mark as stopped…**: the task becomes Could not complete and the queue moves on.
+**Mark as stopped…**: the task becomes Failed, its cost so far stays, and the queue moves on.
 Destructive retention must stay disabled: while `FACTORY_RETENTION_ENABLED` is
 true, task execution refuses to start tasks (see `docker compose logs factory`).
 
