@@ -681,3 +681,19 @@ Give a session this prompt:
   test). The new tests were written before the code but first run after it. The average per attempt divides by every
   attempt of the group, priced or not. F builds on C (it renames C's row record and CSS class), so reverting C needs F
   reverted first. Not done: an independent review of C and F by a fresh agent (this session cannot start one).
+- [x] The review of the whole diff since `main` (which contains `demo-baseline`) ran on 2026-11-15 before the merge
+  of the pull request, with seven fresh agents by area (engine and connectors, Developer Flow, task backend, web
+  layer, console pages, build and docs, a security trace), then one agent on the task page attempt card and one on
+  the fixes. It covers the diffs whose own review is recorded above as not done. Found: 1 major (seen by
+  two agents: Factory's PR feedback round comment posted the agent's report as raw Markdown) and 25 minor. Fixed:
+  the round comment now gets the cleaning of the PR body, after redaction and cut at a line end; Pi output is
+  redacted before it is parsed and cut; a scan no longer raises the version of an unchanged task (proved by a test
+  that failed before the fix); Jira refusals other than 404 or 400 say their HTTP status; Close as failed checks the
+  task of the attempt and says what went wrong; the task page turn for a held run during a PR feedback round;
+  My tasks reloads when a run ends; the Dashboard average per attempt counts only priced attempts; one issue key
+  pattern; merged pull requests read from `merged_at`; `www.` text counts as a link; long model names in the
+  attempt card; `.mvn` for builds from a module directory; the README list of removed settings; small dead code and
+  comments. Moved to `docs/open-questions.md`: a double click on Run, unchecked scan fields, the attempt-to-run
+  rename. Already there: the same-origin check on the other POST forms. Rejected: Pi redaction of every catalog
+  secret (the Pi workload never receives them). `mvn verify` passed (1351 tests), the JS tests passed (17). What is
+  left of this file is the owner's live smoke above.
