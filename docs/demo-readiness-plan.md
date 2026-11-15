@@ -425,13 +425,19 @@ Give a session this prompt:
   a finished attempt that never reached the agent shows "$0.00" instead of "cost unknown", but only
   when all its usage was counted (64cb631: usage without an attempt id keeps "cost unknown").
   2.3 (d10f954): `TaskStops.REPLAYED_CODING_REASON`, old text mapped in `AttemptFailure`, the order
-  of `claimPaidStart` unchanged. 2.4 (a5bfb1c): "Factory could not finish the Publish step after 3
-  tries: <first line of the engine's error, without credentials or ids>. Start a new attempt.",
-  built in `TaskOutcomeService` from the step at the run's cursor and the flow's `max_attempts`;
-  the run page offers "Start attempt 2 on the task page" instead of "Open review" for it.
-  2.5 (4a6ceb2): `TaskStops.deadlineReason` with the "Limits in Configuration" link, old text
-  mapped. 2.6 (52fff74): `isLive()`; the task page shows "Open pull request #N" and the attempt
-  keeps its "Needs inspection" chip. 2.8 (c1f1c30): `DeliveryWorker.deliveryRefusedReason` and
+  of `claimPaidStart` unchanged. 2.4 (a5bfb1c, 1ee0502): "Factory could not finish the step
+  \"Create pull request\" after 3 tries: <first line of the engine's error, without credentials or
+  ids>. Start a new attempt.", built in `TaskOutcomeService` from the step at the run's cursor, named
+  as its card on the run page (`UiFormat.stepInWords`), and the step's real count in the run's
+  retry counts. The engine stores an error only when it schedules a retry (`StateManager.scheduleRetry`)
+  and never clears it, so the cause is named only when that step failed at least twice; otherwise
+  the old "The run stopped before a step could say why" stays (also for `failTerminally`, which
+  escalates without retries). The error shown is the one of the try before the last. The run page
+  offers "Start attempt 2 on the task page" instead of "Open review" for it. 2.5 (4a6ceb2):
+  `TaskStops.deadlineReason` with the "Limits in Configuration" link, old text mapped.
+  2.6 (52fff74, 9e2dac6): `isLive()`; the task page shows "Open pull request #N", the attempt keeps
+  its "Needs inspection" chip, and the run page offers "Open pull request #N" too, because its card
+  now shows the draft reasons of that pull request. 2.8 (c1f1c30): `DeliveryWorker.deliveryRefusedReason` and
   `pullRequestRefusedReason`, retry rules unchanged. 2.7 not done: `RunState.getLabel()` is also
   the label of the Dashboard run tiles (`DashboardUiController` line 92, `DashboardUiControllerTest`
   line 113 expects "Asked a question"), so the change would change a framework page; and the
@@ -444,18 +450,18 @@ Give a session this prompt:
   inspection with pull request #34); 80017 and 80018 use the shipped limits. `mvn verify` passed;
   no JS changed. Looked at in `DemoConsole`, light theme, at 1280 px (headless Chrome) and 390 px
   (browser pane): both pages of My tasks, and the task page and the run page of 80009, 80029,
-  80030, 80031, 80033, 80020, 80035, 80032, 80034, 80017, 80018 and 80025. Not done: the
-  independent review of the stage diff by a fresh agent (this session could not start one).
-  Seen, not changed: at 390 px the run page of every failed attempt is 405 px wide ("Start attempt
-  2 on the task page" passes the card's edge), the task page of 80034 is 557 px wide (three buttons
-  in one row since 2.6), and My tasks cuts the reason to a few characters (all for the stage 4
-  wrapping check); every finished demo attempt shows "cost unknown", because the seeds' usage has
-  no attempt id and no price (acceptance 4); the run page of an attempt that needs inspection says
-  "Factory opened it as a draft because:" without naming or linking the pull request and has no
-  "Mark as stopped…"; after "Mark as stopped…" on a delivered attempt the reason names the branch
-  with an id (`factory/modbar-211-<uuid>`) and the known pull request is hidden again; the
-  `stopped()` demo seeds show every step as Passed on the run page; the engine's error is the one
-  of its last retried try; `StopReasons` (tasks.execution) uses `UiFormat` (web), as 2.4 asked.
+  80030, 80031, 80033, 80020, 80035, 80032, 80034, 80017, 80018 and 80025; 80033 and 80034 again
+  after the two follow-up commits. Not done: the independent review of the stage diff by a fresh
+  agent (this session could not start one). Seen, not changed: at 390 px the task page of 80034 is
+  557 px wide, because 2.6 put a third button ("Open pull request #34") in the row of "Open run"
+  and "Mark as stopped…"; the run page of every failed attempt is 405 px wide ("Start attempt 2 on
+  the task page" passes the card's edge, also for 80033 since 2.4); My tasks cuts the reason to a
+  few characters (all three for the stage 4 wrapping check); every finished demo attempt shows
+  "cost unknown", because the seeds' usage has no attempt id and no price (acceptance 4); the run
+  page of an attempt that needs inspection has no "Mark as stopped…"; after "Mark as stopped…" on a
+  delivered attempt the reason names the branch with an id (`factory/modbar-211-<uuid>`) and the
+  known pull request is hidden again; the `stopped()` demo seeds show every step as Passed on the
+  run page; `StopReasons` (tasks.execution) uses `UiFormat` (web), as 2.4 asked.
 - [ ] Stage 3. Dashboard spending
 - [ ] Stage 4. Console clean-up
 - [ ] Stage 5. Final check
