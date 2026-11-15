@@ -62,17 +62,15 @@ import java.util.regex.Pattern;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.folio.factory.app.support.DevFlowHarness.issue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.reset;
 
 /**
  * The tier A scenarios of the demo readiness plan that pass on today's code. A person starts each run by
  * HTTP as the pages do, the engine advances it in the test thread with the poller off, and the scenario
  * ends on the text of My tasks, the task page and the run page. Only the agent, Docker, delivery, GitHub
  * and Jira are scripted ({@link DevFlowHarness}); every reason, state and artifact comes from the real
- * workers and task services. Each scenario has its own Jira task and frees the single slot at its end.
+ * workers and task services. Factory's preflight is a mock that passes, because the real one refuses
+ * any GitHub API other than GitHub.com and GitHub is WireMock here. Each scenario has its own Jira task
+ * and frees the single slot at its end.
  */
 @FactoryIntegrationTest
 @Import({SharedWireMock.Jira.class, SharedWireMock.GitHub.class})
@@ -124,9 +122,7 @@ class TaskScenarioIntegrationTest {
                 issue("8202", "MODBAR-202", "MODBAR", "Nothing to change", "2026-10-01T09:01:00.000+0000", ""),
                 issue("8203", "MODBAR-203", "MODBAR", "Unclear limit", "2026-10-01T09:02:00.000+0000", ""),
                 issue("8204", "MODBAR-204", "MODBAR", "Slow task", "2026-10-01T09:03:00.000+0000", ""),
-                issue("8205", "MODBAR-205", "MODBAR", "Provider down", "2026-10-01T09:04:00.000+0000", ""),
-                issue("8212", "MODBAR-212", "MODBAR", "Gone from Jira", "2026-10-01T09:05:00.000+0000", ""),
-                issue("8213", "MODBAR-213", "MODBAR", "Docker down", "2026-10-01T09:06:00.000+0000", ""));
+                issue("8205", "MODBAR-205", "MODBAR", "Provider down", "2026-10-01T09:04:00.000+0000", ""));
         assertThat(discovery.sync().complete()).isTrue();
     }
 
@@ -326,52 +322,6 @@ class TaskScenarioIntegrationTest {
         assertThat(installations.findById(TaskInstallation.ID).orElseThrow().getActiveAttemptId())
                 .as("a shared outage stops this attempt and the queue continues").isNull();
         assertFailedWithoutPullRequest(taskId, "Provider down MODBAR-205", providerMessage + ".");
-    }
-
-    /** Scenario 12: a task that cannot start stops before any run, with the preflight's cause. */
-    @Test
-    void taskThatCannotStartSaysWhyAndOffersTheNextAttempt() {
-        UUID taskId = taskId("8212");
-        doThrow(new DeveloperPreflight.TaskNotRunnableException("Jira did not return the requested issue."))
-                .when(preflight).requireReady(eq("dev-factory"), any());
-
-        assertRedirect(postRun(taskId));
-
-        TaskAttempt stopped = latestAttempt(taskId);
-        assertThat(stopped.getState()).isEqualTo(TaskAttempt.State.STOPPED);
-        assertThat(stopped.getExecutionId()).isNull();
-        var pages = pages(taskId);
-        assertRow(pages.myTasks(), "Gone from Jira Your turn MODBAR-212",
-                "Could not start: Jira did not return the requested issue. Failed");
-        assertThat(pages.task()).contains("Failed Your turn Attempt 1 failed",
-                "Reason Could not start: Jira did not return the requested issue. No pull request was created.",
-                "Start attempt 2", "Attempt 1 · first run not started");
-        assertNoInternalWording(pages);
-    }
-
-    /** Scenario 12: Run while Factory's preflight fails keeps the task queued and says why on both pages. */
-    @Test
-    void runWhileThePreflightFailsShowsTheQueueNoticeUntilTheQueueMoves() {
-        UUID taskId = taskId("8213");
-        doThrow(new IllegalArgumentException("Developer Flow preflight failed: Docker is not reachable."))
-                .when(preflight).requireReady(eq("dev-factory"), any());
-        String notice = "Queued tasks are not starting. Developer Flow preflight failed: Docker is not reachable."
-                + " Factory tries again on its next dispatch poll.";
-
-        assertRedirect(postRun(taskId));
-
-        assertThat(latestAttempt(taskId).getState()).isEqualTo(TaskAttempt.State.RESERVED);
-        var queued = pages(taskId);
-        assertThat(queued.myTasks()).contains(notice);
-        assertRow(queued.myTasks(), "Docker down MODBAR-213", "next in line Queued");
-        assertThat(queued.task()).contains("Queued Waiting in the queue Next in line " + notice);
-        assertNoInternalWording(queued);
-
-        reset(preflight);
-        pullRequestOpensAs(35);
-        dispatcher.dispatchNext();
-        assertThat(finish(taskId).getState()).isEqualTo(TaskAttempt.State.PR_READY);
-        assertThat(page("/flows/dev-factory")).doesNotContain("Queued tasks are not starting");
     }
 
     /** The pages of a failed attempt: its cause on each page, no pull request and the form for the next one. */

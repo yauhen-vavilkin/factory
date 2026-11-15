@@ -396,8 +396,14 @@ Give a session this prompt:
   comment lists with `[]`), `stubSearch`, `issue`, `workspace`, `passingReports` and `visibleText`.
   New `TaskScenarioIntegrationTest` (profile `task-execution`, poller off) starts runs by HTTP,
   advances them with `drive`, settles them with `finish` (`refresh`, then `dispatchNext`) and reads
-  My tasks, the task page and the run page. Passing today: scenarios 1, 2, 3, 4, 5, 12 (both parts)
-  and 13 (a second Run, Retry and Answer). Left for stage 2, each probed once on this code: 6 shows
+  My tasks, the task page and the run page. Passing today: scenarios 1, 2, 3, 4, 5 and 13 (a second
+  Run, Retry and Answer). In all of them Factory's preflight is a mock that passes, because the real
+  one refuses any GitHub API other than GitHub.com, and GitHub is WireMock in these tests. Scenario
+  12 was taken out after review: it needs the real preflight to fail, and with WireMock GitHub the
+  real one fails first at the GitHub.com check, so a mock had to throw a typed reason. It needs its
+  own Spring context with the default GitHub API and a mocked `DeveloperPreflightProbe`; that is
+  against "one class, one context", so it is left for the owner to decide. Left for stage 2, each
+  probed once on this code: 6 shows
   "Starting build failed before model spend." with no next step and "cost unknown" for an attempt
   that spent nothing; 7 and 8 store "engine execution ended in status COMPLETED" and show "The run
   stopped before a step could say why" (the run page reads "Verify changes Failed", which is right);
