@@ -592,8 +592,12 @@ Give a session this prompt:
   disclosure. Looked at, 1280 px (headless Chrome): both pages of My tasks, the Dashboard with its four
   spending parts, the task pages of 80033 and 80034, the run page of 80016; 390 px (a 390 px frame in the
   browser pane): the "In progress" strip on page 2 of My tasks, the 80036 row of My tasks, the status cards of
-  80033 and 80034, the Dashboard figures. Not done: the stage 4 read-only pass by a fresh agent, G, 2.7 and
-  scenario 12 (owner decisions above); this file is kept until the owner has run the live smoke.
+  80033 and 80034, the Dashboard figures. Not done: the one review of the whole diff since `demo-baseline` by a
+  fresh agent, which stage 5 asks for (this session cannot start one, and the stage 5 review read only the stage 5
+  commits). It is also the only review that would cover the diffs whose own fresh-agent review is recorded above
+  as not done: stage 3, the integration of A, B, D and E with its seeds, C and F, and the last fix of stage 2.
+  Also not done: the stage 4 read-only pass by a fresh agent, G, 2.7 and scenario 12 (owner decisions above).
+  This file is kept until the owner has run the live smoke and the whole-diff review has run.
   Live smoke, for the owner: (1) in `.env`, remove or raise `FACTORY_CLAUDE_CODE_MAX_TURNS=200` and
   `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS=1800` and any explicit `FACTORY_TASKS_EXECUTION_DEADLINE` or
   `FACTORY_ENGINE_LEASE_TIMEOUT_SECONDS`, or the old limits win; check that `FACTORY_ZAI_API_KEY` is set.
@@ -603,8 +607,8 @@ Give a session this prompt:
   glm-5.3-flash, select the task and press Run; wait 20 to 60 minutes for the pull request. (5) Leave a review
   comment on the pull request; on the run page press Check PR comments, then Fix 1 comment, and check that the
   round pushes a commit. (6) Open the Dashboard for 30 days: about $18.99 spent and $3.58 ended in a pull request,
-  each higher by the smoke's own cost. (7) If all is well, delete this file; what is left is in
-  `docs/open-questions.md`.
+  each higher by the smoke's own cost. (7) If all is well and the whole-diff review has run, with its findings
+  fixed or moved to `docs/open-questions.md`, delete this file; what is left is in `docs/open-questions.md`.
 - [ ] If time is left: A B C D E F G. A, B, C, D, E and F are done; G was not started. A second agent did A, B, E
   and D in its own worktree; its commits were cherry-picked onto `m1-sprint-pilot` without a conflict, and the demo
   seeds were added in the main checkout. A (cc50f01): `CodingProtocol.answer` reads the first JSON value after the
