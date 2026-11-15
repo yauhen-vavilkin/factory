@@ -1,5 +1,6 @@
 package org.folio.factory.app;
 
+import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.app.developer.CodingTranscriptStore;
 import org.folio.factory.app.developer.DeveloperPreflight;
@@ -1970,7 +1971,8 @@ class UiRenderSmokeTest {
         pullRequest.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/42");
         taskAttempts.save(pullRequest);
         stoppedAttempt(seedTask("7907", "MODBAR-797", "Task that asked a question", Task.Eligibility.ELIGIBLE,
-                "repository mod-bar"), 1, "clarify-implementation: " + TaskStops.DECISION_REASON + "Which API?", 100_000);
+                "repository mod-bar"), 1, "clarify-implementation: " + TaskStops.DECISION_REASON + "Which API?",
+                100_000);
         spendingAttempt(seedTask("7908", "MODBAR-798", "Task that is running", Task.Eligibility.ELIGIBLE,
                 "repository mod-bar"), 1, TaskAttempt.State.RUNNING, 500_000);
 
@@ -1994,6 +1996,36 @@ class UiRenderSmokeTest {
 
         assertThat(text(spendingBlock(assertRendered("/", "Developer Flow spending"))))
                 .contains("$0.30 Spent").doesNotContain("Where attempts stopped");
+    }
+
+    @Test
+    void theDashboardSaysWhatEachModelAndEffortCostAndHowManyPullRequestsItOpened() {
+        resetTaskData();
+        var task = seedTask("7910", "MODBAR-7910", "Task delivered with a second model", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+        withSettings(spendingAttempt(task, 1, TaskAttempt.State.STOPPED, 900_000), "glm-5.3", "max");
+        var pullRequest = withSettings(spendingAttempt(task, 2, TaskAttempt.State.PR_READY, 300_000),
+                "glm-5.3-flash", "high");
+        pullRequest.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/44");
+        taskAttempts.save(pullRequest);
+        withSettings(spendingAttempt(seedTask("7911", "MODBAR-7911", "Task that only failed",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 700_000), "glm-5.3",
+                "max");
+        spendingAttempt(seedTask("7912", "MODBAR-7912", "Task run before models were recorded",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 100_000);
+
+        String block = text(spendingBlock(assertRendered("/", "Developer Flow spending")));
+        assertThat(block.substring(block.indexOf("By model and effort")))
+                .containsSubsequence("By model and effort",
+                        "glm-5.3 · max 2 attempts 0 pull requests $0.80 per attempt $1.60",
+                        "glm-5.3-flash · high 1 attempt 1 pull request $0.30 per attempt $0.30",
+                        "Model not recorded 1 attempt 0 pull requests $0.10 per attempt $0.10");
+    }
+
+    private TaskAttempt withSettings(TaskAttempt attempt, String modelId, String effort) {
+        attempt.setRunSettings(JsonMapper.builder().build().writeValueAsString(
+                new CodingRequest.RunSettings(modelId, effort, null)));
+        return taskAttempts.save(attempt);
     }
 
     /** An attempt that stopped with {@code reason} after it reported {@code inputTokens} at $1 per million. */

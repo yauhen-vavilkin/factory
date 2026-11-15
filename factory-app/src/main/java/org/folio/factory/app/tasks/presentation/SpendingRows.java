@@ -1,6 +1,7 @@
 package org.folio.factory.app.tasks.presentation;
 
 import lombok.RequiredArgsConstructor;
+import org.folio.factory.app.tasks.admission.TaskRunSettings;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.web.UiFormat;
 import org.springframework.stereotype.Component;
@@ -30,6 +31,8 @@ public class SpendingRows {
 
     static final int MAX_ROWS = 15;
     private static final String NO_FIGURE = "—";
+    /** The group of attempts whose run settings name no model: older runs and the Pi harness. */
+    private static final String NO_MODEL = "Model not recorded";
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
 
     private final TaskQuery tasks;
@@ -42,18 +45,18 @@ public class SpendingRows {
                 .map(TaskCost::of)
                 .sorted(Comparator.comparing(TaskCost::total).reversed().thenComparing(TaskCost::key))
                 .toList();
-        return costs.isEmpty() ? Optional.empty() : Optional.of(spending(costs, causes(period)));
+        return costs.isEmpty() ? Optional.empty() : Optional.of(spending(costs, period));
     }
 
-    private Spending spending(List<TaskCost> costs, List<Spending.Cause> causes) {
+    private Spending spending(List<TaskCost> costs, List<TaskQuery.PeriodTask> period) {
         var shown = costs.subList(0, Math.min(MAX_ROWS, costs.size()));
         var scale = shown.getFirst().total();
         return new Spending(figures(costs), unpricedNote(costs), shown.stream().map(cost -> row(cost, scale)).toList(),
-                rest(costs.subList(shown.size(), costs.size())), causes);
+                rest(costs.subList(shown.size(), costs.size())), causes(period), models(period));
     }
 
     /** One row per cause of the attempts that ended without a pull request, the most expensive first. */
-    private static List<Spending.Cause> causes(List<TaskQuery.PeriodTask> period) {
+    private static List<Spending.Group> causes(List<TaskQuery.PeriodTask> period) {
         var byCause = new EnumMap<StopCause, List<TaskView.AttemptHistoryEntry>>(StopCause.class);
         period.stream().flatMap(task -> task.attempts().stream())
                 .filter(SpendingRows::endedWithoutPullRequest)
@@ -61,16 +64,45 @@ public class SpendingRows {
                         cause -> new ArrayList<>()).add(attempt));
         return byCause.entrySet().stream()
                 .sorted(Comparator.comparing(entry -> total(money(entry.getValue())), Comparator.reverseOrder()))
-                .map(entry -> cause(entry.getKey(), entry.getValue()))
+                .map(entry -> group(entry.getKey().getLabel(), List.of(count(entry.getValue().size(), "attempt")),
+                        entry.getValue()))
                 .toList();
     }
 
-    private static Spending.Cause cause(StopCause cause, List<TaskView.AttemptHistoryEntry> attempts) {
+    /** One row per model and effort of the period's attempts, in the words of the task page, the most spent first. */
+    private static List<Spending.Group> models(List<TaskQuery.PeriodTask> period) {
+        var byModel = new TreeMap<String, List<TaskView.AttemptHistoryEntry>>();
+        period.stream().flatMap(task -> task.attempts().stream())
+                .forEach(attempt -> byModel.computeIfAbsent(modelLabel(attempt), label -> new ArrayList<>())
+                        .add(attempt));
+        return byModel.entrySet().stream()
+                .sorted(Comparator.comparing(entry -> total(money(entry.getValue())), Comparator.reverseOrder()))
+                .map(entry -> group(entry.getKey(), modelFacts(entry.getValue()), entry.getValue()))
+                .toList();
+    }
+
+    private static String modelLabel(TaskView.AttemptHistoryEntry attempt) {
+        var label = TaskRunSettings.label(attempt.runSettings());
+        return label == null ? NO_MODEL : label;
+    }
+
+    /** "2 attempts", "1 pull request", "$0.80 per attempt"; without the average when no attempt has a price. */
+    private static List<String> modelFacts(List<TaskView.AttemptHistoryEntry> attempts) {
+        var money = money(attempts);
+        var pullRequests = attempts.stream().filter(attempt -> attempt.pullRequestUrl() != null).count();
+        var facts = new ArrayList<>(List.of(count(attempts.size(), "attempt"), count(pullRequests, "pull request")));
+        if (!money.isEmpty()) {
+            facts.add(amount(divide(money, attempts.size())) + " per attempt");
+        }
+        return List.copyOf(facts);
+    }
+
+    private static Spending.Group group(String label, List<String> facts,
+                                        List<TaskView.AttemptHistoryEntry> attempts) {
         var money = money(attempts);
         var unknown = UiFormat.money(money) == null
                 && attempts.stream().anyMatch(attempt -> TaskCost.cost(attempt) == null);
-        return new Spending.Cause(cause.getLabel(), count(attempts.size(), "attempt"),
-                unknown ? UiFormat.COST_UNKNOWN : amount(money), unknown);
+        return new Spending.Group(label, facts, unknown ? UiFormat.COST_UNKNOWN : amount(money), unknown);
     }
 
     /** A running attempt has not stopped yet, and a withdrawn one never ran. */

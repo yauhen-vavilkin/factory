@@ -6,9 +6,11 @@ import java.util.UUID;
 /**
  * What the Developer Flow's task attempts of a period cost, for the Dashboard: four figures, a note on attempts
  * without a price (null when every attempt has one), the most expensive tasks, and one line for the other tasks
- * (null when every task has its row), and where the attempts without a pull request stopped (empty when none did).
+ * (null when every task has its row), where the attempts without a pull request stopped (empty when none did), and
+ * what each model and effort cost.
  */
-public record Spending(List<Figure> figures, String unpricedNote, List<Row> rows, String rest, List<Cause> causes) {
+public record Spending(List<Figure> figures, String unpricedNote, List<Row> rows, String rest, List<Group> causes,
+                       List<Group> models) {
 
     /** One figure: the amount and what it counts. */
     public record Figure(String value, String label) {
@@ -23,7 +25,10 @@ public record Spending(List<Figure> figures, String unpricedNote, List<Row> rows
                       String chipClass, String chipUrl) {
     }
 
-    /** One cause of a stop: how many attempts stopped there and what they cost, as in {@link Row}. */
-    public record Cause(String label, String attempts, String amount, boolean amountNote) {
+    /**
+     * One group of attempts, a cause of a stop or a model and effort: what it counts, each fact on its own so a
+     * narrow row wraps between them, and what its attempts cost, as in {@link Row}.
+     */
+    public record Group(String label, List<String> facts, String amount, boolean amountNote) {
     }
 }

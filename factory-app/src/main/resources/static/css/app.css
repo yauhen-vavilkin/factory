@@ -1266,10 +1266,12 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .spend-bar { flex: 0 1 200px; display: flex; height: 8px; margin-top: 6px; overflow: hidden; border-radius: 2px; }
 @media (max-width: 560px) { .spend-bar { flex-basis: 100%; order: 1; } }
 .spend-rest { padding-top: 12px; }
-/* Where attempts stopped: the amount stands in the amount column of Cost per task; on a phone, which has no chip
-   column, it stays on the line of its cause. */
-.spend-cause > .dev-row-main { flex-basis: 160px; }
-@media (max-width: 560px) { .spend-cause > .row-cluster-status { grid-template-columns: 88px; } }
+/* Where attempts stopped, By model and effort: the amount stands in the amount column of Cost per task; on a phone,
+   which has no chip column, it stays on the line of its group. */
+.spend-group > .dev-row-main { flex-basis: 160px; }
+.spend-group .dev-row-meta { column-gap: 10px; }
+.spend-group .dev-row-meta > * + * { margin-left: 0; }
+@media (max-width: 560px) { .spend-group > .row-cluster-status { grid-template-columns: 88px; } }
 /* Definition: one numbered list of steps, each with its kind and what it reads and writes. */
 .dev-page > .page-header { margin-bottom: 0; }
 .def-steps { margin: 0; padding: 0; list-style: none; }
