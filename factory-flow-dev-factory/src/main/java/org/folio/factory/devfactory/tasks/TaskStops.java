@@ -78,12 +78,18 @@ public final class TaskStops {
 
     /**
      * Why Factory did not keep the agent's changes: a line they add to {@code file} holds the API key of a
-     * configured model, which a pull request would publish. The caller redacts the result.
+     * configured model, which a pull request would publish. No next step, because a PR feedback round offers its
+     * own buttons under it. The caller redacts the result.
      */
-    public static String secretInChangesReason(String file) {
+    public static String secretInChangesCause(String file) {
         var shown = file.length() > MAX_FILE_SHOWN ? file.substring(0, MAX_FILE_SHOWN) + "…" : file;
         return "The agent wrote the API key of a configured model into " + shown
-                + ", so Factory did not keep its changes. Start a new attempt.";
+                + ", so Factory did not keep its changes.";
+    }
+
+    /** {@link #secretInChangesCause} with the next step of a task attempt. The caller redacts the result. */
+    public static String secretInChangesReason(String file) {
+        return secretInChangesCause(file) + " Start a new attempt.";
     }
 
     /** Why a coding attempt stopped when the agent used all of its turns. */

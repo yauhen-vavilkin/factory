@@ -67,7 +67,8 @@ class FeedbackCodingAttemptTest {
 
         assertThatThrownBy(this::runRound)
                 .hasMessageStartingWith("Latest edits could not be saved; the previous confirmed patch is retained.")
-                .hasMessageContaining(TaskStops.secretInChangesReason("src/main/resources/application.yml"))
+                .hasMessageContaining(TaskStops.secretInChangesCause("src/main/resources/application.yml"))
+                .hasMessageNotContaining("Start a new attempt")
                 .hasMessageNotContaining(MODEL_KEY);
         assertThat(operation.outputs()).doesNotContainKey(FeedbackArtifacts.CANDIDATE);
         assertThat(operation.metrics()).containsEntry("inputTokens", 10L);

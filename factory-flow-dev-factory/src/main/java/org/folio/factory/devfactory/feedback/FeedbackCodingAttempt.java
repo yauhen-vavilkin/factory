@@ -102,7 +102,7 @@ final class FeedbackCodingAttempt {
     /** Edits that add a model's API key are not saved, so they reach no check, commit or pull request. */
     private void refuseSecret(Candidate candidate) {
         candidate.findFileAdding(coding::holdsSecret).ifPresent(file -> {
-            throw new IllegalStateException(TaskStops.secretInChangesReason(file));
+            throw new IllegalStateException(TaskStops.secretInChangesCause(file));
         });
     }
 
