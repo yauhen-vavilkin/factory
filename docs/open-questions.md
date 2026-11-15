@@ -358,7 +358,11 @@ Developer Flow:
   priced or not.
 - **Phone width (390 px).** My tasks cuts a long reason after two lines (80033, 80036 in the demo
   console); a reason on its own line under the key starts 10 px in; the repository table of the
-  Configuration tab is wider than its box (456 against 350 px).
+  Configuration tab is wider than its box (456 against 350 px). The "In progress" strip has no room
+  for the task title (it shrinks to nothing) and cuts "glm-5.3 · max · 14 min".
+- **The "In progress" strip shows only on the page of My tasks that lists the running task.**
+  `RunRows.strip` reads the rows of the current page, so with two pages of Started tasks the strip can
+  be missing from page 1 (seen in the demo console, where MODBAR-805 is on page 2).
 - **`StopReasons` (tasks.execution) imports `UiFormat` (web)** for the step name of the engine-gave-up
   reason.
 
