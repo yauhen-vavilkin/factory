@@ -68,6 +68,10 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.folio.factory.app.support.DevFlowHarness.issue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 
 /**
  * The tier A scenarios of the demo readiness plan that pass on today's code. A person starts each run by
@@ -137,7 +141,8 @@ class TaskScenarioIntegrationTest {
                 issue("8208", "MODBAR-208", "MODBAR", "Checks time out", "2026-10-01T09:07:00.000+0000", ""),
                 issue("8209", "MODBAR-209", "MODBAR", "Base branch does not build", "2026-10-01T09:08:00.000+0000",
                         ""),
-                issue("8210", "MODBAR-210", "MODBAR", "GitHub rate limit", "2026-10-01T09:09:00.000+0000", ""));
+                issue("8210", "MODBAR-210", "MODBAR", "GitHub rate limit", "2026-10-01T09:09:00.000+0000", ""),
+                issue("8211", "MODBAR-211", "MODBAR", "Clean-up not confirmed", "2026-10-01T09:10:00.000+0000", ""));
         assertThat(discovery.sync().complete()).isTrue();
     }
 
@@ -433,6 +438,38 @@ class TaskScenarioIntegrationTest {
                 "Factory could not finish the Publish step after 3 tries: 429 Too Many Requests: \"{\"message\":"
                         + " \"API rate limit exceeded\"}\". Start a new attempt.",
                 List.of("2 · Implement changes Passed", "3 · Verify changes Passed", "4 · Create pull request Failed"));
+    }
+
+    /**
+     * Scenario 11: the run opened pull request #41, then Factory could not confirm that its containers are gone. The
+     * pages show the pull request with the inspection, and the next recheck that confirms the end frees the queue.
+     */
+    @Test
+    void aDeliveredRunWhoseEndIsNotConfirmedShowsItsPullRequest() {
+        UUID taskId = taskId("8211");
+        pullRequestOpensAs(41);
+        assertRedirect(postRun(taskId));
+        TaskAttempt attempt = latestAttempt(taskId);
+        drive(attempt.getExecutionId());
+        doThrow(new IllegalStateException("Resource still exists")).when(docker).cleanOwned(any(), anyString());
+
+        assertThat(outcomes.refresh(attempt.getId()).state())
+                .isEqualTo(TaskOutcomeService.AttemptOutcome.State.NEEDS_INSPECTION);
+
+        var pages = pages(taskId);
+        assertRow(pages.myTasks(), "Clean-up not confirmed Your turn MODBAR-211",
+                "outcome not confirmed $0.40 Needs inspection Mark as stopped…");
+        assertThat(pages.task()).contains("Needs inspection Your turn Factory could not confirm how the run ended",
+                "Open pull request #41", "Mark as stopped…");
+        assertThat(pages.run()).contains("Needs inspection Your turn Factory could not confirm how the run ended",
+                "4 · Create pull request Passed · draft");
+        assertNoInternalWording(pages);
+
+        // Factory's next recheck finds the containers gone, so the attempt is ready and the queue goes on.
+        doNothing().when(docker).cleanOwned(any(), anyString());
+        assertThat(outcomes.refresh(attempt.getId()).state())
+                .isEqualTo(TaskOutcomeService.AttemptOutcome.State.PR_READY);
+        assertThat(installations.findById(TaskInstallation.ID).orElseThrow().getActiveAttemptId()).isNull();
     }
 
     /** The pages of a failed attempt: its cause on each page, no pull request and the form for the next one. */

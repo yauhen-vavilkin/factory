@@ -13,7 +13,8 @@ import java.util.List;
 
 /**
  * The pull request of an attempt: the one its record names once it is ready, or the one its run already opened
- * while the dispatcher has not closed the attempt yet. Only an attempt in flight reads its run's delivery.
+ * while the dispatcher has not closed the attempt yet, also while it waits for inspection. Only a live attempt reads
+ * its run's delivery.
  */
 @Component
 @RequiredArgsConstructor
@@ -34,7 +35,7 @@ class AttemptPullRequests {
         if (attempt.getState() == TaskAttempt.State.PR_READY) {
             return new PullRequest(attempt.getPublicationIdentity(), storedReasons(attempt.getDraftReasons()));
         }
-        if (!attempt.getState().isInFlight() || attempt.getExecutionId() == null) {
+        if (!attempt.getState().isLive() || attempt.getExecutionId() == null) {
             return PullRequest.NONE;
         }
         return artifacts.getLatest(attempt.getExecutionId(), DeliveryWorker.DELIVERY)

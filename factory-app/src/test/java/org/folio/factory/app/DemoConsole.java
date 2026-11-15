@@ -50,7 +50,7 @@ import java.util.Map;
  * that end in a pull request, a task no longer assigned to the developer, a draft pull request without and with
  * new comments, a pull request ready for review, merged, closed without merge, a feedback round that works now,
  * one that asked a question and one that failed, and a run whose end Factory could not confirm, with and without
- * the queue held.
+ * the queue held and after it opened a pull request.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT, properties = "server.port=8090")
 @Import({StubLlmConfiguration.class, SharedDatabase.class})
@@ -386,6 +386,13 @@ class DemoConsole {
         installations.save(installation);
         attempt(task("80023", "MODBAR-823", "Task whose run end is not confirmed and does not hold the queue"),
                 TaskAttempt.State.NEEDS_INSPECTION, null, execution("0.6.0", ExecutionStatus.RUNNING, 3));
+        // The run opened its pull request before Factory found a container it could not remove.
+        var delivered = attempt(task("80034", "MODBAR-834", "Task whose run opened a pull request and whose end is not"
+                + " confirmed"), TaskAttempt.State.NEEDS_INSPECTION, null,
+                execution(FeedbackArtifacts.VERSION, ExecutionStatus.AWAITING_HITL, 9));
+        artifacts.put(delivered.getExecutionId(), "dev_delivery.json", "{\"state\":\"DELIVERED\",\"pullRequestUrl\":\""
+                + PULL + 34 + "\",\"pullRequestDraft\":true,\"draftReasons\":[\"1 acceptance criterion is not met.\"]}",
+                "application/json", "demo");
     }
 
     private static String comment(String id, String author, String body, String path, int line, int pull) {

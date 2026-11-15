@@ -1,10 +1,12 @@
 package org.folio.factory.app.tasks.presentation;
 
+import org.folio.factory.app.tasks.persistence.TaskAttempt;
+
 /**
  * The chip and the headline of one attempt, the same on the task page, the run page, the Attempts rows and the
  * Runs rows of My tasks. A pull request the run opened wins over the attempt record, which the dispatcher closes
- * a little later, so the pages never go back to "In progress" while the pull request is open. {@code chipUrl}
- * opens the pull request and is null for any other chip.
+ * a little later, so the pages never go back to "In progress" while the pull request is open; only an attempt that
+ * needs inspection keeps its own chip. {@code chipUrl} opens the pull request and is null for any other chip.
  */
 public record AttemptStatus(String chipLabel, String chipClass, String chipUrl, String headline) {
 
@@ -29,7 +31,7 @@ public record AttemptStatus(String chipLabel, String chipClass, String chipUrl, 
 
     /** The status of {@code attempt}, one of the attempts of {@code view}. */
     public static AttemptStatus of(TaskView view, TaskView.AttemptHistoryEntry attempt) {
-        if (attempt.pullRequestUrl() != null) {
+        if (attempt.pullRequestUrl() != null && attempt.state() != TaskAttempt.State.NEEDS_INSPECTION) {
             return pullRequest(attempt);
         }
         return switch (attempt.state()) {
