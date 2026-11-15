@@ -1,6 +1,7 @@
 package org.folio.factory.devfactory.delivery;
 
 import org.folio.factory.devfactory.candidate.Candidate;
+import org.folio.factory.devfactory.intake.IssueSnapshot;
 import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
 
@@ -78,7 +79,7 @@ public final class PullRequestRenderer {
      * through {@code prose}, which strips Markdown structure, links and mentions.
      */
     private static String issueLink(String issueKey, String jiraBaseUrl) {
-        if (issueKey == null || !issueKey.matches("[A-Z][A-Z0-9]*-[0-9]+")) {
+        if (issueKey == null || !IssueSnapshot.ISSUE_KEY.matcher(issueKey).matches()) {
             return "Issue key unavailable";
         }
         String base = jiraBaseUrl == null ? "" : jiraBaseUrl.strip();
@@ -332,6 +333,14 @@ public final class PullRequestRenderer {
 
     private static String firstParagraph(String section) {
         return section.strip().split("\\n\\s*\\n", 2)[0].strip();
+    }
+
+    /**
+     * Model text made safe to post on GitHub by the rules of the pull request body: no links,
+     * mentions, HTML or tokens. Factory's comment after a PR feedback round uses it too.
+     */
+    public static String safeReport(String text) {
+        return block(text);
     }
 
     /**

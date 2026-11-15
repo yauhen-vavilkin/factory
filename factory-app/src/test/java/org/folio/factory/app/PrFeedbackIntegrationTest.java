@@ -226,7 +226,8 @@ class PrFeedbackIntegrationTest {
         var body=org.mockito.ArgumentCaptor.forClass(String.class);
         verify(commentWriter).post(argThat(pr->pr.number()==7&&pr.repository().equals("fork/repo")),body.capture());
         assertThat(body.getValue()).startsWith("<!-- factory-round "+id+" 1 -->")
-                .contains("Factory round 1: pushed "+view().state().commitSha(),"[REDACTED] selected feedback")
+                // Redacted before the cleaning, which escapes the brackets as in the PR body.
+                .contains("Factory round 1: pushed "+view().state().commitSha(),"&#91;REDACTED&#93; selected feedback")
                 .doesNotContain("Corrected");
         assertThat(roundComments(AuditEventType.CONNECTOR_ACTION)).singleElement().asString()
                 .contains("\"commentUrl\": \"https://github.com/fork/repo/pull/7#issuecomment-1\"","\"round\": 1");

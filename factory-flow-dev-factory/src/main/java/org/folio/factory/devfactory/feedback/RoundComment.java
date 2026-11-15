@@ -3,6 +3,7 @@ package org.folio.factory.devfactory.feedback;
 import org.folio.factory.core.domain.AuditEvent;
 import org.folio.factory.core.domain.AuditEventType;
 import org.folio.factory.core.service.AuditLog;
+import org.folio.factory.devfactory.delivery.PullRequestRenderer;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Map;
@@ -43,7 +44,7 @@ public final class RoundComment {
             return;
         }
         try {
-            var url = writer.post(state.pr, redact.apply(body(executionId, state)));
+            var url = writer.post(state.pr, redact.apply(body(executionId, state, redact)));
             audit.record(executionId, AuditEventType.CONNECTOR_ACTION, stepId, with(detail, "commentUrl", url));
         } catch (RuntimeException e) {
             audit.record(executionId, AuditEventType.CONNECTOR_ACTION, stepId, with(detail, "error",
@@ -60,9 +61,13 @@ public final class RoundComment {
                         && Integer.valueOf(round).equals(detail.get("round")) && detail.containsKey("commentUrl"));
     }
 
-    private static String body(UUID executionId, FeedbackState state) {
-        var changes = RoundReport.changes(state.summary);
-        var summary = changes.length() <= MAX_SUMMARY ? changes : changes.substring(0, MAX_SUMMARY) + "\n[cut]";
+    private static String body(UUID executionId, FeedbackState state, UnaryOperator<String> redact) {
+        // Redact first: the cleaning escapes characters a secret may hold, so it would no longer match.
+        var changes = redact.apply(RoundReport.changes(state.summary));
+        // The report is model text that a PR comment can steer, so it gets the cleaning of the PR body.
+        var summary = changes.length() <= MAX_SUMMARY
+                ? PullRequestRenderer.safeReport(changes)
+                : PullRequestRenderer.safeReport(changes.substring(0, MAX_SUMMARY)) + "\n\n[cut]";
         return MARKER + executionId + " " + state.round + " -->\n"
                 + "Factory round " + state.round + ": pushed " + state.commitSha + ".\n\n" + summary;
     }
