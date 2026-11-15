@@ -29,15 +29,11 @@ import org.folio.factory.core.service.ArtifactStore;
 import org.folio.factory.core.service.StateManager;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.delivery.CandidateDelivery;
-import org.folio.factory.devfactory.delivery.DeliveryReceipt;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
-import org.folio.factory.devfactory.runtime.Model;
 import org.folio.factory.devfactory.runtime.ModelCatalog;
-import org.folio.factory.devfactory.runtime.ModelPrice;
-import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.folio.factory.devfactory.worker.DevelopWorker;
 import org.folio.factory.devfactory.worker.VerifyWorker;
@@ -58,43 +54,27 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.io.IOException;
-import java.math.BigDecimal;
-import java.net.URI;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.Duration;
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
-import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
-import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
-import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.folio.factory.app.support.DevFlowHarness.issue;
+import static org.folio.factory.app.support.DevFlowHarness.stubSearch;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.when;
-import static org.mockito.ArgumentMatchers.isNull;
 import org.folio.factory.app.tasks.admission.TaskAdmissionChecks;
 
 /**
@@ -154,8 +134,9 @@ class TaskEndToEndTest {
             Map.of("README.md", "# fixture folio-org/mod-bar\n"));
     static final Path FOO_WORK = DevFlowHarness.createRepositoryWithFiles(gitRoot, "folio-org/mod-foo", "master",
             Map.of("README.md", "# fixture folio-org/mod-foo\n"));
-    static final Path CODING_CHANGE = createCodingChangeFixture();
-    static final Path VERIFICATION_REPORTS = createVerificationFixture();
+    static final Path CODING_CHANGE = DevFlowHarness.workspace("task-e2e-coding-",
+            Map.of("README.md", "# fixture changed by the stubbed coding run\n"));
+    static final Path VERIFICATION_REPORTS = DevFlowHarness.passingReports();
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -171,7 +152,7 @@ class TaskEndToEndTest {
                                                    @Autowired TaskJiraInstance jiraInstance,
                                                    @Autowired DeveloperPreflight preflight) {
         resetWireMockAndStubPullRequestCreation();
-        stubSearch(
+        stubSearch(jira,
                 issue("8101", "MODBAR-101", "MODBAR", "Add validation to mod-bar", "2026-10-01T09:00:00.000+0000", ""),
                 issue("8103", "MODFOO-103", "MODFOO", "Refactor the mod-foo exporter", "2026-10-01T09:15:00.000+0000", ""),
                 issue("8102", "MODBAR-102", "MODBAR", "Clarify the limit handling", "2026-10-01T09:30:00.000+0000", ""),
@@ -194,14 +175,8 @@ class TaskEndToEndTest {
     private static void resetWireMockAndStubPullRequestCreation() {
         jira.resetAll();
         GITHUB.resetAll();
-        GITHUB.stubFor(get(urlPathEqualTo("/repos/" + BAR + "/pulls"))
-                .withQueryParam("state", equalTo("all")).willReturn(okJson("[]")));
-        GITHUB.stubFor(get(urlPathEqualTo("/repos/" + FOO + "/pulls"))
-                .withQueryParam("state", equalTo("all")).willReturn(okJson("[]")));
-        GITHUB.stubFor(post(urlPathEqualTo("/repos/" + BAR + "/pulls"))
-                .willReturn(okJson("{\"html_url\": \"" + BAR_PR + "\"}")));
-        GITHUB.stubFor(post(urlPathEqualTo("/repos/" + FOO + "/pulls"))
-                .willReturn(okJson("{\"html_url\": \"" + FOO_PR + "\"}")));
+        DevFlowHarness.stubPullRequestCreation(GITHUB, BAR, BAR_PR);
+        DevFlowHarness.stubPullRequestCreation(GITHUB, FOO, FOO_PR);
     }
 
     @MockitoBean
@@ -277,9 +252,13 @@ class TaskEndToEndTest {
     @BeforeEach
     void stubFlowCollaborators() {
         harness = new DevFlowHarness(stateManager, artifactStore, reviews);
-        stubCodingOutcomes();
-        stubWorkloads();
-        stubDelivery();
+        DevFlowHarness.stubCodingRuntime(coding, models, request -> {
+            codingCalls.merge(request.issueKey(), 1, Integer::sum);
+            codingRequests.put(request.issueKey(), request);
+            return outcomeFor(request.issueKey());
+        });
+        DevFlowHarness.stubWorkloads(docker, CODING_CHANGE, VERIFICATION_REPORTS);
+        DevFlowHarness.stubDelivery(delivery, receipt -> { });
     }
 
     @Test
@@ -427,7 +406,7 @@ class TaskEndToEndTest {
         // scenario starts it after a scan that no longer finds the task.
         doThrow(new IllegalArgumentException("coding runtime not ready"))
                 .when(preflight).requireReady(eq("dev-factory"), any());
-        stubSearch(issue("8106", "MODBAR-106", "MODBAR", "Expose the new endpoint", "2026-10-01T10:00:00.000+0000", ""));
+        stubSearch(jira, issue("8106", "MODBAR-106", "MODBAR", "Expose the new endpoint", "2026-10-01T10:00:00.000+0000", ""));
 
         var added = admissions.addByKey(jira.baseUrl() + "/browse/MODBAR-106");
 
@@ -458,7 +437,7 @@ class TaskEndToEndTest {
                 .willReturn(aResponse().withStatus(503).withBody("<html>" + "maintenance ".repeat(500) + "</html>")));
         assertThat(admissions.addByKey("MODBAR-107").problem())
                 .isEqualTo("Jira could not be read: HTTP 503");
-        stubSearch(issue("8106", "MODBAR-106", "MODBAR", "Expose the new endpoint", "2026-10-01T10:00:00.000+0000", ""));
+        stubSearch(jira, issue("8106", "MODBAR-106", "MODBAR", "Expose the new endpoint", "2026-10-01T10:00:00.000+0000", ""));
         assertJiraStayedReadOnly();
     }
 
@@ -587,26 +566,6 @@ class TaskEndToEndTest {
                 .toList();
     }
 
-    private void stubCodingOutcomes() {
-        when(coding.id()).thenReturn("stub");
-        // Real runtimes return the text unchanged when no secret matches; a bare mock would return null.
-        when(coding.redact(anyString())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(coding.image()).thenReturn("stub:image");
-        when(coding.identity(any())).thenReturn(Map.of("runtime", "stub", "image", "stub:image",
-                "model", "claude-sonnet-5-5"));
-        var price = new ModelPrice("USD", LocalDate.of(2026, 10, 22), URI.create("https://pricing.fixture.invalid"),
-                BigDecimal.valueOf(2), BigDecimal.valueOf(0.1), BigDecimal.ONE, null, null, BigDecimal.TEN);
-        when(models.pricedEntry(any(), any())).thenReturn(Optional.of(new Model("sonnet", "anthropic-messages",
-                "https://gateway.fixture.invalid", "bearer-token", "SONNET_TOKEN", null, "claude-sonnet-5-5",
-                List.of("high"), "high", 16384, price)));
-        when(coding.code(any(), any(), anyInt(), any(), any())).thenAnswer(invocation -> {
-            CodingRequest request = invocation.getArgument(1);
-            codingCalls.merge(request.issueKey(), 1, Integer::sum);
-            codingRequests.put(request.issueKey(), request);
-            return outcomeFor(request.issueKey());
-        });
-    }
-
     private CodingOutcome outcomeFor(String issueKey) {
         return switch (issueKey) {
             case "MODBAR-101" -> CodingOutcome.completed("Implemented the change", COMPLETE_USAGE);
@@ -627,73 +586,16 @@ class TaskEndToEndTest {
         };
     }
 
-    private void stubWorkloads() {
-        var scope = mock(DockerWorkloads.StepScope.class);
-        var baseline = mock(DockerWorkloads.Workload.class);
-        var codingWorkload = mock(DockerWorkloads.Workload.class);
-        var verification = mock(DockerWorkloads.Workload.class);
-        when(docker.beginStep(any(), anyString())).thenReturn(scope);
-        when(scope.createTrusted(anyString(), any(), anyString())).thenReturn(baseline);
-        when(scope.createSeeded(anyString(), any(), anyString(), eq("coding"))).thenReturn(codingWorkload);
-        when(scope.createSeeded(anyString(), any(), anyString(), eq("verification"))).thenReturn(verification);
-        when(baseline.execute(anyList(), anyInt(), anyInt(), any()))
-                .thenReturn(new Processes.Result(0, "[INFO] BUILD SUCCESS"));
-        when(verification.execute(anyList(), anyInt(), eq(Processes.OUTPUT_LIMIT), isNull()))
-                .thenReturn(new Processes.Result(0, "[INFO] BUILD SUCCESS"));
-        when(baseline.name()).thenReturn("stub-baseline");
-        when(codingWorkload.name()).thenReturn("stub-coding");
-        when(verification.name()).thenReturn("stub-verification");
-        doAnswer(invocation -> {
-            copyFixture(CODING_CHANGE, invocation.getArgument(0, Path.class));
-            return null;
-        }).when(codingWorkload).export(any());
-        doAnswer(invocation -> {
-            copyFixture(VERIFICATION_REPORTS, invocation.getArgument(0, Path.class));
-            return null;
-        }).when(verification).export(any());
-    }
-
-    private void stubDelivery() {
-        when(delivery.deliver(argThat(DevFlowHarness::isComplete)))
-                .thenAnswer(invocation -> delivered(invocation.getArgument(0)));
-    }
-
     /**
      * Stubs the pull request read while a delivery to the repository answers, before the flow reaches
      * the follow-up step; stubbed later, the step's first read fails and the flow retries it 30 seconds later.
      */
     private void stubPullRequestReadOnDelivery(String repository, int number) {
-        when(delivery.deliver(argThat(DevFlowHarness::isComplete)))
-                .thenAnswer(invocation -> {
-                    DeliveryReceipt receipt = delivered(invocation.getArgument(0));
-                    if (receipt.repository().equals(repository)) {
-                        stubPullRequestRead(repository, number, receipt.branch());
-                    }
-                    return receipt;
-                });
-    }
-
-    private static DeliveryReceipt delivered(CandidateDelivery.Request request) {
-        Candidate candidate = request.candidate();
-        return new DeliveryReceipt(request.executionId(), request.target().repository(),
-                CandidateDelivery.branchFor(request.executionId(), request.issueKey(), candidate,
-                        request.stableBranch()),
-                candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "d".repeat(40));
-    }
-
-    private static void stubSearch(String... issues) {
-        jira.stubFor(post(urlEqualTo("/rest/api/2/search/jql"))
-                .withRequestBody(matchingJsonPath("$[?(!@.nextPageToken)]"))
-                .willReturn(okJson("{\"issues\": [" + String.join(", ", issues) + "]}")));
-    }
-
-    private void stubPullRequestRead(String repository, int number, String headBranch) {
-        GITHUB.stubFor(get(urlEqualTo("/repos/" + repository + "/pulls/" + number))
-                .willReturn(okJson("{\"number\": " + number + ", \"state\": \"open\", \"merged\": false,"
-                        + "\"html_url\": \"https://github.com/" + repository + "/pull/" + number + "\","
-                        + "\"head\": {\"ref\": \"" + headBranch + "\", \"sha\": \"" + "d".repeat(40) + "\","
-                        + "\"repo\": {\"full_name\": \"" + repository + "\"}},"
-                        + "\"base\": {\"ref\": \"master\", \"repo\": {\"full_name\": \"" + repository + "\"}}}")));
+        DevFlowHarness.stubDelivery(delivery, receipt -> {
+            if (receipt.repository().equals(repository)) {
+                DevFlowHarness.stubPullRequestRead(GITHUB, repository, number, receipt.branch());
+            }
+        });
     }
 
     private void awaitDelivered(UUID executionId) {
@@ -719,70 +621,9 @@ class TaskEndToEndTest {
         return TaskFixture.selection(tasks.findById(taskId(issueId)).orElseThrow());
     }
 
-    private static String issue(String id, String key, String project, String summary, String created,
-                                String extraFields) {
-        return """
-                {"id": "%s", "key": "%s", "fields": {"summary": "%s", "description": "Description of %s", \
-                "status": {"name": "To Do"}, "issuetype": {"name": "Story"}, "labels": ["backend"], \
-                "created": "%s", "components": [{"name": "api"}], \
-                "project": {"key": "%s"}%s}}""".formatted(id, key, summary, key, created, project, extraFields);
-    }
-
     private static String linked(String otherKey) {
         return ", \"issuelinks\": [{\"type\": {\"inward\": \"is blocked by\", \"outward\": \"blocks\"}, "
                 + "\"inwardIssue\": {\"key\": \"" + otherKey + "\", \"fields\": {\"summary\": \"Preparation\", "
                 + "\"status\": {\"name\": \"Done\"}}}}]";
-    }
-
-    private static void copyFixture(Path source, Path target) {
-        try (var paths = Files.walk(source)) {
-            for (Path entry : paths.toList()) {
-                Path destination = target.resolve(source.relativize(entry));
-                if (Files.isDirectory(entry)) {
-                    Files.createDirectories(destination);
-                } else {
-                    Files.createDirectories(destination.getParent());
-                    Files.copy(entry, destination, StandardCopyOption.REPLACE_EXISTING);
-                }
-            }
-        } catch (IOException e) {
-            throw new IllegalStateException("Cannot export fixture workspace", e);
-        }
-    }
-
-    private static Path createCodingChangeFixture() {
-        Path directory = createTempDirectory("task-e2e-coding-");
-        writeWorkspaceFile(directory, "README.md", "# fixture changed by the stubbed coding run\n");
-        return directory;
-    }
-
-    private static Path createVerificationFixture() {
-        Path directory = createTempDirectory("task-e2e-verify-");
-        writeWorkspaceFile(directory, "target/surefire-reports/TEST-FixtureSuite.xml", """
-                <?xml version="1.0" encoding="UTF-8"?>
-                <testsuite name="FixtureSuite" tests="2" skipped="0" failures="0" errors="0" time="0.01">
-                  <testcase name="works" classname="FixtureSuite" time="0.005"/>
-                  <testcase name="alsoWorks" classname="FixtureSuite" time="0.005"/>
-                </testsuite>
-                """);
-        return directory;
-    }
-
-    private static Path createTempDirectory(String prefix) {
-        try {
-            return Files.createTempDirectory(prefix);
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    private static void writeWorkspaceFile(Path root, String relativeName, String content) {
-        try {
-            Path file = root.resolve(relativeName);
-            Files.createDirectories(file.getParent());
-            Files.writeString(file, content);
-        } catch (IOException e) {
-            throw new IllegalStateException(e);
-        }
     }
 }
