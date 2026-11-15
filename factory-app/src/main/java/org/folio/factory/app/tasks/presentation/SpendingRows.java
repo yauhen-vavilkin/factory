@@ -1,0 +1,163 @@
+package org.folio.factory.app.tasks.presentation;
+
+import lombok.RequiredArgsConstructor;
+import org.folio.factory.app.web.UiFormat;
+import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.TreeMap;
+import java.util.function.Function;
+
+import static org.folio.factory.app.tasks.presentation.TaskLabels.costSoFar;
+import static org.folio.factory.app.tasks.presentation.TaskLabels.finishedCost;
+
+/**
+ * The Developer Flow spending of the Dashboard, built from the task projection, so each amount is the one the task
+ * page shows. An attempt counts in the period when its run started in it, as the Dashboard counts runs.
+ */
+@Component
+@RequiredArgsConstructor
+public class SpendingRows {
+
+    static final int MAX_ROWS = 15;
+    private static final String NO_FIGURE = "—";
+    private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
+
+    private final TaskQuery tasks;
+    private final TaskRows rows;
+
+    /** Empty when no attempt of a task started its run at or after {@code since}. */
+    public Optional<Spending> since(Instant since) {
+        var costs = tasks.startedSince(since).stream()
+                .filter(task -> !task.attempts().isEmpty())
+                .map(TaskCost::of)
+                .sorted(Comparator.comparing(TaskCost::total).reversed().thenComparing(TaskCost::key))
+                .toList();
+        return costs.isEmpty() ? Optional.empty() : Optional.of(spending(costs));
+    }
+
+    private Spending spending(List<TaskCost> costs) {
+        var shown = costs.subList(0, Math.min(MAX_ROWS, costs.size()));
+        var scale = shown.getFirst().total();
+        return new Spending(figures(costs), unpricedNote(costs), shown.stream().map(cost -> row(cost, scale)).toList(),
+                rest(costs.subList(shown.size(), costs.size())));
+    }
+
+    /** Spent, its two parts, and the spent amount for each task that has a pull request. */
+    private static List<Spending.Figure> figures(List<TaskCost> costs) {
+        var spent = sum(costs, TaskCost::all);
+        var delivered = costs.stream().filter(TaskCost::delivered).count();
+        return List.of(new Spending.Figure(amount(spent), "Spent"),
+                new Spending.Figure(amount(sum(costs, TaskCost::pullRequest)), "Ended in a pull request"),
+                new Spending.Figure(amount(sum(costs, TaskCost::other)), "Attempts without a pull request"),
+                new Spending.Figure(delivered == 0 ? NO_FIGURE : amount(divide(spent, delivered)),
+                        "Cost per pull request"));
+    }
+
+    private Spending.Row row(TaskCost cost, BigDecimal scale) {
+        var view = cost.view();
+        var chip = rows.triggeredRow(view);
+        var amount = UiFormat.money(cost.all());
+        var unknown = amount == null && cost.unpriced() > 0;
+        return new Spending.Row(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(),
+                count(cost.attempts(), "attempt"), unknown ? UiFormat.COST_UNKNOWN : amount(cost.all()), unknown,
+                width(cost.pullRequest(), scale), width(cost.other(), scale),
+                "Ended in a pull request: " + amount(cost.pullRequest()) + " · No pull request: "
+                        + amount(cost.other()), chip.chipLabel(), chip.chipClass(), chip.chipUrl());
+    }
+
+    /** "2 attempts have no price": the attempts whose cost is unknown on the task page; null when there are none. */
+    private static String unpricedNote(List<TaskCost> costs) {
+        var unpriced = costs.stream().mapToLong(TaskCost::unpriced).sum();
+        if (unpriced == 0) {
+            return null;
+        }
+        return unpriced == 1 ? "1 attempt has no price" : unpriced + " attempts have no price";
+    }
+
+    /** "2 more tasks: $0.03" for the tasks without a row; null when every task has one. */
+    private static String rest(List<TaskCost> costs) {
+        return costs.isEmpty() ? null : count(costs.size(), "more task") + ": " + amount(sum(costs, TaskCost::all));
+    }
+
+    /** The part's share of the most expensive task, in whole percent. */
+    private static int width(Map<String, BigDecimal> part, BigDecimal scale) {
+        return scale.signum() == 0 ? 0 : total(part).multiply(HUNDRED).divide(scale, 0, RoundingMode.HALF_UP)
+                .intValue();
+    }
+
+    private static String amount(Map<String, BigDecimal> amounts) {
+        var money = UiFormat.money(amounts);
+        return money == null ? UiFormat.ZERO_COST : money;
+    }
+
+    private static String count(long count, String noun) {
+        return count + " " + noun + (count == 1 ? "" : "s");
+    }
+
+    private static Map<String, BigDecimal> sum(List<TaskCost> costs, Function<TaskCost, Map<String, BigDecimal>> part) {
+        return costs.stream().map(part).reduce(Map.of(), SpendingRows::plus);
+    }
+
+    private static Map<String, BigDecimal> plus(Map<String, BigDecimal> first, Map<String, BigDecimal> second) {
+        var sum = new TreeMap<>(first);
+        second.forEach((currency, amount) -> sum.merge(currency, amount, BigDecimal::add));
+        return sum;
+    }
+
+    private static Map<String, BigDecimal> divide(Map<String, BigDecimal> amounts, long divisor) {
+        var shares = new TreeMap<String, BigDecimal>();
+        amounts.forEach((currency, amount) -> shares.put(currency,
+                amount.divide(BigDecimal.valueOf(divisor), 6, RoundingMode.HALF_UP)));
+        return shares;
+    }
+
+    /** One number to order and scale by: every price in config/developer-models.yaml is in USD. */
+    private static BigDecimal total(Map<String, BigDecimal> amounts) {
+        return amounts.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /** A task's attempts of the period: their amounts with and without a pull request, and how many have no price. */
+    private record TaskCost(TaskView view, Map<String, BigDecimal> pullRequest, Map<String, BigDecimal> other,
+                            int attempts, long unpriced, boolean delivered) {
+
+        static TaskCost of(TaskQuery.PeriodTask task) {
+            Map<String, BigDecimal> pullRequest = Map.of();
+            Map<String, BigDecimal> other = Map.of();
+            for (var attempt : task.attempts()) {
+                var amounts = attempt.usage().estimatesByCurrency();
+                if (attempt.pullRequestUrl() == null) {
+                    other = plus(other, amounts);
+                } else {
+                    pullRequest = plus(pullRequest, amounts);
+                }
+            }
+            var unpriced = task.attempts().stream().filter(attempt -> cost(attempt) == null).count();
+            var delivered = task.attempts().stream().anyMatch(attempt -> attempt.pullRequestUrl() != null);
+            return new TaskCost(task.view(), pullRequest, other, task.attempts().size(), unpriced, delivered);
+        }
+
+        /** The cost the task page shows for the attempt: so far while it runs; null when it has no price. */
+        private static String cost(TaskView.AttemptHistoryEntry attempt) {
+            return attempt.state().isInFlight() ? costSoFar(attempt.usage()) : finishedCost(attempt);
+        }
+
+        Map<String, BigDecimal> all() {
+            return plus(pullRequest, other);
+        }
+
+        BigDecimal total() {
+            return SpendingRows.total(all());
+        }
+
+        String key() {
+            return view.displayKey();
+        }
+    }
+}

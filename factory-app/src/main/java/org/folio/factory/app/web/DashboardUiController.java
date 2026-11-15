@@ -2,6 +2,7 @@ package org.folio.factory.app.web;
 
 import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.tasks.persistence.RunState;
+import org.folio.factory.app.tasks.presentation.SpendingRows;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.TokenUsage;
 import org.folio.factory.app.web.dashboard.DashboardStatsService;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -35,7 +37,7 @@ import java.util.UUID;
 
 /**
  * Server-rendered operational views: the Dashboard home ({@code /}) with KPI
- * cards and interactive charts, the platform Status page (engine, connectors,
+ * cards, the Developer Flow spending and interactive charts, the platform Status page (engine, connectors,
  * flow registry) and the Audit page (paged, filterable event feed). All draw on
  * the same beans as their REST counterparts.
  */
@@ -52,6 +54,7 @@ public class DashboardUiController {
     private final AuditEventRepository audit;
     private final JsonMapper jsonMapper;
     private final DashboardStatsService dashboardStats;
+    private final SpendingRows spending;
 
     /** A run tile: the runs started in the period that are in one state, or all of them, linked to that list. */
     public record RunTile(String label, String count, String url) {
@@ -64,6 +67,8 @@ public class DashboardUiController {
         model.addAttribute("days", window);
         model.addAttribute("periods", RunPeriod.values());
         model.addAttribute("runTiles", runTiles(window));
+        spending.since(period.since(Instant.now()).toInstant())
+                .ifPresent(block -> model.addAttribute("spending", block));
 
         model.addAttribute("engineEnabled", engineProperties.enabled());
         Map<String, Boolean> connectorConfig = connectorConfiguration();

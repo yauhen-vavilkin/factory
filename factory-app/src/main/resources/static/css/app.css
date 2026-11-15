@@ -1231,6 +1231,30 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .dev-list-foot .run-settings { margin-left: auto; }
 .dev-list-note { flex-basis: 100%; font-size: 13px; color: hsl(var(--muted-foreground)); }
 .dev-empty { padding: 12px 0; font-size: 13px; color: hsl(var(--muted-foreground)); }
+/* Dashboard: the Developer Flow spending, rows without a card between the tiles and the charts. */
+.spend { margin-top: 1.5rem; }
+.spend-figures { display: flex; flex-wrap: wrap; gap: 12px 40px; padding: 14px 0 10px; }
+.spend-figure { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.spend-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+.spend-label { font-size: 13px; color: hsl(var(--muted-foreground)); }
+.spend-head { margin-top: 20px; min-height: 0; }
+.spend-title { font-size: 14px; font-weight: 600; }
+.spend-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: hsl(var(--muted-foreground)); }
+.spend-key { display: inline-flex; align-items: center; gap: 6px; }
+.spend-key::before { content: ""; width: 10px; height: 10px; border-radius: 2px; }
+.spend-key-pr::before, .spend-bar-pr { background: hsl(var(--success)); }
+.spend-key-other::before, .spend-bar-other { background: hsl(var(--muted-foreground) / 0.45); }
+/* One scale for every row: the longest bar is the most expensive task. On a phone the bar takes a line of its own
+   under the amount and the chip. */
+.spend-bar { flex: 0 1 200px; display: flex; height: 8px; margin-top: 6px; overflow: hidden; border-radius: 2px; }
+@media (max-width: 560px) { .spend-bar { flex-basis: 100%; order: 1; } }
+.spend-rest { padding-top: 12px; }
 /* Definition: one numbered list of steps, each with its kind and what it reads and writes. */
 .dev-page > .page-header { margin-bottom: 0; }
 .def-steps { margin: 0; padding: 0; list-style: none; }

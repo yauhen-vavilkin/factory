@@ -37,6 +37,44 @@
         </div>
     </div>
 
+    <section class="dev-list spend" aria-labelledby="spending-title" th:if="${spending != null}">
+        <div class="dev-list-head">
+            <h2 class="dev-section-title" id="spending-title">Developer Flow spending</h2>
+        </div>
+        <div class="spend-figures">
+            <div class="spend-figure" th:each="figure : ${spending.figures()}">
+                <span class="spend-value" th:text="${figure.value()}">$0.00</span>
+                <span class="spend-label" th:text="${figure.label()}">Spent</span>
+            </div>
+        </div>
+        <p class="dev-list-note" th:if="${spending.unpricedNote() != null}" th:text="${spending.unpricedNote()}">
+            2 attempts have no price</p>
+
+        <div class="dev-list-head spend-head">
+            <h3 class="spend-title">Cost per task</h3>
+            <div class="spend-legend"><span class="spend-key spend-key-pr">Ended in a pull request</span><span
+                    class="spend-key spend-key-other">No pull request</span></div>
+        </div>
+        <div class="dev-row dev-row-open" th:each="row : ${spending.rows()}">
+            <div class="dev-row-main">
+                <a class="dev-row-title" th:href="@{'/tasks/' + ${row.taskId()}}" th:title="${row.title()}"
+                   th:text="${row.title()}">Title</a>
+                <div class="dev-row-meta"><a class="key-link ext-link" th:href="${row.jiraUrl()}"
+                        th:text="${row.key()}">KEY-1</a><span th:text="${row.attempts()}">3 attempts</span></div>
+            </div>
+            <span class="spend-bar" role="img" th:attr="aria-label=${row.barLabel()}" th:title="${row.barLabel()}"><span
+                    class="spend-bar-pr" th:style="|width: ${row.pullRequestWidth()}%|"></span><span
+                    class="spend-bar-other" th:style="|width: ${row.otherWidth()}%|"></span></span>
+            <div class="row-cluster row-cluster-status">
+                <span class="row-amount" th:classappend="${row.amountNote()} ? 'row-amount-note'"
+                      th:text="${row.amount()}">$0.00</span>
+                <th:block th:replace="~{fragments/developer-flow :: statusChip(${row})}"></th:block>
+            </div>
+        </div>
+        <p class="dev-list-note spend-rest" th:if="${spending.rest() != null}" th:text="${spending.rest()}">
+            2 more tasks: $0.03</p>
+    </section>
+
     <div class="charts-grid" th:attr="data-days=${days}">
         <div class="chart-card card" data-chart="chart-executions">
             <div class="card-header"><h2 class="card-title">Runs started per day, by state</h2></div>

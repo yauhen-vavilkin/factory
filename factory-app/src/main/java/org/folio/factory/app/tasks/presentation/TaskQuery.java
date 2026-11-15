@@ -91,6 +91,25 @@ public class TaskQuery {
                 .orElseThrow(() -> new NoSuchElementException("No task " + taskId)), queuePositions(), installation());
     }
 
+    /** A task as its page shows it, and those of its attempts whose run started in a period. */
+    public record PeriodTask(TaskView view, List<TaskView.AttemptHistoryEntry> attempts) {
+    }
+
+    /** The tasks with an attempt whose run started at or after {@code since}, with the costs of the task page. */
+    @Transactional(readOnly = true)
+    public List<PeriodTask> startedSince(Instant since) {
+        var attemptIdsByTask = attempts.findRunStartedSince(since).stream().collect(Collectors.groupingBy(
+                TaskAttempt::getTaskId, Collectors.mapping(TaskAttempt::getId, Collectors.toSet())));
+        var queue = queuePositions();
+        var installation = installation();
+        return tasks.findAllById(attemptIdsByTask.keySet()).stream()
+                .map(task -> project(task, queue, installation))
+                .map(view -> new PeriodTask(view, view.attempts().stream()
+                        .filter(attempt -> attemptIdsByTask.get(view.taskId()).contains(attempt.attemptId()))
+                        .toList()))
+                .toList();
+    }
+
     /** The Jira key of a task, for messages that name it; empty for an unknown task. */
     public Optional<String> displayKey(UUID taskId) {
         return tasks.findById(taskId).map(Task::getDisplayKey);

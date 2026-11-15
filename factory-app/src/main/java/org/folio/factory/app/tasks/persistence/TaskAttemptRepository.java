@@ -41,6 +41,13 @@ public interface TaskAttemptRepository extends JpaRepository<TaskAttempt, UUID> 
 
     long countByStateIn(Collection<TaskAttempt.State> states);
 
+    /** The attempts whose run (engine execution) started at or after {@code since}, as the Dashboard counts runs. */
+    @Query("""
+            select a from TaskAttempt a, PipelineExecution e
+            where a.executionId = e.id and e.createdAt >= :since
+            """)
+    List<TaskAttempt> findRunStartedSince(@Param("since") Instant since);
+
     default List<TaskAttempt> findLiveByTaskId(UUID taskId) {
         return findByTaskIdAndStateIn(taskId, TaskAttempt.State.LIVE_STATES);
     }

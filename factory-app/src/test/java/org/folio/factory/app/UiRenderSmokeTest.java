@@ -38,6 +38,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.SliceImpl;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
@@ -138,6 +139,9 @@ class UiRenderSmokeTest {
 
     @Autowired
     private ServletContext servletContext;
+
+    @Autowired
+    private JdbcClient jdbc;
 
     private RestClient rest;
 
@@ -1882,6 +1886,110 @@ class UiRenderSmokeTest {
                 .containsPattern("<span class=\"row-amount\"[^>]*>\\$0.30</span>");
         assertThat(assertRendered("/tasks/" + delivered.getId(), "Pull request #9"))
                 .contains("<span class=\"status-card-money\">$0.30</span>");
+    }
+
+    @Test
+    void theDashboardSaysWhatTheDeveloperFlowSpentAndHowMuchEndedInAPullRequest() {
+        resetTaskData();
+        var delivered = seedTask("7901", "MODBAR-791", "Task delivered on its second attempt",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar");
+        spendingAttempt(delivered, 1, TaskAttempt.State.STOPPED, 400_000);
+        var pullRequest = spendingAttempt(delivered, 2, TaskAttempt.State.PR_READY, 300_000);
+        pullRequest.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/41");
+        taskAttempts.save(pullRequest);
+        spendingAttempt(seedTask("7902", "MODBAR-792", "Task that only failed", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 1_200_000);
+        spendingAttempt(seedTask("7903", "MODBAR-793", "Task whose usage has no price", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar"), 1, TaskAttempt.State.STOPPED, null);
+        startedDaysAgo(spendingAttempt(seedTask("7904", "MODBAR-794", "Task that ran three weeks ago",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 5_000_000), 21);
+
+        String block = spendingBlock(assertRendered("/", "Developer Flow spending"));
+        assertThat(text(block)).contains("$1.90 Spent", "$0.30 Ended in a pull request",
+                "$1.60 Attempts without a pull request", "$1.90 Cost per pull request", "1 attempt has no price")
+                // Most expensive first; each row has its Jira key, its attempts, its amount and its My tasks chip.
+                .containsSubsequence("Task that only failed MODBAR-792 1 attempt $1.20 Failed",
+                        "Task delivered on its second attempt MODBAR-791 2 attempts $0.70 PR #41",
+                        "Task whose usage has no price MODBAR-793 1 attempt cost unknown Failed")
+                .doesNotContain("MODBAR-794");
+        assertThat(block).containsPattern(linkTo("/tasks/" + delivered.getId(), "Task delivered on its second attempt"))
+                .contains("aria-label=\"Ended in a pull request: $0.30 · No pull request: $0.40\"")
+                .doesNotContain("class=\"kpi\"");
+        // The row says what the task page says.
+        assertThat(text(assertRendered("/tasks/" + delivered.getId(), "Pull request #41")))
+                .contains("$0.70 spent in 2 attempts");
+        // A longer period counts the older run too.
+        assertThat(text(spendingBlock(assertRendered("/?days=30", "Developer Flow spending"))))
+                .contains("$6.90 Spent", "$0.30 Ended in a pull request", "$6.60 Attempts without a pull request",
+                        "$6.90 Cost per pull request")
+                .containsSubsequence("MODBAR-794 1 attempt $5.00 Failed", "MODBAR-792");
+    }
+
+    @Test
+    void theDashboardShowsNoDeveloperFlowSpendingWhenNoAttemptStartedInThePeriod() {
+        resetTaskData();
+        assertThat(assertRendered("/", "Dashboard")).doesNotContain("Developer Flow spending");
+        startedDaysAgo(spendingAttempt(seedTask("7905", "MODBAR-795", "Task that ran three weeks ago",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 100_000), 21);
+
+        assertThat(assertRendered("/", "Dashboard")).doesNotContain("Developer Flow spending");
+        assertThat(text(spendingBlock(assertRendered("/?days=30", "Developer Flow spending"))))
+                .contains("$0.10 Spent", "$0.00 Ended in a pull request", "— Cost per pull request")
+                .doesNotContain("no price");
+    }
+
+    @Test
+    void costPerTaskShowsTheFifteenMostExpensiveTasksAndOneLineForTheRest() {
+        resetTaskData();
+        for (int cents = 1; cents <= 17; cents++) {
+            var number = String.format("75%02d", cents);
+            spendingAttempt(seedTask(number, "MODBAR-" + number, "Task of " + cents + " cents",
+                    Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, cents * 10_000L);
+        }
+
+        String block = text(spendingBlock(assertRendered("/", "Developer Flow spending")));
+        assertThat(block).contains("$1.53 Spent", "2 more tasks: $0.03")
+                .containsSubsequence("MODBAR-7517", "MODBAR-7516", "MODBAR-7503", "2 more tasks")
+                .doesNotContain("MODBAR-7502", "MODBAR-7501");
+    }
+
+    /** The Developer Flow spending block of a Dashboard page, which stands between the tiles and the charts. */
+    private static String spendingBlock(String dashboard) {
+        int start = dashboard.indexOf("id=\"spending-title\"");
+        assertThat(start).as("spending block").isPositive()
+                .isGreaterThan(dashboard.indexOf("Cancelled or rejected</span>"));
+        return dashboard.substring(start, dashboard.indexOf("class=\"charts-grid\""));
+    }
+
+    /**
+     * An attempt whose run started now and reported {@code inputTokens} at $1 per million, all four token kinds
+     * given; null tokens report 100,000 tokens without a price.
+     */
+    private TaskAttempt spendingAttempt(Task task, int ordinal, TaskAttempt.State state, Long inputTokens) {
+        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        var attempt = seedAttempt(task, ordinal, ordinal == 1 ? TaskAttempt.Kind.INITIAL : TaskAttempt.Kind.RETRY,
+                state, state == TaskAttempt.State.STOPPED ? "DEVELOPMENT_FAILED: " + TaskStops.NO_CHANGES_REASON : null);
+        attempt.setExecutionId(execution.getId());
+        attempt.setStartedAt(Instant.now());
+        var rate = inputTokens == null ? Map.of() : Map.of("currency", "USD", "inputPerMillion", 1,
+                "cacheReadPerMillion", 0, "cacheWritePerMillion", 0, "outputPerMillion", 0);
+        auditLog.record(execution.getId(), AuditEventType.STEP_COMPLETED, "implement", "smoke",
+                Map.of("attemptId", "a" + ordinal, "round", -1, "model", "test-model",
+                        "inputTokens", inputTokens == null ? 100_000 : inputTokens, "cacheReadTokens", 0,
+                        "cacheWriteTokens", 0, "outputTokens", 0, "rate", rate));
+        return taskAttempts.save(attempt);
+    }
+
+    private TaskAttempt spendingAttempt(Task task, int ordinal, TaskAttempt.State state, long inputTokens) {
+        return spendingAttempt(task, ordinal, state, Long.valueOf(inputTokens));
+    }
+
+    /** Moves the start of the attempt's run back by that many days; a run's start is never updated otherwise. */
+    private void startedDaysAgo(TaskAttempt attempt, int days) {
+        jdbc.sql("UPDATE pipeline_execution SET created_at = :at WHERE id = :id")
+                .param("at", java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).minusDays(days))
+                .param("id", attempt.getExecutionId())
+                .update();
     }
 
     @Test
