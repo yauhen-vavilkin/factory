@@ -484,7 +484,36 @@ Give a session this prompt:
   Seen, not changed: seed 80019 stores `DEVELOPMENT_FAILED:` for a cause the code stores as
   `BLOCKED_ENVIRONMENT:` (`InitialCodingAttempt.findEnvironmentProblem`). Not done: an independent
   review of this fix (last round).
-- [ ] Stage 3. Dashboard spending
+- [x] Stage 3. Dashboard spending. The block (fe412df): `TaskQuery.startedSince` takes the attempts whose run
+  started in the period (`TaskAttemptRepository.findRunStartedSince`: `task_attempt.execution_id` joined to
+  `pipeline_execution.created_at`, the window of the run tiles) and projects their tasks as the task page does, so
+  each amount is the task page's. `SpendingRows` (tasks.presentation) builds the rows; the controller has one new
+  dependency. Figures: Spent, Ended in a pull request, Attempts without a pull request (both money, so they add up to
+  Spent), Cost per pull request (Spent divided by the tasks with a pull request in the period, "—" without one), and
+  "N attempts have no price" for the attempts whose cost the task page shows as unknown. "Cost per task": most
+  expensive first, at most 15 rows, then "N more tasks: $X"; the bar is plain CSS in two colours with a legend, and its
+  label names both parts for screen readers. The block sits between the tiles and the charts and is left out when no
+  attempt started in the period. One choice against the plan's words: the plan says "Jira key (link to the task
+  page)", but AGENTS.md says the Jira key opens Jira on every page, so a row works like a row of Started tasks: the
+  title (the whole row) opens the task page and the key opens Jira. Nothing was removed; `/api/dashboard/stats`,
+  `DashboardStatsService` and the existing Dashboard assertions did not change. Tests: `UiRenderSmokeTest`
+  (`theDashboardSaysWhatTheDeveloperFlowSpentAndHowMuchEndedInAPullRequest` with a known sum, a row amount equal to
+  its task page and the 30 day period; `theDashboardShowsNoDeveloperFlowSpendingWhenNoAttemptStartedInThePeriod`;
+  `costPerTaskShowsTheFifteenMostExpensiveTasksAndOneLineForTheRest`) and `DashboardUiControllerTest` (the period and
+  the missing block). The demo seed (280524e): every run that reached the agent records its usage as the coding step
+  does (`STEP_COMPLETED` with attempt id, model and the price from `AttemptRateSnapshot`; the running task live
+  `coding_usage`), and its attempt has `run_settings`: glm-5.3 max, glm-5.3-flash high, glm-5.3 low. No task page or
+  My tasks row says "cost unknown" any more; 80031 still shows $0.00; 80021 is the task that failed twice and then
+  opened a pull request; 80017 (time limit, $5.51) is the expensive task that only failed. `mvn verify` passed; no
+  JS changed. Looked at in
+  `DemoConsole`, light theme: the Dashboard (14 days) at 1280 px (headless Chrome) and 390 px (browser pane, page 390
+  px wide), My tasks and the task page of 80021 at both widths, and the step cards of the run pages of 80005, 80010,
+  80017, 80020, 80021, 80032, 80033, 80034 and 80035 (the same as after stage 2; they now also show a Usage section).
+  Not seen: the Dashboard without the block, since every seed starts now (covered by the test). Not done: the
+  independent review of the stage diff by a fresh agent (this session cannot start one); the new tests were written
+  before the code but first run after it. Seen, not changed (for stage 4): at 390 px the task page of 80021 is 486 px
+  wide because of the two buttons of its status card, the same issue as 80034; a running attempt's amount on the
+  Dashboard has no "so far".
 - [ ] Stage 4. Console clean-up
 - [ ] Stage 5. Final check
 - [ ] If time is left: A B C D E F G
