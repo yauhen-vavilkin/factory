@@ -44,8 +44,8 @@ import java.util.Map;
  * before the start), cannot run (no repository, several repositories), queued (two waiting, one starting), working,
  * asked a question, stopped for each cause
  * Factory names (checks failed on tests, code that does not compile, checks that could not run, a base branch that
- * does not build and spent nothing, time limit, turn limit, whole-attempt deadline, shared configuration), three
- * attempts
+ * does not build and spent nothing, time limit, turn limit, whole-attempt deadline, shared configuration, a coding
+ * step that Factory repeated), three attempts
  * that end in a pull request, a task no longer assigned to the developer, a draft pull request without and with
  * new comments, a pull request ready for review, merged, closed without merge, a feedback round that works now,
  * one that asked a question and one that failed, and a run whose end Factory could not confirm, with and without
@@ -186,6 +186,8 @@ class DemoConsole {
                 + " excluded from the budget");
         stopped("80019", "Task stopped by the shared configuration", "DEVELOPMENT_FAILED: Coding runtime"
                 + " configuration is incomplete or unsupported; check Developer Flow configuration.");
+        // What the task guard stores when the engine repeats the coding step after the paid start.
+        stopped("80032", "Task whose coding step Factory repeated", "implement: " + TaskStops.REPLAYED_CODING_REASON);
     }
 
     /** The base branch did not build, so the agent never started and the attempt spent nothing. */

@@ -31,6 +31,10 @@ public final class TaskStops {
     public static final String NO_CHANGES_REASON = "The agent finished without changing any file. Start a new"
             + " attempt with clearer instructions.";
 
+    /** Why an attempt stopped when the engine ran its coding step again after the agent had started. */
+    public static final String REPLAYED_CODING_REASON = "Factory restarted or repeated this step while the agent was"
+            + " coding, so the work of this attempt is lost. Start a new attempt.";
+
     /** The start of {@link #startingBuildFailedReason}: the cause, so a list row that shows one sentence has it. */
     public static final String STARTING_BUILD_FAILED_START = "The build of the base branch failed before the agent"
             + " started, so nothing was spent.";

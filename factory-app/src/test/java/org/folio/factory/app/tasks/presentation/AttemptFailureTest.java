@@ -90,6 +90,18 @@ class AttemptFailureTest {
     }
 
     @Test
+    void aReplayedCodingStepStoredByAnOlderRunLosesTheAttemptId() {
+        assertThat(AttemptFailure.reason("implement: Paid coding was already started for task attempt"
+                + " df739401-1111-2222-3333-444455556666; a replayed or retried engine step cannot start a second"
+                + " initial coding invocation"))
+                .isEqualTo(TaskStops.REPLAYED_CODING_REASON)
+                .isEqualTo("Factory restarted or repeated this step while the agent was coding, so the work of this"
+                        + " attempt is lost. Start a new attempt.");
+        assertThat(AttemptFailure.reason("implement: " + TaskStops.REPLAYED_CODING_REASON))
+                .isEqualTo(TaskStops.REPLAYED_CODING_REASON);
+    }
+
+    @Test
     void failedChecksSayWhetherTheyFailedOrCouldNotRun() {
         assertThat(AttemptFailure.reason("VERIFICATION_FAILED: 2 of 300 tests failed"))
                 .isEqualTo("Checks failed: 2 of 300 tests failed.");

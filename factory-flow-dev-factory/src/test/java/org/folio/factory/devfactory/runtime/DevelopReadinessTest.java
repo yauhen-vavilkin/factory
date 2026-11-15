@@ -181,14 +181,14 @@ class DevelopReadinessTest {
         assertThat(taskAttempts.paidStartClaims).isEqualTo(2);
         assertThat(replay.outputs().get(DevelopWorker.CANDIDATE))
                 .contains("PAID_START_CONSUMED")
-                .contains("cannot start a second initial coding invocation");
+                .contains(TaskStops.REPLAYED_CODING_REASON);
         verify(harness.coding(), times(1)).code(any(), any(), anyInt(), any(), any());
         verify(harness.docker(), times(2)).beginStep(any(), any());
         verify(harness.freezer(), times(2)).checkout(anyString(), anyString());
         verify(harness.freezer(), never()).freeze(anyString(), anyString(), anyString(), any(), eq(false));
         assertThat(taskAttempts.stops).singleElement().satisfies(stop -> {
-            assertThat(stop).startsWith("implement: ");
-            assertThat(stop).contains("task attempt");
+            assertThat(stop).isEqualTo("implement: " + TaskStops.REPLAYED_CODING_REASON);
+            assertThat(stop).doesNotContainPattern("[0-9a-f]{8}-[0-9a-f]{4}-");
         });
     }
 

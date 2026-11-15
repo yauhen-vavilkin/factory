@@ -167,11 +167,9 @@ public final class InitialCodingAttempt {
         if (run.taskRun().isEmpty() || taskGuard.policy().claimPaidStart(run.executionId())) {
             return Optional.empty();
         }
-        var reason = "Paid coding was already started for task attempt " + run.taskRun().orElseThrow().attemptId()
-                + "; a replayed or retried engine step cannot start a second initial"
-                + " coding invocation";
-        taskGuard.recordStop(run.executionId(), run.stepId(), reason);
-        return Optional.of(new Stop("PAID_START_CONSUMED", reason));
+        // A replayed or retried engine step must not start a second paid coding invocation.
+        taskGuard.recordStop(run.executionId(), run.stepId(), TaskStops.REPLAYED_CODING_REASON);
+        return Optional.of(new Stop("PAID_START_CONSUMED", TaskStops.REPLAYED_CODING_REASON));
     }
 
     private CodingOutcome code(Run run, RunState state) {

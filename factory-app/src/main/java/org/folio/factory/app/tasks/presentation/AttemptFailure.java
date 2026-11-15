@@ -24,6 +24,8 @@ public record AttemptFailure(String headline, String reason) {
     private static final String IMPLEMENTATION = "Implementation";
     private static final String OLD_NO_CHANGES = "Candidate contains no changes";
     private static final String OLD_STARTING_BUILD_FAILED = "Starting build failed before model spend";
+    /** Older runs named the attempt id in this text. */
+    private static final String OLD_REPLAYED_CODING = "Paid coding was already started for task attempt";
     private static final String LIMITS_URL = "/developer/configuration#limits";
     private static final List<String> LAYER_PREFIXES =
             List.of("shared: ", "Development stopped: ", "Implementation failed: ");
@@ -121,6 +123,9 @@ public record AttemptFailure(String headline, String reason) {
         }
         if (text.startsWith(OLD_STARTING_BUILD_FAILED)) {
             return TaskStops.startingBuildFailedReason("");
+        }
+        if (text.startsWith(OLD_REPLAYED_CODING)) {
+            return TaskStops.REPLAYED_CODING_REASON;
         }
         Matcher time = OLD_TIME_LIMIT.matcher(text);
         if (time.find()) {
