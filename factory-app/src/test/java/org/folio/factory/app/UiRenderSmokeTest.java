@@ -1743,9 +1743,10 @@ class UiRenderSmokeTest {
         var failed = seedFailedTask();
 
         String body = assertRendered("/tasks/" + failed.task().getId(), "Failed");
+        // The form says what a new attempt costs; what Effort means is left out, the levels speak for themselves.
         assertThat(text(body)).contains("Start attempt 2", "Effort",
-                "A new attempt starts from a clean checkout and adds to the cost. Effort is how long the model"
-                        + " thinks at each step: higher is slower and costs more.");
+                "A new attempt starts from a clean checkout and adds to the cost.")
+                .doesNotContain("Effort is how long the model thinks");
         // The next attempt is its own section; its text field is empty and has a name for screen readers.
         assertThat(body)
                 .contains("id=\"retry\"", "name=\"expectedVersion\"", "name=\"inputFingerprint\"",
@@ -2028,7 +2029,8 @@ class UiRenderSmokeTest {
         assertThat(text(body)).contains("Needs your answer", "The agent stopped with a question",
                 "Remove &lt;old&gt; routes too?", "removeRoutes runs only on a new event.",
                 "Anything to add for the agent? (optional)", "Start attempt 2 with this answer",
-                "A new attempt starts from a clean checkout and adds to the cost.");
+                "A new attempt starts from a clean checkout and adds to the cost.")
+                .doesNotContain("Effort is how long the model thinks");
         assertThat(body)
                 .doesNotContain("Remove <old> routes too?")
                 .contains("role=\"radiogroup\" aria-label=\"Your answer\"",

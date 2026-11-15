@@ -89,9 +89,7 @@
                 <button type="submit" class="btn btn-primary btn-sm"
                         th:text="${task.startLabel()} + ' with this answer'">Start attempt 2 with this answer</button>
             </div>
-            <p class="dev-form-note">A new attempt starts from a clean checkout and adds to the cost.<th:block
-                    th:if="${retryForm != null and retryForm.selected() != null}"
-                    th:text="' ' + ${retryForm.effortHint()}"> Effort is how long the model thinks.</th:block></p>
+            <p class="dev-form-note">A new attempt starts from a clean checkout and adds to the cost.</p>
         </form>
     </section>
 
@@ -114,9 +112,7 @@
                 <button type="submit" class="btn btn-primary btn-sm"
                         th:text="${task.startLabel()}">Start attempt 2</button>
             </div>
-            <p class="dev-form-note">A new attempt starts from a clean checkout and adds to the cost.<th:block
-                    th:if="${retryForm != null and retryForm.selected() != null}"
-                    th:text="' ' + ${retryForm.effortHint()}"> Effort is how long the model thinks.</th:block></p>
+            <p class="dev-form-note">A new attempt starts from a clean checkout and adds to the cost.</p>
         </form>
     </section>
 

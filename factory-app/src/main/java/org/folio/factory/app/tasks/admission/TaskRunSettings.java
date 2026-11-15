@@ -38,7 +38,7 @@ public class TaskRunSettings {
             return models.size() > 1;
         }
 
-        /** What effort means, next to every Effort choice. */
+        /** What effort means, on hover over the Effort choice of a My tasks row. */
         public String effortHint() {
             return EFFORT_HINT;
         }
