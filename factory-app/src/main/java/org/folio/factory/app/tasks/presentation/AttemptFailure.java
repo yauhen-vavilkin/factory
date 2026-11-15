@@ -17,6 +17,10 @@ import java.util.regex.Pattern;
  */
 public record AttemptFailure(String headline, String reason) {
 
+    /** The start of the reason of checks that ran and failed. */
+    static final String CHECKS_FAILED_WORDS = "Checks failed";
+    /** The start of the reason of checks that could not run to a result. */
+    static final String CHECKS_NOT_RUN_WORDS = "Checks could not run";
     private static final String NO_REASON = "No reason was recorded.";
     private static final String RUN_ENDED = "The run stopped before a step could say why. Open the run to see"
             + " where it stopped, then start a new attempt.";
@@ -29,7 +33,7 @@ public record AttemptFailure(String headline, String reason) {
     private static final Pattern OLD_DEADLINE = Pattern.compile("^the whole-attempt deadline expired before ([^;]+);");
     private static final String LIMITS_URL = "/developer/configuration#limits";
     private static final List<String> LAYER_PREFIXES =
-            List.of("shared: ", "Development stopped: ", "Implementation failed: ");
+            List.of(TaskOutcomeService.SHARED, "Development stopped: ", "Implementation failed: ");
     private static final Pattern LEADING_STAGE = Pattern.compile("^([A-Za-z][A-Za-z_-]*): (.+)$", Pattern.DOTALL);
     /** The wordings of a time limit that older runs stored, also the one that ended "(see Configuration)". */
     private static final Pattern OLD_TIME_LIMIT = Pattern.compile("^(?:Claude Code did not finish within the time"
@@ -85,10 +89,10 @@ public record AttemptFailure(String headline, String reason) {
     /** What failed, in front of the cause; null when the cause says it alone (implementation, no stage). */
     private static String failedWords(String stage) {
         if (StopReasons.CHECKS_FAILED.equals(stage)) {
-            return "Checks failed";
+            return CHECKS_FAILED_WORDS;
         }
         if (StopReasons.CHECKS_NOT_RUN.equals(stage)) {
-            return "Checks could not run";
+            return CHECKS_NOT_RUN_WORDS;
         }
         var label = "VERIFIED".equals(stage) ? null : TaskLabels.stageLabel(stage);
         return label == null || IMPLEMENTATION.equals(label) ? null : label + " failed";

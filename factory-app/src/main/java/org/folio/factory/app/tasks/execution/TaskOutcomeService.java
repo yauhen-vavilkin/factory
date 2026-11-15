@@ -52,6 +52,9 @@ public class TaskOutcomeService {
     /** The reason when the run ended without a stage result; the status follows it. */
     public static final String RUN_ENDED = "engine execution ended in status ";
 
+    /** The reason prefix of a stop that one shared provider or environment outage caused. */
+    public static final String SHARED = "shared: ";
+
     private final TaskAttemptRepository attempts;
     private final TaskInstallationRepository installations;
     private final TaskPublicationIntentRepository intents;
@@ -193,7 +196,7 @@ public class TaskOutcomeService {
         // Design 5.3: once inactivity is proven, a shared outage stops this attempt with its
         // persisted cause while the queue continues; startup rechecks the provider for the next ones.
         return new Classification(AttemptOutcome.State.STOPPED,
-                TaskStops.sharedFailure(reason, codingFailureCode) ? "shared: " + reason : reason, null, null);
+                TaskStops.sharedFailure(reason, codingFailureCode) ? SHARED + reason : reason, null, null);
     }
 
     /**

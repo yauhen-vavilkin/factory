@@ -1,13 +1,16 @@
 package org.folio.factory.app.tasks.presentation;
 
 import lombok.RequiredArgsConstructor;
+import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.web.UiFormat;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,19 +37,51 @@ public class SpendingRows {
 
     /** Empty when no attempt of a task started its run at or after {@code since}. */
     public Optional<Spending> since(Instant since) {
-        var costs = tasks.startedSince(since).stream()
-                .filter(task -> !task.attempts().isEmpty())
+        var period = tasks.startedSince(since).stream().filter(task -> !task.attempts().isEmpty()).toList();
+        var costs = period.stream()
                 .map(TaskCost::of)
                 .sorted(Comparator.comparing(TaskCost::total).reversed().thenComparing(TaskCost::key))
                 .toList();
-        return costs.isEmpty() ? Optional.empty() : Optional.of(spending(costs));
+        return costs.isEmpty() ? Optional.empty() : Optional.of(spending(costs, causes(period)));
     }
 
-    private Spending spending(List<TaskCost> costs) {
+    private Spending spending(List<TaskCost> costs, List<Spending.Cause> causes) {
         var shown = costs.subList(0, Math.min(MAX_ROWS, costs.size()));
         var scale = shown.getFirst().total();
         return new Spending(figures(costs), unpricedNote(costs), shown.stream().map(cost -> row(cost, scale)).toList(),
-                rest(costs.subList(shown.size(), costs.size())));
+                rest(costs.subList(shown.size(), costs.size())), causes);
+    }
+
+    /** One row per cause of the attempts that ended without a pull request, the most expensive first. */
+    private static List<Spending.Cause> causes(List<TaskQuery.PeriodTask> period) {
+        var byCause = new EnumMap<StopCause, List<TaskView.AttemptHistoryEntry>>(StopCause.class);
+        period.stream().flatMap(task -> task.attempts().stream())
+                .filter(SpendingRows::endedWithoutPullRequest)
+                .forEach(attempt -> byCause.computeIfAbsent(StopCause.of(attempt.state(), attempt.reason()),
+                        cause -> new ArrayList<>()).add(attempt));
+        return byCause.entrySet().stream()
+                .sorted(Comparator.comparing(entry -> total(money(entry.getValue())), Comparator.reverseOrder()))
+                .map(entry -> cause(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    private static Spending.Cause cause(StopCause cause, List<TaskView.AttemptHistoryEntry> attempts) {
+        var money = money(attempts);
+        var unknown = UiFormat.money(money) == null
+                && attempts.stream().anyMatch(attempt -> TaskCost.cost(attempt) == null);
+        return new Spending.Cause(cause.getLabel(), count(attempts.size(), "attempt"),
+                unknown ? UiFormat.COST_UNKNOWN : amount(money), unknown);
+    }
+
+    /** A running attempt has not stopped yet, and a withdrawn one never ran. */
+    private static boolean endedWithoutPullRequest(TaskView.AttemptHistoryEntry attempt) {
+        return attempt.pullRequestUrl() == null && !attempt.state().isInFlight()
+                && attempt.state() != TaskAttempt.State.WITHDRAWN;
+    }
+
+    private static Map<String, BigDecimal> money(List<TaskView.AttemptHistoryEntry> attempts) {
+        return attempts.stream().<Map<String, BigDecimal>>map(attempt -> attempt.usage().estimatesByCurrency())
+                .reduce(Map.of(), SpendingRows::plus);
     }
 
     /** Spent, its two parts, and the spent amount for each task that has a pull request. */

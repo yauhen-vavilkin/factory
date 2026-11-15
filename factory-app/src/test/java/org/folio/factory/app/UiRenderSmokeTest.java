@@ -8,6 +8,7 @@ import org.folio.factory.app.support.FactoryIntegrationTest;
 import org.folio.factory.app.tasks.TaskFixture;
 import org.folio.factory.app.tasks.admission.TaskAdmissionService;
 import org.folio.factory.app.tasks.admission.TaskRunSettings;
+import org.folio.factory.app.tasks.execution.StopReasons;
 import org.folio.factory.app.tasks.persistence.RunState;
 import org.folio.factory.app.tasks.persistence.TaskAttempt;
 import org.folio.factory.app.tasks.persistence.TaskAttemptRepository;
@@ -49,6 +50,7 @@ import jakarta.servlet.ServletContext;
 import jakarta.servlet.SessionTrackingMode;
 import org.thymeleaf.ITemplateEngine;
 import org.thymeleaf.context.Context;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
 import java.util.List;
@@ -1952,6 +1954,53 @@ class UiRenderSmokeTest {
         assertThat(block).contains("$1.53 Spent", "2 more tasks: $0.03")
                 .containsSubsequence("MODBAR-7517", "MODBAR-7516", "MODBAR-7503", "2 more tasks")
                 .doesNotContain("MODBAR-7502", "MODBAR-7501");
+    }
+
+    @Test
+    void theDashboardSaysWhereTheAttemptsWithoutAPullRequestStopped() {
+        resetTaskData();
+        var task = seedTask("7906", "MODBAR-796", "Task that stopped in three ways", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+        stoppedAttempt(task, 1, "DEVELOPMENT_FAILED: " + TaskStops.timeLimitReason(60), 2_000_000);
+        stoppedAttempt(task, 2, "DEVELOPMENT_FAILED: Claude Code did not finish within the time limit of 30 minutes,"
+                + " so Factory stopped it.", 1_000_000);
+        stoppedAttempt(task, 3, StopReasons.ofResult(JsonMapper.builder().build().readTree(
+                "{\"state\":\"VERIFICATION_FAILED\",\"testCount\":300,\"failureCount\":2}")), 700_000);
+        var pullRequest = spendingAttempt(task, 4, TaskAttempt.State.PR_READY, 300_000);
+        pullRequest.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/42");
+        taskAttempts.save(pullRequest);
+        stoppedAttempt(seedTask("7907", "MODBAR-797", "Task that asked a question", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar"), 1, "clarify-implementation: " + TaskStops.DECISION_REASON + "Which API?", 100_000);
+        spendingAttempt(seedTask("7908", "MODBAR-798", "Task that is running", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar"), 1, TaskAttempt.State.RUNNING, 500_000);
+
+        String block = text(spendingBlock(assertRendered("/", "Developer Flow spending")));
+        assertThat(block).contains("$4.60 Spent", "$4.30 Attempts without a pull request");
+        // Each attempt that ended without a pull request counts once, under the cause its task page names, the most
+        // expensive cause first; the attempt with the pull request and the running one have not stopped there.
+        assertThat(block.substring(block.indexOf("Where attempts stopped")))
+                .containsSubsequence("Where attempts stopped", "Time limit 2 attempts $3.00",
+                        "Checks failed 1 attempt $0.70", "Asked a question 1 attempt $0.10")
+                .doesNotContain("No changes", "Other", "$0.30", "$0.50");
+    }
+
+    @Test
+    void theDashboardLeavesOutWhereAttemptsStoppedWhenNoneStopped() {
+        resetTaskData();
+        var pullRequest = spendingAttempt(seedTask("7909", "MODBAR-799", "Task delivered at once",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.PR_READY, 300_000);
+        pullRequest.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/43");
+        taskAttempts.save(pullRequest);
+
+        assertThat(text(spendingBlock(assertRendered("/", "Developer Flow spending"))))
+                .contains("$0.30 Spent").doesNotContain("Where attempts stopped");
+    }
+
+    /** An attempt that stopped with {@code reason} after it reported {@code inputTokens} at $1 per million. */
+    private void stoppedAttempt(Task task, int ordinal, String reason, long inputTokens) {
+        var attempt = spendingAttempt(task, ordinal, TaskAttempt.State.STOPPED, inputTokens);
+        attempt.setResultReason(reason);
+        taskAttempts.save(attempt);
     }
 
     /** The Developer Flow spending block of a Dashboard page, which stands between the tiles and the charts. */

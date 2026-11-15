@@ -160,7 +160,7 @@ class DashboardUiControllerTest {
     @Test
     void dashboard_showsTheDeveloperFlowSpendingOfTheChosenPeriodOnlyWhenItHasAttempts() throws Exception {
         stubKpiCounts();
-        var spending = new Spending(List.of(new Spending.Figure("$1.90", "Spent")), null, List.of(), null);
+        var spending = new Spending(List.of(new Spending.Figure("$1.90", "Spent")), null, List.of(), null, List.of());
         var since = ArgumentCaptor.forClass(java.time.Instant.class);
         when(spendingRows.since(since.capture())).thenReturn(Optional.of(spending), Optional.empty());
 

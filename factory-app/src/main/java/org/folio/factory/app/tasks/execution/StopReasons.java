@@ -20,6 +20,8 @@ public final class StopReasons {
     public static final String CHECKS_FAILED = "VERIFICATION_FAILED";
     /** The stage of a reason whose checks could not run to a result. */
     public static final String CHECKS_NOT_RUN = "VERIFICATION_NOT_RUN";
+    /** The start of {@link #engineGaveUp}. */
+    public static final String ENGINE_GAVE_UP_START = "Factory could not finish the step ";
     private static final int MAX_ERROR = 300;
     private static final Pattern UUID = Pattern.compile(
             "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
@@ -45,7 +47,7 @@ public final class StopReasons {
      * ids or a bare exception name.
      */
     public static String engineGaveUp(String stepId, int tries, String error) {
-        return "Factory could not finish the step \"" + UiFormat.stepInWords(stepId) + "\" after " + tries
+        return ENGINE_GAVE_UP_START + "\"" + UiFormat.stepInWords(stepId) + "\" after " + tries
                 + " tries: " + oneLine(error) + ". Start a new attempt.";
     }
 
