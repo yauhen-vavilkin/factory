@@ -147,7 +147,7 @@
             <div class="attempt-usage">
                 <dl class="usage-facts">
                     <div><dt>Model</dt>
-                        <dd th:text="${attempt.settings() ?: '—'}">glm-5.3 · max</dd></div>
+                        <dd th:text="${attempt.settings() ?: '—'}" th:title="${attempt.settings()}">glm-5.3 · max</dd></div>
                     <div><dt>Started</dt>
                         <dd><time th:replace="~{fragments/components :: pageTime(${attempt.started()})}"></time><span
                                 th:if="${attempt.note() != null}" th:text="${attempt.note()}">not started</span></dd></div>

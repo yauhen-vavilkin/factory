@@ -1313,6 +1313,8 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .attempt-usage { flex: 1 1 100%; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 24px; }
 .attempt-usage dl { display: grid; column-gap: 16px; margin: 0; }
 .usage-facts { grid-template-columns: 170px 140px 100px; }
+/* A model name longer than its column is cut, so it never runs into the start time. */
+.usage-facts dd { overflow: hidden; text-overflow: ellipsis; }
 .usage-tokens { grid-auto-flow: column; grid-auto-columns: 104px; text-align: right; }
 .attempt-usage dt { font-size: 11px; color: hsl(var(--muted-foreground)); }
 .attempt-usage dd { margin: 2px 0 0; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
