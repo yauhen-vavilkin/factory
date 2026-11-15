@@ -693,7 +693,9 @@ Give a session this prompt:
   My tasks reloads when a run ends; the Dashboard average per attempt counts only priced attempts; one issue key
   pattern; merged pull requests read from `merged_at`; `www.` text counts as a link; long model names in the
   attempt card; `.mvn` for builds from a module directory; the README list of removed settings; small dead code and
-  comments. Moved to `docs/open-questions.md`: a double click on Run, unchecked scan fields, the attempt-to-run
-  rename. Already there: the same-origin check on the other POST forms. Rejected: Pi redaction of every catalog
-  secret (the Pi workload never receives them). `mvn verify` passed (1351 tests), the JS tests passed (17). What is
-  left of this file is the owner's live smoke above.
+  comments; the same-origin check on the Test Factory trigger, the review decision and the PR feedback forms, so a
+  page on another site cannot start a paid run (it was listed in `docs/open-questions.md`). Moved to
+  `docs/open-questions.md`: a double click on Run, unchecked scan fields, the attempt-to-run rename. Rejected: Pi
+  redaction of every catalog secret (the Pi workload never receives them). The task page turn of a held run during a
+  PR feedback round is covered by a test and not seen: no demo seed has that state. `mvn verify` passed (1354
+  tests), the JS tests passed (17). What is left of this file is the owner's live smoke above.

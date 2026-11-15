@@ -565,6 +565,23 @@ class TaskUiControllerTest {
         assertThat(attemptRowsOfTheTaskPage().getFirst()).containsEntry("status", taskPage().status());
     }
 
+    /** My tasks and the run page give a held run to the developer; the task page must say the same. */
+    @Test
+    void aRunThatNeedsInspectionIsYourTurnWhileAPrFeedbackRoundWorks() throws Exception {
+        var delivered = prAttempt(null);
+        var held = new TaskView.AttemptHistoryEntry(ATTEMPT_ID, 1, delivered.kind(), delivered.admittedVia(),
+                TaskAttempt.State.NEEDS_INSPECTION, delivered.stage(), null, delivered.pullRequestUrl(), null,
+                EXECUTION_ID, delivered.createdAt(), delivered.startedAt(), true, 600, emptyUsage(), null);
+        TaskView task = taskView(TASK_ID, "MODBAR-921", "Open", TaskView.TaskState.PROCESSING_PAUSED,
+                false, false, held);
+        givenStanding(task, FeedbackStanding.WORKING);
+
+        assertThat(rows(myTasksModel(task), "triggered").getFirst())
+                .containsEntry("action", RunAction.MARK_STOPPED);
+        assertThat(RunAction.MARK_STOPPED.yours()).isTrue();
+        assertThat(taskPage().turn()).isEqualTo(Turn.YOURS);
+    }
+
     @Test
     void aPullRequestClosedWithoutMergeReadsAsClosedInRunsAndOnTheTaskPage() throws Exception {
         TaskView delivered = taskView(TASK_ID, "MODBAR-921", "Open", TaskView.TaskState.PR_READY,

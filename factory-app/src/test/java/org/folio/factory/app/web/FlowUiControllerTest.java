@@ -155,6 +155,17 @@ class FlowUiControllerTest {
 
     // ----- trigger POST -----
 
+    /** A page on another site must not start a paid run. */
+    @Test
+    void trigger_crossSitePostIsRefusedBeforeTheRouter() throws Exception {
+        mvc.perform(post("/flows/{id}/trigger", "test-factory")
+                        .param("payload", "{\"issueKey\":\"ERM-1\"}")
+                        .header("Origin", "https://evil.example"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(router);
+    }
+
     @Test
     void trigger_validPayload_routesAndRedirectsToExecution() throws Exception {
         UUID executionId = UUID.fromString("00000000-0000-0000-0000-0000000000ee");

@@ -1,5 +1,7 @@
 package org.folio.factory.app.web;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import lombok.RequiredArgsConstructor;
 import org.folio.factory.agents.llm.AbstractLlmAgentWorker;
 import org.folio.factory.core.agent.AgentWorker;
@@ -35,6 +37,8 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 import org.folio.factory.devfactory.DevFactoryConfiguration;
+
+import static org.folio.factory.app.web.TaskUiController.requireSameOrigin;
 
 /**
  * Server-rendered flow catalog and worker library. The flow list/detail views and
@@ -89,7 +93,8 @@ public class FlowUiController {
     public String trigger(@PathVariable("id") String id,
                           @RequestParam(name = "payload", required = false) String payload,
                           @RequestParam(name = "dedupKey", required = false) String dedupKey,
-                          RedirectAttributes redirect) {
+                          HttpServletRequest request, RedirectAttributes redirect) {
+        requireSameOrigin(request);
         if (DevFactoryConfiguration.FLOW_ID.equals(id)) {
             return UiFormat.errorRedirect("/flows/" + id,
                     "Developer Flow runs start from My tasks: select your tasks or add one by key.");

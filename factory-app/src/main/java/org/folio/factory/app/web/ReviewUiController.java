@@ -1,5 +1,7 @@
 package org.folio.factory.app.web;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import lombok.RequiredArgsConstructor;
 import org.folio.factory.core.domain.HitlReview;
 import org.folio.factory.core.domain.HitlReviewStatus;
@@ -33,6 +35,8 @@ import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+
+import static org.folio.factory.app.web.TaskUiController.requireSameOrigin;
 
 /**
  * Server-rendered HITL console: a review inbox and a review detail page with
@@ -117,7 +121,8 @@ public class ReviewUiController {
                          @RequestParam("reviewer") String reviewer,
                          @RequestParam(name = "comments", required = false) String comments,
                          @RequestParam Map<String, String> allParams,
-                         RedirectAttributes redirect) {
+                         HttpServletRequest request, RedirectAttributes redirect) {
+        requireSameOrigin(request);
         // The whole form processing sits inside one try so validation failures
         // redirect back to the review page instead of falling through to the
         // REST API's JSON exception handler. Unchanged-artifact filtering happens

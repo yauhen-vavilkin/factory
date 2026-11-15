@@ -1,16 +1,22 @@
 package org.folio.factory.app.web;
+
+import jakarta.servlet.http.HttpServletRequest;
 import org.folio.factory.devfactory.feedback.FeedbackActions;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import java.util.*;
+
+import static org.folio.factory.app.web.TaskUiController.requireSameOrigin;
+
 @Controller
 @RequestMapping("/executions/{id}/pr-feedback")
 public class FeedbackUiController {
     private final FeedbackActions actions;
     public FeedbackUiController(FeedbackActions actions) { this.actions=actions; }
     @PostMapping("/refresh") public String refresh(@PathVariable UUID id,@RequestParam int stateVersion,
-            RedirectAttributes redirect) {
+            HttpServletRequest request,RedirectAttributes redirect) {
+        requireSameOrigin(request);
         try {actions.refresh(id,stateVersion);}
         catch(RuntimeException e) {redirect.addFlashAttribute("feedbackError",message(e));}
         return "redirect:/executions/"+id+"#pr-feedback";
@@ -19,7 +25,8 @@ public class FeedbackUiController {
             @RequestParam int stateVersion,
             @RequestParam FeedbackActions.Action action,@RequestParam(defaultValue="") String snapshotId,
             @RequestParam(required=false) List<String> selectedIds,
-            @RequestParam(defaultValue="") String answer,RedirectAttributes redirect) {
+            @RequestParam(defaultValue="") String answer,HttpServletRequest request,RedirectAttributes redirect) {
+        requireSameOrigin(request);
         try {actions.command(id,
                 new FeedbackActions.Command(reviewId,stateVersion,action,snapshotId,selectedIds,answer),"operator");}
         catch(RuntimeException e) {redirect.addFlashAttribute("feedbackError",message(e));}

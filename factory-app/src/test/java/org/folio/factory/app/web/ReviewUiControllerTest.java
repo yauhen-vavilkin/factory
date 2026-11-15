@@ -78,6 +78,17 @@ class ReviewUiControllerTest {
     }
 
     @Test
+    void decide_crossSitePostIsRefusedBeforeAnyDecision() throws Exception {
+        mvc.perform(post("/reviews/{id}/decision", REVIEW_ID)
+                        .param("decision", "APPROVE")
+                        .param("reviewer", "qa")
+                        .header("Sec-Fetch-Site", "cross-site"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(decisionService);
+    }
+
+    @Test
     void decide_amend_forwardsOnlyArtifactPrefixedParamsWithPrefixStripped() throws Exception {
         mvc.perform(post("/reviews/{id}/decision", REVIEW_ID)
                         .param("decision", "AMEND")

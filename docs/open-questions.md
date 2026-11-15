@@ -293,8 +293,6 @@ The cleanup changed no behavior, so these were recorded instead. None was reprod
   which the layout renders as a success alert that goes away by itself.
 - **The Retry scheduled badge has no colour.** `UiFormat.eventTone` returns `warning`, and `app.css`
   has no `.badge-warning`.
-- **Some POST forms skip the same-origin check.** The task forms call `requireSameOrigin`; the PR
-  feedback forms, `ReviewUiController.decide` and `FlowUiController.trigger` do not.
 - **`btn-sm`, `input-sm` and `select-sm` are classes without a rule.** Their rules repeated `.btn`,
   `.input` and `.select` and were removed; the class names are still in about 30 template places and
   in `TaskDetail` and `FeedbackUi`. Removing them changes markup that tests pin, so it was left.
