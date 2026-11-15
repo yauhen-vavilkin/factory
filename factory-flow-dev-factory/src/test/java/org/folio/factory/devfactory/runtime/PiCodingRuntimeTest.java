@@ -27,6 +27,19 @@ class PiCodingRuntimeTest {
                 "runtime", "pi", "image", "pi:image", "provider", "provider", "model", "model"));
     }
 
+    @Test void aPatchIsCheckedForTheApiKeyOnlyWhenItIsLongEnoughToBeARealKey() {
+        var key = "pi-0123456789abcdef";
+
+        assertThat(pi(key).holdsSecret("apiKey: " + key)).isTrue();
+        assertThat(pi("codemie-proxy").holdsSecret("token codemie-proxy")).isFalse();
+        assertThat(pi(null).holdsSecret("token codemie-proxy")).isFalse();
+    }
+
+    private static PiCodingRuntime pi(String apiKey) {
+        return new PiCodingRuntime(new DevRuntimeProperties.Pi("pi:image", "provider", "model",
+                "https://private.example", "openai-completions", apiKey, null, "high", 4096));
+    }
+
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {" "})

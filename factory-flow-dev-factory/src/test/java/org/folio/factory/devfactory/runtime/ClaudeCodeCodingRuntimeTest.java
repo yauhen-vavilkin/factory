@@ -665,6 +665,16 @@ class ClaudeCodeCodingRuntimeTest {
         return "{\"type\":\"assistant\",\"message\":{\"id\":\"" + id + "\",\"usage\":{\"input_tokens\":" + input + ",\"output_tokens\":2}}}";
     }
 
+    @Test
+    void aPatchIsCheckedForEveryModelSecretOfSixteenOrMoreCharacters() {
+        var runtime = runtime(null, "http://gateway.example/anthropic", "custom/Model-1", "api-key", 10,
+                "zai-0123456789abcdef");
+
+        assertThat(runtime.holdsSecret("token: zai-0123456789abcdef")).isTrue();
+        // secret-key and secret-token are too short to be told apart from ordinary code.
+        assertThat(runtime.holdsSecret("secret-key secret-token")).isFalse();
+    }
+
     /** The outcome of a CLI run that exited with 0 within its time limit. */
     static CodingOutcome finish(ClaudeCodeProtocol protocol) {
         return protocol.outcome(new Processes.Streamed(0, false, false, "", false), 60);
