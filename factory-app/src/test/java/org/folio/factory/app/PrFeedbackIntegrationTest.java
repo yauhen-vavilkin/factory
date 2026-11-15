@@ -25,6 +25,7 @@ import java.util.*;
 import java.util.function.Consumer;
 import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
+import static org.folio.factory.app.support.DevFlowHarness.visibleText;
 import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.folio.factory.devfactory.feedback.FeedbackArtifacts.*;
@@ -158,6 +159,11 @@ class PrFeedbackIntegrationTest {
         return id;
     }
     FeedbackActions.View view() {return actions.view(id);}
+    /** The run page as a person reads it; no state shows a fallback reason or a Java exception. */
+    String runPage() {
+        var text=visibleText(RestClient.create("http://localhost:"+port).get().uri("/executions/"+id).retrieve().body(String.class));
+        assertThat(text).doesNotContain("could say why","Exception"); return text;
+    }
     void action(FeedbackActions.Action action) {var v=view(); actions.command(id,new FeedbackActions.Command(v.reviewId(),v.version(),action,v.snapshot()==null?null:v.snapshot().id(),List.of("inline:1"),"Keep both"),"operator");}
     void select() {actions.refresh(id,view().version()); action(FIX);}
     void startRound() {drive(); select(); drive();}
@@ -192,6 +198,7 @@ class PrFeedbackIntegrationTest {
         assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
         assertThatThrownBy(()->action(FINISH)).isInstanceOf(IllegalArgumentException.class);
         merged=true; actions.reconcilePr(id); drive(); assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
+        assertThat(runPage()).contains("PR merged","Published","Checks passed: 1 test.").doesNotContain("Check PR comments");
         // The round keeps the agent's own summary.
         assertThat(view().state().summary()).isEqualTo("Corrected selected feedback");
         assertThat(view().state().taskSummary()).isEqualTo("PR merged");
@@ -206,11 +213,6 @@ class PrFeedbackIntegrationTest {
             select(); drive(); assertThat(view().state().phase()).as("round %s reason %s",round,view().state().reason()).isEqualTo(FeedbackState.Phase.READY);
             assertThat(view().state().round()).isEqualTo(round); assertThat(pr().headSha()).isEqualTo(view().state().commitSha());
         }
-    }
-    /** The page text a person reads: markup removed, entities for quotes decoded, spaces collapsed. */
-    static String visibleText(String html) {
-        return html.replaceAll("(?s)<(script|style)[^>]*>.*?</\\1>"," ").replaceAll("<[^>]+>"," ")
-                .replace("&#39;","'").replace("&quot;","\"").replace("&amp;","&").replaceAll("\\s+"," ");
     }
     @Test void aPublishedRoundCommentsOnThePullRequestOnceWithTheCommitAndTheAgentsSummary() {
         when(commentWriter.configured()).thenReturn(true);
@@ -262,9 +264,11 @@ class PrFeedbackIntegrationTest {
         assertThat(request.getValue().runSettings()).isEqualTo(new CodingRequest.RunSettings("env-default",null,"Keep the API."));
     }
     @Test void preservesPartialPatchAcrossQuestionAndFailureThenVerifiesBeforePublishing() {
-        ask=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.QUESTION); assertThat(actions.patch(id)).contains("fix 1");
+        ask=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.QUESTION);
+        assertThat(runPage()).contains("Your answer is needed","Keep both options?","Answer and continue"); assertThat(actions.patch(id)).contains("fix 1");
         assertThat(pr().headSha()).isEqualTo(base); verifyNoInteractions(verifier);
         ask=false; checksFail=true; action(ANSWER); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.FAILURE);
+        assertThat(runPage()).contains("Action needed","Checks failed: 1 of 1 tests failed.","Try fixing with the agent","Run checks again");
         assertThat(actions.patch(id)).contains("fix 1","fix 2"); assertThat(pr().headSha()).isEqualTo(base);
         checksFail=false; action(RETRY_CHECKS); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(2);
     }
@@ -273,11 +277,13 @@ class PrFeedbackIntegrationTest {
         for(var d:HitlDecision.values()) assertThatThrownBy(()->decisions.decide(v.reviewId(),d,"operator",null,Map.of())).isInstanceOf(IllegalArgumentException.class);
         var command=new FeedbackActions.Command(v.reviewId(),v.version(),FIX,v.snapshot().id(),List.of("inline:1"),null);
         actions.command(id,command,"operator"); assertThatThrownBy(()->actions.command(id,command,"operator")).isInstanceOf(IllegalStateException.class);
-        commentsRevision="2"; drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.REFRESH_REQUIRED); assertThat(calls).isZero();
+        commentsRevision="2"; drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.REFRESH_REQUIRED);
+        assertThat(runPage()).contains("PR or comments changed; refresh and select again","Check PR comments"); assertThat(calls).isZero();
         assertThatThrownBy(()->actions.command(id,command,"operator")).isInstanceOf(IllegalStateException.class);
     }
     @Test void cleanupFailureBlocksAllActionsUntilExplicitCleanup() {
         cleanupFails=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.CLEANUP_BLOCKED);
+        assertThat(runPage()).contains("Resource cleanup required","Resource still exists","Retry cleanup").doesNotContain("Try fixing with the agent","Check PR comments");
         assertThat(view().actions()).containsExactly(RETRY_CLEANUP); assertThatThrownBy(()->action(FINISH)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(()->actions.refresh(id,view().version())).isInstanceOf(IllegalStateException.class);
         assertThat(pr().headSha()).isEqualTo(base); assertThat(calls).isEqualTo(1);
@@ -288,10 +294,12 @@ class PrFeedbackIntegrationTest {
         assertThat(pr().headSha()).isEqualTo(base); verify(verifier).verify(eq(id),anyString(),any(),contains("fork/repo.git"),anyInt());
         closed=true; actions.reconcilePr(id);
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
+        assertThat(runPage()).contains("PR closed without merge","No changes").doesNotContain("Check PR comments");
         assertThat(view().state().completionReason()).isEqualTo("CLOSED_WITHOUT_MERGE");
     }
     @Test void failedExportReportsLostEditsKeepsPreviousSnapshotAndUsage() {
         exportFails=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.FAILURE);
+        assertThat(runPage()).contains("Action needed","Latest edits could not be saved; the previous confirmed patch is retained.","Try fixing with the agent");
         assertThat(view().state().reason()).contains("Latest edits could not be saved"); assertThat(actions.patch(id)).isEmpty();
         assertThat(audit.forExecution(id)).anyMatch(e->e.getEventType()==AuditEventType.STEP_COMPLETED && e.getDetail().contains("inputTokens"));
     }
@@ -309,6 +317,7 @@ class PrFeedbackIntegrationTest {
     }
     @Test void outdatedVerificationPolicyBlocksPushUntilCurrentChecksPass() {
         badPolicy=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.FAILURE);
+        assertThat(runPage()).contains("Action needed","Verification policy changed; run checks again","Run checks again");
         assertThat(view().state().reason()).contains("Verification policy changed"); assertThat(view().actions()).contains(RETRY_CHECKS);
         assertThat(pr().headSha()).isEqualTo(base);
         badPolicy=false; action(RETRY_CHECKS); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
@@ -349,7 +358,8 @@ class PrFeedbackIntegrationTest {
             lease.checked(version->resumable.start(id,9,version,step,UUID.randomUUID(),inputs));
         }
         state.scheduleRetry(id,0,"Simulated process restart after durable start"); drive();
-        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.INTERRUPTED); assertThat(calls).isZero();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.INTERRUPTED);
+        assertThat(runPage()).contains("Coding attempt interrupted","A previous coding attempt was interrupted. Its latest changes and cost may be incomplete.","Try fixing with the agent"); assertThat(calls).isZero();
         action(RETRY_CODE); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(1);
     }
     @Test void manualBranchUpdatesAreCheckedWithoutCallingTheAgentOrAddingACommit() throws Exception {
@@ -367,6 +377,7 @@ class PrFeedbackIntegrationTest {
         assertThat(view().actions()).containsExactly(RETRY_CLEANUP);
         action(RETRY_CLEANUP); drive();
         assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.INTERRUPTED); assertThat(calls).isZero();
+        assertThat(runPage()).contains("Coding attempt interrupted","Try fixing with the agent");
     }
     @Test void branchChangeBeforeCodingRequiresFreshSelection() throws Exception {
         drive(); select(); engine.advance(claimNext());
