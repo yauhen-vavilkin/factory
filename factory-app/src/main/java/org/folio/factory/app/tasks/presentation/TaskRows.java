@@ -21,7 +21,7 @@ import java.util.UUID;
 
 import static org.folio.factory.app.tasks.presentation.TaskLabels.ago;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.attemptResult;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.costLabel;
+import static org.folio.factory.app.tasks.presentation.TaskLabels.finishedCost;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costNoteTitle;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costSoFar;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.incompleteCostNote;
@@ -132,7 +132,7 @@ public class TaskRows {
     public static AttemptRow attemptRow(TaskView view, TaskView.AttemptHistoryEntry attempt) {
         var status = AttemptStatus.of(view, attempt);
         var costNote = attemptCostNote(attempt);
-        var cost = SO_FAR.equals(costNote) ? costSoFar(attempt.usage()) : costLabel(attempt.usage());
+        var cost = SO_FAR.equals(costNote) ? costSoFar(attempt.usage()) : finishedCost(attempt);
         var started = PageTime.day(attempt.startedAt());
         return new AttemptRow(attempt.ordinal(), attemptKind(attempt), attemptMeta(attempt),
                 TaskRunSettings.label(attempt.runSettings()), started, attemptClock(attempt),
@@ -220,7 +220,7 @@ public class TaskRows {
 
     /** What the task cost; "$0.00" while its first attempt works and has not reported usage yet. */
     private static String spent(TaskView view) {
-        return working(view) ? costSoFar(view.usage()) : costLabel(view.usage());
+        return working(view) ? costSoFar(view.usage()) : finishedCost(view);
     }
 
     /**

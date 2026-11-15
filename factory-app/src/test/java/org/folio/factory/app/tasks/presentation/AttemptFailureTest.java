@@ -82,6 +82,14 @@ class AttemptFailureTest {
     }
 
     @Test
+    void aStartingBuildFailureStoredByAnOlderRunSaysWhatToFix() {
+        assertThat(AttemptFailure.reason("BLOCKED_ENVIRONMENT: Starting build failed before model spend"))
+                .isEqualTo(TaskStops.startingBuildFailedReason(""))
+                .startsWith("The build of the base branch failed before the agent started, so nothing was spent.")
+                .contains("config/developer-repositories.yaml");
+    }
+
+    @Test
     void failedChecksSayWhetherTheyFailedOrCouldNotRun() {
         assertThat(AttemptFailure.reason("VERIFICATION_FAILED: 2 of 300 tests failed"))
                 .isEqualTo("Checks failed: 2 of 300 tests failed.");

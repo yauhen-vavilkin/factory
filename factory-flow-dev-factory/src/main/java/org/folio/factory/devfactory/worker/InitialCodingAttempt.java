@@ -156,8 +156,7 @@ public final class InitialCodingAttempt {
             progress(context, Map.of("activity", "baseline_retryable_failure", "message", reason));
             throw new StartingBuildNetworkException(reason);
         }
-        return Optional.of(new Stop("BLOCKED_ENVIRONMENT",
-                summary.isBlank() ? "Starting build failed before model spend" : summary));
+        return Optional.of(new Stop("BLOCKED_ENVIRONMENT", TaskStops.startingBuildFailedReason(summary)));
     }
 
     private Optional<Stop> claimPaidStart(Run run) {

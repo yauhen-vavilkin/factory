@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.folio.factory.app.tasks.presentation.TaskLabels.ago;
-import static org.folio.factory.app.tasks.presentation.TaskLabels.costLabel;
+import static org.folio.factory.app.tasks.presentation.TaskLabels.finishedCost;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costNoteTitle;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.costSoFar;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.incompleteCostNote;
@@ -47,7 +47,7 @@ public final class RunRows {
     /** The task's total, or the cost so far of the attempt that works now ($0.00 before it reports usage). */
     private static String cost(TaskView view, TaskView.AttemptHistoryEntry latest) {
         if (!working(view)) {
-            return costLabel(view.usage());
+            return finishedCost(view);
         }
         var soFar = costSoFar(latest.usage());
         return soFar == null ? null : soFar + " " + UiFormat.SO_FAR;

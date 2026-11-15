@@ -43,8 +43,9 @@ import java.util.Map;
  * <p>The states: ready to run (from a scan, added by key, in progress in Jira with a two-line title, withdrawn
  * before the start), cannot run (no repository, several repositories), queued (two waiting, one starting), working,
  * asked a question, stopped for each cause
- * Factory names (checks failed on tests, code that does not compile, checks that could not run, time limit, turn
- * limit, whole-attempt deadline, shared configuration), three attempts
+ * Factory names (checks failed on tests, code that does not compile, checks that could not run, a base branch that
+ * does not build and spent nothing, time limit, turn limit, whole-attempt deadline, shared configuration), three
+ * attempts
  * that end in a pull request, a task no longer assigned to the developer, a draft pull request without and with
  * new comments, a pull request ready for review, merged, closed without merge, a feedback round that works now,
  * one that asked a question and one that failed, and a run whose end Factory could not confirm, with and without
@@ -91,6 +92,7 @@ class DemoConsole {
         working();
         askedAQuestion();
         failed();
+        startingBuildFailed();
         stoppedByLimits();
         threeAttempts();
         noLongerAssigned();
@@ -184,6 +186,15 @@ class DemoConsole {
                 + " excluded from the budget");
         stopped("80019", "Task stopped by the shared configuration", "DEVELOPMENT_FAILED: Coding runtime"
                 + " configuration is incomplete or unsupported; check Developer Flow configuration.");
+    }
+
+    /** The base branch did not build, so the agent never started and the attempt spent nothing. */
+    private void startingBuildFailed() {
+        var execution = bareExecution("0.6.0", ExecutionStatus.COMPLETED, 10);
+        artifacts.put(execution.getId(), "dev_readiness.json", "{\"state\":\"BASELINE_FAILED\"}", "application/json",
+                "demo");
+        attempt(task("80031", "MODBAR-831", "Task whose base branch does not build"), TaskAttempt.State.STOPPED,
+                "BLOCKED_ENVIRONMENT: " + TaskStops.startingBuildFailedReason(""), execution);
     }
 
     private void stopped(String issueId, String title, String reason) {
@@ -394,13 +405,18 @@ class DemoConsole {
 
     /** A run that stands on the step with this index and has already reported model usage. */
     private PipelineExecution execution(String flowVersion, ExecutionStatus status, int step) {
-        var execution = executions.save(new PipelineExecution("dev-factory", flowVersion, "{}"));
-        execution.setStatus(status);
-        execution.setCurrentStepIndex(step);
-        execution = executions.save(execution);
+        var execution = bareExecution(flowVersion, status, step);
         auditLog.record(execution.getId(), AuditEventType.RUNTIME_PROGRESS, "implement",
                 Map.of("activity", "pi_usage", "inputTokens", 184_000, "cacheReadTokens", 920_000,
                         "cacheWriteTokens", 41_000, "outputTokens", 12_400, "costUsd", 1.37));
         return execution;
+    }
+
+    /** A run that stands on the step with this index and reported no usage. */
+    private PipelineExecution bareExecution(String flowVersion, ExecutionStatus status, int step) {
+        var execution = executions.save(new PipelineExecution("dev-factory", flowVersion, "{}"));
+        execution.setStatus(status);
+        execution.setCurrentStepIndex(step);
+        return executions.save(execution);
     }
 }

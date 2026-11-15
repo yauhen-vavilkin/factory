@@ -129,7 +129,9 @@ class TaskScenarioIntegrationTest {
                 issue("8205", "MODBAR-205", "MODBAR", "Provider down", "2026-10-01T09:04:00.000+0000", ""),
                 issue("8206", "MODBAR-206", "MODBAR", "Two tests fail", "2026-10-01T09:05:00.000+0000", ""),
                 issue("8207", "MODBAR-207", "MODBAR", "Code breaks the build", "2026-10-01T09:06:00.000+0000", ""),
-                issue("8208", "MODBAR-208", "MODBAR", "Checks time out", "2026-10-01T09:07:00.000+0000", ""));
+                issue("8208", "MODBAR-208", "MODBAR", "Checks time out", "2026-10-01T09:07:00.000+0000", ""),
+                issue("8209", "MODBAR-209", "MODBAR", "Base branch does not build", "2026-10-01T09:08:00.000+0000",
+                        ""));
         assertThat(discovery.sync().complete()).isTrue();
     }
 
@@ -329,6 +331,26 @@ class TaskScenarioIntegrationTest {
         assertThat(installations.findById(TaskInstallation.ID).orElseThrow().getActiveAttemptId())
                 .as("a shared outage stops this attempt and the queue continues").isNull();
         assertFailedWithoutPullRequest(taskId, "Provider down MODBAR-205", providerMessage + ".");
+    }
+
+    /** Scenario 6: the base branch does not build, so the agent never starts and nothing is spent. */
+    @Test
+    void startingBuildFailsBeforeTheAgentStartsAndNothingIsSpent() {
+        UUID taskId = taskId("8209");
+        workloads.startingBuildReturns(new Processes.Result(1, "[INFO] BUILD FAILURE"));
+
+        assertRedirect(postRun(taskId));
+
+        assertThat(finish(taskId).getState()).isEqualTo(TaskAttempt.State.STOPPED);
+        assertThat(codingRequests).as("the agent never started").isEmpty();
+        var pages = assertFailedWithoutPullRequest(taskId, "Base branch does not build MODBAR-209",
+                "The build of the base branch failed before the agent started, so nothing was spent. Open the run"
+                        + " to see the build output, then fix the base branch or the check command in"
+                        + " config/developer-repositories.yaml.");
+        assertRow(pages.myTasks(), "Base branch does not build Your turn MODBAR-209",
+                TaskStops.STARTING_BUILD_FAILED_START + " $0.00 Failed");
+        assertThat(pages.task()).contains("$0.00 spent in 1 attempt").doesNotContain("cost unknown");
+        assertThat(pages.run()).doesNotContain("cost unknown");
     }
 
     /** Scenario 7: the agent's change breaks 2 of 300 tests. */

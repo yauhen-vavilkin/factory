@@ -23,6 +23,7 @@ public record AttemptFailure(String headline, String reason) {
     private static final String MARKED_STOPPED = "You marked the attempt as stopped";
     private static final String IMPLEMENTATION = "Implementation";
     private static final String OLD_NO_CHANGES = "Candidate contains no changes";
+    private static final String OLD_STARTING_BUILD_FAILED = "Starting build failed before model spend";
     private static final String LIMITS_URL = "/developer/configuration#limits";
     private static final List<String> LAYER_PREFIXES =
             List.of("shared: ", "Development stopped: ", "Implementation failed: ");
@@ -117,6 +118,9 @@ public record AttemptFailure(String headline, String reason) {
         }
         if (text.startsWith(OLD_NO_CHANGES)) {
             return TaskStops.NO_CHANGES_REASON;
+        }
+        if (text.startsWith(OLD_STARTING_BUILD_FAILED)) {
+            return TaskStops.startingBuildFailedReason("");
         }
         Matcher time = OLD_TIME_LIMIT.matcher(text);
         if (time.find()) {

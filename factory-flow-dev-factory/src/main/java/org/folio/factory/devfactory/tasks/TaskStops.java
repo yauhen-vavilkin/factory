@@ -31,10 +31,25 @@ public final class TaskStops {
     public static final String NO_CHANGES_REASON = "The agent finished without changing any file. Start a new"
             + " attempt with clearer instructions.";
 
+    /** The start of {@link #startingBuildFailedReason}: the cause, so a list row that shows one sentence has it. */
+    public static final String STARTING_BUILD_FAILED_START = "The build of the base branch failed before the agent"
+            + " started, so nothing was spent.";
+
     /** The start of {@link #timeLimitReason}, by which a page knows the cause is a limit it can link to. */
     public static final String TIME_LIMIT_START = "The agent did not finish in ";
     /** The start of {@link #turnLimitReason}. */
     public static final String TURN_LIMIT_START = "The agent reached its limit of ";
+
+    /**
+     * Why an attempt stopped when the starting build of the base branch failed; {@code summary} is what Factory
+     * found in the build output, or blank.
+     */
+    public static String startingBuildFailedReason(String summary) {
+        var found = summary == null || summary.isBlank() ? ""
+                : summary.strip() + (summary.strip().endsWith(".") ? " " : ". ");
+        return STARTING_BUILD_FAILED_START + " " + found + "Open the run to see the build output, then fix the base"
+                + " branch or the check command in config/developer-repositories.yaml.";
+    }
 
     /** Why a coding attempt stopped when the agent did not finish in time; the page links the limits under it. */
     public static String timeLimitReason(long minutes) {
