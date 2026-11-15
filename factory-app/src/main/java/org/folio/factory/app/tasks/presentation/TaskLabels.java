@@ -135,7 +135,10 @@ final class TaskLabels {
         return UiFormat.money(usage.estimatesByCurrency());
     }
 
-    /** The cost of finished work: "$0.00" when its attempts started but none reached the agent, so none spent. */
+    /**
+     * The cost of finished work: "$0.00" when its attempts started but none reached the agent and all their usage
+     * was counted, so none spent.
+     */
     static String finishedCost(TaskView view) {
         var started = view.attempts().stream().anyMatch(attempt -> attempt.startedAt() != null);
         var paid = view.attempts().stream().anyMatch(TaskView.AttemptHistoryEntry::paidStart);
@@ -149,7 +152,8 @@ final class TaskLabels {
 
     private static String costOrNothingSpent(TaskUsage usage, boolean noPaidStart) {
         var cost = costLabel(usage);
-        return cost == null && noPaidStart && usage.tokensByCategory().isEmpty() ? UiFormat.ZERO_COST : cost;
+        var nothingSpent = noPaidStart && usage.complete() && usage.tokensByCategory().isEmpty();
+        return cost == null && nothingSpent ? UiFormat.ZERO_COST : cost;
     }
 
     /** The cost of work that runs now: "$0.00" until it reports tokens, null when its tokens have no price. */
