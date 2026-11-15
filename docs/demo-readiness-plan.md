@@ -1,0 +1,387 @@
+# Demo readiness plan
+
+Written on 2026-11-15 after an audit of the code, the live instance and the demo console, and
+revised after two independent reviews of the plan. This file is the task list for the sessions
+that finish the project for a demo. Mark finished work in "Progress" at the end. When the plan
+is done, move what is left to `docs/open-questions.md` and delete this file.
+
+## Goal
+
+Show the Developer Flow in a demo without a surprise. No new features. The existing features
+must say the truth in every state a person can reach: each stop names its cause and the next
+step, and the console looks like a finished product.
+
+The owner cannot test by hand, and a real model run takes 20 to 60 minutes. So states are
+proved by scenario tests with a scripted agent and by looking at the demo console. Real runs
+are only a smoke check that the owner starts.
+
+There is one working day. The stages are in the order of their value for the demo: whatever is
+finished when the time ends must be safe to show. Work that can break the path that works
+today was cut or narrowed to wording.
+
+## Acceptance
+
+1. `mvn verify` and `node --test factory-app/src/test/js/*.test.js` pass.
+2. Every scenario of tier A in "Scenario list" passes. A scenario drives the real engine,
+   workers, task services and pages; only the agent, Docker, GitHub and Jira are faked. No
+   scenario writes a stop reason, an attempt state or a result artifact by hand.
+3. Every stop of an attempt shows its cause and the next step in plain words on My tasks, the
+   task page and the run page. No internal wording, no ids, and no "The run stopped before a
+   step could say why" for a cause Factory knows.
+4. The demo console has a task for every state this plan fixes, with the text the fixed code
+   writes, and a cost on every finished attempt that spent money. Each touched state was
+   opened and looked at in the light theme at 1280 px and at 390 px.
+5. The Dashboard shows what the tasks of the period cost and how much of the money ended in a
+   pull request.
+6. The owner ran one real task to a pull request on the final build (stage 5).
+
+## Evidence (what the audit found)
+
+- Build: `mvn verify` green. Live instance: 401 pages answer 200, no ERROR in two days of
+  logs. Demo console: 218 pages answer 200.
+- Live history: 22 attempts, 8 pull requests. Of $18.99 spent, $15.40 went to attempts without
+  a pull request; $11.40 of that died at the 30 minute coding limit (4 attempts).
+- One live attempt was lost to a step replay and showed "Paid coding was already started for
+  task attempt df739401-…; a replayed or retried engine step cannot start a second initial
+  coding invocation". Another showed "Starting build failed before model spend." with no next
+  step.
+- No test goes from Run to the text of My tasks or the task page through the real workers.
+  `TaskEndToEndTest` is the closest (real workers, mocked `CodingRuntime`, no HTML).
+  `PrFeedbackIntegrationTest` does read the run page for PR feedback. `TaskLifecycleIntegrationTest`,
+  `TaskViewTest`, `UiRenderSmokeTest` and `DemoConsole` write reasons and artifacts by hand, so
+  they pass while the real code shows something else. Example: a failed verification is seeded
+  as "Verification failed: 2 tests in error", but `VerifyWorker` writes no reason and the
+  person would read "The run stopped before a step could say why".
+- The Developer Flow pages (My tasks, task page, run page) look calm and consistent. The
+  Dashboard is the weak page: twelve tiles, a doughnut that repeats the tiles, two charts that
+  show one bar each, and no money. It is a framework page, so it only gets one added block.
+
+## Rules for every stage
+
+- Read `AGENTS.md` first. Its product postulates, page rules, code style, Developer Flow
+  invariants and "Done means seen" apply to every change here.
+- No new feature, no new package or layer, no redesign. A fix is the smallest change that
+  makes its test pass. If an item turns out bigger than its note says, stop, write why under
+  "Progress" and go to the next item.
+- Scope is the Developer Flow only (owner's decision, 2026-11-15). The engine and the framework
+  stay as they are: nothing in `factory-core`, and no change to what the framework pages show
+  today (the existing elements of the Dashboard, Executions, Reviews, Artifacts, Audit, Status,
+  Workers, Prompts, Flows, the error page). The only addition to a framework page is the
+  Developer Flow spending block of stage 3.
+- Do not change the step outputs in `flows/dev-factory.yaml`, `FeedbackArtifacts.VERSION`, the
+  order of `claimPaidStart`, or the retry rules of `DeliveryWorker`.
+- Test first: write the test that states the required behaviour, see it fail for the reason
+  the item names, then fix. Page tests assert visible text and button labels, never markup.
+- A demo seed never types a reason: it calls the production code that builds the reason, or
+  uses its constant, so the demo cannot drift from the code again.
+- One session at a time edits console pages (templates, `static/`, page row classes).
+- Work in the main checkout on `m1-sprint-pilot`. Never `mvn install`. Do not run two Maven
+  builds at once in one checkout; the demo console is the exception (it is a Maven process that
+  keeps running in the background and is restarted after a Java change).
+- Before stage 0: `git tag demo-baseline` on the current commit, so the owner can go back.
+- Gate per item: the fast test loop of the touched module, then one local commit for the item
+  (one fix can then be reverted alone). Gate per stage: `mvn verify`; an independent review of
+  the stage diff by a fresh agent that gets this file and the diff, not the author's reasoning
+  (not needed for stage 0); for a stage that changes a page, a look at each touched state in
+  `DemoConsole` with a screenshot. If the browser tool is not available, use headless Chrome
+  (`--headless --screenshot`) against `localhost:8090`. No push.
+- A review finding is checked against the code before it is applied; a wrong one is rejected
+  with one line. At most two review rounds per stage.
+- The owner's live instance runs on port 8080 with PostgreSQL on 5432. Do not send it requests,
+  do not restart it and do not read `.env`.
+- Report per stage: what changed, which tests prove it, which states were looked at, what was
+  not verified. Plain English, B2 level, as in the existing commits.
+
+## Stage 0. Baseline (about 45 minutes)
+
+0.1 Commit the two edits already in the working tree (the owner's work): `verification-plan:
+java21-unit` for MODROLESKC in `config/developer-repositories.yaml` (build containers have no
+Docker, so the old plan failed every MODROLESKC task at the starting build) and the "Could not
+read" wording in `CodingProtocol`.
+
+0.2 Raise the limits so a normal task fits: time per step 3600 s, max turns 400, whole attempt
+120 m, lease timeout 9000 s (the comment at `application.yaml:95` asks for more than two times
+the step limit). Places: `application.yaml` lines 96, 155, 170, 189 and the comments at 153 and
+187 to 188; `docker-compose.yml` 96, 106, 108; `.env.example` 30 and 33; the defaults and
+comments in `DevRuntimeProperties` (19, 21, 101, 112) and `TaskExecutionProperties` (18 and its
+Javadoc); the assertions in `ComposeConfigurationTest`, `CodingRuntimeConfigurationTest` and
+`DevRuntimePropertiesTest`; README lines 258, 436 to 437, 615, 618, 637, 643. Known side
+effect, accepted: a run that hangs holds the single slot for up to 60 minutes per step.
+
+## Stage 1. Scenario tests with a scripted agent (cap: 90 minutes)
+
+Build on what exists; do not write a new harness.
+
+- Move the stubs of `TaskEndToEndTest` (lines 596 to 657: starting build, coding export,
+  verification with a surefire fixture, the mocked `CodingRuntime` that returns a
+  `CodingOutcome`) and its WireMock GitHub and Jira stubs into `DevFlowHarness`, so a test can
+  say "the agent does X, the checks do Y". Keep `TaskEndToEndTest` green on the moved code.
+- Add the synchronous drive of `PrFeedbackIntegrationTest` (lines 144 to 153:
+  `claims.claim(100).forEach(engine::advance)` with the poller off), plus direct calls of
+  `dispatchNext()` and `TaskOutcomeService.refresh()`, so a scenario is deterministic.
+- One new class, one Spring context: `@FactoryIntegrationTest`, profile `task-execution`.
+  It starts runs by HTTP as a person does (`POST /tasks/run-selected`, `POST /tasks/{id}/retry`,
+  the same route with the form field `answer` for an answer, mark stopped). The agent is the
+  mocked `CodingRuntime` returning a `CodingOutcome` with the real failure codes.
+- Every scenario ends by reading `/flows/dev-factory`, `/tasks/{id}` and `/executions/{id}` and
+  asserts: the state chip, whose turn it is, the cause, the next action, the step labels of the
+  run page (a failed check must not read "Verify changes Passed"), and that no page holds
+  "could say why", "engine execution ended", a UUID inside a reason, or a Java class name.
+- After `publish` the flow runs `pr-follow-up`, which reads the pull request, its issue
+  comments, reviews and review comments from GitHub; a delivered scenario needs these stubs.
+- For PR feedback add page text assertions to the existing tests of
+  `PrFeedbackIntegrationTest`; do not rebuild them.
+
+Stage 1 commits the moved stubs and the scenarios that pass on today's code. A scenario that
+fails because of a defect of stage 2 is added there, together with its fix.
+
+### Scenario list
+
+Tier A (stage 1 and stage 2):
+1. Agent edits files, checks pass, the report has open points: draft pull request.
+2. Agent finishes without changing a file.
+3. Agent asks a question; the answer starts attempt 2; attempt 2 opens a pull request.
+4. Coding time limit (the failure code the runtime returns).
+5. The model endpoint is down or refuses the key (provider failure): the likeliest failure in
+   a demo.
+6. Starting build fails before any model spend.
+7. Verification fails on tests (2 of 300). 8. Verification fails to compile.
+9. Verification cannot run (timeout or environment).
+10. A step throws three times and the engine gives up (GitHub answers 429 three times at
+    publish). Use a test helper that sets `next_run_at` to now between tries; the retry backoff
+    is 30, 120 and 300 s.
+11. Run end not confirmed (needs inspection) on a delivered run: the pull request is shown.
+12. Task that cannot start ("Could not start"), and Run while Factory's preflight fails (the
+    queue notice).
+13. Retry after a failed state starts a new attempt; a second POST of Run, Retry and Answer
+    gives one attempt and no error page.
+
+Unit level, next to the existing tests (not page scenarios): the replay of `implement` after
+the paid start (`DevelopReadinessTest`, `AttemptFailureTest`), question parsing
+(`CodingProtocolTest`), draft reasons (`PullRequestRendererTest`).
+
+Tier B (only after "If time is left"): whole-attempt deadline, turn limit, output limit, a
+ready pull request after a clean report, two queued tasks, intake outcomes (issue not found,
+repository choice needed), publication guard refusal, fork behind its base, PR feedback clean-up
+blocked and refresh required, a manual push before a round publishes, runs started without a
+task (`POST /flows/dev-factory/trigger`).
+
+## Stage 2. What a person reads when a run stops (about 2 hours)
+
+Each item: defect, required behaviour, test, and a demo seed that calls the same code.
+
+2.1 Failed verification has no reason (scenarios 7, 8, 9). `VerifyWorker.outcome` (57 to 80)
+writes no `reason`; `TaskOutcomeService.classify` (181 to 199) falls back to `RUN_ENDED +
+status`; `AttemptFailure` (20, 124) shows "The run stopped before a step could say why".
+Required on the pages: "Checks failed: 2 of 300 tests failed.", "Checks failed: the code does
+not compile.", "Checks could not run: <cause>.", each with "No pull request was created" and
+the retry form. Build the stored reason in `classify` from `failureCount`, `errorCount`,
+`testCount` and `failureKind` of the verification result. Format trap: `stageOf` (319 to 325)
+cuts the stored text at the first ": " and `AttemptFailure` (60) prints "<Stage> failed:
+<cause>", so store `VERIFICATION_FAILED: 2 of 300 tests failed` and keep the wording in
+`AttemptFailure` and `TaskLabels`. Do not change the worker's outputs. Replace the hand-written
+`{"state":"VERIFICATION_FAILED","reason":…}` in `TaskLifecycleIntegrationTest` (281) and
+`TaskViewTest` (207) by the shape the worker writes.
+
+2.2 A cause without a next step (scenario 6). "Starting build failed before model spend." must
+say that the build of the base branch failed before the agent started, that nothing was spent,
+and to open the run for the build output and fix the base branch or the check command in
+`config/developer-repositories.yaml`.
+
+2.3 The replay text (wording only). `InitialCodingAttempt` 171 to 175 stops a replayed
+`implement` step with internal text and the attempt id. Change the text to "Factory restarted
+or repeated this step while the agent was coding, so the work of this attempt is lost. Start a
+new attempt." and map the old stored text to the same words in `AttemptFailure`. Do not move
+`claimPaidStart` and do not add a check before the build: a network failure of the starting
+build is replayed on purpose (lines 73 and 157).
+
+2.4 The engine gave up (scenario 10). An execution that ends `FAILED_ESCALATED` after three
+tries is classified as "engine execution ended in status FAILED_ESCALATED". Required: "Factory
+could not finish <step in words> after 3 tries: <the stored error, redacted, one line>. Start
+a new attempt." Take the step label from `UiFormat` and the message from
+`execution.getErrorMessage()`.
+
+2.5 The whole-attempt deadline reason ("…queue and human-review waiting are excluded from the
+budget") says in plain words that the attempt used its whole time, with the "Limits in
+Configuration" link that the time limit reason already has.
+
+2.6 Needs inspection hides the pull request (scenario 11). `AttemptPullRequests.of` line 37
+returns none for a state that is not in flight; use `isLive()`.
+
+2.7 One name for one state: a Developer Flow run that stopped with a question is "Asked a
+question" in the run list (`RunState.ASKED`) and "Needs your answer" on the task pages. Use the
+task pages' words in the label that `RunState` gives; change nothing else on `/executions`.
+
+2.8 Delivery refusals (wording only). "GitHub blocked pull request creation (HTTP 403)" and
+"GitHub rejected delivery configuration or destination (HTTP …)" say what to do: check the
+token's rights, the repository in `config/developer-repositories.yaml`, or set the fork
+variables. Do not change which errors are retried.
+
+Demo seeds in the same commits: failed checks (tests, compile, could not run), starting build
+failed, replay, engine gave up, GitHub refused delivery. Update the Javadoc list of states in
+`DemoConsole`.
+
+When stage 2 is committed, write under "Progress": "Ready for a live run". The owner may then
+rebuild and start one real task while the next stages go on.
+
+## Stage 3. Developer Flow spending on the Dashboard (about 90 minutes)
+
+A report about the Developer Flow's own sessions only: the attempts of its tasks. It says what
+was spent in the chosen period and how much of that ended in a pull request. It is one added
+block; every existing element of the Dashboard stays as it is. The owner saw a mockup of this
+block on 2026-11-15.
+
+Data, no new storage: a new public method on `TaskQuery` returns the attempts whose run started
+in the period, each with its task (key, title), state, kind, `publication_identity` and its
+cost, by the same path the task page uses (`TaskQuery.attemptRow`, lines 140 to 155:
+`auditLog.forExecution` plus `TaskUsage.aggregate`), so the numbers equal the task page. The
+join is `task_attempt.execution_id`; the `attemptId` inside audit rows is another id and must
+not be used. PR feedback rounds are part of the attempt's execution, so they are in its cost.
+Render on the server with row records; nothing goes into the 30 second poll. All money through
+`UiFormat.money`.
+
+The block "Developer Flow spending" sits between the tiles and the charts, as rows without a
+card, and is shown only when the period has Developer Flow attempts:
+
+1. One line of four figures: Spent · Ended in a pull request · Attempts without a pull request
+   · Cost per pull request (spent divided by the tasks that have a pull request). A short note
+   counts attempts that have no price ("2 attempts have no price").
+2. "Cost per task": one row per task, most expensive first, at most 15 rows and one line for
+   the rest: Jira key (link to the task page), title, a bar of two segments on one scale (the
+   attempt that opened the pull request; attempts without one), the amount, "3 attempts", and
+   the state chip the task has on My tasks. The bar is plain HTML and CSS on the existing
+   tokens with a two-item legend; no chart.js. Two colours only.
+
+Remove nothing from the Dashboard and leave `/api/dashboard/stats` and
+`DashboardStatsService` as they are. The existing Dashboard assertions must pass unchanged
+(`UiRenderSmokeTest` around 149 to 180 pins the tile list: do not add the figures as
+`<a class="kpi">`). `DashboardUiControllerTest` builds the controller by constructor, so it
+gets the new dependency. Add tests that assert the four figures and the task rows against a
+seeded set with a known sum.
+
+Demo seed: usage rows with model and rate and attempts with `run_settings`, so no finished
+attempt says "cost unknown"; two models, three efforts, one task that failed twice and then
+opened a pull request, one expensive task that only failed.
+
+## Stage 4. Console clean-up (about 45 minutes)
+
+No redesign, and only the Developer Flow pages: My tasks, the task page, the run page, the
+Configuration tab. Remove only what explains the obvious or looks broken. Fixed list:
+
+- Task page: remove the sentence "Effort is how long the model thinks at each step: higher is
+  slower and costs more." under the run forms; keep "A new attempt starts from a clean checkout
+  and adds to the cost."
+- Check that the reasons of stage 2 and the costs of stage 3 wrap on My tasks and the task page
+  at 1280 px and 390 px and do not push the chip or the buttons.
+
+Then one read-only pass by a fresh agent over the Developer Flow pages of `DemoConsole` in
+every seeded state, light theme, 1280 px and 390 px. It lists, with page, text and screenshot: text that explains a control or a link, a
+label that repeats its neighbour, broken wrapping, different words for the same thing on two
+pages. It changes nothing; the list goes into the stage report for the owner. Do not touch the
+source labels (Jira task, Factory, Coding agent, You decide) or any layout.
+
+## Stage 5. Final check (about 1 hour)
+
+- `mvn verify`, the JS tests, one review of the whole diff since `demo-baseline`. The
+  `HIDDEN_*_SENTINEL` tests must still pass and cover any new output.
+- Walk every touched state in `DemoConsole` at both widths and write the list of states seen.
+- README: one quick start (`.env.example` lacks `FACTORY_TASKS_ASSIGNEE`,
+  `FACTORY_TASKS_EXECUTION_ENABLED` and the Jira URL that `.env.tasks.example` has); say how to
+  start the CodeMie proxy or to pick another default model; fix the places where the README
+  names controls the pages no longer have (lines 308, 371 to 375, 442, 545 to 548, 562).
+- `docs/open-questions.md`: remove the items this plan closed, correct the note that says text
+  after a question line is already ignored (the code fails the attempt), and add everything
+  under "Recorded, not done" below plus every new finding.
+- Stop and report. The live smoke is the owner's: rebuild the Compose image, run one task with
+  `glm-5.3-flash` to a pull request, run one PR feedback round with a push, and compare the
+  Dashboard for 30 days with the known history (about $18.99 spent, $3.58 ended in a pull
+  request). It recreates the owner's container and opens pull requests in the owner's forks.
+
+## If time is left, in this order
+
+These touch only `factory-flow-dev-factory` and its tests (plus `PrFeedbackIntegrationTest`),
+so a second agent may do them in its own worktree while stages 3 and 4 run in the main
+checkout. Its first step is `git reset --hard` to the current `m1-sprint-pilot` commit; it
+never runs `mvn install` and never edits a console page; its commits are cherry-picked into
+the main checkout before stage 5.
+
+A. A question with text after its line fails a paid attempt. `CodingProtocol.answer` (64 to
+79) returns `invalidDecision` when the detail holds a newline. Required: parse the marker
+line; accept a closing code fence and a pretty-printed JSON object; ignore text after it. Unit
+cases in `CodingProtocolTest`.
+
+B. PR feedback after failed checks. `FeedbackActions.addFailureActions` (283 to 289) offers
+"Try fixing with the agent" only for CODING, CANDIDATE and CANDIDATE_COMPILE; with another
+kind the person can only repeat the same checks or start a new paid round that overwrites the
+saved work. Required: offer it for every verification failure kind and say the reason in words
+instead of "Independent checks failed: UNKNOWN" (`FeedbackState` 304). Test with a kind that
+is not CANDIDATE in `PrFeedbackIntegrationTest`.
+
+C. Dashboard, third part: "Where attempts stopped", one row per cause with the number of
+attempts and the money (Time limit, Turn limit, Asked a question, No changes, Checks failed,
+Stopped by Factory or the environment, Other). The cause is a small enum computed in Java by
+the checks `AttemptFailure` and `TaskStops` already make on the stored reason. Main checkout
+only.
+
+D. The patch is not checked for the model secret. At `InitialCodingAttempt` 229 to 231 and
+`FeedbackCodingAttempt` 90 to 92, refuse a patch only when an added line (`+`, not `+++`)
+holds a configured secret of 16 or more characters; the reason names the file. Tests for a
+refusal and for a patch that merely holds a short public word such as `codemie-proxy`.
+
+E. Draft reasons: add "None identified", "No assumptions were needed" and "All links were
+readable" to the none forms of `PullRequestRenderer` (34 to 36). Unit tests only; no other
+change to the parser.
+
+F. Dashboard, fourth part: "By model and effort" as rows: model, effort, attempts, pull
+requests, spent, average per attempt. Main checkout only.
+
+G. Tier B scenarios.
+
+## Recorded, not done
+
+- One failed heartbeat write discards a finished run (`AgentLeaseHeartbeat.renew`, 61 to 75,
+  stores any exception as a permanent failure; the task then stays "In progress" for up to two
+  hours). It is in `factory-core` and changes lease ownership, so it is not touched before the
+  demo.
+- Framework pages, left as they are: the Dashboard has a doughnut that repeats its tiles and
+  two charts that show one bar each ("Runs per flow", "Connector actions"); long variable names
+  break inside a word in the connector cards of Status; the 404 page shows its error in the
+  green success toast (`UiExceptionHandler`); the Retry scheduled badge has no colour
+  (`UiFormat.eventTone` returns `warning`, `app.css` has no `.badge-warning`); Reviews shows
+  raw `APPROVE`, `AMEND`, `REJECT`.
+- `DeliveryWorker` retries only 408 and 429; a 403 rate limit after the push ends the run, and
+  a 422 for a draft has no fallback.
+- The replayed `implement` step runs the whole starting build before it stops.
+- A second parser pass on draft reasons: nested items, "(met)", "is met", table rows.
+- `DemoConsole` still seeds finished states by hand (now through production code for the
+  reasons); running the scenarios at its startup needs task execution on, which would let its
+  queued tasks start.
+- Saving partial work at a timeout, a Stop button for a working run, resume after a restart, a
+  budget stop, model per task, Pi with a model choice, types instead of strings in the flow
+  module, test speed, context from other repositories.
+
+## How to run this plan
+
+Give a session this prompt:
+
+    Read docs/demo-readiness-plan.md and AGENTS.md in /Users/yauhen/EBSCO-FOLIO/factory
+    (branch m1-sprint-pilot) and carry the plan out stage by stage, in order, without asking
+    between stages. Follow "Rules for every stage" exactly: tag demo-baseline first, test
+    first, one local commit per item after the fast tests, and per stage mvn verify, an
+    independent review by a fresh agent and a look at every touched state in DemoConsole.
+    No push. Keep to the time notes: when a stage passes its cap, finish the item in hand,
+    record the rest under "Progress" and go on. If a stage cannot pass its gate after two
+    review rounds, revert the failing item, write what blocks it under "Progress" and
+    continue. After stage 4 start "If time is left". Do not run the live smoke. Final
+    report: per stage what changed, which tests prove it, which states you looked at, what
+    is not verified.
+
+## Progress
+
+- [ ] Stage 0. Baseline
+- [ ] Stage 1. Scenario tests
+- [ ] Stage 2. What a person reads when a run stops
+- [ ] Stage 3. Dashboard spending
+- [ ] Stage 4. Console clean-up
+- [ ] Stage 5. Final check
+- [ ] If time is left: A B C D E F G
