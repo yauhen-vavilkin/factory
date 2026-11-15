@@ -48,6 +48,8 @@ import org.folio.factory.devfactory.CodingServices;
 import org.folio.factory.devfactory.DevFactoryHooks;
 
 class DevelopReadinessTest {
+    private static final String MODEL_KEY = "sk-test-0123456789abcdef";
+
     @TempDir Path workspace;
 
     @ParameterizedTest
@@ -405,6 +407,48 @@ class DevelopReadinessTest {
 
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
                 .contains("Candidate contains no changes").doesNotContain("Development stopped");
+    }
+
+    @Test
+    void aPatchThatAddsAModelsApiKeyIsRefusedWithTheFileAndKeepsTheSpend() {
+        var harness = secretCheckingHarness();
+        when(harness.freezer().freeze(anyString(), anyString(), anyString(), any(), anyBoolean()))
+                .thenReturn(candidateAdding("src/main/resources/application.yml", "api-key: " + MODEL_KEY));
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE))
+                .contains("DEVELOPMENT_FAILED", TaskStops.secretInChangesReason("src/main/resources/application.yml"))
+                .doesNotContain(MODEL_KEY, Candidate.UNVERIFIED);
+        assertThat(result.metrics()).containsEntry("inputTokens", 10L);
+    }
+
+    @Test
+    void aPatchThatHoldsOnlyTheShortPublicWordOfALocalProxyIsKept() {
+        var harness = secretCheckingHarness();
+        when(harness.freezer().freeze(anyString(), anyString(), anyString(), any(), anyBoolean()))
+                .thenReturn(candidateAdding("README.md", "Start the proxy with the token codemie-proxy."));
+
+        var result = harness.worker().execute(harness.context());
+
+        assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).contains(Candidate.UNVERIFIED);
+    }
+
+    /** The agent finishes, and the runtime knows the model key and the public word of a local proxy. */
+    private TaskHarness secretCheckingHarness() {
+        var harness = taskHarness(RecordingTaskAttempts.taskRun("repo"));
+        when(harness.coding().holdsSecret(anyString())).thenAnswer(
+                call -> CodingRuntime.holdsAny(call.getArgument(0), List.of(MODEL_KEY, "codemie-proxy")));
+        when(harness.coding().code(any(), any(CodingRequest.class), anyInt(), any(), any()))
+                .thenReturn(CodingOutcome.completed("Done", Map.of("inputTokens", 10L)));
+        return harness;
+    }
+
+    private static Candidate candidateAdding(String file, String line) {
+        var patch = "diff --git a/" + file + " b/" + file + "\n--- a/" + file + "\n+++ b/" + file
+                + "\n@@ -1 +1,2 @@\n existing\n+" + line + "\n";
+        return new Candidate("repo", "a".repeat(40), "b".repeat(40), Candidate.sha256(patch), patch,
+                Candidate.UNVERIFIED);
     }
 
     @Test

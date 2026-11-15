@@ -11,6 +11,7 @@ import org.folio.factory.devfactory.CodingServices;
 import org.folio.factory.devfactory.DevFactoryHooks;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.DevFlowSettings;
+import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.candidate.CandidateFreezer;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.tasks.Stop;
@@ -224,8 +225,18 @@ public final class InitialCodingAttempt {
             return failedAttempt(stop.get(), state);
         }
         var candidate = services.freezer().freeze(run.repositoryKey(), run.url(), run.baseSha(), state.exported, false);
+        var secret = secretStop(candidate);
+        if (secret.isPresent()) {
+            return failedAttempt(secret.get(), state);
+        }
         return attempt(run.request(), outcome, json.writeValueAsString(candidate), state,
                 CodingDecisionArtifacts.Request.none());
+    }
+
+    /** A patch that adds a model's API key must reach no artifact, check or pull request. */
+    private Optional<Stop> secretStop(Candidate candidate) {
+        return candidate.findFileAdding(services.coding()::holdsSecret)
+                .map(file -> new Stop("DEVELOPMENT_FAILED", safeRedact(TaskStops.secretInChangesReason(file))));
     }
 
     /** A stopped, superseded or expired task attempt must start no further side effects. */

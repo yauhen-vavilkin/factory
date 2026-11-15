@@ -169,6 +169,11 @@ public final class ModelCatalog {
         return value;
     }
 
+    /** True when the text holds the secret of any model, ready or not, if it is long enough to be a real key. */
+    public boolean holdsSecret(String text) {
+        return CodingRuntime.holdsAny(text, secrets);
+    }
+
     /** Instructions for the agent are optional plain text of at most 8000 characters; blank means none. */
     public static String instructions(String text) {
         if (text == null || text.isBlank()) {

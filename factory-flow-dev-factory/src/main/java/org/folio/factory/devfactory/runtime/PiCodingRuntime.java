@@ -63,6 +63,11 @@ public class PiCodingRuntime implements CodingRuntime {
     }
 
     @Override
+    public boolean holdsSecret(String text) {
+        return config.apiKey() != null && CodingRuntime.holdsAny(text, List.of(config.apiKey()));
+    }
+
+    @Override
     public CodingOutcome code(
             DockerWorkloads.Workload workload,
             CodingRequest request,

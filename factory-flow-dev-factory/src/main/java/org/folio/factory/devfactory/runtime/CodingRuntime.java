@@ -1,6 +1,9 @@
 package org.folio.factory.devfactory.runtime;
 
 public interface CodingRuntime {
+    /** Shorter secrets, such as the public word of a local proxy, also turn up in ordinary code. */
+    int MIN_CHECKED_SECRET_LENGTH = 16;
+
     String id();
 
     String image();
@@ -23,6 +26,18 @@ public interface CodingRuntime {
 
     /** Removes adapter-owned credentials from persisted failures and audit activity. */
     default String redact(String value) { return value; }
+
+    /**
+     * True when the text holds a credential of this runtime that is long enough to be a real key, so Factory can
+     * refuse a patch that would publish it.
+     */
+    default boolean holdsSecret(String text) { return false; }
+
+    /** True when the text holds one of the secrets of at least {@link #MIN_CHECKED_SECRET_LENGTH} characters. */
+    static boolean holdsAny(String text, java.util.Collection<String> secrets) {
+        return secrets.stream().anyMatch(secret -> secret != null
+                && secret.length() >= MIN_CHECKED_SECRET_LENGTH && text.contains(secret));
+    }
 
     /** The failure message, or the exception class name when it has none; not yet redacted or bounded. */
     static String failureText(RuntimeException error) {

@@ -47,6 +47,8 @@ public final class TaskStops {
     /** The start of {@link #turnLimitReason}. */
     public static final String TURN_LIMIT_START = "The agent reached its limit of ";
 
+    private static final int MAX_FILE_SHOWN = 200;
+
     /**
      * Why an attempt stopped when the starting build of the base branch failed; {@code summary} is what Factory
      * found in the build output, or blank.
@@ -72,6 +74,16 @@ public final class TaskStops {
         return TIME_LIMIT_START + minutes + (minutes == 1 ? " minute" : " minutes")
                 + ", so Factory stopped it. Start a new attempt with a lower effort or narrower instructions,"
                 + " or raise the time limit.";
+    }
+
+    /**
+     * Why Factory did not keep the agent's changes: a line they add to {@code file} holds the API key of a
+     * configured model, which a pull request would publish. The caller redacts the result.
+     */
+    public static String secretInChangesReason(String file) {
+        var shown = file.length() > MAX_FILE_SHOWN ? file.substring(0, MAX_FILE_SHOWN) + "…" : file;
+        return "The agent wrote the API key of a configured model into " + shown
+                + ", so Factory did not keep its changes. Start a new attempt.";
     }
 
     /** Why a coding attempt stopped when the agent used all of its turns. */

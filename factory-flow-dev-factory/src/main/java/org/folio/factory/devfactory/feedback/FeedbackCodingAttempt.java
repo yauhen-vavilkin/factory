@@ -12,6 +12,7 @@ import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.CodingTranscripts;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
+import org.folio.factory.devfactory.tasks.TaskStops;
 
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
@@ -89,12 +90,20 @@ final class FeedbackCodingAttempt {
             workload.export(exported);
             var candidate = freezer.freeze(
                     request.repository().key(), sourceUrl, operation.state().pr.headSha(), exported, true);
+            refuseSecret(candidate);
             operation.outputs().put(CANDIDATE, JSON.writeValueAsString(candidate));
         } catch (RuntimeException lost) {
             throw new IllegalStateException(
                     "Latest edits could not be saved; the previous confirmed patch is retained. "
                     + safe(coding, lost));
         }
+    }
+
+    /** Edits that add a model's API key are not saved, so they reach no check, commit or pull request. */
+    private void refuseSecret(Candidate candidate) {
+        candidate.findFileAdding(coding::holdsSecret).ifPresent(file -> {
+            throw new IllegalStateException(TaskStops.secretInChangesReason(file));
+        });
     }
 
     /** Redacted and bounded error text, safe for state, audit and pages. */

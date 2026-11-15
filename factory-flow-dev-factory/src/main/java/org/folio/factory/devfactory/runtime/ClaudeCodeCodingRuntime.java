@@ -65,6 +65,8 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
 
     @Override public String redact(String value) { return models.redact(value); }
 
+    @Override public boolean holdsSecret(String text) { return models.holdsSecret(text); }
+
     @Override public CodingOutcome code(DockerWorkloads.Workload workload, CodingRequest request, int timeoutSeconds,
                                         Consumer<Map<String, Object>> progress, CodingTranscripts.Sink transcript) {
         var run = usableRun(request.runSettings());

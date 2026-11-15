@@ -89,6 +89,16 @@ class ModelCatalogTest {
     }
 
     @Test
+    void onlyASecretOfSixteenOrMoreCharactersCountsInAPatch() {
+        var secrets = Map.of("PROXY_TOKEN", "codemie-proxy", "ZAI_KEY", "zai-0123456789abcdef", "PI_KEY", "pi-secret");
+        var catalog = new ModelCatalog(FIXTURE, "claude-code", secrets::get);
+
+        assertThat(catalog.holdsSecret("token: zai-0123456789abcdef")).isTrue();
+        // The public word of a local proxy and other short secrets also turn up in ordinary code.
+        assertThat(catalog.holdsSecret("Start the proxy with codemie-proxy, then pi-secret.")).isFalse();
+    }
+
+    @Test
     void aModelThatCannotRunSaysWhatToFix() {
         var catalog = new ModelCatalog(FIXTURE, "claude-code", SECRETS::get);
 
