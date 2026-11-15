@@ -389,7 +389,26 @@ Give a session this prompt:
   attempt may take 2 h."). A `.env` that still sets the old values keeps them. Seen, not
   changed (for stage 4): at 390 px the "Open run" button of the task page status card reaches
   past the card's right edge.
-- [ ] Stage 1. Scenario tests
+- [x] Stage 1. Scenario tests. The stubs of `TaskEndToEndTest` are in `DevFlowHarness`:
+  `stubCodingRuntime` (the agent returns a `CodingOutcome`), `stubWorkloads` with
+  `Workloads.startingBuildReturns`, `agentLeaves` and `checksReturn`, `stubDelivery`,
+  `stubPullRequestCreation`, `stubPullRequestRead` (also answers the comment, review and review
+  comment lists with `[]`), `stubSearch`, `issue`, `workspace`, `passingReports` and `visibleText`.
+  New `TaskScenarioIntegrationTest` (profile `task-execution`, poller off) starts runs by HTTP,
+  advances them with `drive`, settles them with `finish` (`refresh`, then `dispatchNext`) and reads
+  My tasks, the task page and the run page. Passing today: scenarios 1, 2, 3, 4, 5, 12 (both parts)
+  and 13 (a second Run, Retry and Answer). Left for stage 2, each probed once on this code: 6 shows
+  "Starting build failed before model spend." with no next step and "cost unknown" for an attempt
+  that spent nothing; 7 and 8 store "engine execution ended in status COMPLETED" and show "The run
+  stopped before a step could say why" (the run page reads "Verify changes Failed", which is right);
+  9 was not probed and takes the same path; 10 was not probed (it needs the `next_run_at` helper);
+  11 (clean-up not confirmed after delivery) shows "Factory could not confirm how the run ended"
+  and no pull request on the task page. PR feedback: nine existing tests of
+  `PrFeedbackIntegrationTest` now assert the run page text. No page changed, so `DemoConsole` was
+  not opened. `mvn verify` passed. Seen, not changed: a second Run shows "MODBAR-204: task already
+  has a live admission" and a second Retry "the task already has a live attempt" in the error
+  banner; failed PR feedback checks read "Independent checks failed: CANDIDATE" (item B); an
+  interrupted round after an engine escalation reads only "Resources cleaned up.".
 - [ ] Stage 2. What a person reads when a run stops
 - [ ] Stage 3. Dashboard spending
 - [ ] Stage 4. Console clean-up
