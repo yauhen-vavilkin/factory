@@ -378,7 +378,17 @@ Give a session this prompt:
 
 ## Progress
 
-- [ ] Stage 0. Baseline
+- [x] Stage 0. Baseline. Tag `demo-baseline` is on c595e71. 0.1: the owner's two edits and this
+  plan are committed as they were. 0.2: the new limits are 3600 s per step, 400 turns, 120 m per
+  attempt and a 9000 s lease. The line numbers in 0.2 were a little off: `DevRuntimeProperties`
+  has its defaults at 21 and 108 and its Javadoc at 101. Also changed: `doc/runbook.md` (the
+  lease default) and the page tests that read the shipped defaults (`DeveloperConfigurationPageTest`,
+  `UiRenderSmokeTest`). `mvn verify` passed. Looked at in `DemoConsole` at 1280 px and 390 px: the
+  limits under Configuration (1 h, 2 h, 400; MODROLESKC checks with `mvn -B -ntp test`) and the
+  status card of the run in progress on its run page and its task page ("of 1 h", "The whole
+  attempt may take 2 h."). A `.env` that still sets the old values keeps them. Seen, not
+  changed (for stage 4): at 390 px the "Open run" button of the task page status card reaches
+  past the card's right edge.
 - [ ] Stage 1. Scenario tests
 - [ ] Stage 2. What a person reads when a run stops
 - [ ] Stage 3. Dashboard spending
