@@ -31,9 +31,9 @@ public final class PullRequestRenderer {
     private static final Pattern NOT_CHECKED = Pattern.compile("(?i)\\bnot\\s+checked\\b");
     /** "met" as the status: at the start of the text or right after a colon or a dash. */
     private static final Pattern MET = Pattern.compile("(?i)(?:^|[:\\u2013\\u2014-])\\s*[*_]{0,2}met\\b");
-    private static final String NONE_WORD = "(?i)(?:[-*+]\\s+)?[*_]{0,2}(?:none(?:\\s+found)?|n/a"
-            + "|nothing(?:\\s+to\\s+report)?|no\\s+assumptions?(?:\\s+(?:were\\s+)?made)?"
-            + "|all\\s+sources\\s+were\\s+readable)[*_]{0,2}";
+    private static final String NONE_WORD = "(?i)(?:[-*+]\\s+)?[*_]{0,2}(?:none(?:\\s+(?:found|identified))?|n/a"
+            + "|nothing(?:\\s+to\\s+report)?|no\\s+assumptions?(?:\\s+(?:were\\s+)?(?:made|needed))?"
+            + "|all\\s+(?:sources|links)\\s+were\\s+readable)[*_]{0,2}";
     private static final Pattern NONE = Pattern.compile(NONE_WORD + "[.!]?");
     /** "None — all files were readable": a separator and an explanation, but not "None, except ...". */
     private static final Pattern NONE_WITH_REASON = Pattern.compile(NONE_WORD

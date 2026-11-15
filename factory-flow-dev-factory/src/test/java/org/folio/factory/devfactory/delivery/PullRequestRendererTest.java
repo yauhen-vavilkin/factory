@@ -91,7 +91,9 @@ class PullRequestRendererTest {
     @ValueSource(strings = {"None found.", "Nothing.", "No assumptions.", "No assumptions were made.", "**None**",
             "All sources were readable.", "None\n\nLet me know if you need anything else.",
             "None — all repository files were readable. Integration tests could not run (no Docker).",
-            "None: the task was explicit.", "**None** - nothing was missing", "None, all files opened."})
+            "None: the task was explicit.", "**None** - nothing was missing", "None, all files opened.",
+            "None identified.", "No assumptions were needed.", "All links were readable.",
+            "None identified — the task was explicit."})
     void usualWaysToSayNothingAndAClosingLineAfterNoneGiveNoReason(String empty) {
         assertThat(PullRequestRenderer.draftReasons(outcome(report("- Works: met", empty, empty)))).isEmpty();
     }
@@ -101,7 +103,8 @@ class PullRequestRendererTest {
             "Nothing in Confluence opened: the page needs a login.", "None, except:\n- The ADR page needs a login.",
             "N/A:\n- The ADR page needs a login.", "None. But the ADR link failed.", "None — except the ADR page.",
             "None:\n\n- The ADR page needs a login.", "None; however, the ADR page failed.",
-            "None — only the ADR page failed."})
+            "None — only the ADR page failed.", "None identified, except the ADR page.",
+            "All links were readable except the ADR page."})
     void textThatOnlyStartsLikeNoneIsStillAReason(String couldNotRead) {
         assertThat(PullRequestRenderer.draftReasons(outcome(report("- Works: met", "None", couldNotRead))))
                 .containsExactly("The agent could not read some of the task's sources.");
