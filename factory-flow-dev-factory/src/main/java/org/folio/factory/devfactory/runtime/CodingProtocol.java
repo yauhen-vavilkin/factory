@@ -39,7 +39,8 @@ final class CodingProtocol {
         "## Acceptance criteria": take the criteria from the task description; one line per criterion: met, \
         not met or not checked, with a short reason.
         "## Assumptions": what you assumed because the task did not say it, or "None".
-        "## Could not read": links, attachments or files you could not open, or "None".
+        "## Could not read": links, attachments or files of the task you could not open, or "None". Checks you \
+        could not run do not go here: Factory runs its own checks and shows them in the pull request.
 
         For NEEDS_DECISION, the entire final response must be one line beginning FACTORY_DECISION_REQUIRED: \
         followed by JSON:

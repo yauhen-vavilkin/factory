@@ -19,7 +19,7 @@ factory:
         source-repo: ${FACTORY_MOD_ROLES_KEYCLOAK_SOURCE_REPO:folio-org/mod-roles-keycloak}
         base-branch: ${FACTORY_MOD_ROLES_KEYCLOAK_BASE_BRANCH:master}
         build-image: maven:3.9-eclipse-temurin-21
-        verification-plan: java21-roles-verify
+        verification-plan: java21-unit
         jira-projects: [MODROLESKC]
         delivery:
           repository: ${FACTORY_MOD_ROLES_KEYCLOAK_DELIVERY_REPO:folio-org/mod-roles-keycloak}
@@ -45,6 +45,8 @@ factory:
         java21-roles-verify: [mvn, -B, -ntp, verify]
       # Require fresh, executed reports from each Maven test phase.
       # Integration plans remain blocked when their Docker dependencies are unavailable.
+      # Factory's build containers have no Docker, so Testcontainers suites (FOLIO *IT classes)
+      # always fail there. No repository uses java21-roles-verify; it stays as an integration plan example.
       required-reports:
         java21-unit: [surefire]
         java21-roles-verify: [surefire, failsafe]
