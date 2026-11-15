@@ -23,6 +23,8 @@ import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.TokenUsage;
 import org.folio.factory.devfactory.tasks.TaskStops;
+import org.folio.factory.devfactory.verification.VerificationFailure;
+import org.folio.factory.devfactory.verification.VerificationReceipt;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.folio.factory.devfactory.worker.DevelopWorker;
 import org.folio.factory.devfactory.worker.VerifyWorker;
@@ -370,11 +372,22 @@ class DemoConsole {
         var execution = delivered("80016", "MODBAR-816", "Pull request whose feedback round failed its checks", 16,
                 true, ExecutionStatus.AWAITING_HITL);
         var selected = comment("inline:1", "reviewer", "Use the shared date format.", "Bar.java", 12, 16);
+        var checks = oneTestFailed(execution);
         state(execution.getId(), roundStart(16, selected) + ",\"phase\":\"CODE\"");
-        state(execution.getId(), roundStart(16, selected) + ",\"phase\":\"FAILURE\","
-                + "\"failureKind\":\"VERIFICATION\",\"reason\":\"Independent checks failed: 1 test failed.\"");
+        state(execution.getId(), roundStart(16, selected) + ",\"phase\":\"FAILURE\",\"failureKind\":\""
+                + checks.failureKind() + "\",\"reason\":" + FeedbackArtifacts.JSON.writeValueAsString(
+                checks.failureReason()) + ",\"verification\":" + FeedbackArtifacts.JSON.writeValueAsString(checks));
         comments(execution.getId(), 16, selected);
         review(execution);
+    }
+
+    /** The checks of a feedback round in which the only test failed, as the verifier returns them. */
+    private static VerificationReceipt oneTestFailed(PipelineExecution execution) {
+        var now = Instant.now();
+        return new VerificationReceipt(execution.getId().toString(), "mod-bar", "a".repeat(40), "b".repeat(40),
+                "c".repeat(64), "java21-unit", "maven", List.of("mvn", "-B", "-ntp", "test"), "checks", now, now, 1, 1,
+                1, 1, 0, "FAIL", "BarTest.formatsTheDate: expected \"2026-11-10\" but was \"10/11/2026\"",
+                VerificationFailure.CANDIDATE, 0, List.of(), List.of());
     }
 
     /** A task with one attempt that opened pull request {@code number}; its run has this engine status. */
