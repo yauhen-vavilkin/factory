@@ -1,8 +1,7 @@
 package org.folio.factory.app.web;
 
 import org.folio.factory.app.tasks.persistence.RunState;
-import org.folio.factory.app.tasks.presentation.Spending;
-import org.folio.factory.app.tasks.presentation.SpendingRows;
+import org.folio.factory.app.tasks.presentation.StatisticsRows;
 import org.folio.factory.app.web.DashboardUiController.RunTile;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.TokenUsage;
@@ -67,7 +66,7 @@ class DashboardUiControllerTest {
     private DashboardStatsService dashboardStats;
 
     @Mock
-    private SpendingRows spendingRows;
+    private StatisticsRows statisticsRows;
 
     @Captor
     private ArgumentCaptor<Pageable> pageableCaptor;
@@ -85,7 +84,7 @@ class DashboardUiControllerTest {
     private MockMvc mvcWithConnectors(List<ConnectorHealth> connectors) {
         EngineProperties engine = new EngineProperties(true, 2000L, 5, 4, 1800L, 30, true);
         DashboardUiController controller = new DashboardUiController(
-                connectors, flowRegistry, engine, flowRegistryEntries, audit, json, dashboardStats, spendingRows);
+                connectors, flowRegistry, engine, flowRegistryEntries, audit, json, dashboardStats, statisticsRows);
         return MockMvcBuilders.standaloneSetup(controller)
                 .setViewResolvers(new InternalResourceViewResolver("/templates/", ".html"))
                 .build();
@@ -158,17 +157,15 @@ class DashboardUiControllerTest {
     }
 
     @Test
-    void dashboard_showsTheDeveloperFlowSpendingOfTheChosenPeriodOnlyWhenItHasAttempts() throws Exception {
+    void dashboard_showsWhatTheDeveloperFlowSpentInTheChosenPeriodOnlyWhenARunStartedInIt() throws Exception {
         stubKpiCounts();
-        var spending = new Spending(List.of(new Spending.Figure("$1.90", "Spent")), null, List.of(), null, List.of(),
-                List.of());
         var since = ArgumentCaptor.forClass(java.time.Instant.class);
-        when(spendingRows.since(since.capture())).thenReturn(Optional.of(spending), Optional.empty());
+        when(statisticsRows.spentSince(since.capture())).thenReturn(Optional.of("$1.90"), Optional.empty());
 
-        mvc.perform(get("/").param("days", "30")).andExpect(model().attribute("spending", spending));
-        mvc.perform(get("/")).andExpect(model().attributeDoesNotExist("spending"));
+        mvc.perform(get("/").param("days", "30")).andExpect(model().attribute("developerSpent", "$1.90"));
+        mvc.perform(get("/")).andExpect(model().attributeDoesNotExist("developerSpent"));
 
-        // The block counts the attempts whose run started in the period, as the run tiles count runs.
+        // The line counts the runs that started in the period, as the run tiles count runs.
         assertThat(java.time.Duration.between(since.getAllValues().get(0), java.time.Instant.now()).toDays())
                 .isEqualTo(30);
         assertThat(java.time.Duration.between(since.getAllValues().get(1), java.time.Instant.now()).toDays())

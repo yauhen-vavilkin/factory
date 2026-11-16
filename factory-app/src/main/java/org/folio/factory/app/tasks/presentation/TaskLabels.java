@@ -10,6 +10,7 @@ import org.folio.factory.app.web.UiFormat;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -181,6 +182,14 @@ final class TaskLabels {
             notes.add("Includes live usage that can still change.");
         }
         return notes.isEmpty() ? null : String.join(" ", notes);
+    }
+
+    /**
+     * The time the agent worked in {@code attempts}: each attempt in whole minutes as its row in Runs of the task
+     * page shows it, added up, so a total on My tasks and on the task page always equals the rows.
+     */
+    static String addedMinutes(List<TaskView.AttemptHistoryEntry> attempts) {
+        return minutes(attempts.stream().mapToLong(attempt -> attempt.activeSeconds() / 60 * 60).sum());
     }
 
     static String minutes(long seconds) {

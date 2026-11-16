@@ -98,6 +98,30 @@ class TaskSpendingTest {
     }
 
     @Test
+    void myTasksAndTheTaskPageTotalShowTheSameTime() {
+        var view = view(List.of(attempt(1, 460, usage(Map.of())), attempt(2, 1_810, usage(Map.of())),
+                attempt(3, 2_030, usage(Map.of()))), usage(Map.of()));
+
+        // 7, 30 and 33 whole minutes in the rows: 1 h 10 min, though the seconds add up to 1 h 11 min.
+        assertThat(RunRows.row(view, FeedbackStanding.NONE).facts()).contains("1 h 10 min");
+        assertThat(TaskSpending.of(view, null, null).total().time()).isEqualTo("1 h 10 min");
+    }
+
+    @Test
+    void whileARunWorksMyTasksShowsNoTimeAndTheTaskPageTotalADash() {
+        var working = new TaskView.AttemptHistoryEntry(UUID.randomUUID(), 2, TaskAttempt.Kind.RETRY, null,
+                TaskAttempt.State.RUNNING, "implement", null, null, List.of(), RUN, Instant.now(), Instant.now(),
+                true, 600, usage(Map.of()), null);
+        var attempts = List.of(attempt(1, 460, usage(Map.of())), working);
+        var view = new TaskView(UUID.randomUUID(), "MODBAR-1", null, "Task", "MODBAR", null,
+                TaskView.TaskState.WORKING, null, null, "implement", null, null, null, null, true, false, 1, null,
+                null, attempts, usage(Map.of()), new TaskView.AllowedActions(false, false));
+
+        assertThat(RunRows.row(view, FeedbackStanding.NONE).facts()).containsExactly("run 2");
+        assertThat(TaskSpending.of(view, null, null).total().time()).isEqualTo("—");
+    }
+
+    @Test
     void theTotalTimeAddsTheMinutesTheRowsShow() {
         var first = attempt(1, 150, usage(Map.of(Category.INPUT, 100L)));
         var second = attempt(2, 110, usage(Map.of(Category.INPUT, 100L)));

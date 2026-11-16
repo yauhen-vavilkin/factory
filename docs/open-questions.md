@@ -351,15 +351,14 @@ Developer Flow:
   attempt the reason names the branch with an id (`factory/modbar-211-<uuid>`) and the known pull
   request is hidden again.
 - **Labels.** On the task page an answered attempt's row reads "Asked a question", while My tasks said
-  "Needs your answer" before the answer. The Dashboard row of a running attempt shows its amount
-  without "so far". The effort sentence is still the hover title of the Effort choice on My tasks.
-- **Dashboard spending, choices to confirm.** In "Cost per task" the Jira key opens Jira, as on every
-  page, and the title opens the task page; the plan asked for the key to open the task page. "Where
-  runs stopped" counts checks that could not run and Needs inspection as "Stopped by Factory or the
-  environment", and a command output limit, a patch refused for a model key and a stop you marked as
-  "Other"; running attempts are not counted, so while one runs the causes add up to less than
-  "Runs without a pull request". "By model and effort" divides by every attempt of the group,
-  priced or not.
+  "Needs your answer" before the answer. The effort sentence is still the hover title of the Effort
+  choice on My tasks.
+- **Statistics tab, choices to confirm.** It counts the runs that started in the period and their
+  tasks; a task's bucket is where the task stands now, so a task whose earlier run started before the
+  period still counts its later pull request. "Per task with a pull request" and "Per merged task"
+  divide the spend of the period's runs of those tasks, and the money of a running run counts as far as
+  it is known. "By model and effort" divides only by the runs with a price. The bucket of a task reads
+  its PR feedback, a few database reads per task with a pull request on every load of the tab.
 - **Phone width (390 px).** My tasks cuts a long reason after two lines (80033, 80036 in the demo
   console); a reason on its own line under the key starts 10 px in; the repository table of the
   Configuration tab is wider than its box (456 against 350 px). The "In progress" strip has no room

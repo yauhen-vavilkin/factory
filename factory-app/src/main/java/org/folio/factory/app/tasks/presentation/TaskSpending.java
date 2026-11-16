@@ -71,6 +71,6 @@ public record TaskSpending(List<String> tokenColumns, Total total) {
         if (paid.isEmpty() || paid.stream().anyMatch(TaskRows::ticks)) {
             return NONE;
         }
-        return TaskLabels.minutes(paid.stream().mapToLong(attempt -> attempt.activeSeconds() / 60 * 60).sum());
+        return TaskLabels.addedMinutes(paid);
     }
 }

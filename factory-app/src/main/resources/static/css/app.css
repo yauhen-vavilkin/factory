@@ -1268,8 +1268,29 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .dev-list-foot .run-settings { margin-left: auto; }
 .dev-list-note { flex-basis: 100%; font-size: 13px; color: hsl(var(--muted-foreground)); }
 .dev-empty { padding: 12px 0; font-size: 13px; color: hsl(var(--muted-foreground)); }
-/* Dashboard: the Developer Flow spending, rows without a card between the tiles and the charts. */
-.spend { margin-top: 1.5rem; }
+/* Dashboard: one line with what the Developer Flow spent, between the tiles and the charts. */
+.dash-developer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  margin-top: 1.5rem;
+  padding: 12px 0;
+  border-top: 1px solid hsl(var(--border));
+  border-bottom: 1px solid hsl(var(--border));
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
+.dash-developer-spent {
+  margin-right: 4px;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--foreground));
+}
+.dash-developer .btn { margin-left: auto; }
+/* Statistics tab: the figures of each part, the period at the right of the first row, and one bar of where the
+   tasks stand. The figures keep the look the Dashboard spending had. */
 .spend-figures { display: flex; flex-wrap: wrap; gap: 12px 40px; padding: 14px 0 10px; }
 .spend-figure { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .spend-value {
@@ -1280,63 +1301,117 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
   line-height: 1.2;
 }
 .spend-label { font-size: 13px; color: hsl(var(--muted-foreground)); }
-.spend-head { margin-top: 20px; min-height: 0; }
-.spend-title { font-size: 14px; font-weight: 600; }
-.spend-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: hsl(var(--muted-foreground)); }
-.spend-key { display: inline-flex; align-items: center; gap: 6px; }
-.spend-key::before { content: ""; width: 10px; height: 10px; border-radius: 2px; }
-.spend-key-pr::before, .spend-bar-pr { background: hsl(var(--success)); }
-.spend-key-other::before, .spend-bar-other { background: hsl(var(--muted-foreground) / 0.45); }
-/* One scale for every row: the longest bar is the most expensive task. On a phone the bar takes a line of its own
-   under the amount and the chip. */
-.spend-bar { flex: 0 1 200px; display: flex; height: 8px; margin-top: 6px; overflow: hidden; border-radius: 2px; }
-@media (max-width: 560px) { .spend-bar { flex-basis: 100%; order: 1; } }
-.spend-rest { padding-top: 12px; }
-/* Where attempts stopped, By model and effort: the amount stands in the amount column of Cost per task; on a phone,
-   which has no chip column, it stays on the line of its group. */
-.spend-group > .dev-row-main { flex-basis: 160px; }
-.spend-group .dev-row-meta { column-gap: 10px; }
-.spend-group .dev-row-meta > * + * { margin-left: 0; }
-@media (max-width: 560px) { .spend-group > .row-cluster-status { grid-template-columns: 88px; } }
-/* Task page: one attempt. Its name, kind and instructions on one line, how it ended under it, the cost and the
-   chip on the right; under them a strip of labelled values: the model, the start and the time on the left, the
-   tokens by kind on the right. Every value has a fixed column, so the cards and the Total row line up. */
-.attempt-card { padding-top: 16px; padding-bottom: 16px; }
-.attempt-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attempt-head > * + * { margin-left: 6px; color: hsl(var(--muted-foreground)); font-size: 13px; }
-.attempt-result {
-  margin-top: 4px;
+.stat-period { display: flex; justify-content: flex-end; }
+.period-choice {
+  display: inline-flex;
+  flex-wrap: wrap;
+  border: 1px solid hsl(var(--input));
+  border-radius: 6px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+.period-choice a {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-left: 1px solid hsl(var(--input));
+  color: hsl(var(--soft-foreground));
   font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background-color 150ms ease;
+}
+.period-choice a:first-child { border-left: 0; }
+.period-choice a:hover { background: hsl(var(--secondary)); }
+/* Light grey, not filled, as the Effort choice: the one filled control of a screen is its main button. */
+.period-choice a[aria-current="page"] { background: hsl(var(--border)); color: hsl(var(--foreground)); font-weight: 600; }
+.period-choice a:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
+.stat-bar { display: flex; gap: 2px; height: 12px; margin: 8px 0; overflow: hidden; border-radius: 3px; }
+.stat-bar > span { flex-basis: 0; min-width: 3px; background: hsl(var(--stat)); }
+.stat-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
   color: hsl(var(--soft-foreground));
 }
-.attempt-usage { flex: 1 1 100%; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 24px; }
-.attempt-usage dl { display: grid; column-gap: 16px; margin: 0; }
-.usage-facts { grid-template-columns: 170px 140px 100px; }
-/* A model name longer than its column is cut, so it never runs into the start time. */
-.usage-facts dd { overflow: hidden; text-overflow: ellipsis; }
-.usage-tokens { grid-auto-flow: column; grid-auto-columns: 104px; text-align: right; }
-.attempt-usage dt { font-size: 11px; color: hsl(var(--muted-foreground)); }
-.attempt-usage dd { margin: 2px 0 0; font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-/* The row that adds the attempts up: each sum under the column it adds. The labels are in the cards above, so
-   here only a screen reader gets them. */
-.attempt-total .usage-time { grid-column: 3; }
-.attempt-total dt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.attempt-total dd { margin-top: 0; font-weight: 600; }
-.attempt-total .row-amount { font-weight: 600; }
-/* On a narrow page the tokens go under the model, the start and the time, in the same equal columns in every
-   card, and the Total row shows its labels, which no longer stand above its sums. */
+.stat-key { display: inline-flex; align-items: center; gap: 6px; }
+.stat-key::before { content: ""; width: 10px; height: 10px; border-radius: 2px; background: hsl(var(--stat)); }
+.stat-key strong { font-weight: 600; color: hsl(var(--foreground)); }
+/* The two greens and the grey differ in lightness too, so they stay apart without color. */
+.stat-merged { --stat: var(--success); }
+.stat-pull-request-open { --stat: var(--success) / 0.4; }
+.stat-closed { --stat: var(--muted-foreground) / 0.45; }
+.stat-in-progress { --stat: var(--info); }
+.stat-needs-inspection { --stat: var(--warning); }
+.stat-no-pull-request { --stat: var(--destructive); }
+.stat-table { overflow-x: auto; }
+.stat-table table { font-size: 13px; font-variant-numeric: tabular-nums; }
+.stat-table th, .stat-table td { padding: 10px 16px 10px 0; }
+.stat-table th:last-child, .stat-table td:last-child { padding-right: 0; }
+.stat-table thead th { font-size: 12px; }
+.stat-table .num { text-align: right; white-space: nowrap; }
+.stat-table tbody tr:hover { background: none; }
+/* Task page, Runs: one table with its labels once in the header. A run is one tbody of two rows, its facts and
+   how it ended: the link of the run covers the tbody and its rows highlight together; the pull request chip stays
+   above the link. The Status column has one width, so every cost and the Total cost stand at the same place. */
+.runs-wrap { overflow-x: auto; }
+.runs-table { --runs-status-width: 150px; --runs-gap: 10px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.runs-table th, .runs-table td { padding: 12px; white-space: nowrap; }
+.runs-table thead th { padding-top: 10px; padding-bottom: 8px; font-size: 12px; }
+.runs-table .num { text-align: right; }
+.runs-table .runs-status { width: var(--runs-status-width); min-width: var(--runs-status-width); text-align: right; }
+.runs-name { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.runs-name .attempt-title { font-size: 14px; }
+.runs-kind { margin-left: 8px; font-weight: 400; color: hsl(var(--muted-foreground)); }
+.runs-table tbody tr:hover { background: none; }
+.runs-main > td { padding-bottom: 2px; }
+.runs-result > td { padding-top: 0; border-top: 0; white-space: normal; color: hsl(var(--soft-foreground)); }
+.runs-table tfoot td { border-top: 1px solid hsl(var(--strong-border)); font-weight: 600; }
+.dev-row-open .runs-status a { position: relative; z-index: 1; }
+.runs-tokens { margin: 12px 12px 0; }
+.runs-tokens-wrap { overflow-x: auto; }
+.runs-tokens table { font-size: 13px; font-variant-numeric: tabular-nums; }
+.runs-tokens th, .runs-tokens td { padding: 6px 0 6px 24px; white-space: nowrap; }
+.runs-tokens th:first-child, .runs-tokens td:first-child { padding-left: 0; }
+.runs-tokens thead th { font-size: 12px; }
+.runs-tokens .num { text-align: right; }
+.runs-tokens tbody tr:hover { background: none; }
+.runs-tokens-total td { font-weight: 600; }
+/* On a narrow page the header goes, for the eye only, and the facts of a run take two lines: the run, its cost and
+   its chip, then its model, start and time. The Total row keeps its cost under the costs. */
 @container (max-width: 40rem) {
-  .attempt-usage { display: grid; justify-content: stretch; }
-  .usage-facts, .usage-tokens { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 10px; }
-  .usage-tokens { text-align: left; }
-  /* A long model name takes a second line and stays in its column. */
-  .attempt-usage dd { white-space: normal; overflow-wrap: anywhere; }
-  .attempt-total .usage-time { grid-column: auto; }
-  .attempt-total dt { position: static; width: auto; height: auto; clip-path: none; }
-  .attempt-total dd { margin-top: 2px; }
+  .runs-table, .runs-table tbody, .runs-table tfoot { display: block; }
+  .runs-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .runs-table tr { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--runs-gap); }
+  .runs-table td { padding: 0; border-top: 0; }
+  .runs-table .runs-status { flex: none; }
+  .runs-table tbody .runs-main { row-gap: 4px; padding: 12px 12px 0; border-top: 1px solid hsl(var(--border)); }
+  .runs-main > .runs-name { order: 1; flex: 1 1 0; width: auto; max-width: none; min-width: 0; }
+  .runs-main > .runs-cost { order: 2; }
+  .runs-main > .runs-status { order: 3; }
+  .runs-main::after { content: ""; order: 4; flex-basis: 100%; }
+  .runs-main > .runs-model, .runs-main > .runs-started, .runs-main > .runs-time {
+    order: 5;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: hsl(var(--muted-foreground));
+  }
+  .runs-main > .runs-model { color: hsl(var(--foreground)); font-weight: 500; }
+  .runs-main > .runs-started::before, .runs-main > .runs-time::before { content: "·"; margin-right: 10px; }
+  .runs-table .runs-result { padding: 4px 12px 12px; }
+  /* The Total row has no chip: its cost keeps the place of the costs above, on a line of its own when the words
+     before it need the room. */
+  .runs-table tfoot tr { row-gap: 4px; padding: 12px; border-top: 1px solid hsl(var(--strong-border)); }
+  .runs-table tfoot td { border-top: 0; }
+  .runs-table tfoot .runs-blank, .runs-table tfoot .runs-status { display: none; }
+  .runs-table tfoot .runs-name { flex: none; width: auto; max-width: none; }
+  .runs-table tfoot .runs-time { font-weight: 400; color: hsl(var(--muted-foreground)); }
+  .runs-table tfoot .runs-time::before { content: "·"; margin-right: 10px; }
+  .runs-table tfoot .runs-cost { margin-left: auto; margin-right: calc(var(--runs-status-width) + var(--runs-gap)); }
 }
 /* Definition: one numbered list of steps, each with its kind and what it reads and writes. */
 .dev-page > .page-header { margin-bottom: 0; }

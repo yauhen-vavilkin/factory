@@ -804,10 +804,10 @@ class UiRenderSmokeTest {
                 .doesNotContain("Implementation failed", "DEVELOPMENT_FAILED");
         // The attempt row says the first sentence of the reason and has its start time for time.js.
         String attemptRows = task.substring(task.indexOf("id=\"attempts-title\""));
-        assertThat(text(attemptRows)).contains("The agent reached its limit of 40 turns before it finished. $")
+        assertThat(text(attemptRows)).containsSubsequence("Run 1", "Failed",
+                        "The agent reached its limit of 40 turns before it finished.")
                 .doesNotContain("narrower instructions");
-        assertThat(attemptRows)
-                .contains("<dd>" + timeTag(PageTime.day(Instant.parse("2026-11-10T22:42:00Z"))) + "</dd>");
+        assertThat(attemptRows).contains(timeTag(PageTime.day(Instant.parse("2026-11-10T22:42:00Z"))));
         // The run page links back to its task and attempt.
         String run = assertRendered("/executions/" + execution.getId(), "Developer Flow");
         assertThat(text(run)).contains(reasonCard, "Run 1");
@@ -1908,136 +1908,139 @@ class UiRenderSmokeTest {
     }
 
     @Test
-    void theDashboardSaysWhatTheDeveloperFlowSpentAndHowMuchEndedInAPullRequest() {
+    void theStatisticsTabSaysHowTheTasksAndRunsOfThePeriodEndedAndWhatTheyCost() {
         resetTaskData();
-        var delivered = seedTask("7901", "MODBAR-791", "Task delivered on its second attempt",
-                Task.Eligibility.ELIGIBLE, "repository mod-bar");
-        spendingAttempt(delivered, 1, TaskAttempt.State.STOPPED, 400_000);
-        var pullRequest = spendingAttempt(delivered, 2, TaskAttempt.State.PR_READY, 300_000);
-        pullRequest.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/41");
-        taskAttempts.save(pullRequest);
-        spendingAttempt(seedTask("7902", "MODBAR-792", "Task that only failed", Task.Eligibility.ELIGIBLE,
-                "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 1_200_000);
-        spendingAttempt(seedTask("7903", "MODBAR-793", "Task whose usage has no price", Task.Eligibility.ELIGIBLE,
-                "repository mod-bar"), 1, TaskAttempt.State.STOPPED, null);
-        startedDaysAgo(spendingAttempt(seedTask("7904", "MODBAR-794", "Task that ran three weeks ago",
-                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 5_000_000), 21);
-
-        String block = spendingBlock(assertRendered("/", "Developer Flow spending"));
-        assertThat(text(block)).contains("$1.90 Spent", "$0.30 Ended in a pull request",
-                "$1.60 Runs without a pull request", "$1.90 Cost per pull request", "1 run has no price")
-                // Most expensive first; each row has its Jira key, its attempts, its amount and its My tasks chip.
-                .containsSubsequence("Task that only failed MODBAR-792 1 run $1.20 Failed",
-                        "Task delivered on its second attempt MODBAR-791 2 runs $0.70 PR #41",
-                        "Task whose usage has no price MODBAR-793 1 run cost unknown Failed")
-                .doesNotContain("MODBAR-794");
-        assertThat(block).containsPattern(linkTo("/tasks/" + delivered.getId(), "Task delivered on its second attempt"))
-                .contains("aria-label=\"Ended in a pull request: $0.30 · No pull request: $0.40\"")
-                .doesNotContain("class=\"kpi\"");
-        // The row says what the task page says, and the task page says what each attempt used and cost.
-        assertThat(text(assertRendered("/tasks/" + delivered.getId(), "Pull request #41")))
-                .contains("$0.70 spent in 2 runs")
-                .containsSubsequence("Run 2", "$0.30", "Model", "Started", "Time", "Input 300,000",
-                        "Run 1", "$0.40", "Input 400,000", "Total 2 runs $0.70", "Input 700,000")
-                .doesNotContain("Spending");
-        // A longer period counts the older run too.
-        assertThat(text(spendingBlock(assertRendered("/?days=30", "Developer Flow spending"))))
-                .contains("$6.90 Spent", "$0.30 Ended in a pull request", "$6.60 Runs without a pull request",
-                        "$6.90 Cost per pull request")
-                .containsSubsequence("MODBAR-794 1 run $5.00 Failed", "MODBAR-792");
-    }
-
-    @Test
-    void theDashboardShowsNoDeveloperFlowSpendingWhenNoAttemptStartedInThePeriod() {
-        resetTaskData();
-        assertThat(assertRendered("/", "Dashboard")).doesNotContain("Developer Flow spending");
-        startedDaysAgo(spendingAttempt(seedTask("7905", "MODBAR-795", "Task that ran three weeks ago",
-                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 100_000), 21);
-
-        assertThat(assertRendered("/", "Dashboard")).doesNotContain("Developer Flow spending");
-        assertThat(text(spendingBlock(assertRendered("/?days=30", "Developer Flow spending"))))
-                .contains("$0.10 Spent", "$0.00 Ended in a pull request", "— Cost per pull request")
-                .doesNotContain("no price");
-    }
-
-    @Test
-    void costPerTaskShowsTheFifteenMostExpensiveTasksAndOneLineForTheRest() {
-        resetTaskData();
-        for (int cents = 1; cents <= 17; cents++) {
-            var number = String.format("75%02d", cents);
-            spendingAttempt(seedTask(number, "MODBAR-" + number, "Task of " + cents + " cents",
-                    Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, cents * 10_000L);
-        }
-
-        String block = text(spendingBlock(assertRendered("/", "Developer Flow spending")));
-        assertThat(block).contains("$1.53 Spent", "2 more tasks: $0.03")
-                .containsSubsequence("MODBAR-7517", "MODBAR-7516", "MODBAR-7503", "2 more tasks")
-                .doesNotContain("MODBAR-7502", "MODBAR-7501");
-    }
-
-    @Test
-    void theDashboardSaysWhereTheAttemptsWithoutAPullRequestStopped() {
-        resetTaskData();
-        var task = seedTask("7906", "MODBAR-796", "Task that stopped in three ways", Task.Eligibility.ELIGIBLE,
+        var merged = seedTask("7901", "MODBAR-791", "Task merged after its second run", Task.Eligibility.ELIGIBLE,
                 "repository mod-bar");
-        stoppedAttempt(task, 1, "DEVELOPMENT_FAILED: " + TaskStops.timeLimitReason(60), 2_000_000);
-        stoppedAttempt(task, 2, "DEVELOPMENT_FAILED: Claude Code did not finish within the time limit of 30 minutes,"
-                + " so Factory stopped it.", 1_000_000);
-        stoppedAttempt(task, 3, StopReasons.ofResult(JsonMapper.builder().build().readTree(
-                "{\"state\":\"VERIFICATION_FAILED\",\"testCount\":300,\"failureCount\":2}")), 700_000);
-        var pullRequest = spendingAttempt(task, 4, TaskAttempt.State.PR_READY, 300_000);
-        pullRequest.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/42");
-        taskAttempts.save(pullRequest);
-        stoppedAttempt(seedTask("7907", "MODBAR-797", "Task that asked a question", Task.Eligibility.ELIGIBLE,
+        spendingAttempt(merged, 1, TaskAttempt.State.STOPPED, 400_000);
+        pullRequestAttempt(merged, 2, 300_000, 41, "FINISHED", "MERGED");
+        pullRequestAttempt(seedTask("7902", "MODBAR-792", "Task with an open pull request",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, 200_000, 42, null, null);
+        pullRequestAttempt(seedTask("7903", "MODBAR-793", "Task whose pull request was closed",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, 100_000, 43, "STOPPED", "CLOSED_WITHOUT_MERGE");
+        spendingAttempt(seedTask("7904", "MODBAR-794", "Task that only failed", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 1_200_000);
+        stoppedAttempt(seedTask("7905", "MODBAR-795", "Task that asked a question", Task.Eligibility.ELIGIBLE,
                 "repository mod-bar"), 1, "clarify-implementation: " + TaskStops.DECISION_REASON + "Which API?",
                 100_000);
-        spendingAttempt(seedTask("7908", "MODBAR-798", "Task that is running", Task.Eligibility.ELIGIBLE,
+        spendingAttempt(seedTask("7906", "MODBAR-796", "Task that is running", Task.Eligibility.ELIGIBLE,
                 "repository mod-bar"), 1, TaskAttempt.State.RUNNING, 500_000);
+        spendingAttempt(seedTask("7907", "MODBAR-797", "Task whose run end is not confirmed",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.NEEDS_INSPECTION, null);
+        startedDaysAgo(spendingAttempt(seedTask("7908", "MODBAR-798", "Task that ran three weeks ago",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 4_000_000), 21);
 
-        String block = text(spendingBlock(assertRendered("/", "Developer Flow spending")));
-        assertThat(block).contains("$4.60 Spent", "$4.30 Runs without a pull request");
-        // Each attempt that ended without a pull request counts once, under the cause its task page names, the most
-        // expensive cause first; the attempt with the pull request and the running one have not stopped there.
-        assertThat(block.substring(block.indexOf("Where runs stopped")))
-                .containsSubsequence("Where runs stopped", "Time limit 2 runs $3.00",
-                        "Checks failed 1 run $0.70", "Asked a question 1 run $0.10")
-                .doesNotContain("No changes", "Other", "$0.30", "$0.50");
+        // Every task is in one bucket, the one its chip on My tasks names; every run counts once by its chip.
+        assertThat(text(assertRendered("/developer/statistics", "Developer Flow statistics"))).containsSubsequence(
+                "My tasks Statistics Definition Configuration", "24 hours", "14 days", "90 days",
+                "Tasks 7", "3 of 7 Reached a pull request", "1 Merged", "2 No pull request",
+                "1 Merged", "1 Pull request open", "1 Closed without merge", "1 In progress", "1 Needs inspection",
+                "2 No pull request",
+                "Runs 8", "3 Opened a pull request", "2 Failed", "1 Asked a question", "1 In progress",
+                "1 Needs inspection", "1.1 Runs per task",
+                "Money", "$2.80 Spent", "$0.40 Per task", "$0.33 Per task with a pull request",
+                "$0.70 Per merged task", "1 run has no price", "By model and effort")
+                .doesNotContain("MODBAR-79", "No runs started in this period.");
+        // A longer period counts the older run and its task too.
+        assertThat(text(assertRendered("/developer/statistics?days=30", "Developer Flow statistics")))
+                .containsSubsequence("Tasks 8", "3 of 8 Reached a pull request", "3 No pull request", "Runs 9",
+                        "3 Failed", "1.1 Runs per task", "$6.80 Spent", "$0.85 Per task");
     }
 
     @Test
-    void theDashboardLeavesOutWhereAttemptsStoppedWhenNoneStopped() {
+    void theStatisticsTabLeavesOutTheBucketsNoTaskOrRunIsInAndSaysWhenNoneIsMerged() {
         resetTaskData();
-        var pullRequest = spendingAttempt(seedTask("7909", "MODBAR-799", "Task delivered at once",
-                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.PR_READY, 300_000);
-        pullRequest.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/43");
-        taskAttempts.save(pullRequest);
+        spendingAttempt(seedTask("7909", "MODBAR-799", "Task that only failed", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 300_000);
 
-        assertThat(text(spendingBlock(assertRendered("/", "Developer Flow spending"))))
-                .contains("$0.30 Spent").doesNotContain("Where runs stopped");
+        assertThat(text(assertRendered("/developer/statistics", "Developer Flow statistics")))
+                .containsSubsequence("Tasks 1", "0 of 1 Reached a pull request", "0 Merged", "1 No pull request",
+                        "0 Merged", "0 Pull request open", "0 Closed without merge", "1 No pull request",
+                        "Runs 1", "0 Opened a pull request", "1 Failed", "0 Asked a question", "1.0 Runs per task",
+                        "$0.30 Spent", "$0.30 Per task", "— Per task with a pull request", "— Per merged task")
+                .doesNotContain("In progress", "Needs inspection", "no price");
     }
 
     @Test
-    void theDashboardSaysWhatEachModelAndEffortCostAndHowManyPullRequestsItOpened() {
+    void theStatisticsTabSaysWhenNoRunStartedInThePeriod() {
         resetTaskData();
-        var task = seedTask("7910", "MODBAR-7910", "Task delivered with a second model", Task.Eligibility.ELIGIBLE,
+        startedDaysAgo(spendingAttempt(seedTask("7910", "MODBAR-7910", "Task that ran three weeks ago",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 100_000), 21);
+
+        assertThat(text(assertRendered("/developer/statistics", "Developer Flow statistics")))
+                .contains("No runs started in this period.").doesNotContain("Tasks", "Money", "By model and effort");
+        assertThat(text(assertRendered("/developer/statistics?days=30", "Developer Flow statistics")))
+                .contains("Tasks 1", "$0.10 Spent").doesNotContain("No runs started in this period.");
+        assertThat(assertRendered("/developer/statistics?days=30", "Developer Flow statistics"))
+                .containsPattern(linkTo("/developer/statistics?days=7", "7 days"))
+                .contains("aria-current=\"page\">30 days</a>");
+    }
+
+    @Test
+    void theStatisticsTabSaysWhatEachModelAndEffortCostAndHowManyPullRequestsItOpened() {
+        resetTaskData();
+        var task = seedTask("7911", "MODBAR-7911", "Task delivered with a second model", Task.Eligibility.ELIGIBLE,
                 "repository mod-bar");
         withSettings(spendingAttempt(task, 1, TaskAttempt.State.STOPPED, 900_000), "glm-5.3", "max");
-        var pullRequest = withSettings(spendingAttempt(task, 2, TaskAttempt.State.PR_READY, 300_000),
-                "glm-5.3-flash", "high");
-        pullRequest.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/44");
-        taskAttempts.save(pullRequest);
-        withSettings(spendingAttempt(seedTask("7911", "MODBAR-7911", "Task that only failed",
+        withSettings(pullRequestAttempt(task, 2, 300_000, 44, null, null), "glm-5.3-flash", "high");
+        withSettings(spendingAttempt(seedTask("7912", "MODBAR-7912", "Task that only failed",
                 Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 700_000), "glm-5.3",
                 "max");
-        spendingAttempt(seedTask("7912", "MODBAR-7912", "Task run before models were recorded",
+        spendingAttempt(seedTask("7913", "MODBAR-7913", "Task run before models were recorded",
                 Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 100_000);
+        spendingAttempt(seedTask("7914", "MODBAR-7914", "Task whose run has no price", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar"), 1, TaskAttempt.State.STOPPED, null);
 
-        String block = text(spendingBlock(assertRendered("/", "Developer Flow spending")));
-        assertThat(block.substring(block.indexOf("By model and effort")))
-                .containsSubsequence("By model and effort",
-                        "glm-5.3 · max 2 runs 0 pull requests $0.80 per run $1.60",
-                        "glm-5.3-flash · high 1 run 1 pull request $0.30 per run $0.30",
-                        "Model not recorded 1 run 0 pull requests $0.10 per run $0.10");
+        String page = text(assertRendered("/developer/statistics", "Developer Flow statistics"));
+        assertThat(page.substring(page.indexOf("By model and effort")))
+                .containsSubsequence("By model and effort", "Model · effort Runs Pull requests Per run Spent",
+                        "glm-5.3 · max 2 0 $0.80 $1.60",
+                        "glm-5.3-flash · high 1 1 $0.30 $0.30",
+                        "Model not recorded 2 0 $0.10 $0.10");
+    }
+
+    @Test
+    void theDashboardSaysWhatTheDeveloperFlowSpentAndOpensItsStatisticsForTheSamePeriod() {
+        resetTaskData();
+        assertThat(text(assertRendered("/", "Dashboard"))).doesNotContain("Developer Flow");
+        spendingAttempt(seedTask("7915", "MODBAR-7915", "Task that only failed", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 1_200_000);
+        startedDaysAgo(spendingAttempt(seedTask("7916", "MODBAR-7916", "Task that ran three weeks ago",
+                Task.Eligibility.ELIGIBLE, "repository mod-bar"), 1, TaskAttempt.State.STOPPED, 5_000_000), 21);
+
+        String dashboard = assertRendered("/", "Dashboard");
+        assertThat(text(dashboard)).containsSubsequence("Cancelled or rejected", "Developer Flow $1.20 spent Statistics",
+                "Runs started per day");
+        assertThat(dashboard).containsPattern(linkTo("/developer/statistics?days=14", "Statistics"));
+        String month = assertRendered("/?days=30", "Dashboard");
+        assertThat(text(month)).contains("Developer Flow $6.20 spent Statistics");
+        assertThat(month).containsPattern(linkTo("/developer/statistics?days=30", "Statistics"));
+        assertThat(text(assertRendered("/?days=1", "Dashboard"))).contains("Developer Flow $1.20 spent");
+    }
+
+    @Test
+    void theRunsOfTheTaskPageAreOneTableWithItsLabelsOnceAndATotalInTheSameColumns() {
+        resetTaskData();
+        var task = seedTask("7917", "MODBAR-7917", "Task delivered on its third run", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+        spendingAttempt(task, 1, TaskAttempt.State.STOPPED, 400_000);
+        spendingAttempt(task, 2, TaskAttempt.State.STOPPED, 200_000);
+        pullRequestAttempt(task, 3, 300_000, 45, null, null);
+
+        String runs = runsBlock(assertRendered("/tasks/" + task.getId(), "Pull request #45"));
+        assertThat(text(runs)).containsSubsequence("Runs 3", "Run Model Started Time Cost Status",
+                        "Run 3 retry", "$0.30", "PR #45", "Run 2 retry", "$0.20", "Failed",
+                        "Run 1", "$0.40", "Failed", "Total 3 runs", "$0.90",
+                        "Tokens", "Run Input", "Run 3 300,000", "Run 2 200,000", "Run 1 400,000", "Total 900,000");
+        for (var label : List.of(">Model<", ">Started<", ">Time<", ">Cost<", ">Status<")) {
+            assertThat(runs.split(Pattern.quote(label), -1)).as(label).hasSize(2);
+        }
+        // One run has no Total row.
+        var single = seedTask("7918", "MODBAR-7918", "Task that only failed", Task.Eligibility.ELIGIBLE,
+                "repository mod-bar");
+        spendingAttempt(single, 1, TaskAttempt.State.STOPPED, 400_000);
+        assertThat(text(runsBlock(assertRendered("/tasks/" + single.getId(), "Failed"))))
+                .contains("Run 1", "$0.40", "Tokens", "Run 1 400,000").doesNotContain("Total");
     }
 
     private TaskAttempt withSettings(TaskAttempt attempt, String modelId, String effort) {
@@ -2053,12 +2056,34 @@ class UiRenderSmokeTest {
         taskAttempts.save(attempt);
     }
 
-    /** The Developer Flow spending block of a Dashboard page, which stands between the tiles and the charts. */
-    private static String spendingBlock(String dashboard) {
-        int start = dashboard.indexOf("id=\"spending-title\"");
-        assertThat(start).as("spending block").isPositive()
-                .isGreaterThan(dashboard.indexOf("Cancelled or rejected</span>"));
-        return dashboard.substring(start, dashboard.indexOf("class=\"charts-grid\""));
+    /** Runs of the task page, from its title to the end of the page. */
+    private static String runsBlock(String taskPage) {
+        int start = taskPage.indexOf("id=\"attempts-title\"");
+        assertThat(start).as("Runs").isPositive();
+        return taskPage.substring(start);
+    }
+
+    /**
+     * An attempt whose run opened pull request {@code number} and reported {@code inputTokens} at $1 per million.
+     * {@code phase} and {@code completion} say how its PR feedback saw the pull request end; null while it is open.
+     */
+    private TaskAttempt pullRequestAttempt(Task task, int ordinal, long inputTokens, int number, String phase,
+                                           String completion) {
+        var execution = executions.save(new PipelineExecution("dev-factory",
+                org.folio.factory.devfactory.feedback.FeedbackArtifacts.VERSION, "{}"));
+        var attempt = spendingAttempt(task, ordinal, TaskAttempt.State.PR_READY, inputTokens, execution);
+        attempt.setPublicationIdentity("https://github.com/folio-org/mod-bar/pull/" + number);
+        if (phase != null) {
+            var id = execution.getId();
+            artifactStore.put(id, "dev_pr_state.json", "{\"round\":0,\"pr\":" + PR_6 + ",\"phase\":\"READY\"}",
+                    "application/json", "test");
+            artifactStore.put(id, "dev_pr_state.json", "{\"round\":0,\"pr\":" + PR_6.replace("\"open\":true",
+                    "\"open\":false") + ",\"phase\":\"" + phase + "\",\"completionReason\":\"" + completion + "\"}",
+                    "application/json", "test");
+            artifactStore.put(id, "dev_pr_comments.json", "{\"id\":\"s1\",\"pr\":" + PR_6 + ",\"comments\":[]}",
+                    "application/json", "test");
+        }
+        return taskAttempts.save(attempt);
     }
 
     /**
@@ -2066,7 +2091,16 @@ class UiRenderSmokeTest {
      * given; null tokens report 100,000 tokens without a price.
      */
     private TaskAttempt spendingAttempt(Task task, int ordinal, TaskAttempt.State state, Long inputTokens) {
-        var execution = executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}"));
+        return spendingAttempt(task, ordinal, state, inputTokens,
+                executions.save(new PipelineExecution("dev-factory", "0.6.0", "{}")));
+    }
+
+    private TaskAttempt spendingAttempt(Task task, int ordinal, TaskAttempt.State state, long inputTokens) {
+        return spendingAttempt(task, ordinal, state, Long.valueOf(inputTokens));
+    }
+
+    private TaskAttempt spendingAttempt(Task task, int ordinal, TaskAttempt.State state, Long inputTokens,
+                                        PipelineExecution execution) {
         var attempt = seedAttempt(task, ordinal, ordinal == 1 ? TaskAttempt.Kind.INITIAL : TaskAttempt.Kind.RETRY,
                 state, state == TaskAttempt.State.STOPPED ? "DEVELOPMENT_FAILED: " + TaskStops.NO_CHANGES_REASON : null);
         attempt.setExecutionId(execution.getId());
@@ -2078,10 +2112,6 @@ class UiRenderSmokeTest {
                         "inputTokens", inputTokens == null ? 100_000 : inputTokens, "cacheReadTokens", 0,
                         "cacheWriteTokens", 0, "outputTokens", 0, "rate", rate));
         return taskAttempts.save(attempt);
-    }
-
-    private TaskAttempt spendingAttempt(Task task, int ordinal, TaskAttempt.State state, long inputTokens) {
-        return spendingAttempt(task, ordinal, state, Long.valueOf(inputTokens));
     }
 
     /** Moves the start of the attempt's run back by that many days; a run's start is never updated otherwise. */
@@ -2104,7 +2134,7 @@ class UiRenderSmokeTest {
                 "data-poll-url=\"/tasks/" + stopped.getId() + "/poll\"",
                 "<p class=\"dev-poll-notice\" role=\"status\" data-poll-notice hidden>This task changed.");
         // An attempt that reported no tokens has its model, start and time, and no token columns.
-        assertThat(body).contains("<dt>Model</dt>").doesNotContain("usage-tokens");
+        assertThat(text(runsBlock(body))).contains("Run Model Started Time Cost Status").doesNotContain("Tokens");
         Matcher baseline = Pattern.compile("data-poll-baseline=\"([0-9a-f]+)\"").matcher(body);
         assertThat(baseline.find()).isTrue();
         // Nothing changed since the page was built: the poll gives the page's own baseline.
@@ -2148,8 +2178,8 @@ class UiRenderSmokeTest {
                 .doesNotContain("id=\"retry\"", "What should the agent do differently?", "I read the code.");
         // The attempt row has the chip of the status card: the question of the latest attempt waits for an answer.
         // The row says the question, without the words the flow stores before it.
-        assertThat(body.substring(body.indexOf("id=\"attempts-title\"")))
-                .contains(">Remove &lt;old&gt; routes too?</div>", ">Needs your answer</span>")
+        assertThat(text(runsBlock(body))).containsSubsequence("Run 1", "Needs your answer",
+                        "Remove &lt;old&gt; routes too?")
                 .doesNotContainIgnoringCase("human decision");
     }
 

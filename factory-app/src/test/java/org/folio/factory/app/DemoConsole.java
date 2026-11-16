@@ -67,9 +67,11 @@ import java.util.UUID;
  * whose end Factory could not confirm, with and without the queue held and after it opened a pull request.
  *
  * <p>Every run that reached the agent reports its usage the way the coding step does, with the model, the effort
- * and the price from config/developer-models.yaml (two models, three efforts), so every finished attempt has a
- * cost and the Dashboard shows the Developer Flow spending: the task delivered on the third attempt failed twice
- * first, and the task stopped at the time limit is the most expensive one.
+ * and the price from config/developer-models.yaml (two models, three efforts), so the finished runs have a cost and
+ * the Dashboard line and the Statistics tab have figures: the task delivered on the third run failed twice first,
+ * and the task stopped at the time limit is the most expensive one. The second run of the task whose third run
+ * waits in line reported its tokens without a price, and one task ran 20 days ago, so the Statistics tab counts it
+ * for 30 days and not for 14.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.DEFINED_PORT, properties = "server.port=8090")
 @Import({StubLlmConfiguration.class, SharedDatabase.class})
@@ -142,6 +144,7 @@ class DemoConsole {
         roundFailed();
         roundKeyInChanges();
         endNotConfirmed();
+        ranTwentyDaysAgo();
         System.out.println("Demo console: http://localhost:8090/flows/dev-factory");
         Thread.sleep(Duration.ofHours(8));
     }
@@ -324,7 +327,7 @@ class DemoConsole {
         attempt(task, 1, TaskAttempt.State.STOPPED, "DEVELOPMENT_FAILED: " + TaskStops.NO_CHANGES_REASON,
                 execution("0.6.0", ExecutionStatus.COMPLETED, 10));
         attempt(task, 2, TaskAttempt.State.STOPPED, "DEVELOPMENT_FAILED: " + TaskStops.OUTPUT_LIMIT_REASON,
-                execution("0.6.0", ExecutionStatus.COMPLETED, 10));
+                unpricedExecution());
         instructed(attempt(task, 3, TaskAttempt.State.RESERVED, null, null), RUNS.get(0), null);
     }
 
@@ -539,6 +542,20 @@ class DemoConsole {
                 "application/json", "demo");
     }
 
+    /** A failed run that started 20 days ago, so only a period of 30 days or more counts it. */
+    private void ranTwentyDaysAgo() {
+        var execution = execution("0.6.0", ExecutionStatus.COMPLETED, 10);
+        var attempt = attempt(task("80040", "MODBAR-840", "Task that ran 20 days ago"), TaskAttempt.State.STOPPED,
+                "DEVELOPMENT_FAILED: " + TaskStops.NO_CHANGES_REASON, execution);
+        var started = Instant.now().minus(Duration.ofDays(20));
+        attempt.setStartedAt(started);
+        attempt.setPaidStartAt(started);
+        attempt.setDeadlineAt(started.plus(Duration.ofMinutes(30)));
+        attempts.save(attempt);
+        jdbc.update("UPDATE pipeline_execution SET created_at = now() - make_interval(days => 20) WHERE id = ?",
+                execution.getId());
+    }
+
     private static String comment(String id, String author, String body, String path, int line, int pull) {
         return "{\"id\":\"" + id + "\",\"author\":\"" + author + "\",\"body\":\"" + body + "\",\"path\":\"" + path
                 + "\",\"line\":" + line + ",\"outdated\":false,\"updatedAt\":\"\",\"url\":\"" + PULL + pull
@@ -586,7 +603,19 @@ class DemoConsole {
      */
     private void usage(PipelineExecution execution, AuditEventType type, int scale) {
         var settings = settingsByRun.computeIfAbsent(execution.getId(), id -> RUNS.get(settingsByRun.size() % 3));
-        var rate = rates.snapshot(settings.modelId(), null);
+        report(execution, type, scale, rates.snapshot(settings.modelId(), null));
+    }
+
+    /** A finished run whose coding step reported its tokens without a price, as a model without one does. */
+    private PipelineExecution unpricedExecution() {
+        var execution = bareExecution("0.6.0", ExecutionStatus.COMPLETED, 10);
+        var settings = settingsByRun.computeIfAbsent(execution.getId(), id -> RUNS.get(settingsByRun.size() % 3));
+        report(execution, AuditEventType.STEP_COMPLETED, 2, Map.of("model", settings.modelId()));
+        return execution;
+    }
+
+    /** The usage event of one coding call; a {@code rate} without amounts gives the run no price. */
+    private void report(PipelineExecution execution, AuditEventType type, int scale, Map<String, Object> rate) {
         var usage = new LinkedHashMap<String, Object>(TokenUsage.withFactoryTotals(Map.<String, Object>of("inputTokens",
                 184_000L * scale, "cacheReadTokens", 920_000L * scale, "cacheWriteTokens", 0L,
                 "outputTokens", 12_400L * scale)));

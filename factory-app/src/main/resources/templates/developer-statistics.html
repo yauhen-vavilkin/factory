@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html th:replace="~{fragments/layout :: page(title='Developer Flow statistics', activeNav='flows', content=~{:: .page-body}, scripts=~{})}"
+      xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+<section class="page-body">
+    <div class="dev-page">
+        <th:block th:replace="~{fragments/developer-flow :: header(${flow}, 'statistics')}"></th:block>
+
+        <div class="stat-period">
+            <nav class="period-choice" aria-label="Period">
+                <a th:each="p : ${periods}" th:href="@{/developer/statistics(days=${p.days()})}" th:text="${p.label()}"
+                   th:attrappend="aria-current=${p.days() == days} ? 'page'">14 days</a>
+            </nav>
+        </div>
+        <p class="dev-empty" th:if="${statistics == null}">No runs started in this period.</p>
+
+        <th:block th:if="${statistics != null}" th:with="stats=${statistics}">
+            <section class="dev-list" aria-labelledby="stat-tasks-title">
+                <div class="dev-list-head">
+                    <h2 class="dev-section-title" id="stat-tasks-title">Tasks <span class="dev-count"
+                            th:text="${stats.tasks().count()}">8</span></h2>
+                </div>
+                <div class="spend-figures">
+                    <div class="spend-figure" th:each="figure : ${stats.tasks().figures()}">
+                        <span class="spend-value" th:text="${figure.value()}">7 of 8</span>
+                        <span class="spend-label" th:text="${figure.label()}">Reached a pull request</span>
+                    </div>
+                </div>
+                <div class="stat-bar" role="img" th:attr="aria-label=${stats.tasks().barLabel()}"><span
+                        th:each="bucket : ${stats.tasks().buckets()}" th:if="${bucket.count() > 0}"
+                        th:class="'stat-' + ${bucket.key()}" th:style="|flex-grow: ${bucket.count()}|"></span></div>
+                <div class="stat-legend">
+                    <span class="stat-key" th:each="bucket : ${stats.tasks().buckets()}"
+                          th:classappend="'stat-' + ${bucket.key()}"><strong
+                            th:text="${bucket.count()}">3</strong><span th:text="${bucket.label()}">Merged</span></span>
+                </div>
+            </section>
+
+            <section class="dev-list" aria-labelledby="stat-runs-title">
+                <div class="dev-list-head">
+                    <h2 class="dev-section-title" id="stat-runs-title">Runs <span class="dev-count"
+                            th:text="${stats.runs().count()}">17</span></h2>
+                </div>
+                <div class="spend-figures">
+                    <div class="spend-figure" th:each="figure : ${stats.runs().figures()}">
+                        <span class="spend-value" th:text="${figure.value()}">7</span>
+                        <span class="spend-label" th:text="${figure.label()}">Opened a pull request</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="dev-list" aria-labelledby="stat-money-title">
+                <div class="dev-list-head">
+                    <h2 class="dev-section-title" id="stat-money-title">Money</h2>
+                </div>
+                <div class="spend-figures">
+                    <div class="spend-figure" th:each="figure : ${stats.money().figures()}">
+                        <span class="spend-value" th:text="${figure.value()}">$16.46</span>
+                        <span class="spend-label" th:text="${figure.label()}">Spent</span>
+                    </div>
+                </div>
+                <p class="dev-list-note" th:if="${stats.money().unpricedNote() != null}"
+                   th:text="${stats.money().unpricedNote()}">2 runs have no price</p>
+            </section>
+
+            <section class="dev-list" aria-labelledby="stat-models-title">
+                <div class="dev-list-head">
+                    <h2 class="dev-section-title" id="stat-models-title">By model and effort</h2>
+                </div>
+                <div class="stat-table">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th scope="col">Model · effort</th>
+                            <th scope="col" class="num">Runs</th>
+                            <th scope="col" class="num">Pull requests</th>
+                            <th scope="col" class="num">Per run</th>
+                            <th scope="col" class="num">Spent</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="row : ${stats.models()}">
+                            <td th:text="${row.label()}">glm-5.3 · high</td>
+                            <td class="num" th:text="${row.runs()}">4</td>
+                            <td class="num" th:text="${row.pullRequests()}">1</td>
+                            <td class="num" th:text="${row.perRun()}">$2.05</td>
+                            <td class="num" th:classappend="${row.spentNote()} ? 'row-amount-note'"
+                                th:text="${row.spent()}">$8.21</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </th:block>
+    </div>
+</section>
+</body>
+</html>

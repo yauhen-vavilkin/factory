@@ -60,16 +60,15 @@ public final class RunRows {
     }
 
     /**
-     * The time the agent worked in all attempts together, rounded once, so it can be a minute more than the times
-     * in the Runs rows of the task page add up to. Null while the task is queued or works, and when no attempt
-     * reached the agent.
+     * The time the agent worked in all attempts together, as the Total of Runs on the task page adds it up. Null
+     * while the task is queued or works, and when no attempt reached the agent.
      */
     private static String agentTime(TaskView view) {
         var paid = view.attempts().stream().filter(TaskView.AttemptHistoryEntry::paidStart).toList();
         if (view.state() == TaskView.TaskState.WORKING || paid.isEmpty()) {
             return null;
         }
-        return minutes(paid.stream().mapToLong(TaskView.AttemptHistoryEntry::activeSeconds).sum());
+        return TaskLabels.addedMinutes(paid);
     }
 
     /** The page where the developer acts: the task page at the answer or the next attempt, or PR feedback. */

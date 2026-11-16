@@ -2,7 +2,7 @@ package org.folio.factory.app.web;
 
 import lombok.RequiredArgsConstructor;
 import org.folio.factory.app.tasks.persistence.RunState;
-import org.folio.factory.app.tasks.presentation.SpendingRows;
+import org.folio.factory.app.tasks.presentation.StatisticsRows;
 import org.folio.factory.app.web.dashboard.DashboardStats.StepTokenCount;
 import org.folio.factory.app.web.dashboard.DashboardStats.TokenUsage;
 import org.folio.factory.app.web.dashboard.DashboardStatsService;
@@ -36,10 +36,10 @@ import java.util.TreeMap;
 import java.util.UUID;
 
 /**
- * Server-rendered operational views: the Dashboard home ({@code /}) with KPI
- * cards, the Developer Flow spending and interactive charts, the platform Status page (engine, connectors,
- * flow registry) and the Audit page (paged, filterable event feed). All draw on
- * the same beans as their REST counterparts.
+ * Server-rendered operational views: the Dashboard home ({@code /}) with KPI cards, one line with what the
+ * Developer Flow spent and a link to its Statistics tab, and interactive charts; the platform Status page (engine,
+ * connectors, flow registry) and the Audit page (paged, filterable event feed). All draw on the same beans as their
+ * REST counterparts.
  */
 @Controller
 @RequiredArgsConstructor
@@ -54,7 +54,7 @@ public class DashboardUiController {
     private final AuditEventRepository audit;
     private final JsonMapper jsonMapper;
     private final DashboardStatsService dashboardStats;
-    private final SpendingRows spending;
+    private final StatisticsRows statistics;
 
     /** A run tile: the runs started in the period that are in one state, or all of them, linked to that list. */
     public record RunTile(String label, String count, String url) {
@@ -67,8 +67,8 @@ public class DashboardUiController {
         model.addAttribute("days", window);
         model.addAttribute("periods", RunPeriod.values());
         model.addAttribute("runTiles", runTiles(window));
-        spending.since(period.since(Instant.now()).toInstant())
-                .ifPresent(block -> model.addAttribute("spending", block));
+        statistics.spentSince(period.since(Instant.now()).toInstant())
+                .ifPresent(spent -> model.addAttribute("developerSpent", spent));
 
         model.addAttribute("engineEnabled", engineProperties.enabled());
         Map<String, Boolean> connectorConfig = connectorConfiguration();

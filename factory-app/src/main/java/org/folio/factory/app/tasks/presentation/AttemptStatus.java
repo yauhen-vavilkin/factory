@@ -24,7 +24,7 @@ public record AttemptStatus(String chipLabel, String chipClass, String chipUrl, 
 
     /** The status of {@code attempt}, one of the attempts of {@code view}. */
     public static AttemptStatus of(TaskView view, TaskView.AttemptHistoryEntry attempt) {
-        if (attempt.pullRequestUrl() != null && attempt.state() != TaskAttempt.State.NEEDS_INSPECTION) {
+        if (showsPullRequest(attempt)) {
             return pullRequest(attempt);
         }
         return switch (attempt.state()) {
@@ -54,6 +54,19 @@ public record AttemptStatus(String chipLabel, String chipClass, String chipUrl, 
                 TaskLabels.pullRequestLabel(chipUrl) + (merged ? " is merged" : " was closed without merge"));
     }
 
+    /**
+     * The attempt's chip is its pull request. {@link TaskResult} and {@link RunResult} read this and
+     * {@link #asks} so that they count each attempt under the chip it has.
+     */
+    static boolean showsPullRequest(TaskView.AttemptHistoryEntry attempt) {
+        return attempt.pullRequestUrl() != null && attempt.state() != TaskAttempt.State.NEEDS_INSPECTION;
+    }
+
+    /** The stopped attempt asked a question, or is the latest one and its question waits for an answer. */
+    static boolean asks(TaskView view, TaskView.AttemptHistoryEntry attempt) {
+        return attempt.asked() || waitsForAnswer(view, attempt);
+    }
+
     /** Factory could not confirm how the run of this attempt ended. */
     public boolean needsInspection() {
         return NEEDS_INSPECTION.equals(chipLabel);
@@ -68,12 +81,16 @@ public record AttemptStatus(String chipLabel, String chipClass, String chipUrl, 
     }
 
     private static AttemptStatus stopped(TaskView view, TaskView.AttemptHistoryEntry attempt) {
-        var waits = attempt == view.attempts().getLast() && view.needsAnswer();
-        if (!attempt.asked() && !waits) {
+        if (!asks(view, attempt)) {
             return new AttemptStatus("Failed", "chip chip-danger", null, "Run " + attempt.ordinal() + " failed");
         }
-        return new AttemptStatus(waits ? TaskLabels.NEEDS_ANSWER : "Asked a question", "chip chip-warning", null,
+        var label = waitsForAnswer(view, attempt) ? TaskLabels.NEEDS_ANSWER : "Asked a question";
+        return new AttemptStatus(label, "chip chip-warning", null,
                 "The agent stopped with a question");
+    }
+
+    private static boolean waitsForAnswer(TaskView view, TaskView.AttemptHistoryEntry attempt) {
+        return attempt == view.attempts().getLast() && view.needsAnswer();
     }
 
     /** "Next in line" or "3rd in line" for an attempt that waits for the dispatcher. */

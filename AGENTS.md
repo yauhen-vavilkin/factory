@@ -213,8 +213,8 @@ Conventions that are easy to violate silently:
   choose between options; clear UI fixes go straight to code.
 - **A remark changes what it names.** A remark about one element changes that element on every page
   that shows it, and nothing else. A task's state and whose turn it is are worked out in
-  `TaskRows` (My tasks, task page), `RunStatusCard.turn` (run page), `FeedbackUi.standing` and
-  `AttemptStatus.of`: change them together, and never work them out in a template. One session at
+  `TaskRows` (My tasks, task page), `RunStatusCard.turn` (run page), `FeedbackUi.standing`,
+  `AttemptStatus.of`, and `TaskResult` and `RunResult` (Statistics tab): change them together, and never work them out in a template. One session at
   a time edits the console pages (templates, `static/`, the page row classes): no parallel
   sessions or implementer agents on them.
 - **A page says run, the code says attempt.** The texts of the pages call a task attempt a run

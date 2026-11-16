@@ -122,67 +122,92 @@
                     th:text="${#lists.size(attempts)}">1</span></h2>
             <span class="src">Factory</span>
         </div>
-        <div class="dev-row attempt-card" th:each="attempt : ${attempts}"
-             th:classappend="${attempt.executionId() != null} ? 'dev-row-open'">
-            <div class="dev-row-main">
-                <div class="attempt-head"><a class="dev-row-link" th:if="${attempt.executionId() != null}"
-                        th:href="@{'/executions/' + ${attempt.executionId()}}"
-                        th:attr="aria-label='Open run ' + ${attempt.ordinal()}"><strong class="attempt-title"
-                            th:text="'Run ' + ${attempt.ordinal()}">Run 1</strong></a><strong
-                        class="attempt-title" th:if="${attempt.executionId() == null}"
-                        th:text="'Run ' + ${attempt.ordinal()}">Run 1</strong>
-                    <span th:if="${attempt.kind() != null}" th:text="${attempt.kind()}">retry</span>
-                    <span th:if="${attempt.quote() != null}" th:text="${attempt.quote()}">"first line"</span></div>
-                <div class="attempt-result" th:text="${attempt.result()}">How it
-                    ended.</div>
-            </div>
-            <div class="row-cluster row-cluster-status">
-                <span class="row-amount" th:classappend="${attempt.cost() == null} ? 'row-amount-note'"
-                      th:title="${attempt.costNoteTitle()}" th:text="${attempt.costText()}">$0.00</span>
-                <a th:if="${attempt.status().chipUrl() != null}" th:class="${attempt.status().chipClass()} + ' ext-link'"
-                   th:href="${attempt.status().chipUrl()}" th:text="${attempt.status().chipLabel()}">Draft PR #6</a>
-                <span th:if="${attempt.status().chipUrl() == null}" th:class="${attempt.status().chipClass()}"
-                      th:text="${attempt.status().chipLabel()}">Failed</span>
-            </div>
-            <div class="attempt-usage">
-                <dl class="usage-facts">
-                    <div><dt>Model</dt>
-                        <dd th:text="${attempt.settings() ?: '—'}" th:title="${attempt.settings()}">glm-5.3 · max</dd></div>
-                    <div><dt>Started</dt>
-                        <dd><time th:replace="~{fragments/components :: pageTime(${attempt.started()})}"></time><span
-                                th:if="${attempt.note() != null}" th:text="${attempt.note()}">not started</span></dd></div>
-                    <div><dt>Time</dt>
-                        <dd><span th:if="${attempt.clock() != null}"
-                                  th:attr="data-elapsed-start=${attempt.clock().start()}"
-                                  th:text="${attempt.clock().time()}">13 min</span><span
-                                th:if="${attempt.clock() == null}">—</span></dd></div>
-                </dl>
-                <dl class="usage-tokens" th:unless="${#lists.isEmpty(spending.tokenColumns())}">
-                    <div th:each="column, at : ${spending.tokenColumns()}"><dt th:text="${column}">Input</dt>
-                        <dd th:text="${attempt.tokens().counts()[at.index]}">0</dd></div>
-                </dl>
-            </div>
+        <!-- One run is one tbody of two rows, so the link of the run covers both and they highlight together; the
+             roles keep it a table for a screen reader where the narrow layout changes how the rows display. -->
+        <div class="runs-wrap">
+            <table class="runs-table" role="table">
+                <thead role="rowgroup">
+                <tr role="row">
+                    <th scope="col" role="columnheader">Run</th>
+                    <th scope="col" role="columnheader">Model</th>
+                    <th scope="col" role="columnheader">Started</th>
+                    <th scope="col" role="columnheader" class="num">Time</th>
+                    <th scope="col" role="columnheader" class="num">Cost</th>
+                    <th scope="col" role="columnheader" class="runs-status">Status</th>
+                </tr>
+                </thead>
+                <tbody role="rowgroup" th:each="attempt : ${attempts}"
+                       th:classappend="${attempt.executionId() != null} ? 'dev-row-open'">
+                <tr role="row" class="runs-main">
+                    <td role="cell" class="runs-name"><a class="dev-row-link" th:if="${attempt.executionId() != null}"
+                            th:href="@{'/executions/' + ${attempt.executionId()}}"
+                            th:attr="aria-label='Open run ' + ${attempt.ordinal()}"><strong class="attempt-title"
+                                th:text="'Run ' + ${attempt.ordinal()}">Run 1</strong></a><strong
+                            class="attempt-title" th:if="${attempt.executionId() == null}"
+                            th:text="'Run ' + ${attempt.ordinal()}">Run 1</strong><span class="runs-kind"
+                            th:if="${attempt.kind() != null}" th:text="${attempt.kind()}">retry</span><span
+                            class="runs-kind" th:if="${attempt.quote() != null}"
+                            th:text="${attempt.quote()}">"first line"</span></td>
+                    <td role="cell" class="runs-model" th:text="${attempt.settings() ?: '—'}"
+                        th:title="${attempt.settings()}">glm-5.3 · max</td>
+                    <td role="cell" class="runs-started"><time
+                            th:replace="~{fragments/components :: pageTime(${attempt.started()})}"></time><span
+                            class="row-amount-note" th:if="${attempt.note() != null}"
+                            th:text="${attempt.note()}">not started</span></td>
+                    <td role="cell" class="num runs-time"><span th:if="${attempt.clock() != null}"
+                            th:attr="data-elapsed-start=${attempt.clock().start()}"
+                            th:text="${attempt.clock().time()}">13 min</span><span
+                            th:if="${attempt.clock() == null}">—</span></td>
+                    <td role="cell" class="num runs-cost"><span class="row-amount"
+                            th:classappend="${attempt.cost() == null} ? 'row-amount-note'"
+                            th:title="${attempt.costNoteTitle()}" th:text="${attempt.costText()}">$0.00</span></td>
+                    <td role="cell" class="runs-status"><th:block
+                            th:replace="~{fragments/developer-flow :: statusChip(${attempt.status()})}"></th:block></td>
+                </tr>
+                <tr role="row" class="runs-result">
+                    <td role="cell" colspan="6" th:text="${attempt.result()}">How it ended.</td>
+                </tr>
+                </tbody>
+                <tfoot role="rowgroup" th:if="${spending.total() != null}">
+                <tr role="row">
+                    <td role="cell" class="runs-name">Total<span class="runs-kind"
+                            th:text="${spending.total().attempts()}">3 runs</span></td>
+                    <td role="cell" class="runs-blank"></td>
+                    <td role="cell" class="runs-blank"></td>
+                    <td role="cell" class="num runs-time" th:text="${spending.total().time()}">1 h 10 min</td>
+                    <td role="cell" class="num runs-cost"><span class="row-amount"
+                            th:title="${spending.total().costTitle()}"
+                            th:text="${spending.total().cost()}">$0.00</span></td>
+                    <td role="cell" class="runs-status"></td>
+                </tr>
+                </tfoot>
+            </table>
         </div>
-        <div class="dev-row attempt-card attempt-total" th:if="${spending.total() != null}">
-            <div class="dev-row-main">
-                <div class="attempt-head"><strong class="attempt-title">Total</strong>
-                    <span th:text="${spending.total().attempts()}">3 runs</span></div>
+        <details class="disclosure runs-tokens" th:unless="${#lists.isEmpty(spending.tokenColumns())}">
+            <summary>Tokens</summary>
+            <div class="runs-tokens-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th scope="col">Run</th>
+                        <th scope="col" class="num" th:each="column : ${spending.tokenColumns()}"
+                            th:text="${column}">Input</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="attempt : ${attempts}">
+                        <td th:text="'Run ' + ${attempt.ordinal()}">Run 1</td>
+                        <td class="num" th:each="count : ${attempt.tokens().counts()}" th:text="${count}">0</td>
+                    </tr>
+                    <tr class="runs-tokens-total" th:if="${spending.total() != null}">
+                        <td>Total</td>
+                        <td class="num" th:each="count : ${spending.total().tokens().counts()}"
+                            th:text="${count}">0</td>
+                    </tr>
+                    </tbody>
+                </table>
             </div>
-            <div class="row-cluster row-cluster-status">
-                <span class="row-amount" th:title="${spending.total().costTitle()}"
-                      th:text="${spending.total().cost()}">$0.00</span>
-            </div>
-            <div class="attempt-usage">
-                <dl class="usage-facts">
-                    <div class="usage-time"><dt>Time</dt>
-                        <dd th:text="${spending.total().time()}">1 h 18 min</dd></div>
-                </dl>
-                <dl class="usage-tokens" th:unless="${#lists.isEmpty(spending.tokenColumns())}">
-                    <div th:each="column, at : ${spending.tokenColumns()}"><dt th:text="${column}">Input</dt>
-                        <dd th:text="${spending.total().tokens().counts()[at.index]}">0</dd></div>
-                </dl>
-            </div>
-        </div>
+        </details>
     </section>
 
 </div>
