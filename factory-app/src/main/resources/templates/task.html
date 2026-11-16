@@ -31,7 +31,7 @@
                 <p class="status-card-note status-card-problem" th:if="${queueProblem != null}"
                    th:text="'Queued tasks are not starting. ' + ${queueProblem}">Queued tasks are not starting.</p>
                 <p class="status-card-reason" th:if="${task.reason() != null}"><span class="status-card-label">Reason</span>
-                    <span th:text="${task.reason()}">Why the attempt failed.</span></p>
+                    <span th:text="${task.reason()}">Why the run failed.</span></p>
                 <p class="status-card-note" th:if="${task.reasonUrl() != null}"><a class="dev-link"
                         th:href="@{${task.reasonUrl()}}">Limits in Configuration</a></p>
                 <p class="status-card-note" th:if="${task.reasonNote() != null}" th:text="${task.reasonNote()}">
@@ -42,7 +42,7 @@
         <div class="status-card-side">
             <span th:if="${task.spentNote() != null}"><span class="status-card-money" th:if="${task.spent() != null}"
                     th:title="${task.spentTitle()}" th:text="${task.spent()}">$0.00</span>
-                <span class="status-card-note" th:text="${task.spentNote()}">spent in 1 attempt</span></span>
+                <span class="status-card-note" th:text="${task.spentNote()}">spent in 1 run</span></span>
             <span th:replace="~{fragments/developer-flow :: clock(${task.clock()})}"></span>
             <a th:if="${task.prUrl() != null}" th:class="${task.prButtonClass()}" th:href="${task.prUrl()}"
                th:text="${task.prAction()}">Open pull request</a>
@@ -87,16 +87,16 @@
             <div class="run-settings">
                 <th:block th:if="${retryForm != null}" th:insert="~{fragments/developer-flow :: runChoice(${retryForm})}"></th:block>
                 <button type="submit" class="btn btn-primary btn-sm"
-                        th:text="${task.startLabel()} + ' with this answer'">Start attempt 2 with this answer</button>
+                        th:text="${task.startLabel()} + ' with this answer'">Start run 2 with this answer</button>
             </div>
-            <p class="dev-form-note">A new attempt starts from a clean checkout and adds to the cost.</p>
+            <p class="dev-form-note">A new run starts from a clean checkout and adds to the cost.</p>
         </form>
     </section>
 
     <section class="dev-section" id="retry" aria-labelledby="retry-title"
              th:if="${task.retryAllowed() and question == null}"
              th:classappend="${task.turn().yours()} ? 'your-part'">
-        <h2 class="dev-section-head" id="retry-title" th:text="${task.startLabel()}">Start attempt 2</h2>
+        <h2 class="dev-section-head" id="retry-title" th:text="${task.startLabel()}">Start run 2</h2>
         <form class="dev-form" method="post" th:action="@{'/tasks/' + ${task.taskId()} + '/retry'}">
             <input type="hidden" name="expectedVersion" th:value="${task.version()}">
             <input type="hidden" name="inputFingerprint" th:value="${task.inputFingerprint()}">
@@ -110,15 +110,15 @@
             <div class="run-settings">
                 <th:block th:if="${retryForm != null}" th:insert="~{fragments/developer-flow :: runChoice(${retryForm})}"></th:block>
                 <button type="submit" class="btn btn-primary btn-sm"
-                        th:text="${task.startLabel()}">Start attempt 2</button>
+                        th:text="${task.startLabel()}">Start run 2</button>
             </div>
-            <p class="dev-form-note">A new attempt starts from a clean checkout and adds to the cost.</p>
+            <p class="dev-form-note">A new run starts from a clean checkout and adds to the cost.</p>
         </form>
     </section>
 
     <section class="dev-list dev-list-inset" aria-labelledby="attempts-title" th:unless="${#lists.isEmpty(attempts)}">
         <div class="dev-list-head">
-            <h2 class="dev-section-title" id="attempts-title">Attempts <span class="dev-count"
+            <h2 class="dev-section-title" id="attempts-title">Runs <span class="dev-count"
                     th:text="${#lists.size(attempts)}">1</span></h2>
             <span class="src">Factory</span>
         </div>
@@ -127,11 +127,11 @@
             <div class="dev-row-main">
                 <div class="attempt-head"><a class="dev-row-link" th:if="${attempt.executionId() != null}"
                         th:href="@{'/executions/' + ${attempt.executionId()}}"
-                        th:attr="aria-label='Open run for attempt ' + ${attempt.ordinal()}"><strong class="attempt-title"
-                            th:text="'Attempt ' + ${attempt.ordinal()}">Attempt 1</strong></a><strong
+                        th:attr="aria-label='Open run ' + ${attempt.ordinal()}"><strong class="attempt-title"
+                            th:text="'Run ' + ${attempt.ordinal()}">Run 1</strong></a><strong
                         class="attempt-title" th:if="${attempt.executionId() == null}"
-                        th:text="'Attempt ' + ${attempt.ordinal()}">Attempt 1</strong>
-                    <span th:text="${attempt.kind()}">first run</span>
+                        th:text="'Run ' + ${attempt.ordinal()}">Run 1</strong>
+                    <span th:if="${attempt.kind() != null}" th:text="${attempt.kind()}">retry</span>
                     <span th:if="${attempt.quote() != null}" th:text="${attempt.quote()}">"first line"</span></div>
                 <div class="attempt-result" th:text="${attempt.result()}">How it
                     ended.</div>
@@ -166,7 +166,7 @@
         <div class="dev-row attempt-card attempt-total" th:if="${spending.total() != null}">
             <div class="dev-row-main">
                 <div class="attempt-head"><strong class="attempt-title">Total</strong>
-                    <span th:text="${spending.total().attempts()}">3 attempts</span></div>
+                    <span th:text="${spending.total().attempts()}">3 runs</span></div>
             </div>
             <div class="row-cluster row-cluster-status">
                 <span class="row-amount" th:title="${spending.total().costTitle()}"

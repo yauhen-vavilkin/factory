@@ -28,13 +28,13 @@ class RunContextTest {
 
         var run = RunContext.of(view, FIRST_RUN).orElseThrow();
 
-        assertThat(run.crumb()).isEqualTo("Attempt 1");
-        assertThat(run.pageTitle()).isEqualTo("MODBAR-1 · attempt 1");
+        assertThat(run.crumb()).isEqualTo("Run 1");
+        assertThat(run.pageTitle()).isEqualTo("MODBAR-1 · run 1");
         assertThat(run.settings()).isEqualTo("glm-5.3 · max");
         assertThat(run.status().chipLabel()).isEqualTo("Failed");
-        assertThat(run.failure().headline()).isEqualTo("Attempt 1 failed");
+        assertThat(run.failure().headline()).isEqualTo("Run 1 failed");
         assertThat(run.failureNote()).isEqualTo("No pull request was created.");
-        assertThat(run.retryLabel()).isEqualTo("Start attempt 2 on the task page");
+        assertThat(run.retryLabel()).isEqualTo("Start run 2 on the task page");
         assertThat(run.retryUrl()).isEqualTo("/tasks/" + TASK_ID + "#retry");
         assertThat(run.standing()).isNull();
         assertThat(run.inFlight()).isFalse();
@@ -49,7 +49,7 @@ class RunContextTest {
 
         var run = RunContext.of(view, FIRST_RUN).orElseThrow();
 
-        assertThat(run.standing()).isEqualTo(new RunContext.Standing("Attempt 1 of 3. Latest: ", "attempt 3",
+        assertThat(run.standing()).isEqualTo(new RunContext.Standing("Run 1 of 3. Latest: ", "run 3",
                 "/executions/" + THIRD_RUN, ", Draft PR #14."));
         assertThat(run.retryLabel()).isNull();
         var latest = RunContext.of(view, THIRD_RUN).orElseThrow();

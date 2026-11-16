@@ -217,7 +217,7 @@ class TaskAdmissionIntegrationTest {
         var result = run("run-13", selected);
 
         assertThat(result.admittedTaskIds()).isEmpty();
-        assertThat(result.rejectedReasons().get(selected.getId())).contains("already has an attempt");
+        assertThat(result.rejectedReasons().get(selected.getId())).contains("already has a run");
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(selected.getId())).hasSize(1);
     }
 

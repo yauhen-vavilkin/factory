@@ -32,7 +32,7 @@ class TaskSpendingTest {
         assertThat(spending.tokenColumns()).containsExactly("Input", "Cache read", "Output");
         assertThat(rows(view)).extracting(row -> row.tokens().counts())
                 .containsExactly(List.of("2,000", "50", "30"), List.of("100", "—", "10"));
-        assertThat(spending.total()).isEqualTo(new TaskSpending.Total("2 attempts", "<1 min",
+        assertThat(spending.total()).isEqualTo(new TaskSpending.Total("2 runs", "<1 min",
                 new TaskSpending.Tokens(List.of("2,100", "50", "40")), "$0.70", "Incomplete"));
     }
 
@@ -61,7 +61,7 @@ class TaskSpendingTest {
         var queued = attempt(3, null, usage(Map.of()));
         var view = view(List.of(first, second, queued), usage(Map.of(Category.INPUT, 200L)));
 
-        assertThat(TaskSpending.of(view, "$0.02", null).total().attempts()).isEqualTo("3 attempts");
+        assertThat(TaskSpending.of(view, "$0.02", null).total().attempts()).isEqualTo("3 runs");
     }
 
     @Test

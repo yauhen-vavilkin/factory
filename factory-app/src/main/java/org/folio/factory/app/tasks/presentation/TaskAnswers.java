@@ -69,13 +69,13 @@ public class TaskAnswers {
         try {
             return question.options().get(Integer.parseInt(choice == null ? "" : choice));
         } catch (NumberFormatException | IndexOutOfBoundsException e) {
-            throw new IllegalArgumentException("Choose one of the answers, then start the attempt again.");
+            throw new IllegalArgumentException("Choose one of the answers, then start the run again.");
         }
     }
 
     /** The agent's report gives way when the instructions would be too long; the answer never does. */
     private static String textBefore(String text, int room) {
-        var label = "\n\nWhat you wrote before the question in the last attempt:\n";
+        var label = "\n\nWhat you wrote before the question in the last run:\n";
         if (text.isBlank() || room <= label.length() + CUT.length()) {
             return "";
         }

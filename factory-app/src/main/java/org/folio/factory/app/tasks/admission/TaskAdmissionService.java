@@ -269,7 +269,7 @@ public class TaskAdmissionService {
         // A unique constraint means a concurrent retry took the live slot; an optimistic lock
         // failure means a scan saved the task concurrently, so this retry is stale, not lost.
         return rejection(taskId, conflict instanceof DataIntegrityViolationException
-                ? "task already has a live attempt"
+                ? "task already has a live run"
                 : "task changed at the same moment; review the task and retry again");
     }
 
@@ -282,7 +282,7 @@ public class TaskAdmissionService {
 
     private static String duplicateExplanation(TaskAttempt attempt) {
         String reason = attempt.getResultReason();
-        return "a retry request for this task was already recorded; the stored attempt is "
+        return "a retry request for this task was already recorded; the stored run is "
                 + attempt.getState() + (reason == null || reason.isBlank() ? "" : ": " + reason);
     }
 

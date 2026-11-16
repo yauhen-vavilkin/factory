@@ -104,7 +104,7 @@ public class TaskPageController {
         return refused(back, result.explanation(), form, redirect);
     }
 
-    /** Close as failed, from the task page or from a Runs row of My tasks (returnTo=flow). */
+    /** Close as failed, from the task page or from a Started tasks row of My tasks (returnTo=flow). */
     @PostMapping("/tasks/{taskId}/attempts/{attemptId}/mark-stopped")
     public String markStopped(@PathVariable("taskId") UUID taskId, @PathVariable("attemptId") UUID attemptId,
                               @RequestParam(name = "returnTo", required = false) String returnTo,
@@ -123,7 +123,7 @@ public class TaskPageController {
             refusal = "The task changed at the same moment; reload and try again.";
         } catch (RuntimeException e) {
             log.warn("Could not close attempt {} of task {} as failed", attemptId, taskId, e);
-            refusal = "Factory could not close the attempt as failed; try again in a moment, and see the Factory log "
+            refusal = "Factory could not close the run as failed; try again in a moment, and see the Factory log "
                     + "if it fails again.";
         }
         if (refusal != null) {

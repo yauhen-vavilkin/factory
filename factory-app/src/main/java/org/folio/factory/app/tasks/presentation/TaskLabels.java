@@ -70,7 +70,7 @@ final class TaskLabels {
     /** What an attempt in flight does now, in the words of the run page's step cards. */
     static String workingHeadline(String stage) {
         if (RUN_ENDED.equals(stage)) {
-            return "Finishing the attempt";
+            return "Finishing the run";
         }
         var label = stageLabel(stage);
         if (label == null) {
@@ -87,7 +87,7 @@ final class TaskLabels {
     /** What a failed attempt left behind: no pull request, or perhaps one whose response was lost. */
     static String pullRequestNote(String reason) {
         return reason != null && reason.contains(TaskOutcomeService.PULL_REQUEST_MAY_EXIST)
-                ? "Check the repository before you start a new attempt." : "No pull request was created.";
+                ? "Check the repository before you start a new run." : "No pull request was created.";
     }
 
     /** "next in line" or "3rd in line" for a queued task. */
@@ -175,7 +175,7 @@ final class TaskLabels {
     static String usageNote(TaskUsage usage) {
         var notes = new ArrayList<String>();
         if (!usage.complete()) {
-            notes.add("Incomplete: some usage has no reported tokens or rate yet. Cost per attempt is in Attempts.");
+            notes.add("Incomplete: some usage has no reported tokens or rate yet. Cost per run is in Runs.");
         }
         if (usage.provisional()) {
             notes.add("Includes live usage that can still change.");

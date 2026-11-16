@@ -9,10 +9,10 @@
                 /
                 <th:block th:if="${taskRun != null}"><a th:href="@{'/tasks/' + ${taskRun.taskId()}}"
                                                          th:text="${taskRun.key()}">KEY-1</a> / </th:block>
-                <a th:href="@{'/executions/' + ${execution.id}}" th:text="${runCrumb}">Attempt 1</a>
+                <a th:href="@{'/executions/' + ${execution.id}}" th:text="${runCrumb}">Run 1</a>
                 / Transcript</nav>
             <h1 class="dev-title">Transcript</h1>
-            <p class="dev-note">What the coding agent received and did in each coding run, oldest first. Secrets
+            <p class="dev-note">What the coding agent received and did in each coding session, oldest first. Secrets
                 are removed. The agent's hidden reasoning is never stored.</p>
         </div>
 

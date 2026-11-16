@@ -74,7 +74,7 @@ final class ClaudeCodeProtocol implements Consumer<String> {
             read(line);
         } catch (RuntimeException exception) {
             fail("PARSER_ERROR", "Factory could not process the Claude Code output ("
-                    + exception.getClass().getSimpleName() + "), so it stopped the attempt. Retry the task;"
+                    + exception.getClass().getSimpleName() + "), so it stopped the run. Retry the task;"
                     + " if it happens again, report it together with the transcript.");
         }
     }
@@ -83,7 +83,7 @@ final class ClaudeCodeProtocol implements Consumer<String> {
         var frame = readFrame(line);
         if (frame.isEmpty()) {
             fail("MALFORMED_FRAME", "Claude Code wrote an output line that is not a valid event, so Factory"
-                    + " stopped the attempt. Retry the task; if it happens again, check that the coding image"
+                    + " stopped the run. Retry the task; if it happens again, check that the coding image"
                     + " runs Claude Code " + ClaudeCodeCodingRuntime.VERSION + ".");
             return;
         }
@@ -328,7 +328,7 @@ final class ClaudeCodeProtocol implements Consumer<String> {
         if (transcriptSize + size > TRANSCRIPT_LIMIT) {
             transcriptCut = true;
             entryKind = "note";
-            entryDetail = Map.of("text", "Transcript cut at 5 MB; the attempt went on.");
+            entryDetail = Map.of("text", "Transcript cut at 5 MB; the run went on.");
         }
         transcriptSize += size;
         try {

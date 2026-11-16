@@ -53,7 +53,7 @@ public final class StopReasons {
      */
     public static String engineGaveUp(String stepId, int tries, String error) {
         return ENGINE_GAVE_UP_START + "\"" + UiFormat.stepInWords(stepId) + "\" after " + tries
-                + " tries: " + oneLine(error) + ". Start a new attempt.";
+                + " tries: " + oneLine(error) + ". Start a new run.";
     }
 
     private static String oneLine(String error) {

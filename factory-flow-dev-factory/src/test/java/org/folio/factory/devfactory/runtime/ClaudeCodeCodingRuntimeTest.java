@@ -258,7 +258,7 @@ class ClaudeCodeCodingRuntimeTest {
         var timedOut = runtime("api-key").code(workload, request(), 1800, event -> {}, CodingTranscripts.NONE);
         assertThat(timedOut.failure().code()).isEqualTo("TIME_LIMIT");
         assertThat(timedOut.failure().message()).isEqualTo("The agent did not finish in 30 minutes, so Factory"
-                + " stopped it. Start a new attempt with a lower effort or narrower instructions, or raise the time"
+                + " stopped it. Start a new run with a lower effort or narrower instructions, or raise the time"
                 + " limit.");
 
         when(workload.stream(anyList(), eq(60), any(), any()))
@@ -312,7 +312,7 @@ class ClaudeCodeCodingRuntimeTest {
         assertThat(turnLimit.failure().code()).isEqualTo("TURN_LIMIT");
         assertThat(turnLimit.failure().message())
                 .isEqualTo("The agent reached its limit of 10 turns before it finished."
-                        + " Start a new attempt with narrower instructions.");
+                        + " Start a new run with narrower instructions.");
 
         var budget = parse(INIT + """
                 {"type":"result","subtype":"error_max_budget_usd","is_error":true,"errors":["Budget exceeded"]}
@@ -481,7 +481,7 @@ class ClaudeCodeCodingRuntimeTest {
         protocol.accept(RESULT);
         assertThat(finish(protocol).status()).isEqualTo(CodingOutcome.Status.COMPLETED);
         assertThat(transcript.getLast().kind()).isEqualTo("note");
-        assertThat(transcript.getLast().detail()).containsEntry("text", "Transcript cut at 5 MB; the attempt went on.");
+        assertThat(transcript.getLast().detail()).containsEntry("text", "Transcript cut at 5 MB; the run went on.");
         assertThat(transcript.stream().filter(entry -> entry.kind().equals("note")).count()).isEqualTo(1);
     }
 

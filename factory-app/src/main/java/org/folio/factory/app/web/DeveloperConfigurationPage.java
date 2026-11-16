@@ -121,7 +121,7 @@ public class DeveloperConfigurationPage {
                     + " docker compose up -d.");
         } else if (retention.enabled()) {
             fixes.add("Factory starts no runs while FACTORY_RETENTION_ENABLED is true, because retention would"
-                    + " delete the history and costs of attempts. Set it to false in .env, then run"
+                    + " delete the history and costs of runs. Set it to false in .env, then run"
                     + " docker compose up -d.");
         }
         return fixes.isEmpty()

@@ -25,22 +25,22 @@ public final class TaskStops {
             Set.of("PROVIDER_FAILED", "RUNTIME_ERROR", "RUNTIME_VERSION");
     /** Why a coding attempt stopped when a command printed more than the output limit of Factory. */
     public static final String OUTPUT_LIMIT_REASON = "A command printed more output than Factory accepts, so"
-            + " Factory stopped the attempt. Start a new attempt with narrower instructions, and tell the agent to keep"
+            + " Factory stopped the run. Start a new run with narrower instructions, and tell the agent to keep"
             + " the change small and to limit command output.";
     /** Why a coding attempt stopped when the agent changed no file, so there is nothing to verify or deliver. */
     public static final String NO_CHANGES_REASON = "The agent finished without changing any file. Start a new"
-            + " attempt with clearer instructions.";
+            + " run with clearer instructions.";
 
     /** Why an attempt stopped when the engine ran its coding step again after the agent had started. */
     public static final String REPLAYED_CODING_REASON = "Factory restarted or repeated this step while the agent was"
-            + " coding, so the work of this attempt is lost. Start a new attempt.";
+            + " coding, so the work of this run is lost. Start a new run.";
 
     /** The start of {@link #startingBuildFailedReason}: the cause, so a list row that shows one sentence has it. */
     public static final String STARTING_BUILD_FAILED_START = "The build of the base branch failed before the agent"
             + " started, so nothing was spent.";
 
     /** The start of {@link #deadlineReason}, by which a page knows the cause is a limit it can link to. */
-    public static final String DEADLINE_START = "The attempt used all of its time before ";
+    public static final String DEADLINE_START = "The run used all of its time before ";
 
     /** The start of {@link #timeLimitReason}, by which a page knows the cause is a limit it can link to. */
     public static final String TIME_LIMIT_START = "The agent did not finish in ";
@@ -65,14 +65,14 @@ public final class TaskStops {
      * under it. Time in the queue and waiting for a person does not count.
      */
     public static String deadlineReason(String stage) {
-        return DEADLINE_START + stage + ", so Factory stopped it. Start a new attempt with a lower effort or narrower"
-                + " instructions, or raise the time limit of the whole attempt.";
+        return DEADLINE_START + stage + ", so Factory stopped it. Start a new run with a lower effort or narrower"
+                + " instructions, or raise the time limit of the whole run.";
     }
 
     /** Why a coding attempt stopped when the agent did not finish in time; the page links the limits under it. */
     public static String timeLimitReason(long minutes) {
         return TIME_LIMIT_START + minutes + (minutes == 1 ? " minute" : " minutes")
-                + ", so Factory stopped it. Start a new attempt with a lower effort or narrower instructions,"
+                + ", so Factory stopped it. Start a new run with a lower effort or narrower instructions,"
                 + " or raise the time limit.";
     }
 
@@ -89,13 +89,13 @@ public final class TaskStops {
 
     /** {@link #secretInChangesCause} with the next step of a task attempt. The caller redacts the result. */
     public static String secretInChangesReason(String file) {
-        return secretInChangesCause(file) + " Start a new attempt.";
+        return secretInChangesCause(file) + " Start a new run.";
     }
 
     /** Why a coding attempt stopped when the agent used all of its turns. */
     public static String turnLimitReason(long turns) {
         return TURN_LIMIT_START + turns + (turns == 1 ? " turn" : " turns") + " before it finished."
-                + " Start a new attempt with narrower instructions.";
+                + " Start a new run with narrower instructions.";
     }
 
     /** True when the recorded stop reason, "stage: reason", is the agent's question. */

@@ -21,9 +21,9 @@ public record TaskDetail(UUID taskId, String key, String jiraUrl, String title, 
     private static final String PRIMARY = "btn btn-primary btn-sm";
     private static final String SECONDARY = "btn btn-secondary btn-sm";
 
-    /** "Start attempt 2": the button and the heading of the next attempt. */
+    /** "Start run 2": the button and the heading of the next attempt. */
     public String startLabel() {
-        return "Start attempt " + nextAttempt;
+        return "Start run " + nextAttempt;
     }
 
     /** The pull request is the page's main button unless PR feedback waits on the run page. */

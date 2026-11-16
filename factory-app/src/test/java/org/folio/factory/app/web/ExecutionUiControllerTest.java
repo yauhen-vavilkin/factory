@@ -362,7 +362,7 @@ class ExecutionUiControllerTest {
                         "{\"subtype\":\"success\",\"error\":false,\"text\":\"Done\",\"turns\":3,"
                                 + "\"usage\":{\"inputTokens\":40,\"outputTokens\":5}}"),
                 transcriptEntry(second, 0, "pr-follow-up", "note", at.plusSeconds(60),
-                        "{\"text\":\"Transcript cut at 5 MB; the attempt went on.\"}")));
+                        "{\"text\":\"Transcript cut at 5 MB; the run went on.\"}")));
 
         var result = mvc.perform(get("/executions/{id}/transcript", EXECUTION_ID))
                 .andExpect(status().isOk())
@@ -522,8 +522,8 @@ class ExecutionUiControllerTest {
                 .andReturn());
 
         assertThat(run.status().chipLabel()).isEqualTo("Draft PR #7");
-        assertThat(run.header().pageTitle()).isEqualTo("TASK-1 · attempt 2");
-        assertThat(run.header().crumb()).isEqualTo("Attempt 2");
+        assertThat(run.header().pageTitle()).isEqualTo("TASK-1 · run 2");
+        assertThat(run.header().crumb()).isEqualTo("Run 2");
     }
 
     @Test

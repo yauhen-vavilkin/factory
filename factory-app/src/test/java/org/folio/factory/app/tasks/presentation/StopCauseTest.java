@@ -30,6 +30,15 @@ class StopCauseTest {
     }
 
     @Test
+    void aReasonStoredWhileThePagesSaidAttemptKeepsItsCause() {
+        assertThat(StopCause.of(STOPPED, "DEVELOPMENT_FAILED: The agent finished without changing any file. Start a"
+                + " new attempt with clearer instructions.")).isEqualTo(StopCause.NO_CHANGES);
+        assertThat(StopCause.of(STOPPED, "verify: The attempt used all of its time before verification, so Factory"
+                + " stopped it. Start a new attempt with a lower effort or narrower instructions, or raise the time"
+                + " limit of the whole attempt.")).isEqualTo(StopCause.TIME_LIMIT);
+    }
+
+    @Test
     void aQuestionNoChangesAndFailedChecksHaveTheirOwnCause() {
         assertThat(StopCause.of(STOPPED, "clarify-implementation: " + TaskStops.DECISION_REASON
                 + "Remove the old routes too?")).isEqualTo(StopCause.ASKED);

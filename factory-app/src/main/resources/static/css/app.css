@@ -1027,7 +1027,7 @@ code.activity-target { font-family: var(--font-mono); font-size: 12px; }
 .feedback-location { font-family: var(--font-mono); }
 /* Rounds: one card per round. All cards share one grid, so the amounts and the chips stand in straight columns;
    under the head line each reply says who it comes from: the reviewer on GitHub, the coding agent, Factory. The
-   amount and chip columns are as wide as those of a row in Attempts and Started tasks. */
+   amount and chip columns are as wide as those of a row in Runs of the task page and Started tasks. */
 .feedback-rounds { display: grid; grid-template-columns: minmax(0, 1fr) 88px minmax(150px, auto); column-gap: 12px; row-gap: 10px; padding-top: 12px; }
 .feedback-round {
   grid-column: 1 / -1;
@@ -1223,7 +1223,7 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 .dev-row-action { display: flex; justify-content: flex-end; }
 /* The box of a checkbox sits on the baseline; this puts its middle on the middle of the title text. */
 .dev-row .task-check { position: relative; top: 3px; margin: 0; flex: 0 0 auto; }
-/* Amount and chip in fixed columns, so they line up from row to row in Attempts and Cost per task. */
+/* Amount and chip in fixed columns, so they line up from row to row in Runs of the task page and Cost per task. */
 .row-cluster {
   flex: none;
   display: grid;
@@ -1236,7 +1236,7 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 }
 .row-cluster > .row-amount { grid-column: 1; }
 .row-cluster > .chip { grid-column: 2; justify-self: start; }
-/* Cost per task and Attempts: the amounts stand in one column and every chip ends at the right edge of the row. */
+/* Cost per task and Runs of the task page: the amounts stand in one column and every chip ends at the right edge of the row. */
 .row-cluster-status { grid-template-columns: 88px minmax(150px, auto); height: auto; min-height: 21px; row-gap: 8px; }
 .row-cluster-status > .chip { justify-self: end; }
 /* Ready to run: the effort choice ends at the edge of Run in every row. Only a task added by key has Remove from

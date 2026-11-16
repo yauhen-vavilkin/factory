@@ -43,7 +43,7 @@ public class DecisionGateWorker implements AgentWorker {
     public AgentResult execute(AgentContext context) {
         var request = DecisionArtifacts.parseRequest(codec, context.requireInput(DecisionArtifacts.REQUEST).content());
         return DecisionGates.openOrStop(context, gate, GATE, request.required(),
-                () -> "repository selection requires a human choice; a task attempt stops instead of waiting"
+                () -> "repository selection requires a human choice; a task run stops instead of waiting"
                         + " for review", taskGuard);
     }
 }

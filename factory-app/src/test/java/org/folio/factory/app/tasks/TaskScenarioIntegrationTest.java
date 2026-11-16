@@ -256,7 +256,7 @@ class TaskScenarioIntegrationTest {
                 .getFirst();
         assertThat(draftReason).isEqualTo("1 acceptance criterion is not met.");
         var pages = pages(taskId);
-        assertRow(pages.myTasks(), "MODBAR-201", "Validate the limit 1 attempt", "$0.40 Draft PR #31");
+        assertRow(pages.myTasks(), "MODBAR-201", "Validate the limit 1 run", "$0.40 Draft PR #31");
         assertThat(pages.task()).contains("Draft PR #31 Nothing needed from you Pull request #31 is open as a draft",
                 "The pull request was opened as a draft because: " + draftReason, "Open pull request #31");
         assertThat(pages.run()).contains("Pull request #31 is open as a draft",
@@ -298,9 +298,9 @@ class TaskScenarioIntegrationTest {
         assertThat(codingRequests.getLast().runSettings().instructions())
                 .startsWith("My answer to your question: Use 100");
         var pages = pages(taskId);
-        assertRow(pages.myTasks(), "MODBAR-203", "Unclear limit 2 attempts", "$0.80 Draft PR #33");
-        assertThat(pages.task()).contains("Pull request #33 is open as a draft", "$0.80 spent in 2 attempts",
-                "Attempt 2 answer to the agent's question");
+        assertRow(pages.myTasks(), "MODBAR-203", "Unclear limit 2 runs", "$0.80 Draft PR #33");
+        assertThat(pages.task()).contains("Pull request #33 is open as a draft", "$0.80 spent in 2 runs",
+                "Run 2 answer to the agent's question");
         assertNoInternalWording(pages);
     }
 
@@ -328,7 +328,7 @@ class TaskScenarioIntegrationTest {
         assertThat(attempts.findByTaskIdOrderByOrdinalAsc(taskId)).hasSize(2);
         assertThat(latestAttempt(taskId).getKind()).isEqualTo(TaskAttempt.Kind.RETRY);
         assertThat(finish(taskId).getState()).isEqualTo(TaskAttempt.State.PR_READY);
-        assertThat(pages(taskId).task()).contains("Pull request #34 is open as a draft", "Attempt 2 retry");
+        assertThat(pages(taskId).task()).contains("Pull request #34 is open as a draft", "Run 2 retry");
     }
 
     /** Scenario 5: the model endpoint refuses the key. */
@@ -361,9 +361,9 @@ class TaskScenarioIntegrationTest {
                 "The build of the base branch failed before the agent started, so nothing was spent. Open the run"
                         + " to see the build output, then fix the base branch or the check command in"
                         + " config/developer-repositories.yaml.");
-        assertRow(pages.myTasks(), "MODBAR-209", "Your turn Base branch does not build 1 attempt",
-                TaskStops.STARTING_BUILD_FAILED_START + " $0.00 Failed Start attempt 2");
-        assertThat(pages.task()).contains("$0.00 spent in 1 attempt").doesNotContain("cost unknown");
+        assertRow(pages.myTasks(), "MODBAR-209", "Your turn Base branch does not build 1 run",
+                TaskStops.STARTING_BUILD_FAILED_START + " $0.00 Failed Start run 2");
+        assertThat(pages.task()).contains("$0.00 spent in 1 run").doesNotContain("cost unknown");
         assertThat(pages.run()).doesNotContain("cost unknown");
     }
 
@@ -436,7 +436,7 @@ class TaskScenarioIntegrationTest {
                 .isEqualTo(ExecutionStatus.FAILED_ESCALATED);
         assertFailedWithoutPullRequest(taskId, "GitHub rate limit MODBAR-210",
                 "Factory could not finish the step \"Create pull request\" after 3 tries: 429 Too Many Requests:"
-                        + " API rate limit exceeded. Start a new attempt.",
+                        + " API rate limit exceeded. Start a new run.",
                 List.of("2 · Implement changes Passed", "3 · Verify changes Passed", "4 · Create pull request Failed"));
     }
 
@@ -457,7 +457,7 @@ class TaskScenarioIntegrationTest {
                 .isEqualTo(TaskOutcomeService.AttemptOutcome.State.NEEDS_INSPECTION);
 
         var pages = pages(taskId);
-        assertRow(pages.myTasks(), "MODBAR-211", "Your turn Clean-up not confirmed 1 attempt",
+        assertRow(pages.myTasks(), "MODBAR-211", "Your turn Clean-up not confirmed 1 run",
                 "$0.40 Needs inspection Close as failed…");
         assertThat(pages.task()).contains("Needs inspection Your turn Factory could not confirm how the run ended",
                 "Open pull request #41", "Close as failed…");
@@ -483,21 +483,21 @@ class TaskScenarioIntegrationTest {
         var pages = pages(taskId);
         int keyStart = titleAndKey.lastIndexOf(' ');
         assertRow(pages.myTasks(), titleAndKey.substring(keyStart + 1),
-                "Your turn " + titleAndKey.substring(0, keyStart) + " 1 attempt", AttemptFailure.firstSentence(reason));
-        assertThat(pages.task()).contains("Failed Your turn Attempt 1 failed", "Reason " + reason,
-                "No pull request was created.", "Start attempt 2");
-        assertThat(pages.run()).contains("Failed Your turn Attempt 1 failed", "Reason " + reason,
-                "No pull request was created.", "Start attempt 2 on the task page").contains(steps);
+                "Your turn " + titleAndKey.substring(0, keyStart) + " 1 run", AttemptFailure.firstSentence(reason));
+        assertThat(pages.task()).contains("Failed Your turn Run 1 failed", "Reason " + reason,
+                "No pull request was created.", "Start run 2");
+        assertThat(pages.run()).contains("Failed Your turn Run 1 failed", "Reason " + reason,
+                "No pull request was created.", "Start run 2 on the task page").contains(steps);
         assertNoInternalWording(pages);
         return pages;
     }
 
     private void assertAsksForAnAnswer(UUID taskId) {
         var pages = pages(taskId);
-        assertRow(pages.myTasks(), "MODBAR-203", "Your turn Unclear limit 1 attempt", "$0.40 Needs your answer Answer");
+        assertRow(pages.myTasks(), "MODBAR-203", "Your turn Unclear limit 1 run", "$0.40 Needs your answer Answer");
         assertThat(pages.task()).contains("Needs your answer Your turn The agent stopped with a question",
                 "The agent's question Coding agent Should the limit be 100 or 1000?", "Use 100", "Use 1000",
-                "Start attempt 2 with this answer");
+                "Start run 2 with this answer");
         assertThat(pages.run()).contains("Needs your answer Your turn The agent stopped with a question",
                 "Answer on the task page", "2 · Implement changes Stopped with a question",
                 "3 · Verify changes Not started");

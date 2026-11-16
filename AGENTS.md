@@ -217,6 +217,12 @@ Conventions that are easy to violate silently:
   `AttemptStatus.of`: change them together, and never work them out in a template. One session at
   a time edits the console pages (templates, `static/`, the page row classes): no parallel
   sessions or implementer agents on them.
+- **A page says run, the code says attempt.** The texts of the pages call a task attempt a run
+  ("Run 2", "Start run 3", "spent in 2 runs"); classes, tables, URLs, JSON keys, log messages and
+  errors that name an attempt record by its id keep `attempt`. Stop reasons are stored as text, so
+  `AttemptFailure.reason` also puts the phrases that older runs stored into today's words: extend
+  its list when you reword a stored sentence that a page compares with a constant or that runs
+  store often.
 - **Done means seen.** Before you call a change to My tasks, the task page or the run page done,
   open it in `DemoConsole` in every state the change touches and name those states; a passing
   render test is not a look. `DemoConsole`

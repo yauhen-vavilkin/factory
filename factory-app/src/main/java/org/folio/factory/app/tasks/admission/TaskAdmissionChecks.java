@@ -127,7 +127,7 @@ public class TaskAdmissionChecks {
             return "task already has a live admission";
         }
         if (history.stream().anyMatch(attempt -> attempt.getState() != TaskAttempt.State.WITHDRAWN)) {
-            return "task already has an attempt; use Retry";
+            return "task already has a run; use Retry";
         }
         return null;
     }
@@ -157,17 +157,17 @@ public class TaskAdmissionChecks {
     /** Null when the attempt history allows a fresh Retry; the reason otherwise. */
     private static String historyProblem(List<TaskAttempt> history) {
         if (history.isEmpty()) {
-            return "the task has never been attempted; select it for admission instead";
+            return "the task has never been run; select it for admission instead";
         }
         TaskAttempt.State latest = history.getLast().getState();
         if (latest.isInFlight()) {
-            return "the task already has a live attempt";
+            return "the task already has a live run";
         }
         if (latest == TaskAttempt.State.NEEDS_INSPECTION) {
-            return "the latest attempt needs inspection; retry stays disabled until the outcome is resolved";
+            return "the latest run needs inspection; retry stays disabled until the outcome is resolved";
         }
         if (latest == TaskAttempt.State.PR_READY) {
-            return "the latest attempt delivered a pull request; retry does not reopen delivered work";
+            return "the latest run delivered a pull request; retry does not reopen delivered work";
         }
         if (latest == TaskAttempt.State.WITHDRAWN && history.stream()
                 .allMatch(attempt -> attempt.getState() == TaskAttempt.State.WITHDRAWN)) {

@@ -3,6 +3,8 @@ package org.folio.factory.app.tasks.presentation;
 import org.folio.factory.devfactory.tasks.TaskStops;
 import org.folio.factory.devfactory.worker.DeliveryWorker;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -12,7 +14,7 @@ class AttemptFailureTest {
     void theHeadlineNamesTheAttemptAndTheReasonHasNoLayerPrefixes() {
         var failure = AttemptFailure.of(3, "shared: DEVELOPMENT_FAILED: Development stopped: docker exited with 125");
 
-        assertThat(failure.headline()).isEqualTo("Attempt 3 failed");
+        assertThat(failure.headline()).isEqualTo("Run 3 failed");
         assertThat(failure.reason()).isEqualTo("Docker exited with 125.");
     }
 
@@ -23,12 +25,12 @@ class AttemptFailureTest {
         assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: Claude Code did not finish within the time limit of"
                 + " 30 minutes, so Factory stopped it. Retry with a lower effort or a smaller task, or raise the limit"
                 + " (FACTORY_DEV_FACTORY_TIMEOUT_SECONDS, FACTORY_TASKS_EXECUTION_DEADLINE)."))
-                .isEqualTo("The agent did not finish in 30 minutes, so Factory stopped it. Start a new attempt with"
+                .isEqualTo("The agent did not finish in 30 minutes, so Factory stopped it. Start a new run with"
                         + " a lower effort or narrower instructions, or raise the time limit.")
                 .doesNotContain("FACTORY_");
         // The page links the limits under the reason, so a reason stored with "(see Configuration)" drops it.
         assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: The agent did not finish in 1 minute, so Factory"
-                + " stopped it. Start a new attempt with a lower effort or narrower instructions, or raise the time"
+                + " stopped it. Start a new run with a lower effort or narrower instructions, or raise the time"
                 + " limit (see Configuration)."))
                 .isEqualTo(TaskStops.timeLimitReason(1))
                 .doesNotContain("see Configuration");
@@ -42,7 +44,7 @@ class AttemptFailureTest {
         assertThat(TaskStops.turnLimitReason(1)).startsWith("The agent reached its limit of 1 turn before it finished.");
         assertThat(TaskStops.turnLimitReason(2)).startsWith("The agent reached its limit of 2 turns before it finished.");
         assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: The agent reached its limit of 1 turns before it"
-                + " finished. Start a new attempt with narrower instructions."))
+                + " finished. Start a new run with narrower instructions."))
                 .isEqualTo(TaskStops.turnLimitReason(1));
     }
 
@@ -50,18 +52,18 @@ class AttemptFailureTest {
     void reasonsFactoryStoresInItsOwnWordsNeedNoEngineWords() {
         assertThat(AttemptFailure.reason("engine execution ended in status FAILED_ESCALATED"))
                 .isEqualTo("The run stopped before a step could say why. Open the run to see where it stopped,"
-                        + " then start a new attempt.")
+                        + " then start a new run.")
                 .doesNotContain("engine", "execution", "FAILED");
         assertThat(AttemptFailure.reason("Marked as stopped by the operator; a pull request may already exist from"
                 + " task/MODBAR-1 to folio-org/mod-bar"))
-                .isEqualTo("You closed the attempt as failed; a pull request may already exist from task/MODBAR-1 to"
+                .isEqualTo("You closed the run as failed; a pull request may already exist from task/MODBAR-1 to"
                         + " folio-org/mod-bar.");
     }
 
     @Test
     void anAttemptThatChangedNoFileSaysSoAlsoInAReasonStoredBeforeTheNewWords() {
         assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: " + TaskStops.NO_CHANGES_REASON))
-                .isEqualTo("The agent finished without changing any file. Start a new attempt with clearer"
+                .isEqualTo("The agent finished without changing any file. Start a new run with clearer"
                         + " instructions.");
         assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: Implementation failed: Candidate contains no changes"))
                 .isEqualTo(TaskStops.NO_CHANGES_REASON);
@@ -97,9 +99,47 @@ class AttemptFailureTest {
                 + " initial coding invocation"))
                 .isEqualTo(TaskStops.REPLAYED_CODING_REASON)
                 .isEqualTo("Factory restarted or repeated this step while the agent was coding, so the work of this"
-                        + " attempt is lost. Start a new attempt.");
+                        + " run is lost. Start a new run.");
         assertThat(AttemptFailure.reason("implement: " + TaskStops.REPLAYED_CODING_REASON))
                 .isEqualTo(TaskStops.REPLAYED_CODING_REASON);
+    }
+
+    @Test
+    void aReasonStoredWhileThePagesSaidAttemptReadsInTodaysWordsAndKeepsQuotedOutput() {
+        assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: The agent finished without changing any file. Start a"
+                + " new attempt with clearer instructions.")).isEqualTo(TaskStops.NO_CHANGES_REASON);
+        var deadline = AttemptFailure.reason("verify: The attempt used all of its time before verification, so"
+                + " Factory stopped it. Start a new attempt with a lower effort or narrower instructions, or raise"
+                + " the time limit of the whole attempt.");
+
+        assertThat(deadline).isEqualTo(TaskStops.deadlineReason("verification"));
+        assertThat(AttemptFailure.limitsUrl(deadline)).isNotNull();
+        assertThat(AttemptFailure.reason("verify: the build said: download attempt 2 of 3 failed"))
+                .contains("download attempt 2 of 3 failed");
+        assertThat(AttemptFailure.reason("clarify-implementation: " + TaskStops.DECISION_REASON
+                + "Start a new attempt or keep the branch?")).isEqualTo("Start a new attempt or keep the branch?");
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', quoteCharacter = '"', value = {
+        "The agent finished without changing any file. Start a new attempt with clearer instructions."
+            + " | Start a new run with clearer instructions.",
+        "A command printed more output than Factory accepts, so Factory stopped the attempt. Start a new attempt."
+            + " | so Factory stopped the run. Start a new run.",
+        "Factory could not process the Claude Code output (IOException), so it stopped the attempt. Retry the task."
+            + " | so it stopped the run. Retry the task.",
+        "Factory restarted or repeated this step while the agent was coding, so the work of this attempt is lost."
+            + " | so the work of this run is lost.",
+        "The attempt used all of its time before coding, so Factory stopped it. Raise the time limit of the whole"
+            + " attempt. | The run used all of its time before coding",
+        "The agent ran too long. Lower the effort, or raise the time limit of the whole attempt."
+            + " | or raise the time limit of the whole run.",
+        "Claude Code did not complete the attempt (EXIT_2) | Claude Code did not complete the run (EXIT_2).",
+        "the task attempt no longer owns the installation's active slot; a stopped, superseded or released attempt"
+            + " must not continue | The run no longer owns the installation's active slot; a stopped, superseded or"
+            + " released run must not continue."})
+    void everyOldPhraseOfFactoryReadsInTodaysWords(String stored, String today) {
+        assertThat(AttemptFailure.reason("DEVELOPMENT_FAILED: " + stored)).contains(today).doesNotContain("attempt");
     }
 
     @Test
@@ -108,9 +148,9 @@ class AttemptFailureTest {
                 + " verification; queue and human-review waiting are excluded from the budget");
 
         assertThat(reason).isEqualTo(TaskStops.deadlineReason("verification"))
-                .isEqualTo("The attempt used all of its time before verification, so Factory stopped it. Start a new"
-                        + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole"
-                        + " attempt.");
+                .isEqualTo("The run used all of its time before verification, so Factory stopped it. Start a new"
+                        + " run with a lower effort or narrower instructions, or raise the time limit of the whole"
+                        + " run.");
         assertThat(AttemptFailure.limitsUrl(reason)).isEqualTo("/developer/configuration#limits");
         assertThat(AttemptFailure.reason("DEADLINE_EXCEEDED: " + TaskStops.deadlineReason("coding")))
                 .isEqualTo(TaskStops.deadlineReason("coding"));

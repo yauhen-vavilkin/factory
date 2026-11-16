@@ -239,7 +239,7 @@ public class FeedbackUi {
             case QUESTION -> "Your answer is needed";
             case FAILURE -> "Action needed";
             case REFRESH_REQUIRED -> "Refresh PR and select comments again";
-            case INTERRUPTED -> "Coding attempt interrupted";
+            case INTERRUPTED -> "Coding interrupted";
             case CLEANUP_BLOCKED -> "Resource cleanup required";
             case FINISHED -> "PR merged";
             case STOPPED -> "PR closed without merge";

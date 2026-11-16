@@ -48,7 +48,7 @@
             </div>
         </div>
         <p class="dev-list-note" th:if="${spending.unpricedNote() != null}" th:text="${spending.unpricedNote()}">
-            2 attempts have no price</p>
+            2 runs have no price</p>
 
         <div class="dev-list-head spend-head">
             <h3 class="spend-title">Cost per task</h3>
@@ -60,7 +60,7 @@
                 <a class="dev-row-title" th:href="@{'/tasks/' + ${row.taskId()}}" th:title="${row.title()}"
                    th:text="${row.title()}">Title</a>
                 <div class="dev-row-meta"><a class="key-link ext-link" th:href="${row.jiraUrl()}"
-                        th:text="${row.key()}">KEY-1</a><span th:text="${row.attempts()}">3 attempts</span></div>
+                        th:text="${row.key()}">KEY-1</a><span th:text="${row.attempts()}">3 runs</span></div>
             </div>
             <span class="spend-bar" role="img" th:attr="aria-label=${row.barLabel()}" th:title="${row.barLabel()}"><span
                     class="spend-bar-pr" th:style="|width: ${row.pullRequestWidth()}%|"></span><span
@@ -76,13 +76,13 @@
 
         <th:block th:unless="${spending.causes().isEmpty()}">
             <div class="dev-list-head spend-head">
-                <h3 class="spend-title">Where attempts stopped</h3>
+                <h3 class="spend-title">Where runs stopped</h3>
             </div>
             <div class="dev-row spend-group" th:each="cause : ${spending.causes()}">
                 <div class="dev-row-main">
                     <span class="dev-row-name" th:text="${cause.label()}">Time limit</span>
                     <div class="dev-row-meta dev-row-meta-quoted"><span th:each="fact : ${cause.facts()}"
-                            th:text="${fact}">3 attempts</span></div>
+                            th:text="${fact}">3 runs</span></div>
                 </div>
                 <div class="row-cluster row-cluster-status">
                     <span class="row-amount" th:classappend="${cause.amountNote()} ? 'row-amount-note'"
@@ -98,7 +98,7 @@
             <div class="dev-row-main">
                 <span class="dev-row-name" th:text="${model.label()}">glm-5.3 · max</span>
                 <div class="dev-row-meta dev-row-meta-quoted"><span th:each="fact : ${model.facts()}"
-                        th:text="${fact}">3 attempts</span></div>
+                        th:text="${fact}">3 runs</span></div>
             </div>
             <div class="row-cluster row-cluster-status">
                 <span class="row-amount" th:classappend="${model.amountNote()} ? 'row-amount-note'"

@@ -27,7 +27,7 @@ public class CodingDecisionGateWorker implements AgentWorker {
             "Developer Flow: answer the coding question",
             "The coding runtime found a blocking product or repository question. AMEND only "
                     + "dev_coding_decision_answer.md and replace UNANSWERED with the confirmed human answer. "
-                    + "APPROVE without amending does not authorize another coding attempt. REJECT stops the execution.",
+                    + "APPROVE without amending does not authorize more coding. REJECT stops the execution.",
             List.of(IntakeResolveWorker.CODING_REQUEST, DevelopWorker.OUTCOME,
                     CodingDecisionArtifacts.REQUEST, CodingDecisionArtifacts.ANSWER));
 

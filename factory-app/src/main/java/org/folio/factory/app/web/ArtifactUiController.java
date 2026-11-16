@@ -110,7 +110,7 @@ public class ArtifactUiController {
                 .collect(Collectors.toMap(TaskAttempt::getExecutionId, Function.identity(), (one, other) -> one));
     }
 
-    /** "MGRAPPS-119 · attempt 3" for a Developer Flow run, as the Executions list says it; the short id otherwise. */
+    /** "MGRAPPS-119 · run 3" for a Developer Flow run, as the Executions list says it; the short id otherwise. */
     private String runName(PipelineExecution run, TaskAttempt attempt) {
         var idShort = UiFormat.abbreviate(run.getId().toString());
         if (!isDeveloperRun(run)) {

@@ -6,12 +6,13 @@ import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.tasks.TaskStops;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * The words of a failed attempt, the same on the task page, the run page and a Runs row: a short headline and
+ * The words of a failed attempt, the same on the task page, the run page and a Started tasks row: a short headline and
  * the reason. The flow layers add prefixes to a stored reason ("shared: ", the stage, "Development stopped: ");
  * the reason drops them, also in reasons stored by older runs, and says the known causes in plain words.
  */
@@ -23,14 +24,29 @@ public record AttemptFailure(String headline, String reason) {
     static final String CHECKS_NOT_RUN_WORDS = "Checks could not run";
     private static final String NO_REASON = "No reason was recorded.";
     private static final String RUN_ENDED = "The run stopped before a step could say why. Open the run to see"
-            + " where it stopped, then start a new attempt.";
-    private static final String MARKED_STOPPED = "You closed the attempt as failed";
+            + " where it stopped, then start a new run.";
+    private static final String MARKED_STOPPED = "You closed the run as failed";
     private static final String IMPLEMENTATION = "Implementation";
     private static final String OLD_NO_CHANGES = "Candidate contains no changes";
     private static final String OLD_STARTING_BUILD_FAILED = "Starting build failed before model spend";
     /** Older runs named the attempt id in this text. */
     private static final String OLD_REPLAYED_CODING = "Paid coding was already started for task attempt";
     private static final Pattern OLD_DEADLINE = Pattern.compile("^the whole-attempt deadline expired before ([^;]+);");
+    /**
+     * Factory's own sentences as runs stored them while the pages called a run an attempt: the ones a page compares
+     * with a constant of TaskStops, and the ones runs stored often. Whole phrases, so other words of a build or a
+     * tool stay as they are; the agent's question is never touched.
+     */
+    private static final Map<String, String> OLD_WORDS = Map.of(
+            "Start a new attempt", "Start a new run",
+            "Factory stopped the attempt", "Factory stopped the run",
+            "so it stopped the attempt", "so it stopped the run",
+            "the work of this attempt is lost", "the work of this run is lost",
+            "The attempt used all of its time before", "The run used all of its time before",
+            "the time limit of the whole attempt", "the time limit of the whole run",
+            "did not complete the attempt", "did not complete the run",
+            "the task attempt no longer owns", "the run no longer owns",
+            "released attempt must not", "released run must not");
     private static final String LIMITS_URL = "/developer/configuration#limits";
     private static final List<String> LAYER_PREFIXES =
             List.of(TaskOutcomeService.SHARED, "Development stopped: ", "Implementation failed: ");
@@ -43,9 +59,9 @@ public record AttemptFailure(String headline, String reason) {
             + "|used all (\\d+) turns)\\b|The agent reached its limit of (\\d+) turns? before it finished\\.)");
     private static final Pattern SENTENCE_END = Pattern.compile("(?<=[.!?])\\s+(?=[A-Z\"])");
 
-    /** "Attempt 3 failed" and the reason of that attempt. */
+    /** "Run 3 failed" and the reason of that attempt. */
     public static AttemptFailure of(int ordinal, String storedReason) {
-        return new AttemptFailure("Attempt " + ordinal + " failed", reason(storedReason));
+        return new AttemptFailure("Run " + ordinal + " failed", reason(storedReason));
     }
 
     /**
@@ -57,7 +73,7 @@ public record AttemptFailure(String headline, String reason) {
         if (storedReason == null || storedReason.isBlank()) {
             return NO_REASON;
         }
-        var text = withoutLayerPrefixes(storedReason.strip());
+        var text = inTodaysWords(withoutLayerPrefixes(storedReason.strip()));
         var stage = LEADING_STAGE.matcher(text);
         if (!stage.matches() || !isStage(stage.group(1))) {
             return sentence(knownCause(text));
@@ -111,6 +127,17 @@ public record AttemptFailure(String headline, String reason) {
     /** The first sentence of the reason, for a list row that has room for one line. */
     public static String firstSentence(String reason) {
         return SENTENCE_END.split(reason, 2)[0];
+    }
+
+    private static String inTodaysWords(String text) {
+        if (text.contains(TaskStops.DECISION_REASON)) {
+            return text;
+        }
+        var words = text;
+        for (var old : OLD_WORDS.entrySet()) {
+            words = words.replace(old.getKey(), old.getValue());
+        }
+        return words;
     }
 
     private static boolean isStage(String token) {

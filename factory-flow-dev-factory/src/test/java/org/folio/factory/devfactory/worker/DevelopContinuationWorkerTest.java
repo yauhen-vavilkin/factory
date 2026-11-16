@@ -107,7 +107,7 @@ class DevelopContinuationWorkerTest {
                 .isEqualTo(request());
         assertThat(result.outputs().get(DevelopWorker.CANDIDATE)).isEqualTo("{\"state\":\"NEEDS_DECISION\"}");
         assertThat(taskAttempts.stops).singleElement().satisfies(stop ->
-                assertThat(stop).contains("cannot continue a task attempt automatically"));
+                assertThat(stop).contains("cannot continue a run automatically"));
         verifyNoInteractions(develop);
     }
 

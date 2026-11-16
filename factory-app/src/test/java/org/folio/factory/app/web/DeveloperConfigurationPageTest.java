@@ -219,12 +219,12 @@ class DeveloperConfigurationPageTest {
     void limitsNameEveryVariable() {
         assertThat(runSetup(true).limits()).extracting(Fact::name, Fact::variable).containsExactly(
                 tuple("Time per step", "FACTORY_DEV_FACTORY_TIMEOUT_SECONDS"),
-                tuple("Time per attempt", "FACTORY_TASKS_EXECUTION_DEADLINE"),
+                tuple("Time per run", "FACTORY_TASKS_EXECUTION_DEADLINE"),
                 tuple("Agent turns", "FACTORY_CLAUDE_CODE_MAX_TURNS"),
                 tuple("Coding agent", "FACTORY_DEV_FACTORY_CODING_RUNTIME"),
                 tuple("Coding image", "FACTORY_CLAUDE_CODE_IMAGE"));
         assertThat(runSetup(true).limits()).extracting(Fact::text).startsWith(
-                "1 h each for the first build, the coding and the checks (never past the time per attempt), and"
+                "1 h each for the first build, the coding and the checks (never past the time per run), and"
                         + " for every PR feedback round.",
                 "1 h from Prepare task to the pull request; waiting in the queue or for a review does not count.",
                 "400 per coding session, from 1 to 500. A session that reaches it stops, and its work is lost.");

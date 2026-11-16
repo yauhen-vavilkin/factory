@@ -10,7 +10,7 @@
             <th:block th:if="${header.key() != null}">/ <a th:if="${header.taskId() != null}"
                     th:href="@{'/tasks/' + ${header.taskId()}}" th:text="${header.key()}">KEY-1</a><span
                     th:if="${header.taskId() == null}" th:text="${header.key()}">KEY-1</span></th:block>
-            / <span th:text="${header.crumb()}">Attempt 1</span></nav>
+            / <span th:text="${header.crumb()}">Run 1</span></nav>
         <div class="dev-meta" th:if="${header.jiraUrl() != null}">
             <span class="src src-jira">Jira task</span>
             <a class="key-link ext-link" th:href="${header.jiraUrl()}" th:text="${header.key()}">KEY-1</a>
@@ -35,7 +35,7 @@
                       th:text="${run.turn().label()}">Your turn</span>
                 <p class="status-card-headline" th:text="${status.headline()}">Implementing changes</p>
                 <p class="status-card-reason" th:if="${status.reason() != null}"><span class="status-card-label" th:text="${status.reasonLabel()}">Reason</span>
-                    <span th:text="${status.reason()}">Why the attempt failed.</span></p>
+                    <span th:text="${status.reason()}">Why the run failed.</span></p>
                 <p class="status-card-note" th:if="${status.reasonUrl() != null}"><a class="dev-link"
                         th:href="@{${status.reasonUrl()}}">Limits in Configuration</a></p>
                 <p class="status-card-reason" th:if="${status.question() != null}" th:text="${status.question()}">
@@ -56,15 +56,15 @@
                th:text="${status.actionLabel()}">Answer on the task page</a>
             <a class="btn btn-primary btn-sm"
                th:if="${run.offersRetry()}"
-               th:href="${standing.retryUrl()}" th:text="${standing.retryLabel()}">Start attempt 2</a>
+               th:href="${standing.retryUrl()}" th:text="${standing.retryLabel()}">Start run 2</a>
         </div>
     </section>
 
     <div class="run-standing" th:if="${standing != null and standing.lead() != null}">
-        <p><th:block th:text="${standing.lead()}">Attempt 1 of 3. Latest: </th:block><a
+        <p><th:block th:text="${standing.lead()}">Run 1 of 3. Latest: </th:block><a
                 th:if="${standing.latestUrl() != null}" th:href="${standing.latestUrl()}"
-                th:text="${standing.latestText()}">attempt 3</a><th:block th:if="${standing.latestUrl() == null}"
-                th:text="${standing.latestText()}">attempt 3</th:block><th:block
+                th:text="${standing.latestText()}">run 3</a><th:block th:if="${standing.latestUrl() == null}"
+                th:text="${standing.latestText()}">run 3</th:block><th:block
                 th:text="${standing.tail()}">, Draft PR #14.</th:block></p>
     </div>
 

@@ -46,12 +46,12 @@ class StopReasonsTest {
     void anEngineThatGaveUpNamesTheStepAsItsCardDoesTheTriesAndTheFirstLineOfTheError() {
         assertThat(StopReasons.engineGaveUp("publish", 3, "429 Too Many Requests: rate limit.\nat line 2"))
                 .isEqualTo("Factory could not finish the step \"Create pull request\" after 3 tries: 429 Too Many"
-                        + " Requests: rate limit. Start a new attempt.");
+                        + " Requests: rate limit. Start a new run.");
         // The JSON body an HTTP client quotes after the status reads as its message.
         assertThat(StopReasons.engineGaveUp("publish", 3,
                 "429 Too Many Requests: \"{\"message\": \"API rate limit exceeded\"}\""))
                 .isEqualTo("Factory could not finish the step \"Create pull request\" after 3 tries: 429 Too Many"
-                        + " Requests: API rate limit exceeded. Start a new attempt.");
+                        + " Requests: API rate limit exceeded. Start a new run.");
         assertThat(StopReasons.engineGaveUp("publish", 3, "502 Bad Gateway: \"{\"error\": 7}\""))
                 .contains("after 3 tries: 502 Bad Gateway: \"{\"error\": 7}\". Start");
         // The message is read first, then cut to its first line and cleared of credentials like any other error.
@@ -72,7 +72,7 @@ class StopReasonsTest {
                 .startsWith("Factory could not finish the step \"Verify changes\" after 3 tries: push to https://");
         assertThat(StopReasons.engineGaveUp("publish", 3, "NullPointerException"))
                 .isEqualTo("Factory could not finish the step \"Create pull request\" after 3 tries: an unexpected"
-                        + " error. Start a new attempt.");
+                        + " error. Start a new run.");
         assertThat(StopReasons.engineGaveUp("publish", 3, "x".repeat(500))).hasSizeLessThan(400);
     }
 

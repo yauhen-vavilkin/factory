@@ -48,7 +48,7 @@ public class TaskRevisions {
     }
 
     /**
-     * What the strip and the Runs rows show for each task whose run works now, a first implementation or a PR
+     * What the strip and the Started tasks rows show for each task whose run works now, a first implementation or a PR
      * feedback round. Usage events change no attempt row, so without this the cost and the minutes, also the time
      * the agent worked while a PR feedback round runs, would stand still until the run ends.
      */

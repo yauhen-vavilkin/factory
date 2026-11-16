@@ -64,7 +64,7 @@ public class SpendingRows {
                         cause -> new ArrayList<>()).add(attempt));
         return byCause.entrySet().stream()
                 .sorted(Comparator.comparing(entry -> total(money(entry.getValue())), Comparator.reverseOrder()))
-                .map(entry -> group(entry.getKey().getLabel(), List.of(count(entry.getValue().size(), "attempt")),
+                .map(entry -> group(entry.getKey().getLabel(), List.of(count(entry.getValue().size(), "run")),
                         entry.getValue()))
                 .toList();
     }
@@ -87,16 +87,16 @@ public class SpendingRows {
     }
 
     /**
-     * "2 attempts", "1 pull request", "$0.80 per attempt"; the average counts only attempts with a price, and is left
+     * "2 runs", "1 pull request", "$0.80 per run"; the average counts only attempts with a price, and is left
      * out when none has one.
      */
     private static List<String> modelFacts(List<TaskView.AttemptHistoryEntry> attempts) {
         var money = money(attempts);
         var pullRequests = attempts.stream().filter(attempt -> attempt.pullRequestUrl() != null).count();
         var priced = attempts.stream().filter(attempt -> TaskCost.cost(attempt) != null).count();
-        var facts = new ArrayList<>(List.of(count(attempts.size(), "attempt"), count(pullRequests, "pull request")));
+        var facts = new ArrayList<>(List.of(count(attempts.size(), "run"), count(pullRequests, "pull request")));
         if (!money.isEmpty() && priced > 0) {
-            facts.add(amount(divide(money, priced)) + " per attempt");
+            facts.add(amount(divide(money, priced)) + " per run");
         }
         return List.copyOf(facts);
     }
@@ -126,7 +126,7 @@ public class SpendingRows {
         var delivered = costs.stream().filter(TaskCost::delivered).count();
         return List.of(new Spending.Figure(amount(spent), "Spent"),
                 new Spending.Figure(amount(sum(costs, TaskCost::pullRequest)), "Ended in a pull request"),
-                new Spending.Figure(amount(sum(costs, TaskCost::other)), "Attempts without a pull request"),
+                new Spending.Figure(amount(sum(costs, TaskCost::other)), "Runs without a pull request"),
                 new Spending.Figure(delivered == 0 ? NO_FIGURE : amount(divide(spent, delivered)),
                         "Cost per pull request"));
     }
@@ -137,19 +137,19 @@ public class SpendingRows {
         var amount = UiFormat.money(cost.all());
         var unknown = amount == null && cost.unpriced() > 0;
         return new Spending.Row(view.taskId(), view.displayKey(), view.jiraUrl(), view.title(),
-                count(cost.attempts(), "attempt"), unknown ? UiFormat.COST_UNKNOWN : amount(cost.all()), unknown,
+                count(cost.attempts(), "run"), unknown ? UiFormat.COST_UNKNOWN : amount(cost.all()), unknown,
                 width(cost.pullRequest(), scale), width(cost.other(), scale),
                 "Ended in a pull request: " + amount(cost.pullRequest()) + " · No pull request: "
                         + amount(cost.other()), chip.chipLabel(), chip.chipClass(), chip.chipUrl());
     }
 
-    /** "2 attempts have no price": the attempts whose cost is unknown on the task page; null when there are none. */
+    /** "2 runs have no price": the attempts whose cost is unknown on the task page; null when there are none. */
     private static String unpricedNote(List<TaskCost> costs) {
         var unpriced = costs.stream().mapToLong(TaskCost::unpriced).sum();
         if (unpriced == 0) {
             return null;
         }
-        return unpriced == 1 ? "1 attempt has no price" : unpriced + " attempts have no price";
+        return unpriced == 1 ? "1 run has no price" : unpriced + " runs have no price";
     }
 
     /** "2 more tasks: $0.03" for the tasks without a row; null when every task has one. */

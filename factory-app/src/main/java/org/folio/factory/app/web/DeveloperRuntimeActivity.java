@@ -220,7 +220,7 @@ final class DeveloperRuntimeActivity {
         if (!detail.path("attempt").isInt()) return "";
         String attempt = detail.path("attempt").asString();
         return detail.path("maxAttempts").isInt() ? " (" + attempt + "/"
-                + detail.path("maxAttempts").asString() + ")" : " (attempt " + attempt + ")";
+                + detail.path("maxAttempts").asString() + ")" : " (try " + attempt + ")";
     }
 
     private static String retryEndText(JsonNode detail) {

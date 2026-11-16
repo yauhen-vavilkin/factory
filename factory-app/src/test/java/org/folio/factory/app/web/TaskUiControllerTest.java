@@ -232,11 +232,11 @@ class TaskUiControllerTest {
                 .containsEntry("detail", "Checks failed: 2 tests failed.")
                 .containsEntry("detailTitle", "Checks failed: 2 tests failed.")
                 // No model was recorded for this attempt, so the facts are the attempts and the agent's time.
-                .containsEntry("facts", List.of("1 attempt", "10 min"))
+                .containsEntry("facts", List.of("1 run", "10 min"))
                 // The button of a failed task opens its task page at the next attempt.
                 .containsEntry("action", RunAction.RETRY)
                 .containsEntry("button",
-                        new TriggeredRow.Button("Start attempt 2", "/tasks/" + OTHER_TASK_ID + "#retry"))
+                        new TriggeredRow.Button("Start run 2", "/tasks/" + OTHER_TASK_ID + "#retry"))
                 .containsEntry("markStoppedAttemptId", null);
         assertThat(model.get("inProgress")).isNull();
         var source = (SourceCard) model.get("source");
@@ -319,7 +319,7 @@ class TaskUiControllerTest {
                 .containsEntry("chipClass", "chip chip-info")
                 .containsEntry("detail", null)
                 // An attempt in flight says which one it is, and no time: the strip above has it.
-                .containsEntry("facts", List.of("glm-5.3 · max", "Attempt 1"))
+                .containsEntry("facts", List.of("glm-5.3 · max", "run 1"))
                 .containsEntry("action", RunAction.OPEN_RUN)
                 .containsEntry("button", null);
         assertThat(RunAction.OPEN_RUN.yours()).isFalse();
@@ -335,8 +335,8 @@ class TaskUiControllerTest {
 
         // The model of the latest attempt, and 10 minutes in each of the two attempts.
         assertThat(row)
-                .containsEntry("facts", List.of("glm-5.3 · max", "2 attempts", "20 min"))
-                .containsEntry("button", new TriggeredRow.Button("Start attempt 3", "/tasks/" + TASK_ID + "#retry"));
+                .containsEntry("facts", List.of("glm-5.3 · max", "2 runs", "20 min"))
+                .containsEntry("button", new TriggeredRow.Button("Start run 3", "/tasks/" + TASK_ID + "#retry"));
     }
 
     @Test
@@ -754,13 +754,13 @@ class TaskUiControllerTest {
                 .containsEntry("spentNote", "cost unknown")
                 .containsEntry("repository", "mod-bar → folio-org/mod-bar · master");
         assertThat(detail(result))
-                .containsEntry("headline", "Attempt 2 failed")
+                .containsEntry("headline", "Run 2 failed")
                 .containsEntry("reason", "Checks failed: 2 tests failed.")
                 .containsEntry("reasonNote", "No pull request was created.");
         // Newest first: a new attempt is added at the top.
         assertThat(rows(result.getModelAndView().getModel(), "attempts"))
                 .extracting(row -> row.get("ordinal") + " · " + row.get("kind"))
-                .containsExactly("2 · first run", "1 · first run");
+                .containsExactly("2 · null", "1 · null");
         assertThat(result.getModelAndView().getModel().get("question")).isNull();
         verifyNoInteractions(admissions, outcomes);
         verify(dispatcher, never()).dispatchNext();
@@ -804,7 +804,7 @@ class TaskUiControllerTest {
         var model = mvc.perform(get("/tasks/{taskId}", TASK_ID)).andReturn().getModelAndView().getModel();
 
         assertThat(rows(model, "attempts")).extracting(row -> row.get("kind")).containsExactly(
-                "answer to the agent's question", "retry with your instructions", "retry", "first run");
+                "answer to the agent's question", "retry with your instructions", "retry", null);
     }
 
     @Test
@@ -1065,11 +1065,11 @@ class TaskUiControllerTest {
 
     @Test
     void retry_refusedWhileTheTaskIsQueuedIsNotShownAsQueued() throws Exception {
-        when(admissions.retry(any())).thenReturn(new TaskAdmissionService.RetryResult(ATTEMPT_ID, null, TaskAttempt.State.RESERVED, "task already has a live attempt", true));
+        when(admissions.retry(any())).thenReturn(new TaskAdmissionService.RetryResult(ATTEMPT_ID, null, TaskAttempt.State.RESERVED, "task already has a live run", true));
 
         mvc.perform(post("/tasks/{taskId}/retry", TASK_ID).param("expectedVersion", "1").param("returnTo", "flow"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl(FLOW_PAGE + "?error=task+already+has+a+live+attempt"))
+                .andExpect(redirectedUrl(FLOW_PAGE + "?error=task+already+has+a+live+run"))
                 .andExpect(flash().attributeCount(0));
     }
 
@@ -1111,7 +1111,7 @@ class TaskUiControllerTest {
 
                 Your question was: Which API should change?
 
-                What you wrote before the question in the last attempt:
+                What you wrote before the question in the last run:
                 I read the code.""");
     }
 
@@ -1176,7 +1176,7 @@ class TaskUiControllerTest {
 
         mvc.perform(post("/tasks/{taskId}/attempts/{attemptId}/mark-stopped", TASK_ID, ATTEMPT_ID))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/tasks/" + TASK_ID + "?error=Factory+could+not+close+the+attempt+as+failed%3B"
+                .andExpect(redirectedUrl("/tasks/" + TASK_ID + "?error=Factory+could+not+close+the+run+as+failed%3B"
                         + "+try+again+in+a+moment%2C+and+see+the+Factory+log+if+it+fails+again."));
 
         verifyNoInteractions(dispatcher);

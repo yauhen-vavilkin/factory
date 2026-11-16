@@ -7,7 +7,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * What the Attempts rows of the task page say about usage: the token columns, and the row that adds the attempts
+ * What the Runs rows of the task page say about usage: the token columns, and the row that adds the attempts
  * up. A token category with no tokens in the whole task has no column. total is null until two attempts started.
  */
 public record TaskSpending(List<String> tokenColumns, Total total) {
@@ -57,12 +57,12 @@ public record TaskSpending(List<String> tokenColumns, Total total) {
 
     private static Total total(TaskView view, String spent, String spentTitle) {
         int count = view.attempts().size();
-        return new Total(count + " attempts", time(view), tokens(view, view.usage()),
+        return new Total(count + " runs", time(view), tokens(view, view.usage()),
                 spent == null ? UiFormat.COST_UNKNOWN : spent, spentTitle);
     }
 
     /**
-     * The times in the Attempts rows added up, each in whole minutes as its row shows it, so the sum agrees with
+     * The times in the Runs rows added up, each in whole minutes as its row shows it, so the sum agrees with
      * the rows above it. "—" when no attempt reached the agent, and while the agent works: the time of that row
      * ticks, and a sum that stands still would fall behind it.
      */

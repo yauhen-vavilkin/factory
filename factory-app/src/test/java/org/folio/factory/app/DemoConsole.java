@@ -240,7 +240,7 @@ class DemoConsole {
      */
     private void deadlineBeforeVerification() {
         var reason = TaskStops.deadlineReason("verification");
-        var execution = stopped("80020", "Task stopped at the whole-attempt deadline", "verify: " + reason);
+        var execution = stopped("80020", "Task stopped at the time limit of the whole run", "verify: " + reason);
         put(execution, VerifyWorker.RECEIPT, Map.of("state", "NOT_RUN", "reason", reason));
         put(execution, VerifyWorker.RESULT, Map.of("state", TaskStops.DEADLINE_STATE, "reason", reason));
         put(execution, DeliveryWorker.DELIVERY, Map.of("state", "NOT_RUN"));
@@ -307,7 +307,7 @@ class DemoConsole {
 
     /** The agent changed no file, then printed too much, and the third attempt opened a draft pull request. */
     private void threeAttempts() {
-        var task = task("80021", "MODBAR-821", "Task delivered on the third attempt");
+        var task = task("80021", "MODBAR-821", "Task delivered on the third run");
         attempt(task, 1, TaskAttempt.State.STOPPED, "DEVELOPMENT_FAILED: " + TaskStops.NO_CHANGES_REASON,
                 execution("0.6.0", ExecutionStatus.COMPLETED, 10));
         attempt(task, 2, TaskAttempt.State.STOPPED, "DEVELOPMENT_FAILED: " + TaskStops.OUTPUT_LIMIT_REASON,
@@ -320,7 +320,7 @@ class DemoConsole {
 
     /** Two failed attempts with their usage, and a third one that the developer started and that waits in line. */
     private void thirdAttemptQueued() {
-        var task = task("80038", "MODBAR-838", "Task that failed twice and waits for its third attempt");
+        var task = task("80038", "MODBAR-838", "Task that failed twice and waits for its third run");
         attempt(task, 1, TaskAttempt.State.STOPPED, "DEVELOPMENT_FAILED: " + TaskStops.NO_CHANGES_REASON,
                 execution("0.6.0", ExecutionStatus.COMPLETED, 10));
         attempt(task, 2, TaskAttempt.State.STOPPED, "DEVELOPMENT_FAILED: " + TaskStops.OUTPUT_LIMIT_REASON,
@@ -330,7 +330,7 @@ class DemoConsole {
 
     /** A failed attempt, and a second one the agent works on now: the row of the attempts added up has no time. */
     private void secondAttemptWorking() {
-        var task = task("80039", "MODBAR-839", "Task whose second attempt works now");
+        var task = task("80039", "MODBAR-839", "Task whose second run works now");
         attempt(task, 1, TaskAttempt.State.STOPPED, "DEVELOPMENT_FAILED: " + TaskStops.NO_CHANGES_REASON,
                 execution("0.6.0", ExecutionStatus.COMPLETED, 10));
         var execution = bareExecution("0.6.0", ExecutionStatus.RUNNING, 3);

@@ -41,7 +41,7 @@ public record DeveloperRunView(Header header, Status status, Turn turn, Standing
                          String actionUrl) {
     }
 
-    /** "Attempt 1 of 3. Latest: attempt 3, Draft PR #14." and the button that starts the next attempt. */
+    /** "Run 1 of 3. Latest: run 3, Draft PR #14." and the button that starts the next attempt. */
     public record Standing(String lead, String latestText, String latestUrl, String tail, String retryLabel,
                            String retryUrl) {
     }

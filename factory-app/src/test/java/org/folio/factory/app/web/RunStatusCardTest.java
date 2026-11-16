@@ -42,7 +42,7 @@ class RunStatusCardTest {
 
     @Test
     void anAttemptThatCanStartTheNextOneIsYourTurn() {
-        var failed = new AttemptStatus("Failed", "chip chip-danger", null, "Attempt 1 failed");
+        var failed = new AttemptStatus("Failed", "chip chip-danger", null, "Run 1 failed");
         var in = withContext(context(failed, null, "/tasks/" + TASK_ID + "#retry"), ExecutionStatus.COMPLETED);
 
         assertThat(turn(in)).isEqualTo(Turn.YOURS);
@@ -233,7 +233,7 @@ class RunStatusCardTest {
 
     private static RunContext context(AttemptStatus status, String answerUrl, String retryUrl) {
         return new RunContext(TASK_ID, "MODBAR-1", "Fix the bar", "https://jira.example.org/browse/MODBAR-1", 1,
-                "glm-5.3 · max", status, null, null, answerUrl, retryUrl == null ? null : "Start attempt 2",
+                "glm-5.3 · max", status, null, null, answerUrl, retryUrl == null ? null : "Start run 2",
                 retryUrl, null, false, "mod-bar", null);
     }
 

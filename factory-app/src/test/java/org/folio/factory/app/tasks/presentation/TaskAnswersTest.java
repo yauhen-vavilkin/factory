@@ -45,7 +45,7 @@ class TaskAnswersTest {
         assertThat(answers.instructions(asked(), TaskAnswers.OWN_ANSWER, " Only the new routes. "))
                 .isEqualTo("My answer to your question: Only the new routes.\n\nYour question was: Keep it?");
         assertThatThrownBy(() -> answers.instructions(asked(), "5", null))
-                .hasMessage("Choose one of the answers, then start the attempt again.");
+                .hasMessage("Choose one of the answers, then start the run again.");
     }
 
     @Test void aTaskThatDidNotAskHasNoQuestion() {

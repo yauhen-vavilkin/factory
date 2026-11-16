@@ -134,8 +134,9 @@ public class TaskRows {
     }
 
     /**
-     * The Attempts rows, newest first: a new attempt is added at the top. The attempt the task stands for has
-     * {@code standing}, the status of the status card, so a merged or closed pull request reads the same in both.
+     * The Runs rows of the task page, newest first: a new attempt is added at the top. The attempt the task stands
+     * for has {@code standing}, the status of the status card, so a merged or closed pull request reads the same in
+     * both.
      */
     public static List<AttemptRow> attemptRows(TaskView view, AttemptStatus standing) {
         var stands = view.standingAttempt().orElse(null);
@@ -241,7 +242,7 @@ public class TaskRows {
     }
 
     /**
-     * "spent in 2 attempts" beside the amount, or "cost unknown" when the attempts that started have no cost
+     * "spent in 2 runs" beside the amount, or "cost unknown" when the attempts that started have no cost
      * figure; null before that. Why the amount may be too low is its title.
      */
     private static String spentNote(TaskView view) {
@@ -249,7 +250,7 @@ public class TaskRows {
         if (spent(view) == null) {
             return view.attempts().stream().anyMatch(attempt -> attempt.startedAt() != null) ? COST_UNKNOWN : null;
         }
-        return "spent in " + count + (count == 1 ? " attempt" : " attempts");
+        return "spent in " + count + (count == 1 ? " run" : " runs");
     }
 
     /** The run of the latest attempt that has one, in every state. */
@@ -262,10 +263,10 @@ public class TaskRows {
                 .orElse(null);
     }
 
-    /** "first run", "retry", "retry with your instructions" or "answer to the agent's question". */
+    /** "retry", "retry with your instructions" or "answer to the agent's question"; null for the first run. */
     private static String attemptKind(TaskView.AttemptHistoryEntry attempt) {
         if (attempt.kind() != TaskAttempt.Kind.RETRY) {
-            return "first run";
+            return null;
         }
         var instructions = TaskRunSettings.instructions(attempt.runSettings());
         if (instructions == null) {

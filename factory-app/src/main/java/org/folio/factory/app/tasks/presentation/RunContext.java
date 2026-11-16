@@ -22,7 +22,7 @@ public record RunContext(UUID taskId, String key, String title, String jiraUrl, 
                          String retryLabel, String retryUrl, Standing standing, boolean inFlight,
                          String repositoryKey, List<String> draftReasons) {
 
-    /** "Attempt 1 of 3. Latest: attempt 3, Draft PR #14.", the line an older attempt's run page shows. */
+    /** "Run 1 of 3. Latest: run 3, Draft PR #14.", the line an older attempt's run page shows. */
     public record Standing(String lead, String latestText, String latestUrl, String tail) {
     }
 
@@ -42,20 +42,20 @@ public record RunContext(UUID taskId, String key, String title, String jiraUrl, 
                 TaskRunSettings.label(attempt.runSettings()), AttemptStatus.of(view, attempt),
                 failed ? AttemptFailure.of(attempt.ordinal(), attempt.reason()) : null,
                 failed ? pullRequestNote(attempt.reason()) : null, answerUrl(view, attempt, latest),
-                retry ? "Start attempt " + (view.attempts().size() + 1) + " on the task page" : null,
+                retry ? "Start run " + (view.attempts().size() + 1) + " on the task page" : null,
                 retry ? "/tasks/" + view.taskId() + "#retry" : null,
                 latest ? null : standing(view, attempt), inFlight(attempt), view.destinationRepository(),
                 attempt.pullRequestUrl() == null ? null : attempt.draftReasons());
     }
 
-    /** "Attempt 2", the last part of the breadcrumb. */
+    /** "Run 2", the last part of the breadcrumb. */
     public String crumb() {
-        return "Attempt " + ordinal;
+        return "Run " + ordinal;
     }
 
-    /** "MGRAPPS-64 · attempt 2", the browser tab title. */
+    /** "MGRAPPS-64 · run 2", the browser tab title. */
     public String pageTitle() {
-        return key + " · attempt " + ordinal;
+        return key + " · run " + ordinal;
     }
 
     /** The task page form, while the task still waits for the answer to this attempt's question. */
@@ -69,8 +69,8 @@ public record RunContext(UUID taskId, String key, String title, String jiraUrl, 
         var latestLabel = AttemptStatus.of(view, latest).chipLabel();
         var state = latest.pullRequestUrl() != null ? latestLabel
                 : Character.toLowerCase(latestLabel.charAt(0)) + latestLabel.substring(1);
-        return new Standing("Attempt " + attempt.ordinal() + " of " + view.attempts().size() + ". Latest: ",
-                "attempt " + latest.ordinal(),
+        return new Standing("Run " + attempt.ordinal() + " of " + view.attempts().size() + ". Latest: ",
+                "run " + latest.ordinal(),
                 latest.executionId() == null ? null : "/executions/" + latest.executionId(), ", " + state + ".");
     }
 

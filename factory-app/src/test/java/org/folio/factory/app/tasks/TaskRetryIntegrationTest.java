@@ -227,12 +227,12 @@ class TaskRetryIntegrationTest {
         routed.setEligibility(Task.Eligibility.INELIGIBLE);
         unsupported = tasks.save(routed);
 
-        assertThat(retryRejected(queued, "live attempt")).isEqualTo(TaskAttempt.State.RESERVED);
-        assertThat(retryRejected(running, "live attempt")).isEqualTo(TaskAttempt.State.RUNNING);
+        assertThat(retryRejected(queued, "live run")).isEqualTo(TaskAttempt.State.RESERVED);
+        assertThat(retryRejected(running, "live run")).isEqualTo(TaskAttempt.State.RUNNING);
         assertThat(retryRejected(inspecting, "needs inspection")).isEqualTo(TaskAttempt.State.NEEDS_INSPECTION);
         assertThat(retryRejected(delivered, "delivered a pull request")).isEqualTo(TaskAttempt.State.PR_READY);
         assertThat(retryRejected(withdrawn, "select the task again")).isEqualTo(TaskAttempt.State.WITHDRAWN);
-        assertThat(retryRejected(neverAttempted, "never been attempted")).isNull();
+        assertThat(retryRejected(neverAttempted, "never been run")).isNull();
         assertThat(retryRejected(unsupported, "not eligible")).isEqualTo(TaskAttempt.State.STOPPED);
 
         Task stale = tasks.save(TaskFixture.task("50030", "MODBAR-530"));

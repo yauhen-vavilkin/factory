@@ -42,7 +42,7 @@ public record AttemptClock(String time, Instant start, String limit, String titl
         var seconds = Math.max(0, Duration.between(facts.stepStartedAt(), facts.now()).toSeconds());
         return new AttemptClock(UiFormat.duration(seconds), facts.stepStartedAt(),
                 "of " + UiFormat.duration(limits.stepSeconds()),
-                "The whole attempt may take " + UiFormat.duration(limits.attempt().toSeconds()) + ".");
+                "The whole run may take " + UiFormat.duration(limits.attempt().toSeconds()) + ".");
     }
 
     /**

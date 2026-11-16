@@ -24,7 +24,7 @@ import static org.folio.factory.app.tasks.presentation.TaskLabels.minutes;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.triggeredDetail;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.working;
 
-/** The Runs rows, the in-progress strip and the Cannot run here rows of My tasks. */
+/** The Started tasks rows, the in-progress strip and the Cannot run here rows of My tasks. */
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class RunRows {
 
@@ -50,18 +50,18 @@ public final class RunRows {
                 .toList();
     }
 
-    /** "Attempt 2" while it waits in line or works, "2 attempts" once the task rests. */
+    /** "run 2" while it waits in line or works, "2 runs" once the task rests. */
     private static String attemptsFact(TaskView view, TaskView.AttemptHistoryEntry latest) {
         if (view.state() == TaskView.TaskState.WORKING) {
-            return "Attempt " + latest.ordinal();
+            return "run " + latest.ordinal();
         }
         int count = view.attempts().size();
-        return count + (count == 1 ? " attempt" : " attempts");
+        return count + (count == 1 ? " run" : " runs");
     }
 
     /**
      * The time the agent worked in all attempts together, rounded once, so it can be a minute more than the times
-     * in the Attempts rows of the task page add up to. Null while the task is queued or works, and when no attempt
+     * in the Runs rows of the task page add up to. Null while the task is queued or works, and when no attempt
      * reached the agent.
      */
     private static String agentTime(TaskView view) {
@@ -77,7 +77,7 @@ public final class RunRows {
         var taskPage = "/tasks/" + view.taskId();
         return switch (action) {
             case ANSWER -> new TriggeredRow.Button("Answer", taskPage + "#answer");
-            case RETRY -> new TriggeredRow.Button("Start attempt " + (view.attempts().size() + 1),
+            case RETRY -> new TriggeredRow.Button("Start run " + (view.attempts().size() + 1),
                     taskPage + "#retry");
             case PR_WAITING -> new TriggeredRow.Button("Open PR feedback", TaskRows.runUrl(view) + "#pr-feedback");
             default -> null;

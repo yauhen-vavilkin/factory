@@ -19,16 +19,16 @@ class TaskGuardTest {
 
     @ParameterizedTest
     @CsvSource(delimiter = '|', quoteCharacter = '"', value = {
-        "preparation | the task attempt no longer owns the installation's active slot;"
-            + " a stopped, superseded or released attempt must not continue",
-        "coding | the task attempt no longer owns the installation's active slot;"
-            + " a stopped, superseded or released attempt must not continue",
-        "saving the agent's changes | the task attempt no longer owns the installation's active slot;"
-            + " a stopped, superseded or released attempt must not continue",
-        "verification | the task attempt no longer owns the installation's active slot;"
-            + " a stopped, superseded or released attempt must not continue",
-        "publication | the task attempt no longer owns the installation's active slot;"
-            + " a stopped, superseded or released attempt must not publish"})
+        "preparation | the run no longer owns the installation's active slot;"
+            + " a stopped, superseded or released run must not continue",
+        "coding | the run no longer owns the installation's active slot;"
+            + " a stopped, superseded or released run must not continue",
+        "saving the agent's changes | the run no longer owns the installation's active slot;"
+            + " a stopped, superseded or released run must not continue",
+        "verification | the run no longer owns the installation's active slot;"
+            + " a stopped, superseded or released run must not continue",
+        "publication | the run no longer owns the installation's active slot;"
+            + " a stopped, superseded or released run must not publish"})
     void anAttemptThatLostTheSlotStopsForInspection(String stage, String reason) {
         var attempts = RecordingTaskAttempts.taskRun();
         attempts.ownsSlot = false;
@@ -41,17 +41,17 @@ class TaskGuardTest {
 
     @ParameterizedTest
     @CsvSource(delimiter = '|', quoteCharacter = '"', value = {
-        "preparation | The attempt used all of its time before preparation, so Factory stopped it. Start a new"
-            + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole attempt.",
-        "coding | The attempt used all of its time before coding, so Factory stopped it. Start a new"
-            + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole attempt.",
-        "saving the agent's changes | The attempt used all of its time before saving the agent's changes, so Factory"
-            + " stopped it. Start a new attempt with a lower effort or narrower instructions, or raise the time limit"
-            + " of the whole attempt.",
-        "verification | The attempt used all of its time before verification, so Factory stopped it. Start a new"
-            + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole attempt.",
-        "publication | The attempt used all of its time before publication, so Factory stopped it. Start a new"
-            + " attempt with a lower effort or narrower instructions, or raise the time limit of the whole attempt."})
+        "preparation | The run used all of its time before preparation, so Factory stopped it. Start a new"
+            + " run with a lower effort or narrower instructions, or raise the time limit of the whole run.",
+        "coding | The run used all of its time before coding, so Factory stopped it. Start a new"
+            + " run with a lower effort or narrower instructions, or raise the time limit of the whole run.",
+        "saving the agent's changes | The run used all of its time before saving the agent's changes, so Factory"
+            + " stopped it. Start a new run with a lower effort or narrower instructions, or raise the time limit"
+            + " of the whole run.",
+        "verification | The run used all of its time before verification, so Factory stopped it. Start a new"
+            + " run with a lower effort or narrower instructions, or raise the time limit of the whole run.",
+        "publication | The run used all of its time before publication, so Factory stopped it. Start a new"
+            + " run with a lower effort or narrower instructions, or raise the time limit of the whole run."})
     void anExpiredDeadlineStopsBeforeTheStage(String stage, String reason) {
         var attempts = RecordingTaskAttempts.taskRun()
                 .withDeadline(new AttemptDeadline(Instant.parse("2026-10-23T10:00:00Z")));

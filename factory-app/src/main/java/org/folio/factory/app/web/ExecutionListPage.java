@@ -129,12 +129,12 @@ class ExecutionListPage {
                 parentId == null ? null : UiFormat.abbreviate(parentId.toString()));
     }
 
-    /** "MGRENTITLE-229 · attempt 2", so the runs of one task differ; the key alone for a run no attempt started. */
+    /** "MGRENTITLE-229 · run 2", so the runs of one task differ; the key alone for a run no attempt started. */
     static String runName(String taskKey, TaskAttempt attempt, String idShort) {
         if (taskKey.isBlank()) {
             return idShort;
         }
-        return attempt == null ? taskKey : taskKey + " · attempt " + attempt.getOrdinal();
+        return attempt == null ? taskKey : taskKey + " · run " + attempt.getOrdinal();
     }
 
     /** The pull request of the attempt, or the one the artifacts of a run without an attempt name. */

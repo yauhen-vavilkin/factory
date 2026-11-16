@@ -70,7 +70,7 @@ public class DevelopContinuationWorker implements AgentWorker {
             return;
         }
         taskGuard.recordStop(context.executionId(), context.stepId(),
-                "a clarification answer cannot continue a task attempt automatically;"
+                "a clarification answer cannot continue a run automatically;"
                         + " an explicit retry is a new execution");
     }
 

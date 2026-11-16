@@ -54,7 +54,7 @@ public final class CodingDecisionArtifacts {
                 # Coding decision answer
 
                 AMEND this artifact and replace `UNANSWERED` with the confirmed human answer.
-                APPROVE without amending does not authorize another coding attempt.
+                APPROVE without amending does not authorize more coding.
                 """);
     }
 

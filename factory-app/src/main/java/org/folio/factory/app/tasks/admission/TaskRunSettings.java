@@ -75,7 +75,7 @@ public class TaskRunSettings {
                 : JSON.readValue(snapshot, CodingRequest.RunSettings.class);
     }
 
-    /** "glm-5.3 · max" for the Attempts table; null when the attempt names no model. */
+    /** "glm-5.3 · max" for the Runs rows of the task page; null when the attempt names no model. */
     public static String label(String snapshot) {
         CodingRequest.RunSettings stored = settings(snapshot);
         if (stored == null || stored.modelId() == null) {
@@ -102,7 +102,7 @@ public class TaskRunSettings {
         return new Form(options, selected, selected.defaultEffort(), null);
     }
 
-    /** The instructions an attempt was started with, for its row in Attempts. */
+    /** The instructions an attempt was started with, for its row in Runs on the task page. */
     public static String instructions(String previous) {
         CodingRequest.RunSettings stored = settings(previous);
         return stored == null ? null : stored.instructions();

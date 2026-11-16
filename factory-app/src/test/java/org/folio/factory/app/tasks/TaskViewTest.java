@@ -465,7 +465,7 @@ class TaskViewTest {
         assertThat(status(task).headline()).isEqualTo("Verifying changes");
         stateManager.transition(executionId, ExecutionStatus.COMPLETED, null);
         assertThat(status(task)).returns("In progress", AttemptStatus::chipLabel)
-                .returns("Finishing the attempt", AttemptStatus::headline);
+                .returns("Finishing the run", AttemptStatus::headline);
     }
 
     private AttemptStatus status(Task task) {

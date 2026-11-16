@@ -41,7 +41,7 @@ public class TaskPublicationGuard {
         } catch (RuntimeException e) {
             log.warn("Publication authority could not be rechecked for execution {}", executionId, e);
             throw new DeliveryBlockedException(
-                    "Publication authority could not be rechecked; inspect the attempt before"
+                    "Publication authority could not be rechecked; inspect the run before"
                             + " publishing", e);
         }
     }
@@ -53,9 +53,9 @@ public class TaskPublicationGuard {
             throw blocked("the consumed coding request is missing or not normalized");
         }
         TaskAttempt attempt = attempts.findByExecutionId(executionId)
-                .orElseThrow(() -> blocked("the task attempt bound to the execution is missing"));
+                .orElseThrow(() -> blocked("the record of this run is missing"));
         Task task = tasks.findById(attempt.getTaskId())
-                .orElseThrow(() -> blocked("the task behind the attempt is missing"));
+                .orElseThrow(() -> blocked("the task behind the run is missing"));
         requireApprovedAdmission(consumedRequest, attempt, task);
         requireValidDestination(consumedRequest, destination);
     }

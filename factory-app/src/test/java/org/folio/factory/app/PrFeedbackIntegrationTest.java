@@ -368,7 +368,7 @@ class PrFeedbackIntegrationTest {
         }
         state.scheduleRetry(id,0,"Simulated process restart after durable start"); drive();
         assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.INTERRUPTED);
-        assertThat(runPage()).contains("Coding attempt interrupted","A previous coding attempt was interrupted. Its latest changes and cost may be incomplete.","Try fixing with the agent"); assertThat(calls).isZero();
+        assertThat(runPage()).contains("Coding interrupted","The agent was interrupted while it was coding. Its latest changes and cost may be incomplete.","Try fixing with the agent"); assertThat(calls).isZero();
         action(RETRY_CODE); drive(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(1);
     }
     @Test void manualBranchUpdatesAreCheckedWithoutCallingTheAgentOrAddingACommit() throws Exception {
@@ -386,7 +386,7 @@ class PrFeedbackIntegrationTest {
         assertThat(view().actions()).containsExactly(RETRY_CLEANUP);
         action(RETRY_CLEANUP); drive();
         assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.INTERRUPTED); assertThat(calls).isZero();
-        assertThat(runPage()).contains("Coding attempt interrupted","Try fixing with the agent");
+        assertThat(runPage()).contains("Coding interrupted","Try fixing with the agent");
     }
     @Test void branchChangeBeforeCodingRequiresFreshSelection() throws Exception {
         drive(); select(); engine.advance(claimNext());

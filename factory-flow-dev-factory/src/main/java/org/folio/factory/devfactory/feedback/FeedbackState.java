@@ -255,8 +255,8 @@ public class FeedbackState {
         phase = Phase.INTERRUPTED;
         lastCleanedInvocation = invocation;
         reason =
-                "A previous coding attempt was interrupted. Its latest changes and cost may be"
-                        + " incomplete. Start a new attempt explicitly.";
+                "The agent was interrupted while it was coding. Its latest changes and cost may be"
+                        + " incomplete. Start the coding again explicitly.";
     }
 
     void failed(String message) {

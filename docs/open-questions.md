@@ -183,7 +183,7 @@ repository on 2026-11-11; git history has them under `docs/superpowers`).
   calls of the same tool overlap and the end names no file or command, the end keeps its own row, as
   before. A call still running says "Running …", not "running now".
 - **Run page with a pull request.** "checked N min ago" next to Check PR comments is not shown: the
-  stored comments snapshot has no read time. The page head does not say "attempt 1" with its model and
+  stored comments snapshot has no read time. The page head does not say "run 1" with its model and
   effort, and the note under Fix says "Starts a new round", without the round number and model. Each
   round row keeps a closed "Round details" disclosure (selected comments, check output, activity),
   which board 5 does not show. Comments that an earlier round addressed are no longer listed under New
@@ -330,12 +330,17 @@ Developer Flow:
 - **An `.env` with the old limits keeps them.** `FACTORY_CLAUDE_CODE_MAX_TURNS=200` and
   `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS=1800` from an older `.env.example` win over the new defaults.
 - **Internal words that are left:** a second Run shows "MODBAR-204: task already has a live
-  admission" and a second Retry "the task already has a live attempt" in the error banner; the guard's
-  lost-slot stop at verify or publish reads "Verification failed: the task attempt no longer owns the
-  installation's active slot; …".
+  admission" and a second Retry "the task already has a live run" in the error banner; the guard's
+  lost-slot stop at verify or publish reads "Verification failed: the run no longer owns the
+  installation's active slot; …". The queue notice can name an attempt record by its id
+  ("Task attempt … is not dispatchable").
 - **PR feedback wording.** An interrupted round after an engine escalation reads only "Resources
-  cleaned up.". The INTERRUPTED reason says "Start a new attempt explicitly." although its button is
-  "Try fixing with the agent". A round whose checks failed without test reports reads "Checks failed."
+  cleaned up.". The INTERRUPTED reason says "Start the coding again explicitly." although its button is
+  "Try fixing with the agent". A round that the time or turn limit stopped shows the sentence of a task
+  run, "Start a new run with …", although a task with a pull request cannot start a new run
+  (`FeedbackState.coded` takes the message of `TaskStops` as it is). A feedback state and a
+  transcript stored before the pages said "run" keep the word "attempt": they are shown as stored,
+  not through `AttemptFailure.reason`. A round whose checks failed without test reports reads "Checks failed."
   under "Checks could not run: …" (`FeedbackRows.checks`). `StopReasons.checks` and
   `VerificationReceipt.failureReason` word the same causes in two places.
 - **Failed environment checks now offer "Try fixing with the agent".** Item B of the plan changed this
@@ -350,10 +355,10 @@ Developer Flow:
   without "so far". The effort sentence is still the hover title of the Effort choice on My tasks.
 - **Dashboard spending, choices to confirm.** In "Cost per task" the Jira key opens Jira, as on every
   page, and the title opens the task page; the plan asked for the key to open the task page. "Where
-  attempts stopped" counts checks that could not run and Needs inspection as "Stopped by Factory or the
+  runs stopped" counts checks that could not run and Needs inspection as "Stopped by Factory or the
   environment", and a command output limit, a patch refused for a model key and a stop you marked as
   "Other"; running attempts are not counted, so while one runs the causes add up to less than
-  "Attempts without a pull request". "By model and effort" divides by every attempt of the group,
+  "Runs without a pull request". "By model and effort" divides by every attempt of the group,
   priced or not.
 - **Phone width (390 px).** My tasks cuts a long reason after two lines (80033, 80036 in the demo
   console); a reason on its own line under the key starts 10 px in; the repository table of the
@@ -365,7 +370,7 @@ Developer Flow:
 - **`StopReasons` (tasks.execution) imports `UiFormat` (web)** for the step name of the engine-gave-up
   reason.
 - **The run page of an older attempt names a merged or closed pull request by its old chip.** Its line
-  "Attempt 1 of 2. Latest: attempt 2, PR #12." comes from `RunContext.standing`, which does not know
+  "Run 1 of 2. Latest: run 2, PR #12." comes from `RunContext.standing`, which does not know
   where PR feedback stands; the task page and the run page of attempt 2 say "Merged PR #12".
 
 Tests and the demo console:
@@ -386,7 +391,7 @@ Tests and the demo console:
 
 Found by the review of everything since `main` before the merge; fixed findings are in the commits of that day.
 
-- **A double click on Run or Start attempt shows a refusal for work that was queued.** Every POST makes a
+- **A double click on Run or Start run shows a refusal for work that was queued.** Every POST makes a
   new request id (`"ui-" + UUID.randomUUID()` in `TaskUiController` and `TaskPageController`), so the second
   click is refused with "task already has a live admission". A request id rendered into the form, and a
   lookup by it right after `lockById` in `TaskAdmissionService`, would make the second click a no-op.
@@ -394,11 +399,8 @@ Found by the review of everything since `main` before the merge; fixed findings 
   characters of its column fails the whole scan, and a stored key that does not match `IssueSnapshot.ISSUE_KEY`
   fails `DeveloperPreflight.requireReady` with a plain `IllegalArgumentException`, which the dispatcher
   retries on every poll. Jira enforces its key format, so this needs a broken or hostile Jira.
-- **Renaming "attempt" to "run" on the pages** was asked for with the attempt card of the task page and
-  not done: it touches many texts ("Start attempt 2", "Attempt 1 failed", "spent in 2 attempts"), README
 - **A withdrawn task loses its repository cause on My tasks.** `TaskRows.availableRow` reads the routing
   problem only for a task in state `UNSUPPORTED`. A task whose attempts were all withdrawn and whose
   project then lost its repository, or got several, is `WITHDRAWN`: it shows under Cannot run here as
   "Cannot run" with the withdrawal text, and Set up repositories is not offered. Found in review, not
   reproduced.
-  and the tests.

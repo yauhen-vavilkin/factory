@@ -50,8 +50,8 @@ public final class TaskGuard {
         if (!policy.ownsActiveSlot(executionId)) {
             var forbidden = PUBLICATION.equals(stage) ? "publish" : "continue";
             return Optional.of(new Stop(TaskStops.INSPECTION_STATE,
-                    "the task attempt no longer owns the installation's active slot;"
-                            + " a stopped, superseded or released attempt must not " + forbidden));
+                    "the run no longer owns the installation's active slot;"
+                            + " a stopped, superseded or released run must not " + forbidden));
         }
         if (policy.deadline(executionId).filter(deadline -> deadline.expired(clock)).isPresent()) {
             return Optional.of(new Stop(TaskStops.DEADLINE_STATE, TaskStops.deadlineReason(stage)));

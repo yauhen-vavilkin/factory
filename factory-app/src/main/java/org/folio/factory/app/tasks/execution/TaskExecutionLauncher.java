@@ -139,7 +139,7 @@ public class TaskExecutionLauncher {
         // available for reconciliation.
         if (properties.enabled() && retention.enabled()) {
             throw new IllegalStateException("Task execution is refused: FACTORY_RETENTION_ENABLED=true would"
-                    + " purge task attempt history and costs. Set FACTORY_RETENTION_ENABLED=false in .env"
+                    + " purge the history and costs of runs. Set FACTORY_RETENTION_ENABLED=false in .env"
                     + " and run docker compose up -d again.");
         }
     }
