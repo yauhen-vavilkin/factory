@@ -10,8 +10,6 @@ import org.folio.factory.app.web.UiFormat;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -26,7 +24,7 @@ import static org.folio.factory.app.tasks.presentation.TaskLabels.minutes;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.triggeredDetail;
 import static org.folio.factory.app.tasks.presentation.TaskLabels.working;
 
-/** The Runs rows, the in-progress strip and the "cannot run here" lines of My tasks. */
+/** The Runs rows, the in-progress strip and the Cannot run here rows of My tasks. */
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public final class RunRows {
 
@@ -103,15 +101,29 @@ public final class RunRows {
                 .map(RunRows::toStrip);
     }
 
-    /** Tasks that cannot run, one line per reason. */
-    public static List<CannotRunGroup> cannotRun(List<AvailableRow> available) {
-        var keysByReason = new LinkedHashMap<String, List<String>>();
-        available.stream().filter(row -> !row.selectable())
-                .forEach(row -> keysByReason.computeIfAbsent(cannotRunReason(row), reason -> new ArrayList<>())
-                        .add(row.key()));
-        return keysByReason.entrySet().stream()
-                .map(entry -> new CannotRunGroup(List.copyOf(entry.getValue()), entry.getKey()))
-                .toList();
+    /** Tasks that cannot run, one row each, in the order of the list. */
+    public static List<CannotRunRow> cannotRun(List<AvailableRow> available) {
+        return available.stream().filter(row -> !row.selectable()).map(RunRows::toCannotRunRow).toList();
+    }
+
+    /** Set up repositories is offered only when a repository would let a task run. */
+    public static boolean needsRepository(List<CannotRunRow> rows) {
+        return rows.stream().anyMatch(CannotRunRow::needsRepository);
+    }
+
+    private static CannotRunRow toCannotRunRow(AvailableRow row) {
+        return new CannotRunRow(row.key(), row.jiraUrl(), row.title(), row.jiraStatus(), cannotRunChip(row),
+                cannotRunReason(row), row.problem() != null);
+    }
+
+    private static String cannotRunChip(AvailableRow row) {
+        if (row.problem() == TaskRoutingReason.Problem.NO_REPOSITORY) {
+            return "No repository for " + row.projectKey();
+        }
+        if (row.problem() == TaskRoutingReason.Problem.SEVERAL_REPOSITORIES) {
+            return "Several repositories for " + row.projectKey();
+        }
+        return "Cannot run";
     }
 
     private static InProgressStrip toStrip(TaskView view) {

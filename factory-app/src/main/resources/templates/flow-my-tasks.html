@@ -72,10 +72,8 @@
             <p class="dev-empty" th:if="${#lists.isEmpty(available)}"
                th:text="${source.emptyText()}">No tasks.</p>
 
-            <div class="dev-list-foot" th:unless="${#lists.isEmpty(available) and #lists.isEmpty(cannotRun)}">
-                <p class="dev-list-note" th:each="group : ${cannotRun}" th:text="${group.line()}">
-                    2 tasks cannot run here: KEY-1, KEY-2. Project KEY has no repository.</p>
-                <div class="run-settings" th:unless="${#lists.isEmpty(available)}">
+            <div class="dev-list-foot" th:unless="${#lists.isEmpty(available)}">
+                <div class="run-settings">
                     <th:block th:if="${runForm != null}">
                         <th:block th:insert="~{fragments/developer-flow :: modelChoice(${runForm})}"></th:block>
                     </th:block>
@@ -83,6 +81,31 @@
                 </div>
             </div>
         </form>
+    </section>
+
+    <section class="dev-list dev-list-inset task-list" aria-labelledby="cannot-run-title"
+             th:unless="${#lists.isEmpty(cannotRun)}">
+        <div class="dev-list-head">
+            <h2 class="dev-section-title" id="cannot-run-title">Cannot run here <span class="dev-count"
+                    th:text="${#lists.size(cannotRun)}">0</span> <span class="src src-jira">From Jira</span></h2>
+            <div class="dev-list-tools" th:if="${repositorySetupNeeded}">
+                <a class="btn btn-secondary btn-sm" th:href="@{/developer/configuration#routes-title}">Set up
+                    repositories</a>
+            </div>
+        </div>
+        <div class="dev-row" th:each="row : ${cannotRun}">
+            <input type="checkbox" class="task-check" disabled th:attr="aria-label=${row.key()} + ' cannot run'">
+            <div class="dev-row-main">
+                <span class="dev-row-name" th:title="${row.title()}" th:text="${row.title()}">Title</span>
+                <span class="dev-row-meta"><a class="key-link ext-link" th:href="${row.jiraUrl()}"
+                        th:text="${row.key()}">KEY-1</a><span class="badge badge-sm badge-muted"><span
+                        class="sr-only">Status in Jira: </span><span th:text="${row.jiraStatus()}">Open</span></span><span
+                        th:unless="${row.needsRepository()}" th:text="${row.reason()}">Out of scope.</span></span>
+            </div>
+            <div class="row-cluster row-cluster-ready">
+                <span class="chip chip-warning" th:title="${row.reason()}" th:text="${row.chip()}">No repository</span>
+            </div>
+        </div>
     </section>
 
     <section class="dev-list dev-list-inset task-list" aria-labelledby="triggered-title">

@@ -28,7 +28,7 @@ import org.folio.factory.app.tasks.persistence.TaskInstallation;
 import org.folio.factory.app.tasks.persistence.TaskInstallations;
 import org.folio.factory.app.tasks.persistence.TaskInstallationRepository;
 import org.folio.factory.app.tasks.presentation.TaskQuery;
-import org.folio.factory.app.tasks.presentation.CannotRunGroup;
+import org.folio.factory.app.tasks.presentation.CannotRunRow;
 import org.folio.factory.app.tasks.presentation.InProgressStrip;
 import org.folio.factory.app.tasks.presentation.RunAction;
 import org.folio.factory.app.tasks.presentation.SourceCard;
@@ -263,7 +263,7 @@ class TaskUiControllerTest {
     }
 
     @Test
-    void myTasks_listsTasksThatCannotRunOnOneLinePerReason() throws Exception {
+    void myTasks_listsTasksThatCannotRunOneRowEachWithItsCause() throws Exception {
         when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(
                 taskView(TASK_ID, "MODBAR-901", "Open", TaskView.TaskState.AWAITING_SELECTION, true, false),
                 unsupported(OTHER_TASK_ID, "MODBAR-902", TaskRoutingReason.noRepository("MODBAR")),
@@ -275,16 +275,30 @@ class TaskUiControllerTest {
         Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
 
         assertThat(rows(model, "available")).extracting(row -> row.get("key")).containsExactly("MODBAR-901");
-        assertThat(rows(model, "cannotRun")).extracting(group -> group.get("keys")).containsExactly(
-                List.of("MODBAR-902", "MODBAR-903"), List.of("MODBAR-904"), List.of("MODBAR-905"));
         @SuppressWarnings("unchecked")
-        var groups = (List<CannotRunGroup>) model.get("cannotRun");
-        assertThat(groups).extracting(CannotRunGroup::line).containsExactly(
-                "2 tasks cannot run here: MODBAR-902, MODBAR-903. Project MODBAR has no repository in"
-                        + " config/developer-repositories.yaml.",
-                "1 task cannot run here: MODBAR-904. Out of scope.",
-                "1 task cannot run here: MODBAR-905. Project MODBAR maps to more than one repository in"
-                        + " config/developer-repositories.yaml.");
+        var cannotRun = (List<CannotRunRow>) model.get("cannotRun");
+        assertThat(cannotRun).extracting(CannotRunRow::key, CannotRunRow::chip, CannotRunRow::reason,
+                CannotRunRow::needsRepository).containsExactly(
+                tuple("MODBAR-902", "No repository for MODBAR",
+                        "Project MODBAR has no repository in config/developer-repositories.yaml.", true),
+                tuple("MODBAR-903", "No repository for MODBAR",
+                        "Project MODBAR has no repository in config/developer-repositories.yaml.", true),
+                tuple("MODBAR-904", "Cannot run", "Out of scope.", false),
+                tuple("MODBAR-905", "Several repositories for MODBAR",
+                        "Project MODBAR maps to more than one repository in config/developer-repositories.yaml.",
+                        true));
+        assertThat(model).containsEntry("repositorySetupNeeded", true);
+    }
+
+    @Test
+    void myTasks_offersRepositorySetupOnlyWhenARepositoryWouldLetATaskRun() throws Exception {
+        when(taskQuery.myTasks(any(Pageable.class))).thenReturn(myTasks(List.of(
+                unsupported(OTHER_TASK_ID, "MODBAR-906", "Out of scope"))));
+
+        Map<String, Object> model = mvc.perform(get(FLOW_PAGE)).andReturn().getModelAndView().getModel();
+
+        assertThat(rows(model, "cannotRun")).extracting(row -> row.get("key")).containsExactly("MODBAR-906");
+        assertThat(model).containsEntry("repositorySetupNeeded", false);
     }
 
     @Test

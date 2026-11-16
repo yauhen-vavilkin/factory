@@ -157,8 +157,9 @@ Source: reviews of the developer flow fixes (spec in commit 82e0d0d), 2026-10-28
 Each item is a cut taken to keep a page as on its board (the boards were mockups, removed from the
 repository on 2026-11-11; git history has them under `docs/superpowers`).
 
-- **My tasks.** The fix steps dialog of a task that cannot run is gone; "N cannot run here" shows the
-  reason in one line and the task page still has the stored reason. "cost may be higher" and "cost
+- **My tasks.** The fix steps dialog of a task that cannot run is gone; Cannot run here lists one row
+  per task with a short cause chip (the whole sentence on hover) and Set up repositories, and the task
+  page still has the stored reason. "cost may be higher" and "cost
   unknown" are no longer printed in Runs: the cost carries the explanation as its tooltip. The last scan
   time is the tooltip of Scan Jira. A task added by key keeps a small Remove button, which board 1 does
   not show. The in-progress strip shows the first running task only.
@@ -395,4 +396,9 @@ Found by the review of everything since `main` before the merge; fixed findings 
   retries on every poll. Jira enforces its key format, so this needs a broken or hostile Jira.
 - **Renaming "attempt" to "run" on the pages** was asked for with the attempt card of the task page and
   not done: it touches many texts ("Start attempt 2", "Attempt 1 failed", "spent in 2 attempts"), README
+- **A withdrawn task loses its repository cause on My tasks.** `TaskRows.availableRow` reads the routing
+  problem only for a task in state `UNSUPPORTED`. A task whose attempts were all withdrawn and whose
+  project then lost its repository, or got several, is `WITHDRAWN`: it shows under Cannot run here as
+  "Cannot run" with the withdrawal text, and Set up repositories is not offered. Found in review, not
+  reproduced.
   and the tests.

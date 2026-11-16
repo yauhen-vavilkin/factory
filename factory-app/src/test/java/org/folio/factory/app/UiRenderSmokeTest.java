@@ -1474,7 +1474,7 @@ class UiRenderSmokeTest {
         var seed = seedMyTasks();
 
         String body = assertRendered("/flows/dev-factory", "Ready to run");
-        String readyList = body.substring(body.indexOf("id=\"available-title\""), body.indexOf("id=\"triggered-title\""));
+        String readyList = body.substring(body.indexOf("id=\"available-title\""), body.indexOf("id=\"cannot-run-title\""));
         assertThat(text(readyList)).contains("Ready to run 3", "MODBAR-701 Status in Jira: Open",
                 "MODBAR-703 Status in Jira: In Review", "mod-bar");
         assertThat(readyList)
@@ -1492,10 +1492,18 @@ class UiRenderSmokeTest {
         // The effort levels need no label.
         assertThat(readyList).contains("<span class=\"sr-only\">Status in Jira: </span>")
                 .doesNotContain("<span>Jira: ", ">Effort</span>");
-        // Tasks that cannot run: one line per reason under the list, no disclosure.
-        assertThat(text(readyList)).contains("1 task cannot run here: MODBAR-702. Project MODBAR has no"
-                + " repository in config/developer-repositories.yaml.");
-        assertThat(readyList).doesNotContain("cannot run here</summary>");
+        // Tasks that cannot run: their own section under Ready to run, one row each with its cause, and the way
+        // to set up a repository.
+        String cannotRun = body.substring(body.indexOf("id=\"cannot-run-title\""),
+                body.indexOf("id=\"triggered-title\""));
+        assertThat(text(body.substring(body.indexOf("id=\"available-title\""), body.indexOf("id=\"cannot-run-title\""))))
+                .doesNotContain("MODBAR-702");
+        assertThat(text(cannotRun)).contains("Cannot run here 1", "Unsupported task",
+                "MODBAR-702 Status in Jira: Open", "No repository for MODBAR", "Set up repositories");
+        assertThat(cannotRun).containsPattern(linkTo("https://jira.example.org/browse/MODBAR-702", "MODBAR-702"))
+                .contains("href=\"/developer/configuration#routes-title\"",
+                        "title=\"Project MODBAR has no repository in config/developer-repositories.yaml.\"")
+                .doesNotContain("name=\"taskId\"");
         // The effort choice says what it means on hover. Only a task added by key has Remove from list, named
         // with its visible text.
         assertThat(readyList)
@@ -1590,14 +1598,20 @@ class UiRenderSmokeTest {
             seedTask("7010" + i, "MODBAR-71" + i, "Unsupported task " + i, Task.Eligibility.INELIGIBLE,
                     "Project MODBAR is not configured: no repository for it in config/developer-repositories.yaml");
         }
+        seedTask("70105", "MODBAR-715", "Task out of scope", Task.Eligibility.INELIGIBLE, "Out of scope");
 
         String body = assertRendered("/flows/dev-factory", "Ready to run");
         assertThat(body)
                 .containsPattern("Ready to run <span class=\"dev-count\"\\s*>0</span>")
-                .contains("3 tasks cannot run here: MODBAR-711, MODBAR-712, MODBAR-713. Project"
-                        + " MODBAR has no repository in config/developer-repositories.yaml.")
+                .containsPattern("Cannot run here <span class=\"dev-count\"\\s*>4</span>")
+                .contains("No repository for MODBAR", "Unsupported task 1", "Unsupported task 3")
+                // A cause that no repository fixes is shown on the row, not only on hover.
+                .contains(">Cannot run</span>", ">Out of scope.</span>")
                 // Nothing to run: no Model choice and no disabled Run button under the empty list.
                 .doesNotContain("data-run-selected", "data-model-select", "name=\"modelId\"");
+        // The empty list has no foot of its own.
+        assertThat(body.substring(body.indexOf("id=\"available-title\""), body.indexOf("id=\"cannot-run-title\"")))
+                .doesNotContain("dev-list-foot");
 
         seedTask("70104", "MODBAR-714", "Eligible task", Task.Eligibility.ELIGIBLE, "repository mod-bar");
         assertThat(assertRendered("/flows/dev-factory", "Ready to run"))

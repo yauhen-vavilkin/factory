@@ -1174,6 +1174,8 @@ a.dev-list-tools:hover { color: hsl(var(--foreground)); }
 /* A row of Ready to run selects its task when its name is clicked; a task that has not started has no page worth
    opening. */
 .dev-row-select, .task-check { cursor: pointer; }
+/* A task under Cannot run here cannot be selected. */
+.task-check:disabled { cursor: not-allowed; opacity: 0.5; }
 /* The rows of a list that reacts to clicks stand 12px inside it, like the cells of a table, so the highlight under
    the cursor has room around the text and never leaves the list. Their dividers keep the width of the page column. */
 .dev-list-inset .dev-row,

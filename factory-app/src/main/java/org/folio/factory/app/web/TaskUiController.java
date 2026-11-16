@@ -153,7 +153,9 @@ public class TaskUiController {
 
     private static void addAvailable(Model model, List<AvailableRow> available) {
         model.addAttribute("available", available.stream().filter(AvailableRow::selectable).toList());
-        model.addAttribute("cannotRun", RunRows.cannotRun(available));
+        var cannotRun = RunRows.cannotRun(available);
+        model.addAttribute("cannotRun", cannotRun);
+        model.addAttribute("repositorySetupNeeded", RunRows.needsRepository(cannotRun));
     }
 
     private void addTriggered(Model model, TaskInstallation installation, Page<TaskView> triggered,
