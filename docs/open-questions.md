@@ -532,3 +532,9 @@ findings are in the commits of that day.
   leaves out the step that most yarn failures come from, `--frozen-lockfile` included, and a developer who reads
   it cannot explain a lockfile error. A fix: when `installCommand(plan)` is not empty, show "<install> then
   <plan> in <image>" from the joined tokens, not the `sh -c` form.
+- **A run that waits for an answer from before the pinned lockfile cannot continue.** `dev_lockfile.json` is
+  an input of `continue-implementation` and `verify`, and the engine does not start a step whose input
+  artifact is missing. A run that started on code before the pinned lockfile and still waits for an answer to
+  the agent's question fails at `continue-implementation` after the update; start a new run for it. PR feedback
+  is not affected: `FeedbackActions.addMissingLockfile` adds the artifact of a run that pinned nothing before
+  it resumes such a run.

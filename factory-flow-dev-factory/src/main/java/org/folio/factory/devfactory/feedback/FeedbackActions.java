@@ -23,6 +23,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.folio.factory.devfactory.DevFactoryConfiguration;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
 import org.folio.factory.devfactory.verification.VerificationFailure;
 
 /** Network reads happen before short, version-checked command transactions. */
@@ -191,6 +192,7 @@ public class FeedbackActions {
 
     private void applyCommand(UUID id, Command command, String reviewer) {
         lock(id);
+        addMissingLockfile(id);
         var current = view(id);
         if (command.action() == null
                 || current.version() != command.stateVersion()
@@ -225,6 +227,7 @@ public class FeedbackActions {
 
     private void recordPrOutcome(UUID id, View before, PrFeedbackGateway.Status observed) {
         lock(id);
+        addMissingLockfile(id);
         var current = view(id);
         if (isChangedSince(id, before, current)) {
             return;
@@ -251,6 +254,18 @@ public class FeedbackActions {
 
     private void lock(UUID id) {
         executions.lockById(id).orElseThrow();
+    }
+
+    /**
+     * A run that started before Factory pinned lockfiles has no {@code dev_lockfile.json}, and the engine does not
+     * start the PR feedback step without it. Its pull request keeps PR feedback with the artifact of a run that
+     * pinned nothing.
+     */
+    private void addMissingLockfile(UUID id) {
+        if (artifacts.getLatest(id, "dev_lockfile.json").isEmpty()) {
+            artifacts.putMarkdown(id, "dev_lockfile.json", PinnedLockfile.none("NOT_NEEDED",
+                    "The run started before Factory pinned lockfiles."), "pr-feedback:earlier-run");
+        }
     }
 
     private static boolean requiresOpenPr(Action action) {

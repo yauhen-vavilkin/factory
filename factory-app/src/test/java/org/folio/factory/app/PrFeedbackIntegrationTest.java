@@ -75,6 +75,7 @@ class PrFeedbackIntegrationTest {
     @Autowired HitlDecisionService decisions;
     @Autowired HitlGateOpener gates;
     @Autowired org.folio.factory.app.developer.CodingTranscriptStore transcripts;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
     @LocalServerPort int port;
     @MockitoBean PrFeedbackGateway gateway;
     @MockitoBean PrCommentWriter commentWriter;
@@ -321,6 +322,19 @@ class PrFeedbackIntegrationTest {
         state.transition(id,ExecutionStatus.CANCELLED,Map.of()); id=oldId;
         var e=state.get(id); e.setCurrentStepIndex(8); executions.save(e); drive();
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED); verifyNoInteractions(gateway);
+    }
+    /** A run that started before the starting build pinned a lockfile waits for PR feedback without the artifact. */
+    void waitForFeedbackAsAnEarlierRun() {
+        drive(); jdbc.update("delete from artifact where execution_id=? and name='dev_lockfile.json'",id);
+    }
+    @Test void aRunStartedBeforeFactoryPinnedALockfileStillGetsItsFeedbackRound() {
+        waitForFeedbackAsAnEarlierRun(); select(); drive();
+        assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY); assertThat(calls).isEqualTo(1);
+        verify(verifier).verify(eq(id),anyString(),any(),anyString(),anyInt(),eq(java.util.Optional.empty()));
+    }
+    @Test void aRunStartedBeforeFactoryPinnedALockfileCompletesWhenItsPullRequestIsMerged() {
+        waitForFeedbackAsAnEarlierRun();
+        merged=true; actions.reconcilePr(id); drive(); assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.COMPLETED);
     }
     @Test void runWithoutPublishedPrKeepsPreviousCompletionBehaviorWithoutNeedingDocker() {
         artifacts.putMarkdown(id,"dev_delivery.json","{}","fixture"); drive();
