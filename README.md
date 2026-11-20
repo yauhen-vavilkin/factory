@@ -180,9 +180,10 @@ FACTORY_SIDECAR_BASE_BRANCH=master
 
 Repository policy lives in [`config/developer-repositories.yaml`](config/developer-repositories.yaml):
 one entry contains Jira mapping, source, shared base branch, build/verification
-policy and delivery target. The four bundled entries keep the `.env` overrides
-shown above. To add another repository, edit the catalog as described below;
-inventing another `FACTORY_<REPO>_SOURCE_REPO` variable does not add an entry.
+policy and delivery target. The bundled entries (four backend modules and eight
+`ui-*` modules) keep the `.env` overrides shown above. To add another repository,
+edit the catalog as described below; inventing another `FACTORY_<REPO>_SOURCE_REPO`
+variable does not add an entry.
 
 Compose forwards the documented application settings for both flows, including
 Spring AI, connectors, limits, engine tuning and webhook authentication. Database
@@ -224,10 +225,11 @@ FACTORY_APP_IMAGE=folio-factory-app:evaluation
 FACTORY_CLAUDE_CODE_IMAGE=factory-dev-claude-code:evaluation
 FACTORY_PI_IMAGE=factory-dev-pi:evaluation
 FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME=factory-evaluation-m2-cache
+FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME=factory-evaluation-yarn-cache
 ```
 
-The project scopes its PostgreSQL volume; the Maven cache has an explicit name,
-so changing the project alone does not isolate that cache. These names and ports
+The project scopes its PostgreSQL volume; the Maven and yarn caches have explicit
+names, so changing the project alone does not isolate those caches. These names and ports
 must be unused. Use the same project name for later `ps`, `logs` and `down`.
 
 The Factory container owns the Docker socket only for this trusted single-user MVP.
@@ -278,6 +280,10 @@ my-module:
     repository: your-github-user/my-module
 ```
 
+A FOLIO `ui-*` module (yarn + Jest) uses `build-image: node:22.22.0-bookworm` and
+`verification-plan: node22-jest` instead; its steps are in section 3 of
+[`doc/dev-flow-ui-runbook.md`](doc/dev-flow-ui-runbook.md).
+
 Use the actual Jira project key and a branch that exists in the source and
 delivery repositories. The delivery base comes from this entry's `base-branch`;
 there is no second branch to keep in sync. Pull requests go to
@@ -317,10 +323,13 @@ image rebuild for repository policy changes, and neither removes the database.
 Keep source/delivery/verification settings stable while a task is running.
 
 Current Developer Flow support is public source repositories, GitHub.com
-delivery, and Maven verification. A custom GitHub Enterprise API is supported by
+delivery, Maven verification (Surefire/Failsafe reports), and yarn + Jest
+verification (jest-junit reports) for FOLIO `ui-*` modules that use
+`@folio/jest-config-stripes`. A custom GitHub Enterprise API is supported by
 Test Factory, but Developer Flow preflight rejects it because Developer Flow's
 Git publication targets GitHub.com. Private source authentication, GitLab
-delivery, submodules and other build/report formats require implementation changes.
+delivery, submodules and other build/report formats (such as BigTest/Karma)
+require implementation changes.
 
 Delivery has no `authorized` switch: pull requests always go to the entry's
 `delivery.repository`. A conflicting nested delivery base is rejected while loading
@@ -616,8 +625,8 @@ and `_IMAGE`. `FACTORY_DEV_FACTORY_DELIVERY_*`, `FACTORY_TASKS_EXECUTION_RECOVER
 Since the models file of 2026-11-03, `FACTORY_CLAUDE_CODE_API`, `_BASE_URL`, `_MODEL`, `_AUTHENTICATION`,
 `_API_KEY`, `_AUTH_TOKEN`, `_MAX_OUTPUT_TOKENS` and `_EFFORT` are no longer read either: the model, its
 endpoint, authentication and effort are in `config/developer-models.yaml`, the CodeMie proxy secret is
-`FACTORY_CODEMIE_PROXY_TOKEN`, and the prices of `config/developer-pricing.yaml` are the `price` blocks of
-the models file. `FACTORY_CLAUDE_CODE_IMAGE` and `FACTORY_CLAUDE_CODE_MAX_TURNS` stay.
+`FACTORY_CODEMIE_PROXY_TOKEN`, and the prices of the former `config/developer-pricing.yaml` are the `price`
+blocks of the models file. `FACTORY_CLAUDE_CODE_IMAGE` and `FACTORY_CLAUDE_CODE_MAX_TURNS` stay.
 
 | Environment variable | Purpose |
 |---|---|

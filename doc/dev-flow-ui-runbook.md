@@ -34,9 +34,11 @@ takes 6–10 minutes: starting build (about 2 min, warm cache), coding container
 30 s), the agent, independent verification (about 1.5 min). Intake reads the Jira issue
 anonymously, so `FACTORY_CONNECTORS_JIRA_BASE_URL` alone is enough.
 
-- **Delivery is automatic.** After a passing verification, an authorized target gets a branch
-  `factory/<issue>-<execution>` and a pull request on the configured repository, with no approval
-  step. Only fork targets are allowed; `folio-org/*` is refused.
+- **Delivery is automatic.** After a passing verification, Factory pushes a branch
+  `factory/<issue>-<execution>` and opens a pull request on the entry's `delivery.repository`, with
+  no approval step. That is the official `folio-org` repository by default, or your fork when you
+  set both `FACTORY_<KEY>_SOURCE_REPO` and `FACTORY_<KEY>_DELIVERY_REPO` (section 3). The GitHub
+  token needs push access there.
 - **PR feedback.** The execution waits at the PR follow-up. On its page: **Check PR comments**,
   select the comments, **Fix selected comments**. One round (code, verify, push) takes about 4
   minutes. Closing the PR without merging cancels the execution; merging completes it.
@@ -48,13 +50,18 @@ anonymously, so `FACTORY_CONNECTORS_JIRA_BASE_URL` alone is enough.
 
 1. `config/developer-repositories.yaml`: a `repositories.<key>` entry (`source-repo`,
    `base-branch`, `build-image: node:22.22.0-bookworm`, `verification-plan: node22-jest`,
-   `jira-projects`, `delivery.repository`). The plan and its yarn toolchain are in the same file;
-   `runtime.yarn.install-command` is in `application.yaml`. Both are shared.
-2. `docker-compose.yml`: forward `FACTORY_<KEY>_SOURCE_REPO` and `FACTORY_<KEY>_DELIVERY_REPO`.
-   Compose passes only the variables it lists; an unlisted override is silently ignored and the
-   delivery target falls back to the upstream repository.
-3. `.env`: `FACTORY_<KEY>_DELIVERY_REPO=<your-fork>/<repo>`. The fork's base branch must contain
-   the base commit (sync the fork first), or delivery is blocked.
+   `jira-projects`, `delivery.repository`). Like the bundled `ui-*` entries, write `source-repo`,
+   `base-branch` and `delivery.repository` as `${FACTORY_<KEY>_SOURCE_REPO:folio-org/<repo>}`,
+   `${FACTORY_<KEY>_BASE_BRANCH:master}` and `${FACTORY_<KEY>_DELIVERY_REPO:folio-org/<repo>}`.
+   The plan and its yarn toolchain are in the same file; `runtime.yarn.install-command` is in
+   `application.yaml`. Both are shared.
+2. `docker-compose.yml`: forward `FACTORY_<KEY>_SOURCE_REPO`, `FACTORY_<KEY>_DELIVERY_REPO` and
+   `FACTORY_<KEY>_BASE_BRANCH`. Compose passes only the variables it lists; an unlisted override is
+   silently ignored, and the pull request then goes to the `folio-org` repository.
+3. `.env`, to deliver to your fork: set both `FACTORY_<KEY>_SOURCE_REPO` and
+   `FACTORY_<KEY>_DELIVERY_REPO` to `<your-fork>/<repo>`. Without them the pull request goes to
+   `folio-org/<repo>`. The delivery base branch must contain the base commit (sync the fork first),
+   or delivery is blocked.
 4. The module must use Jest through `@folio/jest-config-stripes`. A `yarn.lock` is optional: if the
    base commit has none (most FOLIO UI modules), the starting build generates one and Factory
    pins it for that execution (readiness shows `lockfile: PINNED` and its SHA-256; the PR text
@@ -88,13 +95,20 @@ The audit timeline shows `attachments_staged` with file names, sizes and SHA-256
 cannot be downloaded, is larger than `FACTORY_DEV_FACTORY_ATTACHMENT_MAX_BYTES` (3 MiB), is not really an image or
 exceeds `FACTORY_DEV_FACTORY_ATTACHMENT_MAX_IMAGES` (default 10 in Jira order; 0 = no limit, at most 20 are listed
 from the ticket) is left out, and the prompt tells the agent which one and why. Each staged image is repeated
-several times in the agent's event stream, so the output budget grows with them (5 times their size); many
-large images mean a large buffer in memory. Images are untrusted ticket content: the prompt says so, and they
-add no permission (the workload holds only the gateway key, delivery is fork-only, a person reviews the PR).
-PR follow-up rounds do not resend them.
+as base64 in the agent's event stream, so the output limit grows by 5 times the size of the staged images.
+For Pi this is the total output budget (16 MiB before the images), which Factory keeps in memory, so many large
+images mean a large buffer. Claude Code output has no total limit and is read line by line; the limit of one
+line (8 MiB before the images) grows instead, because the result of an opened image holds it twice in one line.
+Images are untrusted ticket content: the prompt says so, and they add no permission (the workload holds only
+the gateway key, and a person reviews the PR). PR follow-up rounds do not resend them.
 
-Changing any of these needs `podman compose up -d`. A model without a `price` in
-`config/developer-models.yaml` shows no cost estimate (usage is still recorded). To rotate the
+Changes to `.env` need `podman compose up -d`. Factory reads `config/developer-models.yaml` (`images`,
+`price`) only at startup, and Compose does not see a change inside a mounted file, so after editing it run
+`podman compose up -d --force-recreate factory`. A Claude Code run is priced by the `price` of its model
+entry. A Pi run is priced by the one entry whose `model` equals `FACTORY_PI_MODEL`: `gpt-5.6-luna-2026-07-09`
+has one, so it is priced. `claude-sonnet-5-5` has two entries (`codemie-sonnet-5.5` and
+`anthropic-sonnet-5.5`), so under Pi its cost shows as unknown, unless `FACTORY_DEV_FACTORY_MODELS_FILE`
+points to a copy of the file with only one of them. Usage is still recorded. To rotate the
 client key: delete `bridge-client-key`, run `start-bridge.ps1 -Stop`, start it again with
 `-UpdateEnv .env` (plus the same `-State` and `-CodemieHome` as in section 1), then recreate the Factory.
 
@@ -108,7 +122,7 @@ client key: delete `bridge-client-key`, run `start-bridge.ps1 -Stop`, start it a
 | "Starting build could not pin the dependency lockfile: …" | The generated `yarn.lock` is larger than 4 MiB or is not yarn v1 text | The message says which. No model call was made; a lockfile that large needs a decision (raise the limit in `PinnedLockfile`) |
 | Install fails with a registry `404` for a package that is in the pinned lockfile | The yarn cache volume was reset and npm-folioci has since pruned that snapshot | Run the ticket again: the new starting build pins a fresh lockfile |
 | "Copying the dependency cache volume '…' (N GB) into a new workload failed (limit N s)" | The shared cache grew until the copy into a coding or verification container no longer fits the limit (about 17 s per GB on the pilot machine) | Raise `FACTORY_DEV_FACTORY_SEED_TIMEOUT_SECONDS` (default 300) and recreate the container, or reset the cache (section 6). No model call was made |
-| Delivery blocked: "requires a configured user-owned GitHub fork" | The delivery repository resolved to `folio-org/…` | Set `FACTORY_<KEY>_DELIVERY_REPO`, make sure Compose forwards it (section 3), recreate the container |
+| "Your GitHub token cannot push to …" (My tasks), a failed readiness check "Check the delivery destination, GitHub token push permission …", or "GitHub refused the delivery (HTTP …)" | The token cannot push to the delivery repository; without an override that is `folio-org/…` | To deliver to your fork, set `FACTORY_<KEY>_SOURCE_REPO` and `FACTORY_<KEY>_DELIVERY_REPO`, make sure Compose forwards them (section 3), recreate the container |
 | Delivery blocked: base commit not in the fork | The fork is behind upstream | Sync the fork's base branch, run the ticket again |
 | "Configure factory.dev-factory.runtime.coding.pi …" | Pi settings missing or empty | Fix `.env`, recreate the container |
 | Agent step fails; gateway returns HTTP 426 | CodeMie CLI older than 0.15.8 | `codemie self-update`; the bridge script checks the version |
@@ -126,8 +140,8 @@ page. The bridge logs only method, path and status.
 - Yarn cache (grows with every module, no eviction): stop the stack, `podman volume rm factory-dev-yarn-cache`.
   The next starting build pays a cold install (about 2 minutes for `ui-users`).
 - Gateway relay: `podman rm -f factory-codemie-relay` (the script recreates it).
-- Fork branches from finished or cancelled runs:
-  `gh api -X DELETE repos/<fork>/git/refs/heads/factory/<issue>-<execution>`.
+- Delivery branches from finished or cancelled runs:
+  `gh api -X DELETE repos/<delivery-repo>/git/refs/heads/factory/<issue>-<execution>`.
 
 ## 7. Known limits
 
@@ -146,7 +160,8 @@ page. The bridge logs only method, path and status.
   in the starting build or in verification); the flow does not re-run them. Run the ticket again.
 - The starting build and the independent verification keep only the last 2 MiB of each output
   stream; a very verbose suite is not a failure.
-- Delivery has no approval gate; the control is the `authorized` flag and the fork-only rule.
+- Delivery has no approval gate and no fork rule: the pull request goes to whatever
+  `delivery.repository` resolves to, `folio-org/<repo>` unless you set the fork variables (section 3).
 - `yarn install` takes a lock in the shared cache (`--mutex`), so two starting builds no longer corrupt
   it. The `chown` before a build and the cache copy into a coding or verification container work only
   on yarn's version directory, so they do not meet the lock or yarn's temporary entries. Two tickets

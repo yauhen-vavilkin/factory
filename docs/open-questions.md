@@ -468,6 +468,58 @@ findings are in the commits of that day.
   migration that writes a `PinnedLockfile.none(...)` `dev_lockfile.json` for open dev-factory
   executions. Optional step inputs in the engine would change `factory-core` for one flow. Until then,
   finish or close running tasks and merge or close their pull requests before the update.
-- **The Docker tests of the yarn path were not run in the merge.** `ClaudeCodeDockerTest`,
+- **The Docker tests of the yarn path were run after the merge, on 2026-11-20.** `ClaudeCodeDockerTest`,
   `DockerWorkloadsTest`, `ImageStagingDockerTest`, `FeedbackDockerTest` and `PinnedLockfileDockerTest`
-  need `FACTORY_DOCKER_TEST=true` and the `-node22` images.
+  need `FACTORY_DOCKER_TEST=true` and the `-node22` images. On macOS with Docker Desktop 56 gated tests
+  pass and two fail, on the merged code and on GitLab main alike; see the next entry.
+- **Two Docker tests of the yarn path fail on macOS with Docker Desktop.**
+  `DockerWorkloadsTest#yarnTrustedCachePersistsButSeededWorkloadCannotModifyIt` fails at its first check
+  with exit 2: the grep for the `@folio` registry line in `$HOME/.yarnrc` inside the trusted container
+  fails, and 2 is grep's code for a file it cannot read.
+  `PinnedLockfileDockerTest#fixtureWithoutALockfileVerifiesWithThePinnedVersionAfterANewerSnapshotIsPublished`
+  fails because yarn asks registry.yarnpkg.com instead of the throwaway registry. The cause is not yet
+  known. Both fit a `.yarnrc` that the workload's start command (`DockerWorkloads.startupCommand`) did
+  not write or yarn did not read, so `@folio/*` packages go to yarn's default registry; that may mean a
+  ui-* run on a Mac does not use the configured registry. A fix starts with finding why the file is
+  missing there, for example the owner of `/tmp/factory-home` for the workload user, or `docker start`
+  returning before the start command has written the file.
+- **The run page keeps "Retrying after Workspace dependency install …" after the retry worked.**
+  `DeveloperExecutionView.retryErrorSuperseded` hides an old retry error only when it starts with
+  "Starting build hit a network/download failure". A registry failure of the yarn install in the coding
+  container (`InitialCodingAttempt`) throws `StartingBuildNetworkException` with "Workspace dependency
+  install hit a network/download failure …", and `StateManager.scheduleRetry` stores it in
+  `errorMessage`, which nothing clears. After a retry that works, `RunStatusCard` shows "Retrying after …"
+  through coding, verification and publish. GitLab main had the same gap, shown as "Previous attempt".
+  A fix: keep both prefixes as shared constants, and count the install error as superseded once the
+  runtime was observed or the cursor has moved past the step that failed; the fixed
+  `getCurrentStepIndex() > 3` would hide it while `continue-implementation` (step 5) still retries.
+- **A PR feedback round whose dependency install fails leaves a cost that is never known.**
+  `FeedbackCodingAttempt.run` calls `recordStart` (the rate snapshot and the `coding_starting` event)
+  before `PreparedWorkspace.prepare`. When the install fails, `prepareAndCode` returns `WORKSPACE_INSTALL`
+  without a model call or token counts, so `AttemptUsageSummary` keeps an attempt with no usage. The round
+  row shows "—" instead of $0.00, and the task page says the cost may be higher, for good, because the
+  audit is append-only. GitLab main has the same order. A fix: move `recordStart` into `prepareAndCode`,
+  after a successful install and right before `code(...)`, as `InitialCodingAttempt` does, and check in
+  `FeedbackCodingAttemptTest` that a failed install emits no `coding_starting`.
+- **"Try fixing with the agent" can fail every time after checks that failed in the dependency
+  install.** `FeedbackActions.isCodingOrChecksFailure` offers `RETRY_CODE` after any failed checks,
+  `INSUFFICIENT_EVIDENCE` included. When the round's own candidate breaks `yarn install` (a range yarn
+  cannot resolve, or `package.json` changed without the tracked `yarn.lock`), verification gets no Jest
+  report, and the retry runs the same install first: `FeedbackCodingAttempt.prepareAndCode` returns
+  `WORKSPACE_INSTALL` before the agent starts. The candidate does not change, so every press fails the
+  same way, with no model spend; a new round from the PR head or a manual push drops the round's edits.
+  A fix belongs in `prepareAndCode`: when the candidate's `package.json` or `yarn.lock` differs from the
+  PR head, start the agent with the install error so it can repair its change, and stop before the model
+  only when the PR head itself does not install.
+- **Run activity shows the yarn install and image events by their raw names.** `PreparedWorkspace` emits
+  `workspace_install_started` and `workspace_install_completed`, and `ImageStagingRuntime` emits
+  `attachments_staged`. `DeveloperRuntimeActivity.eventText` has no case for them, so `genericText` shows
+  "workspace install completed · 1" or a bare "attachments staged", and `failedEvent`, which knows only
+  `provider_error` and `auto_retry_end`, gives a failed install the normal tone. The run still stops with
+  the install reason on the task and run pages. GitLab main showed the same text. A fix: labels for the
+  three events in `DeveloperRuntimeActivity`, and the failed tone for a non-zero `exitCode`.
+- **The preflight JSON reports only Maven runtime facts.** `DeveloperPreflight.effectiveRuntime` puts
+  `mavenCacheVolume` into the runtime map but not the yarn cache volume, the `@folio` registry, the install
+  command or the seed timeout, and `effectiveRepositories` has no toolchain. Only
+  `/api/developer/preflight` returns these maps; the Configuration tab does not show them. A fix would add
+  the yarn facts to the runtime map and the toolchain to each repository.

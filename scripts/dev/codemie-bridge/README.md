@@ -37,9 +37,7 @@ By default the script uses the CLI's own `~/.codemie` profile; `-CodemieHome <di
 dedicated profile and its SSO credential elsewhere, for example
 `-State $env:LOCALAPPDATA\factory-codemie -CodemieHome $env:LOCALAPPDATA\factory-codemie\codemie`.
 
-Matching Factory settings for Pi (the gateway serves the OpenAI-style route; for Claude Code
-use `http://host.docker.internal:4102` as `FACTORY_CLAUDE_CODE_BASE_URL` with bearer-token
-authentication):
+Matching Factory settings for Pi (the gateway serves the OpenAI-style route):
 
 ```dotenv
 FACTORY_DEV_FACTORY_CODING_RUNTIME=pi
@@ -50,6 +48,26 @@ FACTORY_PI_AUTHENTICATION=api-key
 FACTORY_PI_BASE_URL=http://host.docker.internal:4102/v1
 FACTORY_PI_API_KEY=<bridge-client-key>
 ```
+
+Under Pi, `claude-sonnet-5-5` shows no cost estimate; section 4 of
+[the UI runbook](../../../doc/dev-flow-ui-runbook.md) says why.
+
+For Claude Code, the endpoint is a model entry in `config/developer-models.yaml`, not a `.env`
+variable. Copy the whole file (the copy replaces the bundled list of models, so keep every entry
+you want), point `FACTORY_DEV_FACTORY_MODELS_FILE` in `.env` at the copy, and in the copy change
+the `codemie-*` entries with `api: anthropic-messages`, or add your own, to:
+
+```yaml
+base-url: http://host.docker.internal:4102   # no /v1, like the shipped port 4001 entries
+authentication: bearer-token                 # the bridge accepts only Authorization: Bearer
+secret-env: FACTORY_PI_API_KEY               # -UpdateEnv writes the client key here
+```
+
+Compose already passes `FACTORY_PI_API_KEY` to Factory. If you use another variable for the key,
+also add it to the environment of the `factory` service in `docker-compose.yml`. Set
+`FACTORY_DEV_FACTORY_CODING_RUNTIME=claude-code` or leave it unset (the default). A new entry of
+your own is chosen in the run form or with `FACTORY_DEV_FACTORY_DEFAULT_MODEL`. Then recreate the
+Factory container (`docker compose up -d --force-recreate factory`).
 
 ## Check the path
 
