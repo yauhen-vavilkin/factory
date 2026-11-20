@@ -52,6 +52,7 @@ class FeedbackCodingAttemptTest {
     private final CandidateFreezer freezer = mock(CandidateFreezer.class);
     private final CodingRuntime coding = mock(CodingRuntime.class);
     private final DockerWorkloads docker = mock(DockerWorkloads.class);
+    private final DockerWorkloads.StepScope scope = mock(DockerWorkloads.StepScope.class);
     private final DockerWorkloads.Workload workload = mock(DockerWorkloads.Workload.class);
     private final DevRuntimeProperties runtime = new DevRuntimeProperties(
             Map.of(MAVEN, List.of("mvn", "test"), JEST, List.of("yarn", "test", "--maxWorkers=2")), null, 60, null,
@@ -64,9 +65,9 @@ class FeedbackCodingAttemptTest {
 
     @BeforeEach
     void agentFinishesARound() throws Exception {
-        var scope = mock(DockerWorkloads.StepScope.class);
         when(docker.beginStep(any(), anyString())).thenReturn(scope);
         when(scope.createSeeded(any(), any(), any(), any())).thenReturn(workload);
+        when(coding.image()).thenReturn("pi:image");
         checkout = Files.createTempDirectory(source, "checkout");
         // The attempt removes its checkout when it ends.
         when(freezer.reconstruct(anyString(), any())).thenReturn(checkout);
@@ -77,7 +78,7 @@ class FeedbackCodingAttemptTest {
                 .thenReturn(CodingOutcome.completed("Done", Map.of("inputTokens", 10L)));
         var state = new FeedbackState();
         state.attemptId = UUID.randomUUID().toString();
-        state.pr = new PrFeedbackGateway.PullRequest("fork/repo", 7, "factory/task", "main", "a".repeat(40),
+        state.pr = new PrFeedbackGateway.PullRequest("fork/repo", 7, "factory/task", "main", "c".repeat(40),
                 "https://github.com/fork/repo/pull/7", true);
         operation = new FeedbackWorker.Operation(
                 new AgentContext(UUID.randomUUID(), "pr-follow-up", Map.of(), null, Map.of(), List.of()),
@@ -104,6 +105,7 @@ class FeedbackCodingAttemptTest {
         runRound(MAVEN, Optional.empty());
 
         assertThat(operation.outputs()).containsKey(FeedbackArtifacts.CANDIDATE);
+        verifyRoundBuiltWith(MAVEN, Toolchain.MAVEN);
     }
 
     @Test
@@ -120,6 +122,7 @@ class FeedbackCodingAttemptTest {
         order.verify(coding).code(eq(workload), request.capture(), eq(60), any(), any());
         assertThat(request.getValue().constraints().verificationCommand()).isEqualTo("yarn test --maxWorkers=2");
         assertThat(request.getValue().constraints().dependenciesInstalled()).isTrue();
+        verifyRoundBuiltWith(JEST, Toolchain.YARN);
     }
 
     @Test
@@ -138,6 +141,7 @@ class FeedbackCodingAttemptTest {
         order.verify(workload).execute(resolving, 60, Processes.OUTPUT_LIMIT, null);
         order.verify(coding).code(eq(workload), any(CodingRequest.class), eq(60), any(), any());
         verify(workload, never()).execute(install, 60, Processes.OUTPUT_LIMIT, null);
+        verifyRoundBuiltWith(JEST, Toolchain.YARN);
     }
 
     @Test
@@ -150,6 +154,7 @@ class FeedbackCodingAttemptTest {
 
         verify(workload).seedLockfile(pin);
         verify(workload).execute(install, 60, Processes.OUTPUT_LIMIT, null);
+        verifyRoundBuiltWith(JEST, Toolchain.YARN);
     }
 
     @Test
@@ -166,6 +171,15 @@ class FeedbackCodingAttemptTest {
         verify(coding, never()).code(any(), any(), anyInt(), any(), any());
         verify(workload).stop();
         assertThat(operation.outputs()).containsKey(FeedbackArtifacts.CANDIDATE);
+        verifyRoundBuiltWith(JEST, Toolchain.YARN);
+    }
+
+    /** The coding container gets the plan's cache and registry, and the edits are frozen with its toolchain. */
+    private void verifyRoundBuiltWith(String plan, Toolchain toolchain) {
+        verify(docker).beginStep(operation.context().executionId(), "pr-feedback-1");
+        verify(scope).createSeeded("pi:image", checkout, runtime.environment(plan), "coding");
+        verify(freezer).freeze(eq("repo"), eq("file:///fork/repo.git"), eq("c".repeat(40)), any(), eq(true),
+                eq(toolchain));
     }
 
     private void agentLeaves(String file, String line) {
