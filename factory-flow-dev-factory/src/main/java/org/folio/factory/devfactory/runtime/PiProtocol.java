@@ -18,6 +18,8 @@ import java.util.regex.Pattern;
 final class PiProtocol {
     static final int FRAME_LIMIT = 512 * 1024;
     static final List<String> PROVIDER_STOPS = List.of("error", "aborted");
+    private static final String USER_MESSAGE_START = "{\"type\":\"message_start\",\"message\":{\"role\":\"user\"";
+    private static final String USER_MESSAGE_END = "{\"type\":\"message_end\",\"message\":{\"role\":\"user\"";
     private static final Pattern HTTP_STATUS = Pattern.compile("\\b[45][0-9]{2}\\b");
     private static final String INCOMPLETE = "Pi did not return a completed coding result";
 
@@ -25,7 +27,7 @@ final class PiProtocol {
         var mapper = JsonMapper.builder().enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
         var result = new FinalResult(provider, model);
         for (var line : output.split("\n")) {
-            if (line.isBlank()) {
+            if (line.isBlank() || isOversizedUserEcho(line)) {
                 continue;
             }
             if (line.length() > FRAME_LIMIT) {
@@ -42,6 +44,12 @@ final class PiProtocol {
             result.apply(event.get());
         }
         return result.outcome();
+    }
+
+    /** Pi echoes the task, with any base64 image, as a user message; it says nothing about the result. */
+    private static boolean isOversizedUserEcho(String line) {
+        return line.length() > FRAME_LIMIT
+                && (line.startsWith(USER_MESSAGE_START) || line.startsWith(USER_MESSAGE_END));
     }
 
     private static Optional<JsonNode> readFrame(String line, JsonMapper mapper) {

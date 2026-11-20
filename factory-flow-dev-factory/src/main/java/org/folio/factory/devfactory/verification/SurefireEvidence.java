@@ -1,46 +1,25 @@
 package org.folio.factory.devfactory.verification;
 
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import javax.xml.XMLConstants;
-import javax.xml.parsers.DocumentBuilder;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
 import org.w3c.dom.Element;
-import org.xml.sax.SAXException;
-import org.xml.sax.helpers.DefaultHandler;
 
 /** Maven proof: only fresh Surefire/Failsafe TEST-*.xml reports count as executed tests. */
-record SurefireEvidence(int reportCount, int testCount, int failureCount, int errorCount,
-                        int failsafeReportCount, Map<String, Integer> executedByReport) {
+final class SurefireEvidence {
     private static final int MAX_REPORT_BYTES = 2 * 1024 * 1024;
+    private static final String KIND = "Surefire";
 
-    List<String> missingRequiredReports(List<String> requirements) {
-        List<String> missing = new ArrayList<>();
-        for (String requirement : requirements) {
-            if (!satisfies(requirement)) {
-                missing.add(requirement);
-            }
-        }
-        return List.copyOf(missing);
+    private SurefireEvidence() {
     }
 
-    private boolean satisfies(String requirement) {
-        MavenTestSuite suite = MavenTestSuite.fromRequirement(requirement);
-        return suite != null && suite.hasExecutedReports(executedByReport);
-    }
-
-    static SurefireEvidence inspect(Path workspace, Instant verificationStarted) {
+    static TestEvidence inspect(Path workspace, Instant verificationStarted) {
         var oldestAccepted = verificationStarted.minusSeconds(2);
         var totals = new Totals();
         try (var paths = Files.walk(workspace)) {
@@ -80,47 +59,11 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
     }
 
     private static Element parse(byte[] xml) {
-        try {
-            var root = secureDocumentBuilder().parse(new ByteArrayInputStream(xml)).getDocumentElement();
-            if (!"testsuite".equals(root.getTagName()) || root.getElementsByTagName("testsuite").getLength() != 0) {
-                throw new IllegalStateException("Invalid Surefire report root");
-            }
-            return root;
-        } catch (ParserConfigurationException | SAXException | IOException e) {
-            throw new IllegalStateException("Invalid or unsafe Surefire XML", e);
+        var root = JunitXml.parse(xml, KIND);
+        if (!"testsuite".equals(root.getTagName()) || root.getElementsByTagName("testsuite").getLength() != 0) {
+            throw new IllegalStateException("Invalid Surefire report root");
         }
-    }
-
-    private static DocumentBuilder secureDocumentBuilder() throws ParserConfigurationException {
-        var factory = DocumentBuilderFactory.newInstance();
-        factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-        factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
-        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-        factory.setXIncludeAware(false);
-        factory.setExpandEntityReferences(false);
-        var builder = factory.newDocumentBuilder();
-        builder.setErrorHandler(new DefaultHandler() {
-            @Override public void error(org.xml.sax.SAXParseException e) throws SAXException { throw e; }
-            @Override public void fatalError(org.xml.sax.SAXParseException e) throws SAXException { throw e; }
-        });
-        builder.setEntityResolver((publicId, systemId) -> {
-            throw new SAXException("External entities forbidden");
-        });
-        return builder;
-    }
-
-    private static int attribute(Element suite, String name) {
-        String value = suite.getAttribute(name);
-        if (!value.matches("[0-9]+")) throw new IllegalStateException("Missing or invalid Surefire counter: " + name);
-        try {
-            return Integer.parseInt(value);
-        } catch (NumberFormatException e) {
-            throw new IllegalStateException("Invalid Surefire counter: " + name, e);
-        }
+        return root;
     }
 
     private static boolean isSurefireReport(Path relative) {
@@ -137,8 +80,9 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
 
     private record SuiteCounts(int tests, int skipped, int failures, int errors) {
         static SuiteCounts of(Element suite) {
-            var counts = new SuiteCounts(attribute(suite, "tests"), attribute(suite, "skipped"),
-                    attribute(suite, "failures"), attribute(suite, "errors"));
+            var counts = new SuiteCounts(JunitXml.counter(suite, "tests", KIND),
+                    JunitXml.counter(suite, "skipped", KIND), JunitXml.counter(suite, "failures", KIND),
+                    JunitXml.counter(suite, "errors", KIND));
             if ((long) counts.skipped() + counts.failures() + counts.errors() > counts.tests()) {
                 throw new IllegalStateException("Invalid Surefire counters");
             }
@@ -169,8 +113,8 @@ record SurefireEvidence(int reportCount, int testCount, int failureCount, int er
             errors = Math.addExact(errors, suite.errors());
         }
 
-        SurefireEvidence toEvidence() {
-            return new SurefireEvidence(reports, tests, failures, errors, failsafeReports,
+        TestEvidence toEvidence() {
+            return new TestEvidence(reports, tests, failures, errors, failsafeReports,
                     Map.copyOf(executedByReport));
         }
     }

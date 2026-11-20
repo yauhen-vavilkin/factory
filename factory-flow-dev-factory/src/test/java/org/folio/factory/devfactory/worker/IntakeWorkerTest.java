@@ -28,7 +28,7 @@ class IntakeWorkerTest {
         var jira = mock(JiraConnector.class);
         var audit = mock(AuditLog.class);
         var coding = new DevRuntimeProperties.Pi("coding-image", "provider", "model", "https://private.example",
-                "openai-completions", "secret-key", null, null, null);
+                "openai-completions", "secret-key", null, null, null, false);
         var worker = new IntakeWorker(jira, mock(RepositoryPolicy.class), new FrontmatterCodec(),
                 new PiCodingRuntime(coding), audit, RecordingTaskAttempts.none().guard());
         var context = new AgentContext(UUID.randomUUID(), "read-task", Map.of(),

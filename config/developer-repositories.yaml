@@ -39,10 +39,79 @@ factory:
         jira-projects: [MGRAPPS]
         delivery:
           repository: ${FACTORY_MGR_APPLICATIONS_DELIVERY_REPO:folio-org/mgr-applications}
+      ui-users:
+        source-repo: ${FACTORY_UI_USERS_SOURCE_REPO:folio-org/ui-users}
+        base-branch: ${FACTORY_UI_USERS_BASE_BRANCH:master}
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UIU]
+        delivery:
+          repository: ${FACTORY_UI_USERS_DELIVERY_REPO:folio-org/ui-users}
+      ui-circulation:
+        source-repo: ${FACTORY_UI_CIRCULATION_SOURCE_REPO:folio-org/ui-circulation}
+        base-branch: ${FACTORY_UI_CIRCULATION_BASE_BRANCH:master}
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UICIRC]
+        delivery:
+          repository: ${FACTORY_UI_CIRCULATION_DELIVERY_REPO:folio-org/ui-circulation}
+      ui-inventory:
+        source-repo: ${FACTORY_UI_INVENTORY_SOURCE_REPO:folio-org/ui-inventory}
+        base-branch: ${FACTORY_UI_INVENTORY_BASE_BRANCH:master}
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UIIN]
+        delivery:
+          repository: ${FACTORY_UI_INVENTORY_DELIVERY_REPO:folio-org/ui-inventory}
+      ui-marc-authorities:
+        source-repo: ${FACTORY_UI_MARC_AUTHORITIES_SOURCE_REPO:folio-org/ui-marc-authorities}
+        base-branch: ${FACTORY_UI_MARC_AUTHORITIES_BASE_BRANCH:master}
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UIMARCAUTH]
+        delivery:
+          repository: ${FACTORY_UI_MARC_AUTHORITIES_DELIVERY_REPO:folio-org/ui-marc-authorities}
+      ui-checkin:
+        source-repo: ${FACTORY_UI_CHECKIN_SOURCE_REPO:folio-org/ui-checkin}
+        base-branch: ${FACTORY_UI_CHECKIN_BASE_BRANCH:master}
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UICHKIN]
+        delivery:
+          repository: ${FACTORY_UI_CHECKIN_DELIVERY_REPO:folio-org/ui-checkin}
+      ui-eholdings:
+        source-repo: ${FACTORY_UI_EHOLDINGS_SOURCE_REPO:folio-org/ui-eholdings}
+        base-branch: ${FACTORY_UI_EHOLDINGS_BASE_BRANCH:master}
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UIEH]
+        delivery:
+          repository: ${FACTORY_UI_EHOLDINGS_DELIVERY_REPO:folio-org/ui-eholdings}
+      ui-myprofile:
+        source-repo: ${FACTORY_UI_MYPROFILE_SOURCE_REPO:folio-org/ui-myprofile}
+        base-branch: ${FACTORY_UI_MYPROFILE_BASE_BRANCH:master}
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UIMPROF]
+        delivery:
+          repository: ${FACTORY_UI_MYPROFILE_DELIVERY_REPO:folio-org/ui-myprofile}
+      ui-tags:
+        source-repo: ${FACTORY_UI_TAGS_SOURCE_REPO:folio-org/ui-tags}
+        base-branch: ${FACTORY_UI_TAGS_BASE_BRANCH:master}
+        build-image: node:22.22.0-bookworm
+        verification-plan: node22-jest
+        jira-projects: [UITAG]
+        delivery:
+          repository: ${FACTORY_UI_TAGS_DELIVERY_REPO:folio-org/ui-tags}
     runtime:
       plans:
         java21-unit: [mvn, -B, -ntp, test]
         java21-roles-verify: [mvn, -B, -ntp, verify]
+        # --maxWorkers keeps Jest inside the Podman VM's memory (see doc/dev-flow-ui-support.md).
+        node22-jest: [yarn, test, --maxWorkers=2]
+      # Plans that are not Maven: the toolchain sets the dependency cache, install and test evidence.
+      plan-toolchains:
+        node22-jest: yarn
       # Require fresh, executed reports from each Maven test phase.
       # Integration plans remain blocked when their Docker dependencies are unavailable.
       # Factory's build containers have no Docker, so Testcontainers suites (FOLIO *IT classes)

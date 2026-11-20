@@ -58,7 +58,9 @@ class DeveloperRepositoryImportTest {
             var repositories = context.getBean(DevFactoryProperties.class);
             var runtime = context.getBean(DevRuntimeProperties.class);
             assertThat(repositories.repositories()).containsOnlyKeys(
-                    "sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "another-module");
+                    "sidecar", "mod-roles-keycloak", "mgr-tenant-entitlements", "mgr-applications", "ui-users",
+                    "ui-circulation", "ui-inventory", "ui-marc-authorities", "ui-checkin", "ui-eholdings",
+                    "ui-myprofile", "ui-tags", "another-module");
             var sidecar = repositories.repositories().get("sidecar");
             String expectedBase = override ? "environment-base" : "catalog-base";
             String expectedSource = override ? "environment-owner/sidecar" : "catalog-owner/sidecar";

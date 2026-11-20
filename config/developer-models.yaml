@@ -13,6 +13,8 @@
 # model              the model string the endpoint expects
 # efforts            the model's effort levels; default-effort is one of them
 # max-output-tokens  optional, 16384 when left out
+# images             optional; true when the model reads images, so the run gets the Jira
+#                    ticket's images. False when left out.
 # price              optional; USD per million tokens from a public price page. It is an estimate,
 #                    not your bill. Without a price the cost of a run shows as unknown.
 #

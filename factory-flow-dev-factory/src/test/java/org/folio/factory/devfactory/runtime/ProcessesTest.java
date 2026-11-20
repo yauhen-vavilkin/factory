@@ -127,6 +127,31 @@ class ProcessesTest {
     }
 
     @Test
+    void keepingTheTailConsumesOutputBeyondTheLimitAndLeavesTheExitStatusAuthoritative() {
+        var seen = new java.util.concurrent.atomic.AtomicInteger();
+        var passed = Processes.runKeepingTail(null, List.of("/bin/sh", "-c",
+                "i=0; while [ $i -lt 5000 ]; do echo \"line $i\"; echo \"warn $i\" >&2; i=$((i+1)); done"),
+                30, java.util.Map.of(), 1000, line -> seen.incrementAndGet());
+        var failed = Processes.runKeepingTail(null, List.of("/bin/sh", "-c",
+                "i=0; while [ $i -lt 5000 ]; do echo \"line $i\"; i=$((i+1)); done; exit 3"),
+                30, Map.of(), 1000, null);
+
+        assertThat(passed.exitCode()).isZero();
+        assertThat(passed.output()).hasSize(1000).endsWith("line 4999\n");
+        assertThat(passed.error()).hasSize(1000).endsWith("warn 4999\n");
+        assertThat(seen.get()).isEqualTo(5000);
+        assertThat(failed.exitCode()).isEqualTo(3);
+        assertThat(failed.output()).endsWith("line 4999\n");
+    }
+
+    @Test
+    void keepingTheTailStillBoundsTime() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> Processes.runKeepingTail(null,
+                List.of("/bin/sh", "-c", "exec sleep 3"), 1, java.util.Map.of(), 100, null))
+                .hasMessageContaining("exceeded 1 seconds");
+    }
+
+    @Test
     void keepsMachineReadableStdoutSeparateFromDiagnostics() {
         var result = Processes.run(null,
                 List.of("/bin/sh", "-c", "printf 'tree-sha'; printf 'diagnostic' >&2"), 10, Map.of(), Processes.OUTPUT_LIMIT, null);

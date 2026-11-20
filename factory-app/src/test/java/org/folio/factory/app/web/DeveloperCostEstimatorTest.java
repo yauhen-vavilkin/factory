@@ -219,7 +219,7 @@ class DeveloperCostEstimatorTest {
         var price = new ModelPrice("USD", LocalDate.parse("2026-09-19"), URI.create(source), new BigDecimal(input),
                 new BigDecimal(cacheRead), null, null, null, new BigDecimal(output));
         var entry = new ModelEntry("priced", "anthropic-messages", "https://api.anthropic.com", "api-key",
-                "PRICED_KEY", model, List.of("low"), "low", null, price);
+                "PRICED_KEY", model, List.of("low"), "low", null, price, null);
         return new DeveloperCostEstimator(new ModelCatalog(new ModelCatalog.Properties(List.of(entry), null),
                 "claude-code", name -> null));
     }
@@ -234,7 +234,7 @@ class DeveloperCostEstimatorTest {
 
     private static ModelEntry entry(String id, String model, ModelPrice price) {
         return new ModelEntry(id, "anthropic-messages", "https://gateway.example.test", "api-key", "PRICED_KEY",
-                model, List.of("low"), "low", null, price);
+                model, List.of("low"), "low", null, price, null);
     }
 
     private static ModelCatalog catalogOf(ModelEntry... entries) {

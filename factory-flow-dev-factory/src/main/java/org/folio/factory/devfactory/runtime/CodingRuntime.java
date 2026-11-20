@@ -24,6 +24,9 @@ public interface CodingRuntime {
         return java.util.Map.copyOf(identity);
     }
 
+    /** Whether the model of a run with these settings can be given the ticket's images. */
+    default boolean acceptsImages(CodingRequest.RunSettings settings) { return false; }
+
     /** Removes adapter-owned credentials from persisted failures and audit activity. */
     default String redact(String value) { return value; }
 

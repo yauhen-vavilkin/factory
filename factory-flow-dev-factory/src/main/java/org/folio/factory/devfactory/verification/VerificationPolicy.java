@@ -4,6 +4,9 @@ import lombok.RequiredArgsConstructor;
 import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.candidate.Candidate;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.InstallMode;
+
+import java.util.Arrays;
 
 /** Current trusted configuration, separate from the receipt's immutable candidate identity. */
 @RequiredArgsConstructor
@@ -16,7 +19,12 @@ public final class VerificationPolicy {
         return repository != null
                 && repository.verificationPlan().equals(receipt.planId())
                 && repository.buildImage().equals(receipt.image())
-                && runtime.command(repository.verificationPlan()).equals(receipt.argv())
+                && runtime.toolchain(repository.verificationPlan()) == receipt.toolchain()
+                // The resolving install is only legitimate against a pinned lockfile.
+                && Arrays.stream(InstallMode.values())
+                        .filter(mode -> mode == InstallMode.FROZEN || receipt.lockfileSha256() != null)
+                        .anyMatch(mode -> runtime.verificationCommand(repository.verificationPlan(), mode)
+                                .equals(receipt.argv()))
                 && runtime.requiredReports(repository.verificationPlan())
                         .equals(receipt.requiredReports());
     }

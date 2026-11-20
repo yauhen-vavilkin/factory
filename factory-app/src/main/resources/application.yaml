@@ -169,6 +169,15 @@ factory:
     runtime:
       timeout-seconds: ${FACTORY_DEV_FACTORY_TIMEOUT_SECONDS:3600}
       maven-cache-volume: ${FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME:factory-dev-m2-cache}
+      # Copying the shared dependency cache into one new coding or verification workload.
+      seed-timeout-seconds: ${FACTORY_DEV_FACTORY_SEED_TIMEOUT_SECONDS:300}
+      # UI plans (yarn + Jest).
+      yarn:
+        cache-volume: ${FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME:factory-dev-yarn-cache}
+        folio-registry: ${FACTORY_DEV_FACTORY_FOLIO_NPM_REGISTRY:https://repository.folio.org/repository/npm-folioci/}
+        # Run by the starting build, the coding container and verification, before the plan's test command.
+        # --mutex serializes installs into the shared cache; two at once corrupt each other's entries.
+        install-command: [yarn, install, --frozen-lockfile, --ignore-scripts, --non-interactive, --mutex, "file:/tmp/factory-home/.yarn-cache/.yarn-mutex"]
       coding:
         runtime: ${FACTORY_DEV_FACTORY_CODING_RUNTIME:claude-code}
         pi:
@@ -181,12 +190,18 @@ factory:
           api-key: ${FACTORY_PI_API_KEY:}
           reasoning-effort: ${FACTORY_PI_REASONING_EFFORT:}
           max-output-tokens: ${FACTORY_PI_MAX_OUTPUT_TOKENS:}
+          # True only when the model reads images; Pi otherwise swaps every image for a text placeholder.
+          images: ${FACTORY_PI_IMAGES:false}
         # The model, endpoint, secret and effort of a Claude Code run come from config/developer-models.yaml.
         claude-code:
-          image: ${FACTORY_CLAUDE_CODE_IMAGE:factory-dev-claude-code:2.1.287-java21}
+          image: ${FACTORY_CLAUDE_CODE_IMAGE:factory-dev-claude-code:2.1.287-java21-node22}
           # A safety limit from 1 to 500, not a tuning knob: the coding timeout above usually ends a
           # run first (about 360 turns in 60 minutes). A run that hits it loses its work.
           max-turns: ${FACTORY_CLAUDE_CODE_MAX_TURNS:400}
+    # Images attached to the Jira ticket, for models that read images (images: true in the models file).
+    attachments:
+      max-images: ${FACTORY_DEV_FACTORY_ATTACHMENT_MAX_IMAGES:10}
+      max-bytes: ${FACTORY_DEV_FACTORY_ATTACHMENT_MAX_BYTES:3145728}
   test-factory:
     execution:
       base-url: ${FACTORY_TEST_FACTORY_EXECUTION_BASE_URL:}

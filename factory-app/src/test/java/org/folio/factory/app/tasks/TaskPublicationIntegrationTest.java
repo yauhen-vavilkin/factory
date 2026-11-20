@@ -388,13 +388,13 @@ class TaskPublicationIntegrationTest {
         return new VerificationReceipt(executionId.toString(), "sidecar", candidate.baseSha(),
                 candidate.treeSha(), candidate.patchSha256(), "java21-unit", "maven:3.9-eclipse-temurin-21",
                 List.of("mvn", "-B", "-ntp", "test"), "fixture", Instant.EPOCH, Instant.EPOCH, 0,
-                1, 1, 0, 0, "PASS", "ok", null, 0, List.of("surefire"), List.of());
+                1, 1, 0, 0, "PASS", "ok", null, 0, List.of("surefire"), List.of(), null, null);
     }
 
     private static CodingRequest codingRequest(String issueKey) {
         return new CodingRequest(issueKey, "Task", "Description", List.of(), List.of(), List.of(),
                 List.of(), new CodingRequest.RepositoryTarget("sidecar", OFFICIAL, "master", "a".repeat(40)),
-                null, null);
+                null, null, List.of());
     }
 
     private AgentContext context(UUID executionId, String issueKey, Candidate candidate,

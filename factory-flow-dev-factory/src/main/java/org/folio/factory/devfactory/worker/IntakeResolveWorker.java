@@ -175,7 +175,16 @@ public class IntakeResolveWorker implements AgentWorker {
         var target = repositoryTarget(repositoryKey, baseSha);
         return new CodingRequest(intake.path("issue_key").asString(""), issue.path("summary").asString(""),
                 issue.path("description").asString(""), comments, links, List.of(), decisions, target,
-                CodingRequest.Constraints.defaults(), settings);
+                CodingRequest.Constraints.defaults(), settings, attachments(issue));
+    }
+
+    /** Only the attachment metadata; the coding step downloads and stages the files it can use. */
+    private static List<CodingRequest.Attachment> attachments(JsonNode issue) {
+        List<CodingRequest.Attachment> attachments = new ArrayList<>();
+        issue.path("attachments").forEach(attachment -> attachments.add(new CodingRequest.Attachment(
+                attachment.path("id").asString(""), attachment.path("filename").asString(""),
+                attachment.path("mimeType").asString(""), attachment.path("size").asLong(0), "", "")));
+        return attachments;
     }
 
     private static List<CodingRequest.Comment> comments(JsonNode issue) {

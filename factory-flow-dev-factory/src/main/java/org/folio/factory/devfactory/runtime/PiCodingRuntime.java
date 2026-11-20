@@ -56,6 +56,11 @@ public class PiCodingRuntime implements CodingRuntime {
     }
 
     @Override
+    public boolean acceptsImages(CodingRequest.RunSettings settings) {
+        return config.images();
+    }
+
+    @Override
     public String redact(String value) {
         return config.apiKey() == null || config.apiKey().isBlank()
                 ? value
@@ -82,7 +87,7 @@ public class PiCodingRuntime implements CodingRuntime {
             writeInputs(temporary, request);
             workload.execute(List.of("mkdir", "-p", PI_DIRECTORY), 30, Processes.OUTPUT_LIMIT, null).requireSuccess();
             workload.copy(temporary.resolve(".").toString(), PI_DIRECTORY);
-            return run(workload, timeoutSeconds, new PiProgress(config.apiKey(), progress));
+            return run(workload, request, timeoutSeconds, new PiProgress(config.apiKey(), progress));
         } catch (IOException e) {
             throw new IllegalStateException("Cannot prepare Pi input", e);
         } finally {
@@ -124,16 +129,20 @@ public class PiCodingRuntime implements CodingRuntime {
         if (config.reasoningEffort() != null) {
             model.put("reasoning", true);
         }
+        if (config.images()) {
+            model.put("input", List.of("text", "image"));
+        }
         if (config.provider().equals("codemie") && config.model().equals("gemini-3.8-flash")) {
             model.put("compat", Map.of("supportsDeveloperRole", false, "maxTokensField", "max_tokens"));
         }
         return model;
     }
 
-    private CodingOutcome run(DockerWorkloads.Workload workload, int timeoutSeconds, PiProgress observer) {
+    private CodingOutcome run(DockerWorkloads.Workload workload, CodingRequest request, int timeoutSeconds,
+                              PiProgress observer) {
         Processes.Result execution;
         try {
-            execution = workload.execute(command(), timeoutSeconds, EVENT_STREAM_LIMIT, observer);
+            execution = workload.execute(command(request), timeoutSeconds, eventStreamLimit(request), observer);
         } catch (RuntimeException e) {
             return CodingOutcome.failed("RUNTIME_ERROR", safeFailure(e), metrics(observer));
         }
@@ -147,33 +156,29 @@ public class PiCodingRuntime implements CodingRuntime {
                 parsed.status(), parsed.summary(), parsed.decision(), parsed.failure(), metrics(observer)));
     }
 
-    private List<String> command() {
+    private List<String> command(CodingRequest request) {
         var command = new ArrayList<>(List.of(
-                "env",
-                "PI_CODING_AGENT_DIR=" + PI_DIRECTORY,
-                "pi",
-                "--print",
-                "--mode",
-                "json",
-                "--no-session",
-                "--no-extensions",
-                "--no-skills",
-                "--no-prompt-templates",
-                "--no-themes",
-                "--offline",
-                "--provider",
-                config.provider(),
-                "--model",
-                config.model()));
+                "env", "PI_CODING_AGENT_DIR=" + PI_DIRECTORY, "pi", "--print", "--mode", "json", "--no-session",
+                "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--offline",
+                "--provider", config.provider(), "--model", config.model()));
         if (config.reasoningEffort() != null) {
             command.addAll(List.of("--thinking", config.reasoningEffort()));
         }
         command.add("@" + PI_DIRECTORY + "/task.txt");
+        if (config.images()) {
+            request.attachments().stream()
+                    .filter(attachment -> !attachment.path().isBlank())
+                    .forEach(attachment -> command.add("@" + attachment.path()));
+        }
         return command;
     }
 
     private Map<String, Object> metrics(PiProgress observer) {
         return PiProtocol.withIdentity(observer.metrics(), config.provider(), config.model());
+    }
+
+    static int eventStreamLimit(CodingRequest request) {
+        return CodingProtocol.eventStreamLimit(EVENT_STREAM_LIMIT, request);
     }
 
     private CodingOutcome sanitize(CodingOutcome outcome) {

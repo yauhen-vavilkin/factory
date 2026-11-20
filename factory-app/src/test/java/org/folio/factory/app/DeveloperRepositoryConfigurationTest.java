@@ -4,6 +4,7 @@ import org.folio.factory.devfactory.DevFactoryProperties;
 import org.folio.factory.devfactory.delivery.DeliveryBlockedException;
 import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.Toolchain;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -33,7 +34,9 @@ class DeveloperRepositoryConfigurationTest {
             "sidecar, SIDECAR",
             "mod-roles-keycloak, MOD_ROLES_KEYCLOAK",
             "mgr-tenant-entitlements, MGR_TENANT_ENTITLEMENTS",
-            "mgr-applications, MGR_APPLICATIONS"
+            "mgr-applications, MGR_APPLICATIONS",
+            "ui-users, UI_USERS",
+            "ui-tags, UI_TAGS"
     })
     void repositoryEnvironmentKeepsSourceAndDeliveryAlignedWithoutChangingOtherTargets(
             String repositoryKey, String environmentPrefix) throws Exception {
@@ -84,7 +87,7 @@ class DeveloperRepositoryConfigurationTest {
                 """);
         var configured = bind(Map.of(), file);
         var repository = configured.source().repositories().get("another-module");
-        assertThat(configured.source().repositories()).hasSize(5);
+        assertThat(configured.source().repositories()).hasSize(bind(Map.of()).source().repositories().size() + 1);
         assertThat(repository.sourceRepo()).isEqualTo("source-owner/another-module");
         assertThat(repository.jiraProjects()).containsExactly("ANOTHER");
         assertThat(repository.jiraComponents()).containsExactly("Backend");
@@ -94,6 +97,29 @@ class DeveloperRepositoryConfigurationTest {
                 .containsExactly("mvn", "-B", "-ntp", "test");
         assertThat(configured.runtime().requiredReports("java21-roles-verify"))
                 .containsExactly("surefire", "failsafe");
+    }
+
+    @Test
+    void uiRepositoriesRunTheYarnJestPlanWithTheInstallBeforeTheTests() throws Exception {
+        var defaults = bind(Map.of());
+        var runtime = defaults.runtime();
+
+        assertThat(defaults.source().repositories()).containsKeys("ui-users", "ui-circulation", "ui-inventory",
+                "ui-marc-authorities", "ui-checkin", "ui-eholdings", "ui-myprofile", "ui-tags");
+        var users = defaults.source().repositories().get("ui-users");
+        assertThat(users.buildImage()).isEqualTo("node:22.22.0-bookworm");
+        assertThat(users.verificationPlan()).isEqualTo("node22-jest");
+        assertThat(users.jiraProjects()).containsExactly("UIU");
+        assertThat(runtime.seedTimeoutSeconds()).isEqualTo(300);
+        assertThat(runtime.toolchain("node22-jest")).isEqualTo(Toolchain.YARN);
+        assertThat(runtime.toolchain("java21-unit")).isEqualTo(Toolchain.MAVEN);
+        assertThat(runtime.command("node22-jest")).containsExactly("yarn", "test", "--maxWorkers=2");
+        // The deployed command and the Java default must lock the same path, or the lock silently does nothing.
+        assertThat(runtime.installCommand("node22-jest")).isEqualTo(DevRuntimeProperties.Yarn.DEFAULT_INSTALL_COMMAND)
+                .contains("--frozen-lockfile", "--mutex");
+        assertThat(runtime.installCommand("java21-unit")).isEmpty();
+        assertThat(runtime.verificationCommand("node22-jest")).first().isEqualTo("sh");
+        assertThat(runtime.verificationCommand("node22-jest").get(2)).endsWith("&& 'yarn' 'test' '--maxWorkers=2'");
     }
 
     @Test

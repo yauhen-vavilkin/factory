@@ -37,7 +37,9 @@ import org.folio.factory.devfactory.repository.RepositoryPolicy;
 import org.folio.factory.devfactory.repository.SelectedRepositoryPreflight;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.CodingTranscripts;
+import org.folio.factory.devfactory.runtime.DevAttachmentProperties;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.ImageStagingRuntime;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
 import org.folio.factory.devfactory.runtime.PiCodingRuntime;
 import org.folio.factory.devfactory.runtime.ClaudeCodeCodingRuntime;
@@ -73,7 +75,8 @@ import java.util.Map;
  * class only assembles the worker beans the descriptor references.
  */
 @Configuration
-@EnableConfigurationProperties({DevFactoryProperties.class, DevRuntimeProperties.class, ModelCatalog.Properties.class})
+@EnableConfigurationProperties({DevFactoryProperties.class, DevRuntimeProperties.class, ModelCatalog.Properties.class,
+    DevAttachmentProperties.class})
 public class DevFactoryConfiguration {
 
     /** The id in {@code flows/dev-factory.yaml}. */
@@ -106,8 +109,8 @@ public class DevFactoryConfiguration {
     }
 
     @Bean
-    public DockerWorkloads devDockerWorkloads() {
-        return new DockerWorkloads();
+    public DockerWorkloads devDockerWorkloads(DevRuntimeProperties runtime) {
+        return new DockerWorkloads(runtime.seedTimeoutSeconds());
     }
 
     @Bean
@@ -122,8 +125,14 @@ public class DevFactoryConfiguration {
         return new ModelCatalog(models, runtime.coding().runtime(), environment::getProperty);
     }
 
+    /** The chosen runtime, wrapped so that every attempt gets the ticket's images as they are in Jira then. */
     @Bean
-    public CodingRuntime devCodingRuntime(DevRuntimeProperties runtime, ModelCatalog models) {
+    public CodingRuntime devCodingRuntime(DevRuntimeProperties runtime, ModelCatalog models,
+            JiraConnector jiraConnector, DevAttachmentProperties attachments) {
+        return new ImageStagingRuntime(selectCodingRuntime(runtime, models), jiraConnector, attachments);
+    }
+
+    public static CodingRuntime selectCodingRuntime(DevRuntimeProperties runtime, ModelCatalog models) {
         return switch (runtime.coding().runtime()) {
             case "pi" -> new PiCodingRuntime(runtime.coding().pi());
             case ClaudeCodeCodingRuntime.ID -> new ClaudeCodeCodingRuntime(runtime.coding().claudeCode(), models);

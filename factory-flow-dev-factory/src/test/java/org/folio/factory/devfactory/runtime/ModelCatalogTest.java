@@ -34,11 +34,11 @@ class ModelCatalogTest {
             anthropic("proxy-opus", "bearer-token", "PROXY_TOKEN", "claude-opus", "medium", price("4.00", "20.00")),
             anthropic("direct-sonnet", "api-key", "ANTHROPIC_KEY", "claude-sonnet", "high", price("2.00", "10.00")),
             new ModelEntry("glm", "anthropic-messages", "https://api.z.ai/api/anthropic", "bearer-token", "ZAI_KEY",
-                    "glm", List.of("low", "high", "max"), "max", null, price("1.40", "4.40")),
+                    "glm", List.of("low", "high", "max"), "max", null, price("1.40", "4.40"), null),
             new ModelEntry("glm-flash", "anthropic-messages", "https://api.z.ai/api/anthropic", "bearer-token",
-                    "ZAI_KEY", "glm-flash", List.of("low", "high", "max"), "max", null, null),
+                    "ZAI_KEY", "glm-flash", List.of("low", "high", "max"), "max", null, null, null),
             new ModelEntry("gemini", "openai-completions", "http://host.docker.internal:4001/v1", "api-key", "PI_KEY",
-                    "gemini-flash", List.of("low", "medium", "high"), "medium", null, price("0.75", "3.75")));
+                    "gemini-flash", List.of("low", "medium", "high"), "medium", null, price("0.75", "3.75"), null));
 
     @Test
     void theCommittedFileBindsAndEveryEntryIsValid() throws Exception {
@@ -172,13 +172,13 @@ class ModelCatalogTest {
         assertInvalid(entry("glm", List.of("low", "low"), "low"), "efforts must list the model's effort levels");
         assertInvalid(entry("Glm 5", List.of("max"), "max"), "every model needs an id of lower-case letters");
         assertInvalid(new ModelEntry("glm", "openai-chat", "https://api.z.ai", "bearer-token", "FACTORY_ZAI_API_KEY",
-                "glm", List.of("max"), "max", null, null), "api must be one of: openai-completions");
+                "glm", List.of("max"), "max", null, null, null), "api must be one of: openai-completions");
         assertInvalid(new ModelEntry("glm", "anthropic-messages", "https://user:pw@api.z.ai", "bearer-token",
-                "FACTORY_ZAI_API_KEY", "glm", List.of("max"), "max", null, null), "base-url must be an HTTP(S) URL");
+                "FACTORY_ZAI_API_KEY", "glm", List.of("max"), "max", null, null, null), "base-url must be an HTTP(S) URL");
         assertInvalid(new ModelEntry("glm", "anthropic-messages", "https://api.z.ai", "bearer-token",
-                "zai-secret-value", "glm", List.of("max"), "max", null, null), "secret-env must be the name");
+                "zai-secret-value", "glm", List.of("max"), "max", null, null, null), "secret-env must be the name");
         assertInvalid(new ModelEntry("glm", "anthropic-messages", "https://api.z.ai", "oauth",
-                "FACTORY_ZAI_API_KEY", "glm", List.of("max"), "max", null, null), "authentication must be");
+                "FACTORY_ZAI_API_KEY", "glm", List.of("max"), "max", null, null, null), "authentication must be");
         assertInvalid(withPrice(new ModelPrice("usd", LocalDate.now(), null, null, null, null, null, null, null)),
                 "price.currency must be an ISO code");
         assertInvalid(withPrice(new ModelPrice("USD", LocalDate.now(), java.net.URI.create("http://x.example"),
@@ -247,18 +247,18 @@ class ModelCatalogTest {
 
     private static ModelEntry entry(String id, List<String> efforts, String defaultEffort) {
         return new ModelEntry(id, "anthropic-messages", "https://api.z.ai/api/anthropic", "bearer-token",
-                "FACTORY_ZAI_API_KEY", "glm", efforts, defaultEffort, null, null);
+                "FACTORY_ZAI_API_KEY", "glm", efforts, defaultEffort, null, null, null);
     }
 
     private static ModelEntry withPrice(ModelPrice price) {
         return new ModelEntry("glm", "anthropic-messages", "https://api.z.ai", "bearer-token", "FACTORY_ZAI_API_KEY",
-                "glm", List.of("max"), "max", null, price);
+                "glm", List.of("max"), "max", null, price, null);
     }
 
     private static ModelEntry anthropic(String id, String authentication, String secretEnv, String model,
                                         String defaultEffort, ModelPrice price) {
         return new ModelEntry(id, "anthropic-messages", "http://host.docker.internal:4001", authentication, secretEnv,
-                model, List.of("low", "medium", "high", "xhigh", "max"), defaultEffort, null, price);
+                model, List.of("low", "medium", "high", "xhigh", "max"), defaultEffort, null, price, null);
     }
 
     private static ModelPrice price(String input, String output) {

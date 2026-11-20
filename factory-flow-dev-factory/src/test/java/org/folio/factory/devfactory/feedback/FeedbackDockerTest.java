@@ -58,10 +58,11 @@ class FeedbackDockerTest {
                 new FeedbackServices(gateway, new FeedbackGit(freezer), new GitHubProperties("",""), mock(PrCommentWriter.class)), new CandidateVerifier(repositories,runtime,freezer,docker), state, audit,
                 new DevFactoryHooks(TaskAttemptPolicy.none(), (modelId,model)->Map.of(), CodingTranscripts.none(), SelectedRepositoryPreflight.none()));
         var settings=new CodingRequest.RunSettings("glm-5.3","max","Keep the public API.");
-        var request=new CodingRequest("TEST-1","Correct value","Original task",List.of(),List.of(),List.of(),List.of(),new CodingRequest.RepositoryTarget("fixture","upstream/repo","main",base),null,settings);
+        var request=new CodingRequest("TEST-1","Correct value","Original task",List.of(),List.of(),List.of(),List.of(),new CodingRequest.RepositoryTarget("fixture","upstream/repo","main",base),null,settings, List.of());
         var saved=new LinkedHashMap<>(initial());
         saved.put("dev_coding_request.json",JSON.writeValueAsString(request));
         saved.put("dev_delivery.json",JSON.writeValueAsString(Map.of("state","DELIVERED","repository","fixture","deliveryBranch","feedback","pullRequestUrl","https://github.com/fork/repo/pull/7")));
+        saved.put("dev_lockfile.json",PinnedLockfile.none("NOT_NEEDED","Maven fixture"));
         try {
             var initialized=worker.execute(context(id,saved)); saved.putAll(initialized.outputs());
             assertThat(initialized.disposition()).isEqualTo(AgentResult.Disposition.WAIT);

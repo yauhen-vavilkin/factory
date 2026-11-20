@@ -458,7 +458,7 @@ class DemoConsole {
         return new VerificationReceipt(execution.getId().toString(), "mod-bar", "a".repeat(40), "b".repeat(40),
                 "c".repeat(64), "java21-unit", "maven", List.of("mvn", "-B", "-ntp", "test"), "checks", now, now, 1, 1,
                 1, 1, 0, "FAIL", "BarTest.formatsTheDate: expected \"2026-11-10\" but was \"10/11/2026\"",
-                VerificationFailure.CANDIDATE, 0, List.of(), List.of());
+                VerificationFailure.CANDIDATE, 0, List.of(), List.of(), null, null);
     }
 
     /** A task with one attempt that opened pull request {@code number}; its run has this engine status. */

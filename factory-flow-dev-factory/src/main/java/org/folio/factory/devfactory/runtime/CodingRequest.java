@@ -16,8 +16,10 @@ public record CodingRequest(
         List<ConfirmedDecision> confirmedDecisions,
         RepositoryTarget repository,
         Constraints constraints,
-        RunSettings runSettings) {
+        RunSettings runSettings,
+        List<Attachment> attachments) {
 
+    // Requests stored before attachments existed have no such field, so a missing list reads as empty.
     public CodingRequest {
         issueKey = text(issueKey);
         summary = text(summary);
@@ -27,6 +29,7 @@ public record CodingRequest(
         acceptanceCriteria = acceptanceCriteria == null ? List.of() : List.copyOf(acceptanceCriteria);
         confirmedDecisions = confirmedDecisions == null ? List.of() : List.copyOf(confirmedDecisions);
         constraints = constraints == null ? Constraints.defaults() : constraints;
+        attachments = attachments == null ? List.of() : List.copyOf(attachments);
     }
 
     public CodingRequest withDecision(ConfirmedDecision decision) {
@@ -34,7 +37,20 @@ public record CodingRequest(
         var decisions = new java.util.ArrayList<>(confirmedDecisions);
         decisions.add(decision);
         return new CodingRequest(issueKey, summary, description, comments, linkedIssues,
-                acceptanceCriteria, decisions, repository, constraints, runSettings);
+                acceptanceCriteria, decisions, repository, constraints, runSettings, attachments);
+    }
+
+    /** Tells the agent how Factory will verify the work and whether the workspace is already prepared. */
+    public CodingRequest withVerification(String command, boolean dependenciesInstalled) {
+        return new CodingRequest(issueKey, summary, description, comments, linkedIssues,
+                acceptanceCriteria, confirmedDecisions, repository,
+                constraints.withVerification(command, dependenciesInstalled), runSettings, attachments);
+    }
+
+    /** The same request with the attachments resolved for this attempt (staged files or reasons they were not). */
+    public CodingRequest withAttachments(List<Attachment> resolved) {
+        return new CodingRequest(issueKey, summary, description, comments, linkedIssues,
+                acceptanceCriteria, confirmedDecisions, repository, constraints, runSettings, resolved);
     }
 
     public void requireReady() {
@@ -60,6 +76,25 @@ public record CodingRequest(
         }
     }
 
+    /**
+     * An image attached to the ticket. {@code path} is where this attempt's workload holds the file and is blank
+     * in the stored request; {@code note} says why an attachment was not provided.
+     */
+    public record Attachment(String id, String filename, String mimeType, long size, String path, String note) {
+        public Attachment {
+            id = text(id); filename = text(filename); mimeType = text(mimeType); path = text(path); note = text(note);
+        }
+
+        /** {@code bytes} is the size of the file actually staged, which can differ from what Jira reported. */
+        public Attachment staged(String path, long bytes) {
+            return new Attachment(id, filename, mimeType, bytes, path, "");
+        }
+
+        public Attachment skipped(String note) {
+            return new Attachment(id, filename, mimeType, size, "", note);
+        }
+    }
+
     public record ConfirmedDecision(String requestId, String kind, String question, String answer) {
         public ConfirmedDecision {
             requestId = text(requestId); kind = text(kind); question = text(question); answer = text(answer);
@@ -82,11 +117,33 @@ public record CodingRequest(
     public record RunSettings(@JsonProperty("profileId") String modelId, String effort, String instructions) {
     }
 
+    /**
+     * {@code verificationCommand} and {@code dependenciesInstalled} tell the agent how Factory checks the work.
+     * The flag is boxed so that requests stored before these fields existed still parse.
+     */
     public record Constraints(String workingDirectory, boolean allowRepositorySwitch, boolean allowPush,
                               boolean allowExternalWrites, boolean allowGitMetadataChanges,
-                              boolean independentVerification) {
+                              boolean independentVerification, String verificationCommand,
+                              Boolean dependenciesInstalled) {
+        public Constraints(String workingDirectory, boolean allowRepositorySwitch, boolean allowPush,
+                           boolean allowExternalWrites, boolean allowGitMetadataChanges,
+                           boolean independentVerification) {
+            this(workingDirectory, allowRepositorySwitch, allowPush, allowExternalWrites,
+                    allowGitMetadataChanges, independentVerification, "", false);
+        }
+
+        public Constraints {
+            verificationCommand = text(verificationCommand);
+            dependenciesInstalled = Boolean.TRUE.equals(dependenciesInstalled);
+        }
+
         public static Constraints defaults() {
             return new Constraints("/workspace", false, false, false, false, true);
+        }
+
+        Constraints withVerification(String command, boolean installed) {
+            return new Constraints(workingDirectory, allowRepositorySwitch, allowPush, allowExternalWrites,
+                    allowGitMetadataChanges, independentVerification, command, installed);
         }
     }
 }

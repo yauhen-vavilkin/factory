@@ -18,10 +18,10 @@ class TaskRunSettingsTest {
 
     private static final ModelEntry SONNET = new ModelEntry("codemie-sonnet-5.5", "anthropic-messages",
             "http://gateway.example:4001", "bearer-token", "FACTORY_CODEMIE_PROXY_TOKEN", "claude-sonnet-5-5",
-            List.of("low", "medium", "high", "xhigh", "max"), "high", null, null);
+            List.of("low", "medium", "high", "xhigh", "max"), "high", null, null, null);
     private static final ModelEntry GLM = new ModelEntry("glm-5.3", "anthropic-messages",
             "https://api.z.ai/api/anthropic", "bearer-token", "FACTORY_ZAI_API_KEY", "glm-5.3",
-            List.of("low", "high", "max"), "max", null, null);
+            List.of("low", "high", "max"), "max", null, null, null);
 
     @Test
     void theFormOffersReadyModelsAndStartsFromTheFirstWhenNoDefaultIsSet() {

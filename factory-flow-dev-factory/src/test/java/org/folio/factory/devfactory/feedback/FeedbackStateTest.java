@@ -80,7 +80,7 @@ class FeedbackStateTest {
         var now = Instant.now();
         return new VerificationReceipt("execution", "repo", "a".repeat(40), "b".repeat(40), "c".repeat(64), "plan",
                 "image", List.of("mvn", "test"), "checks", now, now, 1, reports, tests, failures, errors, "FAIL",
-                "output", kind, 0, List.of(), List.of());
+                "output", kind, 0, List.of(), List.of(), null, null);
     }
 
     @Test

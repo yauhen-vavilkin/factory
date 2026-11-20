@@ -1,18 +1,27 @@
 package org.folio.factory.devfactory.runtime;
 
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
+
 import java.util.HashSet;
 import java.util.List;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
-/** One entry of config/developer-models.yaml as written; {@link #toModel} checks it. */
+/**
+ * One entry of config/developer-models.yaml as written; {@link #toModel} checks it. {@code images} says that
+ * the model reads images, so the Jira ticket's images are given to it; left out, it is false.
+ */
 public record ModelEntry(String id, String api, String baseUrl, String authentication, String secretEnv,
                          String model, List<String> efforts, String defaultEffort, Integer maxOutputTokens,
-                         ModelPrice price) {
+                         ModelPrice price, Boolean images) {
     private static final int DEFAULT_MAX_OUTPUT_TOKENS = 16384;
     private static final Pattern ID = Pattern.compile("[a-z0-9][a-z0-9._-]{0,63}");
     private static final Pattern VARIABLE = Pattern.compile("[A-Z][A-Z0-9_]{0,127}");
     private static final Pattern EFFORT = Pattern.compile("[a-z][a-z0-9-]{0,31}");
+
+    @ConstructorBinding
+    public ModelEntry {
+    }
 
     /**
      * The checked model with its secret read through {@code variables}. A mistake throws
@@ -31,7 +40,8 @@ public record ModelEntry(String id, String api, String baseUrl, String authentic
             price.validate(where);
         }
         return new Model(id, api, baseUrl, authentication, secretEnv, variables.apply(secretEnv), model, efforts,
-                defaultEffort, maxOutputTokens == null ? DEFAULT_MAX_OUTPUT_TOKENS : maxOutputTokens, price);
+                defaultEffort, maxOutputTokens == null ? DEFAULT_MAX_OUTPUT_TOKENS : maxOutputTokens, price,
+                Boolean.TRUE.equals(images));
     }
 
     private void requireEndpoint(String where) {

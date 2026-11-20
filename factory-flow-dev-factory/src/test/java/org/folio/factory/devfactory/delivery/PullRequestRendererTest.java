@@ -317,7 +317,7 @@ class PullRequestRendererTest {
         return new VerificationReceipt("00000000-0000-0000-0000-000000000001", "sidecar",
                 candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "unit", "image",
                 List.of("mvn", "test"), "fresh", Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
-                0, surefireReports, tests, 0, 0, "PASS", "ok", null, 0, List.of(), List.of());
+                0, surefireReports, tests, 0, 0, "PASS", "ok", null, 0, List.of(), List.of(), null, null);
     }
 
     private static DeliveryReceipt delivered(Candidate candidate) {

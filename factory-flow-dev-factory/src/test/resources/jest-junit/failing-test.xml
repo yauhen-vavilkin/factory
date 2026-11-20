@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="9" failures="1" errors="0" time="15.519">
+  <testsuite name="FeeFineActions" errors="0" failures="0" skipped="0" timestamp="2026-10-23T15:40:23" time="4.17" tests="3">
+    <testcase classname="FeeFineActions CommentModal should render &quot;CommentModal&quot;" name="FeeFineActions CommentModal should render &quot;CommentModal&quot;" time="0.078"></testcase>
+    <testcase classname="FeeFineActions CommentModal should correctly handle submit action" name="FeeFineActions CommentModal should correctly handle submit action" time="0.158"></testcase>
+    <testcase classname="FeeFineActions CommentModal on submit should correctly change &quot;CommentModal&quot; open status" name="FeeFineActions CommentModal on submit should correctly change &quot;CommentModal&quot; open status" time="0.137"></testcase>
+  </testsuite>
+  <testsuite name="Owner settings" errors="0" failures="1" skipped="0" timestamp="2026-10-23T15:40:16" time="11.349" tests="6">
+    <testcase classname="Owner settings Component must be rendered" name="Owner settings Component must be rendered" time="0.505"></testcase>
+    <testcase classname="Owner settings Delete functionality in component" name="Owner settings Delete functionality in component" time="0.353"></testcase>
+    <testcase classname="Owner settings should create new Owner Settings" name="Owner settings should create new Owner Settings" time="2.374"></testcase>
+    <testcase classname="Owner settings should edit existing Owner Settings" name="Owner settings should edit existing Owner Settings" time="5.113">
+      <failure>Error: thrown: "Exceeded timeout of 5000 ms for a test.
+Add a timeout value to this test to increase the timeout, if this is a long-running test. See https://jestjs.io/docs/api#testname-fn-timeout."
+    at it (/workspace/src/settings/OwnerSettings.test.js:199:3)
+    at _dispatchDescribe (/workspace/node_modules/jest-circus/build/index.js:91:26)
+    at describe (/workspace/node_modules/jest-circus/build/index.js:55:5)
+    at Object.describe (/workspace/src/settings/OwnerSettings.test.js:144:1)
+    at Runtime._execModule (/workspace/node_modules/jest-runtime/build/index.js:1439:24)
+    at Runtime._loadModule (/workspace/node_modules/jest-runtime/build/index.js:1022:12)
+    at Runtime.requireModule (/workspace/node_modules/jest-runtime/build/index.js:882:12)
+    at jestAdapter (/workspace/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:77:13)
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at runTestInternal (/workspace/node_modules/jest-runner/build/runTest.js:367:16)
+    at runTest (/workspace/node_modules/jest-runner/build/runTest.js:444:34)
+    at Object.worker (/workspace/node_modules/jest-runner/build/testWorker.js:106:12)</failure>
+    </testcase>
+    <testcase classname="Owner settings when user do not have permissions to edit owner settings should not render New button" name="Owner settings when user do not have permissions to edit owner settings should not render New button" time="0.065"></testcase>
+    <testcase classname="Owner settings when user do not have permissions to edit owner settings should not render Actions columnin list" name="Owner settings when user do not have permissions to edit owner settings should not render Actions columnin list" time="0.063"></testcase>
+  </testsuite>
+</testsuites>

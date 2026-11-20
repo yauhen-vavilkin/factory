@@ -32,7 +32,7 @@ class CodingRuntimeConfigurationTest {
         assertThat(setup.runtime()).isInstanceOf(PiCodingRuntime.class);
         coding.pi().requireConfigured();
         assertThat(coding.pi().model()).isEqualTo("pi-model");
-        assertThat(coding.pi().image()).isEqualTo("factory-dev-pi:0.85.1-java21");
+        assertThat(coding.pi().image()).isEqualTo("factory-dev-pi:0.85.1-java21-node22");
         assertThat(coding.pi().api()).isEqualTo("openai-completions");
         assertThat(coding.pi().maxOutputTokens()).isEqualTo(8192);
         assertThat(setup.models().ready()).isEmpty();
@@ -49,7 +49,7 @@ class CodingRuntimeConfigurationTest {
 
         assertThat(coding.pi().model()).isBlank();
         assertThat(coding.pi().apiKey()).isBlank();
-        assertThat(coding.pi().image()).isEqualTo("factory-dev-pi:0.85.1-java21");
+        assertThat(coding.pi().image()).isEqualTo("factory-dev-pi:0.85.1-java21-node22");
         assertThatThrownBy(() -> coding.pi().requireConfigured())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("factory.dev-factory.runtime.coding.pi");
@@ -113,6 +113,6 @@ class CodingRuntimeConfigurationTest {
         var properties = binder.bind("factory.dev-factory.runtime", DevRuntimeProperties.class).get();
         var catalog = new ModelCatalog(binder.bind("factory.dev-factory", ModelCatalog.Properties.class).get(),
                 properties.coding().runtime(), environment::getProperty);
-        return new Setup(properties, catalog, new DevFactoryConfiguration().devCodingRuntime(properties, catalog));
+        return new Setup(properties, catalog, DevFactoryConfiguration.selectCodingRuntime(properties, catalog));
     }
 }

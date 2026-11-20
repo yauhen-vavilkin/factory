@@ -8,6 +8,7 @@ import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -19,6 +20,7 @@ public class DevelopWorker implements AgentWorker {
     public static final String ID = "dev-develop";
     public static final String CANDIDATE = "dev_candidate.json";
     public static final String READINESS = "dev_readiness.json";
+    public static final String LOCKFILE = "dev_lockfile.json";
     public static final String OUTCOME = "dev_coding_outcome.json";
 
     private final InitialCodingAttempt codingAttempt;
@@ -52,6 +54,8 @@ public class DevelopWorker implements AgentWorker {
                         attempt.candidate(),
                         READINESS,
                         attempt.readiness(),
+                        LOCKFILE,
+                        attempt.lockfile(),
                         OUTCOME,
                         json.writeValueAsString(attempt.outcome()),
                         CodingDecisionArtifacts.REQUEST,
@@ -70,6 +74,8 @@ public class DevelopWorker implements AgentWorker {
                         placeholder(json, state, reason),
                         READINESS,
                         json.writeValueAsString(Map.of()),
+                        LOCKFILE,
+                        PinnedLockfile.none("NOT_RUN", "Development did not start"),
                         OUTCOME,
                         json.writeValueAsString(outcome),
                         CodingDecisionArtifacts.REQUEST,

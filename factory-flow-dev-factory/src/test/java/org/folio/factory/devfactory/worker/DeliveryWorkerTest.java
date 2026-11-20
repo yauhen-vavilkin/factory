@@ -20,8 +20,11 @@ import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.feedback.FeedbackArtifacts;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.InstallMode;
+import org.folio.factory.devfactory.runtime.Toolchain;
 import org.folio.factory.devfactory.tasks.AttemptDeadline;
 import org.folio.factory.devfactory.tasks.RecordingTaskAttempts;
+import org.folio.factory.devfactory.verification.VerificationFailure;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -62,7 +65,7 @@ class DeliveryWorkerTest {
             "factory/final", candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "c".repeat(40));
 
     @ParameterizedTest
-    @ValueSource(strings = {"plan", "image", "command", "required"})
+    @ValueSource(strings = {"plan", "image", "command", "required", "toolchain"})
     void historicalMatchingCandidateReceiptCannotBypassCurrentVerificationPolicy(String changed) {
         String plan = changed.equals("plan") ? "full" : "unit";
         String image = changed.equals("image") ? "different-image" : "image";
@@ -70,7 +73,9 @@ class DeliveryWorkerTest {
                 : List.of("mvn", "test"), "full", List.of("mvn", "verify"));
         var required = changed.equals("required") ? Map.of("unit", List.of("failsafe"))
                 : Map.<String, List<String>>of();
-        var worker = worker(plan, image, new DevRuntimeProperties(commands, null, 60, null, required));
+        var toolchains = changed.equals("toolchain") ? Map.of("unit", Toolchain.YARN) : Map.<String, Toolchain>of();
+        var worker = worker(plan, image, new DevRuntimeProperties(commands, null, 60, null, required, toolchains,
+                null, 0));
 
         var result = delivery(worker.execute(verifiedContext()));
 
@@ -82,8 +87,11 @@ class DeliveryWorkerTest {
     @Test
     void policyIsCheckedAgainBeforeCreatingPullRequest() {
         var runtime = mock(DevRuntimeProperties.class);
-        when(runtime.command("unit")).thenReturn(List.of("mvn", "test"), List.of("mvn", "verify"));
+        when(runtime.verificationCommand("unit", InstallMode.FROZEN))
+                .thenReturn(List.of("mvn", "test"), List.of("mvn", "verify"));
+        when(runtime.verificationCommand("unit", InstallMode.RESOLVE)).thenReturn(List.of("mvn", "verify"));
         when(runtime.requiredReports("unit")).thenReturn(List.of());
+        when(runtime.toolchain("unit")).thenReturn(Toolchain.MAVEN);
         givenDelivered();
 
         var result = delivery(worker("unit", "image", runtime).execute(verifiedContext()));
@@ -129,6 +137,50 @@ class DeliveryWorkerTest {
                 "b".repeat(40), "c".repeat(40), "factory/final")
                 .doesNotContain("Jira context:", "Preserve tenant routing", "Coding runtime summary", "manual acceptance")
                 .doesNotContain("<script>", "@everyone", "secret123", "password123", "abc123");
+    }
+
+    @Test
+    void yarnPullRequestNamesJestReportsAndNoMavenOnes() {
+        var runtime = yarnRuntime();
+        givenDelivered();
+
+        worker("unit", "image", runtime).execute(withYarnReceipt(runtime.verificationCommand("unit"), null));
+
+        assertThat(pullRequestBody()).contains("**PASS** · 7 tests", "- Jest reports: 1")
+                .doesNotContain("Surefire reports", "Failsafe reports");
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(InstallMode.class)
+    void receiptVerifiedWithAPinnedLockfileIsAcceptedInEitherInstallModeAndTheHashReachesThePr(InstallMode mode) {
+        var runtime = yarnRuntime();
+        String lockfileSha = "d".repeat(64);
+        givenDelivered();
+
+        worker("unit", "image", runtime).execute(withYarnReceipt(runtime.verificationCommand("unit", mode),
+                lockfileSha));
+
+        assertThat(pullRequestBody()).contains("- Pinned yarn.lock (not part of this PR): sha256 " + lockfileSha);
+    }
+
+    private static DevRuntimeProperties yarnRuntime() {
+        return new DevRuntimeProperties(Map.of("unit", List.of("yarn", "test")), null, 60, null, Map.of(),
+                Map.of("unit", Toolchain.YARN), null, 0);
+    }
+
+    private AgentContext withYarnReceipt(List<String> command, String lockfileSha) {
+        var receipt = new VerificationReceipt(EXECUTION_ID, "sidecar", candidate.baseSha(), candidate.treeSha(),
+                candidate.patchSha256(), "unit", "image", command, "fresh", Instant.EPOCH,
+                Instant.EPOCH.plusSeconds(1), 0, 1, 7, 0, 0, "PASS", "ok", VerificationFailure.NONE, 0, List.of(),
+                List.of(), Toolchain.YARN, lockfileSha);
+        return withInputs(Map.of(VerifyWorker.RECEIPT, json.writeValueAsString(receipt)));
+    }
+
+    private String pullRequestBody() {
+        var body = ArgumentCaptor.forClass(String.class);
+        verify(github).createPullRequest(anyString(), anyString(), anyString(), anyString(), body.capture(),
+                anyBoolean());
+        return body.getValue();
     }
 
     @Test
@@ -434,7 +486,7 @@ class DeliveryWorkerTest {
         var receipt = new VerificationReceipt(EXECUTION_ID, "sidecar",
                 candidate.baseSha(), candidate.treeSha(), candidate.patchSha256(), "unit", "image",
                 List.of("mvn", "test"), "fresh", Instant.EPOCH, Instant.EPOCH.plusSeconds(1),
-                0, 1, 1, 0, 0, "PASS", "ok", null, 0, List.of(), List.of());
+                0, 1, 1, 0, 0, "PASS", "ok", null, 0, List.of(), List.of(), null, null);
         String brief = new FrontmatterCodec().render(Map.of("issue", Map.of(
                 "key", "MODSIDECAR-196", "summary", "Task")), "Task");
         return context(Map.of(
@@ -503,7 +555,7 @@ class DeliveryWorkerTest {
                 "MODSIDECAR-196", "Task", "Description", List.of(), List.of(), List.of(), List.of(),
                 new CodingRequest.RepositoryTarget(
                         "sidecar", "folio-org/folio-module-sidecar", "master", "a".repeat(40)),
-                null, null);
+                null, null, List.of());
     }
 
     private static AgentContext context(Map<String, String> inputs) {

@@ -20,6 +20,7 @@ import org.folio.factory.devfactory.delivery.DeliveryTarget;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DevRuntimeProperties;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
 import org.folio.factory.devfactory.verification.VerificationPolicy;
 import org.folio.factory.devfactory.verification.VerificationReceipt;
@@ -65,8 +66,8 @@ public class FeedbackWorker implements AgentWorker {
         this.resources = new FeedbackResources(audit, services.docker());
         this.git = feedback.git();
         this.executions = executions;
-        this.codingAttempt = new FeedbackCodingAttempt(services.freezer(), services.coding(), services.docker(),
-                settings.runtime(), hooks.pricing(), hooks.transcripts());
+        this.codingAttempt = new FeedbackCodingAttempt(settings.repositories(), services.freezer(), services.coding(),
+                services.docker(), settings.runtime(), hooks.pricing(), hooks.transcripts());
         this.verificationPolicy = new VerificationPolicy(settings.repositories(), settings.runtime());
         this.roundComment = new RoundComment(feedback.comments(), audit);
     }
@@ -256,7 +257,7 @@ public class FeedbackWorker implements AgentWorker {
                 original.linkedIssues(), original.acceptanceCriteria(), original.confirmedDecisions(), repository,
                 CodingRequest.Constraints.defaults(),
                 // Feedback rounds run with the model, effort and instructions of the task's run.
-                original.runSettings());
+                original.runSettings(), List.of());
     }
 
     private void putFrozenHead(FeedbackState state, CodingRequest request, Map<String, String> outputs) {
@@ -279,7 +280,7 @@ public class FeedbackWorker implements AgentWorker {
         if (!state.answer.isBlank()) {
             request = withSavedAnswer(state, request, outputs);
         }
-        var outcome = codingAttempt.run(operation, request, candidate(outputs), source(state),
+        var outcome = codingAttempt.run(operation, request, candidate(outputs), lockfile(context), source(state),
                 event -> progress(context, state, event));
         state.coded(outcome);
     }
@@ -301,8 +302,8 @@ public class FeedbackWorker implements AgentWorker {
             Map<String, String> outputs,
             String operation) {
         requireHead(state);
-        var receipt = verifier.verify(
-                context.executionId(), operation, candidate(outputs), source(state), runtime.timeoutSeconds());
+        var receipt = verifier.verify(context.executionId(), operation, candidate(outputs), source(state),
+                runtime.timeoutSeconds(), lockfile(context));
         state.verified(receipt);
         outputs.put(VERIFICATION, JSON.writeValueAsString(receipt));
     }
@@ -407,6 +408,11 @@ public class FeedbackWorker implements AgentWorker {
 
     private String source(FeedbackState state) {
         return repositories.gitUrl(state.pr.repository());
+    }
+
+    /** The lockfile pinned by this execution's starting build; every round installs from it. */
+    private static Optional<PinnedLockfile> lockfile(AgentContext context) {
+        return PinnedLockfile.parse(context.requireInput("dev_lockfile.json").content());
     }
 
     private Candidate candidate(Map<String, String> outputs) {

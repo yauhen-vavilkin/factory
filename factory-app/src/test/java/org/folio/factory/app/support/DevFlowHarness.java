@@ -87,7 +87,7 @@ public final class DevFlowHarness {
 
         /** The starting build on the base commit ends with this result. */
         public void startingBuildReturns(Processes.Result result) {
-            when(baseline.execute(anyList(), anyInt(), anyInt(), any())).thenReturn(result);
+            when(baseline.executeKeepingTail(anyList(), anyInt(), anyInt(), any())).thenReturn(result);
         }
 
         /** The agent's container holds the files of this workspace when Factory exports it. */
@@ -97,7 +97,7 @@ public final class DevFlowHarness {
 
         /** The checks end with this result and leave these reports in the exported workspace. */
         public void checksReturn(Processes.Result result, Path reports) {
-            when(verification.execute(anyList(), anyInt(), eq(Processes.OUTPUT_LIMIT), isNull())).thenReturn(result);
+            when(verification.executeKeepingTail(anyList(), anyInt(), eq(Processes.OUTPUT_LIMIT), isNull())).thenReturn(result);
             exportsFixture(verification, reports);
         }
     }
@@ -234,7 +234,7 @@ public final class DevFlowHarness {
                 BigDecimal.valueOf(2), BigDecimal.valueOf(0.1), BigDecimal.ONE, null, null, BigDecimal.TEN);
         when(models.pricedEntry(any(), any())).thenReturn(Optional.of(new Model("sonnet", "anthropic-messages",
                 "https://gateway.fixture.invalid", "bearer-token", "SONNET_TOKEN", null, "claude-sonnet-5-5",
-                List.of("high"), "high", 16384, price)));
+                List.of("high"), "high", 16384, price, false)));
         when(coding.code(any(), any(), anyInt(), any(), any()))
                 .thenAnswer(invocation -> agent.apply(invocation.getArgument(1)));
     }
@@ -248,9 +248,9 @@ public final class DevFlowHarness {
         var workloads = new Workloads(mock(DockerWorkloads.Workload.class), mock(DockerWorkloads.Workload.class),
                 mock(DockerWorkloads.Workload.class));
         when(docker.beginStep(any(), anyString())).thenReturn(scope);
-        when(scope.createTrusted(anyString(), any(), anyString())).thenReturn(workloads.baseline());
-        when(scope.createSeeded(anyString(), any(), anyString(), eq("coding"))).thenReturn(workloads.coding());
-        when(scope.createSeeded(anyString(), any(), anyString(), eq("verification")))
+        when(scope.createTrusted(anyString(), any(), any())).thenReturn(workloads.baseline());
+        when(scope.createSeeded(anyString(), any(), any(), eq("coding"))).thenReturn(workloads.coding());
+        when(scope.createSeeded(anyString(), any(), any(), eq("verification")))
                 .thenReturn(workloads.verification());
         when(workloads.baseline().name()).thenReturn("stub-baseline");
         when(workloads.coding().name()).thenReturn("stub-coding");

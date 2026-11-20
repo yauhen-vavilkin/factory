@@ -131,7 +131,7 @@ class ClaudeCodeCodingRuntimeTest {
         var base = request();
         var request = new CodingRequest(base.issueKey(), base.summary(), base.description(), base.comments(),
                 base.linkedIssues(), base.acceptanceCriteria(), base.confirmedDecisions(), base.repository(),
-                base.constraints(), settings);
+                base.constraints(), settings, List.of());
 
         var outcome = runtime.code(workload, request, 60, event -> {}, CodingTranscripts.NONE);
 
@@ -665,6 +665,33 @@ class ClaudeCodeCodingRuntimeTest {
         return result;
     }
 
+    /** Claude Code repeats an image its agent opened as a base64 tool result; the echo says nothing about the result. */
+    @Test
+    void anImageTheAgentOpenedIsNotReadIntoTheOutcome() {
+        String echo = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\","
+                + "\"content\":[{\"type\":\"image\",\"source\":{\"type\":\"base64\",\"data\":\""
+                + "A".repeat(1_046_000) + "\"}}]}]}}";
+
+        var outcome = parse(INIT + echo + "\n" + RESULT, 0);
+
+        assertThat(outcome.status()).as(outcome.toString()).isEqualTo(CodingOutcome.Status.COMPLETED);
+        assertThat(outcome.metrics().toString()).doesNotContain("AAAA");
+    }
+
+    @Test
+    void imagesAreGivenOnlyToAModelThatSaysItReadsThem() {
+        var reads = new ModelEntry("reads", "anthropic-messages", "http://gateway.example/anthropic", "api-key",
+                "GATEWAY_KEY", "custom/Model-1", ClaudeCodeCodingRuntime.EFFORTS, "high", 4096, null, true);
+        var plain = new ModelEntry("plain", "anthropic-messages", "http://gateway.example/anthropic", "api-key",
+                "GATEWAY_KEY", "custom/Model-1", ClaudeCodeCodingRuntime.EFFORTS, "high", 4096, null, null);
+        var catalog = new ModelCatalog(new ModelCatalog.Properties(List.of(reads, plain), null), "claude-code",
+                Map.of("GATEWAY_KEY", "secret-key")::get);
+        var runtime = new ClaudeCodeCodingRuntime(new DevRuntimeProperties.ClaudeCode(null, 10), catalog);
+
+        assertThat(runtime.acceptsImages(new CodingRequest.RunSettings("reads", null, null))).isTrue();
+        assertThat(runtime.acceptsImages(new CodingRequest.RunSettings("plain", null, null))).isFalse();
+    }
+
     private static CodingOutcome parse(String text, int exitCode) {
         return parse(text, exitCode, 0);
     }
@@ -713,13 +740,20 @@ class ClaudeCodeCodingRuntimeTest {
      */
     static ClaudeCodeCodingRuntime runtime(String image, String baseUrl, String model, String authentication,
                                            int maxTurns, String zaiSecret) {
+        return runtime(image, baseUrl, model, authentication, maxTurns, zaiSecret, false);
+    }
+
+    /** {@code images}: the default model reads images. */
+    static ClaudeCodeCodingRuntime runtime(String image, String baseUrl, String model, String authentication,
+                                           int maxTurns, String zaiSecret, boolean images) {
         var apiKey = "api-key".equals(authentication);
         var gateway = new ModelEntry("gateway", "anthropic-messages", baseUrl, authentication,
-                apiKey ? "GATEWAY_KEY" : "GATEWAY_TOKEN", model, ClaudeCodeCodingRuntime.EFFORTS, "high", 4096, null);
+                apiKey ? "GATEWAY_KEY" : "GATEWAY_TOKEN", model, ClaudeCodeCodingRuntime.EFFORTS, "high", 4096, null,
+                images ? Boolean.TRUE : null);
         var other = new ModelEntry("gateway-other", "anthropic-messages", baseUrl, apiKey ? "bearer-token" : "api-key",
-                apiKey ? "GATEWAY_TOKEN" : "GATEWAY_KEY", model, ClaudeCodeCodingRuntime.EFFORTS, "high", 4096, null);
+                apiKey ? "GATEWAY_TOKEN" : "GATEWAY_KEY", model, ClaudeCodeCodingRuntime.EFFORTS, "high", 4096, null, null);
         var glm = new ModelEntry("glm-5.3", "anthropic-messages", "https://api.z.ai/api/anthropic", "bearer-token",
-                "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", 8192, null);
+                "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", 8192, null, null);
         var secrets = Map.of("GATEWAY_KEY", "secret-key", "GATEWAY_TOKEN", "secret-token",
                 "FACTORY_ZAI_API_KEY", zaiSecret);
         var catalog = new ModelCatalog(new ModelCatalog.Properties(List.of(gateway, other, glm), null),
@@ -738,6 +772,6 @@ class ClaudeCodeCodingRuntimeTest {
 
     static CodingRequest request() {
         return new CodingRequest("TASK-1", "Implement task", "Description", List.of(), List.of(), List.of(), List.of(),
-                new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)), null, null);
+                new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)), null, null, List.of());
     }
 }

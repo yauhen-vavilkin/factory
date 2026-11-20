@@ -6,6 +6,7 @@ import org.folio.factory.core.agent.AgentResult;
 import org.folio.factory.core.agent.AgentWorker;
 import org.folio.factory.devfactory.DevFlowSettings;
 import org.folio.factory.devfactory.candidate.Candidate;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
 import org.folio.factory.devfactory.tasks.Stop;
 import org.folio.factory.devfactory.tasks.TaskGuard;
 import org.folio.factory.devfactory.verification.CandidateVerifier;
@@ -48,7 +49,8 @@ public class VerifyWorker implements AgentWorker {
         }
         var receipt = verifier.verify(context.executionId(), context.stepId(), candidate,
                 settings.repositories().sourceUrl(candidate.repository()),
-                taskGuard.capTimeout(context.executionId(), settings.runtime().timeoutSeconds()));
+                taskGuard.capTimeout(context.executionId(), settings.runtime().timeoutSeconds()),
+                PinnedLockfile.parse(context.requireInput(DevelopWorker.LOCKFILE).content()));
         return new AgentResult(Map.of(
                 RECEIPT, json.writeValueAsString(receipt),
                 RESULT, json.writeValueAsString(outcome(candidate, receipt))), Map.of());

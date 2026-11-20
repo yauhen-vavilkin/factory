@@ -36,6 +36,7 @@ import static org.folio.factory.devfactory.feedback.FeedbackActions.Action.*;
 // Own context: its own fixture repository, pricing and scripted GitHub, Docker, coding and checks; closing it stops its schedulers and frees its connections.
 @DirtiesContext
 class PrFeedbackIntegrationTest {
+    static final PinnedLockfile PINNED=PinnedLockfile.of("# yarn lockfile v1\n".getBytes()).forPackageJson("c".repeat(40));
     @TempDir static Path root;
     static Path bare, work;
     static String base;
@@ -112,7 +113,7 @@ class PrFeedbackIntegrationTest {
         when(coding.redact(anyString())).thenAnswer(i->i.getArgument(0));
         var scope=mock(DockerWorkloads.StepScope.class); var workload=mock(DockerWorkloads.Workload.class);
         when(docker.beginStep(any(),anyString())).thenReturn(scope);
-        when(scope.createSeeded(anyString(),any(),anyString(),anyString())).thenAnswer(i->{codingSource=i.getArgument(1);return workload;});
+        when(scope.createSeeded(anyString(),any(),any(),anyString())).thenAnswer(i->{codingSource=i.getArgument(1);return workload;});
         doAnswer(i->{ if(exportFails) throw new IllegalStateException("Export unavailable");
             Path target=i.getArgument(0); try(var paths=Files.walk(codingSource)) {for(Path p:paths.toList()) {
                 var relative=codingSource.relativize(p); if(relative.toString().isEmpty() || relative.startsWith(".git"))continue;
@@ -129,15 +130,16 @@ class PrFeedbackIntegrationTest {
             if(ask) return CodingOutcome.needsDecision(new CodingOutcome.Decision(CodingOutcome.DecisionKind.PRODUCT_REQUIREMENTS,"Keep both options?",List.of("Yes","No"),"Partial patch saved"), "",usage);
             return CodingOutcome.completed("Corrected selected feedback",usage);
         });
-        when(verifier.verify(any(),anyString(),any(),anyString(),anyInt())).thenAnswer(i->{
+        when(verifier.verify(any(),anyString(),any(),anyString(),anyInt(),any())).thenAnswer(i->{
             Candidate c=i.getArgument(2); Instant now=Instant.now();
             // The build environment failed before the tests wrote a report.
-            if(checksCannotRun) return new VerificationReceipt(id.toString(),c.repository(),c.baseSha(),c.treeSha(),c.patchSha256(),"fixture-checks","fixture-image",List.of("fixture-check"),"scripted-checks",now,now,1,0,null,null,null,"FAIL","Cannot connect to the Docker daemon",VerificationFailure.ENVIRONMENT,0,List.of(),List.of());
-            return new VerificationReceipt(id.toString(),c.repository(),c.baseSha(),c.treeSha(),c.patchSha256(),badPolicy?"previous-checks":"fixture-checks","fixture-image",List.of("fixture-check"),"scripted-checks",now,now,checksFail?1:0,1,1,checksFail?1:0,0,checksFail?"FAIL":"PASS","Independent fixture report",checksFail?VerificationFailure.CANDIDATE:VerificationFailure.NONE,0,List.of(),List.of());
+            if(checksCannotRun) return new VerificationReceipt(id.toString(),c.repository(),c.baseSha(),c.treeSha(),c.patchSha256(),"fixture-checks","fixture-image",List.of("fixture-check"),"scripted-checks",now,now,1,0,null,null,null,"FAIL","Cannot connect to the Docker daemon",VerificationFailure.ENVIRONMENT,0,List.of(),List.of(), null, null);
+            return new VerificationReceipt(id.toString(),c.repository(),c.baseSha(),c.treeSha(),c.patchSha256(),badPolicy?"previous-checks":"fixture-checks","fixture-image",List.of("fixture-check"),"scripted-checks",now,now,checksFail?1:0,1,1,checksFail?1:0,0,checksFail?"FAIL":"PASS","Independent fixture report",checksFail?VerificationFailure.CANDIDATE:VerificationFailure.NONE,0,List.of(),List.of(), null, null);
         });
         var request=new CodingRequest("TEST-1","Fixture task","Fix behavior",List.of(),List.of(),List.of("Checks pass"),List.of(),
-                new CodingRequest.RepositoryTarget("fixture","upstream/repo","main",base),CodingRequest.Constraints.defaults(), null);
+                new CodingRequest.RepositoryTarget("fixture","upstream/repo","main",base),CodingRequest.Constraints.defaults(), null, List.of());
         artifacts.putMarkdown(id,"dev_coding_request.json",JSON.writeValueAsString(request),"fixture");
+        artifacts.putMarkdown(id,"dev_lockfile.json",PINNED.toArtifact(),"fixture");
         artifacts.putMarkdown(id,"dev_delivery.json",JSON.writeValueAsString(Map.of("state","DELIVERED","repository","fixture","deliveryBranch",branch,"pullRequestUrl","https://github.com/fork/repo/pull/7")),"fixture");
         var e=state.get(id); e.setCurrentStepIndex(8); executions.save(e);
     }
@@ -300,7 +302,7 @@ class PrFeedbackIntegrationTest {
     }
     @Test void noChangesProducesVerificationWithoutEmptyCommitAndClosedPrCancels() {
         noChanges=true; startRound(); assertThat(view().state().phase()).isEqualTo(FeedbackState.Phase.READY);
-        assertThat(pr().headSha()).isEqualTo(base); verify(verifier).verify(eq(id),anyString(),any(),contains("fork/repo.git"),anyInt());
+        assertThat(pr().headSha()).isEqualTo(base); verify(verifier).verify(eq(id),anyString(),any(),contains("fork/repo.git"),anyInt(),eq(java.util.Optional.of(PINNED)));
         closed=true; actions.reconcilePr(id);
         assertThat(state.get(id).getStatus()).isEqualTo(ExecutionStatus.CANCELLED);
         assertThat(runPage()).contains("PR closed without merge","No changes").doesNotContain("Check PR comments");
@@ -314,7 +316,7 @@ class PrFeedbackIntegrationTest {
     }
     @Test void oldExecutionSkipsFeedback() throws Exception {
         var oldId=state.createExecution("dev-factory","0.8.0",null).getId();
-        for(String name:List.of("dev_coding_request.json","dev_delivery.json"))
+        for(String name:List.of("dev_coding_request.json","dev_delivery.json","dev_lockfile.json"))
             artifacts.putMarkdown(oldId,name,artifacts.getLatest(id,name).orElseThrow().getContent(),"fixture");
         state.transition(id,ExecutionStatus.CANCELLED,Map.of()); id=oldId;
         var e=state.get(id); e.setCurrentStepIndex(8); executions.save(e); drive();

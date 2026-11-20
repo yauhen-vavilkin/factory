@@ -185,9 +185,9 @@ class TaskAutonomousFlowIntegrationTest {
         var scope = mock(DockerWorkloads.StepScope.class);
         var workload = mock(DockerWorkloads.Workload.class);
         when(docker.beginStep(any(), anyString())).thenReturn(scope);
-        when(scope.createTrusted(anyString(), any(), anyString())).thenReturn(workload);
-        when(scope.createSeeded(anyString(), any(), anyString(), anyString())).thenReturn(workload);
-        when(workload.execute(anyList(), anyInt(), anyInt(), any()))
+        when(scope.createTrusted(anyString(), any(), any())).thenReturn(workload);
+        when(scope.createSeeded(anyString(), any(), any(), anyString())).thenReturn(workload);
+        when(workload.executeKeepingTail(anyList(), anyInt(), anyInt(), any()))
                 .thenReturn(new org.folio.factory.devfactory.runtime.Processes.Result(0, "[INFO] BUILD SUCCESS"));
         when(freezer.checkout(anyString(), anyString())).thenReturn(workspace);
     }

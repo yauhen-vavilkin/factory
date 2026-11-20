@@ -37,6 +37,14 @@ public final class ClaudeCodeCodingRuntime implements CodingRuntime {
 
     @Override public String id() { return ID; }
     @Override public String image() { return config.image(); }
+    /** The agent opens the staged files with its Read tool; the models file says which models read images. */
+    @Override public boolean acceptsImages(CodingRequest.RunSettings settings) {
+        try {
+            return models.resolve(settings).model().images();
+        } catch (ModelCatalog.ModelException e) {
+            return false;
+        }
+    }
 
     @Override public void requireConfigured(CodingRequest.RunSettings settings) { usableRun(settings); }
 

@@ -54,6 +54,13 @@ class MavenBaselineOutputTest {
     }
 
     @Test
+    void sanitizeRedactsAuthorizationSchemeTokensAndNamedSecrets() {
+        assertThat(MavenBaselineOutput.sanitize("Authorization: Bearer abc123def")).doesNotContain("abc123def");
+        assertThat(MavenBaselineOutput.sanitize("proxy Basic dXNlcjpwYXNz failed")).doesNotContain("dXNlcjpwYXNz");
+        assertThat(MavenBaselineOutput.sanitize("token=top-secret")).doesNotContain("top-secret");
+    }
+
+    @Test
     void emitsOnlyUsefulBoundedSanitizedActivity() {
         var events = new ArrayList<String>();
         var output = new MavenBaselineOutput(events::add);

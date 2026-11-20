@@ -21,14 +21,19 @@ import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
 import org.folio.factory.devfactory.runtime.CodingRuntime;
 import org.folio.factory.devfactory.runtime.DockerWorkloads;
-import org.folio.factory.devfactory.runtime.MavenBaselineOutput;
+import org.folio.factory.devfactory.runtime.InstallMode;
 import org.folio.factory.devfactory.runtime.ModelCatalog;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
+import org.folio.factory.devfactory.runtime.PreparedWorkspace;
 import org.folio.factory.devfactory.runtime.Processes;
 import org.folio.factory.devfactory.runtime.TokenUsage;
+import org.folio.factory.devfactory.runtime.Toolchain;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -52,16 +57,22 @@ public final class InitialCodingAttempt {
     private final JsonMapper json = JsonMapper.builder().build();
 
     public Attempt start(AgentContext context, CodingRequest request) {
-        return runAttempt(context, request, Mode.START, json.createObjectNode());
+        return runAttempt(context, request, Mode.START, json.createObjectNode(), null);
     }
 
-    public Attempt retry(AgentContext context, CodingRequest request, JsonNode readiness) {
-        return runAttempt(context, request, Mode.CONTINUATION, readiness);
+    /**
+     * {@code lockfile} is the {@code dev_lockfile.json} of the starting build that already ran; null for an
+     * execution that started before Factory wrote one.
+     */
+    public Attempt retry(AgentContext context, CodingRequest request, JsonNode readiness, String lockfile) {
+        return runAttempt(context, request, Mode.CONTINUATION, readiness, lockfile);
     }
 
-    private Attempt runAttempt(AgentContext context, CodingRequest request, Mode mode, JsonNode existingReadiness) {
+    private Attempt runAttempt(AgentContext context, CodingRequest request, Mode mode, JsonNode existingReadiness,
+                               String lockfile) {
         request.requireReady();
-        var state = new RunState(nodeMap(existingReadiness));
+        var state = new RunState(nodeMap(existingReadiness), lockfile != null ? lockfile
+                : PinnedLockfile.none("NOT_RUN", "The starting build did not complete"));
         var repository = settings.repositories().repositories().get(request.repository().key());
         var repositoryProblem = findRepositoryProblem(request, repository);
         if (repositoryProblem.isPresent()) {
@@ -72,6 +83,8 @@ public final class InitialCodingAttempt {
             return develop(newRun(context, request, repository, scope), mode, state);
         } catch (StartingBuildNetworkException | DockerWorkloads.ActiveStepException e) {
             throw e;
+        } catch (DockerWorkloads.CacheSeedException e) {
+            return failedAttempt(new Stop("BLOCKED_ENVIRONMENT", safeRedact(e.getMessage())), state);
         } catch (RuntimeException e) {
             return failedAttempt(developmentStopped(e), state);
         } finally {
@@ -106,8 +119,35 @@ public final class InitialCodingAttempt {
             return failedAttempt(stop.get(), state);
         }
         state.exported = CandidateFreezer.temporary("factory-dev-export-");
-        var outcome = code(run, state);
+        CodingOutcome outcome;
+        try (var workload = run.scope().createSeeded(services.coding().image(), state.pristine,
+                settings.runtime().environment(run.plan()), "coding")) {
+            var install = prepareWorkspace(run, state, workload);
+            if (install.failed()) {
+                return failedAttempt(installStop(install), state);
+            }
+            outcome = code(run, state, workload, run.request().withVerification(
+                    String.join(" ", settings.runtime().command(run.plan())), install.installed()));
+        }
         return toAttempt(run, state, outcome);
+    }
+
+    /** Seeds the pinned lockfile before the install, so the prepared workspace is the pinned one. */
+    private PreparedWorkspace.Result prepareWorkspace(Run run, RunState state, DockerWorkloads.Workload workload) {
+        var pinned = PinnedLockfile.parse(state.lockfile);
+        pinned.ifPresent(workload::seedLockfile);
+        var install = pinned.map(pin -> pin.installMode(state.pristine)).orElse(InstallMode.FROZEN);
+        return PreparedWorkspace.prepare(workload, settings.runtime(), run.plan(), install,
+                event -> progress(run.context(), event));
+    }
+
+    private static Stop installStop(PreparedWorkspace.Result install) {
+        if (install.retryable()) {
+            throw new StartingBuildNetworkException("Workspace dependency install hit a network/download failure;"
+                    + " coding has not started. " + install.failure());
+        }
+        return new Stop("BLOCKED_ENVIRONMENT",
+                "Workspace dependency install failed before model spend: " + install.failure());
     }
 
     private Optional<Stop> prepare(Run run, Mode mode, RunState state) {
@@ -129,29 +169,48 @@ public final class InitialCodingAttempt {
 
     private Optional<Stop> runBaseline(Run run, RunState state) {
         var repository = run.repository();
+        var install = baselineInstall(run, state);
         progress(run.context(), Map.of(
                 "activity", "baseline_started",
-                "command", String.join(" ", settings.runtime().command(repository.verificationPlan())),
+                "command", String.join(" ", settings.runtime().verificationCommand(run.plan(), install)),
                 "image", repository.buildImage()));
         try (var workload = run.scope().createTrusted(repository.buildImage(), state.pristine,
-                settings.runtime().mavenCacheVolume())) {
+                settings.runtime().environment(run.plan()))) {
             var baseline = new BaselineBuild(settings.runtime()).run(workload, run.baseSha(), repository,
-                    stageTimeoutSeconds(run), event -> progress(run.context(), event));
+                    install, stageTimeoutSeconds(run), event -> progress(run.context(), event));
             state.readiness = baseline.readiness();
+            state.lockfile = lockfileArtifact(baseline, state.pristine);
             progress(run.context(), Map.of(
                     "activity", "baseline_completed",
                     "exitCode", baseline.process().exitCode(),
                     "summary", baseline.summary()));
-            return baselineStop(run.context(), baseline);
+            return baselineStop(run, baseline);
         }
     }
 
-    private Optional<Stop> baselineStop(AgentContext context, BaselineBuild.Result baseline) {
+    /** A yarn module without a tracked lockfile gets one generated by the starting build and pinned. */
+    private InstallMode baselineInstall(Run run, RunState state) {
+        var untracked = !Files.exists(state.pristine.resolve(PinnedLockfile.FILE), LinkOption.NOFOLLOW_LINKS);
+        return settings.runtime().toolchain(run.plan()) == Toolchain.YARN && untracked
+                ? InstallMode.RESOLVE : InstallMode.FROZEN;
+    }
+
+    private static String lockfileArtifact(BaselineBuild.Result baseline, Path checkout) {
+        return baseline.lockfile()
+                .map(lock -> lock.forPackageJson(CandidateFreezer.trackedBlob(checkout, "package.json")))
+                .map(PinnedLockfile::toArtifact)
+                .orElseGet(() -> PinnedLockfile.none("NOT_NEEDED", "No lockfile to pin"));
+    }
+
+    private Optional<Stop> baselineStop(Run run, BaselineBuild.Result baseline) {
         if (baseline.process().exitCode() == 0) {
-            return Optional.empty();
+            return Optional.ofNullable(baseline.lockfileError()).map(error -> new Stop("BLOCKED_ENVIRONMENT",
+                    "Starting build could not pin the dependency lockfile: " + error));
         }
+        var context = run.context();
         var summary = baseline.summary();
-        if (MavenBaselineOutput.isTransientDownloadFailure(baseline.process().diagnostics())) {
+        var toolchain = settings.runtime().toolchain(run.plan());
+        if (toolchain.isTransientDownloadFailure(baseline.process().diagnostics())) {
             var detail = summary.isBlank() ? "Maven artifact transfer failed." : summary;
             var reason = "Starting build hit a network/download failure; coding has not started. " + detail;
             progress(context, Map.of("activity", "baseline_retryable_failure", "message", reason));
@@ -173,32 +232,31 @@ public final class InitialCodingAttempt {
         return Optional.of(new Stop("PAID_START_CONSUMED", TaskStops.REPLAYED_CODING_REASON));
     }
 
-    private CodingOutcome code(Run run, RunState state) {
-        try (var workload = run.scope().createSeeded(services.coding().image(), state.pristine,
-                settings.runtime().mavenCacheVolume(), "coding")) {
-            var identity = new LinkedHashMap<>(services.coding().identity(run.request().runSettings()));
-            var attemptId = UUID.randomUUID().toString();
-            var rate = hooks.pricing().snapshot(Objects.toString(identity.get("modelId"), null),
-                    Objects.toString(identity.get("model"), ""));
-            identity.put("activity", "coding_starting");
-            identity.put("attemptId", attemptId);
-            identity.put("rate", rate);
-            progress(run.context(), identity);
-            var outcome = callRuntime(run, workload, attemptId);
-            state.metrics = reportedMetrics(outcome, attemptId, rate);
-            if (outcome.status() == CodingOutcome.Status.COMPLETED) {
-                workload.stop();
-                workload.export(state.exported);
-            }
-            return outcome;
+    /** {@code request} also tells the agent how Factory verifies the work; the stored request does not. */
+    private CodingOutcome code(Run run, RunState state, DockerWorkloads.Workload workload, CodingRequest request) {
+        var identity = new LinkedHashMap<>(services.coding().identity(run.request().runSettings()));
+        var attemptId = UUID.randomUUID().toString();
+        var rate = hooks.pricing().snapshot(Objects.toString(identity.get("modelId"), null),
+                Objects.toString(identity.get("model"), ""));
+        identity.put("activity", "coding_starting");
+        identity.put("attemptId", attemptId);
+        identity.put("rate", rate);
+        progress(run.context(), identity);
+        var outcome = callRuntime(run, workload, request, attemptId);
+        state.metrics = reportedMetrics(outcome, attemptId, rate);
+        if (outcome.status() == CodingOutcome.Status.COMPLETED) {
+            workload.stop();
+            workload.export(state.exported);
         }
+        return outcome;
     }
 
-    private CodingOutcome callRuntime(Run run, DockerWorkloads.Workload workload, String attemptId) {
+    private CodingOutcome callRuntime(Run run, DockerWorkloads.Workload workload, CodingRequest request,
+                                      String attemptId) {
         var context = run.context();
         var attempt = UUID.fromString(attemptId);
         try (var transcript = hooks.transcripts().open(context.executionId(), attempt, context.stepId())) {
-            return services.coding().code(workload, run.request(), stageTimeoutSeconds(run), event -> {
+            return services.coding().code(workload, request, stageTimeoutSeconds(run), event -> {
                 var detail = new LinkedHashMap<String, Object>(event);
                 detail.put("attemptId", attemptId);
                 // A failed write reaches the runtime, which logs it once and notes it in the transcript.
@@ -224,7 +282,8 @@ public final class InitialCodingAttempt {
         if (stop.isPresent()) {
             return failedAttempt(stop.get(), state);
         }
-        var candidate = services.freezer().freeze(run.repositoryKey(), run.url(), run.baseSha(), state.exported, false);
+        var candidate = services.freezer().freeze(run.repositoryKey(), run.url(), run.baseSha(), state.exported,
+                false, settings.runtime().toolchain(run.plan()));
         var secret = secretStop(candidate);
         if (secret.isPresent()) {
             return failedAttempt(secret.get(), state);
@@ -290,7 +349,8 @@ public final class InitialCodingAttempt {
         return new Attempt(request, outcome, candidate, json.writeValueAsString(state.readiness),
                 CodingDecisionArtifacts.renderRequest(codec, decision),
                 CodingDecisionArtifacts.renderAnswer(codec, answer),
-                state.metrics);
+                state.metrics,
+                state.lockfile);
     }
 
     private void progress(AgentContext context, Map<String, Object> event) {
@@ -341,7 +401,8 @@ public final class InitialCodingAttempt {
             String readiness,
             String decisionRequest,
             String decisionAnswer,
-            Map<String, Object> metrics) {}
+            Map<String, Object> metrics,
+            String lockfile) {}
 
     /** A start runs the starting build and claims the paid start; its continuation keeps the start's readiness. */
     private enum Mode {
@@ -373,20 +434,26 @@ public final class InitialCodingAttempt {
         String baseSha() {
             return request.repository().baseSha();
         }
+
+        String plan() {
+            return repository.verificationPlan();
+        }
     }
 
     /**
      * What the steps leave for the catch and finally blocks of runAttempt: a failure still reports the
-     * latest readiness and metrics, and the temporary checkouts are always removed.
+     * latest readiness, lockfile and metrics, and the temporary checkouts are always removed.
      */
     private static final class RunState {
         private Map<String, Object> readiness;
+        private String lockfile;
         private Map<String, Object> metrics = Map.of();
         private Path pristine;
         private Path exported;
 
-        private RunState(Map<String, Object> readiness) {
+        private RunState(Map<String, Object> readiness, String lockfile) {
             this.readiness = readiness;
+            this.lockfile = lockfile;
         }
     }
 

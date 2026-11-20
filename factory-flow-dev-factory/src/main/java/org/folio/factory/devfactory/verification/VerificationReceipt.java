@@ -1,22 +1,30 @@
 package org.folio.factory.devfactory.verification;
 
 import org.folio.factory.devfactory.candidate.Candidate;
+import org.folio.factory.devfactory.runtime.Toolchain;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
-/** Persist only as a Factory artifact, outside every workload's writable filesystem. */
+/**
+ * Persist only as a Factory artifact, outside every workload's writable filesystem.
+ * {@code surefireReportCount} is the primary test-report count of every toolchain (the name is historical).
+ * {@code lockfileSha256} is null when no lockfile was pinned.
+ */
 public record VerificationReceipt(String executionId, String repository, String baseSha, String treeSha,
                                   String patchSha256, String planId, String image, List<String> argv,
                                   String workload, Instant startedAt, Instant finishedAt, int exitCode,
                                   int surefireReportCount, Integer testCount, Integer failureCount, Integer errorCount,
                                   String result, String output, VerificationFailure failureKind,
                                   int failsafeReportCount, List<String> requiredReports,
-                                  List<String> missingRequiredReports) {
+                                  List<String> missingRequiredReports, Toolchain toolchain, String lockfileSha256) {
     public VerificationReceipt {
         Objects.requireNonNull(executionId);
         argv = List.copyOf(argv);
+        // Receipts written before toolchains existed are Maven receipts.
+        toolchain = toolchain == null ? Toolchain.MAVEN : toolchain;
+        requireLockfileDigest(lockfileSha256);
         requiredReports = requiredReports == null ? List.of() : List.copyOf(requiredReports);
         missingRequiredReports = missingRequiredReports == null ? List.of() : List.copyOf(missingRequiredReports);
         failureKind = failureKind == null ? defaultFailureKind(result) : failureKind;
@@ -74,6 +82,12 @@ public record VerificationReceipt(String executionId, String repository, String 
             case INSUFFICIENT_EVIDENCE -> "Checks could not run: no test reports were written.";
             default -> "Checks failed: the build failed with exit code " + exitCode + ".";
         };
+    }
+
+    private static void requireLockfileDigest(String sha256) {
+        if (sha256 != null && !sha256.matches("[a-f0-9]{64}")) {
+            throw new IllegalArgumentException("Invalid lockfile digest");
+        }
     }
 
     private static VerificationFailure defaultFailureKind(String result) {

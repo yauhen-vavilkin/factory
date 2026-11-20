@@ -7,6 +7,7 @@ import org.folio.factory.devfactory.decision.CodingDecisionArtifacts;
 import org.folio.factory.devfactory.tasks.RecordingTaskAttempts;
 import org.folio.factory.devfactory.runtime.CodingOutcome;
 import org.folio.factory.devfactory.runtime.CodingRequest;
+import org.folio.factory.devfactory.runtime.PinnedLockfile;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -26,14 +27,16 @@ import static org.mockito.Mockito.when;
 class DevelopContinuationWorkerTest {
     private final FrontmatterCodec codec = new FrontmatterCodec();
     private final JsonMapper json = JsonMapper.builder().build();
+    private static final String LOCKFILE = PinnedLockfile.of("# yarn lockfile v1\n".getBytes())
+            .forPackageJson("b".repeat(40)).toArtifact();
 
     @Test void amendedAnswerStartsOneFreshAttemptWithTheConfirmedDecision() {
         InitialCodingAttempt develop = mock(InitialCodingAttempt.class);
         var decision = decision();
         var requestArtifact = CodingDecisionArtifacts.Request.from(decision);
         var secondOutcome = CodingOutcome.completed("Implemented after clarification", Map.of());
-        when(develop.retry(any(), any(), any())).thenReturn(new InitialCodingAttempt.Attempt(null, secondOutcome,
-                "{\"state\":\"CANDIDATE_UNVERIFIED\"}", "{\"state\":\"BASELINE_PASSED\"}", "", "", Map.of()));
+        when(develop.retry(any(), any(), any(), any())).thenReturn(new InitialCodingAttempt.Attempt(null, secondOutcome,
+                "{\"state\":\"CANDIDATE_UNVERIFIED\"}", "{\"state\":\"BASELINE_PASSED\"}", "", "", Map.of(), LOCKFILE));
 
         var worker = new DevelopContinuationWorker(develop, codec, RecordingTaskAttempts.none().guard());
         var result = worker.execute(context(requestArtifact, "Use the public API"));
@@ -50,7 +53,8 @@ class DevelopContinuationWorkerTest {
         assertThat(next.repository().baseSha()).isEqualTo(request().repository().baseSha());
         assertThat(json.readValue(result.outputs().get(DevelopWorker.OUTCOME), CodingOutcome.class).status())
                 .isEqualTo(CodingOutcome.Status.COMPLETED);
-        verify(develop).retry(any(), eq(next), any());
+        verify(develop).retry(any(), eq(next), any(), eq(LOCKFILE));
+        assertThat(result.outputs().get(DevelopWorker.LOCKFILE)).isEqualTo(LOCKFILE);
     }
 
     @Test void repositoryMismatchPreservesReviewAndStopsWithoutAnotherAttempt() {
@@ -90,7 +94,7 @@ class DevelopContinuationWorkerTest {
 
         assertThat(json.readValue(result.outputs().get(DevelopWorker.OUTCOME), CodingOutcome.class).status())
                 .isEqualTo(CodingOutcome.Status.NEEDS_DECISION);
-        verify(develop, never()).retry(any(), any(), any());
+        verify(develop, never()).retry(any(), any(), any(), any());
     }
 
     @Test void aTaskAttemptNeverContinuesWithAnotherPaidAttempt() {
@@ -124,6 +128,7 @@ class DevelopContinuationWorkerTest {
                 DevelopWorker.OUTCOME, artifact(DevelopWorker.OUTCOME, json.writeValueAsString(outcome)),
                 DevelopWorker.CANDIDATE, artifact(DevelopWorker.CANDIDATE, "{\"state\":\"NEEDS_DECISION\"}"),
                 DevelopWorker.READINESS, artifact(DevelopWorker.READINESS, "{\"state\":\"BASELINE_PASSED\"}"),
+                DevelopWorker.LOCKFILE, artifact(DevelopWorker.LOCKFILE, LOCKFILE),
                 CodingDecisionArtifacts.REQUEST, artifact(CodingDecisionArtifacts.REQUEST,
                         CodingDecisionArtifacts.renderRequest(codec, decisionRequest)),
                 CodingDecisionArtifacts.ANSWER, artifact(CodingDecisionArtifacts.ANSWER,
@@ -144,6 +149,6 @@ class DevelopContinuationWorkerTest {
     private static CodingRequest request() {
         return new CodingRequest("TASK-1", "Summary", "Description", List.of(), List.of(), List.of(),
                 List.of(), new CodingRequest.RepositoryTarget("repo", "owner/repo", "main", "a".repeat(40)),
-                CodingRequest.Constraints.defaults(), null);
+                CodingRequest.Constraints.defaults(), null, List.of());
     }
 }

@@ -5,11 +5,12 @@ import java.util.List;
 
 /**
  * One entry of config/developer-models.yaml with its secret read from the environment: one model at one
- * provider. secret is null when its variable is empty; price is null when the entry has none.
+ * provider. secret is null when its variable is empty; price is null when the entry has none; images says
+ * that the model reads images.
  */
 public record Model(String id, String api, String baseUrl, String authentication, String secretVariable,
                     String secret, String model, List<String> efforts, String defaultEffort, int maxOutputTokens,
-                    ModelPrice price) {
+                    ModelPrice price, boolean images) {
 
     public Model {
         efforts = List.copyOf(efforts);

@@ -7,7 +7,7 @@ import java.util.function.Consumer;
 import java.util.regex.Pattern;
 
 /** Bounded, sanitized Maven activity and one actionable dependency-transfer failure. */
-public final class MavenBaselineOutput implements Consumer<String> {
+public final class MavenBaselineOutput implements BuildOutput {
     /** The readiness artifact keeps this many characters from the end of the starting build output. */
     public static final int KEPT_TAIL = 16000;
     static final int EVENT_LIMIT = 120;
@@ -135,6 +135,7 @@ public final class MavenBaselineOutput implements Consumer<String> {
 
     public static String sanitize(String text) {
         String safe = URI_CREDENTIALS.matcher(text).replaceAll("$1[REDACTED]@");
+        safe = AUTHORIZATION_VALUE.matcher(safe).replaceAll("$1 [REDACTED]");
         safe = NAMED_SECRET.matcher(safe).replaceAll("$1$2[REDACTED]");
         return safe;
     }

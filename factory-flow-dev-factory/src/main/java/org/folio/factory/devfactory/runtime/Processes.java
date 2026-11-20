@@ -10,7 +10,7 @@ import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
@@ -55,10 +55,30 @@ public final class Processes {
         if (outputLimit < 1) {
             throw new IllegalArgumentException("Output limit must be positive");
         }
+        return runWithin(directory, argv, seconds, extraEnvironment, OutputBudget.limited(outputLimit), stdoutLine);
+    }
+
+    /**
+     * For a command whose verbosity is not a fault (a test suite): all output is read, only the last
+     * {@code tailLimit} bytes of each stream are kept, and the exit status stays authoritative.
+     */
+    public static Result runKeepingTail(Path directory, List<String> argv, int seconds,
+                                        Map<String, String> extraEnvironment, int tailLimit,
+                                        Consumer<String> stdoutLine) {
+        if (tailLimit < 1) {
+            throw new IllegalArgumentException("Tail limit must be positive");
+        }
+        return runWithin(directory, argv, seconds, extraEnvironment, OutputBudget.keepingTail(tailLimit),
+                stdoutLine);
+    }
+
+    private static Result runWithin(Path directory, List<String> argv, int seconds,
+                                    Map<String, String> extraEnvironment, OutputBudget budget,
+                                    Consumer<String> stdoutLine) {
         Process process = null;
         try {
             process = start(directory, argv, extraEnvironment);
-            return collect(process, seconds, new OutputBudget(outputLimit), stdoutLine);
+            return collect(process, seconds, budget, stdoutLine);
         } catch (InterruptedException e) {
             process.destroyForcibly();
             Thread.currentThread().interrupt();
@@ -264,8 +284,8 @@ public final class Processes {
 
     private static Result collect(Process process, int seconds, OutputBudget budget, Consumer<String> stdoutLine)
             throws InterruptedException {
-        var stdout = new ByteArrayOutputStream();
-        var stderr = new ByteArrayOutputStream();
+        var stdout = budget.buffer();
+        var stderr = budget.buffer();
         var stdoutReader = reader(process, process.getInputStream(), stdout, budget, stdoutLine);
         var stderrReader = reader(process, process.getErrorStream(), stderr, budget, null);
         if (!process.waitFor(seconds, TimeUnit.SECONDS)) {
@@ -302,14 +322,31 @@ public final class Processes {
         });
     }
 
-    /** One output limit shared by stdout and stderr of a command. */
+    /**
+     * One output limit shared by stdout and stderr of a command, or no limit and only the tail of each
+     * stream kept.
+     */
     private static final class OutputBudget {
-        private final int limit;
-        private final AtomicInteger total = new AtomicInteger();
+        private final long limit;
+        private final int tail;
+        private final AtomicLong total = new AtomicLong();
         private final AtomicBoolean overflow = new AtomicBoolean();
 
-        OutputBudget(int limit) {
+        private OutputBudget(long limit, int tail) {
             this.limit = limit;
+            this.tail = tail;
+        }
+
+        static OutputBudget limited(int limit) {
+            return new OutputBudget(limit, 0);
+        }
+
+        static OutputBudget keepingTail(int tail) {
+            return new OutputBudget(Long.MAX_VALUE, tail);
+        }
+
+        ByteArrayOutputStream buffer() {
+            return tail > 0 ? new TailBuffer(tail) : new ByteArrayOutputStream();
         }
 
         /** False once the command wrote more than the limit. */
@@ -363,6 +400,30 @@ public final class Processes {
             }
             line.reset();
             oversized = false;
+        }
+    }
+
+    /** Holds at most twice {@code limit} bytes and reports the last {@code limit} of everything written. */
+    private static final class TailBuffer extends ByteArrayOutputStream {
+        private final int limit;
+
+        TailBuffer(int limit) {
+            this.limit = limit;
+        }
+
+        @Override
+        public synchronized void write(byte[] bytes, int offset, int length) {
+            super.write(bytes, offset, length);
+            if (count > 2L * limit) {
+                System.arraycopy(buf, count - limit, buf, 0, limit);
+                count = limit;
+            }
+        }
+
+        @Override
+        public synchronized String toString(java.nio.charset.Charset charset) {
+            int skip = Math.max(0, count - limit);
+            return new String(buf, skip, count - skip, charset);
         }
     }
 

@@ -456,3 +456,18 @@ findings are in the commits of that day.
   for this model, so the cost is not known.") for the same case. Seen on the run page of MODBAR-838 run 2
   in the demo console. A fix would tell the two cases apart in `RunUsage.attempts`, as `RunUsage.steps`
   does.
+
+## Left after merging GitLab main into m1-sprint-pilot (2026-11-20)
+
+- **Runs started before the yarn lockfile change cannot continue.** The UI-repository work on GitLab
+  main added `dev_lockfile.json` to the inputs of `continue-implementation`, `verify` and
+  `pr-follow-up` in `flows/dev-factory.yaml`. `ExecutionEngine.buildContext` fails a step whose input
+  artifact does not exist, so an execution that ran `implement` before this change fails those steps
+  after the update, and PR feedback stops on its open pull request. The engine fails the step before
+  the worker runs, so the worker cannot treat the input as optional. A fix: a one-time Flyway data
+  migration that writes a `PinnedLockfile.none(...)` `dev_lockfile.json` for open dev-factory
+  executions. Optional step inputs in the engine would change `factory-core` for one flow. Until then,
+  finish or close running tasks and merge or close their pull requests before the update.
+- **The Docker tests of the yarn path were not run in the merge.** `ClaudeCodeDockerTest`,
+  `DockerWorkloadsTest`, `ImageStagingDockerTest`, `FeedbackDockerTest` and `PinnedLockfileDockerTest`
+  need `FACTORY_DOCKER_TEST=true` and the `-node22` images.

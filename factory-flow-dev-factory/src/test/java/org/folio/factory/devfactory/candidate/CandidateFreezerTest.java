@@ -1,6 +1,7 @@
 package org.folio.factory.devfactory.candidate;
 
 import org.folio.factory.devfactory.tasks.TaskStops;
+import org.folio.factory.devfactory.runtime.Toolchain;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
@@ -54,5 +55,57 @@ class CandidateFreezerTest {
 
         assertThatThrownBy(() -> new CandidateFreezer().freeze("fixture", source.toString(), base, source, false))
                 .hasMessage(TaskStops.NO_CHANGES_REASON);
+    }
+
+    @Test void yarnCandidatesNeverCarryUntrackedBuildOutputOrLockfilesButKeepNestedSources() throws Exception {
+        commit("package.json", "{}\n", "src/index.js", "export default 1;\n");
+        String base = CandidateFreezer.git(source, "rev-parse", "HEAD").strip();
+        Files.writeString(source.resolve("src/index.js"), "export default 2;\n");
+        for (String generated : new String[] {"artifacts/jest-junit/junit.xml", "coverage/lcov.info", "junit.xml",
+                "yarn-error.log", "yarn.lock", "package-lock.json", "node_modules/pkg/index.js"}) {
+            Files.createDirectories(source.resolve(generated).getParent());
+            Files.writeString(source.resolve(generated), "generated\n");
+        }
+        Files.createDirectories(source.resolve("src/artifacts"));
+        Files.writeString(source.resolve("src/artifacts/Panel.js"), "export const Panel = 1;\n");
+
+        Candidate candidate = new CandidateFreezer().freeze("fixture", source.toString(), base, source, false,
+                Toolchain.YARN);
+
+        assertThat(candidate.patch()).contains("src/index.js", "src/artifacts/Panel.js")
+                .doesNotContain("junit.xml", "lcov.info", "yarn-error.log", "yarn.lock", "package-lock.json", "node_modules");
+    }
+
+    @Test void yarnCandidatesKeepChangesToTrackedLockfiles() throws Exception {
+        commit("package.json", "{}\n", "yarn.lock", "# lock v1\n");
+        String base = CandidateFreezer.git(source, "rev-parse", "HEAD").strip();
+        Files.writeString(source.resolve("yarn.lock"), "# lock v2\n");
+
+        Candidate candidate = new CandidateFreezer().freeze("fixture", source.toString(), base, source, false,
+                Toolchain.YARN);
+
+        assertThat(candidate.patch()).contains("yarn.lock", "+# lock v2");
+    }
+
+    @Test void mavenCandidatesKeepAnUntrackedTopLevelArtifactsDirectory() throws Exception {
+        commit("pom.xml", "<project/>\n");
+        String base = CandidateFreezer.git(source, "rev-parse", "HEAD").strip();
+        Files.createDirectories(source.resolve("artifacts"));
+        Files.writeString(source.resolve("artifacts/Note.txt"), "a new source directory\n");
+
+        Candidate candidate = new CandidateFreezer().freeze("fixture", source.toString(), base, source, false);
+
+        assertThat(candidate.patch()).contains("artifacts/Note.txt");
+    }
+
+    private void commit(String... pathsAndContents) throws Exception {
+        CandidateFreezer.git(source, "init", "--quiet");
+        for (int i = 0; i < pathsAndContents.length; i += 2) {
+            Path file = source.resolve(pathsAndContents[i]);
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, pathsAndContents[i + 1]);
+        }
+        CandidateFreezer.git(source, "add", ".");
+        CandidateFreezer.git(source, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.org", "commit", "-qm", "base");
     }
 }

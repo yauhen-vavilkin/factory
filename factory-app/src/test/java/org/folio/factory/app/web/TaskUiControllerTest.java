@@ -156,9 +156,9 @@ class TaskUiControllerTest {
         lenient().when(coding.id()).thenReturn("claude-code");
         var sonnet = new ModelEntry("codemie-sonnet-5.5", "anthropic-messages", "http://gateway.example:4001",
                 "bearer-token", "FACTORY_CODEMIE_PROXY_TOKEN", "claude-sonnet-5-5",
-                List.of("low", "medium", "high", "xhigh", "max"), "high", null, null);
+                List.of("low", "medium", "high", "xhigh", "max"), "high", null, null, null);
         var glm = new ModelEntry("glm-5.3", "anthropic-messages", "https://api.z.ai/api/anthropic", "bearer-token",
-                "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", null, null);
+                "FACTORY_ZAI_API_KEY", "glm-5.3", List.of("low", "high", "max"), "max", null, null, null);
         var secrets = Map.of("FACTORY_CODEMIE_PROXY_TOKEN", "gateway-token", "FACTORY_ZAI_API_KEY", "zai-key");
         runSettings = new TaskRunSettings(coding, new ModelCatalog(new ModelCatalog.Properties(List.of(sonnet, glm),
                 null), "claude-code", secrets::get));

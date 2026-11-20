@@ -69,7 +69,7 @@ class DeveloperPreflightTest {
             BigDecimal.ONE);
     private static final ModelEntry GLM = new ModelEntry("glm-5.3", "anthropic-messages",
             "https://api.z.ai/api/anthropic", "bearer-token", "FACTORY_ZAI_API_KEY", "glm-5.3",
-            List.of("low", "high", "max"), "max", null, null);
+            List.of("low", "high", "max"), "max", null, null, null);
 
     private final CodingRuntime coding = mock(CodingRuntime.class);
     private final JiraConnector jira = mock(JiraConnector.class);
@@ -204,7 +204,7 @@ class DeveloperPreflightTest {
     void aModelClaudeCodeCannotSpeakToSaysOnlyThatInWords() {
         var piOnly = new ModelEntry("codemie-gpt-5.6-luna", "openai-responses", "http://host.docker.internal:4001/v1",
                 "api-key", "FACTORY_PI_API_KEY", "gpt-5.6-luna", List.of("low", "medium", "high"), "medium", null,
-                PRICE);
+                PRICE, null);
         var catalog = new ModelCatalog(new ModelCatalog.Properties(List.of(defaultModel, piOnly), null),
                 settings.coding().runtime(), secrets::get);
 
@@ -576,12 +576,12 @@ class DeveloperPreflightTest {
 
     private static ModelEntry model(String baseUrl, ModelPrice price) {
         return new ModelEntry("fixture", "anthropic-messages", baseUrl, "bearer-token", "CODING_SECRET", "exact-model",
-                List.of("low", "medium", "high", "xhigh", "max"), "high", null, price);
+                List.of("low", "medium", "high", "xhigh", "max"), "high", null, price, null);
     }
 
     private void usePiProfile(String baseUrl) {
         var pi = new DevRuntimeProperties.Pi("coding:image", "fixture-provider", "exact-model", baseUrl,
-                "openai-completions", "coding-fixture-secret", "api-key", null, 16384);
+                "openai-completions", "coding-fixture-secret", "api-key", null, 16384, false);
         var runtime = new DevRuntimeProperties.Coding("pi", pi, null);
         settings = new DevRuntimeProperties(settings.plans(), runtime, 1800, null, null);
         when(coding.id()).thenReturn("pi");

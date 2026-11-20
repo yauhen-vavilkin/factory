@@ -140,14 +140,19 @@ public final class PullRequestRenderer {
         body.append("\n");
     }
 
+    private static String reportCounts(VerificationReceipt verification) {
+        return switch (verification.toolchain()) {
+            case MAVEN -> "- Surefire reports: " + verification.surefireReportCount()
+                    + "\n- Failsafe reports: " + verification.failsafeReportCount() + "\n";
+            case YARN -> "- Jest reports: " + verification.surefireReportCount() + "\n";
+        };
+    }
+
     private static void appendVerificationDetails(StringBuilder body, VerificationReceipt verification) {
         body.append("<details>\n<summary>Factory verification details</summary>\n\n")
-                .append("- Surefire reports: ")
-                .append(verification.surefireReportCount())
-                .append("\n")
-                .append("- Failsafe reports: ")
-                .append(verification.failsafeReportCount())
-                .append("\n")
+                .append(reportCounts(verification))
+                .append(verification.lockfileSha256() == null ? ""
+                        : "- Pinned yarn.lock (not part of this PR): sha256 " + verification.lockfileSha256() + "\n")
                 .append("- Required suites: ")
                 .append(requiredSuites(verification.requiredReports()))
                 .append("\n")

@@ -243,7 +243,11 @@ names belong to the target project's Maven build and are not listed in Factory.
 Integration remains blocked when its Docker dependencies are unavailable. The
 trusted build reuses the configured Maven cache Docker volume, repairing cache
 entry ownership before each build. Keep this volume when stopping or rebuilding
-the stack.
+the stack. UI (yarn + Jest) plans work the same way with `factory-dev-yarn-cache`.
+Their dependency install is configured once, as `runtime.yarn.install-command`: the
+starting build and independent verification run it before the plan's test command, and
+Factory runs it in each coding container before the agent starts. The coding request
+also tells the agent which command verification runs. See `doc/dev-flow-ui-support.md`.
 
 Execution pages and My tasks estimate API cost from the `price` of each model in
 `config/developer-models.yaml` (see [Models](#models-claude-code)). A price records the
@@ -431,7 +435,7 @@ FACTORY_PI_API_KEY=replace-with-your-key
 
 Pi authentication is `api-key`; the Pi provider controls its wire format. Optional
 Pi settings are `FACTORY_PI_REASONING_EFFORT` and `FACTORY_PI_MAX_OUTPUT_TOKENS` (16384).
-An empty `FACTORY_PI_IMAGE` uses `factory-dev-pi:0.85.1-java21`. Pi does not offer a model
+An empty `FACTORY_PI_IMAGE` uses `factory-dev-pi:0.85.1-java21-node22`. Pi does not offer a model
 choice yet; it uses the models file only for the price of its model. Claude Code has one
 setting of its own, `FACTORY_CLAUDE_CODE_MAX_TURNS` (400, from 1 to 500): a safety limit,
 not a tuning knob. The time per step, `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` (3600,
@@ -498,7 +502,8 @@ workload's UID (including the Compose root UID), private `HOME=/tmp/factory-home
 `/workspace`, and Java/Maven 21 without interactive login or permission approval.
 
 Compose 2.20+ includes only the selected runtime service and checks its exact
-version before starting Factory. Build/check each profile without credentials:
+version (and Node 22.22.0 / yarn 1.22.22, which UI plans need) before starting
+Factory. Build/check each profile without credentials:
 
 ```bash
 FACTORY_DEV_FACTORY_CODING_RUNTIME=pi docker compose build coding-runtime
@@ -509,7 +514,7 @@ FACTORY_DEV_FACTORY_CODING_RUNTIME=claude-code docker compose run --rm --no-deps
 # Real CLI against local mock servers, plus existing workload/feedback tests.
 FACTORY_DOCKER_TEST=true mvn -B -ntp -pl factory-flow-dev-factory -am \
   -Dtest=ClaudeCodeDockerTest,PiCodingHttpContractTest,FeedbackDockerTest,DockerWorkloadsTest \
-  -Dfactory.pi.contract.image=factory-dev-pi:0.85.1-java21 \
+  -Dfactory.pi.contract.image=factory-dev-pi:0.85.1-java21-node22 \
   -Dsurefire.failIfNoSpecifiedTests=false test
 mvn -B -ntp verify
 ```
@@ -626,12 +631,15 @@ the models file. `FACTORY_CLAUDE_CODE_IMAGE` and `FACTORY_CLAUDE_CODE_MAX_TURNS`
 | `FACTORY_APP_IMAGE` | Compose image name of the Factory app (default `folio-factory-app:local`) |
 | `FACTORY_APP_PORT` / `FACTORY_DB_PORT` / `FACTORY_BIND_ADDRESS` | Compose host ports of Factory and PostgreSQL and the host address they are published on (defaults `8080` / `5432` / `127.0.0.1`) |
 | `FACTORY_DEV_FACTORY_MAVEN_CACHE_VOLUME` | Persistent trusted Developer Flow Maven cache volume (default `factory-dev-m2-cache`) |
+| `FACTORY_DEV_FACTORY_SEED_TIMEOUT_SECONDS` | Seconds allowed for copying the shared dependency cache into one coding or verification workload (default `300`); a timeout blocks the run with the cache size in the message |
+| `FACTORY_DEV_FACTORY_YARN_CACHE_VOLUME` / `FACTORY_DEV_FACTORY_FOLIO_NPM_REGISTRY` | Trusted yarn cache volume for UI (yarn + Jest) plans (default `factory-dev-yarn-cache`) and the registry serving `@folio/*` packages (default `https://repository.folio.org/repository/npm-folioci/`); see `doc/dev-flow-ui-support.md` |
+| `FACTORY_DEV_FACTORY_ATTACHMENT_MAX_IMAGES` / `_MAX_BYTES` | Limits for the Jira images given to a model with `images: true` (defaults `10`, `0` = no limit / `3145728`) |
 | `FACTORY_DEV_FACTORY_REPOSITORIES_FILE` | Compose host path of the repository catalog (default `./config/developer-repositories.yaml`); mounted read-only |
-| `FACTORY_<REPO>_SOURCE_REPO` / `_DELIVERY_REPO` / `_BASE_BRANCH` | Overrides for the bundled catalog entries, `<REPO>` being `SIDECAR`, `MOD_ROLES_KEYCLOAK`, `MGR_TENANT_ENTITLEMENTS` or `MGR_APPLICATIONS`; see [Developer Flow with Docker Compose](#developer-flow-with-docker-compose) |
+| `FACTORY_<REPO>_SOURCE_REPO` / `_DELIVERY_REPO` / `_BASE_BRANCH` | Overrides for the bundled catalog entries, `<REPO>` being `SIDECAR`, `MOD_ROLES_KEYCLOAK`, `MGR_TENANT_ENTITLEMENTS`, `MGR_APPLICATIONS` or a UI module (`UI_USERS`, `UI_CIRCULATION`, `UI_INVENTORY`, `UI_MARC_AUTHORITIES`, `UI_CHECKIN`, `UI_EHOLDINGS`, `UI_MYPROFILE`, `UI_TAGS`); see [Developer Flow with Docker Compose](#developer-flow-with-docker-compose) |
 | `FACTORY_DEV_FACTORY_GIT_BASE_URL` | Git host the source repositories are read from (default `https://github.com`) |
 | `FACTORY_DEV_FACTORY_TIMEOUT_SECONDS` | Time per step: the limit of one coding, build or verification step of a run (default `3600`) |
 | `FACTORY_DEV_FACTORY_CODING_RUNTIME` | Coding-runtime adapter selected by Developer Flow (`pi` or `claude-code`; default `claude-code`) |
-| `FACTORY_PI_IMAGE` / `_PROVIDER` / `_MODEL` / `_BASE_URL` / `_API` / `_AUTHENTICATION` / `_API_KEY` / `_REASONING_EFFORT` / `_MAX_OUTPUT_TOKENS` | Pi runtime profile; see [Coding runtime profiles](#coding-runtime-profiles) |
+| `FACTORY_PI_IMAGE` / `_PROVIDER` / `_MODEL` / `_BASE_URL` / `_API` / `_AUTHENTICATION` / `_API_KEY` / `_REASONING_EFFORT` / `_MAX_OUTPUT_TOKENS` / `_IMAGES` | Pi runtime profile; see [Coding runtime profiles](#coding-runtime-profiles) |
 | `FACTORY_CLAUDE_CODE_IMAGE` / `FACTORY_CLAUDE_CODE_MAX_TURNS` | Claude Code coding image, and the safety limit of turns in one run (400, from 1 to 500); see [Coding runtime profiles](#coding-runtime-profiles) |
 | `FACTORY_DEV_FACTORY_DEFAULT_MODEL` | Model preselected in the run forms and used by runs without a choice; empty means the first model Claude Code can run. See [Models](#models-claude-code) |
 | `FACTORY_DEV_FACTORY_MODELS_FILE` | Compose host path of the models file (default `./config/developer-models.yaml`); mounted read-only |
@@ -705,7 +713,7 @@ build the coding image and run the opt-in contract test:
 FACTORY_DEV_FACTORY_CODING_RUNTIME=pi docker compose build coding-runtime
 mvn -pl factory-flow-dev-factory -am test -Dtest=PiCodingHttpContractTest \
   -Dsurefire.failIfNoSpecifiedTests=false \
-  -Dfactory.pi.contract.image=factory-dev-pi:0.85.1-java21
+  -Dfactory.pi.contract.image=factory-dev-pi:0.85.1-java21-node22
 ```
 
 The suite includes two full Test Factory end-to-end tests (scripted LLM, WireMock'd
